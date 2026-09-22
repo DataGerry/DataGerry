@@ -23,8 +23,7 @@ route module path and every route is unwrapped past its auth decorators.
 
 The batched log helper gets its own section: it re-reads and renders the imported objects in ONE
 query and ONE render pass, and it must stay best-effort - the objects are already committed when it
-runs, so neither a failed batch nor a single failed insert may surface to the caller
-(discussion-backlog #160).
+runs, so neither a failed batch nor a single failed insert may surface to the caller.
 """
 from io import BytesIO
 from typing import Any, Callable
@@ -231,7 +230,7 @@ def test_log_imported_objects_skips_an_object_it_could_not_render() -> None:
 
 
 def test_log_imported_objects_survives_a_failing_render_batch() -> None:
-    """#160: the objects are already committed, so a broken batch may not fail the import"""
+    """The objects are already committed, so a broken batch may not fail the import"""
     logs_manager = MagicMock()
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', side_effect=RuntimeError('render blew up')):

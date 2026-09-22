@@ -166,7 +166,7 @@ class MediaFilesManager(BaseManager):
 
         **`params` is accepted and ignored.** The route's `limit` / `skip` / `sort` are not applied to
         the GridFS query, so this always loads every matching file and reports `total` as the number
-        returned rather than a real count - recorded as discussion-backlog #48, which also covers why
+        returned rather than a real count -, which also covers why
         re-enabling it needs `GridFsResponse.total` to change
 
         Args:

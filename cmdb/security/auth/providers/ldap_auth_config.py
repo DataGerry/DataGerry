@@ -61,6 +61,12 @@ class LdapAuthenticationProviderConfig(BaseAuthProviderConfig):
         }
     }
 
+    # The LDAP bind credential. It is the one value in this configuration that must never be served
+    # back to a client, and the only reason it is stored at all is that a search bind needs it
+    SECRET_CONFIG_PATHS: tuple[tuple[str, ...], ...] = (
+        ('connection_config', 'password'),
+    )
+
     def __init__(
         self,
         active: bool = None,

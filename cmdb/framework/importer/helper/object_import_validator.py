@@ -33,6 +33,7 @@ The lenient boolean parser both imports apply to an uploaded flag lives in `cmdb
 from typing import Any
 from collections import namedtuple
 from datetime import datetime, timezone
+from math import isfinite
 
 from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectKey,
@@ -557,29 +558,43 @@ def _stamp_and_validate_field_types(working_object: dict, field_type_map: dict, 
 
 def _coerce_number(value: Any) -> int | float | None:
     """
-    Coerces a value to a number (int or float), or returns None when it is not numeric
+    Coerces a value to a finite number (int or float), or returns None when it is not one
 
     Booleans are rejected (they are not numbers); numeric strings are parsed (`'42'` -> 42,
-    `'3.14'` -> 3.14).
+    `'3.14'` -> 3.14). This layer may be permissive about *spelling* where `auto_cast` is not -
+    `'007'` becomes `7` here and should, because the field declared itself a NUMBER, so the value is
+    a number and the leading zero was formatting. `auto_cast` cannot make that call, which is the
+    whole reason the two layers are separate
+
+    **Non-finite values are refused**, and that is not a spelling question: `float()` accepts `nan`,
+    `inf`, `-inf` and `Infinity`, BSON stores them, and no equality or range query ever matches one
+    again - `NaN != NaN` also breaks the importer's own whole-row comparison, so re-importing an
+    unchanged file reports every row as changed. A rejected row is visible to the user; a stored NaN
+    is not
 
     Args:
         value (Any): The value to coerce
 
     Returns:
-        int | float | None: The number, or None when the value is not a valid number
+        int | float | None: The finite number, or None when the value is not a valid number
     """
     if isinstance(value, bool):
         return None
+
     if isinstance(value, (int, float)):
-        return value
+        return value if isfinite(value) else None
+
     if isinstance(value, str):
         try:
             return int(value)
         except ValueError:
             try:
-                return float(value)
+                parsed = float(value)
             except ValueError:
                 return None
+
+            return parsed if isfinite(parsed) else None
+
     return None
 
 

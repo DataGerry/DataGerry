@@ -252,8 +252,8 @@ class TestUnreadableDocuments:
         """
         Against a real collection, which is where such a document comes from
 
-        Before 2026-09-09 this call raised UserSettingsManagerIterationError - a 400 answering for
-        every setting the user had.
+        A failure here raises UserSettingsManagerIterationError - a 400 answering for every setting
+        the user has.
         """
         _seed(database_manager, database_name, RESOURCE_GLOBAL, 'GLOBAL')
         database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
@@ -284,7 +284,7 @@ class TestUnreadableDocuments:
         self, user_settings_manager: UserSettingsManager,
         database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The content is what a setting is for, and no test stored any until 2026-09-09"""
+        """The content is what a setting is for"""
         payloads = [{'id': 'objects-table', 'columns': ['public_id', 'name']}]
         database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
             {'resource': RESOURCE_GLOBAL, 'user_id': USER_ID, 'payloads': payloads,
@@ -311,7 +311,7 @@ class TestUnreadableDocuments:
         self, user_settings_manager: UserSettingsManager,
         database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """It is stamped in the collection but not in this shape (backlog #218)"""
+        """It is stamped in the collection but not in this shape"""
         _seed(database_manager, database_name, RESOURCE_GLOBAL)
 
         assert 'public_id' not in user_settings_manager.get_user_settings(USER_ID)[0]

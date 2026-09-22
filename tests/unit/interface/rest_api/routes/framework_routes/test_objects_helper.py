@@ -1128,7 +1128,7 @@ class TestBuildFieldValueMap:
         """
         An empty field name is stored as a key rather than dropped
 
-        The type schema does not forbid it (backlog #199), and silently losing a field would be
+        The type schema does not forbid it, and silently losing a field would be
         worse than an awkward key.
         """
         assert build_field_value_map([{'name': '', 'value': 1}]) == {'': 1}

@@ -30,7 +30,7 @@ from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.import_rights import ImportRight, ImportObjectRight, ImportTypeRight
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.system_rights import SystemRight
-from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 from cmdb.models.right_model.user_management_rights import (
     UserManagementRight,
     UserRight,

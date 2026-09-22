@@ -17,7 +17,8 @@
 The repairs a CmdbType import applies to an uploaded entry instead of refusing it
 
 These cover the parts of an upload that say nothing about its quality: values a type simply may omit,
-and ids / names that belonged to the system the type was exported from and mean nothing here.
+presentation state that is replaced rather than refused, and ids / names that belonged to the system
+the type was exported from and mean nothing here.
 `normalize_imported_type` runs all of them, on the create and the update path alike, after the rules
 in `importer_type_rules` have passed and before the entry is written
 
@@ -32,6 +33,8 @@ from cmdb.manager import TypesManager, SectionTemplatesManager
 
 from cmdb.models.type_model import (
     CmdbType,
+    DEFAULT_PORT_SECTION_INDEX,
+    MIN_PORT_SECTION_INDEX,
     TypeSchemaKey,
     FieldKey,
     SectionKey,
@@ -40,7 +43,8 @@ from cmdb.models.type_model import (
 )
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
-from cmdb.utils import random_hex_color, is_non_blank_string
+from cmdb.utils import coerce_whole_number, random_hex_color, is_non_blank_string
+from cmdb.framework.ci_explorer.label_field import label_field_error
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     TypeStructure,
@@ -85,7 +89,8 @@ def apply_type_defaults(type_entry: Any) -> None:
     * `version` - server-owned, forced to the initial version like the object import does. On the
       update path the stored version wins instead: the field is in IMPORT_UPDATE_PRESERVED_FIELDS,
       so it is dropped from the payload again and the `$set` never touches it
-    * `ci_explorer_label` - None, i.e. the CI Explorer falls back to the type label
+    * `ci_explorer_label` - None, i.e. the CI Explorer draws its nodes with no label until a field is
+      nominated (a nomination the upload DOES bring is checked by clear_dangling_ci_explorer_label)
     * `ci_explorer_color` - a random '#RRGGBB' color, so the type is distinguishable in the graph
     * `acl` - the "no access control" ACL every newly created type starts with
 
@@ -108,6 +113,77 @@ def apply_type_defaults(type_entry: Any) -> None:
 
     if not type_entry.get(TypeSchemaKey.ACL.value):
         type_entry[TypeSchemaKey.ACL.value] = deepcopy(DEFAULT_TYPE_ACL)
+
+
+def apply_port_section_index_default(type_entry: Any) -> None:
+    """
+    Settles the 'port_section_index' of an uploaded type, in place
+
+    The index is where the frontend draws the ports section among the type's own sections. It says
+    nothing about the quality of an upload, so - unlike `POST`/`PUT /types/`, which refuses an
+    unusable value with a 400 - every unusable value here is simply replaced by
+    DEFAULT_PORT_SECTION_INDEX: an absent key, a null, a negative index, a fraction, a boolean or
+    anything that is not a number at all. An export of a type that predates the key is the ordinary
+    case, and losing a cosmetic position is never worth failing an import entry over
+
+    A type that does not use ports is forced back to the default as well, matching the route rule: the
+    index is only read while `uses_ports` is on. Runs after the rules, so that flag is already the
+    real boolean `normalize_boolean_flags` parsed
+
+    Args:
+        type_entry (Any): A single entry of the uploaded payload, modified in place
+    """
+    if not isinstance(type_entry, dict):
+        return
+
+    coerced: int | None = coerce_whole_number(type_entry.get(TypeSchemaKey.PORT_SECTION_INDEX.value))
+
+    usable: bool = coerced is not None \
+                   and coerced >= MIN_PORT_SECTION_INDEX \
+                   and bool(type_entry.get(TypeSchemaKey.USES_PORTS.value))
+
+    type_entry[TypeSchemaKey.PORT_SECTION_INDEX.value] = coerced if usable else DEFAULT_PORT_SECTION_INDEX
+
+
+def clear_dangling_ci_explorer_label(type_entry: Any) -> str | None:
+    """
+    Drops a CI Explorer label nomination the uploaded type cannot honour, in place
+
+    ``ci_explorer_label`` is the NAME of one of the Type's own fields - the CI Explorer shows that
+    field's value on every node of the Type. An upload can carry one that this Type no longer has (a
+    field removed before the export, or an export from a Type whose fields were edited afterwards),
+    and a multi-data-section field is not usable either.
+
+    A repair rather than a blocker, for the same reason `clear_dangling_type_references` is one: the
+    name belonged to the system the type came from, it says nothing about the quality of the upload,
+    and a Type that imports with no nomination is exactly the state a Type starts in. The two type
+    routes DO refuse an unusable nomination - there the caller chose it just now and can be told
+
+    Args:
+        type_entry (Any): A single entry of the uploaded payload, modified in place
+
+    Returns:
+        str | None: The nomination that was dropped, or None when nothing had to be repaired
+    """
+    if not isinstance(type_entry, dict):
+        return None
+
+    nominated: Any = type_entry.get(TypeSchemaKey.CI_EXPLORER_LABEL.value)
+
+    if not label_field_error(type_entry, nominated):
+        # Also normalises the frontend's empty-string "cleared" to the stored None
+        type_entry[TypeSchemaKey.CI_EXPLORER_LABEL.value] = nominated or None
+
+        return None
+
+    type_entry[TypeSchemaKey.CI_EXPLORER_LABEL.value] = None
+
+    LOGGER.debug(
+        "[clear_dangling_ci_explorer_label] Dropped the CI Explorer label field %s of the uploaded "
+        "Type %s", repr(nominated), type_entry.get(TypeSchemaKey.NAME.value),
+    )
+
+    return nominated if isinstance(nominated, str) else None
 
 
 def apply_render_meta_defaults(type_entry: Any) -> None:
@@ -538,8 +614,12 @@ def normalize_imported_type(
         BaseManagerGetError: If the group or template lookup fails
     """
     apply_type_defaults(type_entry)
+    apply_port_section_index_default(type_entry)
     apply_render_meta_defaults(type_entry)
     clear_dangling_type_references(type_entry, types_manager)
     clear_dangling_acl_groups(type_entry, types_manager)
     deactivate_empty_acl(type_entry)
     reconcile_global_templates(type_entry, section_templates_manager)
+    # LAST: the template repair above can add fields to the entry, and a nomination pointing at one
+    # of those is perfectly usable - dropping it before they exist would be wrong
+    clear_dangling_ci_explorer_label(type_entry)

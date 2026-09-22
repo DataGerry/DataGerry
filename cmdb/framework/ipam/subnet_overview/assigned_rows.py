@@ -72,6 +72,7 @@ def load_subnet_object(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     public_id: int,
+    denied_type_ids: list[int] | None = None,
 ) -> dict[str, Any]:
     """
     Loads the SUBNET CmdbObject by public_id, aborting with structured HTTP errors when the
@@ -91,8 +92,12 @@ def load_subnet_object(
     if subnet_type_id is None:
         abort(400, "No SUBNET CmdbType is defined; cannot build subnet overview!")
 
+    # Narrowed by the caller's ACL when one applies: a SUBNET whose CmdbType the group may not read
+    # must be a 404 here, exactly as it is through /objects, rather than a readable IP table
     candidates: list[dict[str, Any]] = objects_manager.find_objects(
-        {CmdbObjectKey.PUBLIC_ID: public_id},
+        ObjectsManager.narrow_criteria_by_denied_types(
+            {CmdbObjectKey.PUBLIC_ID: public_id}, denied_type_ids,
+        ),
         as_dict=True,
     )
 
@@ -111,6 +116,7 @@ def load_assigned_rows_map(
     objects_manager: ObjectsManager,
     subnet_object_id: int,
     network: Network,
+    denied_type_ids: list[int] | None = None,
 ) -> dict[str, dict[str, Any]]:
     """
     Loads every dg-ipam-interface row referencing the subnet and indexes them by canonical IP
@@ -188,10 +194,16 @@ def load_assigned_rows_map(
 
         row_mac: Any = row.get(AssignedField.MAC)
 
+        # A row whose CARRIER the caller may not read is MASKED, not dropped. Dropping it would
+        # report the address as free, the user would try to assign it, and the write-time check -
+        # which is global and must stay unscoped - would refuse an address they cannot see. So the
+        # occupancy stays visible and only the identity behind it is withheld
+        is_denied: bool = bool(denied_type_ids) and row.get(AssignedField.TYPE_ID) in denied_type_ids
+
         out[str(parsed_ip)] = {
-            AssignedField.OBJECT_ID: row.get(AssignedField.OBJECT_ID),
-            AssignedField.TYPE_ID: row.get(AssignedField.TYPE_ID),
-            AssignedField.MAC: row_mac if isinstance(row_mac, str) and row_mac else None,
+            AssignedField.OBJECT_ID: None if is_denied else row.get(AssignedField.OBJECT_ID),
+            AssignedField.TYPE_ID: None if is_denied else row.get(AssignedField.TYPE_ID),
+            AssignedField.MAC: None if is_denied else (row_mac if isinstance(row_mac, str) and row_mac else None),
             AssignedField.IS_VALID: ip_in_network(parsed_ip, network),
         }
 

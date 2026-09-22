@@ -27,14 +27,13 @@ from werkzeug.exceptions import HTTPException
 from cmdb.manager import (
     OcConnectionManager,
     DgServicePortalManager,
-    CachedUserManager,
 )
 
-from cmdb.open_celium import map_oc_name, unmap_oc_name
+from cmdb.open_celium import map_oc_name, unmap_oc_name, is_hosted_cloud
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
+from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors, get_cached_user_manager
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import connection_in_subscription
@@ -80,7 +79,7 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         conn_title: str = params[OcResponseKey.TITLE.value]
 
         # Map title in cloud mode
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             mapped_title = map_oc_name(request_user.database, conn_title)
             params[OcResponseKey.TITLE.value] = mapped_title
         else:
@@ -88,7 +87,7 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 
         # Check for duplicate
         if oc_connection_manager.check_connection_name_exists(mapped_title):
-            if current_app.cloud_mode and not current_app.local_mode:
+            if is_hosted_cloud():
                 conn_title = unmap_oc_name(mapped_title)
 
             abort(400, f"The connection name '{conn_title}' already exists!")
@@ -100,9 +99,9 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         # ------------------------------------------------------
         # Cloud mode: invalidate cache + save ID in Service Portal
         # ------------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             cached_user_manager.delete_cached_user(request_user.email)
 
@@ -224,9 +223,9 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
         # ---------------------------
         # Cloud mode: validate connection exists in subscription
         # ---------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             if not connection_in_subscription(request_user, connection_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
@@ -237,7 +236,7 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
         connection: dict[str, Any] = oc_connection_manager.get_connection(connection_id)
 
         # Unmap title for cloud mode
-        if connection and current_app.cloud_mode and not current_app.local_mode:
+        if connection and is_hosted_cloud():
             connection[OcResponseKey.TITLE.value] = unmap_oc_name(connection[OcResponseKey.TITLE.value])
 
         return DefaultResponse(connection).make_response()
@@ -281,9 +280,9 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
         # ------------------------------------------------------
         # Cloud mode: validate connection exists
         # ------------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             if not connection_in_subscription(request_user, connection_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connection with ID:{connection_id} was not found!")
@@ -300,7 +299,7 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
         updated_oc_connection: dict[str, Any] = oc_connection_manager.update_connection(params, connection_id)
 
         # Invalidate cache after update
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             cached_user_manager.delete_cached_user(request_user.email)
 
             # Unmap title for frontend

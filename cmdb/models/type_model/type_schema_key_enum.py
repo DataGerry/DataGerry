@@ -36,6 +36,9 @@ class TypeSchemaKey(BaseStrEnum):
     EDITOR_ID, CREATION_TIME, LAST_EDIT_TIME, GLOBAL_TEMPLATE_IDS, SELECTABLE_AS_PARENT,
     VERSION, DESCRIPTION, CI_EXPLORER_LABEL, CI_EXPLORER_COLOR, ACL) are the remaining
     top-level keys a stored CmdbType document carries
+
+    PORT_SECTION_INDEX is the companion of USES_PORTS: where among the type's sections the frontend
+    draws the (virtual) ports section. It is read only while USES_PORTS is true
     """
     SPECIAL_TYPE = 'special_type'
     SECTIONS = 'sections'
@@ -55,6 +58,7 @@ class TypeSchemaKey(BaseStrEnum):
     GLOBAL_TEMPLATE_IDS = 'global_template_ids'
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
     USES_PORTS = 'uses_ports'
+    PORT_SECTION_INDEX = 'port_section_index'
     VERSION = 'version'
     DESCRIPTION = 'description'
     CI_EXPLORER_LABEL = 'ci_explorer_label'

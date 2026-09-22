@@ -209,9 +209,9 @@ class TestErrorMapping:
         assert rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A)).status_code \
             == HTTPStatus.BAD_REQUEST
 
-    # The "created setting could not be re-read -> 404" case is gone with the read itself: the create
-    # route answers the body it just wrote plus the public_id the insert returned, so there is no
-    # second query that could come back empty (2026-09-09)
+    # There is no "created setting could not be re-read -> 404" case: the create route answers the
+    # body it just wrote plus the public_id the insert returned, so no second query can come back
+    # empty
 
     def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""
@@ -271,7 +271,7 @@ class TestErrorMapping:
         The route has no `abort()` of its own left, so this arm is only reachable when something it
         calls refuses - and a refusal must keep its status and its message. FORBIDDEN because
         `init_rest_api` registers a JSON handler for it; a status it does not register answers Flask's
-        HTML page instead of the API error envelope - discussion-backlog #155.
+        HTML page instead of the API error envelope.
         """
         def _refuse(*_args: Any, **_kwargs: Any) -> None:
             abort(HTTPStatus.FORBIDDEN, 'nested refusal')
@@ -341,9 +341,9 @@ class TestErrorMapping:
 class TestPayloadContent:
     """The payload entries are the client's own structures and travel unchanged.
 
-    Every fixture in this suite used to send `payloads: []`, so nothing ever asserted what a setting
-    actually stores - which is how the wrapper class that used to sit in the model (a dict in, the same
-    dict out) reached 2026-09-09 without a single line of it ever executing.
+    A fixture sending `payloads: []` asserts nothing about what a setting actually stores, which is
+    how a model wrapper that only passes a dict through can sit there without a single line of it
+    ever executing.
     """
 
     def test_a_stored_payload_comes_back_verbatim_from_the_single_read(self, rest_api) -> None:
@@ -386,10 +386,10 @@ class TestPayloadContent:
 class TestSettingTypeGuard:
     """A scope outside UserSettingType is refused on write and skipped on read.
 
-    Before 2026-09-09 it was accepted on write (the schema typed it as a plain string) and then made
-    the WHOLE settings list of that user unreadable, because the read resolved every document's scope
-    and one failure failed the call. The frontend syncs that read on login and only logs a failure, so
-    the symptom was table and dashboard state silently never being restored.
+    Accepted on write - which a schema typing it as a plain string would do - it makes the WHOLE
+    settings list of that user unreadable, because the read resolves every document's scope and one
+    failure fails the call. The frontend syncs that read on login and only logs a failure, so the
+    symptom is table and dashboard state silently never being restored.
     """
 
     @pytest.mark.parametrize('setting_type', ['NOT_A_TYPE', 'global', ''],
@@ -475,9 +475,8 @@ class TestSettingTypeGuard:
 class TestReadShapes:
     """The single read answers the stored document, the list read the four normalised keys.
 
-    Pinned as it is, NOT as it should be: which shape both reads should answer - and whether a user
-    setting has a public_id in its API shape at all - is discussion-backlog #218. These tests are what
-    makes that decision visible when it is taken.
+    Pinned as it is, NOT as it should be: these tests are what makes a change to either shape
+    visible.
     """
 
     def test_the_single_read_carries_the_stamped_public_id(self, rest_api) -> None:

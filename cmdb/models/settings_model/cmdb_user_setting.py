@@ -24,9 +24,7 @@ is the most frequently written collection in the product and its payloads are op
 **Identity is `(user_id, resource)`, not a public_id.** That pair carries the unique compound index
 below, and it is what every manager call and every route filters on. The collection nevertheless
 *holds* a `public_id` - `GenericManager.insert_item` stamps one on every insert - and the
-single-resource read answers it while the list read does not. That divergence, and whether a user
-setting should have a public_id in its API shape at all (which is what migrating this model onto
-`CmdbDAO` would settle), is discussion-backlog #218.
+single-resource read answers it while the list read does not.
 
 **The scope (`setting_type`) is a label the frontend maintains.** Nothing server-side branches on it;
 see `UserSettingType`.

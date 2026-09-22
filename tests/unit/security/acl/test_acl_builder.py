@@ -29,8 +29,11 @@ from cmdb.security.acl.builder import (
     DENIED_TYPES_PROJECTION,
     build_acl_pipeline,
     build_acl_stages,
+    build_denied_types_condition,
     build_denied_types_criteria,
     build_group_permissions_path,
+    build_permitted_types_criteria,
+    normalize_permissions,
     resolve_denied_type_ids,
 )
 from cmdb.security.acl.permission import AccessControlPermission
@@ -104,8 +107,14 @@ class TestBuildDeniedTypesCriteria:
         assert {'acl': {'$exists': True}} in self._clauses()
 
     def test_excludes_a_deactivated_acl(self) -> None:
-        """An ACL switched off denies nothing; `$ne` also covers an ACL with no activated key."""
-        assert {'acl.activated': {'$ne': False}} in self._clauses()
+        """
+        An ACL switched off denies nothing, and so does one carrying no `activated` key
+
+        That second half is the model's reading (`AccessControlList.from_data` defaults the flag to
+        False), adopted here on 2026-09-17 so a listing and a single object read stop disagreeing on
+        the same stored document - tier 2 T208.
+        """
+        assert {'acl.activated': {'$exists': True, '$nin': [False, None]}} in self._clauses()
 
     def test_negates_the_permission_check(self) -> None:
         """The group is denied unless its list carries the permission, via $nor over $all."""
@@ -255,3 +264,91 @@ class TestBuildAclPipeline:
         pipeline = build_acl_pipeline(user, AccessControlPermission.READ)
 
         assert {stage_op for stage in pipeline for stage_op in stage} == {'$match'}
+
+
+# --------------------------------------------- build_permitted_types_criteria --------------------------------------- #
+
+def test_build_permitted_types_criteria_is_the_negation_of_the_denial() -> None:
+    """The permitted criteria is exactly the denial criteria under a $nor."""
+    permission = AccessControlPermission.READ
+
+    assert build_permitted_types_criteria(GROUP_ID, permission) == {
+        '$nor': [build_denied_types_criteria(GROUP_ID, permission)]
+    }
+
+
+# ---------------------------------------------- build_denied_types_condition ---------------------------------------- #
+
+def test_build_denied_types_condition_excludes_the_given_ids() -> None:
+    """The one spelling of 'exclude these types', as a filter document."""
+    assert build_denied_types_condition(DENIED_TYPE_IDS) == {TYPE_ID_KEY: {'$nin': DENIED_TYPE_IDS}}
+
+
+def test_build_acl_stages_wraps_the_same_condition() -> None:
+    """The stage builder does not spell the exclusion a second time."""
+    assert build_acl_stages(DENIED_TYPE_IDS) == [{'$match': build_denied_types_condition(DENIED_TYPE_IDS)}]
+
+
+# ------------------------------------------------ normalize_permissions --------------------------------------------- #
+
+def test_normalize_permissions_wraps_a_single_permission() -> None:
+    """The single form is the special case of the list form, so only this function knows the difference."""
+    assert normalize_permissions(AccessControlPermission.READ) == [AccessControlPermission.READ]
+
+
+def test_normalize_permissions_keeps_a_list_in_order() -> None:
+    """The order survives, so a built criteria is stable and comparable."""
+    asked = [AccessControlPermission.READ, AccessControlPermission.CREATE]
+
+    assert normalize_permissions(asked) == asked
+
+
+def test_normalize_permissions_drops_repeats() -> None:
+    """`?acl=READ,READ` is the same question asked once."""
+    asked = [AccessControlPermission.READ, AccessControlPermission.CREATE, AccessControlPermission.READ]
+
+    assert normalize_permissions(asked) == [AccessControlPermission.READ, AccessControlPermission.CREATE]
+
+
+def test_normalize_permissions_refuses_an_empty_list() -> None:
+    """
+    An empty `$all` matches no document at all
+
+    So an empty permission list would deny every ACL-carrying type rather than restrict nothing - a
+    silently wrong answer that still returns 200.
+    """
+    with pytest.raises(ValueError):
+        normalize_permissions([])
+
+
+# ------------------------------------------- criteria over several permissions -------------------------------------- #
+
+def test_denied_criteria_requires_all_of_several_permissions() -> None:
+    """`$all` is a conjunction - the same reading the Angular getAclFilter has for an array."""
+    criteria = build_denied_types_criteria(
+        GROUP_ID, [AccessControlPermission.READ, AccessControlPermission.CREATE],
+    )
+
+    assert criteria['$and'][2] == {
+        '$nor': [{build_group_permissions_path(GROUP_ID): {'$all': ['READ', 'CREATE']}}]
+    }
+
+
+def test_denied_criteria_for_one_permission_is_unchanged_by_the_list_support() -> None:
+    """Every existing caller passes a single permission and must keep getting the same criteria."""
+    assert build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ) == {
+        '$and': [
+            {'acl': {'$exists': True}},
+            {'acl.activated': {'$exists': True, '$nin': [False, None]}},
+            {'$nor': [{build_group_permissions_path(GROUP_ID): {'$all': ['READ']}}]},
+        ]
+    }
+
+
+def test_permitted_criteria_carries_several_permissions_through() -> None:
+    """The negation is built from the same criteria, so it inherits the list support."""
+    asked = [AccessControlPermission.READ, AccessControlPermission.UPDATE]
+
+    assert build_permitted_types_criteria(GROUP_ID, asked) == {
+        '$nor': [build_denied_types_criteria(GROUP_ID, asked)]
+    }

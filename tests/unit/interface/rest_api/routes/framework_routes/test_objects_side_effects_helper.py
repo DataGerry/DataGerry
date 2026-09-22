@@ -335,7 +335,7 @@ class TestHandleNotifyWebhooks:
 
 
 class TestHandleCreateObjectLog:
-    """handle_create_object_log writes the audit entry, best-effort (discussion-backlog #160)."""
+    """handle_create_object_log writes the audit entry, best-effort."""
 
     def test_writes_the_log_entry(self) -> None:
         """The rendered object's id and version land on the persisted log document."""

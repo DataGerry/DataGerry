@@ -236,7 +236,7 @@ class Update20260225(BaseDatabaseUpdate):
         except UpdaterException:
             raise
         except Exception as err:
-            raise UpdaterException(str(err)) from err
+            raise UpdaterException(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

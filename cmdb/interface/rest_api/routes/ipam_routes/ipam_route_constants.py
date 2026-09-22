@@ -25,11 +25,16 @@ belong to the model, a query parameter and a refusal message belong to the REST 
 The subnet and the validation routes read their messages from here. ``ipam_route_helper.py`` still
 inlines the one it raises for a non-object body; it belongs here too.
 
+``IpamRight`` names the ACL rights guarding the routes - the same shape ``RackRight`` uses for the
+sibling feature, and pointing at the ``IpamRight`` family already registered in ``all_rights``
+
 Members with a ``{...}`` placeholder are filled via ``format()``
 """
+from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'IpamRight',
     'SUBNET_INVALID_FAMILY_MESSAGE',
     'SUBNET_SECTOR_START_REQUIRED_MESSAGE',
     'REQUIRED_STRING_MESSAGE',
@@ -87,3 +92,29 @@ VALIDATION_ROW_NOT_AN_OBJECT_MESSAGE: str = "rows[{index}] must be an object!"
 VALIDATION_ROW_INDEX_MESSAGE: str = (
     "rows[{index}].{field} is required and must be a whole number!"
 )
+
+
+class IpamRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the IPAM REST routes
+
+    VIEW guards every read, including the two CSV exports and the four validation routes; EDIT guards
+    the two unassign writes. The mapping mirrors the Rack View feature, which is the same shape built
+    later - a SpecialType-backed overview plus an assignable picker - and whose routes were wired this
+    way from the start.
+
+    **These guard the IPAM SURFACE, not the objects behind it.** A Subnet is an ordinary CmdbObject, so
+    creating and deleting one goes through the generic ``/objects`` routes and is guarded by the object
+    rights plus the license; that is why ``ADD`` and ``DELETE`` name no route here. They are kept
+    because the right family is registered and a future IPAM-owned create or delete would want them.
+
+    **The exports carry VIEW, not an ExporterRight.** ``base.export.object`` guards the generic
+    ``/exporter`` surface; these two produce a view's own CSV of data the caller can already read row by
+    row through the overview it belongs to, so the feature's own right is what governs them. Someone
+    who may read the IPAM overview may take it away as a file - stated here so it is a decision rather
+    than something noticed later
+    """
+    ADD = 'base.framework.ipam.add'
+    VIEW = 'base.framework.ipam.view'
+    EDIT = 'base.framework.ipam.edit'
+    DELETE = 'base.framework.ipam.delete'

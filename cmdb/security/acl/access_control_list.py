@@ -64,6 +64,10 @@ class AccessControlList:
         """
         Initialises an AccessControlList from a dict
 
+        A stored ``groups`` of ``null`` is read as "no groups", the same as an absent one: the section
+        below already tolerates a null ``includes``, and a document is free to carry either - the
+        collection validates nothing inside ``acl``
+
         Args:
             data (dict): Data with which the AccessControlList should be initialised
 
@@ -72,7 +76,7 @@ class AccessControlList:
         """
         return cls(
             activated=data.get(AclKey.ACTIVATED.value, False),
-            groups=GroupACL.from_data(data.get(AclKey.GROUPS.value, {}))
+            groups=GroupACL.from_data(data.get(AclKey.GROUPS.value) or {})
         )
 
 

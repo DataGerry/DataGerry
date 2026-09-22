@@ -33,7 +33,7 @@ import pytest
 
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.levels_enum import Levels
-from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 
 from cmdb.errors.security import InvalidLevelRightError, MinLevelRightError, MaxLevelRightError
 # -------------------------------------------------------------------------------------------------------------------- #

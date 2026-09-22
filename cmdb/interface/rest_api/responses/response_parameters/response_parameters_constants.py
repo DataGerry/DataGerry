@@ -37,7 +37,24 @@ __all__: list[str] = [
     'SORT_ASCENDING',
     'SORT_DESCENDING',
     'VALID_SORT_ORDERS',
+    'ALLOWED_PIPELINE_STAGES',
+    'ALLOWED_LOOKUP_COLLECTIONS',
+    'WRITE_PIPELINE_STAGES',
+    'DENIED_EXPRESSION_OPERATORS',
+    'LookupKey',
 ]
+
+
+class LookupKey(BaseStrEnum):
+    """
+    Keys of a ``$lookup`` stage that the client-pipeline guard has to read
+
+    FROM names the target collection, which is allow-listed; PIPELINE and LET are the two places a
+    ``$lookup`` can nest further client-supplied expressions, so both are walked rather than trusted
+    """
+    FROM = 'from'
+    PIPELINE = 'pipeline'
+    LET = 'let'
 
 
 class ParameterKey(BaseStrEnum):
@@ -58,6 +75,10 @@ class ParameterKey(BaseStrEnum):
     ACTIVE = 'active'
     ACTION = 'action'
     GROUP_ID = 'group_id'
+    CATEGORY = 'category'
+    UNCATEGORIZED = 'uncategorized'
+    ACL = 'acl'
+    SEARCH = 'search'
 
 
 class BuilderParamKey(BaseStrEnum):
@@ -93,3 +114,60 @@ UNLIMITED_LIMIT: int = 0
 SORT_ASCENDING: int = 1
 SORT_DESCENDING: int = -1
 VALID_SORT_ORDERS: frozenset[int] = frozenset({SORT_ASCENDING, SORT_DESCENDING})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        CLIENT AGGREGATION-PIPELINE ALLOW-LISTS                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+#: Aggregation stages a client may send in ``?filter=``
+#:
+#: A list-shaped filter is spliced into the aggregation verbatim, so this list - not MongoDB - decides
+#: what a caller can make the database do. It holds **exactly** the stages the Angular frontend builds
+#: into a filter today, counted across ``app/src``, and nothing else: widening it is a decision, not a
+#: convenience. ``$sort`` / ``$limit`` / ``$skip`` are deliberately absent - the pager appends its own
+#: and the frontend never sends them - and so is every stage that reads or writes another collection
+#: apart from the two ``$lookup`` targets below
+#:
+#: ``$lookup`` and ``$group`` are here **only because the frontend depends on them** and removing
+#: them would break live screens; the call sites have to move server-side first
+ALLOWED_PIPELINE_STAGES: frozenset[str] = frozenset({
+    '$match',
+    '$addFields',
+    '$project',
+    '$group',
+    '$lookup',
+})
+
+#: Collections a client-supplied ``$lookup`` may target
+#:
+#: The two the frontend actually joins against (categories for the uncategorized-types screen, objects
+#: for the object search and the reference tables). Without this bound, ``$lookup`` reads ANY collection
+#: in the database - ``management.users`` included, which is how a caller could read password digests
+#: through any list route
+ALLOWED_LOOKUP_COLLECTIONS: frozenset[str] = frozenset({
+    'framework.categories',
+    'framework.objects',
+})
+
+#: Stages that WRITE, refused by name so the rejection says why
+#:
+#: They are already outside ALLOWED_PIPELINE_STAGES. They are named again because until this guard
+#: existed they were refused only by accident: the pager appends ``$sort`` / ``$skip`` after the
+#: client's stages and ``$out`` / ``$merge`` must be last, so MongoDB rejected them for the wrong
+#: reason. An ordering accident is not a guard
+WRITE_PIPELINE_STAGES: frozenset[str] = frozenset({
+    '$out',
+    '$merge',
+})
+
+#: Expression operators refused ANYWHERE inside a filter, at any nesting depth
+#:
+#: These are not stages, they are expressions, so they ride inside a stage that is itself permitted -
+#: ``$function`` inside ``$match``/``$expr`` executes server-side JavaScript on a plain filtered read.
+#: A stage-name allow-list alone therefore does not close them, which is why the guard walks values
+DENIED_EXPRESSION_OPERATORS: frozenset[str] = frozenset({
+    '$function',
+    '$accumulator',
+    '$where',
+})

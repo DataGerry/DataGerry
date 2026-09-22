@@ -60,11 +60,9 @@ def read_usage_paging() -> tuple[int, int]:
 
     Both are forwarded to OpenCelium, which decides what exists. **A value that cannot be read as a
     whole number answers the default** rather than a 400: `type=int` is deliberate here (a bare
-    `int()` used to crash into a generic 500), but it means `?page=abc` reads as page 0 as though the
-    caller had asked for it, and a negative or enormous value passes straight through. Whether an
-    unreadable value should be refused instead is discussion-backlog #226, to be decided together
-    with #223 - the identical question on the invoker route's flag - which is why the rule sits in one
-    place
+    `int()` crashes into a generic 500), but it means `?page=abc` reads as page 0 as though the
+    caller had asked for it, and a negative or enormous value passes straight through. The rule sits
+    in one place so that refusing an unreadable value instead would be a single change here
 
     Returns:
         tuple[int, int]: The requested page and page size

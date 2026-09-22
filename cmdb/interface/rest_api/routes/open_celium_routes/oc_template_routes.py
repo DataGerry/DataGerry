@@ -23,9 +23,8 @@ OpenCelium replies with an empty body - which is why the list routes normalise t
 `filter_datagerry_templates` rather than answering what they were handed.
 
 The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`), but it
-carries no per-route ACL right - unlike the sibling connection and connector routes. That gap, and
-the missing request-schema validation on the create route, are discussion-backlog #115 (the rights
-it would need do not exist yet).
+carries no per-route ACL right - unlike the sibling connection and connector routes; the rights it
+would need do not exist yet. The create route has no request-schema validation either.
 
 **Only one of the four routes has a frontend caller**: `GET /templates/all/<from>/<to>`, used by the
 Automations view (`automations.service.ts`). The other three are API-only surface.
@@ -72,7 +71,7 @@ def create_oc_template(request_user: CmdbUser) -> Response:
     **POST** route to create an OcTemplate
 
     The body is forwarded to OpenCelium unvalidated - it is an OpenCelium template shape, not a
-    DataGerry document (see the module docstring and backlog #115). A body that is not JSON at all is
+    DataGerry document (see the module docstring). A body that is not JSON at all is
     refused by `request.json` with a 400, which is the one HTTPException this route can raise itself.
 
     Args:

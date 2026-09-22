@@ -202,6 +202,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'GLOBAL_TEMPLATE_IDS': 'global_template_ids',
         'SELECTABLE_AS_PARENT': 'selectable_as_parent',
         'USES_PORTS': 'uses_ports',
+        'PORT_SECTION_INDEX': 'port_section_index',
         'VERSION': 'version',
         'DESCRIPTION': 'description',
         'CI_EXPLORER_LABEL': 'ci_explorer_label',

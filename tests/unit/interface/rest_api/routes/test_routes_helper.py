@@ -28,21 +28,27 @@ why they read in terms of a generic criteria dict rather than of the rack's rule
 """
 import json
 from io import BytesIO
+from types import SimpleNamespace
+from typing import Any
 
 import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
-from typing import Any
-
 from cmdb.interface.rest_api.routes.routes_helper import (
+    pin_public_id,
     append_criteria_to_filter,
+    as_pipeline_criteria,
+    build_searchable_builder_params,
     get_file_in_request,
     get_element_from_data_request,
     fetch_only_active_objects,
     extract_public_ids,
     normalize_public_id_list,
 )
+# An empty list is the contract for "no stages" in several helpers here, so these assert the exact
+# value rather than falsiness - a None slipping through would break the caller that splices the result
+# pylint: disable=use-implicit-booleaness-not-comparison
 # -------------------------------------------------------------------------------------------------------------------- #
 
 app = Flask(__name__)
@@ -270,3 +276,129 @@ class TestAppendCriteriaToFilter:
     def test_no_filter_and_no_criteria_yields_an_empty_pipeline(self) -> None:
         """Nothing to narrow by means no stages, not a stage matching everything"""
         assert append_criteria_to_filter(None, {}) == []
+
+
+# ------------------------------------------------------ as_pipeline_criteria ---------------------------------------- #
+
+def test_as_pipeline_criteria_wraps_a_filter_document_in_a_match() -> None:
+    """The two filter shapes have to be one thing before a route can compose on top of them."""
+    assert as_pipeline_criteria({'public_id': 7}) == [{'$match': {'public_id': 7}}]
+
+
+def test_as_pipeline_criteria_passes_a_pipeline_through() -> None:
+    """A client pipeline is already stages."""
+    stages = [{'$match': {'a': 1}}, {'$addFields': {'b': 2}}]
+
+    assert as_pipeline_criteria(stages) == stages
+
+
+@pytest.mark.parametrize('empty', [None, {}, []], ids=repr)
+def test_as_pipeline_criteria_answers_no_stages_for_an_empty_filter(empty) -> None:
+    """An unfiltered listing gets no stages rather than an empty `$match`."""
+    assert as_pipeline_criteria(empty) == []
+
+
+def test_as_pipeline_criteria_copies_the_pipeline_it_was_given() -> None:
+    """
+    The caller's own object is echoed back as `parameters.filter`
+
+    The routes used to append their stages to it in place, so the response claimed the client had sent
+    the server's injected `active` stage.
+    """
+    stages = [{'$match': {'a': 1}}]
+
+    as_pipeline_criteria(stages).append({'$match': {'active': True}})
+
+    assert stages == [{'$match': {'a': 1}}]
+
+
+def test_as_pipeline_criteria_does_not_alias_the_filter_document() -> None:
+    """The dict shape is wrapped, and the wrapper is new."""
+    client_filter = {'public_id': 7}
+
+    criteria = as_pipeline_criteria(client_filter)
+    criteria.append({'$match': {'active': True}})
+
+    assert client_filter == {'public_id': 7}
+    assert len(criteria) == 2
+
+
+# ------------------------------------------------- build_searchable_builder_params ---------------------------------- #
+
+SEARCHABLE: tuple[str, ...] = ('name', 'public_id')
+
+
+def _params(filter_value: Any = None, search: str | None = None) -> SimpleNamespace:
+    """The CollectionParameters fields the helper reads."""
+    return SimpleNamespace(
+        filter=filter_value,
+        optional={'search': search} if search is not None else {},
+        limit=10,
+        sort='public_id',
+        order=1,
+        skip=0,
+    )
+
+
+def test_builder_params_without_a_search_carry_only_the_filter() -> None:
+    """An unsearched listing is exactly what it was before the parameter existed."""
+    builder_params = build_searchable_builder_params(_params({'active': True}), SEARCHABLE)
+
+    assert builder_params.get_criteria() == [{'$match': {'active': True}}]
+
+
+def test_builder_params_with_a_search_gain_the_search_stages() -> None:
+    """The three search stages are appended to the caller's own filter."""
+    criteria = build_searchable_builder_params(_params(None, 'needle'), SEARCHABLE).get_criteria()
+
+    assert [stage for stage in criteria if '$addFields' in stage]
+    assert [stage for stage in criteria if '$project' in stage]
+
+
+def test_a_blank_search_adds_nothing() -> None:
+    """A search box that was cleared is not a search."""
+    assert build_searchable_builder_params(_params(None, '   '), SEARCHABLE).get_criteria() == []
+
+
+def test_no_searchable_fields_adds_nothing() -> None:
+    """A route that declares nothing searchable cannot be searched, rather than matching everything."""
+    assert build_searchable_builder_params(_params(None, 'needle'), ()).get_criteria() == []
+
+
+def test_the_pager_is_carried_through_unchanged() -> None:
+    """Only the criteria is composed; limit, sort, order and skip are the pager's."""
+    builder_params = build_searchable_builder_params(_params(None, 'needle'), SEARCHABLE)
+
+    assert builder_params.get_limit() == 10
+    assert builder_params.get_sort() == 'public_id'
+    assert builder_params.get_order() == 1
+
+
+def test_the_callers_filter_is_not_mutated() -> None:
+    """It is echoed back as `parameters.filter`, so the route must not append to it."""
+    client_filter = [{'$match': {'a': 1}}]
+
+    build_searchable_builder_params(_params(client_filter, 'needle'), SEARCHABLE)
+
+    assert client_filter == [{'$match': {'a': 1}}]
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  pin_public_id                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_pin_public_id_overwrites_a_body_identity() -> None:
+    """The URL owns the identity: a forged body public_id is replaced, never honoured."""
+    data = {'public_id': 4711, 'name': 'x'}
+
+    assert pin_public_id(data, 7) == {'public_id': 7, 'name': 'x'}
+
+
+def test_pin_public_id_supplies_a_missing_identity() -> None:
+    """A body without an id gets one, so a model built from it cannot fail on int(None)."""
+    assert pin_public_id({'name': 'x'}, 7)['public_id'] == 7
+
+
+def test_pin_public_id_mutates_in_place_and_returns_the_same_dict() -> None:
+    """Callers pass the payload straight on, so the pin has to be visible on their own reference."""
+    data: dict = {'name': 'x'}
+
+    assert pin_public_id(data, 7) is data

@@ -18,9 +18,9 @@ The vocabulary of the REST API response envelope
 
 Every route answers through one of the classes in this package, and the keys those classes write are
 a **frontend contract**: `app/src/app/services/models/api-response.ts` declares them, and four
-services read the `X-Total-Count` header. They were bare string literals in eight modules until
-2026-09-09, so a rename could pass the whole backend suite while breaking the Angular app - naming
-them here is what makes such a rename a compile-time-visible change on this side
+services read the `X-Total-Count` header. Spelled as bare string literals per module, a rename
+could pass the whole backend suite while breaking the Angular app - naming them here is what makes
+such a rename a visible change on this side
 
 The mime type, the API version and the JSON indent live here for the same reason: they are part of
 what every response sends
@@ -31,9 +31,9 @@ from cmdb.utils import BaseStrEnum
 DEFAULT_MIME_TYPE: str = 'application/json'
 API_VERSION: str = '1.0'
 
-# Every response body is pretty-printed. Measured on a 50-object page of `GET /objects/`: +63% body
+# Every response body is pretty-printed. On a 50-object page of `GET /objects/` that costs +63% body
 # size and 5.7x the serialization time against a compact dump, with no compression anywhere in the
-# backend. Kept deliberately - changing it is discussion-backlog #215
+# backend. Kept deliberately
 DEFAULT_JSON_INDENT: int = 2
 
 

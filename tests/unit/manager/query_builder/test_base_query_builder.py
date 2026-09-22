@@ -198,3 +198,76 @@ class TestTheBuilderProtocol:
         builder.count(EMPTY_CRITERIA)
 
         assert len(builder) == len(builder.query)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                               how a criteria becomes stages - the T148 surface                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestHowCriteriaBecomesStages:
+    """
+    The branch tier 2 T148 was about, and the reason the guard is not here
+
+    A dict criteria becomes one `$match`; a **list** criteria is spliced into the aggregation
+    verbatim, stage for stage. Until 2026-09-16 that was reachable straight from `?filter=`, so a
+    caller could append `$lookup` and read any collection in the database.
+
+    The splice itself is deliberate and stays: the frontend builds real stages, and `objects_manager`
+    hands its own `$lookup` + `$unwind` pipeline in here as criteria. What changed is upstream -
+    `CollectionParameters` now refuses a client filter that is not on the allow-list, so by the time
+    a client's value reaches this method it has already been checked. These tests pin the splice, not
+    the checking; `tests/unit/interface/rest_api/responses/response_parameters/test_pipeline_guard.py`
+    pins that.
+    """
+
+    def test_a_dict_criteria_becomes_a_single_match(self) -> None:
+        """One stage, wrapping the document as given."""
+        params = BuilderParameters(criteria={PUBLIC_ID_FIELD: 5}, sort=PUBLIC_ID_FIELD, order=1)
+
+        pipeline = BaseQueryBuilder().build(params)
+
+        assert pipeline[0] == {'$match': {PUBLIC_ID_FIELD: 5}}
+
+    def test_a_list_criteria_is_spliced_in_verbatim(self) -> None:
+        """
+        Every element becomes a stage, unchanged and in order
+
+        This is what makes a list filter powerful enough to be worth guarding: whatever is in the
+        list is what MongoDB runs.
+        """
+        stages: list[dict[str, Any]] = [
+            {'$match': {PUBLIC_ID_FIELD: 5}},
+            {'$addFields': {'public_id_str': {'$toString': f'${PUBLIC_ID_FIELD}'}}},
+        ]
+        params = BuilderParameters(criteria=stages, sort=PUBLIC_ID_FIELD, order=1)
+
+        pipeline = BaseQueryBuilder().build(params)
+
+        assert pipeline[:2] == stages
+
+    def test_the_builders_own_stages_always_follow_the_criteria(self) -> None:
+        """
+        Why `$out` / `$merge` used to fail, and why that was never a guard
+
+        The pager appends `$sort` / `$skip` after the client's stages, so a write stage - which must
+        be last - was rejected by MongoDB for a reason that had nothing to do with permission. A
+        pipeline that put a client stage last would have written.
+        """
+        params = BuilderParameters(criteria=[{'$match': {}}], sort=PUBLIC_ID_FIELD, order=1)
+
+        pipeline = BaseQueryBuilder().build(params)
+
+        assert pipeline[-1] != {'$match': {}}
+        assert any('$skip' in stage for stage in pipeline)
+
+    def test_a_list_criteria_reaches_the_count_pipeline_too(self) -> None:
+        """
+        `count()` splices the same list, and the totals aggregation is a second execution of it
+
+        A guard placed in only one of the two would have left the other open.
+        """
+        stages: list[dict[str, Any]] = [{'$match': {PUBLIC_ID_FIELD: 5}}]
+
+        pipeline = BaseQueryBuilder().count(stages)
+
+        assert pipeline[0] == stages[0]
+        assert pipeline[-1] == {'$count': 'total'}

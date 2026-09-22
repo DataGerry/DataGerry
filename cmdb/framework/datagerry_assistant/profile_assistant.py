@@ -28,6 +28,8 @@ from cmdb.manager import CategoriesManager
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
+from cmdb.models.special_type_model.special_type_enum import SpecialType
+
 from cmdb.errors.dg_assistant.dg_assistant_errors import ProfileCreationError
 
 from .profile_name import ProfileName
@@ -65,6 +67,34 @@ PROFILE_BUILDERS: list[tuple[ProfileName, type[ProfileBase]]] = [
     (ProfileName.SERVER_MANAGEMENT, ServerManagementProfile),
     (ProfileName.NETWORK_INFRASTRUCTURE, NetworkInfrastructureProfile),
 ]
+
+# Profile name -> builder class, derived from the ordered list above so the two cannot disagree
+PROFILE_CLASSES: dict[str, type[ProfileBase]] = {name.value: builder for name, builder in PROFILE_BUILDERS}
+
+
+def special_types_created_by(profile_name: str) -> frozenset[SpecialType]:
+    """
+    Reports which SpecialType markers a profile creates
+
+    A fact about the profile, read off the builder class's own declaration. The interface layer maps
+    it through types_helper.special_type_license_feature to decide whether the assistant may seed the
+    profile - the assistant itself stays licensing-agnostic, which is why this answers SpecialTypes
+    and not a LicenseFeature.
+
+    Args:
+        profile_name (str): A ProfileName value, as selected in the assistant
+
+    Returns:
+        frozenset[SpecialType]: The markers that profile creates; empty for an unknown profile or one
+            that creates none
+    """
+    builder: type[ProfileBase] | None = PROFILE_CLASSES.get(profile_name)
+
+    if builder is None:
+        return frozenset()
+
+    return builder.CREATED_SPECIAL_TYPES
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ProfileAssistant - CLASS                                               #

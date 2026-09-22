@@ -19,14 +19,13 @@ Unit tests for the CmdbLocation validation schema
 **Nothing consumes this schema.** No route validates a location body - the create route reads its
 three ids with ``parse_required_int`` and assembles the document itself, and every other write is the
 object mirror - so ``CmdbLocation.SCHEMA`` is documentation of the document rather than an enforced
-contract. Whether it should be wired into the create route or dropped is discussion-backlog #221;
-these tests pin what it currently *says*, so that decision is taken against a known baseline instead
-of a guess.
+contract. These tests pin what it *says*, so that wiring it into the create route - or dropping it -
+happens against a known baseline instead of a guess.
 
 What it says is worth pinning for a second reason: the schema is where the two nullable keys and the
-two defaults of the document are written down, and the model was migrated onto the shared CmdbDAO
-serialisation on 2026-09-10 - the tests below are what keeps the two descriptions of the same
-document from drifting apart.
+two defaults of the document are written down, while the model serialises through the shared
+CmdbDAO - the tests below are what keeps the two descriptions of the same document from drifting
+apart.
 """
 from typing import Any
 
@@ -136,9 +135,9 @@ class TestTheDisplayKeys:
         """
         A gap between the two descriptions, recorded rather than fixed
 
-        The MODEL requires them (REQUIRED_INIT_KEYS, live since 2026-09-10) while the schema does
-        not, so a body validated here could still be refused by the model. Nothing validates a
-        location body today, which is why this is a documentation question - see #221.
+        The MODEL requires them (REQUIRED_INIT_KEYS) while the schema does not, so a body validated
+        here could still be refused by the model. Nothing validates a location body, which is why
+        this is a documentation question rather than a live one.
         """
         document = _document()
         del document[key]

@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
     ControlMeasureAssignmentManager,
@@ -38,8 +37,9 @@ from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRisk
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -58,7 +58,7 @@ from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerDeleteError,
     ControlMeasureAssignmentManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -122,7 +122,8 @@ def build_cma_summary(
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.add')
-@control_measure_assignment_blueprint.validate(IsmsControlMeasureAssignment.SCHEMA)
+@control_measure_assignment_blueprint.validate(build_write_schema(IsmsControlMeasureAssignment.SCHEMA))
+@handle_route_errors("while creating the ControlMeasure Assignment")
 def insert_isms_control_measure_assignment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasureAssignment into the database
@@ -152,8 +153,6 @@ def insert_isms_control_measure_assignment(data: dict[str, Any], request_user: C
             abort(404, "Could not retrieve the created ControlMeasure Assignment from the database!")
 
         return InsertSingleResponse(created_control_measure_assignment, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureAssignmentManagerInsertError as err:
         LOGGER.error(
             "[insert_isms_control_measure_assignment] ControlMeasureAssignmentManagerInsertError: %s",
@@ -166,9 +165,6 @@ def insert_isms_control_measure_assignment(data: dict[str, Any], request_user: C
             "[insert_isms_control_measure_assignment] ControlMeasureAssignmentManagerGetError: %s", err, exc_info=True
         )
         abort(400, "Failed to retrieve the created ControlMeasure Assignment from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_isms_control_measure_assignment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the ControlMeasure Assignment!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -314,6 +310,7 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.view')
+@handle_route_errors("while retrieving the ControlMeasure Assignment with ID: {public_id}")
 def get_isms_control_measure_assignment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsControlMeasureAssignment
@@ -338,19 +335,11 @@ def get_isms_control_measure_assignment(public_id: int, request_user: CmdbUser) 
 
         return GetSingleResponse(requested_control_measure_assignment,
                                  body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureAssignmentManagerGetError as err:
         LOGGER.error(
             "[get_isms_control_measure_assignment] ControlMeasureAssignmentManagerGetError: %s", err, exc_info=True
         )
         abort(400, f"Failed to retrieve the ControlMeasure Assignment with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_control_measure_assignment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(
-            500,
-            f"An internal server error occured while retrieving the ControlMeasure Assignment with ID: {public_id}!"
-        )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -358,7 +347,8 @@ def get_isms_control_measure_assignment(public_id: int, request_user: CmdbUser) 
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.edit')
-@control_measure_assignment_blueprint.validate(IsmsControlMeasureAssignment.SCHEMA)
+@control_measure_assignment_blueprint.validate(build_write_schema(IsmsControlMeasureAssignment.SCHEMA))
+@handle_route_errors("while updating the ControlMeasure Assignment with ID: {public_id}")
 def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasureAssignment
@@ -380,11 +370,13 @@ def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any],
         get_item_or_404(c_m_assignment_manager, public_id,
                         f"The ControlMeasure Assignment with ID:{public_id} was not found!", as_dict=False)
 
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+
+        pin_public_id(data, public_id)
+
         c_m_assignment_manager.update_item(public_id, IsmsControlMeasureAssignment.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureAssignmentManagerGetError as err:
         LOGGER.error(
             "[update_isms_control_measure_assignment] ControlMeasureAssignmentManagerGetError: %s", err, exc_info=True
@@ -397,11 +389,6 @@ def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any],
             exc_info=True
         )
         abort(400, f"Failed to update the ControlMeasure Assignment with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_control_measure_assignment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500,
-            f"An internal server error occured while updating the ControlMeasure Assignment with ID: {public_id}!"
-        )
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -409,6 +396,7 @@ def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any],
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.delete')
+@handle_route_errors("while deleting the ControlMeasure Assignment with ID: {public_id}")
 def delete_isms_control_measure_assignment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsControlMeasureAssignment
@@ -435,8 +423,6 @@ def delete_isms_control_measure_assignment(public_id: int, request_user: CmdbUse
         c_m_assignment_manager.delete_item(public_id)
 
         return DeleteSingleResponse(to_delete_control_measure_assignment).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureAssignmentManagerDeleteError as err:
         LOGGER.error(
             "[delete_isms_control_measure_assignment] ControlMeasureAssignmentManagerDeleteError: %s",
@@ -451,11 +437,3 @@ def delete_isms_control_measure_assignment(public_id: int, request_user: CmdbUse
             exc_info=True
         )
         abort(400, f"Failed to retrieve the ControlMeasure Assignment with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error(
-            "[delete_isms_control_measure_assignment] Exception: %s. Type: %s", err, type(err),
-            exc_info=True
-        )
-        abort(500,
-            f"An internal server error occured while deleting the ControlMeasure Assignment with ID: {public_id}!"
-        )

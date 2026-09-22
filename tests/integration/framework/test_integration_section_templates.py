@@ -42,6 +42,8 @@ TYPE_ID: int = 90100
 OBJECT_ID: int = 90101
 TEMPLATE_PUBLIC_ID: int = 90102
 REPORT_ID: int = 90103
+CLAIM_ONLY_TYPE_ID: int = 90104
+CLAIM_ONLY_OBJECT_ID: int = 90105
 
 FLAT_TEMPLATE: str = 'it-sectpl-flat'
 MDS_TEMPLATE: str = 'it-sectpl-mds'
@@ -61,8 +63,8 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
     yield types, objects
 
-    types.delete_many({'public_id': TYPE_ID})
-    objects.delete_many({'public_id': OBJECT_ID})
+    types.delete_many({'public_id': {'$in': [TYPE_ID, CLAIM_ONLY_TYPE_ID]}})
+    objects.delete_many({'public_id': {'$in': [OBJECT_ID, CLAIM_ONLY_OBJECT_ID]}})
 
 
 @pytest.fixture(name='reports')
@@ -213,6 +215,69 @@ def test_mds_template_change_writes_to_both_flat_fields_and_rows(
     row_by_name = {entry['name']: entry['value'] for entry in row_data}
     assert row_by_name['m-a'] == 'x'
     assert row_by_name['m-b'] == 'def'
+
+
+def _seed_claim_only_type(types: Any, objects: Any) -> None:
+    """Seeds a type that lists the template in global_template_ids but carries no such section."""
+    types.insert_one(make_type_doc(
+        CLAIM_ONLY_TYPE_ID, 'it-sectpl-claim-only', global_template_ids=[FLAT_TEMPLATE],
+    ))
+    objects.insert_one(make_object_doc(
+        CLAIM_ONLY_OBJECT_ID, CLAIM_ONLY_TYPE_ID, [make_field('dg-name', 'other')],
+    ))
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       get_global_template_usage_count                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_usage_count_counts_claiming_types_and_carrying_objects(
+    manager: SectionTemplatesManager, collections: Any,
+) -> None:
+    """
+    The two numbers come from two different sets, against real documents
+
+    A claim-only type is visited by the teardown (so it counts as a type) but loses nothing off its
+    objects (so they must not count) - which is what the test below verifies the teardown really does.
+    """
+    types, objects = collections
+    _seed_flat_type(types, objects)
+    _seed_claim_only_type(types, objects)
+
+    counts = manager.get_global_template_usage_count(FLAT_TEMPLATE, is_global=True)
+
+    assert counts == {'types': 2, 'objects': 1, 'is_global': True}
+
+
+def test_usage_count_matches_what_the_teardown_actually_changes(
+    manager: SectionTemplatesManager, collections: Any,
+) -> None:
+    """The counted objects are exactly the objects the delete cascade rewrites"""
+    types, objects = collections
+    _seed_flat_type(types, objects)
+    _seed_claim_only_type(types, objects)
+
+    counts = manager.get_global_template_usage_count(FLAT_TEMPLATE, is_global=True)
+    before = objects.find_one({'public_id': CLAIM_ONLY_OBJECT_ID})['fields']
+
+    manager.cleanup_global_section_templates(FLAT_TEMPLATE, delete_mode=True)
+
+    # The claim-only type lost its reference ...
+    assert FLAT_TEMPLATE not in types.find_one({'public_id': CLAIM_ONLY_TYPE_ID})['global_template_ids']
+    # ... and its object was not touched, which is why the count left it out
+    assert objects.find_one({'public_id': CLAIM_ONLY_OBJECT_ID})['fields'] == before
+    assert counts['objects'] == 1
+
+
+def test_usage_count_of_a_non_global_template_reports_nothing(
+    manager: SectionTemplatesManager, collections: Any,
+) -> None:
+    """A non-global template is never propagated, so it reports no usage and says why"""
+    types, objects = collections
+    _seed_flat_type(types, objects)
+
+    counts = manager.get_global_template_usage_count(FLAT_TEMPLATE, is_global=False)
+
+    assert counts == {'types': 0, 'objects': 0, 'is_global': False}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

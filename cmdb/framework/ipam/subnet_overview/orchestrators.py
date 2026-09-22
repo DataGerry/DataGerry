@@ -37,7 +37,9 @@ from cmdb.framework.ipam.cidr import (
     assignable_address_count,
 )
 from cmdb.framework.ipam.pagination import clamp_page
+from cmdb.framework.ipam.read_scope import resolve_read_scope
 from cmdb.framework.ipam.references import load_vlans_by_subnets
+from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.search import active_search
 from cmdb.framework.ipam.subnet_overview.assigned_rows import (
     AssignedField,
@@ -149,6 +151,7 @@ def build_subnet_overview(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     public_id: int,
+    request_user: CmdbUser | None = None,
     page: int = 1,
     page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
     search: str = '',
@@ -252,7 +255,11 @@ def build_subnet_overview(
             VLAN whose 'dg-subnet-ref' points at this subnet, sorted by ascending public_id;
             empty when no VLAN references the subnet
     """
-    subnet_obj: dict[str, Any] = load_subnet_object(objects_manager, types_manager, public_id)
+    # Resolved ONCE per request: every read below narrows or masks with the same list, instead of
+    # paying the denied-types lookup per query
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
+    subnet_obj: dict[str, Any] = load_subnet_object(objects_manager, types_manager, public_id, denied_type_ids)
     sort_col, sort_dir = parse_sort_args(sort, order)
     status_filter, type_filter_ids = parse_filter_args(status, type_filter)
     network: Network | None = parse_subnet_network(subnet_obj)
@@ -262,7 +269,7 @@ def build_subnet_overview(
 
     is_ipv6: bool = network_family(network) == IpAddressFamily.IPV6
     assignable: int = assignable_address_count(network)
-    assigned: dict[str, dict[str, Any]] = load_assigned_rows_map(objects_manager, public_id, network)
+    assigned: dict[str, dict[str, Any]] = load_assigned_rows_map(objects_manager, public_id, network, denied_type_ids)
     valid_used: int = sum(1 for info in assigned.values() if info[AssignedField.IS_VALID])
     invalid_count: int = len(assigned) - valid_used
 
@@ -296,6 +303,7 @@ def build_invalid_ips_overview(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     public_id: int,
+    request_user: CmdbUser | None = None,
     page: int = 1,
     page_size: int = IpamPagination.DEFAULT_PAGE_SIZE,
     search: str = '',
@@ -337,14 +345,18 @@ def build_invalid_ips_overview(
             to invalid rows only (each carrying is_valid=False); 'ips.total' is the count
             after the search filter; 'invalid_count' is the whole-subnet invalid count
     """
-    subnet_obj: dict[str, Any] = load_subnet_object(objects_manager, types_manager, public_id)
+    # Resolved ONCE per request: every read below narrows or masks with the same list, instead of
+    # paying the denied-types lookup per query
+    denied_type_ids: list[int] = resolve_read_scope(request_user)
+
+    subnet_obj: dict[str, Any] = load_subnet_object(objects_manager, types_manager, public_id, denied_type_ids)
     network: Network | None = parse_subnet_network(subnet_obj)
 
     if network is None:
         return _build_broken_state_payload(subnet_obj, page, page_size)
 
     assignable: int = assignable_address_count(network)
-    assigned: dict[str, dict[str, Any]] = load_assigned_rows_map(objects_manager, public_id, network)
+    assigned: dict[str, dict[str, Any]] = load_assigned_rows_map(objects_manager, public_id, network, denied_type_ids)
     valid_used: int = sum(1 for info in assigned.values() if info[AssignedField.IS_VALID])
     invalid_count: int = len(assigned) - valid_used
 

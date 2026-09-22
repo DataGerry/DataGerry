@@ -25,7 +25,9 @@ A ConfigFileReader serves the values of an ini config file overlaid with the mat
   ``get_sections``, so an installation can be configured entirely through environment variables -
   including with no config file at all (*file-less mode*, ``config_name=None``);
 * every value is passed through ``auto_cast`` on **both** paths, so ``port = 27017`` is served as the
-  int ``27017`` whether it came from the file or from ``DATAGERRY_Database_port``.
+  int ``27017`` whether it came from the file or from ``DATAGERRY_Database_port`` - **except the
+  secrets named in ``UNCAST_CONFIG_KEYS``**, which are served exactly as written (see
+  ``_cast_config_value``).
 
 The reader is read-only: the config file (plus the overlay) is the single source of truth, and there is
 no API to mutate the loaded configuration in memory.
@@ -55,6 +57,19 @@ _NO_DEFAULT: Any = object()
 
 # Stand-in for the file name in error messages of a reader that has no config file (file-less mode)
 _FILE_LESS_LABEL: str = '<file-less>'
+
+#: Setting names whose value is served verbatim, never cast
+#:
+#: A secret is a string the user chose and an external system compares byte for byte, so *any*
+#: reinterpretation of it is wrong. Casting made that a live failure: an `[OpenCelium] password` of
+#: `27017` reached `OcApiConnector.password` - annotated `str` - as the int `27017` and was sent in
+#: the login body as a JSON **number**, so the connection failed and reported bad credentials. The
+#: cloud path never had the problem, because it reads `OC_PASSWORD` with a bare `os.getenv`, so the
+#: same secret had a different type depending on where it was configured.
+#:
+#: Matched on the setting name alone, in any section, so a new section carrying a `password` or an
+#: `api_key` inherits the rule instead of having to remember it
+UNCAST_CONFIG_KEYS: frozenset[str] = frozenset({'password', 'api_key', 'secret', 'token'})
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               ConfigFileReader - CLASS                                               #
@@ -177,13 +192,13 @@ class ConfigFileReader(SystemReader):
         env_values: dict[str, str] = self._env_section_values(section)
 
         if name in env_values:
-            return auto_cast(env_values[name])
+            return self._cast_config_value(name, env_values[name])
 
         self._ensure_config_loaded()
 
         if self.config.has_section(section):
             if name in self.config[section]:
-                return auto_cast(self.config[section][name])
+                return self._cast_config_value(name, self.config[section][name])
 
             if default is not _NO_DEFAULT:
                 return default
@@ -234,6 +249,7 @@ class ConfigFileReader(SystemReader):
 
         Returns:
             dict[str, Any]: All key-value pairs of the section, each value cast with ``auto_cast``
+                except the secrets named in ``UNCAST_CONFIG_KEYS``
 
         Raises:
             SectionError: If neither the file nor the environment overlay knows the section
@@ -288,14 +304,35 @@ class ConfigFileReader(SystemReader):
 
 
     @staticmethod
-    def _cast_values(values: Mapping[str, str]) -> dict[str, Any]:
+    def _cast_config_value(name: str, value: str) -> Any:
         """
-        Casts every value of a mapping with ``auto_cast``
+        Casts one config value, unless its name says it is a secret
+
+        The single place the exception is applied, so the file path, the environment path and the
+        whole-section read cannot disagree about it
+
+        Args:
+            name (str): The setting name, matched against ``UNCAST_CONFIG_KEYS``
+            value (str): The raw value as the file or the environment holds it
+
+        Returns:
+            Any: The value cast with ``auto_cast``, or the raw string for a secret
+        """
+        if name.lower() in UNCAST_CONFIG_KEYS:
+            return value
+
+        return auto_cast(value)
+
+
+    @classmethod
+    def _cast_values(cls, values: Mapping[str, str]) -> dict[str, Any]:
+        """
+        Casts every value of a mapping, leaving the secrets in ``UNCAST_CONFIG_KEYS`` alone
 
         Args:
             values (Mapping[str, str]): The raw string values read from the file or the environment
 
         Returns:
-            dict[str, Any]: The same keys with their values cast to bool / int / None / float / str
+            dict[str, Any]: The same keys with their values cast to bool / int / float / str
         """
-        return {key: auto_cast(value) for key, value in values.items()}
+        return {key: cls._cast_config_value(key, value) for key, value in values.items()}

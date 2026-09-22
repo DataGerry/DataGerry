@@ -32,7 +32,10 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager, ObjectsManager
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.category_model import CmdbCategory
+from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_routes
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
@@ -53,6 +56,9 @@ SEED_AUTHOR_ID: int = 1
 SEED_VERSION: str = '1.0.0'
 
 TYPE_ID_FOR_CREATE: int = 9701
+# `_type_payload` names a type after the id it is built FOR; the create tests look their type up by
+# this name, because the id itself is assigned by the server
+TYPE_NAME_FOR_CREATE: str = f'type-{TYPE_ID_FOR_CREATE}'
 TYPE_ID_FOR_DUPLICATE: int = 9702
 TYPE_ID_FOR_GET: int = 9703
 TYPE_ID_FOR_UPDATE: int = 9704
@@ -61,7 +67,15 @@ TYPE_ID_FOR_SELECTABLE: int = 9706
 # The bug report's two types: 'User' owns the referenced section, 'test' references it
 TYPE_ID_REFERENCED: int = 9707
 TYPE_ID_DEPENDENT: int = 9708
+# the listing-filter fixtures: one categorized, one not, one the admin group may not READ
+TYPE_ID_CATEGORIZED: int = 9709
+TYPE_ID_UNCATEGORIZED: int = 9710
+TYPE_ID_ACL_DENIED: int = 9711
+TYPE_ID_ACL_CREATE_ONLY: int = 9712
 MISSING_TYPE_ID: int = 9799
+
+LISTING_CATEGORY_ID: int = 9750
+MISSING_CATEGORY_ID: int = 9751
 
 REFERENCED_SECTION_NAME: str = 'personal-data'
 UNREFERENCED_SECTION_NAME: str = 'other'
@@ -81,6 +95,10 @@ ALL_TYPE_IDS: list[int] = [
     TYPE_ID_FOR_SELECTABLE,
     TYPE_ID_REFERENCED,
     TYPE_ID_DEPENDENT,
+    TYPE_ID_CATEGORIZED,
+    TYPE_ID_UNCATEGORIZED,
+    TYPE_ID_ACL_DENIED,
+    TYPE_ID_ACL_CREATE_ONLY,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -224,15 +242,62 @@ class TestPostType:
         database_manager: MongoDatabaseManager,
         database_name: str,
     ) -> None:
-        """A POST with a fresh public_id + name succeeds; the type is then queryable."""
+        """A POST with a fresh name succeeds; the type is then queryable under the id the SERVER gave it."""
+        created_id: int | None = None
+
         try:
             response = rest_api.post(f'{ROUTE_URL}/', json=_type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL))
 
             assert response.status_code == HTTPStatus.CREATED
-            follow_up = rest_api.get(f'{ROUTE_URL}/{TYPE_ID_FOR_CREATE}')
+            # `public_id` is server-owned: the payload's id is purged, so the answer names the real one
+            created_id = response.get_json()['result_id']
+            assert created_id != TYPE_ID_FOR_CREATE
+
+            follow_up = rest_api.get(f'{ROUTE_URL}/{created_id}')
             assert follow_up.status_code == HTTPStatus.OK
         finally:
-            _drop_type(database_manager, database_name, TYPE_ID_FOR_CREATE)
+            if created_id is not None:
+                _drop_type(database_manager, database_name, created_id)
+
+    def test_an_unknown_section_kind_is_refused(self, rest_api) -> None:
+        """
+        A section kind outside SectionType is refused by the write schema
+
+        The type IMPORT has always refused one (`INVALID_SECTION_TYPES`); the write route used to
+        accept any string, so a mistyped `multi-data-section` was stored as a kind of its own,
+        read back as a plain section, and its fields quietly stopped being multi-data fields.
+        """
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['render_meta']['sections'][0]['type'] = 'multi-data-sections'
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_every_known_section_kind_is_accepted(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The three SectionType members all pass the write schema."""
+        created_id: int | None = None
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['render_meta']['sections'] = [
+            {'type': SectionType.SECTION.value, 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]},
+            {'type': SectionType.MDS_SECTION.value, 'name': 'mds', 'label': 'MDS', 'fields': []},
+            {'type': SectionType.REF_SECTION.value, 'name': 'ref', 'label': 'Ref', 'fields': [],
+             'reference': {'type_id': 1, 'section_name': 'main', 'selected_fields': []}},
+        ]
+
+        try:
+            response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+            assert response.status_code == HTTPStatus.CREATED
+            created_id = response.get_json()['result_id']
+        finally:
+            if created_id is not None:
+                _drop_type(database_manager, database_name, created_id)
 
     def test_duplicate_name_returns_400(
         self,
@@ -514,6 +579,19 @@ def _raiser(exc: Exception):
 
 class TestTypeErrorMapping:
     """Each route maps its manager exceptions to the documented HTTP status codes."""
+
+    @pytest.fixture(autouse=True)
+    def _drop_anything_created(self, database_manager: MongoDatabaseManager, database_name: str):
+        """
+        Removes a Type a failing-create test managed to store
+
+        A create that fails AFTER the insert still leaves a document - `get_type` raising on the
+        read-back is exactly that case - and the next test posts the same (unique) name, so without
+        this the failure cascades into a duplicate-name 400.
+        """
+        yield
+        database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .delete_many({'name': TYPE_NAME_FOR_CREATE})
 
     # ---- CREATE ---- #
     def test_insert_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
@@ -884,3 +962,440 @@ class TestReferencedSectionGuard:
         response = rest_api.get(f'{ROUTE_URL}/referenced_section_usage/{MISSING_TYPE_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             LISTING FILTERS AND ACCESS CONTROL                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _denied_acl() -> dict[str, Any]:
+    """An activated ACL granting the admin group everything except READ."""
+    return {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): ['CREATE', 'UPDATE', 'DELETE']}}}
+
+
+class TestListingFilterEcho:
+    """The ``parameters.filter`` echoed back is what the CLIENT sent, never what the server injected."""
+
+    def test_a_dict_filter_is_echoed_unchanged(self, rest_api) -> None:
+        """The active flag restricts the query without appearing in the echoed filter."""
+        response = rest_api.get(f'{ROUTE_URL}/?active=true&filter={{"label":"{ORIGINAL_LABEL}"}}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['parameters']['filter'] == {'label': ORIGINAL_LABEL}
+
+    def test_a_pipeline_filter_is_echoed_unchanged(self, rest_api) -> None:
+        """A client pipeline comes back with exactly the stages it went in with."""
+        client_pipeline = '[{"$match":{"label":"%s"}}]' % ORIGINAL_LABEL
+
+        response = rest_api.get(f'{ROUTE_URL}/?active=true&filter={client_pipeline}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['parameters']['filter'] == [{'$match': {'label': ORIGINAL_LABEL}}]
+
+    def test_no_filter_echoes_no_injected_stages(self, rest_api) -> None:
+        """Without a client filter the echo stays empty instead of showing the server's own $match."""
+        response = rest_api.get(f'{ROUTE_URL}/?active=true')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['parameters']['filter'] == {}
+
+    def test_the_active_flag_still_restricts_the_rows(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Not echoing the injected stage does not mean not applying it."""
+        doc = _type_doc(TYPE_ID_FOR_GET, ORIGINAL_LABEL)
+        doc['active'] = False
+        database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(doc)
+
+        try:
+            response = rest_api.get(f'{ROUTE_URL}/?active=true&limit=0')
+            listed = [t['public_id'] for t in response.get_json()['results']]
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
+
+        assert TYPE_ID_FOR_GET not in listed
+
+
+class TestListingCategoryFilters:
+    """``?category=`` and ``?uncategorized=`` replace the $lookup pipelines the frontend posted."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One categorized type, one uncategorized type, and the category binding them."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        categories = database_manager.get_collection(CmdbCategory.COLLECTION, database_name)
+
+        types.insert_one(_type_doc(TYPE_ID_CATEGORIZED, ORIGINAL_LABEL))
+        types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
+        categories.insert_one({
+            'public_id': LISTING_CATEGORY_ID,
+            'name': 'listing-category',
+            'label': 'Listing Category',
+            'meta': {'icon': '', 'order': None},
+            'parent': None,
+            'types': [TYPE_ID_CATEGORIZED],
+        })
+        yield
+        types.delete_many({'public_id': {'$in': [TYPE_ID_CATEGORIZED, TYPE_ID_UNCATEGORIZED]}})
+        categories.delete_many({'public_id': LISTING_CATEGORY_ID})
+
+    @staticmethod
+    def _listed_ids(response) -> list[int]:
+        """The public_ids in a listing response."""
+        return [result['public_id'] for result in response.get_json()['results']]
+
+    def test_category_lists_only_its_own_types(self, rest_api) -> None:
+        """?category=<id> answers the types assigned to that category."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&category={LISTING_CATEGORY_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._listed_ids(response) == [TYPE_ID_CATEGORIZED]
+
+    def test_uncategorized_excludes_the_categorized_type(self, rest_api) -> None:
+        """?uncategorized=true answers the complement."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&uncategorized=true')
+
+        listed = self._listed_ids(response)
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_UNCATEGORIZED in listed
+        assert TYPE_ID_CATEGORIZED not in listed
+
+    def test_the_total_agrees_with_the_filtered_rows(self, rest_api) -> None:
+        """The category filter lives in the criteria, so the count aggregation applies it too."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&category={LISTING_CATEGORY_ID}')
+        body = response.get_json()
+
+        assert body['total'] == len(body['results'])
+
+    def test_an_unknown_category_lists_nothing(self, rest_api) -> None:
+        """An id nothing is assigned to is an empty result, matching the pipeline this replaced."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&category={MISSING_CATEGORY_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._listed_ids(response) == []
+
+    def test_a_category_filter_combines_with_a_client_filter(self, rest_api) -> None:
+        """The server condition narrows the client's filter rather than replacing it."""
+        response = rest_api.get(
+            f'{ROUTE_URL}/?limit=0&category={LISTING_CATEGORY_ID}'
+            f'&filter={{"public_id":{TYPE_ID_UNCATEGORIZED}}}'
+        )
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._listed_ids(response) == []
+
+    def test_both_category_filters_at_once_are_refused(self, rest_api) -> None:
+        """A contradiction is a 400, not an empty list."""
+        response = rest_api.get(f'{ROUTE_URL}/?category={LISTING_CATEGORY_ID}&uncategorized=true')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_non_numeric_category_is_refused(self, rest_api) -> None:
+        """The parameter is a public_id."""
+        response = rest_api.get(f'{ROUTE_URL}/?category=not-a-number')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_the_category_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
+        """
+        The migration contract for **F3**: same rows, same order, same documents
+
+        The Angular app asks "types in category N" with a `$lookup` into `framework.categories`
+        posted as `?filter=`. `?category=` has to be a drop-in for it, or switching the frontend over
+        is not the one-line change it is supposed to be.
+        """
+        frontend_pipeline = (
+            '[{"$lookup":{"from":"framework.categories","let":{"type_public_id":"$public_id"},'
+            '"pipeline":[{"$match":{"public_id":%d}},'
+            '{"$match":{"$expr":{"$in":["$$type_public_id","$types"]}}}],"as":"category"}},'
+            '{"$match":{"category.0":{"$exists":true}}},'
+            '{"$project":{"category":0}}]'
+        ) % LISTING_CATEGORY_ID
+
+        with_pipeline = rest_api.get(f'{ROUTE_URL}/?limit=0&active=false&filter={frontend_pipeline}')
+        with_parameter = rest_api.get(f'{ROUTE_URL}/?limit=0&active=false&category={LISTING_CATEGORY_ID}')
+
+        assert with_pipeline.status_code == HTTPStatus.OK
+        assert with_parameter.get_json()['results'] == with_pipeline.get_json()['results']
+        assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
+
+    def test_the_uncategorized_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
+        """The same contract for the other half of **F3**: "types in no category"."""
+        frontend_pipeline = (
+            '[{"$lookup":{"from":"framework.categories","localField":"public_id",'
+            '"foreignField":"types","as":"categories"}},'
+            '{"$match":{"categories":{"$size":0}}},'
+            '{"$project":{"categories":0}}]'
+        )
+
+        with_pipeline = rest_api.get(f'{ROUTE_URL}/?limit=0&active=true&filter={frontend_pipeline}')
+        with_parameter = rest_api.get(f'{ROUTE_URL}/?limit=0&active=true&uncategorized=true')
+
+        assert with_pipeline.status_code == HTTPStatus.OK
+        assert with_parameter.get_json()['results'] == with_pipeline.get_json()['results']
+        assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
+
+    def test_the_overview_accepts_the_same_filters(self, rest_api) -> None:
+        """/types/overview shares the helper, so the parameters work there too."""
+        response = rest_api.get(f'{ROUTE_URL}/overview?limit=0&category={LISTING_CATEGORY_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        listed = [item['type_data']['public_id'] for item in response.get_json()['results']]
+        assert listed == [TYPE_ID_CATEGORIZED]
+
+
+class TestListingAccessControl:
+    """Both listings are restricted to the types the requesting user's group may READ."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One type the admin group may read and one it may not."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        denied = _type_doc(TYPE_ID_ACL_DENIED, ORIGINAL_LABEL)
+        denied['acl'] = _denied_acl()
+
+        types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
+        types.insert_one(denied)
+        yield
+        types.delete_many({'public_id': {'$in': [TYPE_ID_UNCATEGORIZED, TYPE_ID_ACL_DENIED]}})
+
+    def test_a_denied_type_is_absent_from_the_listing(self, rest_api) -> None:
+        """The route enforces the ACL itself now - no client-supplied filter is involved."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        listed = [result['public_id'] for result in response.get_json()['results']]
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_UNCATEGORIZED in listed
+        assert TYPE_ID_ACL_DENIED not in listed
+
+    def test_a_denied_type_is_absent_from_the_overview(self, rest_api) -> None:
+        """The overview applies the same rule, so the two never disagree about what exists."""
+        response = rest_api.get(f'{ROUTE_URL}/overview?limit=0')
+
+        listed = [item['type_data']['public_id'] for item in response.get_json()['results']]
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_UNCATEGORIZED in listed
+        assert TYPE_ID_ACL_DENIED not in listed
+
+    def test_the_total_excludes_the_denied_type_too(self, rest_api) -> None:
+        """The rule is in the criteria, so the count aggregation reads it as well."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+        body = response.get_json()
+
+        assert body['total'] == len(body['results'])
+
+    def test_a_client_filter_cannot_widen_the_listing(self, rest_api) -> None:
+        """Asking for the denied type by public_id still does not return it."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&filter={{"public_id":{TYPE_ID_ACL_DENIED}}}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['results'] == []
+
+    def test_a_client_pipeline_cannot_widen_the_listing(self, rest_api) -> None:
+        """The server's $match runs before the client's stages, so no stage can undo it."""
+        client_pipeline = '[{"$match":{"public_id":%d}}]' % TYPE_ID_ACL_DENIED
+
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&filter={client_pipeline}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['results'] == []
+
+    def test_a_deactivated_acl_is_listed(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Access control is opt-in: a switched-off ACL restricts nothing."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        types.update_one(
+            {'public_id': TYPE_ID_ACL_DENIED},
+            {'$set': {'acl': {'activated': False, 'groups': {'includes': {}}}}},
+        )
+
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+        listed = [result['public_id'] for result in response.get_json()['results']]
+
+        assert TYPE_ID_ACL_DENIED in listed
+
+
+class TestCreateNormalisesTheAcl:
+    """
+    ``POST /types/`` stores the same ``acl`` block every other write path stores
+
+    The insert hands the raw payload to the manager, so before 2026-09-17 a create without an ``acl``
+    stored a document without one and the first edit silently added it - two stored shapes for one
+    meaning, decided by whether anyone had edited the type.
+    """
+
+    @staticmethod
+    def _stored_acl(database_manager: MongoDatabaseManager, database_name: str) -> dict[str, Any]:
+        """
+        The acl block as it actually landed in the collection
+
+        Found by the type NAME: the payload cannot choose the id (it is server-owned), and the name
+        is unique.
+        """
+        stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
+            {'name': TYPE_NAME_FOR_CREATE}
+        )
+
+        return stored['acl']
+
+    @pytest.fixture(autouse=True)
+    def _cleanup(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Removes the created type after each test."""
+        yield
+        database_manager.get_collection(CmdbType.COLLECTION, database_name)\
+            .delete_many({'name': TYPE_NAME_FOR_CREATE})
+
+    def test_a_payload_without_an_acl_stores_the_default(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """The deactivated, group-less block - access control is opt-in."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        del payload['acl']
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == {
+            'activated': False, 'groups': {'includes': {}},
+        }
+
+    def test_a_partial_acl_is_completed_rather_than_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Groups without the flag is the shape the model and the query used to read differently."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['acl'] = {'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == {
+            'activated': False,
+            'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}},
+        }
+
+    def test_an_activated_acl_survives_the_normalisation(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """Completing the block must not switch anyone's access control off."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['acl'] = {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == payload['acl']
+
+    def test_a_null_groups_does_not_become_a_500(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str
+    ) -> None:
+        """``GroupACL.from_data`` used to raise on a null groups; the create path must not inherit that."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['acl'] = {'activated': False, 'groups': None}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.CREATED
+        assert self._stored_acl(database_manager, database_name) == {
+            'activated': False, 'groups': {'includes': {}},
+        }
+
+    def test_the_created_type_reads_back_with_the_same_acl(self, rest_api) -> None:
+        """The response and the stored document agree, so no client sees a different shape."""
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        del payload['acl']
+        created = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        body = rest_api.get(f"{ROUTE_URL}/{created.get_json()['result_id']}").get_json()
+
+        assert body['result']['acl'] == {'activated': False, 'groups': {'includes': {}}}
+
+
+class TestListingAclParameter:
+    """``?acl=`` names the permission the listing filter asks about, replacing the READ default."""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One readable type and one the admin group may CREATE but not READ."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        create_only = _type_doc(TYPE_ID_ACL_CREATE_ONLY, ORIGINAL_LABEL)
+        create_only['acl'] = {
+            'activated': True,
+            'groups': {'includes': {str(ADMIN_GROUP_ID): ['CREATE', 'UPDATE']}},
+        }
+
+        types.insert_one(_type_doc(TYPE_ID_UNCATEGORIZED, ORIGINAL_LABEL))
+        types.insert_one(create_only)
+        yield
+        types.delete_many({'public_id': {'$in': [TYPE_ID_UNCATEGORIZED, TYPE_ID_ACL_CREATE_ONLY]}})
+
+    @staticmethod
+    def _listed_ids(response) -> list[int]:
+        """The public_ids in a listing response."""
+        return [result['public_id'] for result in response.get_json()['results']]
+
+    def test_the_default_listing_asks_for_read(self, rest_api) -> None:
+        """Without the parameter nothing changes: a CREATE-only type stays hidden."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0')
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY not in self._listed_ids(response)
+
+    def test_asking_for_create_lists_the_create_only_type(self, rest_api) -> None:
+        """?acl=CREATE replaces READ - this is what object-add asks for."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=CREATE')
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY in self._listed_ids(response)
+
+    def test_asking_for_read_and_create_requires_both(self, rest_api) -> None:
+        """A comma list is a conjunction, so the CREATE-only type drops out again."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=READ,CREATE')
+
+        listed = self._listed_ids(response)
+
+        assert response.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY not in listed
+        assert TYPE_ID_UNCATEGORIZED in listed
+
+    def test_the_total_follows_the_requested_permission(self, rest_api) -> None:
+        """The rule is in the criteria, so the count aggregation asks the same question."""
+        body = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=CREATE').get_json()
+
+        assert body['total'] == len(body['results'])
+
+    def test_an_unlicensed_permission_name_is_refused(self, rest_api) -> None:
+        """An unknown permission would match no group entry and hide everything - so it is a 400."""
+        assert rest_api.get(f'{ROUTE_URL}/?acl=NOPE').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_lowercase_permission_is_refused(self, rest_api) -> None:
+        """A stored ACL holds the upper-case value; 'read' would silently match nothing."""
+        assert rest_api.get(f'{ROUTE_URL}/?acl=read').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_an_empty_acl_is_refused(self, rest_api) -> None:
+        """An empty $all matches nothing, so an empty value must not mean 'no restriction'."""
+        assert rest_api.get(f'{ROUTE_URL}/?acl=').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_repeated_key_is_refused_rather_than_silently_narrowed(self, rest_api) -> None:
+        """
+        ``?acl=READ&acl=CREATE`` is not how the parameter is spelled
+
+        ``request.args.to_dict()`` keeps only the first value of a repeated key, so this shape would
+        silently narrow to READ. The first value is a valid permission, so it parses - this pins that
+        the request is *answered as READ*, which is why the documented spelling is a comma list.
+        """
+        repeated = rest_api.get(f'{ROUTE_URL}/?limit=0&acl=CREATE&acl=READ')
+
+        assert repeated.status_code == HTTPStatus.OK
+        assert TYPE_ID_ACL_CREATE_ONLY in self._listed_ids(repeated)
+
+    def test_the_overview_refuses_the_parameter(self, rest_api) -> None:
+        """It always asks for READ, and a parameter accepted and ignored is worse than none."""
+        assert rest_api.get(f'{ROUTE_URL}/overview?acl=CREATE').status_code == HTTPStatus.BAD_REQUEST
+
+    def test_the_overview_tolerates_an_explicit_read(self, rest_api) -> None:
+        """``?acl=READ`` asks the overview for exactly what it already does, so it is not an error."""
+        assert rest_api.get(f'{ROUTE_URL}/overview?limit=0&acl=READ').status_code == HTTPStatus.OK

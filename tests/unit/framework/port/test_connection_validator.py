@@ -38,6 +38,8 @@ from cmdb.framework.port.connection_validator import (
     coerce_connection_type,
     endpoint_blockers,
     missing_endpoint_blockers,
+    read_endpoint_ports,
+    same_object_blockers,
     shape_blockers,
     unknown_connection_type_blocker,
 )
@@ -57,6 +59,8 @@ PORT_A: int = 3
 PORT_B: int = 10
 CABLE_CI_ID: int = 55
 CABLE_TYPE_ID: int = 7
+OBJECT_A: int = 800
+OBJECT_B: int = 801
 
 
 def _ports_manager(found: list[dict[str, Any]]) -> MagicMock:
@@ -67,9 +71,14 @@ def _ports_manager(found: list[dict[str, Any]]) -> MagicMock:
     return manager
 
 
-def _port(public_id: int) -> dict[str, Any]:
-    """A minimal stored port document - only the id the endpoint check reads"""
-    return {PortKey.PUBLIC_ID.value: public_id}
+def _port(public_id: int, object_id: int = OBJECT_A) -> dict[str, Any]:
+    """A minimal stored port document - the id and the owner the endpoint checks read"""
+    return {PortKey.PUBLIC_ID.value: public_id, PortKey.OBJECT_ID.value: object_id}
+
+
+def _endpoint_ports(*ports: dict[str, Any]) -> dict[int, dict[str, Any]]:
+    """The read-once mapping the endpoint rules are judged against"""
+    return {port[PortKey.PUBLIC_ID.value]: port for port in ports}
 
 
 def _managers(cable_ci: dict[str, Any] | None, type_doc: dict[str, Any] | None) -> tuple[MagicMock, MagicMock]:
@@ -156,45 +165,132 @@ class TestMissingEndpointBlockers:
 
     def test_both_ends_existing_is_accepted(self) -> None:
         """The ordinary case"""
-        manager = _ports_manager([_port(PORT_A), _port(PORT_B)])
+        ports = _endpoint_ports(_port(PORT_A), _port(PORT_B))
 
-        assert missing_endpoint_blockers(manager, [PORT_A, PORT_B]) == []
-
-    def test_both_ends_are_read_in_one_query(self) -> None:
-        """One batched $in rather than one read per endpoint"""
-        manager = _ports_manager([_port(PORT_A), _port(PORT_B)])
-
-        missing_endpoint_blockers(manager, [PORT_B, PORT_A])
-
-        assert manager.find.call_args.kwargs['criteria'] == {
-            PortKey.PUBLIC_ID.value: {'$in': [PORT_A, PORT_B]},
-        }
+        assert missing_endpoint_blockers(ports, [PORT_A, PORT_B]) == []
 
     def test_a_missing_end_is_named(self) -> None:
         """The caller has to learn WHICH end does not exist"""
-        manager = _ports_manager([_port(PORT_A)])
+        ports = _endpoint_ports(_port(PORT_A))
 
-        assert missing_endpoint_blockers(manager, [PORT_A, PORT_B]) == [
+        assert missing_endpoint_blockers(ports, [PORT_A, PORT_B]) == [
             PortConnectionError.ENDPOINT_NOT_FOUND.format(port_id=PORT_B)
         ]
 
     def test_two_missing_ends_are_both_named(self) -> None:
         """Every reason at once, so a caller fixes one payload"""
-        manager = _ports_manager([])
+        assert len(missing_endpoint_blockers({}, [PORT_A, PORT_B])) == 2
 
-        assert len(missing_endpoint_blockers(manager, [PORT_A, PORT_B])) == 2
-
-    def test_an_unusable_pair_costs_no_query(self) -> None:
+    def test_an_unusable_pair_reports_nothing(self) -> None:
         """
         endpoint_blockers has already refused it
 
-        Reporting it again here would give the caller one fault under two different messages, and the
-        query could not be built anyway.
+        Reporting it again here would give the caller one fault under two different messages.
         """
+        assert missing_endpoint_blockers({}, [PORT_A]) == []
+
+
+class TestReadEndpointPorts:
+    """The one read both endpoint rules are judged against."""
+
+    def test_both_ends_are_read_in_one_query(self) -> None:
+        """One batched $in rather than one read per endpoint - and one for the whole validation"""
+        manager = _ports_manager([_port(PORT_A), _port(PORT_B)])
+
+        read_endpoint_ports(manager, [PORT_B, PORT_A])
+
+        assert manager.find.call_args.kwargs['criteria'] == {
+            PortKey.PUBLIC_ID.value: {'$in': [PORT_A, PORT_B]},
+        }
+
+    def test_the_ports_come_back_keyed_by_id(self) -> None:
+        """Keyed so both rules can ask about one endpoint without scanning"""
+        manager = _ports_manager([_port(PORT_A), _port(PORT_B)])
+
+        assert set(read_endpoint_ports(manager, [PORT_A, PORT_B])) == {PORT_A, PORT_B}
+
+    def test_an_unusable_pair_costs_no_query(self) -> None:
+        """The query could not be built, and endpoint_blockers has already refused the payload"""
         manager = _ports_manager([])
 
-        assert missing_endpoint_blockers(manager, [PORT_A]) == []
+        assert read_endpoint_ports(manager, [PORT_A]) == {}
         manager.find.assert_not_called()
+
+
+class TestSameObjectBlockers:
+    """
+    A CABLE joins two devices; an INTERNAL pairs two faces of one
+
+    The two halves are each other's refusal message, so both are pinned here.
+    """
+
+    def test_a_cable_between_two_objects_is_accepted(self) -> None:
+        """The ordinary case the feature exists for"""
+        ports = _endpoint_ports(_port(PORT_A, OBJECT_A), _port(PORT_B, OBJECT_B))
+
+        assert same_object_blockers(ports, ConnectionType.CABLE.value, [PORT_A, PORT_B]) == []
+
+    def test_a_cable_within_one_object_is_refused(self) -> None:
+        """
+        Two ports of one device cabled together is a panel pairing written the wrong way
+
+        The graph would otherwise draw a device linked to itself.
+        """
+        ports = _endpoint_ports(_port(PORT_A, OBJECT_A), _port(PORT_B, OBJECT_A))
+
+        assert same_object_blockers(ports, ConnectionType.CABLE.value, [PORT_A, PORT_B]) == [
+            PortConnectionError.SAME_OBJECT_CABLE.format(
+                first_port_id=PORT_A, second_port_id=PORT_B, object_id=OBJECT_A,
+            )
+        ]
+
+    def test_an_internal_within_one_object_is_accepted(self) -> None:
+        """The patch panel's front-to-rear pairing, which is what INTERNAL is for"""
+        ports = _endpoint_ports(_port(PORT_A, OBJECT_A), _port(PORT_B, OBJECT_A))
+
+        assert same_object_blockers(ports, ConnectionType.INTERNAL.value, [PORT_A, PORT_B]) == []
+
+    def test_an_internal_across_two_objects_is_refused(self) -> None:
+        """
+        The mirror image, and the reason both halves are enforced
+
+        An INTERNAL spanning two devices is not a pairing at all, and the CI Explorer walks THROUGH a
+        panel - it would follow this into the wrong device.
+        """
+        ports = _endpoint_ports(_port(PORT_A, OBJECT_A), _port(PORT_B, OBJECT_B))
+
+        assert same_object_blockers(ports, ConnectionType.INTERNAL.value, [PORT_A, PORT_B]) == [
+            PortConnectionError.CROSS_OBJECT_INTERNAL.format(
+                first_port_id=PORT_A, first_object_id=OBJECT_A,
+                second_port_id=PORT_B, second_object_id=OBJECT_B,
+            )
+        ]
+
+    def test_the_refusal_names_both_ports_and_the_object(self) -> None:
+        """A caller has to see which pair it sent and where they sit"""
+        ports = _endpoint_ports(_port(PORT_A, OBJECT_A), _port(PORT_B, OBJECT_A))
+
+        message = same_object_blockers(ports, ConnectionType.CABLE.value, [PORT_A, PORT_B])[0]
+
+        assert str(PORT_A) in message
+        assert str(PORT_B) in message
+        assert str(OBJECT_A) in message
+
+    @pytest.mark.parametrize('known', [[], [PORT_A]], ids=['neither end', 'one end'])
+    def test_a_missing_port_reports_nothing(self, known: list[int]) -> None:
+        """
+        missing_endpoint_blockers speaks for that
+
+        A rule about two owners cannot be judged with one of them unknown, and two messages for one
+        fault would only send the caller in circles.
+        """
+        ports = _endpoint_ports(*[_port(port_id) for port_id in known])
+
+        assert same_object_blockers(ports, ConnectionType.CABLE.value, [PORT_A, PORT_B]) == []
+
+    def test_an_unusable_pair_reports_nothing(self) -> None:
+        """endpoint_blockers has already refused the payload"""
+        assert same_object_blockers({}, ConnectionType.CABLE.value, [PORT_A]) == []
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -16,9 +16,10 @@
 """
 Naming of exported files (framework layer)
 
-Both export paths - the object export engine (`BaseExportWriter.export`) and the CmdbType export
-(`exporter_helper.build_types_json_export_response`) - build their download filename here, so the
-timezone, the layout and the sanitising are one decision instead of two independent ones.
+Every export path builds its download filename here - the object export engine
+(`BaseExportWriter.export`), the CmdbType export (`exporter_helper.build_types_json_export_response`),
+the object-import template, the DocAPI render and the two IPAM overview CSVs - so the timezone, the
+layout and the sanitising are one decision instead of five independent ones.
 
 The layout is `<timestamp>_<kind>_<subject>[_readable].<extension>`:
 
@@ -27,13 +28,17 @@ The layout is `<timestamp>_<kind>_<subject>[_readable].<extension>`:
     2026_07_21-13_05_00_objects_3-types.json          a selection spanning several types
     2026_07_21-13_05_00_objects_no-objects.json       a filter that matched nothing
     2026_07_21-13_05_00_types_47.json                 47 CmdbTypes
+    2026_07_21-13_05_00_document_invoice-42.pdf       a DocapiTemplate rendered for CmdbObject 42
+    2026_07_21-13_05_00_ipam_subnet-7-ips.csv         the IP overview of subnet 7
 
 The timestamp leads so a downloads folder sorts chronologically by name; the kind and subject follow so
 a file can be identified without opening it - before this, every export of every kind was named by its
 timestamp alone.
 
-NOTE the frontend currently names the downloaded file itself and discards the name sent in the
-Content-Disposition header, so these names only become visible once it adopts the server's.
+NOTE the frontend reads these names through its `ExportDownloadService` for the object, type and
+import-template exports, and still names the download itself on the IPAM overview exports. A browser can
+only read the header where it is exposed, which is why `Content-Disposition` is in the REST API's CORS
+`expose_headers` (`create_rest_api`) - a cross-origin frontend sees no name without it.
 """
 import re
 from datetime import datetime, timezone
@@ -47,8 +52,11 @@ from cmdb.framework.exporter.exporter_constants import (
     EXPORT_FILENAME_MAX_LENGTH,
     EXPORT_FILENAME_READABLE_MARKER,
     EXPORT_FILENAME_TEMPLATE_MARKER,
+    EXPORT_KIND_DOCUMENT,
+    EXPORT_KIND_IPAM,
     EXPORT_KIND_OBJECTS,
     EXPORT_KIND_TYPES,
+    EXPORT_SUBJECT_DOCUMENT_TEMPLATE,
     EXPORT_SUBJECT_MANY_TYPES_TEMPLATE,
     EXPORT_SUBJECT_NO_OBJECTS,
 )
@@ -121,7 +129,7 @@ def build_export_filename(kind: str, subject: str, file_extension: str, human_re
     Assembles a full export filename from its parts
 
     Args:
-        kind (str): What was exported (EXPORT_KIND_OBJECTS / EXPORT_KIND_TYPES)
+        kind (str): What was exported (EXPORT_KIND_OBJECTS / EXPORT_KIND_TYPES / EXPORT_KIND_DOCUMENT)
         subject (str): What the export contains (a type name, a count, ...)
         file_extension (str): The format's file extension, without the leading dot
         human_readable (bool): Whether to mark the file as a presentation export. Defaults to False
@@ -189,6 +197,54 @@ def build_object_template_filename(type_label: str, file_extension: str) -> str:
     stem = EXPORT_FILENAME_PART_SEPARATOR.join(part for part in parts if part)[:EXPORT_FILENAME_MAX_LENGTH]
 
     return f'{stem}.{file_extension}'
+
+
+def build_document_export_filename(template_label: str, object_id: int, file_extension: str) -> str:
+    """
+    Builds the download filename of a DocapiTemplate rendered for one CmdbObject
+
+    The template is named by its LABEL, like an import template and for the same reason: a rendered
+    document is handed to a person, and the label is what that person sees in the UI. The object's
+    public_id follows, because one template renders a different document for every object - a name
+    carrying the template alone would describe every one of them. A label that sanitises away to nothing
+    leaves the object id on its own rather than a leading separator
+
+    Args:
+        template_label (str): Label of the rendered DocapiTemplate
+        object_id (int): public_id of the CmdbObject the template was rendered for
+        file_extension (str): The format's file extension, without the leading dot
+
+    Returns:
+        str: e.g. `2026_07_21-13_05_00_document_invoice-42.pdf`
+    """
+    template_part: str = sanitize_filename_part(template_label)
+
+    subject: str = EXPORT_SUBJECT_DOCUMENT_TEMPLATE.format(
+        template=template_part,
+        object_id=object_id,
+    ) if template_part else str(object_id)
+
+    return build_export_filename(EXPORT_KIND_DOCUMENT, subject, file_extension)
+
+
+def build_ipam_export_filename(subject: str, file_extension: str) -> str:
+    """
+    Builds the download filename of an IPAM overview export
+
+    The two IPAM exports - a supernet's assigned subnets and a subnet's IP overview - share one kind
+    and name themselves in the SUBJECT, because both are "the rows of one object" and which rows they
+    are is what tells them apart. The subject comes from the caller
+    (`IpamExport.FILENAME_SUBJECT_TEMPLATE` / `IpamSubnetIpsExport.FILENAME_SUBJECT_TEMPLATE`), so the
+    IPAM wording stays in the IPAM constants
+
+    Args:
+        subject (str): What the export contains, e.g. `subnet-7-ips`
+        file_extension (str): The format's file extension, without the leading dot
+
+    Returns:
+        str: e.g. `2026_07_21-13_05_00_ipam_subnet-7-ips.csv`
+    """
+    return build_export_filename(EXPORT_KIND_IPAM, sanitize_filename_part(subject), file_extension)
 
 
 def build_type_export_filename(type_count: int, file_extension: str) -> str:

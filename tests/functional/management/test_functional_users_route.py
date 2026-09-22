@@ -30,6 +30,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.user_model import CmdbUser
+from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/users'
@@ -42,6 +43,8 @@ USER_ID_FOR_GET: int = 9711
 USER_ID_FOR_UPDATE: int = 9712
 USER_ID_FOR_DELETE: int = 9713
 USER_ID_FOR_PASSWORD: int = 9714
+# A user whose credentials an external directory owns - the password route must refuse it
+USER_ID_LDAP_AUTHENTICATED: int = 9718
 MISSING_USER_ID: int = 9799
 
 ALL_USER_IDS: list[int] = [
@@ -50,6 +53,7 @@ ALL_USER_IDS: list[int] = [
     USER_ID_FOR_UPDATE,
     USER_ID_FOR_DELETE,
     USER_ID_FOR_PASSWORD,
+    USER_ID_LDAP_AUTHENTICATED,
 ]
 
 ORIGINAL_FIRST_NAME: str = 'Original'
@@ -112,10 +116,13 @@ class TestPostUser:
             response = rest_api.post(f'{ROUTE_URL}/', json=_user_payload(USER_ID_FOR_CREATE))
 
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
-            follow_up = rest_api.get(f'{ROUTE_URL}/{USER_ID_FOR_CREATE}')
+            # `public_id` is server-owned: the payload's id is purged, so the route names the real one
+            created_id = response.get_json()['result_id']
+            follow_up = rest_api.get(f'{ROUTE_URL}/{created_id}')
             assert follow_up.status_code == HTTPStatus.OK
         finally:
             _drop_user(database_manager, database_name, USER_ID_FOR_CREATE)
+            _drop_user(database_manager, database_name, created_id)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -198,6 +205,99 @@ class TestPutUser:
             assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         finally:
             _drop_user(database_manager, database_name, USER_ID_FOR_PASSWORD)
+
+
+class TestPasswordChangeRespectsWhoOwnsThePassword:
+    """
+    A password may only be set for a user whose password DataGerry owns
+
+    The LDAP provider never reads a stored digest - its bind IS the check - so writing one would not
+    change that user's login. Worse, it would CREATE a second one: the local provider refuses a user
+    that carries no password, and that refusal is the only thing keeping a directory-managed account
+    out of `AuthModule.authenticate_with_any_provider`, which tries every active provider after the
+    primary one fails.
+    """
+
+    def test_a_directory_authenticated_user_is_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """400, naming the provider - not a silent 202 that changes nothing the user logs in with."""
+        users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+        doc = _user_doc(USER_ID_LDAP_AUTHENTICATED)
+        doc['authenticator'] = LdapAuthenticationProvider.get_name()
+        doc.pop('password', None)
+        users.insert_one(doc)
+
+        try:
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{USER_ID_LDAP_AUTHENTICATED}/password',
+                json={'password': NEW_PASSWORD},
+            )
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert LdapAuthenticationProvider.get_name() in response.get_json()['message']
+        finally:
+            _drop_user(database_manager, database_name, USER_ID_LDAP_AUTHENTICATED)
+
+    def test_the_refusal_leaves_the_user_without_a_local_password(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The point of the refusal: no digest is stored, so the local provider still refuses the user."""
+        users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+        doc = _user_doc(USER_ID_LDAP_AUTHENTICATED)
+        doc['authenticator'] = LdapAuthenticationProvider.get_name()
+        doc.pop('password', None)
+        users.insert_one(doc)
+
+        try:
+            rest_api.patch(f'{ROUTE_URL}/{USER_ID_LDAP_AUTHENTICATED}/password', json={'password': NEW_PASSWORD})
+
+            assert not users.find_one({'public_id': USER_ID_LDAP_AUTHENTICATED}).get('password')
+        finally:
+            _drop_user(database_manager, database_name, USER_ID_LDAP_AUTHENTICATED)
+
+    def test_a_locally_authenticated_user_is_still_changed(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The guard is about WHO owns the password, so the ordinary case must stay untouched."""
+        _insert_user_doc(database_manager, database_name, USER_ID_FOR_PASSWORD)
+
+        try:
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{USER_ID_FOR_PASSWORD}/password',
+                json={'password': NEW_PASSWORD},
+            )
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+            stored = database_manager.get_collection(CmdbUser.COLLECTION, database_name)\
+                .find_one({'public_id': USER_ID_FOR_PASSWORD})
+            assert stored['password'] != INITIAL_PASSWORD
+        finally:
+            _drop_user(database_manager, database_name, USER_ID_FOR_PASSWORD)
+
+    def test_a_user_whose_provider_is_unknown_may_still_be_given_one(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        An unknown provider cannot authenticate the user at all
+
+        The local password is then the only way to reach the account, so refusing to set one would
+        take away the repair rather than protect anything.
+        """
+        users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+        doc = _user_doc(USER_ID_LDAP_AUTHENTICATED)
+        doc['authenticator'] = 'NoSuchAuthenticationProvider'
+        users.insert_one(doc)
+
+        try:
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{USER_ID_LDAP_AUTHENTICATED}/password',
+                json={'password': NEW_PASSWORD},
+            )
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        finally:
+            _drop_user(database_manager, database_name, USER_ID_LDAP_AUTHENTICATED)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

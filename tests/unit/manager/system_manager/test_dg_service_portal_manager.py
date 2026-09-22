@@ -56,9 +56,8 @@ ACCESS_TOKEN: str = 'access-token'
 
 def _manager(base_url: str = BASE_URL, token: str = ACCESS_TOKEN) -> DgServicePortalManager:
     """Builds a manager instance without touching the environment, with the endpoint/token pre-set."""
-    with patch(f'{PATH}.current_app') as current_app:
-        current_app.cloud_mode = False
-        current_app.local_mode = False
+    # The hosted-cloud question is one predicate now (`is_hosted_cloud`), not two app flags read inline
+    with patch(f'{PATH}.is_hosted_cloud', return_value=False):
         manager = DgServicePortalManager()
 
     manager.base_url = base_url
@@ -187,10 +186,8 @@ class TestInit:
 
     def test_cloud_non_local_reads_env(self) -> None:
         """In cloud+non-local mode the access token and base URL are read from the environment."""
-        with patch(f'{PATH}.current_app') as current_app, \
+        with patch(f'{PATH}.is_hosted_cloud', return_value=True), \
              patch(f'{PATH}.os.getenv', side_effect=lambda k: {'X-ACCESS-TOKEN': 't', 'DG_SP_BASE_URL': 'u'}[k]):
-            current_app.cloud_mode = True
-            current_app.local_mode = False
             manager = DgServicePortalManager()
 
         assert manager.x_access_token == 't'
@@ -198,27 +195,21 @@ class TestInit:
 
     def test_missing_access_token_raises(self) -> None:
         """A missing X-ACCESS-TOKEN raises NoAccessTokenError."""
-        with patch(f'{PATH}.current_app') as current_app, \
+        with patch(f'{PATH}.is_hosted_cloud', return_value=True), \
              patch(f'{PATH}.os.getenv', return_value=None):
-            current_app.cloud_mode = True
-            current_app.local_mode = False
             with pytest.raises(NoAccessTokenError):
                 DgServicePortalManager()
 
     def test_missing_base_url_raises(self) -> None:
         """A present token but missing base URL raises NoAccessTokenError."""
-        with patch(f'{PATH}.current_app') as current_app, \
+        with patch(f'{PATH}.is_hosted_cloud', return_value=True), \
              patch(f'{PATH}.os.getenv', side_effect=lambda k: 't' if k == 'X-ACCESS-TOKEN' else None):
-            current_app.cloud_mode = True
-            current_app.local_mode = False
             with pytest.raises(NoAccessTokenError):
                 DgServicePortalManager()
 
     def test_local_mode_leaves_attrs_none(self) -> None:
         """In local mode neither the token nor the base URL is read."""
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = True
-            current_app.local_mode = True
+        with patch(f'{PATH}.is_hosted_cloud', return_value=False):
             manager = DgServicePortalManager()
 
         assert manager.x_access_token is None
@@ -226,9 +217,7 @@ class TestInit:
 
     def test_non_cloud_leaves_attrs_none(self) -> None:
         """Outside cloud mode neither the token nor the base URL is read."""
-        with patch(f'{PATH}.current_app') as current_app:
-            current_app.cloud_mode = False
-            current_app.local_mode = False
+        with patch(f'{PATH}.is_hosted_cloud', return_value=False):
             manager = DgServicePortalManager()
 
         assert manager.x_access_token is None

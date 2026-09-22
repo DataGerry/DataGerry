@@ -36,6 +36,11 @@ def get_cmdb_type_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbType.SCHEMA
     """
+    # Imported inside the builder: the model layer imports this module, so a module-level import
+    # would close the cycle (see the class_schema convention)
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.type_model.section_type_enum import SectionType
+
     return {
         'public_id': {  # public_id of the CmdbType
             'type': 'integer'
@@ -75,6 +80,14 @@ def get_cmdb_type_schema() -> dict[str, Any]:
         'uses_ports': {  # If True, CmdbObjects of this CmdbType may carry physical ports (Port Connectivity)
             'type': 'boolean',
             'default': False
+        },
+        # Position of the ports section among this CmdbType's sections (0 = first). Only meaningful
+        # while 'uses_ports' is True - the write paths force it back to 0 when the flag is off
+        'port_section_index': {
+            'type': 'integer',
+            'required': False,
+            'min': 0,
+            'default': 0
         },
         'global_template_ids': {  # The names of the global CmdbSectionTemplates used by this CmdbType
             'type': 'list',
@@ -230,9 +243,15 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                     'schema': {
                         'type': 'dict',
                         'schema': {
-                            "type": {
+                            "type": {  # The section kind - one of the SectionType members
                                 'type': 'string',
-                                'required': True
+                                'required': True,
+                                # A kind outside the enum is refused here for the same reason the
+                                # type IMPORT refuses it: a mistyped 'multi-data-section' is stored
+                                # as a section of its own kind, read back as a plain section, and
+                                # its fields are then no multi-data fields at all - silently, and
+                                # only visible once an Object of the Type stores no rows for it
+                                'allowed': [member.value for member in SectionType]
                             },
                             "name": {
                                 'type': 'string',

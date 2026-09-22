@@ -70,6 +70,8 @@ from cmdb.models.user_management_constants import (
 )
 
 from cmdb.framework.constants import __COLLECTIONS__ as FRAMEWORK_CLASSES
+from cmdb.framework.media_library.media_file import MediaFile
+from cmdb.framework.media_library.media_file_keys import GRIDFS_FILES_SUFFIX
 from cmdb.framework.section_templates.section_template_creator import SectionTemplateCreator
 
 from cmdb.security.key.generator import KeyGenerator
@@ -118,11 +120,12 @@ class CollectionValidator:
         """
         Runs the full bootstrap pass for the configured tenant database
 
-        Executes the four init steps in order: ensure the tenant database itself exists (and
+        Executes the five init steps in order: ensure the tenant database itself exists (and
         seed encryption keys in local mode), create / reconcile framework collections, create
-        / reconcile user-management collections, and ensure the shared cache database. Any
-        failure raised by an init step is wrapped in CollectionValidationError so callers see
-        a single error type for boot-time validation issues
+        / reconcile user-management collections, reconcile the media library's GridFS indexes,
+        and ensure the shared cache database. Any failure raised by an init step is wrapped in
+        CollectionValidationError so callers see a single error type for boot-time validation
+        issues
 
         Raises:
             CollectionValidationError: If any of the underlying init steps fails
@@ -137,6 +140,7 @@ class CollectionValidator:
 
             self.init_framework_collections(all_collections)
             self.init_management_collections(all_collections)
+            self.init_media_library_indexes()
             self.init_cache_db()
         except Exception as err:
             LOGGER.error("[validate_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
@@ -185,6 +189,34 @@ class CollectionValidator:
             LOGGER.error(
                 "[init_cache_db] Failed to update indexes for collection %s. Exception: %s. Type: %s.",
                 CmdbCachedUser.COLLECTION, err, type(err), exc_info=True,
+            )
+
+
+    def init_media_library_indexes(self) -> None:
+        """
+        Reconciles the media library's indexes on the GridFS file collection
+
+        The media library cannot be registered in `__COLLECTIONS__` like every other framework class:
+        that loop uses a class's COLLECTION verbatim, and `MediaFile.COLLECTION` is the GridFS BUCKET
+        name (`media.libary`), not a collection. The file documents live in `media.libary.files`, so
+        registering the class would create an empty collection under the bucket name and index that
+        instead - while the collection holding the files stayed unindexed.
+
+        So the media library gets its own step, for the same reason `init_cache_db` has one. The
+        reconciliation is the ordinary additive `ensure_indexes`, and a failure is logged rather than
+        raised, exactly as a per-collection index failure is in the two loops above: a database still
+        holding files that collide on (filename, metadata.parent) must not stop a boot. Those are
+        de-duplicated by `updater_20260916`, after which the index builds on the next pass
+        """
+        files_collection: str = f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
+
+        try:
+            self.ensure_indexes(files_collection, self.db_name, MediaFile.get_index_keys())
+        except Exception as err:
+            LOGGER.error(
+                "[init_media_library_indexes] Failed to update indexes for collection %s. "
+                "Exception: %s. Type: %s.",
+                files_collection, err, type(err), exc_info=True,
             )
 
 

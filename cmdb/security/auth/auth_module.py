@@ -237,6 +237,34 @@ class AuthModule:
             return False
 
 
+    @staticmethod
+    def provider_owns_passwords(provider_name: str) -> bool:
+        """
+        Reports whether DataGerry may set the password of a user authenticated by this provider
+
+        This is what ``BaseAuthenticationProvider.PASSWORD_ABLE`` means: not "the provider checks a
+        password" - the LDAP provider does exactly that, by binding - but "the password lives HERE".
+        An external directory owns its users' credentials, so writing a local digest for such a user
+        is at best meaningless and at worst a second way in: the local provider refuses a user with no
+        stored password, and that refusal is the only thing keeping a directory-managed account out of
+        the fallback sweep in ``authenticate_with_any_provider``
+
+        An UNKNOWN provider name answers True. Such a user cannot be authenticated by its own provider
+        at all, so the local password is the only way to reach the account - refusing to set one would
+        take away the repair rather than protect anything
+
+        Args:
+            provider_name (str): Class name of the provider, as stored on ``CmdbUser.authenticator``
+
+        Returns:
+            bool: True when a password may be stored for that user
+        """
+        if not AuthModule.provider_exists(provider_name):
+            return True
+
+        return AuthModule.get_provider_class(provider_name).PASSWORD_ABLE
+
+
     @classmethod
     def get_installed_providers(cls) -> list[type[BaseAuthenticationProvider]]:
         """

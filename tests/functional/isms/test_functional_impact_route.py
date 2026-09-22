@@ -70,12 +70,16 @@ ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
 
 BASIS_DEFAULT: float = 1.5
 
+# The name every payload in this module carries. `public_id` is server-owned, so an impact created
+# THROUGH the route lands under an id the test never chose - the purge keys on the name as well
+PAYLOAD_NAME: str = 'Impact'
+
 # The likelihood seeded for the risk-matrix regeneration test
 MATRIX_LIKELIHOOD_ID: int = 97590
 BASIS_OTHER: float = 2.5
 
 
-def _impact_payload(public_id: int, basis: float = BASIS_DEFAULT, name: str = 'Impact') -> dict[str, Any]:
+def _impact_payload(public_id: int, basis: float = BASIS_DEFAULT, name: str = PAYLOAD_NAME) -> dict[str, Any]:
     """Builds an IsmsImpact body accepted by POST / PUT (name + calculation_basis are required)."""
     return {'public_id': public_id, 'name': name, 'calculation_basis': basis}
 
@@ -91,7 +95,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any impacts / risk assessments seeded by a test, before and after each test."""
     def _purge() -> None:
         database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_IMPACT_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_IMPACT_IDS}}, {'name': PAYLOAD_NAME}]})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_ASSESSMENT_IDS}})
 
@@ -128,18 +132,21 @@ class TestImpactWithoutADescriptionCanBeSaved:
 
     def test_the_list_answers_null_and_accepts_it_back(self, rest_api) -> None:
         """The exact chain, end to end: created without one, answered as null, saved unchanged."""
-        assert rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))\
-            .status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        created = rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))
+
+        assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        # The identity is server-owned, so the created impact is found under the id the route assigned
+        created_id: int = created.get_json()['result_id']
 
         listed = rest_api.get(f'{ROUTE_URL}/?limit=0')
 
         assert listed.status_code == HTTPStatus.OK
         answered = next(impact for impact in listed.get_json()['results']
-                        if impact['public_id'] == IMPACT_ID_FOR_GET)
+                        if impact['public_id'] == created_id)
         assert answered['description'] is None
 
         # What the frontend sends back is what it was given
-        response = rest_api.put(f'{ROUTE_URL}/{IMPACT_ID_FOR_GET}', json=answered)
+        response = rest_api.put(f'{ROUTE_URL}/{created_id}', json=answered)
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
 

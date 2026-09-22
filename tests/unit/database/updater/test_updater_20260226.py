@@ -596,10 +596,14 @@ class TestStartUpdate:
     def test_a_failing_database_call_is_wrapped_and_the_version_kept(self) -> None:
         """Any error surfaces as UpdaterException; the version stays put so the run repeats."""
         updater = _new_updater([_link(OBJECT_A_ID, OBJECT_B_ID)])
-        updater.dbm.insert.side_effect = RuntimeError('boom')
+        failure = RuntimeError('boom')
+        updater.dbm.insert.side_effect = failure
 
         with pytest.raises(UpdaterException) as err:
             updater.start_update()
 
+        # The text reads the same whether the wrapper holds the exception or `str()` of it; the
+        # identity is what says a caller can still see WHICH error it was (the updater wrapping rule)
         assert 'boom' in str(err.value)
+        assert err.value.args[0] is failure
         updater.increase_updater_version.assert_not_called()

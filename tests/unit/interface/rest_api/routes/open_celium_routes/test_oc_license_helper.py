@@ -19,11 +19,10 @@ Unit tests for the OpenCelium license route helpers
 The usage paging and the manager construction, extracted from the two routes.
 
 **The paging rule is pinned in both directions on purpose.** An unreadable `?page=` / `?size=`
-answers the DEFAULT rather than a 400 - `type=int` is deliberate (a bare `int()` used to crash into a
+answers the DEFAULT rather than a 400 - `type=int` is deliberate (a bare `int()` crashes into a
 generic 500), but it means `?page=abc` reads as page 0 as though the caller had asked for it, and a
-negative or enormous value passes straight through to OpenCelium. Whether that should be refused
-instead is discussion-backlog #226, to be decided with #223; these tests are what makes the decision
-visible - they will fail loudly the day it is taken.
+negative or enormous value passes straight through to OpenCelium. These tests are what makes
+refusing it instead a visible change - they fail loudly the day it happens.
 """
 from typing import Any
 
@@ -93,7 +92,7 @@ class TestReadUsagePaging:
         A value that is not a whole number reads as the default, not as a 400
 
         Recorded as behaviour, not asserted as desirable: the caller asked for something and is
-        answered something else without being told. Discussion-backlog #226.
+        answered something else without being told.
         """
         with _app().test_request_context(f'/licenses/info?{OC_PAGE_PARAM}={value}'):
             assert read_usage_paging() == DEFAULT_PAGING
@@ -102,8 +101,7 @@ class TestReadUsagePaging:
         """
         Nothing here clamps - OpenCelium decides what exists
 
-        Deliberate for a proxy, and the other half of #226: DataGerry's own pager refuses these,
-        this one forwards them.
+        Deliberate for a proxy: DataGerry's own pager refuses these, this one forwards them.
         """
         with _app().test_request_context(f'/licenses/info?{OC_PAGE_PARAM}=-1&{OC_SIZE_PARAM}=-10'):
             assert read_usage_paging() == (-1, -10)

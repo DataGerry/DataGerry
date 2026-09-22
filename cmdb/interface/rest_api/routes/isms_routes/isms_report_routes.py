@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 import re
 from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
@@ -44,7 +43,7 @@ from cmdb.models.extendable_option_model import OptionType, CmdbExtendableOption
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -117,14 +116,15 @@ def _replace_object_ids_with_summaries(items: list[dict], object_key: str, objec
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
+@handle_route_errors("while retrieving the RiskMatrix report")
 def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix report
 
     The body carries the grid counted three ways - `risk_matrix_before_treatment`,
     `risk_matrix_current_state`, `risk_matrix_after_treatment` - plus `configured`, which is False
-    while the ISMS config wizard has not produced the risk matrix yet. Before 2026-09-09 that state
-    was indistinguishable from a configured matrix nothing had been assessed against
+    while the ISMS config wizard has not produced the risk matrix yet. Without that flag the state
+    is indistinguishable from a configured matrix nothing has been assessed against
 
     Args:
         request_user (CmdbUser): CmdbUser requesting the RiskMatrix report
@@ -156,14 +156,9 @@ def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
         risk_matrix_report = report_builder.build_risk_matrix_report()
 
         return DefaultResponse(risk_matrix_report).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskMatrixReportError as err:
         LOGGER.error("[get_isms_risk_matrix_report] RiskMatrixReportError: %s", err, exc_info=True)
         abort(400, "Failed to build the RiskMatrix report from the stored ISMS configuration!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risk_matrix_report] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the RiskMatrix report!")
 
 
 @isms_report_blueprint.route('/risk_treatment_plan', methods=['GET', 'HEAD'])
@@ -414,7 +409,6 @@ def get_isms_soa_report(params: CollectionParameters, request_user: CmdbUser) ->
     """
     # This route resolves two option-label maps and paginates the sorted result, so the local count
     # legitimately exceeds the default
-    # pylint: disable=too-many-locals
     try:
         body: bool = request_wants_body()
 

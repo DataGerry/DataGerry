@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
     RiskAssessmentManager,
@@ -37,13 +36,13 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_risk_assessment_constants import CONTROL_MEASURE_ASSIGNMENTS_KEY
-from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 
 from cmdb.framework.results import IterationResult
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     guard_required_risk_assessment_fields,
@@ -66,7 +65,7 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -158,7 +157,8 @@ def build_ra_naming(
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.add')
-@risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
+@risk_assessment_blueprint.validate(build_write_schema(IsmsRiskAssessment.SCHEMA))
+@handle_route_errors("while creating the RiskAssessment")
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskAssessment into the database
@@ -214,24 +214,23 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
             abort(404, "Could not retrieve the created RiskAssessment from the database!")
 
         return InsertSingleResponse(created_risk_assessment, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskAssessmentManagerInsertError as err:
         LOGGER.error("[insert_isms_risk_assessment] RiskAssessmentManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new RiskAssessment in the database!")
     except RiskAssessmentManagerGetError as err:
         LOGGER.error("[insert_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created RiskAssessment from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_isms_risk_assessment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the RiskAssessment!")
 
 
+# The DOCUMENT schema, deliberately: on this route the body's `public_id` is not the identity of
+# anything being written - it names the SOURCE assessment the duplicates are copied from, and the
+# handler pops it. Every other write route here validates the derived request schema
 @risk_assessment_blueprint.route('/duplicate/<string:duplicate_mode>/<string:public_ids>', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.add')
 @risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
+@handle_route_errors("while duplicating the RiskAssessment")
 def duplicate_isms_risk_assessment(
     data: dict[str, Any],
     request_user: CmdbUser,
@@ -261,7 +260,7 @@ def duplicate_isms_risk_assessment(
         DefaultResponse: All created public_ids of IsmsRiskAssessments
     """
     # Duplicating across three modes with optional CMA copying spans several branches / locals
-    # pylint: disable=too-many-locals,too-many-branches
+    # pylint: disable=too-many-locals
     try:
         duplicate_modes = ('object','risk', 'object_group')
 
@@ -337,14 +336,9 @@ def duplicate_isms_risk_assessment(
                 cma_manager.insert_many_items(new_assignments)
 
         return DefaultResponse(created_risk_assessment_ids).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskAssessmentManagerInsertError as err:
         LOGGER.error("[duplicate_isms_risk_assessment] RiskAssessmentManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the duplicated RiskAssessment in the database!")
-    except Exception as err:
-        LOGGER.error("[duplicate_isms_risk_assessment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while duplicating the RiskAssessment!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -412,22 +406,12 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
             if target_object is not None:
                 type_id = target_object['type_id']
 
-                # Find all STATIC groups containing this CmdbObject
-                static_groups = object_groups_manager.find(criteria={
-                    'group_type': ObjectGroupMode.STATIC,
-                    'assigned_ids': object_id
-                })
-
-                static_group_ids = [g['public_id'] for g in static_groups]
-
-                # Find all DYNAMIC groups that include this CmdbType
-                dynamic_groups = object_groups_manager.find(criteria={
-                    'group_type': ObjectGroupMode.DYNAMIC,
-                    'assigned_ids': type_id
-                })
-                dynamic_group_ids = [g['public_id'] for g in dynamic_groups]
-
-                all_group_ids = static_group_ids + dynamic_group_ids
+                # Every group the object belongs to: the STATIC ones listing the object itself and the
+                # DYNAMIC ones listing its type. The manager owns that pairing - it is the same
+                # mode/assigned_ids knowledge its cleanup query uses - and answers both in one query
+                all_group_ids: list[int] = object_groups_manager.find_group_ids_containing(
+                    object_id, type_id,
+                )
 
                 # STEP 3: Build enhanced filter
                 params.filter = {
@@ -525,6 +509,7 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.view')
+@handle_route_errors("while retrieving the RiskAssessment with ID: {public_id}")
 def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRiskAssessment
@@ -546,14 +531,9 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
                                                      f"The RiskAssessment with ID:{public_id} was not found!")
 
         return GetSingleResponse(requested_risk_assessment, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskAssessmentManagerGetError as err:
         LOGGER.error("[get_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskAssessment with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risk_assessment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the RiskAssessment with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -561,7 +541,8 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.edit')
-@risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
+@risk_assessment_blueprint.validate(build_write_schema(IsmsRiskAssessment.SCHEMA))
+@handle_route_errors("while updating the RiskAssessment with ID: {public_id}")
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskAssessment
@@ -646,20 +627,18 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
         risk_assessment_manager.recalculate_risk_values(data)
 
         # Update the actual RiskAssessment
+        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+        pin_public_id(data, public_id)
+
         risk_assessment_manager.update_item(public_id, IsmsRiskAssessment.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskAssessmentManagerGetError as err:
         LOGGER.error("[update_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskAssessment with ID: {public_id} from the database!")
     except RiskAssessmentManagerUpdateError as err:
         LOGGER.error("[update_isms_risk_assessment] RiskAssessmentManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the RiskAssessment with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_risk_assessment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the RiskAssessment with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -667,6 +646,7 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.delete')
+@handle_route_errors("while deleting the RiskAssessment with ID: {public_id}")
 def delete_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRiskAssessment
@@ -691,14 +671,9 @@ def delete_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Respo
         risk_assessment_manager.delete_with_follow_up(public_id)
 
         return DeleteSingleResponse(to_delete_risk_assessment).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskAssessmentManagerDeleteError as err:
         LOGGER.error("[delete_isms_risk_assessment] RiskAssessmentManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the RiskAssessment with ID:{public_id}!")
     except RiskAssessmentManagerGetError as err:
         LOGGER.error("[delete_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskAssessment with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_isms_risk_assessment] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the RiskAssessment with ID: {public_id}!")

@@ -2396,7 +2396,7 @@ def test_resolve_supernet_family_loads_then_resolves_via_supernet_family() -> No
     with patch(f'{PATH}.load_supernet_object', return_value=supernet_doc) as mock_load:
         family = resolve_supernet_family(objects_manager, types_manager, SUPERNET_OBJECT_ID)
 
-    mock_load.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID)
+    mock_load.assert_called_once_with(objects_manager, types_manager, SUPERNET_OBJECT_ID, None)
     assert family == IpAddressFamily.IPV6
 
 

@@ -26,7 +26,7 @@ the literals 1 / 2 / 'base.*'
 from cmdb.utils import BaseStrEnum
 
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # public_id of the bootstrap administrator group (seeded with the master right)

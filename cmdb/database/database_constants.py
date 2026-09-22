@@ -23,9 +23,8 @@ PUBLIC_ID_COUNTER_COLLECTION = "datastorage.counter"
 
 # Schema baseline assumed for a database that carries no 'updater' settings document yet: it is
 # seeded with this version, so every registered migration at or below it never runs. It is therefore
-# the oldest schema DataGerry can migrate FROM - the migrations up to and including this version were
-# removed on 2026-07-30, so a database below it cannot be brought forward any more. Applies in every
-# mode (it predates cloud mode but is not cloud-specific)
+# the oldest schema DataGerry can migrate FROM - no migration up to and including this version
+# exists any more, so a database below it cannot be brought forward. Applies in every mode
 BASELINE_UPDATER_VERSION = 20240603
 
 # Retry up to x times if duplicate key occurs while creating a document in the database
@@ -61,7 +60,7 @@ MONGO_SORT_DESCENDING: int = -1
 MONGO_CONNECTION_STRING_ENV: str = "CONNECTION_STRING"
 
 # Connection-string scheme that makes the connector request TLS. Any other scheme (including a
-# plain "mongodb://" string that already asks for TLS itself) does not - see discussion-backlog #139
+# plain "mongodb://" string that already asks for TLS itself) does not
 MONGO_SRV_SCHEME_PREFIX: str = "mongodb+srv://"
 
 # MongoClient option names the connector normalises: the deprecated 'ssl' flag is dropped in favour

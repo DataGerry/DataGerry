@@ -31,6 +31,7 @@ from flask import current_app
 
 from cmdb.manager import OcTemplateManager
 
+from cmdb.open_celium import is_hosted_cloud
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey
@@ -68,7 +69,7 @@ def datagerry_invoker_name() -> str:
         str: OC_DATAGERRY_CLOUD_INVOKER_NAME on a hosted cloud installation, otherwise
             OC_DATAGERRY_INVOKER_NAME
     """
-    if current_app.cloud_mode and not current_app.local_mode:
+    if is_hosted_cloud():
         return OC_DATAGERRY_CLOUD_INVOKER_NAME
 
     return OC_DATAGERRY_INVOKER_NAME

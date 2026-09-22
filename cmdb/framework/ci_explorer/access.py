@@ -16,11 +16,10 @@
 """
 Object-ACL filtering for the CI Explorer graph
 
-Until 2026-09-15 the graph consulted no ACL at all: every source (object relations, dg_location,
-IPAM, and the focal object itself) returned whatever it found, so a user who could open the CI
-Explorer learned the label, type and neighbourhood of objects they were not allowed to read
-anywhere else in the product. That was backlog #146, and the ruling was to fix it across the whole
-graph rather than only for the source that raised it.
+The ACL is applied to **every** source - object relations, dg_location, IPAM, and the focal object
+itself - not only to the one a caller enters through. Without that, a user who can open the CI
+Explorer learns the label, type and neighbourhood of objects they are not allowed to read anywhere
+else in the product.
 
 Two properties make the fix cheap. An ACL lives on the **CmdbType**, not on the CmdbObject, so the
 question is per type rather than per object; and the graph already bulk-loads every in-scope type in

@@ -23,7 +23,7 @@ delete boolean and the exception mapping) is exercised. The logic-bearing method
 tests; the thin dbm delegations are covered by the parametrized error-mapping table at the bottom,
 which pins that each one rewraps its database error as the matching BaseManager* error
 """
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -44,6 +44,8 @@ from cmdb.errors.manager import (
     BaseManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+MODULE_PATH: str = 'cmdb.manager.base_manager'
 
 COLLECTION: str = 'framework.stub'
 DB_NAME: str = 'test-db'
@@ -276,9 +278,85 @@ def test_iterate_query_delegates_the_data_half_to_aggregate_query() -> None:
 
     BaseManager.iterate_query(mgr, params, user, permission)
 
-    mgr.aggregate_query.assert_called_once_with(params, user, permission)
+    # The access control has already been put INTO params, so the data half is not given it again -
+    # handing it down would restrict the rows and leave the count beside them unrestricted
+    mgr.aggregate_query.assert_called_once_with(params)
+    mgr.apply_acl_to_builder_params.assert_called_once_with(params, user, permission)
     # Only the count pipeline is aggregated directly; the data half went through aggregate_query
     assert mgr.aggregate.call_count == 1
+
+
+def test_iterate_query_counts_the_criteria_the_rows_were_read_with() -> None:
+    """
+    The rows and the total obey the same rule
+
+    The count pipeline is built from the criteria, so an access rule that lived only in the data
+    pipeline would leave the total counting documents the caller may not read.
+    """
+    mgr = _mock_manager()
+    mgr.aggregate_query.return_value = []
+    mgr.query_builder.count.return_value = []
+    mgr.aggregate.return_value = iter([])
+    params = MagicMock()
+
+    BaseManager.iterate_query(mgr, params, MagicMock(), MagicMock())
+
+    assert mgr.apply_acl_to_builder_params.call_args.args[0] is params
+    mgr.query_builder.count.assert_called_once_with(params.get_criteria.return_value)
+
+
+# ------------------------------------------- apply_acl_to_builder_params -------------------------------------------- #
+
+def test_apply_acl_to_builder_params_without_a_user_adds_nothing() -> None:
+    """Every internal caller reads unscoped, and must not pay for a denied-types query."""
+    params = MagicMock()
+
+    with patch(f'{MODULE_PATH}.resolve_denied_type_ids') as resolve:
+        BaseManager.apply_acl_to_builder_params(params, None, MagicMock())
+
+    resolve.assert_not_called()
+    params.add_criteria.assert_not_called()
+
+
+def test_apply_acl_to_builder_params_without_a_permission_adds_nothing() -> None:
+    """Both halves of the pair are required, matching acl/helpers.verify_access."""
+    params = MagicMock()
+
+    with patch(f'{MODULE_PATH}.resolve_denied_type_ids') as resolve:
+        BaseManager.apply_acl_to_builder_params(params, MagicMock(), None)
+
+    resolve.assert_not_called()
+    params.add_criteria.assert_not_called()
+
+
+def test_apply_acl_to_builder_params_adds_nothing_when_no_type_is_denied() -> None:
+    """The common case costs one resolve and no query change at all."""
+    params = MagicMock()
+
+    with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[]):
+        BaseManager.apply_acl_to_builder_params(params, MagicMock(), MagicMock())
+
+    params.add_criteria.assert_not_called()
+
+
+def test_apply_acl_to_builder_params_excludes_the_denied_types() -> None:
+    """The denied ids become the shared exclusion condition, merged into the criteria."""
+    params = MagicMock()
+
+    with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[3, 9]):
+        BaseManager.apply_acl_to_builder_params(params, MagicMock(), MagicMock())
+
+    params.add_criteria.assert_called_once_with({'type_id': {'$nin': [3, 9]}})
+
+
+def test_apply_acl_to_builder_params_resolves_the_denied_types_once() -> None:
+    """One projected read per iteration, shared by the rows and the count."""
+    params = MagicMock()
+
+    with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[3]) as resolve:
+        BaseManager.apply_acl_to_builder_params(params, MagicMock(), MagicMock())
+
+    resolve.assert_called_once()
 
 
 def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:

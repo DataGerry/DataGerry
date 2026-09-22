@@ -102,12 +102,18 @@ def _clean_cable_data(database_manager: MongoDatabaseManager, database_name: str
     types = _types_collection(database_manager, database_name)
     options = _options_collection(database_manager, database_name)
 
-    types.delete_many({ExtendableOptionKey.PUBLIC_ID.value: {'$in': ALL_TYPE_IDS}})
+    # Also keyed on the NAMES this module posts: `public_id` is server-owned, so a Type created
+    # THROUGH the route carries an id the test never chose
+    types.delete_many({'$or': [{ExtendableOptionKey.PUBLIC_ID.value: {'$in': ALL_TYPE_IDS}},
+                               {'name': {'$regex': '^cable-'}}]})
     options.delete_many({ExtendableOptionKey.OPTION_TYPE.value: OptionType.CABLE_TYPE.value})
 
     yield
 
-    types.delete_many({ExtendableOptionKey.PUBLIC_ID.value: {'$in': ALL_TYPE_IDS}})
+    # Also keyed on the NAMES this module posts: `public_id` is server-owned, so a Type created
+    # THROUGH the route carries an id the test never chose
+    types.delete_many({'$or': [{ExtendableOptionKey.PUBLIC_ID.value: {'$in': ALL_TYPE_IDS}},
+                               {'name': {'$regex': '^cable-'}}]})
     options.delete_many({ExtendableOptionKey.OPTION_TYPE.value: OptionType.CABLE_TYPE.value})
 
 
@@ -338,8 +344,9 @@ class TestCreateCableType:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
 
+        # The identity is server-owned, so the Type is read back under the id the route assigned
         stored = _types_collection(database_manager, database_name).find_one(
-            {ExtendableOptionKey.PUBLIC_ID.value: CABLE_TYPE_ID},
+            {ExtendableOptionKey.PUBLIC_ID.value: response.get_json()['result_id']},
         )
         stored_cable_type = next(
             field for field in stored['fields'] if field['name'] == CableField.TYPE.value
@@ -354,10 +361,10 @@ class TestCreateCableType:
         database_name: str,
     ) -> None:
         """The marker is what claims the SpecialType and what cable_ci_id validation reads"""
-        rest_api.post(f'{TYPES_URL}/', json=_cable_type_payload(CABLE_TYPE_ID, []))
+        created = rest_api.post(f'{TYPES_URL}/', json=_cable_type_payload(CABLE_TYPE_ID, []))
 
         stored = _types_collection(database_manager, database_name).find_one(
-            {ExtendableOptionKey.PUBLIC_ID.value: CABLE_TYPE_ID},
+            {ExtendableOptionKey.PUBLIC_ID.value: created.get_json()['result_id']},
         )
 
         assert stored[TypeSchemaKey.SPECIAL_TYPE.value] == SpecialType.CABLE.value

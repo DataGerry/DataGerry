@@ -17,11 +17,21 @@
 Implementation of general API route helpers
 """
 import json
+from collections.abc import Sequence
 from typing import Any
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
+
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.framework.search.list_search import build_list_search_stages
+from cmdb.interface.rest_api.responses.response_parameters import (
+    BuilderParamKey,
+    CollectionParameters,
+    ParameterKey,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -110,6 +120,61 @@ def request_wants_body(current_request: Request | None = None) -> bool:
     return (current_request or request).method != HEAD_METHOD
 
 
+def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
+    """
+    Answers a client's ``?filter=`` as pipeline stages, as a NEW list
+
+    A list route composes the caller's filter with stages of its own - the active-only flag, a
+    ``?search=`` term, a "which of these may I pick" rule - and the two filter shapes have to be one
+    thing before it can. A plain filter document becomes a single ``$match``; a pipeline is copied.
+
+    **The copy is the point.** Routes used to append their stages to ``params.filter`` in place, and
+    the same object is handed to ``GetMultiResponse``, which echoes it back as ``parameters.filter`` -
+    so the response claimed the caller had sent stages the server injected. An empty filter answers no
+    stages at all rather than an empty ``$match``
+
+    Args:
+        request_filter (dict[str, Any] | list[dict[str, Any]] | None): The parsed ``?filter=``
+
+    Returns:
+        list[dict[str, Any]]: The stages to build on, never the caller's own object
+    """
+    if isinstance(request_filter, list):
+        return list(request_filter)
+
+    if not request_filter:
+        return []
+
+    return [{'$match': request_filter}]
+
+
+def build_searchable_builder_params(params: Any, searchable_fields: Sequence[str]) -> BuilderParameters:
+    """
+    Turns a list route's CollectionParameters into BuilderParameters, with ``?search=`` folded in
+
+    The one place a list route reaches for when its table has a search box. It composes the caller's
+    ``?filter=`` with the search stages and hands the rest of the pager through unchanged, so every
+    table searches the same way and the set of searchable columns is declared server-side rather than
+    hard-coded in eighteen Angular components (`notes/FRONTEND_TO_BACKEND.md` **F4**).
+
+    An absent or blank ``?search=`` adds nothing, so an unsearched listing is exactly what it was
+
+    Args:
+        params (Any): The route's CollectionParameters
+        searchable_fields (Sequence[str]): The field paths this route declares searchable
+
+    Returns:
+        BuilderParameters: Ready for the manager's ``iterate``
+    """
+    criteria: list[dict[str, Any]] = as_pipeline_criteria(params.filter)
+    criteria.extend(build_list_search_stages(params.optional.get(ParameterKey.SEARCH.value), searchable_fields))
+
+    builder_args: dict[str, Any] = CollectionParameters.get_builder_params(params)
+    builder_args[BuilderParamKey.CRITERIA.value] = criteria
+
+    return BuilderParameters(**builder_args)
+
+
 def append_criteria_to_filter(
         request_filter: dict[str, Any] | list[dict[str, Any]] | None,
         criteria: dict[str, Any]) -> list[dict[str, Any]]:
@@ -131,17 +196,39 @@ def append_criteria_to_filter(
     Returns:
         list[dict[str, Any]]: The pipeline to hand to the query builder
     """
-    if isinstance(request_filter, list):
-        pipeline: list[dict[str, Any]] = list(request_filter)
-    elif request_filter:
-        pipeline = [{'$match': request_filter}]
-    else:
-        pipeline = []
+    pipeline: list[dict[str, Any]] = as_pipeline_criteria(request_filter)
 
     if criteria:
         pipeline.append({'$match': criteria})
 
     return pipeline
+
+
+def pin_public_id(data: dict[str, Any], public_id: int) -> dict[str, Any]:
+    """
+    Pins a write payload's identity to the public_id the URL names
+
+    Every update route addresses its document by the URL's public_id, but the validated body may
+    carry a ``public_id`` of its own - the request schemas declare the key, and a model's ``to_json``
+    writes whatever it was built with, so an unpinned route hands the manager a document whose id is
+    the CLIENT's. The manager updates by the URL id and ``$set``s the body wholesale, which moves the
+    stored document to the client's id: the row silently changes identity, or collides with the
+    document already living there
+
+    Pinning also removes the opposite failure. ``public_id`` is optional in the schemas, so a body
+    without one is valid - and ``CmdbDAO.__init__`` calls ``int(public_id)``, which raises on None and
+    surfaced as a 500. After pinning there is always an id to build the model from
+
+    Args:
+        data (dict[str, Any]): The validated request body; mutated in place
+        public_id (int): public_id from the URL - the only identity a write route may act on
+
+    Returns:
+        dict[str, Any]: The same dict, so the call can wrap the argument at the call site
+    """
+    data[CmdbDAO.PUBLIC_ID_KEY] = public_id
+
+    return data
 
 
 def extract_public_ids(public_ids: str) -> list[int]:

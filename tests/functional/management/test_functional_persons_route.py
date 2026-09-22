@@ -144,7 +144,9 @@ class TestPostPerson:
         response = rest_api.post(f'{ROUTE_URL}/', json=_person_payload(PERSON_ID_FOR_GET, groups=[GROUP_ID_A]))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
-        assert _group_members(database_manager, database_name, GROUP_ID_A) == [PERSON_ID_FOR_GET]
+        # The person's identity is server-owned, so the group lists the id the route assigned
+        assert _group_members(database_manager, database_name, GROUP_ID_A) \
+            == [response.get_json()['result_id']]
 
     def test_created_retrieval_missing_returns_404(self, rest_api, monkeypatch) -> None:
         """If the created person cannot be retrieved afterwards, the route returns 404."""

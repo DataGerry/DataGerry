@@ -36,6 +36,7 @@ from werkzeug.exceptions import HTTPException, BadRequest, NotFound
 
 from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
     TypesManagerInsertError,
@@ -262,9 +263,43 @@ class TestGetCmdbTypesOverview:
     """``get_cmdb_types_overview`` composes {type_data, user_data} items from types + user lookup."""
 
     @staticmethod
-    def _call(flask_app: Flask) -> Any:
+    def _params(acl: Any = None) -> MagicMock:
+        """Overview parameters whose ``acl`` is the default READ unless a test says otherwise."""
+        params = MagicMock()
+        params.acl = acl if acl is not None else [AccessControlPermission.READ]
+
+        return params
+
+    @staticmethod
+    def _call(flask_app: Flask, params: Any = None) -> Any:
         with flask_app.test_request_context('/overview'):
-            return _unwrap(get_cmdb_types_overview)(params=MagicMock(), request_user=MagicMock())
+            return _unwrap(get_cmdb_types_overview)(
+                params=params if params is not None else TestGetCmdbTypesOverview._params(),
+                request_user=MagicMock(),
+            )
+
+    def test_a_non_read_acl_parameter_is_refused(self, flask_app: Flask, patched_manager_provider: Any) -> None:
+        """The overview always asks for READ, so it refuses the parameter instead of ignoring it."""
+        del patched_manager_provider
+
+        with pytest.raises(HTTPException) as exc_info:
+            self._call(flask_app, self._params([AccessControlPermission.CREATE]))
+
+        assert exc_info.value.code == HTTP_BAD_REQUEST
+
+    def test_an_explicit_read_acl_parameter_is_accepted(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """``?acl=READ`` asks for exactly what the route already does."""
+        del patched_manager_provider
+        mgr.iterate.return_value = SimpleNamespace(results=[], total=0)
+
+        with patch(f'{ROUTE_PATH}.prepare_builder_parameters'), \
+             patch(f'{ROUTE_PATH}.build_types_overview_items', return_value=[]), \
+             patch(f'{ROUTE_PATH}.GetMultiResponse'):
+            self._call(flask_app, self._params([AccessControlPermission.READ]))
+
+        mgr.iterate.assert_called_once()
 
     def test_builds_overview_items(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,

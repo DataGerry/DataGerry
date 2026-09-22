@@ -23,6 +23,7 @@ return and therefore must NOT. A round-trip test guards the pair against key-nam
 failure this model is most exposed to now that the keys are named once in `CmdbUserKey`.
 """
 from datetime import datetime, timezone
+from inspect import Parameter, signature
 from typing import Any
 
 import pytest
@@ -34,7 +35,9 @@ from cmdb.class_schema.user_model.cmdb_user_schema import (
     DEFAULT_DATABASE,
     DEFAULT_GROUP,
 )
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
+from cmdb.errors.cmdb_object import RequiredInitKeyNotFoundError
 from cmdb.errors.models.cmdb_user import (
     CmdbUserInitError,
     CmdbUserInitFromDataError,
@@ -111,6 +114,42 @@ def test_a_failing_init_is_wrapped() -> None:
     """Anything raised while building the user surfaces as CmdbUserInitError"""
     with pytest.raises(CmdbUserInitError):
         CmdbUser(public_id='not-an-id', user_name=USER_NAME, active=True)
+
+
+def test_a_positional_call_is_refused() -> None:
+    """Building a CmdbUser by position fails, and fails in CmdbDAO.__new__
+
+    __new__ reads the required keys out of **kwargs, so a positional call never reaches __init__ -
+    which is why the error is RequiredInitKeyNotFoundError and not a TypeError. Pinned because it
+    is the FIRST of the two gates; the second is the keyword-only signature below
+    """
+    with pytest.raises(RequiredInitKeyNotFoundError):
+        CmdbUser(PUBLIC_ID, USER_NAME, True)  # pylint: disable=too-many-function-args
+
+
+def test_every_constructor_parameter_is_keyword_only() -> None:
+    """The signature itself forbids positional binding
+
+    from_data depends on the argument names being checked, and a value bound by position would
+    follow whichever parameter sits in that slot - so reordering the signature has to stay a
+    non-event. A structural assertion because CmdbDAO.__new__ already refuses the calls that would
+    otherwise demonstrate it
+    """
+    parameters = list(signature(CmdbUser.__init__).parameters.values())[1:]  # drop self
+
+    assert parameters, 'the constructor takes no arguments at all - the signature changed'
+    assert all(parameter.kind is Parameter.KEYWORD_ONLY for parameter in parameters)
+
+
+@pytest.mark.parametrize('given', [None, ''])
+def test_a_falsy_database_is_stored_as_given(given: Any) -> None:
+    """Deliberately NOT normalised, unlike group_id and authenticator
+
+    BaseManager binds to the process-wide database for a falsy db_name, so substituting a default
+    here would hand a cloud user another tenant's data. ManagerProvider refuses it instead, where
+    cloud mode is known - see test_manager_provider.TestCloudModeArguments
+    """
+    assert _user(database=given).database == given
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -268,7 +307,7 @@ def test_is_config_item_limit_reached(limit: int, count: int, expected: bool) ->
 @pytest.mark.parametrize('limit', [None, 0])
 def test_a_falsy_limit_is_replaced_by_the_default(limit: Any) -> None:
     """
-    Current behaviour, pinned rather than endorsed (discussion-backlog #164)
+    Current behaviour, pinned rather than endorsed
 
     A falsy limit - an explicit 0 included - is treated as 'unset' and replaced with the default, and
     the replacement is written back onto the instance, so this predicate mutates the user it is asked
@@ -278,3 +317,49 @@ def test_a_falsy_limit_is_replaced_by_the_default(limit: Any) -> None:
 
     assert user.is_config_item_limit_reached(5) is False
     assert user.config_items_limit == DEFAULT_CONFIG_ITEMS_LIMIT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             STRICT DATE COERCION                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUnreadableTimestampsAreRefused:
+    """
+    A registration time that cannot be read is refused, not guessed
+
+    A fuzzy parse reads a note like 'sometime in March' as a date assembled from today's day
+    number.
+    """
+
+    def test_an_unreadable_timestamp_raises(self) -> None:
+        """The model's own error, so a caller maps it instead of storing the guess."""
+        with pytest.raises(CmdbUserInitFromDataError):
+            CmdbUser.from_data(_document(registration_time='sometime in March'))
+
+    def test_a_timestamp_string_is_still_read(self) -> None:
+        """Strictness must not cost the shapes that ARE readable - an ISO string is one."""
+        built = CmdbUser.from_data(_document(registration_time='2026-03-01T10:00:00'))
+
+        assert isinstance(built.registration_time, datetime)
+
+    def test_the_mongo_wrapper_shape_is_read_too(self) -> None:
+        """`{'$date': <millis>}` is the shape the frontend sends back, so it has to be read."""
+        built = CmdbUser.from_data(_document(registration_time={'$date': 1772000000000}))
+
+        assert isinstance(built.registration_time, datetime)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  SCHEMA / INDEX_KEYS                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_the_schema_declares_exactly_the_documents_keys() -> None:
+    """The validation schema and CmdbUserKey describe one document, so neither may grow alone"""
+    assert set(CmdbUser.SCHEMA) == {key.value for key in CmdbUserKey}
+
+
+def test_the_unique_index_is_named_by_the_key_enum() -> None:
+    """The collection's only index is on user_name; a bare literal here could drift from the model"""
+    assert CmdbUser.INDEX_KEYS == [{
+        'keys': [(CmdbUserKey.USER_NAME.value, CmdbDAO.DAO_ASCENDING)],
+        'name': CmdbUserKey.USER_NAME.value,
+        'unique': True,
+    }]

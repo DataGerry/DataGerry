@@ -52,6 +52,8 @@ from cmdb.framework.port.connection_validator import (
     cable_ci_blockers,
     coerce_connection_type,
     missing_endpoint_blockers,
+    read_endpoint_ports,
+    same_object_blockers,
     shape_blockers,
     unknown_connection_type_blocker,
 )
@@ -220,9 +222,11 @@ def enforce_connection_shape(
     """
     Aborts 400 with every reason the connection would be refused, in one message
 
-    Runs the pure rules and the two that need a read - both endpoints exist, and the cable CI really
-    is a Cable - and reports them together, so a caller fixes one payload instead of discovering the
-    rules one request at a time
+    Runs the pure rules and the ones that need a read - both endpoints exist, they sit on the devices
+    their connection type requires (a CABLE joins two, an INTERNAL pairs the faces of one), and the
+    cable CI really is a Cable - and reports them together, so a caller fixes one payload instead of
+    discovering the rules one request at a time. The endpoint ports are read ONCE and judged by two
+    rules
 
     Args:
         ports_manager (PortsManager): db interface for CmdbPorts
@@ -234,11 +238,16 @@ def enforce_connection_shape(
     Raises:
         HTTPException: 400 when the connection's shape or its references are invalid
     """
+    raw_endpoints: Any = payload.get(ConnectionRequestKey.ENDPOINTS.value)
+
     blockers: list[str] = shape_blockers(connection_type, payload)
 
-    blockers.extend(missing_endpoint_blockers(
-        ports_manager, payload.get(ConnectionRequestKey.ENDPOINTS.value),
-    ))
+    # Read once, judged twice: whether both ports exist, and whether the devices they sit on suit the
+    # kind of link being made
+    endpoint_ports: dict[int, dict[str, Any]] = read_endpoint_ports(ports_manager, raw_endpoints)
+
+    blockers.extend(missing_endpoint_blockers(endpoint_ports, raw_endpoints))
+    blockers.extend(same_object_blockers(endpoint_ports, connection_type, raw_endpoints))
     blockers.extend(cable_ci_blockers(
         objects_manager, types_manager, payload.get(ConnectionRequestKey.CABLE_CI_ID.value),
     ))

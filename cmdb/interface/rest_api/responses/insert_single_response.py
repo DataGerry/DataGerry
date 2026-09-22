@@ -42,8 +42,7 @@ class InsertSingleResponse(BaseAPIResponse):
             raw (dict[str, Any]): The raw document as it was stored
             result_id (str | int | None): The new public_id of the inserted resource. Coerced with
                 `int()`, so omitting it - which this signature still allows - raises inside the
-                constructor; all 28 call sites pass one, and whether the parameter should simply
-                become a required int is discussion-backlog #217
+                constructor; every call site passes one
         """
         self.raw: dict[str, Any] = raw
         self.result_id: int = int(result_id)

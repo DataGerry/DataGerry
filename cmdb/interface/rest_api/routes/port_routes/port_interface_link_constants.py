@@ -48,6 +48,11 @@ class InterfaceLinkRequestKey(BaseStrEnum):
 # link is dangling, which is a state the frontend has to render rather than an error
 INTERFACE_ROW_KEY: str = 'interface_row'
 
+# Key under which a PORT read carries that port's interface links (each with its INTERFACE_ROW_KEY
+# when the row still resolves). Always present on both port reads, empty when the port links nothing:
+# "linked to nothing" is the common state and must not look like "not answered"
+PORT_INTERFACE_LINKS_KEY: str = 'interface_links'
+
 # Refusal (HTTP 404) when the addressed link does not exist
 LINK_NOT_FOUND_MESSAGE: str = 'The Port interface link with ID:{public_id} was not found!'
 

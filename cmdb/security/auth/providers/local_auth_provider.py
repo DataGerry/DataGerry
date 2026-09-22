@@ -28,7 +28,7 @@ compared with the stored hash. Two properties of that hash decide what this prov
       digests are compared at all
 
 The digest comparison is `hmac.compare_digest`, not `==`, so it takes the same time whether the two
-values differ in the first byte or not at all (backlog #95)
+values differ in the first byte or not at all
 
 Every refusal is an `AuthenticationError`, because `AuthModule.login` treats exactly that as "this
 provider says no" and moves on to the next configured provider. The caller never learns which refusal it
@@ -202,7 +202,7 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
         NOTE the provider's configuration does carry an `active` flag, and `AuthModule.login` reads it in
         its fallback loop (where it filters on the CONFIG, not on the provider) - so a local provider
         configured inactive is skipped there while the primary path, which asks this method, still accepts
-        it. Whether that flag should exist at all is open (discussion-backlog item)
+        it.
 
         Returns:
             bool: Always returns True, indicating that the local authentication provider is active

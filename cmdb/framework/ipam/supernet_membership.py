@@ -25,9 +25,17 @@ row on the next overview load
 
 This module is intentionally read/write-split from supernet_overview.py: the overview module
 only shapes payloads, while every mutation against the membership relation lives here. The
-helpers are decomposed so each step (input coercion, supernet identity check, candidate
-membership query, batch field clear) is unit-testable in isolation. ``unassign_subnets_from_supernet``
-is the single orchestrator the route layer calls
+helpers are decomposed so each step (input coercion, batch-size cap, supernet identity check,
+ACL check, candidate membership query, batch field clear) is unit-testable in isolation.
+``unassign_subnets_from_supernet`` is the single orchestrator the route layer calls
+
+**The detach is a raw write, and one of its consequences is repaired here.** ``clear_supernet_ref``
+goes straight to ``update_many_raw`` rather than through ``ObjectsManager.update_object``, which is
+what makes the whole batch a single atomic write with no TOCTOU window - and what costs it the four
+guarantees ``update_object`` carries. The ACL is restored by ``verify_subnet_write_access``, asked
+once before the write because an ACL lives on the CmdbType and every target is a SUBNET. History,
+version bump and webhook are not restored; ``workflows/ipam.md`` records why, and what would have to
+be given up to restore them
 """
 from typing import Any
 
@@ -36,8 +44,15 @@ from flask import abort
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.special_type_model.ipam_constants import SubnetField, IpamUnassignKey
-from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.models.special_type_model.ipam_constants import (
+    SubnetField,
+    IpamUnassignKey,
+    IpamUnassignLimits,
+)
+from cmdb.models.user_model import CmdbUser
+from cmdb.framework.ipam.references import resolve_special_type_id, resolve_special_type_document
+from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -194,6 +209,45 @@ def load_assigned_subnets(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                      WRITES                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
+def verify_subnet_write_access(
+    types_manager: TypesManager,
+    request_user: CmdbUser | None,
+) -> None:
+    """
+    Aborts 403 when the caller may not UPDATE SUBNET CmdbObjects
+
+    **One check covers the whole batch, because an ACL lives on the CmdbType.** Every target of
+    ``clear_supernet_ref`` is a SUBNET - ``load_assigned_subnets`` establishes that before anything
+    is written - so "may this caller detach these subnets" is a single question about one type, not
+    a question per object. That is what lets the authorization gap close without giving up the
+    single atomic write or reopening the TOCTOU window that write was built to close
+
+    ``clear_supernet_ref`` writes the field directly instead of going through
+    ``ObjectsManager.update_object``, so it also skips the ACL that route normally applies; this is
+    that ACL, moved to the one place a batch write can ask it. The other guarantees
+    ``update_object`` provides - version bump, change log, webhook - are deliberately not restored
+    here (see the ``workflows/ipam.md`` rule on system cascades vs. direct writes)
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        request_user (CmdbUser | None): The CmdbUser performing the detach; None skips the check,
+            which is what an internal caller with no request context passes
+
+    Returns:
+        None: Returns normally when the caller may write, otherwise aborts the request
+    """
+    if request_user is None:
+        return
+
+    subnet_type_doc: dict[str, Any] | None = resolve_special_type_document(types_manager, SpecialType.SUBNET)
+
+    if not subnet_type_doc:
+        return
+
+    if not has_type_document_access(subnet_type_doc, request_user, AccessControlPermission.UPDATE):
+        abort(403, "No permission to unassign SUBNETs from a supernet!")
+
+
 def clear_supernet_ref(
     objects_manager: ObjectsManager,
     subnet_ids: list[int],
@@ -253,18 +307,22 @@ def unassign_subnets_from_supernet(
     types_manager: TypesManager,
     supernet_public_id: int,
     raw_subnet_ids: Any,
+    request_user: CmdbUser | None = None,
 ) -> dict[str, Any]:
     """
     Validates the request payload and detaches the named SUBNETs from the supernet
 
     Pipeline:
-      1. Coerce ``raw_subnet_ids`` to a deduplicated list of ints (aborts 400 on bad shape)
+      1. Coerce ``raw_subnet_ids`` to a deduplicated list of ints (aborts 400 on bad shape) and
+         refuse a list longer than ``IpamUnassignLimits.MAX_SUBNET_IDS``
       2. Confirm ``supernet_public_id`` resolves to a SUPERNET CmdbObject (aborts 400/404)
-      3. Load the SUBNETs that are currently assigned to the supernet AND whose public_id
+      3. Confirm the caller may update SUBNETs at all (aborts 403); one check for the batch,
+         because the ACL is per CmdbType and every target is a SUBNET
+      4. Load the SUBNETs that are currently assigned to the supernet AND whose public_id
          is in the requested list
-      4. If any requested id is not present in step 3's result, abort 400 with the offending
+      5. If any requested id is not present in step 4's result, abort 400 with the offending
          ids - the call is validate-all-or-nothing, so no write happens
-      5. Otherwise clear dg-supernet-ref on every requested SUBNET in one Mongo update_many
+      6. Otherwise clear dg-supernet-ref on every requested SUBNET in one Mongo update_many
 
     Children of a detached SUBNET are intentionally left attached: if a CIDR-child of one of
     the requested SUBNETs also references this supernet, it stays assigned. Such children
@@ -276,13 +334,26 @@ def unassign_subnets_from_supernet(
         types_manager (TypesManager): db interface for CmdbTypes
         supernet_public_id (int): public_id of the SUPERNET to detach from
         raw_subnet_ids (Any): The raw value read off the JSON body for the 'subnet_ids' key
+        request_user (CmdbUser | None): The CmdbUser performing the detach, whose group decides
+            whether the SUBNET type's ACL permits the write; None skips the ACL
 
     Returns:
         dict[str, Any]: {'subnet_ids': [int, ...], 'unassigned_count': int} where subnet_ids
             echoes the deduplicated input order and unassigned_count is len(subnet_ids)
     """
     subnet_ids: list[int] = normalize_subnet_id_list(raw_subnet_ids)
+
+    if len(subnet_ids) > IpamUnassignLimits.MAX_SUBNET_IDS:
+        abort(
+            400,
+            f"Cannot unassign more than {IpamUnassignLimits.MAX_SUBNET_IDS} subnets in one request"
+            f" (received {len(subnet_ids)})!",
+        )
+
     assert_supernet_exists(objects_manager, types_manager, supernet_public_id)
+
+    # Before the write, not per object: see verify_subnet_write_access
+    verify_subnet_write_access(types_manager, request_user)
 
     assigned_objs: list[dict[str, Any]] = load_assigned_subnets(
         objects_manager, types_manager, supernet_public_id, subnet_ids,

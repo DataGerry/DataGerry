@@ -44,6 +44,8 @@ REF_OBJ_ID: int = 88112
 REFSEC_OBJ_ID: int = 88113
 MAIN_OBJ_ID_2: int = 88114
 REFSEC_OBJ_ID_NULL: int = 88115
+UNKNOWN_KIND_TYPE_ID: int = 88104
+UNKNOWN_KIND_OBJ_ID: int = 88116
 
 NAME_FIELD: str = 'dg-name'
 REF_FIELD: str = 'ref-field'
@@ -56,8 +58,12 @@ MAIN_NAME_VALUE_2: str = 'Second-Object'
 REF_NAME_VALUE: str = 'Ref-Target'
 DATE_VALUE: str = '2024-01-02'
 
-ALL_TYPE_IDS: list[int] = [MAIN_TYPE_ID, REF_TYPE_ID, REFSEC_TYPE_ID]
-ALL_OBJ_IDS: list[int] = [MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2, REFSEC_OBJ_ID_NULL]
+UNKNOWN_SECTION_KIND: str = 'a-kind-from-a-newer-version'
+
+ALL_TYPE_IDS: list[int] = [MAIN_TYPE_ID, REF_TYPE_ID, REFSEC_TYPE_ID, UNKNOWN_KIND_TYPE_ID]
+ALL_OBJ_IDS: list[int] = [
+    MAIN_OBJ_ID, REF_OBJ_ID, REFSEC_OBJ_ID, MAIN_OBJ_ID_2, REFSEC_OBJ_ID_NULL, UNKNOWN_KIND_OBJ_ID,
+]
 
 
 @pytest.fixture(autouse=True)
@@ -107,6 +113,21 @@ def _refsec_type_doc() -> dict[str, Any]:
     )
 
 
+def _unknown_kind_type_doc() -> dict[str, Any]:
+    """
+    A stored type whose section declares a kind no SectionType member covers
+
+    Written straight into the collection because the write route refuses such a kind - which is the
+    point: this is what a Type saved by a NEWER version looks like to this one.
+    """
+    return make_type_doc(
+        UNKNOWN_KIND_TYPE_ID, 'render-unknown-kind-type',
+        fields=[{'type': 'text', 'name': NAME_FIELD, 'label': 'Name'}],
+        sections=[{'type': UNKNOWN_SECTION_KIND, 'name': 'main', 'label': 'Main',
+                   'fields': [NAME_FIELD]}],
+    )
+
+
 def _obj_doc(public_id: int, type_id: int, fields: list[dict[str, Any]]) -> dict[str, Any]:
     """A CmdbObject document for direct DB insertion."""
     return {
@@ -130,7 +151,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         objects.delete_many({'public_id': {'$in': ALL_OBJ_IDS}})
 
     _purge()
-    types.insert_many([_main_type_doc(), _ref_type_doc(), _refsec_type_doc()])
+    types.insert_many([_main_type_doc(), _ref_type_doc(), _refsec_type_doc(), _unknown_kind_type_doc()])
     objects.insert_many([
         _obj_doc(REF_OBJ_ID, REF_TYPE_ID, [{'type': 'text', 'name': NAME_FIELD, 'value': REF_NAME_VALUE}]),
         _obj_doc(MAIN_OBJ_ID, MAIN_TYPE_ID, [
@@ -152,6 +173,9 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         _obj_doc(REFSEC_OBJ_ID_NULL, REFSEC_TYPE_ID, [
             {'type': 'text', 'name': NAME_FIELD, 'value': 'NoRef'},
             {'type': 'ref', 'name': REFSEC_REF_FIELD, 'value': None},
+        ]),
+        _obj_doc(UNKNOWN_KIND_OBJ_ID, UNKNOWN_KIND_TYPE_ID, [
+            {'type': 'text', 'name': NAME_FIELD, 'value': MAIN_NAME_VALUE},
         ]),
     ])
     yield
@@ -233,6 +257,32 @@ class TestRenderResult:
             .result(single_object=True)
 
         assert _field(result.fields, NAME_FIELD)['value'] == MAIN_NAME_VALUE
+
+
+class TestUnknownSectionKind:
+    """A Type stored with a section kind this version does not know still renders."""
+
+    def test_the_section_fields_are_rendered(self, full_access_user,
+                                             database_manager, database_name) -> None:
+        """
+        The registry answers the unknown kind with a field section, and the render follows it
+
+        Loaded from the collection, so this exercises the path a Type saved by a newer version
+        actually takes - `TypeRenderMeta.SECTION_CLASSES` -> `TypeFieldSection` -> the plain merge.
+        """
+        # result(single_object=True) returns a single RenderResult; pylint infers the list union
+        # pylint: disable=no-member
+        doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one(
+            {'public_id': UNKNOWN_KIND_OBJ_ID}
+        )
+        render = CmdbMultiRender([CmdbObject.from_data(doc)], full_access_user, True)
+
+        result = render.result(single_object=True)
+
+        assert _field(result.fields, NAME_FIELD)['value'] == MAIN_NAME_VALUE
+        # The section itself is forwarded unchanged, kind included - a client that knows the kind
+        # can still draw it
+        assert result.sections[0]['type'] == UNKNOWN_SECTION_KIND
 
 
 class TestCacheIsolation:

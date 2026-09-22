@@ -26,9 +26,7 @@ a single assignment
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import ObjectsManager, TypesManager
@@ -39,9 +37,10 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_pagination_params,
     read_search_param,
 )
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.responses import DefaultResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -53,6 +52,8 @@ ipam_assignable_blueprint = APIBlueprint('ipam_assignable', __name__)
 @ipam_assignable_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@ipam_assignable_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while listing assignable IPAM objects")
 def get_assignable_objects(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the paginated assignable-objects picker payload
@@ -79,31 +80,19 @@ def get_assignable_objects(request_user: CmdbUser) -> Response:
         Response: {'page', 'page_size', 'total', 'search', 'rows': [...]} where each row is
             {'public_id', 'type_info': {'public_id', 'label'}, 'summary_line'}
     """
-    try:
-        page, page_size = read_pagination_params()
-        search: str = read_search_param()
+    page, page_size = read_pagination_params()
+    search: str = read_search_param()
 
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        payload: dict[str, Any] = build_assignable_objects_page(
-            objects_manager,
-            types_manager,
-            page=page,
-            page_size=page_size,
-            search=search,
-        )
+    payload: dict[str, Any] = build_assignable_objects_page(
+        objects_manager,
+        types_manager,
+        request_user=request_user,
+        page=page,
+        page_size=page_size,
+        search=search,
+    )
 
-        return DefaultResponse(payload).make_response()
-    except HTTPException as http_err:
-        # Unreachable today - nothing inside the try aborts: neither param reader refuses a value (the
-        # builders clamp instead) and the page builder is pure over its two manager reads. Kept so the
-        # arm order matches every other route, because without it an abort added later would be caught
-        # by the generic handler below and reported as a 500
-        raise http_err
-    except Exception as err:
-        LOGGER.error(
-            "[get_assignable_objects] Exception: %s. Type: %s",
-            err, type(err).__name__, exc_info=True,
-        )
-        abort(500, "An internal server error occured while listing assignable IPAM objects!")
+    return DefaultResponse(payload).make_response()

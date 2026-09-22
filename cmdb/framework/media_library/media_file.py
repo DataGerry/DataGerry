@@ -21,6 +21,11 @@ from typing import Any
 from datetime import datetime
 
 from cmdb.framework.media_library.base_media_file import BaseMediaFile
+from cmdb.framework.media_library.media_file_keys import (
+    MediaFileKey,
+    MEDIA_FILE_PARENT_PATH,
+    MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
+)
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.cmdb_object import NoPublicIDError
@@ -44,10 +49,17 @@ class MediaFile(BaseMediaFile):
     COLLECTION = 'media.libary'
     REQUIRED_INIT_KEYS: list[str] = ['name']
 
+    # A file's identity is (filename, metadata.parent): the library is a tree, so the same name in two
+    # different folders is legal and only a clash INSIDE one folder is not - which is exactly what the
+    # upload and update routes check before renaming to 'copy_(n)_<name>'. Until 2026-09-16 this
+    # declared a unique index over 'name', a key no GridFS document carries, and nothing ever built it
     INDEX_KEYS: list[dict[str, Any]] = [
         {
-            'keys': [('name', CmdbDAO.DAO_ASCENDING)],
-            'name': 'name',
+            'keys': [
+                (MediaFileKey.FILENAME.value, CmdbDAO.DAO_ASCENDING),
+                (MEDIA_FILE_PARENT_PATH, CmdbDAO.DAO_ASCENDING),
+            ],
+            'name': MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
             'unique': True
         }
     ]

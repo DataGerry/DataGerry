@@ -33,7 +33,7 @@ a dangling interface row is merely reported, a dangling `cable_ci_id` also leave
 unable to describe its cable at all (inline values and a CI are mutually exclusive). So the deletion
 is **refused** instead: the user resolves the connection, or edits it to describe the cable inline -
 and there they can pick the right cable type from the option list, which an automatic adoption could
-only guess at (a CI stores the type's LABEL, a connection its option id - discussion-backlog #196)
+only guess at (a CI stores the type's LABEL, a connection its option id)
 
 Pure: the read happens in the caller and its result is passed in, so both the refusal and its message
 are unit-testable without a request. One batched query answers a whole bulk delete

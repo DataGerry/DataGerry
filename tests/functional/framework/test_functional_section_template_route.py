@@ -34,7 +34,9 @@ from cmdb.framework.section_templates.virtual_section_templates import (
     PORTS_VIRTUAL_TEMPLATE_NAME,
     VIRTUAL_TEMPLATE_NAME_PREFIX,
 )
-from cmdb.models.type_model import SectionType
+from cmdb.models.type_model import SectionType, CmdbType
+from cmdb.models.object_model import CmdbObject
+from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/section_templates'
@@ -43,6 +45,8 @@ TEMPLATE_ID_FOR_CREATE: int = 9801
 TEMPLATE_ID_FOR_GET: int = 9802
 TEMPLATE_ID_FOR_UPDATE: int = 9803
 TEMPLATE_ID_FOR_DELETE: int = 9804
+COUNT_GLOBAL_TEMPLATE_ID: int = 9805
+COUNT_NON_GLOBAL_TEMPLATE_ID: int = 9806
 MISSING_TEMPLATE_ID: int = 9899
 
 ALL_TEMPLATE_IDS: list[int] = [
@@ -50,11 +54,23 @@ ALL_TEMPLATE_IDS: list[int] = [
     TEMPLATE_ID_FOR_GET,
     TEMPLATE_ID_FOR_UPDATE,
     TEMPLATE_ID_FOR_DELETE,
+    COUNT_GLOBAL_TEMPLATE_ID,
+    COUNT_NON_GLOBAL_TEMPLATE_ID,
 ]
 
 CREATE_NAME: str = 'func-sectpl-create'
 ORIGINAL_LABEL: str = 'Original'
 UPDATED_LABEL: str = 'Updated'
+
+# The usage-count fixture: one global template, a type that carries its section (with one object) and
+# a second type that only CLAIMS it in global_template_ids
+COUNT_GLOBAL_TEMPLATE_NAME: str = 'func-sectpl-global'
+COUNT_NON_GLOBAL_TEMPLATE_NAME: str = 'func-sectpl-local'
+COUNT_CARRYING_TYPE_ID: int = 9810
+COUNT_CLAIM_ONLY_TYPE_ID: int = 9811
+COUNT_OBJECT_ID: int = 9812
+COUNT_CLAIM_ONLY_OBJECT_ID: int = 9813
+COUNT_TEMPLATE_FIELD: str = 'func-sectpl-f'
 
 
 def _create_params(name: str, predefined: str = 'false') -> dict[str, str]:
@@ -94,6 +110,89 @@ def _cleanup_after_module(database_manager: MongoDatabaseManager, database_name:
     _collection(database_manager, database_name).delete_many(
         {'$or': [{'public_id': {'$in': ALL_TEMPLATE_IDS}}, {'name': CREATE_NAME}]},
     )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                    USAGE COUNT                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestSectionTemplateUsageCount:
+    """
+    `GET /section_templates/<id>/count` over a real database
+
+    The payload answers what a delete would affect, so the two numbers do not come from the same set:
+    every type CLAIMING the template counts, but only the objects of the types that actually CARRY its
+    section do - a claim-only type loses its reference and nothing else.
+    """
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Seeds the global template, a carrying type with an object, and a claim-only type with one."""
+        templates = _collection(database_manager, database_name)
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+        def _purge() -> None:
+            templates.delete_many(
+                {'public_id': {'$in': [COUNT_GLOBAL_TEMPLATE_ID, COUNT_NON_GLOBAL_TEMPLATE_ID]}},
+            )
+            types.delete_many({'public_id': {'$in': [COUNT_CARRYING_TYPE_ID, COUNT_CLAIM_ONLY_TYPE_ID]}})
+            objects.delete_many({'public_id': {'$in': [COUNT_OBJECT_ID, COUNT_CLAIM_ONLY_OBJECT_ID]}})
+
+        _purge()
+
+        template = _template_doc(COUNT_GLOBAL_TEMPLATE_ID, COUNT_GLOBAL_TEMPLATE_NAME)
+        template['is_global'] = True
+        template['fields'] = [{'type': 'text', 'name': COUNT_TEMPLATE_FIELD, 'label': 'F'}]
+        templates.insert_one(template)
+        templates.insert_one(_template_doc(COUNT_NON_GLOBAL_TEMPLATE_ID, COUNT_NON_GLOBAL_TEMPLATE_NAME))
+
+        types.insert_one(make_type_doc(
+            COUNT_CARRYING_TYPE_ID, 'func-sectpl-carrying-type',
+            fields=[{'type': 'text', 'name': COUNT_TEMPLATE_FIELD, 'label': 'F'}],
+            sections=[{
+                'type': SectionType.SECTION.value,
+                'name': COUNT_GLOBAL_TEMPLATE_NAME,
+                'label': 'F',
+                'fields': [COUNT_TEMPLATE_FIELD],
+            }],
+            global_template_ids=[COUNT_GLOBAL_TEMPLATE_NAME],
+        ))
+        objects.insert_one(make_object_doc(
+            COUNT_OBJECT_ID, COUNT_CARRYING_TYPE_ID, [make_field(COUNT_TEMPLATE_FIELD, 'v')],
+        ))
+
+        # Claims the template in global_template_ids but carries no section of that name
+        types.insert_one(make_type_doc(
+            COUNT_CLAIM_ONLY_TYPE_ID, 'func-sectpl-claim-only-type',
+            global_template_ids=[COUNT_GLOBAL_TEMPLATE_NAME],
+        ))
+        objects.insert_one(make_object_doc(
+            COUNT_CLAIM_ONLY_OBJECT_ID, COUNT_CLAIM_ONLY_TYPE_ID, [make_field('dg-name', 'other')],
+        ))
+
+        yield
+
+        _purge()
+
+    def test_count_reports_the_claiming_types_and_only_the_carrying_objects(self, rest_api) -> None:
+        """Both types count; only the carrying type's object does."""
+        response = rest_api.get(f'{ROUTE_URL}/{COUNT_GLOBAL_TEMPLATE_ID}/count')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == {'types': 2, 'objects': 1, 'is_global': True}
+
+    def test_count_of_a_non_global_template_says_the_count_does_not_apply(self, rest_api) -> None:
+        """A non-global template reports zero usage, and `is_global` is what makes that zero readable."""
+        response = rest_api.get(f'{ROUTE_URL}/{COUNT_NON_GLOBAL_TEMPLATE_ID}/count')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == {'types': 0, 'objects': 0, 'is_global': False}
+
+    def test_count_of_a_missing_template_is_404(self, rest_api) -> None:
+        """An unknown public_id is a 404, not a zero-count 200."""
+        response = rest_api.get(f'{ROUTE_URL}/{MISSING_TEMPLATE_ID}/count')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

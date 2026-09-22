@@ -127,6 +127,39 @@ class ObjectGroupsManager(GenericManager):
         )
 
 
+    def find_group_ids_containing(self, object_id: int, type_id: int) -> list[int]:
+        """
+        Finds every CmdbObjectGroup an object belongs to, in either membership mode
+
+        Membership means two different things per mode, which is why one object matches through two
+        different values: a STATIC group lists the object's own public_id in ``assigned_ids``, a
+        DYNAMIC one lists its ``type_id``. Both halves are asked in a single ``$or`` query - the
+        ``assigned_ids`` multikey index answers either branch - so a caller does not have to know the
+        pairing, and the mode/key knowledge stays here with the cleanup that shares it
+
+        Args:
+            object_id (int): public_id of the CmdbObject whose groups are wanted
+            type_id (int): public_id of that object's CmdbType
+
+        Returns:
+            list[int]: public_ids of the matching CmdbObjectGroups, STATIC and DYNAMIC together
+        """
+        criteria: dict[str, Any] = {
+            '$or': [
+                {
+                    ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.STATIC.value,
+                    ObjectGroupKey.ASSIGNED_IDS.value: object_id,
+                },
+                {
+                    ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.DYNAMIC.value,
+                    ObjectGroupKey.ASSIGNED_IDS.value: type_id,
+                },
+            ]
+        }
+
+        return [group[ObjectGroupKey.PUBLIC_ID.value] for group in self.find(criteria=criteria)]
+
+
     def remove_ids_from_groups(self, public_ids: int | list[int], group_type: ObjectGroupMode) -> UpdateResult:
         """
         Removes a public_id or list of public_ids of CmdbObjects from the 'assigned_ids' of all CmdbObjectGroups

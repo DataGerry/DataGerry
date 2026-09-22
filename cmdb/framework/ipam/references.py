@@ -65,6 +65,27 @@ def _project_to_reference_dicts(docs: list[dict[str, Any]]) -> list[dict[str, An
     ]
 
 
+def resolve_special_type_document(
+    types_manager: TypesManager,
+    special_type: SpecialType,
+) -> dict[str, Any] | None:
+    """
+    Returns the stored CmdbType document marked with the given SpecialType, or None if none exists
+
+    The callers that only need the public_id go through ``resolve_special_type_id``; this one exists
+    for the callers that need something else off the same document - the ACL, for instance - so they
+    do not query the same type twice
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        special_type (SpecialType): The SpecialType to resolve
+
+    Returns:
+        dict[str, Any] | None: The CmdbType document, or None if no such CmdbType is defined
+    """
+    return types_manager.get_one_by({TypeSchemaKey.SPECIAL_TYPE: special_type})
+
+
 def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialType) -> int | None:
     """
     Returns the public_id of the CmdbType marked with the given SpecialType, or None if none exists
@@ -76,7 +97,7 @@ def resolve_special_type_id(types_manager: TypesManager, special_type: SpecialTy
     Returns:
         int | None: The CmdbType's public_id, or None if no such CmdbType is defined
     """
-    type_doc: dict[str, Any] | None = types_manager.get_one_by({TypeSchemaKey.SPECIAL_TYPE: special_type})
+    type_doc: dict[str, Any] | None = resolve_special_type_document(types_manager, special_type)
 
     if not type_doc:
         return None

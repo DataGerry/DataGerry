@@ -169,6 +169,70 @@ class TestRiskAssessmentCascade:
         manager.delete_many_from_other_collection.assert_not_called()
 
 
+class TestFindGroupIdsContaining:
+    """
+    The other mode-scoped query: which groups an object belongs to
+
+    Membership means a different value per mode - a STATIC group lists the object's own public_id, a
+    DYNAMIC one lists its type_id - so the two halves cannot share a clause. They are asked in ONE
+    `$or` query rather than two round trips, and the pairing lives here instead of at the caller (the
+    ISMS risk-assessment report used to spell it itself, with bare string keys).
+    """
+
+    def test_both_modes_are_asked_in_one_query(self) -> None:
+        """One `$or`, each branch pairing its mode with the id that means membership for it."""
+        manager = _stub()
+        manager.find.return_value = []
+
+        ObjectGroupsManager.find_group_ids_containing(manager, 8, 42)
+
+        manager.find.assert_called_once_with(criteria={
+            '$or': [
+                {
+                    ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.STATIC.value,
+                    ObjectGroupKey.ASSIGNED_IDS.value: 8,
+                },
+                {
+                    ObjectGroupKey.GROUP_TYPE.value: ObjectGroupMode.DYNAMIC.value,
+                    ObjectGroupKey.ASSIGNED_IDS.value: 42,
+                },
+            ]
+        })
+
+    def test_the_mode_is_filtered_as_a_plain_string(self) -> None:
+        """
+        The stored documents hold plain strings
+
+        `ObjectGroupMode` is a `BaseStrEnum`, so passing the member happens to encode to the same
+        value - but the query says `.value` explicitly, so it does not depend on that.
+        """
+        manager = _stub()
+        manager.find.return_value = []
+
+        ObjectGroupsManager.find_group_ids_containing(manager, 1, 2)
+
+        for branch in manager.find.call_args.kwargs['criteria']['$or']:
+            assert branch[ObjectGroupKey.GROUP_TYPE.value] in ('STATIC', 'DYNAMIC')
+            assert isinstance(branch[ObjectGroupKey.GROUP_TYPE.value], str)
+
+    def test_only_the_public_ids_are_returned(self) -> None:
+        """The caller filters risk assessments by group id, so the documents are not carried along."""
+        manager = _stub()
+        manager.find.return_value = [
+            {ObjectGroupKey.PUBLIC_ID.value: 3, ObjectGroupKey.NAME.value: 'static one'},
+            {ObjectGroupKey.PUBLIC_ID.value: 7, ObjectGroupKey.NAME.value: 'dynamic one'},
+        ]
+
+        assert ObjectGroupsManager.find_group_ids_containing(manager, 8, 42) == [3, 7]
+
+    def test_no_membership_is_an_empty_list(self) -> None:
+        """An object in no group answers nothing, not None - the caller feeds it straight into `$in`."""
+        manager = _stub()
+        manager.find.return_value = []
+
+        assert ObjectGroupsManager.find_group_ids_containing(manager, 8, 42) == []
+
+
 class TestRemoveIdsFromGroups:
     """The cleanup both the object delete and the type delete run."""
 

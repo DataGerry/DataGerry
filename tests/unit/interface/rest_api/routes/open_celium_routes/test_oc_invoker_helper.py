@@ -19,11 +19,10 @@ Unit tests for the OpenCelium invoker route helpers
 The `opsIncluded` flag and the manager construction, extracted from the routes.
 
 **The flag's rule is pinned in both directions on purpose.** Operations are included by default and
-only the literal `false` turns them off; `0`, `no`, `off` and an EMPTY value all mean "include"
-today. That is deliberate rather than accidental - `request.args.get(..., type=bool)` answers True
-for the string `'false'`, which is the footgun the explicit parse avoids - but whether the other
-spellings should also disable operations is discussion-backlog #223. These tests are what makes that
-decision visible: they will fail loudly when it is taken, which is the point.
+only the literal `false` turns them off; `0`, `no`, `off` and an EMPTY value all mean "include".
+That is deliberate rather than accidental - `request.args.get(..., type=bool)` answers True for the
+string `'false'`, which is the footgun the explicit parse avoids. These tests pin the other
+spellings so that widening the set is a visible change: they fail loudly if it happens.
 """
 from typing import Any
 
@@ -88,8 +87,8 @@ class TestReadOpsIncludedFlag:
         """
         Only `false` disables - recorded as behaviour, not asserted as desirable
 
-        Whether these should disable operations too is discussion-backlog #223. Pinning them here is
-        what makes that decision visible: the day it is taken, these expectations flip.
+        Pinning them here is what makes widening the set visible: these expectations flip with
+        it.
         """
         with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}={value}'):
             assert read_ops_included_flag() is True
@@ -98,8 +97,7 @@ class TestReadOpsIncludedFlag:
         """
         `?opsIncluded=` means "include" today
 
-        The case most likely to surprise a caller who sent the parameter and left it blank - the
-        other half of #223.
+        The case most likely to surprise a caller who sent the parameter and left it blank.
         """
         with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}='):
             assert read_ops_included_flag() is True

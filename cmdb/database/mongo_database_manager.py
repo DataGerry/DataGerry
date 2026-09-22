@@ -177,13 +177,13 @@ class MongoDatabaseManager:
         """
         Closes the connection when the with-block ends
 
-        The half of the protocol this class used to be missing: `__enter__` alone makes a `with`
-        statement fail at ENTRY with a TypeError, so the support it advertised never worked. Closing is
-        the connector's own no-raise disconnect - a failed close reports the same disconnected status a
+        The other half of the protocol: `__enter__` alone makes a `with` statement fail at ENTRY
+        with a TypeError, so both are needed for the support this class advertises. Closing is the
+        connector's own no-raise disconnect - a failed close reports the same disconnected status a
         successful one does (see the note on `MongoConnector.disconnect`).
 
         **The keep-alive thread outlives this block**, because it cannot be stopped: it re-creates the
-        client within its ping interval (discussion-backlog #148), so a `with` block releases the
+        client within its ping interval, so a `with` block releases the
         connection rather than ending the manager's life
 
         Args:
@@ -240,7 +240,7 @@ class MongoDatabaseManager:
         which is what `reset_connection` relies on: it calls this again after building a new connector,
         the existing thread is still running, and that thread picks the new client up on its next ping
         (see `_keepalive_once`). The thread is a daemon and has no stop flag, so it ends with the
-        process - a disconnect does not stay closed, recorded as discussion-backlog #148
+        process - a disconnect does not stay closed
         """
 
         # Avoid multiple threads
@@ -489,10 +489,14 @@ class MongoDatabaseManager:
     @retry_operation
     def status(self) -> bool:
         """
-        Check if connector has connection to MongoDB
+        Reports whether the database answered a connection probe
 
-        Returns
-            bool: True is connected, else False
+        A plain boolean, because `MongoConnector.is_connected` catches the connection error rather
+        than re-raising it. A raise would be inherited by this method and reach the one route that
+        reads it as a 500, where it means to answer `connected: false`.
+
+        Returns:
+            bool: True when the database answered, False when it did not
         """
         return self.connector.is_connected()
 
@@ -506,6 +510,15 @@ class MongoDatabaseManager:
         The retry covers the public_id index only. A duplicate-key error from any other unique index
         means the document duplicates one already stored, so it is reported as such immediately - see
         is_public_id_conflict.
+
+        **A caller-supplied public_id is honoured and the counter is raised to match it.** Two write
+        paths choose the id themselves rather than drawing it from the counter: `POST /objects/` (an
+        id that is already taken is a 400) and the object importer (an unused id is imported under
+        that id). Without the reconciliation the counter would stay below the stored id, so every
+        later insert would first draw an id that is already taken, burn a retry - and a block of
+        MAX_DUPLICATE_KEY_RETRIES consecutive supplied ids would exhaust the loop and fail the insert
+        outright. `update_public_id_counter` only ever moves the counter forward (max(counter, value)),
+        so reconciling costs one counter write on the rare explicit-id insert and nothing otherwise.
 
         Args:
             collection (str): Name of the database collection.
@@ -530,11 +543,19 @@ class MongoDatabaseManager:
                 return data.get('public_id')
 
             for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
-                if 'public_id' not in data:
+                # A caller-supplied id is not drawn from the counter, so the counter has to be told
+                # about it - see the note in the docstring
+                caller_supplied_id: bool = 'public_id' in data
+
+                if not caller_supplied_id:
                     data['public_id'] = self.get_next_public_id(collection, db_name, inc_id=True)
 
                 try:
                     self.get_collection(collection, db_name).insert_one(data)
+
+                    if caller_supplied_id:
+                        self.update_public_id_counter(collection, db_name, value=data['public_id'])
+
                     return data['public_id']
 
                 except DuplicateKeyError as err:
@@ -834,9 +855,11 @@ class MongoDatabaseManager:
                         upsert=True  # Insert if document does not exist)
                     )
 
-            # If something got created, update the public_id counter in database
+            # If something got created, the id came from the caller (the criteria IS the public_id),
+            # so the counter is raised TO that id rather than bumped by one: an upsert creating
+            # public_id 500 while the counter sits at 3 has to leave it at 500, not 4
             if result.upserted_id:
-                self.update_public_id_counter(collection, db_name, data['public_id'], increment=True)
+                self.update_public_id_counter(collection, db_name, value=data['public_id'])
 
             return result
         except Exception as err:

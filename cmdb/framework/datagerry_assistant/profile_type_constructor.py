@@ -28,7 +28,14 @@ from typing import Any
 import random
 from datetime import datetime, timezone
 
-from cmdb.models.type_model import FieldKey, SectionKey, FieldType, SectionType, TypeSchemaKey
+from cmdb.models.type_model import (
+    DEFAULT_PORT_SECTION_INDEX,
+    FieldKey,
+    SectionKey,
+    FieldType,
+    SectionType,
+    TypeSchemaKey,
+)
 from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 
 from .predefined_template_provider import PredefinedTemplateProvider
@@ -153,6 +160,11 @@ class ProfileTypeConstructor:
         self.type_config = {
             TypeSchemaKey.NAME: name,
             TypeSchemaKey.SELECTABLE_AS_PARENT: selectable_as_parent,
+            # No assistant profile builds a port-bearing type, but the pair is written anyway so a
+            # type the assistant creates carries the same keys as one created through POST /types/ -
+            # the insert stores this dict as given, and a missing key is a second stored shape
+            TypeSchemaKey.USES_PORTS: False,
+            TypeSchemaKey.PORT_SECTION_INDEX: DEFAULT_PORT_SECTION_INDEX,
             TypeSchemaKey.GLOBAL_TEMPLATE_IDS: [],
             TypeSchemaKey.ACTIVE: True,
             TypeSchemaKey.AUTHOR_ID: TypeDefault.AUTHOR_ID,

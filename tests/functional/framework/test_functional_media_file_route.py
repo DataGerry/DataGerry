@@ -20,12 +20,12 @@ Covers the list envelope, upload (multipart) + the no-file -> 400 guard (the fix
 get_file_in_request + HTTPException re-raise), get-single, delete, and the manager-error -> 400 / 500
 mappings.
 
-Since 2026-09-14 also the upload route's metadata contract: an undeclared key is refused with a 400
-naming it, and an accepted upload stores the complete metadata sub-document.
+Also the upload route's metadata contract: an undeclared key is refused with a 400 naming it, and
+an accepted upload stores the complete metadata sub-document.
 
-Since 2026-08-25 also the answers for a file that is NOT there - every route says 404 rather than a 200
-with an empty body or a 500 - the replace-on-upload ordering, and the update route's required
-``attachment`` parameter.
+Also the answers for a file that is NOT there - every route says 404 rather than a 200 with an empty
+body or a 500 - the replace-on-upload ordering, and the update route's required ``attachment``
+parameter.
 """
 import json
 from io import BytesIO
@@ -197,6 +197,21 @@ class TestGetSingle:
         assert response.status_code == HTTPStatus.OK
         # DefaultResponse returns the file document directly (not wrapped in a 'result' envelope)
         assert response.get_json()['filename'] == 'dg-func-single.txt'
+
+    def test_the_trailing_slash_form_is_not_registered(self, rest_api) -> None:
+        """
+        The same read with a trailing slash does not resolve - the route is registered once
+
+        The form that is registered is the one the frontend sends
+        (`file.service.ts::getFileElement`), so this 404 is routing, not a missing file - the
+        assertion above proves the file is there.
+        """
+        _upload(rest_api, 'dg-func-slash.txt')
+        metadata = json.dumps({'author_id': AUTHOR_ID})
+
+        response = rest_api.get(f'{BASE_URL}/dg-func-slash.txt/?metadata={metadata}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
 
 class TestDownload:

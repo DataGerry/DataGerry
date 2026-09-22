@@ -28,6 +28,8 @@ What is left over is what this module holds:
   - **no self-connection**: ``[5, 5]`` dedupes to a single key inside one document, so a unique
     multikey index sees nothing wrong with it
   - both endpoints name REAL ports
+  - **the two ends sit on the right devices for the kind of link**: a CABLE joins two different
+    CmdbObjects, an INTERNAL pairs two faces of ONE - each is the other's refusal message
   - **cable information is rejected on an INTERNAL connection** - the per-type field rule, the same
     shape as the Rack's occupant_validator: one document holds two kinds of link, so something has to
     say which fields belong to which
@@ -138,16 +140,49 @@ def endpoint_blockers(raw_endpoints: Any) -> list[str]:
     return []
 
 
-def missing_endpoint_blockers(ports_manager: PortsManager, raw_endpoints: Any) -> list[str]:
+def read_endpoint_ports(ports_manager: PortsManager, raw_endpoints: Any) -> dict[int, dict[str, Any]]:
+    """
+    Reads the CmdbPorts a request names as its endpoints, keyed by public_id
+
+    **One batched read for both ids**, and one for the whole validation: two rules ask about these
+    documents - do they exist, and do they belong to the same CmdbObject - so they are read here once
+    and judged by pure functions afterwards
+
+    Args:
+        ports_manager (PortsManager): db interface for CmdbPorts
+        raw_endpoints (Any): The raw endpoints value from the request
+
+    Returns:
+        dict[int, dict[str, Any]]: The ports that exist, keyed by public_id; empty when the endpoints
+            are unusable, which endpoint_blockers has already reported
+    """
+    endpoints: list[int] | None = sort_endpoints(raw_endpoints)
+
+    if endpoints is None:
+        return {}
+
+    found: list[dict[str, Any]] = ports_manager.find(
+        criteria={PortKey.PUBLIC_ID.value: {'$in': endpoints}},
+    )
+
+    return {
+        port[PortKey.PUBLIC_ID.value]: port for port in found
+        if isinstance(port.get(PortKey.PUBLIC_ID.value), int)
+    }
+
+
+def missing_endpoint_blockers(
+        endpoint_ports: dict[int, dict[str, Any]],
+        raw_endpoints: Any) -> list[str]:
     """
     Judges whether both ends name a CmdbPort that really exists
 
-    One batched read for both ids rather than one per endpoint. Unusable endpoints are not reported
+    Pure: it judges the documents `read_endpoint_ports` fetched. Unusable endpoints are not reported
     again here - endpoint_blockers has already said so, and repeating it would give the caller the
     same problem twice under two different messages
 
     Args:
-        ports_manager (PortsManager): db interface for CmdbPorts
+        endpoint_ports (dict[int, dict[str, Any]]): The endpoint ports that exist, keyed by public_id
         raw_endpoints (Any): The raw endpoints value from the request
 
     Returns:
@@ -158,16 +193,72 @@ def missing_endpoint_blockers(ports_manager: PortsManager, raw_endpoints: Any) -
     if endpoints is None:
         return []
 
-    found: list[dict[str, Any]] = ports_manager.find(
-        criteria={PortKey.PUBLIC_ID.value: {'$in': endpoints}},
-    )
-    existing: set[Any] = {port.get(PortKey.PUBLIC_ID.value) for port in found}
-
     return [
         PortConnectionError.ENDPOINT_NOT_FOUND.format(port_id=port_id)
         for port_id in endpoints
-        if port_id not in existing
+        if port_id not in endpoint_ports
     ]
+
+
+def same_object_blockers(
+        endpoint_ports: dict[int, dict[str, Any]],
+        connection_type: str,
+        raw_endpoints: Any) -> list[str]:
+    """
+    Judges the two ends against the devices they sit on, which the connection type decides
+
+    **The two kinds of connection are the two sides of one rule**, and each is the other's refusal
+    message:
+
+      - a **CABLE** joins two devices. Two ports of the same CmdbObject cabled together is a patch
+        panel's pairing written the wrong way, or a mis-click; either way the graph would draw a
+        device linked to itself
+      - an **INTERNAL** pairs two faces of ONE device - a panel's front port and its rear port. Across
+        two objects it is not a pairing at all, and the CI Explorer's collapse rule (a port-bearing
+        intermediate is walked THROUGH, never drawn) would follow it into the wrong device
+
+    Silent when either port is missing: `missing_endpoint_blockers` already speaks for that, and a
+    rule about two owners cannot be judged with one of them unknown
+
+    Args:
+        endpoint_ports (dict[int, dict[str, Any]]): The endpoint ports, keyed by public_id
+        connection_type (str): The ConnectionType value of the connection
+        raw_endpoints (Any): The raw endpoints value from the request
+
+    Returns:
+        list[str]: The one reason the pairing is refused, or empty when it is allowed
+    """
+    endpoints: list[int] | None = sort_endpoints(raw_endpoints)
+
+    if endpoints is None:
+        return []
+
+    ports: list[dict[str, Any]] = [
+        endpoint_ports[port_id] for port_id in endpoints if port_id in endpoint_ports
+    ]
+
+    if len(ports) != ENDPOINT_COUNT:
+        return []
+
+    first_object_id: Any = ports[0].get(PortKey.OBJECT_ID.value)
+    second_object_id: Any = ports[1].get(PortKey.OBJECT_ID.value)
+    same_object: bool = first_object_id == second_object_id
+
+    if connection_type == ConnectionType.INTERNAL:
+        if same_object:
+            return []
+
+        return [PortConnectionError.CROSS_OBJECT_INTERNAL.format(
+            first_port_id=endpoints[0], first_object_id=first_object_id,
+            second_port_id=endpoints[1], second_object_id=second_object_id,
+        )]
+
+    if same_object:
+        return [PortConnectionError.SAME_OBJECT_CABLE.format(
+            first_port_id=endpoints[0], second_port_id=endpoints[1], object_id=first_object_id,
+        )]
+
+    return []
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             per-type field rule (cable info)                                         #

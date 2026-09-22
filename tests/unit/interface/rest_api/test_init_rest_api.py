@@ -34,13 +34,13 @@ from typing import Any, Iterator
 from unittest.mock import MagicMock, call, patch
 
 import pytest
-from werkzeug.exceptions import NotFound
-from werkzeug.exceptions import MethodNotAllowed
+from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 
 import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.custom_converters import RegexConverter
 from cmdb.interface.rest_api.init_rest_api import (
+    bring_database_up_to_date,
     create_rest_api,
     execute_update_checks,
     register_converters,
@@ -55,8 +55,13 @@ SOURCE_FILE: Path = Path(__file__).resolve().parents[4] / 'cmdb' / 'interface' /
 DB_NAME: str = 'cmdb-unit'
 TENANT_DBS: list[str] = ['tenant-a', 'tenant-b']
 
-# Every HTTP status the API answers with its JSON envelope rather than Flask's HTML page
-HANDLED_STATUS_CODES: tuple[int, ...] = (400, 401, 403, 404, 405, 406, 410, 500, 503)
+# The statuses the route layer actually aborts (`grep -c "abort(<code>"` across cmdb/), so the
+# envelope is proved for every one the API really emits
+RAISED_STATUS_CODES: tuple[int, ...] = (400, 401, 403, 404, 405, 500, 503)
+
+# Statuses NOTHING in cmdb/ aborts. 415 is the one reachable in practice, because Werkzeug raises it
+# while parsing a request - before any route runs, and therefore out of reach of any abort() census
+UNRAISED_STATUS_CODES: tuple[int, ...] = (409, 413, 415, 422, 423, 429, 451, 501, 502)
 
 
 @pytest.fixture(autouse=True, name='isolated_mode_flags')
@@ -75,8 +80,8 @@ def _build(monkeypatch: pytest.MonkeyPatch, mode: str, cloud: bool = False, loca
 
     Blueprint registration is patched out too: the blueprints are module-level singletons and
     `gate_blueprint` attaches `before_request` hooks to them, which Flask refuses once a blueprint has
-    been registered - so an app carrying the real blueprints can only be built ONCE per process (see
-    discussion-backlog #159). The registration itself is covered separately by the fixture below.
+    been registered - so an app carrying the real blueprints can only be built ONCE per process.
+    The registration itself is covered separately by the fixture below.
     """
     monkeypatch.setattr(cmdb, '__MODE__', mode, raising=False)
     monkeypatch.setattr(cmdb, '__CLOUD_MODE__', cloud, raising=False)
@@ -154,6 +159,29 @@ def test_local_mode_runs_the_update_checks_with_the_local_flag(monkeypatch: pyte
     mock_checks.assert_called_once_with(mock_checks.call_args.args[0], local_mode=True)
 
 
+@pytest.mark.parametrize('header', ['X-API-Version', 'X-Total-Count', 'Content-Disposition'])
+def test_the_api_exposes_the_headers_a_cross_origin_frontend_reads(
+    monkeypatch: pytest.MonkeyPatch, header: str,
+) -> None:
+    """
+    A browser can only read a response header the server exposes
+
+    `Content-Disposition` is the one that matters in practice: it carries the filename every export
+    route builds, and the Angular app runs on its own origin under `ng serve`, so without it the
+    frontend reads no name and falls back to inventing one.
+    """
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    @app.route('/cors-probe')
+    def _probe() -> str:
+        return 'ok'
+
+    response = app.test_client().get('/cors-probe', headers={'Origin': 'http://localhost:4200'})
+    exposed = [value.strip() for value in response.headers['Access-Control-Expose-Headers'].split(',')]
+
+    assert header in exposed
+
+
 def test_a_failing_startup_routine_exits_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """A startup failure is fatal: the process exits 1 rather than serving a half-built API"""
     monkeypatch.setattr(cmdb, '__MODE__', 'PRODUCTION', raising=False)
@@ -218,9 +246,15 @@ def test_a_regex_rule_without_a_pattern_matches_one_segment() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                register_error_pages                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-@pytest.mark.parametrize('status', HANDLED_STATUS_CODES)
-def test_every_registered_status_answers_with_the_json_envelope(status: int) -> None:
-    """Each handled code returns the {description, message, response, status} body, not HTML"""
+@pytest.mark.parametrize('status', RAISED_STATUS_CODES + UNRAISED_STATUS_CODES)
+def test_every_status_answers_with_the_json_envelope(status: int) -> None:
+    """
+    Any status, not a whitelist of nine
+
+    One handler is registered for the `HTTPException` class, so the second half of this
+    parametrisation - the statuses nothing aborts today - is the point: each of them used to answer
+    Flask's HTML page, and a client that reads `message` off the envelope got nothing.
+    """
     app = BaseCmdbApp(__name__, database_manager=MagicMock())
     register_error_pages(app)
 
@@ -237,7 +271,9 @@ def test_every_registered_status_answers_with_the_json_envelope(status: int) -> 
     assert response.get_json()['status'] == status
 
 
-@pytest.mark.parametrize('status', [code for code in HANDLED_STATUS_CODES if code != 405])
+@pytest.mark.parametrize(
+    'status', [code for code in RAISED_STATUS_CODES + UNRAISED_STATUS_CODES if code != 405],
+)
 def test_the_abort_message_reaches_the_client(status: int) -> None:
     """The text passed to abort() is what the frontend reads out of 'message'"""
     app = BaseCmdbApp(__name__, database_manager=MagicMock())
@@ -270,6 +306,44 @@ def test_a_405_abort_message_is_dropped_by_werkzeug() -> None:
 
     assert body['message'] == ''
     assert body['description'] == MethodNotAllowed.description
+
+
+def test_an_unhandled_non_http_exception_still_answers_the_envelope() -> None:
+    """
+    A class handler for `HTTPException` covers a plain `ValueError` too
+
+    Flask converts an unhandled exception to `InternalServerError` before looking for a handler, and
+    that is an `HTTPException` - so the catch-all replaces the old explicit 500 registration rather
+    than losing it. Worth pinning, because it is the one case where "register the class" could
+    plausibly have left a hole.
+    """
+    app = BaseCmdbApp(__name__, database_manager=MagicMock())
+    register_error_pages(app)
+
+    @app.route('/boom')
+    def _boom() -> None:
+        raise ValueError('not an HTTPException')
+
+    response = app.test_client().get('/boom')
+
+    assert response.status_code == 500
+    assert response.mimetype == 'application/json'
+    assert set(response.get_json()) == {'description', 'message', 'response', 'status'}
+
+
+def test_one_handler_is_registered_for_the_whole_family() -> None:
+    """
+    The shape of the fix, not just its effect
+
+    Nine per-status registrations became one, so a future status needs no registration at all. A
+    change that re-introduces per-code handlers fails here even if the responses still look right.
+    """
+    app = BaseCmdbApp(__name__, database_manager=MagicMock())
+    register_error_pages(app)
+
+    handlers = app.error_handler_spec[None][None]
+
+    assert list(handlers) == [HTTPException]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -330,6 +404,9 @@ def test_the_registration_list_covers_every_domain() -> None:
     ('special_blueprint', '/special'),
     ('ipam_subnet_blueprint', '/ipam/subnet'),
     ('risk_blueprint', '/isms/risks'),
+    ('relations_blueprint', '/relations'),
+    ('object_relations_blueprint', '/object_relations'),
+    ('object_relation_logs_blueprint', '/object_relation_logs'),
 ])
 def test_known_mount_points_are_declared_at_the_registration_site(blueprint: str, prefix: str) -> None:
     """
@@ -342,6 +419,55 @@ def test_known_mount_points_are_declared_at_the_registration_site(blueprint: str
     body = _registration_source()
 
     assert f"register_blueprint({blueprint}, url_prefix='{prefix}')" in body
+
+
+def test_a_blueprint_is_imported_from_the_package_of_the_entity_it_serves() -> None:
+    """
+    The route package holds the entity it serves - the log routes with the relations they record
+
+    `/object_relation_logs` is imported from the package that holds the entity it records. A
+    top-level `log_routes` package holding that one module would read as the home of every log route
+    while the OBJECT logs sit elsewhere. The import path is the only trace of that in this file, so
+    this is where such a move would show up.
+    """
+    body = _registration_source()
+
+    assert 'routes.relation_routes.object_relation_logs_routes import (' in body
+    assert 'log_routes.object_relation_logs_routes' not in body
+
+
+def test_the_setup_blueprint_is_registered_only_in_cloud_mode() -> None:
+    """
+    The registration IS the guard for the Service-Portal teardown routes
+
+    Those three routes carry no `insert_request_user` and no `.protect`; their only decorator is
+    `verify_api_access`, which returns immediately outside cloud mode. Registering them on-premise
+    therefore published an unauthenticated `DELETE /setup/subscriptions?database=<name>` that drops
+    any database on the cluster. Moving the call back out of this guard would republish it, silently.
+    """
+    body = _registration_source()
+    registration = "app.register_blueprint(setup_blueprint, url_prefix='/setup')"
+
+    assert registration in body
+
+    guard_position = body.index('if cmdb.__CLOUD_MODE__:')
+    registration_position = body.index(registration)
+
+    assert guard_position < registration_position
+    # ...and nothing else slipped in between the guard and the call it guards
+    assert body[guard_position:registration_position].strip() == 'if cmdb.__CLOUD_MODE__:'
+
+
+def test_no_other_blueprint_registration_is_conditional() -> None:
+    """
+    The setup surface is the only one whose availability depends on the mode
+
+    Everything else is mounted in every mode and gated per route, so a second conditional here would
+    be a new rule that wants its own reason.
+    """
+    body = _registration_source()
+
+    assert body.count('if cmdb.__CLOUD_MODE__:') == 1
 
 
 def test_connection_routes_is_the_only_prefixless_registration() -> None:
@@ -386,6 +512,106 @@ def test_start_datagerry_setup_skips_updates_when_none_are_pending() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                             bring_database_up_to_date                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_a_newly_created_database_is_stamped_and_not_migrated() -> None:
+    """
+    A database this call creates is already at the current schema, so it is stamped, not replayed
+
+    `CollectionValidator` builds it from the current models, and every registered migration is a
+    no-op against it. On-premise this used to replay the whole history: with no stored version,
+    `get_current_update_version` seeds BASELINE_UPDATER_VERSION, which sits below the earliest
+    migration.
+    """
+    dbm = MagicMock()
+    dbm.check_database_exists.return_value = False
+
+    with patch(f'{MODULE_PATH}.CollectionValidator'), \
+         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
+        mock_updater.return_value.get_highest_update_version.return_value = 20260916
+
+        bring_database_up_to_date(dbm, DB_NAME)
+
+    mock_updater.return_value.set_update_version.assert_called_once_with(20260916)
+    mock_updater.return_value.run_updates.assert_not_called()
+    mock_updater.return_value.is_update_available.assert_not_called()
+
+
+def test_an_existing_database_is_migrated_and_not_stamped() -> None:
+    """An upgrade must still run every migration it is behind - the stamp is only for a new one."""
+    dbm = MagicMock()
+    dbm.check_database_exists.return_value = True
+
+    with patch(f'{MODULE_PATH}.CollectionValidator'), \
+         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
+        mock_updater.return_value.is_update_available.return_value = True
+
+        bring_database_up_to_date(dbm, DB_NAME)
+
+    mock_updater.return_value.run_updates.assert_called_once_with()
+    mock_updater.return_value.set_update_version.assert_not_called()
+
+
+def test_an_up_to_date_existing_database_is_left_alone() -> None:
+    """Nothing pending, nothing stamped, nothing run."""
+    dbm = MagicMock()
+    dbm.check_database_exists.return_value = True
+
+    with patch(f'{MODULE_PATH}.CollectionValidator'), \
+         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
+        mock_updater.return_value.is_update_available.return_value = False
+
+        bring_database_up_to_date(dbm, DB_NAME)
+
+    mock_updater.return_value.run_updates.assert_not_called()
+    mock_updater.return_value.set_update_version.assert_not_called()
+
+
+def test_existence_is_read_before_the_collections_are_validated() -> None:
+    """
+    The ordering IS the rule
+
+    `validate_collections` creates the database when it is missing, so asking afterwards would always
+    answer "it exists" and every fresh installation would replay the history again.
+    """
+    dbm = MagicMock()
+    order: list[str] = []
+    dbm.check_database_exists.side_effect = lambda *_: order.append('check') or True
+
+    with patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
+         patch(f'{MODULE_PATH}.DatabaseUpdater'):
+        mock_validator.return_value.validate_collections.side_effect = lambda: order.append('validate')
+
+        bring_database_up_to_date(dbm, DB_NAME)
+
+    assert order == ['check', 'validate']
+
+
+def test_the_local_mode_flag_reaches_the_validator() -> None:
+    """It gates the key generation and the default admin user, so it must not be dropped."""
+    dbm = MagicMock()
+
+    with patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
+         patch(f'{MODULE_PATH}.DatabaseUpdater'):
+        bring_database_up_to_date(dbm, DB_NAME, local_mode=True)
+
+    mock_validator.assert_called_once_with(DB_NAME, dbm, local_mode=True)
+
+
+def test_both_boot_paths_share_one_rule() -> None:
+    """
+    The on-premise and tenant paths used to duplicate the validate-then-migrate sequence
+
+    They disagreed about a newly created database, which is what G45 recorded. Sharing the helper is
+    what keeps them from drifting apart again.
+    """
+    source: str = SOURCE_FILE.read_text(encoding='utf-8')
+    body = source[source.index('def start_datagerry_setup'):]
+
+    assert body.count('bring_database_up_to_date(') == 2
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                execute_update_checks                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_execute_update_checks_walks_every_tenant_database() -> None:
@@ -400,7 +626,7 @@ def test_execute_update_checks_walks_every_tenant_database() -> None:
         execute_update_checks(dbm)
 
     mock_names.assert_called_once_with(False)
-    assert mock_validator.call_args_list == [call(name, dbm) for name in TENANT_DBS]
+    assert mock_validator.call_args_list == [call(name, dbm, local_mode=False) for name in TENANT_DBS]
     assert mock_updater.call_args_list == [call(dbm, name) for name in TENANT_DBS]
     assert mock_updater.return_value.run_updates.call_count == len(TENANT_DBS)
 
@@ -426,7 +652,7 @@ def test_execute_update_checks_skips_up_to_date_tenants() -> None:
 
 
 def test_execute_update_checks_stops_at_the_first_failing_tenant() -> None:
-    """No per-tenant isolation: one failing database aborts the whole loop (discussion-backlog #156)"""
+    """No per-tenant isolation: one failing database aborts the whole loop"""
     with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
          patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
          patch(f'{MODULE_PATH}.DatabaseUpdater'):

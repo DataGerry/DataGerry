@@ -37,10 +37,10 @@ Registering a new manager (three coordinated edits)
 2. Add a `ManagerType` member whose value is the class name verbatim
 3. Add the `ManagerType -> class` entry to `MANAGER_CLASSES` below
 
-Nothing at import time enforces that the three stay in step, so
-`tests/unit/manager/manager_provider_model/test_manager_provider.py` does: it asserts the map and
-the enum cover each other exactly, that every value equals its class `__name__`, and that every
-registered class accepts both the local- and cloud-mode argument shapes
+Nothing at import time enforces that the three stay in step - the unit tests for this module do:
+they assert the map and the enum cover each other exactly, that every value equals its class
+`__name__`, and that every registered class accepts both the local- and cloud-mode argument
+shapes
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -90,7 +90,6 @@ from cmdb.manager import (
     PersonGroupsManager,
     RiskAssessmentManager,
     ControlMeasureAssignmentManager,
-    CachedUserManager,
     LicenseActivationRequestsManager,
     ActiveLicenseManager,
     LicenseService,
@@ -148,7 +147,6 @@ MANAGER_CLASSES: dict[ManagerType, Any] = {
     ManagerType.PERSON_GROUP: PersonGroupsManager,
     ManagerType.RISK_ASSESSMENT: RiskAssessmentManager,
     ManagerType.CONTROL_MEASURE_ASSIGNMENT: ControlMeasureAssignmentManager,
-    ManagerType.CACHED_USER: CachedUserManager,
     ManagerType.LICENSE_ACTIVATION_REQUESTS: LicenseActivationRequestsManager,
     ManagerType.ACTIVE_LICENSE: ActiveLicenseManager,
     ManagerType.LICENSE_SERVICE: LicenseService,
@@ -214,9 +212,16 @@ class ManagerProvider:
             tuple[Any, ...]: Arguments for the manager class initialisation - `(dbm,)` in local
                 mode, `(dbm, database)` in cloud mode
 
+        The tenant name is refused when it is falsy, not defaulted. `BaseManager` binds to
+        `dbm.db_name` for a None or empty `db_name`, so letting one through would silently serve a
+        cloud user out of the process-wide database - another tenant's - instead of failing. The
+        stored `database` may legitimately be absent (the schema allows null) which is exactly why
+        the check is here, where cloud mode is known
+
         Raises:
-            BaseManagerInitError: If cloud mode is active but no request_user was given, since
-                there is then no tenant database to bind the manager to
+            BaseManagerInitError: If cloud mode is active and no request_user was given, or the
+                request_user carries no usable database name - in both cases there is no tenant
+                database to bind the manager to
         """
         common_args: tuple[Any, ...] = (current_app.database_manager,)
 
@@ -224,6 +229,15 @@ class ManagerProvider:
             if request_user is None:
                 LOGGER.error("[__get_manager_args] No request_user provided while in cloud mode!")
                 raise BaseManagerInitError("A request user is required to select the database in cloud mode")
+
+            if not request_user.database:
+                LOGGER.error(
+                    "[__get_manager_args] CmdbUser ID:%s carries no database while in cloud mode!",
+                    request_user.public_id,
+                )
+                raise BaseManagerInitError(
+                    f"The request user (ID: {request_user.public_id}) has no database to select in cloud mode"
+                )
 
             return common_args + (request_user.database,)
 

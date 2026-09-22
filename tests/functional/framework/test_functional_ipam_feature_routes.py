@@ -39,6 +39,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     InterfaceField,
     IpamSection,
     IpAddressFamily,
+    IpamUnassignLimits,
 )
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -303,6 +304,22 @@ class TestIpamSupernetOverviewRoutes:
 
         assert response.status_code == HTTPStatus.OK
         assert 'text/csv' in response.headers['Content-Type']
+
+    def test_supernet_unassign_refuses_an_oversized_batch(self, rest_api):
+        """
+        The batch cap answers 400 over the wire, and writes nothing (tier 2 T132, finding P1)
+
+        Placed before the detaching test on purpose: it must not consume the one subnet that test
+        needs, and the point of the cap is that a refused request costs no write at all.
+        """
+        oversized = list(range(1, IpamUnassignLimits.MAX_SUBNET_IDS + 2))
+
+        response = rest_api.post(
+            f'{SUPERNET_OVERVIEW_URL}/{SUPERNET_ID}/subnets/unassign',
+            json={'subnet_ids': oversized},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_supernet_unassign_detaches_a_subnet(self, rest_api):
         """POST .../subnets/unassign detaches the child subnet (runs last: it writes)"""

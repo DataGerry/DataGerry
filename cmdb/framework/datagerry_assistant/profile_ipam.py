@@ -39,6 +39,13 @@ class IPAMProfile(ProfileBase):
     SchemaProvider blueprints and wires their reference fields via handle_special_types.
     """
 
+    # Derived from the very list create_profile iterates, so the declaration cannot fall behind what
+    # the profile actually creates - which is exactly how the IPAM profile came to be missing from the
+    # hand-maintained profile->feature map this replaced
+    CREATED_SPECIAL_TYPES: frozenset[SpecialType] = frozenset(
+        definition[IpamSpecialTypeKey.SPECIAL_TYPE] for definition in IPAM_SPECIAL_TYPE_DEFINITIONS
+    )
+
     def create_profile(self) -> dict[str, int | None]:
         """
         Creates all SpecialTypes from the 'IPAM'-Profile

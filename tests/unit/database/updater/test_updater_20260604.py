@@ -739,11 +739,13 @@ def test_start_update_wraps_failures_in_updater_exception() -> None:
     """Any error from a step surfaces as UpdaterException and the version is not bumped"""
     updater = _new_updater()
     updater.settings_manager = settings_manager = MagicMock()
+    failure = RuntimeError('boom')
 
-    with patch.object(Update20260604, 'backfill_special_type', side_effect=RuntimeError('boom')):
-        with pytest.raises(UpdaterException):
+    with patch.object(Update20260604, 'backfill_special_type', side_effect=failure):
+        with pytest.raises(UpdaterException) as caught:
             updater.start_update()
 
+    assert caught.value.args[0] is failure
     settings_manager.write.assert_not_called()
 
 

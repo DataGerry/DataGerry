@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 
-from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.type_model import CmdbType, DEFAULT_PORT_SECTION_INDEX, TypeSchemaKey
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     DEFAULT_TYPE_ICON,
     TypeImportError,
@@ -34,6 +34,8 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import (
     strip_uploaded_public_id,
     apply_type_defaults,
+    apply_port_section_index_default,
+    clear_dangling_ci_explorer_label,
     apply_render_meta_defaults,
     clear_dangling_type_references,
     clear_dangling_acl_groups,
@@ -575,6 +577,116 @@ class TestReconcileGlobalTemplates:
         reconcile_global_templates('not-a-dict', StubSectionTemplatesManager())
 
 
+class TestApplyPortSectionIndexDefault:
+    """The ports section position an upload brings is repaired, never reported."""
+
+    @pytest.mark.parametrize('sent, expected', [(0, 0), (1, 1), (6, 6), ('2', 2), (3.0, 3)], ids=str)
+    def test_a_usable_position_is_kept(self, sent: Any, expected: int) -> None:
+        """A whole number from 0 up survives the import as an int."""
+        entry: dict[str, Any] = {'uses_ports': True, 'port_section_index': sent}
+
+        apply_port_section_index_default(entry)
+
+        assert entry['port_section_index'] == expected
+
+    @pytest.mark.parametrize('sent', [-1, 1.5, 'left', True, None, [], {}], ids=str)
+    def test_an_unusable_position_falls_back_to_the_default(self, sent: Any) -> None:
+        """
+        The import repairs what the routes refuse.
+
+        A cosmetic position is never worth failing an entry over, so a negative index, a fraction, a
+        boolean (bool is an int subclass, so True would otherwise read as position 1) or anything
+        that is not a number becomes the default instead of a per-entry error.
+        """
+        entry: dict[str, Any] = {'uses_ports': True, 'port_section_index': sent}
+
+        apply_port_section_index_default(entry)
+
+        assert entry['port_section_index'] == DEFAULT_PORT_SECTION_INDEX
+
+    def test_an_absent_key_is_filled_in(self) -> None:
+        """An export of a type that predates the key is the ordinary case, not a broken upload."""
+        entry: dict[str, Any] = {'uses_ports': True}
+
+        apply_port_section_index_default(entry)
+
+        assert entry['port_section_index'] == DEFAULT_PORT_SECTION_INDEX
+
+    @pytest.mark.parametrize('uses_ports', [False, None], ids=['false', 'absent'])
+    def test_a_type_without_ports_is_reset(self, uses_ports: Any) -> None:
+        """The index is only read while the flag is on, so it may not survive an import without it."""
+        entry: dict[str, Any] = {'port_section_index': 4}
+
+        if uses_ports is not None:
+            entry['uses_ports'] = uses_ports
+
+        apply_port_section_index_default(entry)
+
+        assert entry['port_section_index'] == DEFAULT_PORT_SECTION_INDEX
+
+    def test_a_non_dict_entry_is_ignored(self) -> None:
+        """A malformed entry is left to the rules rather than crashing here."""
+        apply_port_section_index_default('not-a-dict')
+
+
+class TestClearDanglingCiExplorerLabel:
+    """A CI Explorer label nomination the uploaded type cannot honour is dropped, not reported."""
+
+    @staticmethod
+    def _entry(label: Any, **overrides: Any) -> dict[str, Any]:
+        """An uploaded type with one plain field and one multi-data-section field."""
+        entry: dict[str, Any] = {
+            'name': 'server',
+            'ci_explorer_label': label,
+            'fields': [{'type': 'text', 'name': 'hostname'}, {'type': 'text', 'name': 'port-name'}],
+            'render_meta': {'sections': [
+                {'type': 'section', 'name': 'info', 'fields': ['hostname']},
+                {'type': 'multi-data-section', 'name': 'ports', 'fields': ['port-name']},
+            ]},
+        }
+        entry.update(overrides)
+
+        return entry
+
+    def test_a_usable_nomination_survives(self) -> None:
+        """An export nominating a field the type still has keeps it - that is the point of exporting it"""
+        entry = self._entry('hostname')
+
+        assert clear_dangling_ci_explorer_label(entry) is None
+        assert entry['ci_explorer_label'] == 'hostname'
+
+    def test_a_nomination_the_type_no_longer_has_is_dropped(self) -> None:
+        """
+        The repair, not a blocker
+
+        The name belonged to the system the type came from; a type that imports with no nomination is
+        exactly the state a type starts in, so failing the entry over it would only get in the way.
+        """
+        entry = self._entry('gone-field')
+
+        assert clear_dangling_ci_explorer_label(entry) == 'gone-field'
+        assert entry['ci_explorer_label'] is None
+
+    def test_a_multi_data_section_field_is_dropped(self) -> None:
+        """It would resolve, but to a flat entry carrying none of the section's rows"""
+        entry = self._entry('port-name')
+
+        assert clear_dangling_ci_explorer_label(entry) == 'port-name'
+        assert entry['ci_explorer_label'] is None
+
+    @pytest.mark.parametrize('sent', [None, ''], ids=['null', 'empty'])
+    def test_an_unset_nomination_is_normalised(self, sent: Any) -> None:
+        """Both spellings of "no field chosen" become the stored None"""
+        entry = self._entry(sent)
+
+        assert clear_dangling_ci_explorer_label(entry) is None
+        assert entry['ci_explorer_label'] is None
+
+    def test_a_non_dict_entry_is_ignored(self) -> None:
+        """A malformed entry is left to the rules rather than crashing here."""
+        assert clear_dangling_ci_explorer_label('not-a-dict') is None
+
+
 class TestNormalizeImportedType:
     """normalize_imported_type applies every repair, in one place, for both verbs."""
 
@@ -593,6 +705,26 @@ class TestNormalizeImportedType:
         assert entry['fields'][1]['ref_types'] == []            # clear_dangling_type_references
         assert entry['acl']['groups']['includes'] == {}         # clear_dangling_acl_groups
         assert entry['global_template_ids'] == []               # reconcile_global_templates
+        assert entry['port_section_index'] == DEFAULT_PORT_SECTION_INDEX  # apply_port_section_index_default
+        assert entry['ci_explorer_label'] is None                # clear_dangling_ci_explorer_label
+
+    def test_a_nomination_of_a_template_field_survives(self) -> None:
+        """
+        The label repair runs AFTER the template reconciliation, and has to
+
+        A global section template adds its fields to the entry while it is being repaired, so a
+        nomination pointing at one of them is perfectly usable - judged before they exist, it would
+        have been dropped.
+        """
+        template = _template('dg-contact', [type_field('phone')])
+        entry = _type_claiming('dg-contact', [type_field('host')],
+                               [{'type': 'section', 'name': 'main', 'fields': ['host']}])
+        entry['ci_explorer_label'] = 'phone'
+
+        normalize_imported_type(entry, StubTypesManager(), StubSectionTemplatesManager([template]))
+
+        assert 'phone' in [field['name'] for field in entry['fields']]
+        assert entry['ci_explorer_label'] == 'phone'
 
 
 class TestTemplateReconciliationToleratesNonsense:

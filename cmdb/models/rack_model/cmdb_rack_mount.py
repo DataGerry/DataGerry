@@ -20,9 +20,8 @@ from logging import Logger, getLogger
 from datetime import datetime, timezone
 from typing import Any
 
-from dateutil.parser import parse
 
-from cmdb.utils import coerce_datetime
+from cmdb.utils import coerce_datetime, coerce_document_dates
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind
@@ -63,6 +62,7 @@ class CmdbRackMount(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.rackMounts'
+    DATE_FIELDS: tuple[str, ...] = ('creation_time', 'last_edit_time')
     # object_id is deliberately absent: an occupant row has none. That a MOUNT requires one is a
     # per-kind rule, checked by the occupant validator where the kind is known
     REQUIRED_INIT_KEYS: list[str] = ['rack_id', 'area']
@@ -186,15 +186,13 @@ class CmdbRackMount(CmdbDAO):
             CmdbRackMount: CmdbRackMount with the given data
         """
         try:
-            creation_time = data.get('creation_time', None)
+            # The audit timestamps are coerced strictly: a value that cannot be read is refused
+            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
+            # 'sometime in March' into a date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if creation_time and isinstance(creation_time, str):
-                creation_time = parse(creation_time, fuzzy=True)
-
-            last_edit_time = data.get('last_edit_time', None)
-
-            if last_edit_time and isinstance(last_edit_time, str):
-                last_edit_time = parse(last_edit_time, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
                 public_id = data.get('public_id'),
@@ -214,8 +212,8 @@ class CmdbRackMount(CmdbDAO):
                 # error rather than silently becoming "now". The reservation dates above are lenient
                 # instead, because the routes refuse an unusable one with a readable 400 before it is
                 # ever stored
-                creation_time = creation_time,
-                last_edit_time = last_edit_time,
+                creation_time = data.get('creation_time'),
+                last_edit_time = data.get('last_edit_time'),
             )
         except Exception as err:
             raise CmdbRackMountInitFromDataError(err) from err

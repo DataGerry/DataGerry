@@ -27,6 +27,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BaseQueryBuilder, BuilderParameters
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.database import (
@@ -200,6 +201,40 @@ class BaseManager:
             raise BaseManagerIterationError(str(err)) from err
 
 
+    @staticmethod
+    def apply_acl_to_builder_params(
+        builder_params: BuilderParameters,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None
+    ) -> None:
+        """
+        Narrows a query's criteria to the CmdbTypes the user's group may access
+
+        **The criteria, not the pipeline**, and that is the whole point. A paginated read runs two
+        aggregations - the rows and the count - and the count is built from the criteria alone, so an
+        access rule appended as pipeline stages filters the rows and leaves the total beside them
+        unfiltered. Putting it in the criteria makes one rule govern both.
+
+        Resolving the denied types costs one projected query against `framework.types`; it is skipped
+        entirely when no user or no permission was given, which is how every internal caller reads.
+        Nothing is added when the group is denied nothing, which is the common case
+
+        Args:
+            builder_params (BuilderParameters): The parameters to narrow, modified in place
+            user (CmdbUser | None): The user making the request. Defaults to None
+            permission (AccessControlPermission | None): Permission to check. Defaults to None
+        """
+        if not user or not permission:
+            return
+
+        denied_type_ids: list[int] = resolve_denied_type_ids(user, permission)
+
+        if not denied_type_ids:
+            return
+
+        builder_params.add_criteria(build_denied_types_condition(denied_type_ids))
+
+
     def iterate_query(
         self,
         builder_params: BuilderParameters,
@@ -211,7 +246,12 @@ class BaseManager:
 
         Delegates the data half to ``aggregate_query``; only the count pipeline is run here. Callers
         that discard the total should call ``aggregate_query`` directly instead of ignoring the
-        second element of the returned tuple
+        second element of the returned tuple.
+
+        The access control is applied **here**, to the criteria both aggregations read, rather than
+        handed down to ``aggregate_query`` - which would restrict the rows and not the total. The
+        denied types are therefore resolved once for the pair, and ``aggregate_query`` is called
+        without the user and the permission because the rule is already in the query it is given
 
         Args:
             builder_params (BuilderParameters): Parameters to define the query
@@ -225,7 +265,9 @@ class BaseManager:
             tuple[list[dict[str, Any]], int]: The aggregation results and the total document count
         """
         try:
-            aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params, user, permission)
+            self.apply_acl_to_builder_params(builder_params, user, permission)
+
+            aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params)
 
             count_query: list[dict] = self.query_builder.count(builder_params.get_criteria())
             total_cursor = self.aggregate(count_query)

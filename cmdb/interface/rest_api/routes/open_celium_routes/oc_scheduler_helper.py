@@ -19,12 +19,13 @@ Helper methods shared by the OpenCelium Scheduler (Automation) REST routes
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, current_app
+from flask import abort
 
-from cmdb.manager import DgServicePortalManager, CachedUserManager
-from cmdb.open_celium import CachedOcIdType, unmap_oc_name
+from cmdb.manager import DgServicePortalManager
+from cmdb.open_celium import CachedOcIdType, unmap_oc_name, is_hosted_cloud
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.interface.route_utils import get_cached_user_manager
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -46,10 +47,10 @@ def assert_scheduler_access(request_user: CmdbUser, scheduler_id: int) -> None:
     Raises:
         HTTPException: 400 when the scheduler is not accessible to the requesting user
     """
-    if not (current_app.cloud_mode and not current_app.local_mode):
+    if not is_hosted_cloud():
         return
 
-    cached_user_manager = CachedUserManager(current_app.database_manager)
+    cached_user_manager = get_cached_user_manager()
     dg_sp_manager = DgServicePortalManager()
 
     cached_user = cached_user_manager.get_cached_user(request_user.email)
@@ -86,7 +87,7 @@ def get_accessible_scheduler_ids(request_user: CmdbUser) -> list[int] | None:
     Returns:
         list[int] | None: The accessible scheduler ids, or None/empty when the user has none
     """
-    cached_user_manager = CachedUserManager(current_app.database_manager)
+    cached_user_manager = get_cached_user_manager()
     dg_sp_manager = DgServicePortalManager()
 
     cached_user = cached_user_manager.get_cached_user(request_user.email)

@@ -16,21 +16,28 @@
 """
 Implementation of SecurityManager
 """
-import os
 import base64
 from logging import Logger, getLogger
 import hashlib
 import hmac
 
-from Crypto import Random
 from flask import current_app
 from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.system_manager.settings_manager import SettingsManager
+from cmdb.security.key.secret_resolver import (
+    SECURITY_SECTION,
+    SYMMETRIC_KEY_SETTING,
+    new_symmetric_aes_key,
+    resolve_secret,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Environment variable carrying the Base64 symmetric key on a hosted cloud installation
+SYMMETRIC_KEY_ENV_VAR: str = 'DG_SYMMETRIC_KEY'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                SecurityManager - CLASS                                               #
@@ -47,6 +54,13 @@ class SecurityManager:
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Initializes the SecurityManager with a given database manager and optional database selection
+
+        **`database` only ever matters on-premise**, and today not even there: it selects which
+        database the `security` settings section is read from, and every other mode answers from the
+        environment or the app without touching a database at all. On-premise there is one database
+        and it is the manager's own default, so passing the name and omitting it give the same key -
+        which is why two of the five call sites omit it and three pass it, without any of them being
+        wrong. Pass it when the calling context has a tenant in hand; nothing breaks either way
 
         Args:
             dbm (MongoDatabaseManager): The database manager to interact with the database
@@ -88,10 +102,15 @@ class SecurityManager:
         """
         Generates a new random symmetric AES key and stores it in the 'security' settings section
 
+        The key itself comes from `new_symmetric_aes_key`, which `KeyGenerator` also uses at first
+        boot: two entry points, one definition of what the key is and where it is written
+
         Returns:
             UpdateResult: The result of the settings write operation
         """
-        return self.settings_manager.write('security', {'symmetric_aes_key': Random.get_random_bytes(32)})
+        return self.settings_manager.write(
+            SECURITY_SECTION, {SYMMETRIC_KEY_SETTING: new_symmetric_aes_key()},
+        )
 
 
     def get_symmetric_aes_key(self) -> bytes:
@@ -109,22 +128,31 @@ class SecurityManager:
         Raises:
             ValueError: In cloud (non-local) mode when ``DG_SYMMETRIC_KEY`` is not set
         """
-        if current_app.cloud_mode:
-            if current_app.local_mode:
-                return current_app.symmetric_key
+        return resolve_secret(
+            dev_value=lambda: current_app.symmetric_key,
+            env_var=SYMMETRIC_KEY_ENV_VAR,
+            label='symmetric AES key',
+            stored_value=self._stored_symmetric_key,
+        )
 
-            env_symmetric_key = os.getenv("DG_SYMMETRIC_KEY")
 
-            if not env_symmetric_key:
-                LOGGER.error("[get_symmetric_aes_key] No symmetric key provided via 'DG_SYMMETRIC_KEY'!")
-                raise ValueError("No symmetric AES key provided via the 'DG_SYMMETRIC_KEY' environment variable")
+    def _stored_symmetric_key(self) -> bytes:
+        """
+        Reads the symmetric key from the 'security' settings section, generating one when absent
 
-            return base64.b64decode(env_symmetric_key)
+        **The lazy generation is a hazard, not a feature.** It is correct
+        on a first use and wrong on a loss, and this code cannot tell those apart: the key is what
+        keys the password HMAC, so generating a replacement silently invalidates every stored password
+        hash - nobody can log in afterwards, admin included, with nothing reported. Kept as-is here so
+        the behaviour change is a decision rather than a side effect of a refactor
 
-        symmetric_key = self.settings_manager.get_value('symmetric_aes_key', 'security')
+        Returns:
+            bytes: The stored symmetric AES key
+        """
+        symmetric_key = self.settings_manager.get_value(SYMMETRIC_KEY_SETTING, SECURITY_SECTION)
 
         if not symmetric_key:
             self.generate_symmetric_aes_key()
-            symmetric_key = self.settings_manager.get_value('symmetric_aes_key', 'security')
+            symmetric_key = self.settings_manager.get_value(SYMMETRIC_KEY_SETTING, SECURITY_SECTION)
 
         return symmetric_key

@@ -90,7 +90,10 @@ class TestProtectNoEnforcement:
         mocked_right.assert_not_called()
 
     def test_no_right_is_a_no_op(self) -> None:
-        """auth-only .protect(auth=True) with no right performs no enforcement (documented no-op, backlog #64)."""
+        """auth-only .protect(auth=True) with no right performs no enforcement
+
+        A documented no-op.
+        """
         wrapped = APIBlueprint.protect(auth=True)(_route)
         with patch(f'{MODULE_PATH}.user_has_right') as mocked_right:
             with _app().test_request_context():

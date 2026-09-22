@@ -38,7 +38,7 @@ from cmdb.models.object_model import (
     CmdbObjectMdsRowKey,
 )
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
-from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from cmdb.manager.section_templates_manager import SectionTemplatesManager, types_using_template_criteria
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.errors.manager.section_templates_manager import (
     SectionTemplatesManagerInsertError,
@@ -442,25 +442,37 @@ def test_handle_section_template_changes_reports_nothing_for_a_non_global_templa
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         get_global_template_usage_count                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
+def _consuming_type(public_id: int, carries_section: bool) -> MagicMock:
+    """Builds a consuming CmdbType stub; `carries_section` decides what get_section answers."""
+    a_type = MagicMock()
+    a_type.public_id = public_id
+    a_type.get_section.return_value = MagicMock() if carries_section else None
+
+    return a_type
+
+
 def test_get_global_template_usage_count_returns_zero_for_non_global() -> None:
-    """A non-global template reports zero usage without querying"""
+    """A non-global template reports zero usage without querying, and says so via is_global"""
     mock_self = MagicMock()
 
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=False)
 
-    assert counts == {'types': 0, 'objects': 0}
-    mock_self.types_manager.get_distinct.assert_not_called()
+    assert counts == {'types': 0, 'objects': 0, 'is_global': False}
+    mock_self.get_types_using_template.assert_not_called()
 
 
 def test_get_global_template_usage_count_counts_types_and_objects() -> None:
-    """Type ids come from a distinct projection (not materialised types); objects via a count query"""
+    """Types come from the consumer query; objects via a single count query over the carrying types"""
     mock_self = MagicMock()
-    mock_self.types_manager.get_distinct.return_value = [1, 2]
+    mock_self.get_types_using_template.return_value = [
+        _consuming_type(1, carries_section=True),
+        _consuming_type(2, carries_section=True),
+    ]
     mock_self.objects_manager.count_documents.return_value = 7
 
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
 
-    assert counts == {'types': 2, 'objects': 7}
+    assert counts == {'types': 2, 'objects': 7, 'is_global': True}
     mock_self.objects_manager.count_documents.assert_called_once_with(
         {CmdbObjectKey.TYPE_ID.value: {"$in": [1, 2]}},
     )
@@ -469,12 +481,61 @@ def test_get_global_template_usage_count_counts_types_and_objects() -> None:
 def test_get_global_template_usage_count_skips_the_object_count_without_consuming_types() -> None:
     """No consuming type means no objects can carry the section - the count query is not run"""
     mock_self = MagicMock()
-    mock_self.types_manager.get_distinct.return_value = []
+    mock_self.get_types_using_template.return_value = []
 
     counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
 
-    assert counts == {'types': 0, 'objects': 0}
+    assert counts == {'types': 0, 'objects': 0, 'is_global': True}
     mock_self.objects_manager.count_documents.assert_not_called()
+
+
+def test_get_global_template_usage_count_excludes_objects_of_a_claim_only_type() -> None:
+    """
+    A type claiming the template without carrying its section contributes no objects
+
+    The delete cascade drops such a type's claim and touches none of its objects, so counting them
+    would overstate what the user is warned about - while the type itself still counts, because the
+    cascade does visit it.
+    """
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = [
+        _consuming_type(1, carries_section=True),
+        _consuming_type(2, carries_section=False),
+    ]
+    mock_self.objects_manager.count_documents.return_value = 3
+
+    counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert counts == {'types': 2, 'objects': 3, 'is_global': True}
+    mock_self.objects_manager.count_documents.assert_called_once_with(
+        {CmdbObjectKey.TYPE_ID.value: {"$in": [1]}},
+    )
+
+
+def test_get_global_template_usage_count_skips_the_object_count_when_no_type_carries_the_section() -> None:
+    """Every consuming type is claim-only: the types count stands, the object query is not run"""
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = [
+        _consuming_type(1, carries_section=False),
+        _consuming_type(2, carries_section=False),
+    ]
+
+    counts = SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert counts == {'types': 2, 'objects': 0, 'is_global': True}
+    mock_self.objects_manager.count_documents.assert_not_called()
+
+
+def test_types_using_template_criteria_is_the_one_consumer_query() -> None:
+    """Both the count and the cascade ask the same question, so it is spelled in one place"""
+    criteria = types_using_template_criteria('tpl')
+
+    assert criteria == {'global_template_ids': 'tpl'}
+
+    mock_self = MagicMock()
+    SectionTemplatesManager.get_types_using_template(mock_self, 'tpl')
+
+    mock_self.types_manager.find_types.assert_called_once_with(criteria)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

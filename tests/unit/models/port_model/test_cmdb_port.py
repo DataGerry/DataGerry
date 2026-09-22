@@ -326,3 +326,33 @@ class TestSchema:
         required = {name for name, rule in schema.items() if rule.get('required')}
 
         assert set(CmdbPort.REQUIRED_INIT_KEYS) == required
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             STRICT DATE COERCION                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUnreadableTimestampsAreRefused:
+    """
+    A timestamp that cannot be read is refused, not guessed
+
+    Until 2026-09-21 these were parsed with `fuzzy=True`, which reads a note like 'sometime in March'
+    as a date assembled from today's day number - the document would then carry a date nobody wrote,
+    and nothing would ever say so.
+    """
+
+    def test_an_unreadable_timestamp_raises(self) -> None:
+        """The model's own error, so a caller maps it instead of storing the guess."""
+        with pytest.raises(CmdbPortInitFromDataError):
+            CmdbPort.from_data(_port_data(**{PortKey.CREATION_TIME.value: 'sometime in March'}))
+
+    def test_a_timestamp_string_is_still_read(self) -> None:
+        """Strictness must not cost the shapes that ARE readable - an ISO string is one."""
+        built = CmdbPort.from_data(_port_data(**{PortKey.CREATION_TIME.value: '2026-03-01T10:00:00'}))
+
+        assert isinstance(built.creation_time, datetime)
+
+    def test_the_mongo_wrapper_shape_is_read_too(self) -> None:
+        """`{'$date': <millis>}` is the shape the frontend sends back, so it has to be read."""
+        built = CmdbPort.from_data(_port_data(**{PortKey.CREATION_TIME.value: {'$date': 1772000000000}}))
+
+        assert isinstance(built.creation_time, datetime)

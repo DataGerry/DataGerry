@@ -16,13 +16,15 @@
 """
 Constants for the CI Explorer REST routes
 
-Names the ACL rights guarding the ``/ci_explorer`` routes and the query-string parameters they read.
+Names the ACL rights guarding the ``/ci_explorer`` routes, the query-string parameters they read and
+the response keys the label-field route adds of its own.
 
-The CI Explorer FIELD keys are deliberately not repeated here: ``ci_explorer_tooltip`` belongs to the
-CmdbObject document (``CmdbObjectKey.CI_EXPLORER_TOOLTIP``) and ``ci_explorer_label`` /
-``ci_explorer_color`` to the CmdbType document (``TypeSchemaKey.CI_EXPLORER_*``), so the models own
-them and every reader - these routes included - takes them from there. The node-direction values live
-in cmdb.models.ci_explorer_model.NodeType
+The CI Explorer FIELD keys are deliberately not repeated here: ``ci_explorer_label`` and
+``ci_explorer_color`` belong to the CmdbType document (``TypeSchemaKey.CI_EXPLORER_*``), so the models
+own them and every reader - these routes included - takes them from there. ``ci_explorer_tooltip`` is
+a CmdbObject key (``CmdbObjectKey.CI_EXPLORER_TOOLTIP``) that these routes no longer write at all: its
+route was removed 2026-09-18 for want of a caller, and the field travels to the graph inside the
+node's ``linked_object``. The node-direction values live in cmdb.models.ci_explorer_model.NodeType
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -30,6 +32,7 @@ from cmdb.utils import BaseStrEnum
 __all__: list[str] = [
     'CiExplorerRight',
     'CiExplorerParam',
+    'CiExplorerResponseKey',
 ]
 
 
@@ -62,3 +65,14 @@ class CiExplorerParam(BaseStrEnum):
     ITEM_LIMIT = 'item_limit'
     TYPES_FILTER = 'types_filter'
     RELATIONS_FILTER = 'relations_filter'
+
+
+class CiExplorerResponseKey(BaseStrEnum):
+    """
+    Response keys the CI Explorer routes add on top of the document keys they write
+
+    SELECTABLE_FIELDS is answered by ``PUT /ci_explorer/label_field/<public_id>`` beside the stored
+    ``ci_explorer_label``: the field names that Type may nominate, so a client can refresh its picker
+    from the same answer instead of re-reading the whole CmdbType
+    """
+    SELECTABLE_FIELDS = 'selectable_fields'

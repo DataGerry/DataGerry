@@ -113,7 +113,6 @@ def private_encrypt(plaintext: bytes, private_key: RsaKey) -> bytes:
     return bytes(ciphertext)
 
 
-# pylint: disable=too-many-arguments, too-many-positional-arguments
 def build_entitlement(
     license_type: str = DEFAULT_LICENSE_TYPE,
     hmac_value: str = DEFAULT_HMAC,

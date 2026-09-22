@@ -17,15 +17,23 @@
 Shared constants for the DocapiTemplate REST routes
 
 Names the ACL rights guarding the DocapiTemplate routes so the routes reference enum members
-instead of repeating the literal right strings.
+instead of repeating the literal right strings, plus the media type and file extension the render
+route answers a rendered document with.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'RENDER_OBJECT_RIGHT',
+    'RENDERED_DOCUMENT_MIMETYPE',
+    'RENDERED_DOCUMENT_EXTENSION',
     'DocapiTemplateRight',
 ]
+
+# What the render route answers with. A DocapiTemplate is HTML, but it is rendered to PDF before it
+# leaves the route, so the media type and the extension of the download are both fixed here
+RENDERED_DOCUMENT_MIMETYPE: str = 'application/pdf'
+RENDERED_DOCUMENT_EXTENSION: str = 'pdf'
 
 RENDER_OBJECT_RIGHT: str = 'base.framework.object.view'
 """

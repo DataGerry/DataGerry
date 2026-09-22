@@ -74,7 +74,7 @@ class SafeNull:
         return self
 
 
-    def __call__(self, *args: Any, **kwargs: Any) -> 'SafeNull':  # pylint: disable=unused-argument
+    def __call__(self, *args: Any, **kwargs: Any) -> 'SafeNull':
         # Absorbs a call so a missing method invocation in a template (e.g. value.foo()) returns
         # a SafeNull instead of raising TypeError.
         return self

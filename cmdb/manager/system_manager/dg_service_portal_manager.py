@@ -26,6 +26,7 @@ from requests import Response, delete, post, get
 
 from flask import current_app
 
+from cmdb.open_celium.oc_helpers import is_hosted_cloud
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.open_celium.oc_constants import OC_REQUEST_TIMEOUT
 
@@ -70,7 +71,7 @@ class DgServicePortalManager:
         self.x_access_token: str | None = None
         self.base_url: str | None = None
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             self.x_access_token = os.getenv("X-ACCESS-TOKEN")
 
             if not self.x_access_token:

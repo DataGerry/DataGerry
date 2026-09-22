@@ -45,6 +45,7 @@ from cmdb.models.object_model import (
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.manager.types_manager import MDS_OBJECT_PROJECTION, TypesManager
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerDeleteError
 from cmdb.errors.manager.types_manager import (
     TypesManagerInsertError,
@@ -104,6 +105,77 @@ def test_iterate_binds_the_rows_to_an_iteration_result() -> None:
 
     assert result is iteration_result.return_value
     assert iteration_result.call_args.args[2] is CmdbType
+
+
+def test_iterate_without_a_user_adds_no_access_control_criteria() -> None:
+    """The callers that have already checked access get the unfiltered listing they rely on."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'):
+        TypesManager.iterate(mgr, builder_params)
+
+    builder_params.add_criteria.assert_not_called()
+
+
+def test_iterate_without_a_permission_adds_no_access_control_criteria() -> None:
+    """A user alone does not restrict anything - both halves of the pair are required."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'):
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3))
+
+    builder_params.add_criteria.assert_not_called()
+
+
+def test_iterate_with_a_user_and_permission_restricts_to_the_permitted_types() -> None:
+    """The group's permitted-types criteria is merged in before the query runs."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'), \
+         patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), AccessControlPermission.READ)
+
+    criteria.assert_called_once_with(3, AccessControlPermission.READ)
+    builder_params.add_criteria.assert_called_once_with({'acl': 'criteria'})
+
+
+def test_iterate_passes_several_permissions_through_to_the_criteria() -> None:
+    """A caller can ask for more than READ; the manager hands the list on untouched."""
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+    asked = [AccessControlPermission.READ, AccessControlPermission.CREATE]
+
+    with patch(f'{MGR_PATH}.IterationResult'), \
+         patch(f'{MGR_PATH}.build_permitted_types_criteria', return_value={'acl': 'criteria'}) as criteria:
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), asked)
+
+    criteria.assert_called_once_with(3, asked)
+
+
+def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline() -> None:
+    """
+    The rule goes into the criteria both aggregations read
+
+    ``iterate_query`` builds its total from the criteria alone, so an access rule that lived only in
+    the data pipeline would filter the rows and leave the count beside them unfiltered - the bug
+    T211 records for the object listing.
+    """
+    mgr = MagicMock(spec=TypesManager)
+    mgr.iterate_query.return_value = ([], 0)
+    builder_params = MagicMock()
+
+    with patch(f'{MGR_PATH}.IterationResult'):
+        TypesManager.iterate(mgr, builder_params, SimpleNamespace(group_id=3), AccessControlPermission.READ)
+
+    builder_params.add_criteria.assert_called_once()
+    assert mgr.iterate_query.call_args.args == (builder_params,)
 
 
 def test_find_types_hydrates_every_match() -> None:

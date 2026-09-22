@@ -21,16 +21,18 @@ One GridFS file document of the media library. Instances are built straight from
 them to the snake_case attributes the routes read; `to_json` turns one back into the body the read
 routes answer with.
 
-Two things recorded here rather than asserted, because both are findings rather than behaviour (see
-the sweep notes):
+**The index findings recorded here were resolved on 2026-09-16.** `INDEX_KEYS` used to declare a
+unique index over `name`, a key no GridFS document carries, and nothing ever built it: `MediaFile` is
+absent from `framework/constants.__COLLECTIONS__` and cannot be added to it, because that loop indexes
+a class's COLLECTION verbatim while `MediaFile.COLLECTION` is the GridFS *bucket* name. The tests
+below now pin the corrected declaration - unique over `(filename, metadata.parent)`, the pair the
+upload and update routes already treat as a file's identity - and the reconciliation lives in
+`CollectionValidator.init_media_library_indexes`, with `updater_20260916` de-duplicating what existing
+databases hold.
 
-* `MediaFile` is NOT registered in `framework/constants.__COLLECTIONS__`, so `CollectionValidator`
-  never calls `get_index_keys()` and the unique index `INDEX_KEYS` declares is never built. The live
-  collection carries only `_id_` and GridFS' own non-unique `filename_1_uploadDate_1`
-* `INDEX_KEYS` and `REQUIRED_INIT_KEYS` both name a field called `name`. A GridFS document has no
-  such field - the name is `filename` - and `MediaFile` is not a `CmdbDAO`, so nothing reads
-  `REQUIRED_INIT_KEYS` either. Registering the class as it stands would therefore build a unique
-  index over a field every document is missing
+One finding is still open and still recorded rather than asserted: `REQUIRED_INIT_KEYS` also names
+`name`. It is dead - `MediaFile` is not a `CmdbDAO`, so nothing reads it - and it was left alone
+rather than folded into the index fix.
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -39,6 +41,12 @@ import pytest
 from pymongo import IndexModel
 
 from cmdb.framework.media_library import BaseMediaFile, MediaFile
+from cmdb.framework.media_library.media_file_keys import (
+    MediaFileKey,
+    MediaFileMetadataKey,
+    MEDIA_FILE_PARENT_PATH,
+    MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
+)
 
 from cmdb.errors.cmdb_object import NoPublicIDError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -185,9 +193,9 @@ class TestGetIndexKeys:
     """
     The declared indexes, combined with the base's `public_id` index
 
-    Never called in production: `MediaFile` is not registered in `__COLLECTIONS__`, so
-    `CollectionValidator` never asks it for them. The method is what a registration would use, and
-    what the two findings in the module docstring are about.
+    Called on every boot since 2026-09-16: `CollectionValidator.init_media_library_indexes` asks the
+    class for them and reconciles them onto `media.libary.files`, the collection GridFS keeps the file
+    documents in.
     """
 
     def test_combines_the_class_and_super_keys(self) -> None:
@@ -202,15 +210,42 @@ class TestGetIndexKeys:
         """`BaseMediaFile.INDEX_KEYS` is empty, so a subclass that declares none still gets that one."""
         assert len(BaseMediaFile.get_index_keys()) == len(BaseMediaFile.SUPER_INDEX_KEYS)
 
-    def test_the_declared_index_names_a_field_no_document_carries(self) -> None:
+    def test_the_declared_index_names_fields_a_document_carries(self) -> None:
         """
-        Recorded, not asserted as desirable: `INDEX_KEYS` indexes `name`, and the field is `filename`
+        Every indexed key has to exist on a stored document, or the index indexes nothing
 
-        Pinned so that registering this class in `__COLLECTIONS__` - which is the obvious fix for the
-        index never being built - fails here first. Building a UNIQUE index over a field every
-        document is missing would let the collection hold exactly one file.
+        This replaces the pin that recorded the opposite: `INDEX_KEYS` named `name`, which no GridFS
+        document has, so a unique index over it would have let the collection hold exactly one file.
         """
+        media_file = _media_file()
+
+        assert not hasattr(media_file, 'name')
+        assert hasattr(media_file, 'filename')
+        assert MediaFileMetadataKey.PARENT.value in media_file.metadata
+
+    def test_the_index_is_the_filename_parent_pair(self) -> None:
+        """A file's identity is its name INSIDE its folder - the same name in two folders is legal."""
         declared = {key for index in MediaFile.INDEX_KEYS for key, _ in index['keys']}
 
-        assert declared == {'name'}
-        assert not hasattr(_media_file(), 'name')
+        assert declared == {MediaFileKey.FILENAME.value, MEDIA_FILE_PARENT_PATH}
+
+    def test_the_filename_index_is_unique(self) -> None:
+        """Uniqueness is the point: without it the clash check is a read-then-write two uploads pass."""
+        declaration = next(
+            index for index in MediaFile.INDEX_KEYS
+            if index['name'] == MEDIA_FILE_FILENAME_PARENT_INDEX_NAME
+        )
+
+        assert declaration['unique'] is True
+
+    def test_the_index_is_declared_on_the_pair_in_order(self) -> None:
+        """`filename` leads, so the index also serves a lookup by name alone (its prefix)."""
+        declaration = next(
+            index for index in MediaFile.INDEX_KEYS
+            if index['name'] == MEDIA_FILE_FILENAME_PARENT_INDEX_NAME
+        )
+
+        assert [key for key, _ in declaration['keys']] == [
+            MediaFileKey.FILENAME.value,
+            MEDIA_FILE_PARENT_PATH,
+        ]

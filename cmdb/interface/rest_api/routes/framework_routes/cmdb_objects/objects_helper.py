@@ -34,7 +34,7 @@ serves. The routes stay thin: they validate the request, resolve managers and de
 * **Side effects** - ``handle_notify_webhooks``, ``handle_create_object_log`` and
   ``emit_object_*_events`` are **best-effort**: each catches and logs its own failures so a webhook or
   logging problem never rolls back a stored object. The trade-off is that a successful write can leave
-  no audit entry, with nothing surfaced to the caller - recorded as discussion-backlog #160
+  no audit entry, with nothing surfaced to the caller -
 * **Re-alignment** - ``realign_objects_to_type`` and ``clean_type_reports`` repair stored objects after
   their CmdbType changed
 
@@ -131,6 +131,7 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
+
 def guard_object_write_license(
     types_manager: TypesManager,
     request_user: CmdbUser,
@@ -210,7 +211,7 @@ def build_field_value_map(fields: Any) -> dict[str, Any]:
         name: Any = field.get(CmdbObjectFieldKey.NAME.value)
 
         # A non-string name cannot be a JSON key; an empty one is kept deliberately, so the map stays a
-        # faithful picture of what is stored rather than silently losing a field (backlog #199)
+        # faithful picture of what is stored rather than silently losing a field
         if not isinstance(name, str):
             continue
 
@@ -325,7 +326,7 @@ def render_or_native(
 
     if view == ObjectViewMode.VALUES:
         # Built from the native document, never from a render: the renderer's field entries are
-        # whole type-field definitions, and this view wants the values alone (backlog #200)
+        # whole type-field definitions, and this view wants the values alone
         return [build_object_value_view(object_.__dict__) for object_ in results]
 
     if view == ObjectViewMode.RENDER:
@@ -929,8 +930,8 @@ def compute_object_version(current_object: CmdbObject, updated_object: CmdbObjec
     The bump is chosen from how many fields changed relative to the total field count: a single
     changed field is a PATCH, all fields a MAJOR, more than half a MINOR, and anything else a PATCH.
     ``updated_object`` is mutated in place with the new version, which is what makes the edit log's
-    ``get_version()`` read agree with the version written into the document - until 2026-09-08
-    ``update_version`` only returned the string, so the log recorded every edit one bump behind
+    ``get_version()`` read agree with the version written into the document. Returning the string
+    alone would leave the log recording every edit one bump behind
 
     Args:
         current_object (CmdbObject): The stored object before the update
@@ -962,7 +963,7 @@ def compute_object_version(current_object: CmdbObject, updated_object: CmdbObjec
 # events). Extracting a step does not help: every candidate split has to hand 9+ values across the
 # seam, which trips max-args instead and hides the order the steps must run in. Getting under the
 # limit needs a parameter object for the managers, which changes the signature the object routes and
-# the PATCH path call - see discussion-backlog #161
+# the PATCH path call
 def apply_object_update(  # pylint: disable=too-many-locals
         obj_id: int,
         payload: dict[str, Any],

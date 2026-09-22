@@ -16,10 +16,9 @@
 """
 Unit tests for cmdb.interface.rest_api.responses.base_api_response
 
-The envelope every REST route answers through had **no test module of its own** until 2026-09-09: it
-was exercised only incidentally, through the functional route tests. That is how three defects lived
-in 32 statements - an inert `body` flag, a dead type guard, and a serialization failure logged below
-the production log level.
+The envelope every REST route answers through. Exercised only incidentally through the functional
+route tests, defects hide in it easily - an inert `body` flag, a dead type guard and a serialization
+failure logged below the production log level all fit in its 32 statements.
 
 What is pinned here: the `body` flag really suppresses the payload (and does not serialize it), the
 envelope keys and the two API headers are what the Angular `APIResponse` types expect, a payload
@@ -224,7 +223,7 @@ class TestMakeApiResponse:
 
     def test_the_body_is_pretty_printed(self) -> None:
         """
-        Pinned deliberately: it costs +63% body size on a 50-object page (backlog #215)
+        Pinned deliberately: it costs +63% body size on a 50-object page
 
         The test is here so that changing it is a decision rather than an accident.
         """

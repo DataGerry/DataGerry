@@ -55,6 +55,8 @@ from cmdb.framework.ipam.enforcement import (
     enforce_object_invariants,
 )
 from cmdb.framework.ipam.supernet_membership import unassign_subnets_from_supernet
+from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.utils import ValidationErrorKey
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -357,3 +359,95 @@ def test_unassign_subnets_clears_the_reference_with_a_real_write(
 
     assert extract_field_value(detached, SubnetField.PARENT_SUPERNET) is None
     assert extract_field_value(untouched, SubnetField.PARENT_SUPERNET) == SUPERNET_A_ID
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                 the SUBNET type's ACL is enforced on the batch detach                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+READER_GROUP_ID: int = 4242    # granted READ only -> may not detach
+EDITOR_GROUP_ID: int = 4243    # granted READ + UPDATE -> may detach
+
+ACL_SUBNET_ID: int = 9627      # detached by the permitted-path test, so no other test depends on it
+ACL_SUBNET_RANGE: str = '10.4.0.0/16'
+
+
+class _AclUser:
+    """A stand-in CmdbUser - the ACL decision reads nothing but `group_id`."""
+
+    def __init__(self, group_id: int) -> None:
+        self.group_id: int = group_id
+
+
+@pytest.fixture(name='acl_on_subnet_type')
+def fixture_acl_on_subnet_type(database_manager: MongoDatabaseManager, database_name: str):
+    """
+    Activates an ACL on the real SUBNET CmdbType and seeds one more subnet assigned to SUPERNET_A
+
+    The ACL is stored on the **type**, because that is where an ACL lives - which is exactly what
+    lets one check cover a whole batch of subnets. Both are removed again afterwards so the rest of
+    the module keeps running against an unrestricted type and its own topology.
+    """
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    acl = {
+        AclKey.ACTIVATED.value: True,
+        AclKey.GROUPS.value: {
+            AclKey.INCLUDES.value: {
+                str(READER_GROUP_ID): [AccessControlPermission.READ.value],
+                str(EDITOR_GROUP_ID): [
+                    AccessControlPermission.READ.value,
+                    AccessControlPermission.UPDATE.value,
+                ],
+            },
+        },
+    }
+
+    types.update_one({CmdbObjectKey.PUBLIC_ID.value: SUBNET_TYPE_ID}, {'$set': {'acl': acl}})
+    objects.insert_one(_subnet_doc(ACL_SUBNET_ID, 'guard-sub-acl', ACL_SUBNET_RANGE, SUPERNET_A_ID))
+
+    yield
+
+    types.update_one({CmdbObjectKey.PUBLIC_ID.value: SUBNET_TYPE_ID}, {'$unset': {'acl': ''}})
+    objects.delete_one({CmdbObjectKey.PUBLIC_ID.value: ACL_SUBNET_ID})
+
+
+def test_unassign_is_refused_and_writes_nothing_when_the_acl_denies_update(
+    objects_manager: ObjectsManager, types_manager: TypesManager, acl_on_subnet_type,
+) -> None:
+    """
+    403 against a real type document, and the reference survives
+
+    The detach is a raw `update_many_raw` that never reaches `update_object`, so this check is the
+    only thing standing between a caller with READ-only access and a write. Asserting the 403 alone
+    would not prove the write did not happen first.
+    """
+    with pytest.raises(HTTPException) as exc_info:
+        unassign_subnets_from_supernet(
+            objects_manager, types_manager, SUPERNET_A_ID, [ACL_SUBNET_ID],
+            request_user=_AclUser(READER_GROUP_ID),
+        )
+
+    assert exc_info.value.code == 403
+
+    subnet_doc = objects_manager.find_objects({CmdbObjectKey.PUBLIC_ID: ACL_SUBNET_ID}, as_dict=True)[0]
+    assert extract_field_value(subnet_doc, SubnetField.PARENT_SUPERNET) == SUPERNET_A_ID
+
+
+def test_unassign_still_runs_for_a_group_the_acl_grants_update(
+    objects_manager: ObjectsManager, types_manager: TypesManager, acl_on_subnet_type,
+) -> None:
+    """
+    A guard that refuses everyone is not a working guard
+
+    The ACL is activated here too, so the permitted path goes through the real decision rather than
+    round the outside of it.
+    """
+    result = unassign_subnets_from_supernet(
+        objects_manager, types_manager, SUPERNET_A_ID, [ACL_SUBNET_ID],
+        request_user=_AclUser(EDITOR_GROUP_ID),
+    )
+
+    assert result[IpamUnassignKey.UNASSIGNED_COUNT] == 1
+
+    detached = objects_manager.find_objects({CmdbObjectKey.PUBLIC_ID: ACL_SUBNET_ID}, as_dict=True)[0]
+    assert extract_field_value(detached, SubnetField.PARENT_SUPERNET) is None

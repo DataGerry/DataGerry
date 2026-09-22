@@ -221,7 +221,6 @@ class SearchResult(Generic[R]):
     matched fields) and a `to_json()` (called by `SearchResultMap` when serializing). `RenderResult`
     is the only type used today
     """
-    #pylint: disable=R0917
     def __init__(self,
                  results: list[R],
                  total_results: int,

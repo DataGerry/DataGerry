@@ -41,6 +41,12 @@ class BaseAuthProviderConfig:
         'active': True
     }
 
+    # Paths into DEFAULT_CONFIG_VALUES whose value is a credential and must never leave the backend.
+    # Declared by the provider that owns the secret rather than listed centrally, so adding a provider
+    # with a credential is what registers it - see cmdb.security.auth.auth_settings_masking, which
+    # masks these on read and restores them on a write that sends the mask back unchanged
+    SECRET_CONFIG_PATHS: tuple[tuple[str, ...], ...] = ()
+
     def __init__(self, active: bool, **kwargs):
         """
         Initializes the configuration for an authentication provider

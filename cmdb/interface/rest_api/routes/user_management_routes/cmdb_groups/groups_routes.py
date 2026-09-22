@@ -26,7 +26,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
@@ -39,12 +38,13 @@ from cmdb.framework.results import IterationResult
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import (
     GroupDeletionParameters,
     CollectionParameters,
 )
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 
 from cmdb.interface.rest_api.responses import (
@@ -80,10 +80,13 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_he
     resolve_move_target,
     ensure_admin_group_keeps_master_right,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+#: The CmdbUserGroup columns the group table offers a search box over
+GROUP_SEARCHABLE_FIELDS: tuple[str, ...] = ('public_id', 'name', 'label')
 
 groups_blueprint = APIBlueprint('groups', __name__)
 
@@ -93,7 +96,8 @@ groups_blueprint = APIBlueprint('groups', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right=GROUP_ADD_RIGHT)
-@groups_blueprint.validate(CmdbUserGroup.SCHEMA)
+@groups_blueprint.validate(build_write_schema(CmdbUserGroup.SCHEMA))
+@handle_route_errors("while creating the new UserGroup")
 def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP ``POST`` to insert a single CmdbUserGroup
@@ -125,8 +129,6 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
             abort(404, "Could not retrieve the created UserGroup from the database!")
 
         return InsertSingleResponse(CmdbUserGroup.to_json(created_group), result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except GroupsManagerInsertError as err:
         LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
         abort(400, "Failed to insert the new UserGroup in the database!")
@@ -134,9 +136,6 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
         # The group was created; failing to re-read it is a server-side problem, not a client error
         LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
         abort(500, "Failed to retrieve the created UserGroup from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the new UserGroup!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -164,7 +163,7 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+        builder_params: BuilderParameters = build_searchable_builder_params(params, GROUP_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbUserGroup] = groups_manager.iterate(builder_params)
         groups: list[dict[str, Any]] = [CmdbUserGroup.to_json(group) for group in iteration_result.results]
@@ -190,6 +189,7 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
+@handle_route_errors("while retrieving UserGroup with ID:{public_id}")
 def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP ``GET`` / ``HEAD`` route to retrieve a single CmdbUserGroup by id
@@ -219,14 +219,9 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
             CmdbUserGroup.to_json(requested_group),
             body=request_wants_body()
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except GroupsManagerGetError as err:
         LOGGER.error("[get_cmdb_user_group] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving UserGroup with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -234,7 +229,8 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right=GROUP_EDIT_RIGHT)
-@groups_blueprint.validate(CmdbUserGroup.SCHEMA)
+@groups_blueprint.validate(build_write_schema(CmdbUserGroup.SCHEMA))
+@handle_route_errors("while updating the UserGroup with ID:{public_id}")
 def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP ``PUT`` / ``PATCH`` route to update a single CmdbUserGroup
@@ -289,17 +285,12 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
         groups_manager.update_group(public_id, group_dict)
 
         return UpdateSingleResponse(group_dict).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except GroupsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
         abort(400, f"User group with public_id:{public_id} could not be updated!")
     except GroupsManagerGetError as err:
         LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the UserGroup with ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -308,6 +299,7 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @groups_blueprint.protect(auth=True, right=GROUP_DELETE_RIGHT)
 @groups_blueprint.parse_parameters(GroupDeletionParameters)
+@handle_route_errors("while deleting the UserGroup with ID:{public_id}")
 def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP ``DELETE`` route to remove a CmdbUserGroup with optional user redistribution
@@ -364,8 +356,6 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         groups_manager.delete_group(public_id)
 
         return DeleteSingleResponse(CmdbUserGroup.to_json(to_delete_group)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except UsersManagerDeleteError as err:
         # The members helper raises this only as the admin-protection business rule -> 400, not 500
         LOGGER.error("[delete_cmdb_user_group] UsersManagerDeleteError: %s", err, exc_info=True)
@@ -382,6 +372,3 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
     except GroupsManagerGetError as err:
         LOGGER.error("[delete_cmdb_user_group] GroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_user_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the UserGroup with ID:{public_id}!")

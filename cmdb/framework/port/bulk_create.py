@@ -100,7 +100,6 @@ class BulkCreateResult(NamedTuple):
 #                                                   creating the rows                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-#pylint: disable=R0913, R0917
 def create_face_ports(
         ports_manager: PortsManager,
         object_id: int,
@@ -293,7 +292,6 @@ def _surviving(manager: GenericManager, id_key: str, public_ids: list[int]) -> l
 #                                                  the orchestration                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-#pylint: disable=R0913, R0917
 def create_batch(
         ports_manager: PortsManager,
         port_connections_manager: PortConnectionsManager,

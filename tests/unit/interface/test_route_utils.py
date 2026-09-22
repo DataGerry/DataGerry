@@ -28,6 +28,7 @@ request-user injection / API-access decorators, the Authorization-header parsing
 authentication, the service-portal check with its cache-sync helpers, and the small DB/user helpers.
 """
 # pylint: disable=protected-access  # these tests intentionally exercise module-private helpers
+import inspect
 from http import HTTPStatus
 from types import SimpleNamespace
 from typing import Any, Callable
@@ -36,8 +37,12 @@ from unittest.mock import MagicMock, patch, mock_open
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from flask import abort
+
 import cmdb.interface.route_utils as ru
 from cmdb.interface.cmdb_app import BaseCmdbApp
+from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
+from cmdb.manager.manager_provider_model.manager_provider import MANAGER_CLASSES
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.errors.database import (
@@ -92,6 +97,146 @@ def _app(cloud_mode: bool = False, local_mode: bool = False) -> BaseCmdbApp:
 
 
 # =================================================== user_has_right ================================================= #
+
+class TestHandleRouteErrors:
+    """
+    The shared error tail: an HTTPException keeps its status, anything else becomes a 500
+
+    ~300 handlers wrote these two arms out. What the decorator must preserve is the per-route MESSAGE
+    (the text tests assert on) and the log label (the handler's own name), and what it must not do is
+    swallow an `abort` the handler raised on purpose.
+    """
+
+    def test_an_abort_keeps_its_own_status(self) -> None:
+        """A 404 raised inside the route is the route's answer, not an internal error."""
+        @ru.handle_route_errors('while doing the thing')
+        def route():
+            abort(404, 'not there')
+
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            route()
+
+        assert exc_info.value.code == HTTPStatus.NOT_FOUND
+        assert exc_info.value.description == 'not there'
+
+    def test_any_other_error_becomes_a_500(self) -> None:
+        """The message is the route's own, wrapped in the wording every route used."""
+        @ru.handle_route_errors('while doing the thing')
+        def route():
+            raise RuntimeError('boom')
+
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            route()
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == 'An internal server error occured while doing the thing!'
+
+    def test_the_message_reads_the_routes_keyword_arguments(self) -> None:
+        """`{public_id}` is what keeps the per-route text as specific as it was inline."""
+        @ru.handle_route_errors('while retrieving the Subnet with ID: {public_id}')
+        def route(public_id: int):
+            del public_id
+            raise RuntimeError('boom')
+
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            route(public_id=42)
+
+        assert 'Subnet with ID: 42' in exc_info.value.description
+
+    def test_a_positional_argument_fills_the_template_too(self) -> None:
+        """The shared route bodies pass their arguments positionally, and must read the same."""
+        @ru.handle_route_errors('while determining {subject} for Type with ID: {public_id}')
+        def route(public_id: int, subject: str):
+            del public_id, subject
+            raise RuntimeError('boom')
+
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            route(7, 'location-field usage')
+
+        assert exc_info.value.description == (
+            'An internal server error occured while determining location-field usage for Type with ID: 7!'
+        )
+
+    def test_an_unfillable_placeholder_leaves_the_template_alone(self) -> None:
+        """A broken error message must not replace the error it was meant to describe."""
+        @ru.handle_route_errors('while doing {nothing_the_route_takes}')
+        def route():
+            raise RuntimeError('boom')
+
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            route()
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_a_transient_database_error_is_left_for_the_database_decorator(self) -> None:
+        """
+        423 / 503 must survive the generic tail
+
+        `@handle_db_errors` maps a lock timeout and a network failure to statuses that tell the caller
+        to retry, and it only sees what escapes this wrapper - the routes used to re-raise them by hand
+        for exactly that reason (tier 2 T135/T185).
+        """
+        @ru.handle_route_errors('while doing the thing')
+        def route():
+            raise DocumentLockTimeoutError('lock timeout')
+
+        with _app().test_request_context(), pytest.raises(DocumentLockTimeoutError):
+            route()
+
+    def test_the_handler_keeps_its_name_but_not_its_wrapped_link(self) -> None:
+        """
+        The log label reads `__name__`; the missing `__wrapped__` is what keeps the tail testable
+
+        The route tests unwrap a handler to call it without auth. Following `__wrapped__` here would
+        unwrap the error tail with it, and every "an unexpected error is a 500" test would see the raw
+        exception instead of the mapped status.
+        """
+        @ru.handle_route_errors('while doing the thing')
+        def route():
+            return 'ok'
+
+        assert route.__name__ == 'route'
+        assert not hasattr(route, '__wrapped__')
+
+
+class TestGetCachedUserManager:
+    """
+    The one place the cloud user-cache manager is built
+
+    Eighteen call sites wrote `CachedUserManager(current_app.database_manager)` by hand. What the
+    helper records is WHY it is not `ManagerProvider.get_manager`: the cache never lives in a tenant
+    database, and the login path has no authenticated user to resolve one with.
+    """
+
+    def test_it_builds_the_manager_from_the_app_database_handle(self) -> None:
+        """The process' own handle - there is no per-request or per-tenant choice to make here."""
+        app = _app()
+
+        with app.test_request_context(), patch(f'{MODULE_PATH}.CachedUserManager') as manager_cls:
+            built = ru.get_cached_user_manager()
+
+        manager_cls.assert_called_once_with(app.database_manager)
+        assert built is manager_cls.return_value
+
+    def test_it_takes_no_request_user(self) -> None:
+        """
+        It cannot: the login path calls this before anyone is authenticated
+
+        That is the reason the cache manager is built directly instead of through ManagerProvider,
+        whose cloud-mode path requires a request_user.
+        """
+        assert not inspect.signature(ru.get_cached_user_manager).parameters
+
+    def test_the_manager_type_registry_does_not_offer_it(self) -> None:
+        """
+        `ManagerType` deliberately carries no CACHED_USER entry any more
+
+        It was registered and used by nobody: `CachedUserManager` ignores the database argument
+        `ManagerProvider` would pass it, so resolving it there would look tenant-aware and not be.
+        """
+        assert not hasattr(ManagerType, 'CACHED_USER')
+        assert ru.CachedUserManager not in MANAGER_CLASSES.values()
+
 
 class TestUserHasRight:
     """``user_has_right`` resolves rights either from a passed user or the Authorization token."""

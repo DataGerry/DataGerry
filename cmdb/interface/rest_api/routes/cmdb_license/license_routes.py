@@ -25,7 +25,6 @@ from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort, current_app
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import LicenseService
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -34,7 +33,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.license import LicenseEntitlement
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetSingleResponse
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
@@ -120,6 +119,7 @@ def get_current_license(request_user: CmdbUser):
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_EDIT_RIGHT)
 @license_blueprint.validate(LICENSE_UPLOAD_SCHEMA)
+@handle_route_errors("while activating the license")
 def activate_license(data: dict, request_user: CmdbUser):
     """
     HTTP `POST` route activating an uploaded license blob
@@ -136,20 +136,14 @@ def activate_license(data: dict, request_user: CmdbUser):
     """
     _abort_if_not_on_premise()
 
-    try:
-        license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
+    license_service: LicenseService = ManagerProvider.get_manager(ManagerType.LICENSE_SERVICE, request_user)
 
-        result = license_service.activate(data[LicenseUploadKey.BLOB])
+    result = license_service.activate(data[LicenseUploadKey.BLOB])
 
-        if not result.is_valid:
-            abort(400, f"The license could not be activated (status: {result.status.value})!")
+    if not result.is_valid:
+        abort(400, f"The license could not be activated (status: {result.status.value})!")
 
-        return GetSingleResponse(_current_license_payload(license_service)).make_response()
-    except HTTPException:
-        raise
-    except Exception as err:
-        LOGGER.error("[activate_license] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while activating the license!")
+    return GetSingleResponse(_current_license_payload(license_service)).make_response()
 
 
 @license_blueprint.route(CURRENT_LICENSE_ROUTE, methods=['DELETE'])

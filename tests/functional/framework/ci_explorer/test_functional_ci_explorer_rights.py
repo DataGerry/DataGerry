@@ -46,7 +46,7 @@ PROFILE_BODY: dict[str, Any] = {
     'with_locations': False,
     'with_ipam_relations': False,
 }
-TOOLTIP_BODY: dict[str, Any] = {'ci_explorer_tooltip': 'probe'}
+# The nominated field name; the probe Type does not exist, so the route 404s before the rule runs
 LABEL_BODY: dict[str, Any] = {'ci_explorer_label': 'name'}
 
 # (label, HTTP method, URL, body, the right the route must ask for)
@@ -54,8 +54,8 @@ GUARDED_ROUTES: list[tuple[str, str, str, dict[str, Any] | None, str]] = [
     ('insert_profile', 'POST', f'{ROUTE_URL}/profile', PROFILE_BODY, CiExplorerRight.EDIT.value),
     ('get_profiles', 'GET', f'{ROUTE_URL}/profile', None, CiExplorerRight.VIEW.value),
     ('get_nodes_edges', 'GET', f'{ROUTE_URL}/items?target_id={PROBE_ID}', None, CiExplorerRight.VIEW.value),
-    ('update_tooltip', 'PUT', f'{ROUTE_URL}/tooltip/{PROBE_ID}', TOOLTIP_BODY, CiExplorerRight.EDIT.value),
-    ('update_type_label', 'PUT', f'{ROUTE_URL}/type_label/{PROBE_ID}', LABEL_BODY, CiExplorerRight.EDIT.value),
+    ('update_label_field', 'PUT', f'{ROUTE_URL}/label_field/{PROBE_ID}', LABEL_BODY,
+     CiExplorerRight.EDIT.value),
     ('update_profile', 'PUT', f'{ROUTE_URL}/profile/{PROBE_ID}', PROFILE_BODY, CiExplorerRight.EDIT.value),
     ('delete_profile', 'DELETE', f'{ROUTE_URL}/profile/{PROBE_ID}', None, CiExplorerRight.EDIT.value),
 ]

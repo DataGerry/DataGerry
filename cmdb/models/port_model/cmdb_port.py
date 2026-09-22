@@ -20,8 +20,8 @@ from logging import Logger, getLogger
 from datetime import datetime, timezone
 from typing import Any
 
-from dateutil.parser import parse
 
+from cmdb.utils import coerce_document_dates
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.port_model.port_constants import PortKey, PortSide
 
@@ -58,6 +58,7 @@ class CmdbPort(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.ports'
+    DATE_FIELDS: tuple[str, ...] = (PortKey.CREATION_TIME.value, PortKey.LAST_EDIT_TIME.value)
     REQUIRED_INIT_KEYS: list[str] = [PortKey.OBJECT_ID.value, PortKey.NAME.value]
 
     INDEX_KEYS: list[dict[str, Any]] = [
@@ -166,15 +167,13 @@ class CmdbPort(CmdbDAO):
             CmdbPort: CmdbPort with the given data
         """
         try:
-            creation_time = data.get(PortKey.CREATION_TIME.value, None)
+            # The audit timestamps are coerced strictly: a value that cannot be read is refused
+            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
+            # 'sometime in March' into a date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if creation_time and isinstance(creation_time, str):
-                creation_time = parse(creation_time, fuzzy=True)
-
-            last_edit_time = data.get(PortKey.LAST_EDIT_TIME.value, None)
-
-            if last_edit_time and isinstance(last_edit_time, str):
-                last_edit_time = parse(last_edit_time, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
                 public_id = data.get(PortKey.PUBLIC_ID.value),
@@ -191,8 +190,8 @@ class CmdbPort(CmdbDAO):
                 author_id = data.get(PortKey.AUTHOR_ID.value),
                 # The audit timestamps parse strictly: an unusable one surfaces as the model's own
                 # error rather than silently becoming "now"
-                creation_time = creation_time,
-                last_edit_time = last_edit_time,
+                creation_time = data.get(PortKey.CREATION_TIME.value),
+                last_edit_time = data.get(PortKey.LAST_EDIT_TIME.value),
             )
         except Exception as err:
             raise CmdbPortInitFromDataError(err) from err

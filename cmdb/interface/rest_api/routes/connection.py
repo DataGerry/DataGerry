@@ -30,11 +30,14 @@ the backend is unreachable. Neither response carries anything user-specific
 
 Two things to know before changing this file:
 
-* **``connected`` can only ever be ``true``.** ``dbm.status()`` delegates to
-  ``MongoConnector.is_connected``, which raises on every failure instead of returning False, so an
-  unreachable database leaves here as a **500**, not as ``connected: false``. That is discussion-backlog
-  **#141**; this route is where it is externally visible, and fixing it at the connector changes this
-  route's contract.
+* **``connected`` reports the truth**, since 2026-09-17 (tier 2 **T123**). An unreachable database
+  answers **200** with ``connected: false``; it used to raise out of ``dbm.status()`` and become the
+  500 below, so the one route whose job is to report connectivity could not report the negative case.
+  The 500 is now reserved for the route genuinely failing.
+  **This route is unauthenticated and that answer is deliberate**: a caller learns "the API is up, the
+  database is not" where it previously learned only "something is wrong". Telling an anonymous caller
+  that much is the entire purpose of a health probe, and the 500 already disclosed that the instance
+  was unhealthy - so this is a recorded decision, not an oversight.
 * **The database manager is resolved per request**, inside the view, like every other route module.
   It used to be bound at module level inside ``with current_app.app_context()``, which meant importing
   this module needed a live app, the captured manager outlived the app it came from, and a test had to
@@ -69,9 +72,10 @@ def connection_test_frontend() -> Response:
     Unauthenticated: this is the probe that answers "is the backend reachable at all", which a caller
     asks before it has a session
 
-    ``connected`` is always ``true`` when the route answers - see the module docstring and
-    discussion-backlog #141: an unreachable database raises out of ``dbm.status()`` and becomes the 500
-    below rather than ``connected: false``. The 500 IS the negative answer
+    ``connected`` is the real answer: **false** when the database does not respond, with a 200, so a
+    monitoring check can tell "the database is down" from "the API is broken". The 500 below is for the
+    latter only - a missing database manager, a serialisation failure, anything that is genuinely this
+    route failing rather than the condition it exists to report
 
     Raises:
         HTTPException: 500 when the database status probe fails - i.e. when the database is unreachable
@@ -92,8 +96,8 @@ def connection_test_frontend() -> Response:
 
         return DefaultResponse(infos).make_response()
     except Exception as err:
-        # The one condition this route exists to report, so it is logged at ERROR: at DEBUG an
-        # instance whose database is unreachable answered 500 and left no trace at the default level
+        # NOT the database being unreachable - that is `connected: false` above, with a 200. What
+        # reaches here is the route itself failing, which is why it stays a 500 and is logged at ERROR
         LOGGER.error("[connection_test_frontend] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "Could not connect to REST API!")
 

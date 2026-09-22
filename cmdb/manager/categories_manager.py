@@ -128,6 +128,70 @@ class CategoriesManager(GenericManager):
         return self.get_item(public_id, as_dict=True)
 
 
+    def get_category_type_ids(self, public_id: int) -> list[int]:
+        """
+        Retrieves the public_ids of the CmdbTypes assigned to one CmdbCategory
+
+        A category that does not exist and a category holding no types both answer ``[]``: this
+        feeds a **filter** on a types listing, where "no type matches" is the honest answer to an
+        id nothing is assigned to, and it is what the ``$lookup`` pipeline this replaced returned
+
+        Args:
+            public_id (int): public_id of the CmdbCategory
+
+        Raises:
+            CategoriesManagerGetError: When the CmdbCategory could not be retrieved
+
+        Returns:
+            list[int]: public_ids of the assigned CmdbTypes, empty when there are none
+        """
+        try:
+            category = self.get_item(public_id, as_dict=True)
+
+            if not category:
+                return []
+
+            return list(category.get(CategoryKey.TYPES.value) or [])
+        except BaseManagerGetError as err:
+            raise CategoriesManagerGetError(str(err)) from err
+        except Exception as err:
+            LOGGER.error("[get_category_type_ids] Exception: %s. Type: %s", err, type(err))
+            raise CategoriesManagerGetError(str(err)) from err
+
+
+    def get_assigned_type_ids(self) -> set[int]:
+        """
+        Retrieves the public_ids of every CmdbType assigned to any CmdbCategory
+
+        The complement of this set is "the uncategorized types", which is what the types listing
+        filters on. One projected read over `framework.categories`, restricted to the documents that
+        actually hold types - the collection carries an index on ``types`` (`CmdbCategory.INDEX_KEYS`)
+        and holds tens of documents, so this is a bounded cost rather than a join per request
+
+        Raises:
+            CategoriesManagerGetError: When the CmdbCategories could not be retrieved
+
+        Returns:
+            set[int]: public_ids of every assigned CmdbType, empty when nothing is categorized
+        """
+        try:
+            categories = self.find(
+                criteria={CategoryKey.TYPES.value: {'$exists': True, '$ne': []}},
+                projection={CategoryKey.TYPES.value: 1},
+            )
+
+            return {
+                type_id
+                for category in categories
+                for type_id in (category.get(CategoryKey.TYPES.value) or [])
+            }
+        except BaseManagerGetError as err:
+            raise CategoriesManagerGetError(str(err)) from err
+        except Exception as err:
+            LOGGER.error("[get_assigned_type_ids] Exception: %s. Type: %s", err, type(err))
+            raise CategoriesManagerGetError(str(err)) from err
+
+
     def iterate(self,
                 builder_params: BuilderParameters,
                 user: CmdbUser | None = None,

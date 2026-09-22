@@ -48,7 +48,6 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
@@ -72,7 +71,7 @@ from cmdb.framework.port.interface_links import collect_dangling_links
 from cmdb.framework.port.assignable_interfaces import build_assignable_interfaces_page
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -119,6 +118,7 @@ port_interface_link_blueprint = APIBlueprint('port_interface_links', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.EDIT.value)
+@handle_route_errors("while creating the Port interface link")
 def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to link a CmdbPort to one IPAM interface row
@@ -186,8 +186,6 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
             abort(404, 'Could not retrieve the created Port interface link from the database!')
 
         return InsertSingleResponse(created, new_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[insert_port_interface_link] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
@@ -196,9 +194,6 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
         # only thing that can: the pre-check above is a read followed by a write
         LOGGER.error("[insert_port_interface_link] PortInterfaceLinksManagerInsertError: %s", err, exc_info=True)
         abort(400, LINK_ALREADY_EXISTS_MESSAGE.format(port_id=port_id))
-    except Exception as err:
-        LOGGER.error("[insert_port_interface_link] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while creating the Port interface link!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #
@@ -208,6 +203,7 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving the dangling Port interface links")
 def get_dangling_port_interface_links(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to list every link whose interface row can no longer be resolved
@@ -243,24 +239,16 @@ def get_dangling_port_interface_links(request_user: CmdbUser) -> Response:
         return DefaultResponse(
             collect_dangling_links(links, read_interface_objects(objects_manager, links)),
         ).make_response()
-    except HTTPException as http_err:
-        # Unreachable today - unlike its five siblings this route aborts nowhere inside the try, since
-        # a dangling link is exactly what it is looking for and there is nothing to refuse. Kept so the
-        # arm order matches every other route here: without it, an abort added later would be caught by
-        # the generic handler below and reported as a 500
-        raise http_err
     except PortInterfaceLinksManagerGetError as err:
         LOGGER.error("[get_dangling_port_interface_links] PortInterfaceLinksManagerGetError: %s", err, exc_info=True)
         abort(400, 'Failed to retrieve the Port interface links from the database!')
-    except Exception as err:
-        LOGGER.error("[get_dangling_port_interface_links] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while retrieving the dangling Port interface links!')
 
 
 @port_interface_link_blueprint.route('/interface_links/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving the Port interface link ID: {public_id}")
 def get_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbPortInterfaceLink
@@ -296,23 +284,19 @@ def get_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:
         with_interface_rows(objects_manager, [link])
 
         return GetSingleResponse(link, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[get_port_interface_link] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortInterfaceLinksManagerGetError as err:
         LOGGER.error("[get_port_interface_link] PortInterfaceLinksManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the Port interface link with ID: {public_id} from the database!')
-    except Exception as err:
-        LOGGER.error("[get_port_interface_link] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while retrieving the Port interface link ID: {public_id}!')
 
 
 @port_interface_link_blueprint.route('/<int:port_id>/interface_links/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving the interface links of Port ID: {port_id}")
 def get_port_interface_links_of_port(port_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve every interface link of one CmdbPort
@@ -344,22 +328,18 @@ def get_port_interface_links_of_port(port_id: int, request_user: CmdbUser) -> Re
         links: list[dict[str, Any]] = port_interface_links_manager.get_links_of_port(port_id)
 
         return DefaultResponse(with_interface_rows(objects_manager, links)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[get_port_interface_links_of_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortInterfaceLinksManagerGetError as err:
         LOGGER.error("[get_port_interface_links_of_port] PortInterfaceLinksManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the interface links of Port ID: {port_id} from the database!')
-    except Exception as err:
-        LOGGER.error("[get_port_interface_links_of_port] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while retrieving the interface links of Port ID: {port_id}!')
 
 @port_interface_link_blueprint.route('/<int:port_id>/assignable_interfaces/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while listing the assignable interfaces of Port ID: {port_id}")
 def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route listing the IPAM interface rows this CmdbPort may still be linked to
@@ -415,17 +395,12 @@ def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
         return DefaultResponse(
             build_assignable_interfaces_page(rows, page=page, page_size=page_size, search=read_search_param()),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[get_assignable_interfaces] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortInterfaceLinksManagerGetError as err:
         LOGGER.error("[get_assignable_interfaces] PortInterfaceLinksManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the interface links of Port ID: {port_id} from the database!')
-    except Exception as err:
-        LOGGER.error("[get_assignable_interfaces] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, f'An internal server error occured while listing the assignable interfaces of Port ID: {port_id}!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - UPDATE                                                      #
@@ -435,6 +410,7 @@ def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.EDIT.value)
+@handle_route_errors("while updating the Port interface link ID: {public_id}")
 def update_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to change the relation type of a CmdbPortInterfaceLink
@@ -479,17 +455,12 @@ def update_port_interface_link(public_id: int, request_user: CmdbUser) -> Respon
         port_interface_links_manager.update_item(public_id, candidate)
 
         return UpdateSingleResponse(candidate).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[update_port_interface_link] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortInterfaceLinksManagerUpdateError as err:
         LOGGER.error("[update_port_interface_link] PortInterfaceLinksManagerUpdateError: %s", err, exc_info=True)
         abort(400, f'Failed to update the Port interface link with ID: {public_id}!')
-    except Exception as err:
-        LOGGER.error("[update_port_interface_link] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while updating the Port interface link ID: {public_id}!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - DELETE                                                      #
@@ -499,6 +470,7 @@ def update_port_interface_link(public_id: int, request_user: CmdbUser) -> Respon
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.DELETE.value)
+@handle_route_errors("while deleting the Port interface link ID: {public_id}")
 def delete_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to remove a single CmdbPortInterfaceLink
@@ -533,14 +505,9 @@ def delete_port_interface_link(public_id: int, request_user: CmdbUser) -> Respon
         port_interface_links_manager.delete_item(public_id)
 
         return DeleteSingleResponse(link).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[delete_port_interface_link] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortInterfaceLinksManagerDeleteError as err:
         LOGGER.error("[delete_port_interface_link] PortInterfaceLinksManagerDeleteError: %s", err, exc_info=True)
         abort(400, f'Failed to delete the Port interface link with ID: {public_id}!')
-    except Exception as err:
-        LOGGER.error("[delete_port_interface_link] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while deleting the Port interface link ID: {public_id}!')

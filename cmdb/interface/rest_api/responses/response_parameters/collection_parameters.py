@@ -30,6 +30,10 @@ Two rules behind the validation:
 * **A limit or order that has no meaning is refused.** ``limit`` may be ``0`` (unlimited) or positive;
   a negative page size is nonsense and used to be accepted and echoed back to the frontend. ``order``
   may only be ``1`` or ``-1``, the two values ``$sort`` accepts
+* **The filter is checked against an allow-list.** A list-shaped ``filter`` is spliced into the
+  aggregation verbatim by everything downstream, so this constructor is the last point at which it is
+  still only data. ``pipeline_guard`` holds the rules and the reasoning; this is the only place it is
+  called, because this is where the client's value enters
 
 Naming: what the query string calls ``filter`` is called ``criteria`` from the constructor inward, which
 is what ``get_builder_params`` already handed to ``BuilderParameters``. The wire keys are unchanged in
@@ -43,6 +47,7 @@ modules, so renaming that too is recorded as a separate decision rather than fol
 from typing import Any
 
 from cmdb.interface.rest_api.responses.response_parameters.api_parameters import APIParameters
+from cmdb.interface.rest_api.responses.response_parameters.pipeline_guard import assert_client_filter_is_allowed
 from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import (
     BuilderParamKey,
     DEFAULT_LIMIT,
@@ -171,8 +176,9 @@ class CollectionParameters(APIParameters):
                 must see the value under its wire name
 
         Raises:
-            ValueError: When limit / order / page cannot be coerced, when limit is negative or when
-                order is not 1 / -1
+            ValueError: When limit / order / page cannot be coerced, when limit is negative, when
+                order is not 1 / -1, or when the filter contains an aggregation stage or expression
+                the client-pipeline guard refuses (see ``pipeline_guard``)
         """
         # The query string calls it 'filter'; everything from here inward calls it criteria
         criteria = kwargs.pop(ParameterKey.FILTER.value, criteria)
@@ -186,6 +192,10 @@ class CollectionParameters(APIParameters):
             self.skip: int = 0
         else:
             self.skip = (self.page - FIRST_PAGE) * self.limit
+
+        # Before any route, helper or manager can read it: a list-shaped filter is spliced into an
+        # aggregation verbatim, so this is the boundary at which it stops being arbitrary
+        assert_client_filter_is_allowed(criteria)
 
         self.filter: list[dict] | dict = criteria or {}
 

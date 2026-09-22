@@ -22,13 +22,13 @@ and the update / state-change events.
 
 **Every function here is best-effort by design.** Each catches and logs its own failures, because a
 webhook that cannot be reached or a log that cannot be written must not roll back an object the user
-successfully saved. The trade-off is real and recorded: a successful write can leave no audit entry
-with nothing surfaced to the caller - discussion-backlog #160. `handle_delete_invalid_object_relations`
-carries a second one, #162: it reads the affected relations and deletes by the same QUERY rather than
-by the ids it read, so a relation created between the two is deleted but never logged.
+successfully saved. The trade-off is real: a successful write can leave no audit entry with nothing
+surfaced to the caller. `handle_delete_invalid_object_relations` carries a second one: it reads the
+affected relations and deletes by the same QUERY rather than by the ids it read, so a relation
+created between the two is deleted but never logged.
 
-Split out of `objects_helper.py` on 2026-09-11, with the PATCH cluster, when that module passed
-pylint's 1,500-line cap. The group is closed: nothing here calls back into the write pipelines, so the
+Split out of `objects_helper.py` with the PATCH cluster, which keeps that module under pylint's
+1,500-line cap. The group is closed: nothing here calls back into the write pipelines, so the
 import runs one way
 """
 import json
@@ -143,7 +143,7 @@ def handle_create_object_log(
     render that yields nothing because the object's type is gone, or anything raised while writing
     the entry - is caught and logged so a logging problem never blocks the surrounding object
     operation. The consequence is that a create or delete can succeed while leaving no audit entry,
-    and the caller is not told (discussion-backlog #160)
+    and the caller is not told
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
@@ -319,8 +319,7 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
     Two properties worth knowing:
 
     * The relations are **read and then deleted by the same query**, not by the ids that were read.
-      A relation created between the two operations is therefore deleted but never logged - recorded
-      as discussion-backlog #162
+      A relation created between the two operations is therefore deleted but never logged
     * The log ids are reserved as one batch and paired with ``zip(..., strict=True)``:
       ``insert_many(skip_public=True)`` requires every document to carry a ``public_id``, so a short
       reservation must fail loudly rather than insert entries with the key missing

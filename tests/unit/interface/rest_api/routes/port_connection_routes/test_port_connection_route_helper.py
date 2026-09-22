@@ -89,6 +89,10 @@ PORT_C: int = 6203
 CABLE_CI_ID: int = 6301
 OTHER_CABLE_CI_ID: int = 6302
 CABLE_TYPE_ID: int = 6401
+# Ports get an owner derived from their id, so two endpoints are on two devices unless a test says
+# otherwise - a CABLE joins two, and same-owner is the refusal case
+OWNER_ID_BASE: int = 6500
+SHARED_OWNER_ID: int = 6510
 
 
 @pytest.fixture(name='ctx')
@@ -125,10 +129,22 @@ def _connections_manager(
     return manager
 
 
-def _ports_manager(found: list[int] | None = None, port: dict[str, Any] | None = None) -> MagicMock:
-    """A PortsManager stand-in whose find() answers with the given port ids."""
+def _ports_manager(
+        found: list[int] | None = None,
+        port: dict[str, Any] | None = None,
+        owner_id: int | None = None) -> MagicMock:
+    """
+    A PortsManager stand-in whose find() answers with the given port ids
+
+    Each port gets an owner of its OWN unless `owner_id` names one for all of them: a CABLE joins two
+    devices, so ports sharing an owner is the refusal case, not the default.
+    """
     manager = MagicMock(name='ports_manager')
-    manager.find.return_value = [{PortKey.PUBLIC_ID.value: port_id} for port_id in (found or [])]
+    manager.find.return_value = [
+        {PortKey.PUBLIC_ID.value: port_id,
+         PortKey.OBJECT_ID.value: owner_id if owner_id is not None else OWNER_ID_BASE + port_id}
+        for port_id in (found or [])
+    ]
     manager.get_item.return_value = port
 
     return manager
@@ -216,7 +232,7 @@ class TestRequestedConnectionType:
 #                                                  the shape guard                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestEnforceConnectionShape:
-    """The pure rules plus the two that need a read, reported together."""
+    """The pure rules plus the ones that need a read, reported together."""
 
     def test_a_valid_cable_connection_passes(self, ctx) -> None:
         """The ordinary case"""
@@ -227,6 +243,59 @@ class TestEnforceConnectionShape:
             ConnectionType.CABLE.value,
             {ConnectionRequestKey.ENDPOINTS.value: [PORT_A, PORT_B]},
         )
+
+    def test_a_cable_within_one_object_is_a_400(self, ctx) -> None:
+        """
+        The device rule surfaces through the aggregate guard, not only in the validator
+
+        Two ports of one CmdbObject cabled together is a patch panel's pairing written the wrong way.
+        """
+        objects_manager, types_manager = _cable_managers()
+
+        with pytest.raises(HTTPException) as raised:
+            enforce_connection_shape(
+                _ports_manager([PORT_A, PORT_B], owner_id=SHARED_OWNER_ID), objects_manager,
+                types_manager, ConnectionType.CABLE.value,
+                {ConnectionRequestKey.ENDPOINTS.value: [PORT_A, PORT_B]},
+            )
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+        assert str(SHARED_OWNER_ID) in raised.value.description
+
+    def test_an_internal_across_two_objects_is_a_400(self, ctx) -> None:
+        """The other half: an INTERNAL pairs two faces of ONE device"""
+        objects_manager, types_manager = _cable_managers()
+
+        with pytest.raises(HTTPException) as raised:
+            enforce_connection_shape(
+                _ports_manager([PORT_A, PORT_B]), objects_manager, types_manager,
+                ConnectionType.INTERNAL.value,
+                {ConnectionRequestKey.ENDPOINTS.value: [PORT_A, PORT_B]},
+            )
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+
+    def test_an_internal_within_one_object_passes(self, ctx) -> None:
+        """The patch panel's pairing, which the exemption exists for"""
+        objects_manager, types_manager = _cable_managers()
+
+        enforce_connection_shape(
+            _ports_manager([PORT_A, PORT_B], owner_id=SHARED_OWNER_ID), objects_manager,
+            types_manager, ConnectionType.INTERNAL.value,
+            {ConnectionRequestKey.ENDPOINTS.value: [PORT_A, PORT_B]},
+        )
+
+    def test_the_endpoint_ports_are_read_once_for_both_rules(self, ctx) -> None:
+        """Existence and ownership are two questions about the same two documents"""
+        objects_manager, types_manager = _cable_managers()
+        ports_manager = _ports_manager([PORT_A, PORT_B])
+
+        enforce_connection_shape(
+            ports_manager, objects_manager, types_manager, ConnectionType.CABLE.value,
+            {ConnectionRequestKey.ENDPOINTS.value: [PORT_A, PORT_B]},
+        )
+
+        ports_manager.find.assert_called_once()
 
     def test_a_self_connection_is_a_400(self, ctx) -> None:
         """The rule no index can hold, because [5, 5] dedupes inside one document"""

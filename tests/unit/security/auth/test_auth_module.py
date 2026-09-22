@@ -310,6 +310,28 @@ class TestProviderRegistry:
         """provider_exists reports installation, not activation."""
         assert AuthModule.provider_exists(provider_name) is expected
 
+    @pytest.mark.parametrize('provider_name, expected', [
+        (LOCAL_PROVIDER_NAME, True),
+        (LDAP_PROVIDER_NAME, False),
+        ('NoSuchProvider', True),
+    ])
+    def test_provider_owns_passwords(self, provider_name: str, expected: bool) -> None:
+        """
+        Whether DataGerry may store a password for a user of that provider
+
+        `PASSWORD_ABLE` does not mean "checks a password" - the LDAP bind is exactly that - it means
+        the password lives HERE. An unknown provider answers True: such a user cannot be authenticated
+        by its own provider at all, so the local password is the only way to reach the account.
+        """
+        assert AuthModule.provider_owns_passwords(provider_name) is expected
+
+    def test_the_flag_is_what_the_answer_reads(self) -> None:
+        """The lookup must follow the provider's own flag, not a hard-coded provider name."""
+        AuthModule.register_provider(_ExternalStubProvider)
+
+        assert AuthModule.provider_owns_passwords(_ExternalStubProvider.get_name()) \
+            is _ExternalStubProvider.PASSWORD_ABLE
+
     def test_internals_and_external_are_split_by_the_flag(self) -> None:
         """The two accessors filter on EXTERNAL_PROVIDER (they used to both return everything)."""
         internals = AuthModule.get_installed_internals()

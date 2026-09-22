@@ -41,6 +41,7 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerSummaryLineError,
     ObjectsManagerMdsReferencesError,
 )
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.security import AccessDeniedError
 from cmdb.security.acl.permission import AccessControlPermission
@@ -1027,6 +1028,25 @@ class TestAccessDeniedTravelsUnwrapped:
             )
 
         mock_self.insert.assert_not_called()
+
+    @pytest.mark.parametrize('transient', [DocumentLockTimeoutError('lock'), DocumentNetworkError('net')],
+                             ids=['lock-timeout', 'network'])
+    def test_insert_re_raises_a_transient_database_error(self, transient: Exception) -> None:
+        """
+        A transient failure keeps its identity through the manager
+
+        Re-wrapping it as an insert error would hide the one thing that distinguishes it - the request
+        can simply be retried - and the route maps these to 423 / 503 rather than a flat 500.
+        """
+        mock_self = MagicMock()
+        mock_self.insert.side_effect = transient
+
+        with pytest.raises(type(transient)):
+            ObjectsManager.insert_object(
+                mock_self,
+                {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID, 'author_id': 1, 'fields': []},
+            )
+
 
     def test_update_re_raises_a_denial(self) -> None:
         """Same on the update path."""

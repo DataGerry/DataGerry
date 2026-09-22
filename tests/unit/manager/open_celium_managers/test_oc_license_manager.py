@@ -25,7 +25,7 @@ Mongo.
 **The month-boundary tests pin the timezone, not the implementation.** They used to compute the
 expected value with the same expression the code uses (`datetime(2026, 3, 1).timestamp() * 1000`),
 which cannot fail whatever the code does with the clock. They now run under a FIXED `TZ` and assert
-absolute millisecond constants, so the two properties recorded as discussion-backlog #225 - the
+absolute millisecond constants, so the two properties - the
 window is the HOST's local month, and it ends a whole second before the month does - are visible and
 will fail loudly the day that decision is taken.
 """
@@ -153,11 +153,9 @@ class TestGetLicenseActivation:
         """
         The activation request is read as JSON, whatever the route once documented
 
-        The route promised "a text file"; `parse_response` cannot produce one - a 200 carrying plain
-        text raises `JSONDecodeError`, which is not even the manager's own error type, so the route
-        answers a generic 500 rather than its own message. Which of the two OpenCelium actually
-        returns is discussion-backlog #224, and this is the assertion that will change when it is
-        decided.
+        The endpoint's name suggests "a text file"; `parse_response` cannot produce one - a 200
+        carrying plain text raises `JSONDecodeError`, which is not even the manager's own error
+        type, so the route answers a generic 500 rather than its own message.
         """
         license_manager.oc_connector.oc_get.return_value = SimpleNamespace(
             status_code=OK_STATUS,
@@ -295,7 +293,7 @@ class TestGetCurrentMonthBoundaries:
 
         `2026-03-01 00:00` in Berlin is 23:00 on February 28th in UTC, so the window starts before
         the month does for anyone reading it in UTC - and a tenant further east is reported a month
-        that is not theirs. Recorded as behaviour: discussion-backlog #225.
+        that is not theirs. Recorded as behaviour, not asserted as desirable.
         """
         with patch(f'{MODULE_PATH}.datetime', _frozen_datetime(datetime(2026, 3, 15))):
             start, _ = get_current_month_boundaries()

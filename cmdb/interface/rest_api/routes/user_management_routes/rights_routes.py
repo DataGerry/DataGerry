@@ -22,22 +22,33 @@ qualified name, and the level enum. There is no write side: rights are declared 
 one; what a *group* holds is the CmdbUserGroup routes' business.
 
 Because the tree is in-memory, a single `RightsManager` is built once at import and shared across
-requests instead of re-flattening ~200 rights per call, and none of the routes carries an ACL right -
-the catalogue is product metadata, identical for every installation.
+requests instead of re-flattening ~200 rights per call.
+
+**None of the routes carries an ACL right, and that is deliberate** - the catalogue is product
+metadata, identical for every installation and already public in the source of an AGPL product, and
+the group-edit screen needs it for anyone who may manage a group. **They are authenticated, though.**
+`verify_api_access` alone is not enough: it returns immediately when the process is not in cloud
+mode, so on-premise it would leave the whole catalogue answering with no credentials at all.
+`insert_request_user` is what authenticates - authentication, not authorization, which is why every
+handler takes a `request_user` it never reads.
+
+A repo-wide scan on that date found exactly two route files with `verify_api_access` and neither
+`insert_request_user` nor `.protect`: this one and `setup_routes.py`, which was made cloud-only the
+same day. There is no third.
 """
 from logging import Logger, getLogger
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RightsManager
 
 from cmdb.framework.results import IterationResult
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.constants import NAME_TO_LEVEL
+from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.all_rights import ALL_RIGHTS
-from cmdb.interface.route_utils import verify_api_access
+from cmdb.models.user_model import CmdbUser
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -58,9 +69,11 @@ rights_manager: RightsManager = RightsManager()
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @rights_blueprint.route('/', methods=['GET', 'HEAD'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rights_blueprint.parse_collection_parameters(sort='name', view='list')
-def get_rights(params: CollectionParameters) -> Response:
+@handle_route_errors("while retrieving DataGerry Rights")
+def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for an iterable collection of DataGerry rights
 
@@ -85,44 +98,44 @@ def get_rights(params: CollectionParameters) -> Response:
         No ACL right is required - the rights catalogue is static product metadata.
         Calling the route over HTTP HEAD will result in an empty body
     """
-    try:
-        body: bool = request_wants_body()
+    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
+    # signature because `insert_request_user` injects it, and that decorator is what makes the
+    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # pylint: disable=unused-argument
+    body: bool = request_wants_body()
 
-        if params.optional['view'] == 'tree':
-            api_response = GetMultiResponse(RightsManager.tree_to_json(ALL_RIGHTS),
-                                            total=len(rights_manager.rights),
-                                            params=params,
-                                            url=request.url,
-                                            body=body)
-
-            return api_response.make_response(pagination=False)
-
-        iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
-                                                                        limit = params.limit,
-                                                                        skip = params.skip,
-                                                                        sort = params.sort,
-                                                                        order = params.order
-                                                                      )
-
-        rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
-
-        api_response = GetMultiResponse(rights,
-                                        total=iteration_result.total,
+    if params.optional['view'] == 'tree':
+        api_response = GetMultiResponse(RightsManager.tree_to_json(ALL_RIGHTS),
+                                        total=len(rights_manager.rights),
                                         params=params,
                                         url=request.url,
                                         body=body)
 
-        return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_rights] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving DataGerry Rights!")
+        return api_response.make_response(pagination=False)
+
+    iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
+                                                                    limit = params.limit,
+                                                                    skip = params.skip,
+                                                                    sort = params.sort,
+                                                                    order = params.order
+                                                                  )
+
+    rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
+
+    api_response = GetMultiResponse(rights,
+                                    total=iteration_result.total,
+                                    params=params,
+                                    url=request.url,
+                                    body=body)
+
+    return api_response.make_response()
 
 
 @rights_blueprint.route('/<string:name>', methods=['GET', 'HEAD'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_right(name: str) -> Response:
+@handle_route_errors("while retrieving Right with name: {name}")
+def get_right(name: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a single right resource
 
@@ -139,6 +152,10 @@ def get_right(name: str) -> Response:
         No ACL right is required - the rights catalogue is static product metadata.
         Calling the route over HTTP HEAD will result in an empty body
     """
+    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
+    # signature because `insert_request_user` injects it, and that decorator is what makes the
+    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # pylint: disable=unused-argument
     try:
         right: BaseRight | None = rights_manager.get_right(name)
 
@@ -146,25 +163,23 @@ def get_right(name: str) -> Response:
             abort(404, f"Right with name: {name} was not found!")
 
         return GetSingleResponse(BaseRight.to_dict(right), body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RightsManagerGetError as err:
         LOGGER.error("[get_right] RightsManagerGetError: %s", err, exc_info=True)
         abort(500, f"Failed to retrieve the Right with name: {name}!")
-    except Exception as err:
-        LOGGER.error("[get_right] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving Right with name: {name}!")
 
 
 @rights_blueprint.route('/levels', methods=['GET', 'HEAD'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-def get_levels() -> Response:
+@handle_route_errors("while retrieving the Right levels")
+def get_levels(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a static collection of levels
 
     Returns:
-        GetSingleResponse: The name -> level mapping (`NAME_TO_LEVEL`), keyed by name because the
-            frontend renders a selector from the names and sends back the numeric value
+        GetSingleResponse: The name -> level mapping (`Levels.as_name_map`), keyed by name because
+            that is the direction a catalogue is read in - a client shows the names and works with
+            the numbers - and in the enum's declaration order, CRITICAL first
 
     Raises:
         HTTPException: 500 when the mapping could not be serialised
@@ -173,8 +188,8 @@ def get_levels() -> Response:
         No ACL right is required - the levels are a static enum.
         Calling the route over HTTP HEAD method will result in an empty body
     """
-    try:
-        return GetSingleResponse(NAME_TO_LEVEL, body=request_wants_body()).make_response()
-    except Exception as err:
-        LOGGER.error("[get_levels] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while processing Right levels!")
+    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
+    # signature because `insert_request_user` injects it, and that decorator is what makes the
+    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # pylint: disable=unused-argument
+    return GetSingleResponse(Levels.as_name_map(), body=request_wants_body()).make_response()

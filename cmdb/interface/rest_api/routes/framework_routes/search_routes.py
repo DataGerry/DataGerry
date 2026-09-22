@@ -38,7 +38,6 @@ from typing import Any
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import QuickSearchPipelineBuilder, SearchPipelineBuilder
@@ -51,7 +50,7 @@ from cmdb.errors.framework_search import SearchParamError
 from cmdb.framework.search.searcher_framework import SearcherFramework
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -136,6 +135,7 @@ def _parse_search_parameters(raw_query: str) -> list[SearchParam]:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @search_blueprint.protect(auth=True)
+@handle_route_errors("while processing quick search results")
 def quick_search_result_counter(request_user: CmdbUser) -> Response:
     """
     Aggregates and returns quick search result counts (active, inactive, total) for the given user
@@ -152,39 +152,34 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
     Returns:
         Response: A Response containing the quick search result counts
     """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    search_term: str = request.args.get(SearchQueryKey.SEARCH_VALUE.value,
+                                        SearcherFramework.DEFAULT_REGEX,
+                                        str)
+    builder = QuickSearchPipelineBuilder()
+    only_active: bool = fetch_only_active_objects()
+    pipeline: list[dict] = builder.build(search_term=search_term,
+                                         user=request_user,
+                                         permission=AccessControlPermission.READ,
+                                         active_flag=only_active)
+
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        result: list[dict] = list(objects_manager.aggregate_objects(pipeline=pipeline))
+    except ObjectsManagerIterationError as err:
+        LOGGER.error('[quick_search_result_counter] ObjectsManagerIterationError: %s', err, exc_info=True)
+        abort(400, "Failed to aggregate Objects for quick search result")
 
-        search_term: str = request.args.get(SearchQueryKey.SEARCH_VALUE.value,
-                                            SearcherFramework.DEFAULT_REGEX,
-                                            str)
-        builder = QuickSearchPipelineBuilder()
-        only_active: bool = fetch_only_active_objects()
-        pipeline: list[dict] = builder.build(search_term=search_term,
-                                             user=request_user,
-                                             permission=AccessControlPermission.READ,
-                                             active_flag=only_active)
+    if result:
+        return DefaultResponse(result[0]).make_response()
 
-        try:
-            result: list[dict] = list(objects_manager.aggregate_objects(pipeline=pipeline))
-        except ObjectsManagerIterationError as err:
-            LOGGER.error('[quick_search_result_counter] ObjectsManagerIterationError: %s', err, exc_info=True)
-            abort(400, "Failed to aggregate Objects for quick search result")
-
-        if result:
-            return DefaultResponse(result[0]).make_response()
-
-        return DefaultResponse(dict(EMPTY_COUNT)).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[quick_search_result_counter] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while processing quick search results!")
+    return DefaultResponse(dict(EMPTY_COUNT)).make_response()
 
 
 @search_blueprint.route('/', methods=['GET', 'POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while processing the search request")
 def search_framework(request_user: CmdbUser) -> Response:
     """
     Processes a search request (GET or POST) using the SearcherFramework
@@ -265,11 +260,6 @@ def search_framework(request_user: CmdbUser) -> Response:
         )
 
         return DefaultResponse(result).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerIterationError as err:
         LOGGER.error("[search_framework] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to aggregate the Objects for the search request!")
-    except Exception as err:
-        LOGGER.error("[search_framework] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while processing the search request!")

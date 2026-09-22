@@ -16,9 +16,9 @@
 """
 Shared constants for CmdbSectionTemplates
 
-Names the request-body / document keys a CmdbSectionTemplate carries and the ACL rights guarding
-its REST routes, so the routes and any other consumer stay aligned on the literal strings instead
-of repeating them
+Names the request-body / document keys a CmdbSectionTemplate carries, the keys of the usage payload
+the count route answers, and the ACL rights guarding its REST routes, so the routes and any other
+consumer stay aligned on the literal strings instead of repeating them
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -39,6 +39,19 @@ class SectionTemplateKey(BaseStrEnum):
     FIELDS = 'fields'
     IS_GLOBAL = 'is_global'
     PREDEFINED = 'predefined'
+
+
+class SectionTemplateUsageKey(BaseStrEnum):
+    """
+    Keys of the usage payload ``GET /section_templates/<public_id>/count`` answers
+
+    TYPES and OBJECTS are the counts themselves. IS_GLOBAL is what makes a zero readable: only a
+    global template stays linked to the types that adopt it, so ``{'types': 0, 'objects': 0}`` means
+    "global and unused" when IS_GLOBAL is True and "the count does not apply here" when it is False
+    """
+    TYPES = 'types'
+    OBJECTS = 'objects'
+    IS_GLOBAL = 'is_global'
 
 
 class SectionTemplateRight(BaseStrEnum):

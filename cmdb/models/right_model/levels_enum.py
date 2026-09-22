@@ -37,3 +37,26 @@ class Levels(IntEnum):
     PROTECTED = 30
     PERMISSION = 10
     NOTSET = 0
+
+# -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
+
+    @classmethod
+    def as_name_map(cls) -> dict[str, "Levels"]:
+        """
+        Builds the name -> level mapping `GET /rest/rights/levels` serves
+
+        Keyed by NAME because that is the direction a catalogue is read in: a client shows the names
+        and works with the numbers. The enum owns it so the catalogue cannot fall out of step with
+        the members - it used to be a hand-written dict beside the enum, and only a unit test kept
+        the two in agreement.
+
+        The order is the enum's own declaration order (CRITICAL first, descending) and it survives
+        into the JSON response, so a member added between two existing ones appears where it was
+        declared. A fresh dict is built per call: the previous module-level constant was handed to
+        the response by reference, so anything mutating it would have changed the catalogue for the
+        rest of the process.
+
+        Returns:
+            dict[str, Levels]: Each member keyed by its own name, in declaration order
+        """
+        return {level.name: level for level in cls}

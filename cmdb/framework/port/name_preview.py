@@ -125,7 +125,6 @@ def build_standard_preview(
     }
 
 
-#pylint: disable=R0913, R0917
 def build_panel_preview(
         front_syntax: str,
         rear_syntax: str,
