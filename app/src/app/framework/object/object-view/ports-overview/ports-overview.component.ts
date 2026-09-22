@@ -341,6 +341,14 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
         return this.hasRight(PORT_VIEW_RIGHT);
     }
 
+
+    /** Without an object there is nothing to list yet, which the empty state says instead of the default. */
+    public get emptyMessage(): string {
+        return this.objectId == null
+            ? 'Ports can be added once the object has been saved.'
+            : 'No ports to display.';
+    }
+
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private hasRight(right: string): boolean {

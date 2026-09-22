@@ -63,6 +63,9 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Input() public sort: Sort = { name: 'port_number', order: SortDirection.ASCENDING };
     @Input() public loading = false;
 
+    /** Add mode has no object yet, so it explains the empty list instead of just stating it. */
+    @Input() public emptyMessage = 'No ports to display.';
+
     /** Patch panels are the only objects with two faces, so ordinary devices hide the side column. */
     @Input() public showSideColumn = false;
 

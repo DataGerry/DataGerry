@@ -72,6 +72,11 @@
             [typeInstance]="typeInstance"
         />
 
+        <!-- Ports are their own section; in add mode there is no object yet, so it lists nothing and offers no action. -->
+        @if (portsAvailable) {
+        <cmdb-ports-overview *permissionLink="[portViewRight]" />
+        }
+
         <div id="object-form-action" class="shadow p-3 mb-5 bg-white rounded text-center">
             <div class="row d-flex justify-content-center align-items-center">
                 <p class="pt-3 mx-4">
