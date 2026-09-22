@@ -20,7 +20,9 @@
 export enum ExportKind {
     Objects = 'objects',
     Types = 'types',
-    CsvTemplate = 'csv_template'
+    CsvTemplate = 'csv_template',
+    Document = 'document',
+    Ipam = 'ipam'
 }
 
 

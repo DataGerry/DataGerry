@@ -9,21 +9,30 @@
         Do you want to <b>delete</b> the section template <b>"{{ sectionTemplate.label }}"</b>?
     </p>
 
-    @if (sectionTemplate.is_global) {
-    <div class="delete-callout" role="alert">
-        <i class="fas fa-triangle-exclamation delete-callout__icon" aria-hidden="true"></i>
-        <div class="delete-callout__text">
-            <p>
-                This action affects <b>{{ templateCounts.types }} types</b> and
-                <b>{{ templateCounts.objects }} objects</b>!
-            </p>
-            <p>
-                This will delete this section and its fields from all types and corresponding objects.
-                <br>
-                This action can't be undone!
-            </p>
+    @if (templateCounts?.is_global) {
+        @if (templateCounts?.types) {
+        <div class="delete-callout" role="alert">
+            <i class="fas fa-triangle-exclamation delete-callout__icon" aria-hidden="true"></i>
+            <div class="delete-callout__text">
+                <p>
+                    This action affects <b>{{ templateCounts?.types }} types</b> and
+                    <b>{{ templateCounts?.objects }} objects</b>!
+                </p>
+                <p>
+                    Every type loses this template, and the objects whose type carries the section lose its fields.
+                    <br>
+                    This action can't be undone!
+                </p>
+            </div>
         </div>
-    </div>
+        } @else {
+        <div class="delete-callout delete-callout--safe">
+            <i class="fas fa-circle-info delete-callout__icon" aria-hidden="true"></i>
+            <div class="delete-callout__text">
+                <p>No type uses this global template, so no object loses any field.</p>
+            </div>
+        </div>
+        }
     }
 
     <app-button
