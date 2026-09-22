@@ -397,4 +397,64 @@ describe('BuilderMutationHelper', () => {
             expect(ctx.typeInstance.fields.map((f: any) => f.name)).toEqual(['field_b']);
         });
     });
+
+
+    describe('ports section restore', () => {
+        const PORTS_TEMPLATE = 'dg-virtual-tpl-ports';
+
+        function armPortsTemplate(): void {
+            const template: any = { name: PORTS_TEMPLATE, label: 'Ports', is_global: true, fields: [] };
+            ctx.globalSectionTemplates = [template];
+            templateManager.extractSectionData.and.returnValue({
+                name: PORTS_TEMPLATE, label: 'Ports', type: 'section', fields: []
+            });
+        }
+
+        function sectionNames(): Array<string> {
+            return ctx.sections.map((section: any) => section?.name);
+        }
+
+
+        it('restores the section at the stored slot', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+            ctx.typeInstance.port_section_index = 1;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual(['section_a', PORTS_TEMPLATE, 'section_b']);
+        });
+
+
+        it('restores the section first when the stored slot is 0', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+            ctx.typeInstance.port_section_index = 0;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual([PORTS_TEMPLATE, 'section_a', 'section_b']);
+        });
+
+
+        it('clamps a stored slot that outruns the sections', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+            ctx.typeInstance.port_section_index = 9;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual(['section_a', 'section_b', PORTS_TEMPLATE]);
+        });
+
+
+        it('treats a type without a stored slot as first', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual([PORTS_TEMPLATE, 'section_a', 'section_b']);
+        });
+    });
 });

@@ -119,7 +119,7 @@ export class ObjectEditComponent implements OnInit {
 
     /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    /** Ports live outside the type's sections, so the ports panel is appended on its own. */
+    /** Ports live outside the type's sections, so the ports panel is placed among them by its slot. */
     public get portsAvailable(): boolean {
         return this.renderResult?.type_information?.uses_ports === true;
     }
@@ -127,6 +127,12 @@ export class ObjectEditComponent implements OnInit {
 
     public get portsObjectId(): number | null {
         return this.renderResult?.object_information?.object_id ?? null;
+    }
+
+
+    /** Slot the ports take among the type's sections, or null while the type has no ports. */
+    public get portsSectionIndex(): number | null {
+        return this.portsAvailable ? (this.renderResult?.type_information?.port_section_index ?? 0) : null;
     }
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

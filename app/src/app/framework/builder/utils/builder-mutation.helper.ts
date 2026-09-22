@@ -240,7 +240,10 @@ export class BuilderMutationHelper {
         }
     }
 
-    /** A stored type carries the flag but no ports section, so the canvas rebuilds it from the palette. */
+    /**
+     * A stored type carries the flag and the slot but no ports section, so the canvas rebuilds it
+     * from the palette and puts it back where `port_section_index` says it was.
+     */
     public restorePortsSection(): void {
         if (!this.ctx.schema.readUsesPorts()) {
             return;
@@ -261,7 +264,11 @@ export class BuilderMutationHelper {
             return;
         }
 
-        this.ctx.sections.push(this.templateManager.extractSectionData(template) as BuilderSection);
+        // The stored index counts the type's own sections, so it is also the slot in the rebuilt list.
+        const storedIndex = this.ctx.schema.readPortSectionIndex();
+        const targetIndex = Math.min(storedIndex, this.ctx.sections.length);
+
+        this.ctx.sections.splice(targetIndex, 0, this.templateManager.extractSectionData(template) as BuilderSection);
         this.commitSections();
         this.syncSectionIdentifiers();
         this.templateManager.setSectionTemplateFields(template);
