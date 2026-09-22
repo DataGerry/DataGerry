@@ -16,7 +16,13 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { FieldOption } from 'src/app/framework/models/cmdb-section-template';
+import { IPAM_INTERFACE_FIELD_NAMES } from 'src/app/framework/render/special-types/ipam-interface/models/interface-fields';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
+import {
+    IPAM_INTERFACE_SECTION_ID,
+    InterfaceRelationType,
+    PortInterfaceLink
+} from '../models/interface-link.types';
 import {
     CableSource,
     CmdbPortConnection,
@@ -29,6 +35,7 @@ import { indexConnectionsByPort } from './port-connection.util';
 import {
     clampPage,
     hasConnectionState,
+    hasInterfaceLinks,
     hasPanelSides,
     pagePortRows,
     sortPortRows,
@@ -51,6 +58,25 @@ function port(overrides: Partial<CmdbPort> = {}): CmdbPort {
         author_id: 1,
         creation_time: null,
         last_edit_time: null,
+        ...overrides
+    };
+}
+
+function interfaceLink(overrides: Partial<PortInterfaceLink> = {}): PortInterfaceLink {
+    return {
+        public_id: 5501,
+        port_id: 1,
+        interface_object_id: 8802,
+        interface_section_id: IPAM_INTERFACE_SECTION_ID,
+        interface_multi_data_id: 1,
+        relation_type: InterfaceRelationType.PHYSICAL,
+        author_id: 1,
+        creation_time: null,
+        last_edit_time: null,
+        interface_row: {
+            multi_data_id: 1,
+            data: [{ name: IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS, value: '10.0.0.5' }]
+        },
         ...overrides
     };
 }
@@ -115,6 +141,21 @@ describe('ports-table.util', () => {
             const [row] = toPortRows([port({ status: 999 })], new Map());
 
             expect(row.status).toBeNull();
+        });
+
+        it('summarises the embedded interface links and sorts by the resolved label', () => {
+            const [row] = toPortRows([port({ interface_links: [interfaceLink(), interfaceLink({ public_id: 5502 })] })], new Map());
+
+            expect(row.interfaces.label).toBe('10.0.0.5');
+            expect(row.interfaces.additionalLabels).toEqual(['10.0.0.5']);
+            expect(row.interfaceLabel).toBe('10.0.0.5');
+        });
+
+        it('leaves a port without embedded links with an empty summary', () => {
+            const [row] = toPortRows([port()], new Map());
+
+            expect(row.interfaces).toEqual({ label: null, address: null, additionalLabels: [], dangling: 0 });
+            expect(row.interfaceLabel).toBeNull();
         });
 
         it('reads an unknown side as an ordinary device port', () => {
@@ -205,6 +246,11 @@ describe('ports-table.util', () => {
         it('reports a connection state only when the backend sends the key', () => {
             expect(hasConnectionState([port()])).toBeFalse();
             expect(hasConnectionState([port({ connected: false })])).toBeTrue();
+        });
+
+        it('reports interface links only when the backend embeds the key', () => {
+            expect(hasInterfaceLinks([port()])).toBeFalse();
+            expect(hasInterfaceLinks([port({ interface_links: [] })])).toBeTrue();
         });
     });
 

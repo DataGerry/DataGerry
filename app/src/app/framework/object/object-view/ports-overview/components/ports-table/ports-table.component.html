@@ -9,7 +9,9 @@
   [pageSize]="pageSize"
   [sort]="sort"
   [loading]="loading"
-  [selectEnabled]="false"
+  [selectEnabled]="selectEnabled"
+  [selectedItems]="selectedRows"
+  [customButtons]="bulkButtonTemplates"
   [toggleable]="false"
   [searchEnabled]="false"
   [paginationEnabled]="true"
@@ -17,8 +19,50 @@
   [emptyMessage]="'No ports to display.'"
   (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)"
-  (sortChange)="onSortChange($event)">
+  (sortChange)="onSortChange($event)"
+  (selectedChange)="onSelectedChange($event)">
 </cmdb-table>
+
+<ng-template #bulkActionsTemplate>
+  @if (selectedCount) {
+    <div class="ports-bulk" role="group" aria-label="Actions for the selected ports">
+      <span class="ports-bulk__count" aria-live="polite">{{ selectedCount }} selected</span>
+
+      @if (canEdit) {
+        <app-button
+          label="Edit"
+          icon="fas fa-pen-to-square"
+          bootstrapClass="btn-outline-secondary btn-sm"
+          [title]="'Edit the ' + selectedCount + ' selected ports'"
+          (clicked)="onBulkEdit()">
+        </app-button>
+      }
+
+      @if (canDisconnect) {
+        <app-button
+          label="Disconnect"
+          icon="fas fa-unlink"
+          bootstrapClass="btn-outline-secondary btn-sm"
+          [disabled]="!selectedConnectedRows.length"
+          [title]="selectedConnectedRows.length
+            ? 'Cut the cables of ' + selectedConnectedRows.length + ' selected ports'
+            : 'None of the selected ports carries a cable'"
+          (clicked)="onBulkDisconnect()">
+        </app-button>
+      }
+
+      @if (canDelete) {
+        <app-button
+          label="Delete"
+          icon="fas fa-trash-can"
+          bootstrapClass="btn-danger btn-sm"
+          [title]="'Delete the ' + selectedCount + ' selected ports'"
+          (clicked)="onBulkDelete()">
+        </app-button>
+      }
+    </div>
+  }
+</ng-template>
 
 <ng-template #nameTemplate let-data="data">
   @if (data) {
@@ -59,6 +103,48 @@
       <small class="ports-connection__pair">Paired with {{ item.pairedPortName }}</small>
     }
   </div>
+</ng-template>
+
+<ng-template #interfaceTemplate let-item="item">
+  @if (item.interfaces.label) {
+    <div class="ports-interfaces">
+      <span class="ports-interfaces__label">
+        {{ item.interfaces.label }}
+
+        @if (item.interfaces.additionalLabels.length) {
+          <span
+            class="ports-badge ports-interfaces__more"
+            tabindex="0"
+            [ngbTooltip]="moreInterfacesTooltip(item)"
+            tooltipClass="ports-interfaces-tooltip"
+            [openDelay]="200"
+            container="body"
+            placement="top"
+            attr.aria-label="{{ item.interfaces.additionalLabels.length }} further interfaces: {{ moreInterfacesTooltip(item) }}">
+            +{{ item.interfaces.additionalLabels.length }}
+          </span>
+        }
+      </span>
+
+      @if (item.interfaces.address) {
+        <small class="ports-interfaces__address">{{ item.interfaces.address }}</small>
+      }
+
+      @if (item.interfaces.dangling) {
+        <small class="ports-interfaces__dangling">
+          <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+          {{ item.interfaces.dangling }} link(s) point to a removed interface
+        </small>
+      }
+    </div>
+  } @else if (item.interfaces.dangling) {
+    <span class="ports-interfaces__dangling">
+      <i class="fas fa-exclamation-triangle" aria-hidden="true"></i>
+      Interface no longer exists
+    </span>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
 </ng-template>
 
 <ng-template #valueTemplate let-data="data">

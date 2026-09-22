@@ -62,7 +62,7 @@ describe('ObjectTableActionsComponent delete', () => {
 
     beforeEach(() => {
         locationService = jasmine.createSpyObj<LocationService>('LocationService', ['getChildren']);
-        objectService = jasmine.createSpyObj<ObjectService>('ObjectService', ['openLocationModalComponent']);
+        objectService = jasmine.createSpyObj<ObjectService>('ObjectService', ['deleteObject']);
         modalService = jasmine.createSpyObj<NgbModal>('NgbModal', ['open']);
         connectionService = jasmine.createSpyObj<PortConnectionService>('PortConnectionService', ['getCableUsage']);
         endpointService = jasmine.createSpyObj<ConnectionEndpointService>('ConnectionEndpointService', ['endpointOf']);
@@ -74,7 +74,6 @@ describe('ObjectTableActionsComponent delete', () => {
         locationService.getChildren.and.returnValue(of([]));
         modalService.open.and.returnValue({ componentInstance: {}, result: Promise.resolve(0), close: () => undefined } as any);
         // ngOnDestroy closes whatever modal is open, so every stub answers to close().
-        objectService.openLocationModalComponent.and.returnValue({ result: Promise.resolve(''), close: () => undefined } as any);
         endpointService.endpointOf.and.callFake((portId: number) => of({
             portId, portName: `Port ${ portId }`, sideLabel: '', objectId: 1, objectLabel: 'Switch-A'
         }));
@@ -113,13 +112,10 @@ describe('ObjectTableActionsComponent delete', () => {
             expect(openedModals()).toEqual([ObjectDeleteModalComponent]);
         });
 
-        it('still asks about its child locations first', () => {
-            locationService.getChildren.and.returnValue(of([row()]));
-
+        it('is not prechecked for child locations', () => {
             component.handleDelete(9513);
 
-            expect(objectService.openLocationModalComponent).toHaveBeenCalled();
-            expect(openedModals()).toEqual([]);
+            expect(locationService.getChildren).not.toHaveBeenCalled();
         });
     });
 

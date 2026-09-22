@@ -175,14 +175,28 @@ export function toInterfaceLinkView(link: PortInterfaceLink): InterfaceLinkView 
  * instead of rendering an empty column nobody can explain.
  */
 export function summarisePortInterfaces(links: readonly PortInterfaceLink[]): PortInterfaceSummary {
-    const dangling = links.filter((link) => !link.interface_row).length;
-    const first = links.map(interfaceRowFromLink).find((row): row is InterfaceRowView => !!row) ?? null;
+    const resolved = links.map((link) => ({ link, row: interfaceRowFromLink(link) }));
+    const shownIndex = Math.max(resolved.findIndex((entry) => !!entry.row), 0);
+    const shown = resolved[shownIndex]?.row ?? null;
 
     return {
-        label: first?.label ?? null,
+        label: shown?.label ?? null,
         // The label is already the address whenever the row has no host name.
-        address: first && first.hostname ? first.ip : null,
-        additional: Math.max(links.length - 1, 0),
-        dangling
+        address: shown && shown.hostname ? shown.ip : null,
+        additionalLabels: resolved
+            .filter((_, index) => index !== shownIndex)
+            .map((entry) => additionalInterfaceLabel(entry.row, entry.link)),
+        dangling: links.filter((link) => !link.interface_row).length
     };
+}
+
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+/** How one further interface reads in the tooltip: its label, and its address unless the label is one. */
+function additionalInterfaceLabel(row: InterfaceRowView | null, link: PortInterfaceLink): string {
+    if (!row) {
+        return `Removed interface (row #${ link.interface_multi_data_id })`;
+    }
+
+    return row.hostname && row.ip ? `${ row.label } · ${ row.ip }` : row.label;
 }

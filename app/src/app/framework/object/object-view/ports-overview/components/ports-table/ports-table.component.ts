@@ -37,6 +37,7 @@ import { PortRow } from '../../models/ports-overview.types';
 const OPTIONAL_COLUMN_INPUTS = [
     'showSideColumn',
     'showConnectionColumn',
+    'showInterfaceColumn',
     'canEdit',
     'canDelete',
     'canConnect',
@@ -68,6 +69,9 @@ export class PortsTableComponent implements OnInit, OnChanges {
     /** Only shown once the backend reports a connection state; see `hasConnectionState`. */
     @Input() public showConnectionColumn = false;
 
+    /** Only shown once the read route embeds the interface links; see `hasInterfaceLinks`. */
+    @Input() public showInterfaceColumn = false;
+
     /** Each gates its own action AND, together, the whole actions column. */
     @Input() public canEdit = false;
     @Input() public canDelete = false;
@@ -87,16 +91,28 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Output() public readonly editConnection = new EventEmitter<PortRow>();
     @Output() public readonly disconnectPort = new EventEmitter<PortRow>();
     @Output() public readonly manageInterfaces = new EventEmitter<PortRow>();
+    @Output() public readonly bulkEditPorts = new EventEmitter<PortRow[]>();
+    @Output() public readonly bulkDeletePorts = new EventEmitter<PortRow[]>();
+    @Output() public readonly bulkDisconnectPorts = new EventEmitter<PortRow[]>();
 
     @ViewChild('nameTemplate', { static: true }) public nameTemplate: TemplateRef<unknown>;
     @ViewChild('sideTemplate', { static: true }) public sideTemplate: TemplateRef<unknown>;
     @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
     @ViewChild('connectionTemplate', { static: true }) public connectionTemplate: TemplateRef<unknown>;
+    @ViewChild('interfaceTemplate', { static: true }) public interfaceTemplate: TemplateRef<unknown>;
     @ViewChild('valueTemplate', { static: true }) public valueTemplate: TemplateRef<unknown>;
     @ViewChild('actionsTemplate', { static: true }) public actionsTemplate: TemplateRef<unknown>;
+    @ViewChild('bulkActionsTemplate', { static: true }) public bulkActionsTemplate: TemplateRef<unknown>;
 
     public columns: Column[] = [];
     public visibleColumns: string[] = [];
+    public bulkButtonTemplates: TemplateRef<unknown>[] = [];
+
+    /** The ticked rows of the current page. The table only ever selects within the page it shows. */
+    public selectedRows: PortRow[] = [];
+
+    /** Kept alongside the selection: disconnecting applies to the cabled rows, and the bar reads it. */
+    public selectedConnectedRows: PortRow[] = [];
 
     public readonly connectionState = PortConnectionState;
 
@@ -104,10 +120,16 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
     public ngOnInit(): void {
         this.applyColumns();
+        this.bulkButtonTemplates = [this.bulkActionsTemplate];
     }
 
     /** An optional column appears only once its input says the data or the user's rights allow it. */
     public ngOnChanges(changes: SimpleChanges): void {
+        // A reload builds new row objects, and the table matches a selection by identity.
+        if (changes['rows']) {
+            this.clearSelection();
+        }
+
         const toggled = OPTIONAL_COLUMN_INPUTS.some((input) => changes[input] && !changes[input].firstChange);
 
         if (toggled) {
@@ -117,16 +139,45 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
+    /** The table drops its own selection on a page change without reporting it, so this mirrors it. */
     public onPageChange(page: number): void {
+        this.clearSelection();
         this.pageChange.emit(page);
     }
 
     public onPageSizeChange(pageSize: number): void {
+        this.clearSelection();
         this.pageSizeChange.emit(pageSize);
     }
 
     public onSortChange(sort: Sort): void {
+        this.clearSelection();
         this.sortChange.emit(sort);
+    }
+
+    public onSelectedChange(rows: PortRow[]): void {
+        this.selectedRows = rows ?? [];
+        this.selectedConnectedRows = this.selectedRows.filter((row) => row.cableConnectionId != null);
+    }
+
+    public onBulkEdit(): void {
+        if (this.canEdit && this.selectedRows.length) {
+            this.bulkEditPorts.emit([...this.selectedRows]);
+        }
+    }
+
+    public onBulkDelete(): void {
+        if (this.canDelete && this.selectedRows.length) {
+            this.bulkDeletePorts.emit([...this.selectedRows]);
+        }
+    }
+
+    public onBulkDisconnect(): void {
+        const connected = this.selectedConnectedRows;
+
+        if (this.canDisconnect && connected.length) {
+            this.bulkDisconnectPorts.emit([...connected]);
+        }
     }
 
     public onEditPort(row: PortRow): void {
@@ -155,9 +206,26 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
+    /** Ticking rows is only worth offering while at least one bulk action is permitted. */
+    public get selectEnabled(): boolean {
+        return this.canEdit || this.canDelete || this.canDisconnect;
+    }
+
+
+    public get selectedCount(): number {
+        return this.selectedRows.length;
+    }
+
+
     /** A row without any permitted action shows a dash instead of an empty menu. */
     public hasRowActions(row: PortRow): boolean {
         return this.canEdit || this.canDelete || this.canViewInterfaces || this.hasConnectionActions(row);
+    }
+
+
+    /** The further interfaces of a port, one per line, as the badge's tooltip lists them. */
+    public moreInterfacesTooltip(row: PortRow): string {
+        return row.interfaces.additionalLabels.join('\n');
     }
 
 
@@ -169,6 +237,12 @@ export class PortsTableComponent implements OnInit, OnChanges {
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private clearSelection(): void {
+        this.selectedRows = [];
+        this.selectedConnectedRows = [];
+    }
+
 
     private applyColumns(): void {
         this.columns = this.buildColumns();
@@ -226,7 +300,7 @@ export class PortsTableComponent implements OnInit, OnChanges {
                 sortable: true,
                 searchable: false,
                 template: this.valueTemplate,
-                style: { 'min-width': '120px' }
+                style: { 'min-width': '100px' }
             },
             {
                 display: 'Status',
@@ -235,7 +309,7 @@ export class PortsTableComponent implements OnInit, OnChanges {
                 sortable: true,
                 searchable: false,
                 template: this.statusTemplate,
-                style: { 'min-width': '120px' }
+                style: { 'min-width': '100px' }
             },
             {
                 display: 'Connection',
@@ -247,13 +321,13 @@ export class PortsTableComponent implements OnInit, OnChanges {
                 style: { 'min-width': '180px' }
             },
             {
-                display: 'Description',
-                name: 'description',
-                data: 'description',
+                display: 'Interfaces',
+                name: 'interfaces',
+                data: 'interfaceLabel',
                 sortable: true,
                 searchable: false,
-                template: this.valueTemplate,
-                style: { 'min-width': '200px' }
+                template: this.interfaceTemplate,
+                style: { 'min-width': '130px' }
             },
             {
                 display: 'Actions',
@@ -278,6 +352,10 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
         if (name === 'connected') {
             return this.showConnectionColumn;
+        }
+
+        if (name === 'interfaces') {
+            return this.showInterfaceColumn;
         }
 
         if (name === 'actions') {

@@ -1139,35 +1139,4 @@ export class ObjectsByTypeComponent implements OnInit, OnDestroy {
             });
         }
     }
-
-
-    public onObjectDeleteWithLocations(objectID: number) {
-        this.loaderService.show();
-        this.objectService.deleteObjectWithLocations(objectID).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: () => {
-                    this.toastService.success(`Object ${objectID} and child locations were deleted successfully`);
-                    this.loadObjects();
-                },
-                error: (error) => {
-                    this.toastService.error(error?.error?.message);
-                }
-            }
-            );
-    }
-
-    public onObjectDeleteWithObjects(objectID: number) {
-        this.loaderService.show();
-        this.objectService.deleteObjectWithChildren(objectID).pipe(takeUntil(this.subscriber), finalize(() => this.loaderService.hide()))
-            .subscribe({
-                next: () => {
-                    this.toastService.success(`Object ${objectID} and child locations were deleted successfully`);
-                    this.loadObjects();
-                },
-                error: (error) => {
-                    this.toastService.error(error?.error?.message);
-                }
-            }
-            );
-    }
 }

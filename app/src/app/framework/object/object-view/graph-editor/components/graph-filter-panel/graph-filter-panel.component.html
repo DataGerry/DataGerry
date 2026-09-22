@@ -1,0 +1,106 @@
+<div class="enhanced-filter-bar">
+
+  <div class="filter-mode-toggle">
+    <div class="toggle-group">
+      <button type="button" class="toggle-btn" [class.active]="mode() === 'manual'"
+        [attr.aria-pressed]="mode() === 'manual'" (click)="modeChange.emit('manual')">
+        <span class="material-icons" aria-hidden="true">tune</span>
+        Manual Filters
+      </button>
+      <button type="button" class="toggle-btn" [class.active]="mode() === 'profile'"
+        [attr.aria-pressed]="mode() === 'profile'" (click)="modeChange.emit('profile')">
+        <span class="material-icons" aria-hidden="true">bookmark</span>
+        Filter Profiles
+      </button>
+    </div>
+  </div>
+
+  @if (mode() === 'manual') {
+    <div class="enhanced-filter-content">
+      <form [formGroup]="form()">
+        <div class="manual-filter-selector">
+          <div class="filter-inputs-section">
+            <div class="filter-group">
+              <label class="filter-label">
+                <span class="material-icons" aria-hidden="true">category</span>
+                CI Types
+              </label>
+              <app-form-select formControlName="types" [items]="typeOptions()" bindLabel="display_name"
+                bindValue="public_id" [multiple]="true" [enableSelectAll]="true" placeholder="Select CI type(s)"
+                class="filter-select">
+              </app-form-select>
+            </div>
+
+            <div class="filter-group">
+              <label class="filter-label">
+                <span class="material-icons" aria-hidden="true">share</span>
+                Relations
+              </label>
+              <app-form-select formControlName="relations" [items]="relationOptions()" bindLabel="display_name"
+                bindValue="public_id" [multiple]="true" placeholder="Select relation type(s)" class="filter-select">
+              </app-form-select>
+            </div>
+          </div>
+
+          <div class="filter-actions">
+            <div>
+              <label class="filter-label">&nbsp;</label>
+              <div class="filter-action-row">
+                <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button"
+                  (clicked)="applyFilters.emit()"></app-button>
+                <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary ms-2'"
+                  label="Save as Profile" type="button" (clicked)="saveAsProfile.emit()"></app-button>
+                <app-button [bootstrapClass]="'btn-outline-danger ms-2'" label="Clear" type="button"
+                  (clicked)="clearFilters.emit()"></app-button>
+              </div>
+            </div>
+          </div>
+
+          <ng-container [ngTemplateOutlet]="scopeRow"></ng-container>
+        </div>
+      </form>
+    </div>
+  }
+
+  @if (mode() === 'profile') {
+    <div class="enhanced-filter-content">
+      <div class="profile-selector">
+        <div class="filter-group flex-grow">
+          <label class="filter-label">
+            <span class="material-icons" aria-hidden="true">bookmark</span>
+            Select Profile
+          </label>
+
+          <div class="profile-row">
+            <app-form-select [ngModel]="selectedProfileId()" (ngModelChange)="selectedProfileIdChange.emit($event)"
+              [items]="profiles()" bindLabel="name" bindValue="public_id"
+              placeholder="Choose a filter profile" class="filter-select profile-select"></app-form-select>
+
+            <div class="profile-actions">
+              <app-button [bootstrapClass]="'btn-success'" label="Apply Profile" type="button"
+                (clicked)="applyProfile.emit()" [disabled]="!selectedProfileId()"></app-button>
+
+              <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary'"
+                label="Manage Profiles" type="button" (clicked)="manageProfiles.emit()"></app-button>
+
+              <app-button [bootstrapClass]="'btn-outline-danger'" label="Clear" type="button"
+                (clicked)="clearFilters.emit()"></app-button>
+            </div>
+          </div>
+
+          <ng-container [ngTemplateOutlet]="scopeRow"></ng-container>
+        </div>
+      </div>
+    </div>
+  }
+</div>
+
+<!-- One scope row, shared by both filter modes; only one of them is on screen at a time. -->
+<ng-template #scopeRow>
+  <div class="filter-scope-row">
+    @for (toggle of scopeToggles; track toggle.key) {
+      <app-checkbox [id]="'graph-editor-scope-' + toggle.key" [label]="toggle.label"
+        [checked]="scope()[toggle.key]" (checkedChange)="toggleScope(toggle.key, $event)"></app-checkbox>
+    }
+  </div>
+</ng-template>

@@ -29,7 +29,6 @@ import { CmdbCategoryTree } from '../../../framework/models/cmdb-category';
 import { CmdbType } from '../../../framework/models/cmdb-type';
 import { APIGetMultiResponse } from '../../../services/models/api-response';
 import { CollectionParameters } from '../../../services/models/api-parameter';
-import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -39,6 +38,11 @@ const SIDEBAR_COLLAPSED_STORAGE_KEY = 'dg-sidebar-collapsed';
 
 // Published on :root so fixed overlays (sticky object action bars) can offset by the live sidebar width.
 const SIDEBAR_WIDTH_CSS_VARIABLE = '--dg-sidebar-width';
+
+// Mirrors the flyout's own max height in SCSS; used to keep the card inside the viewport.
+const FLYOUT_MAX_HEIGHT = 452;
+const FLYOUT_VIEWPORT_MARGIN = 12;
+const FLYOUT_ARROW_MIN_OFFSET = 18;
 
 @Component({
     selector: 'cmdb-sidebar',
@@ -77,7 +81,7 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
     isExpanded: boolean = false;
     isSidebarCollapsed: boolean = false;
 
-    flyout: { group: string; top: number } | null = null;
+    flyout: { group: string; top: number; arrowTop: number } | null = null;
     flyoutHovered = false;
 
     // Whether IPAM is unlocked for the active edition; gates the "Networks" tab and the network tree.
@@ -112,7 +116,7 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
                 .subscribe((categoryTree: CmdbCategoryTree) => {
                     this.categoryTree = categoryTree;
 
-                    this.unCategorizedTypesSubscription = this.typeService.getUncategorizedTypes(AccessControlPermission.READ, false)
+                    this.unCategorizedTypesSubscription = this.typeService.getUncategorizedTypes(false)
                         .subscribe((apiResponse: APIGetMultiResponse<CmdbType>) => {
                             this.unCategorizedTypes = apiResponse.results as Array<CmdbType>;
                             this.cdRed.detectChanges();
@@ -300,7 +304,15 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
     }
 
     private flyoutCloseTimeout: ReturnType<typeof setTimeout> | null = null;
-    
+
+    /** Keeps a flyout opened low on the rail inside the viewport. */
+    private clampFlyoutTop(top: number): number {
+        const highest = FLYOUT_VIEWPORT_MARGIN;
+        const lowest = window.innerHeight - FLYOUT_MAX_HEIGHT - FLYOUT_VIEWPORT_MARGIN;
+
+        return Math.max(highest, Math.min(top, Math.max(highest, lowest)));
+    }
+
     private clearFlyoutCloseTimeout(): void {
         if (this.flyoutCloseTimeout) {
             clearTimeout(this.flyoutCloseTimeout);
@@ -317,12 +329,15 @@ export class SidebarComponent implements OnInit, AfterViewInit, OnDestroy {
         this.flyoutHovered = false;
     
         const rect = (event.currentTarget as HTMLElement).getBoundingClientRect();
-    
+        const top = this.clampFlyoutTop(rect.top);
+
         this.flyout = {
             group,
-            top: rect.top
+            top,
+            // The arrow tracks the icon even when the card had to be pushed up to fit.
+            arrowTop: Math.max(FLYOUT_ARROW_MIN_OFFSET, Math.round(rect.top + rect.height / 2 - top))
         };
-    
+
         this.cdRed.markForCheck();
     }
     

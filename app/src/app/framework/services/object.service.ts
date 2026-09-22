@@ -31,7 +31,6 @@ import { GeneralModalComponent } from '../../layout/helpers/modals/general-modal
 import { CollectionParameters } from '../../services/models/api-parameter';
 import { APIGetMultiResponse, APIUpdateMultiResponse, APIUpdateSingleResponse } from '../../services/models/api-response';
 import { CmdbType } from '../models/cmdb-type';
-import { LocationsModalComponent } from 'src/app/layout/helpers/modals/locations-modal/locations-modal.component';
 import { UserService } from 'src/app/management/services/user.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 /* -------------------------------------------------------------------------- */
@@ -437,31 +436,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
     }
 
 
-    public deleteObjectWithLocations(publicID: any): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callDelete(`${this.servicePrefix}/${publicID}/locations`, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('delete'))
-        );
-    }
-
-
-    public deleteObjectWithChildren(publicID: any): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
-
-        return this.api.callDelete(`${this.servicePrefix}/${publicID}/children`, options).pipe(
-            map((apiResponse) => {
-                return apiResponse.body;
-            }),
-            finalize(() => this.executedAction('delete'))
-        );
-    }
-
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                    MODAL SECTION                                                   */
     /* ------------------------------------------------------------------------------------------------------------------ */
@@ -483,20 +457,6 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
         return modalComponent;
     }
 
-
-    /**
-     * Open a modal confirmation for deletion when the object has a location which is
-     * parent to other locations
-     * 
-     * @returns 
-     */
-    public openLocationModalComponent() {
-        return this.modalService.open(LocationsModalComponent, {
-            size: 'lg',
-            windowClass: 'dg-modal-window',
-            backdropClass: 'dg-modal-window-backdrop'
-        });
-    }
 
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                   HELPER SECTION                                                   */

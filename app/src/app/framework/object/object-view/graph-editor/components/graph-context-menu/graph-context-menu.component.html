@@ -1,0 +1,39 @@
+<div class="menu-header">
+  <span class="material-icons" aria-hidden="true">settings</span>
+  <span>Actions</span>
+</div>
+
+<div class="menu-divider"></div>
+
+<div class="menu-section">
+  @if (!node().isRoot) {
+    <div class="menu-item highlight" role="button" tabindex="0" (click)="setAsRoot.emit()"
+      (keydown.enter)="setAsRoot.emit()" (keydown.space)="setAsRoot.emit()">
+      <span class="material-icons" aria-hidden="true">adjust</span>
+      <span class="menu-item-text">Set as Root Node</span>
+    </div>
+  }
+
+  <div class="menu-item" role="button" tabindex="0" (click)="toggleExpand.emit($event)"
+    (keydown.enter)="toggleExpand.emit($event)" (keydown.space)="toggleExpand.emit($event)">
+    <span class="material-icons" aria-hidden="true">{{ expandIcon() }}</span>
+    <span class="menu-item-text">{{ expandLabel() }}</span>
+  </div>
+
+  <div class="menu-item" role="button" tabindex="0" (click)="focusNode.emit()"
+    (keydown.enter)="focusNode.emit()" (keydown.space)="focusNode.emit()">
+    <span class="material-icons" aria-hidden="true">filter_center_focus</span>
+    <span class="menu-item-text">Focus</span>
+  </div>
+
+  <div *permissionLink="[ciExplorerEditRight]" class="menu-item" role="button" tabindex="0"
+    (click)="changeLabelField.emit()" (keydown.enter)="changeLabelField.emit()"
+    (keydown.space)="changeLabelField.emit()">
+    <span class="material-icons" aria-hidden="true">label</span>
+    <span class="menu-item-text">Change Node Label</span>
+  </div>
+</div>
+
+<div class="menu-divider"></div>
+
+<ng-content></ng-content>

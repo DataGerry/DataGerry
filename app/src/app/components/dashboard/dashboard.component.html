@@ -13,8 +13,6 @@
         [publicID]="item.object_information.object_id"
         [result]="item"
         [acl]="item.type_information.acl"
-        (deleteObjectsEmitter)="onObjectDeleteWithObjects(item)"
-        (deleteLocationsEmitter)="onObjectDeleteWithLocations(item)"
         (deleteEmitter)="onObjectDelete(item)"
     />
 </ng-template>

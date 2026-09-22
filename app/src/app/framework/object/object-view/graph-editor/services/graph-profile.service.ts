@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Injectable } from '@angular/core';
-import { Observable } from 'rxjs';
+import { forkJoin, Observable } from 'rxjs';
 import { map, finalize } from 'rxjs/operators';
 import { FilterProfile } from '../interfaces/graph.interfaces';
 import { BaseApiService } from 'src/app/core/services/base-api.service';
@@ -27,6 +27,21 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { ProfileManagerModalComponent } from '../modals/profile-manager/profile-manager-modal.component';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { ApiCallService } from 'src/app/services/api-call.service';
+
+export interface FilterOption {
+  public_id: number;
+  display_name: string;
+}
+
+/** Both endpoints answer either with a bare list or with a paged envelope. */
+function toOptions(response: any, label: (item: any) => string | undefined): FilterOption[] {
+  const list = Array.isArray(response) ? response : response?.results;
+
+  return (list ?? []).map((item: any) => ({
+    public_id: item?.public_id,
+    display_name: label(item) || `#${item?.public_id}`
+  }));
+}
 
 @Injectable({ providedIn: 'root' })
 export class GraphProfileService extends BaseApiService<FilterProfile> {
@@ -61,63 +76,32 @@ export class GraphProfileService extends BaseApiService<FilterProfile> {
   /**
    * Loads filter options for types and relations
    */
+  /** Both lists feed one filter bar, so they are fetched together rather than in sequence. */
   loadFilterOptions(
     typeService: TypeService,
     relationService: RelationService,
-    loaderService: LoaderService,
-    showErrorNotification: (message: string) => void
-  ): Observable<{ types: any[], relations: any[] }> {
-    return new Observable(observer => {
-      // Only the option label is built from the answer, so the rest of the type is left behind.
-      const params = {
-        filter: '',
-        projection: { public_id: 1, label: 1, name: 1 },
-        limit: 0,
-        sort: 'sort',
-        order: 1,
-        page: 1
-      };
-      let typesResult: any[] = [];
-      let relationsResult: any[] = [];
+    loaderService: LoaderService
+  ): Observable<{ types: FilterOption[], relations: FilterOption[] }> {
+    // Only the option label is built from the answer, so the rest of the type is left behind.
+    const params = {
+      filter: '',
+      projection: { public_id: 1, label: 1, name: 1 },
+      limit: 0,
+      sort: 'sort',
+      order: 1,
+      page: 1
+    };
 
-      loaderService.show();
+    loaderService.show();
 
-      typeService.getTypes(params)
-        .pipe(finalize(() => loaderService.hide()))
-        .subscribe({
-          next: resp => {
-            const list = Array.isArray(resp) ? resp : resp?.results;
-            typesResult = list?.map(t => ({
-              public_id: t?.public_id,
-              display_name: t?.label || t?.name || `#${t.public_id}`
-            }));
-            
-            // Now load relations
-            loaderService.show();
-            relationService.getRelations()
-              .pipe(finalize(() => loaderService.hide()))
-              .subscribe({
-                next: relResp => {
-                  const relList = Array.isArray(relResp) ? relResp : relResp?.results;
-                  relationsResult = relList?.map(r => ({
-                    public_id: r?.public_id,
-                    display_name: r?.relation_name || r?.label || `#${r?.public_id}`
-                  }));
-                  observer.next({ types: typesResult, relations: relationsResult });
-                  observer.complete();
-                },
-                error: e => {
-                  showErrorNotification(e?.error?.message);
-                  observer.error(e);
-                }
-              });
-          },
-          error: e => {
-            showErrorNotification(e?.error?.message);
-            observer.error(e);
-          }
-        });
-    });
+    return forkJoin({
+      types: typeService.getTypes(params).pipe(
+        map(resp => toOptions(resp, t => t?.label || t?.name))
+      ),
+      relations: relationService.getRelations().pipe(
+        map(resp => toOptions(resp, r => r?.relation_name || r?.label))
+      )
+    }).pipe(finalize(() => loaderService.hide()));
   }
 
   /**
@@ -161,18 +145,17 @@ export class GraphProfileService extends BaseApiService<FilterProfile> {
     profiles: FilterProfile[],
     selectedProfileId: number | null,
     typesFilter: number[],
-    relationsFilter: number[],
-    loadInitialGraph: (reset: boolean) => void,
-    showNotification: (message: string, type: 'info' | 'success' | 'error') => void
+    relationsFilter: number[]
   ): { typesFilter: number[], relationsFilter: number[] } {
     const profile = profiles.find(p => p.public_id === selectedProfileId);
-    if (profile) {
-      const newTypesFilter = profile.types_filter || [];
-      const newRelationsFilter = profile.relations_filter || [];
-      showNotification(`Applied profile: ${profile.name}`, 'success');
-      return { typesFilter: newTypesFilter, relationsFilter: newRelationsFilter };
+
+    if (!profile) {
+      return { typesFilter, relationsFilter };
     }
-    return { typesFilter, relationsFilter };
+    return {
+      typesFilter: profile.types_filter || [],
+      relationsFilter: profile.relations_filter || []
+    };
   }
 
   /**

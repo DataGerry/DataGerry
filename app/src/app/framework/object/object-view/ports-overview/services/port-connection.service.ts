@@ -146,6 +146,22 @@ export class PortConnectionService {
     }
 
 
+    /**
+     * Disconnects several connections of one object in a single call.
+     *
+     * Only cables are passed in: a panel's internal pairing is part of how the device is built, so
+     * disconnecting a selection never cuts it.
+     */
+    public bulkDeleteConnections(objectId: number, connectionIds: readonly number[]): Observable<void> {
+        const options = { headers: this.jsonHeaders, body: { connection_ids: [...connectionIds] }, observe: resp };
+        const route = `${ this.servicePrefix }/object/${ objectId }/bulk`;
+
+        return this.api.callDelete<void>(route, options).pipe(
+            map(() => undefined)
+        );
+    }
+
+
     /** Disconnects the two ports. Both of them are free for a new cable afterwards. */
     public deleteConnection(publicId: number): Observable<void> {
         const options = { headers: this.jsonHeaders, observe: resp };

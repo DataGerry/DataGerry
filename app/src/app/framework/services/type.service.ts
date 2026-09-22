@@ -23,7 +23,6 @@ import { Observable, timer, catchError, map, switchMap } from 'rxjs';
 
 import { ApiCallService, ApiServicePrefix, HttpProtocolHelper, resp } from '../../services/api-call.service';
 import { ValidatorService } from '../../services/validator.service';
-import { UserService } from '../../management/services/user.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 
 import { CmdbType } from '../models/cmdb-type';
@@ -79,59 +78,11 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
     constructor(private api: ApiCallService,
-                private userService: UserService,
                 private sideBarService: SidebarService) {
 
     }
 
-/* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */
-
-    /**
-     * Returns acl read filter
-     *
-     * @public
-     */
-    public getAclFilter(aclRequirement: AccessControlPermission | AccessControlPermission[] = AccessControlPermission.READ) {
-        aclRequirement = Array.isArray(aclRequirement) ? aclRequirement : [aclRequirement];
-        const location = 'acl.groups.includes.' + this.userService.getCurrentUser().group_id;
-
-        return {
-            $or: [
-                {
-                    $or: [
-                        {
-                            acl: { $exists: false } 
-                        },
-                        {
-                            'acl.activated': false
-                        }
-                    ]
-                },
-                {
-                    $and: [
-                        {
-                            'acl.activated': true
-                        },
-                        {
-                            $and: [
-                                {
-                                    [location]: {
-                                        $exists: true
-                                    }
-                                },
-                                {
-                                    [location]: {
-                                        $all: aclRequirement
-                                    }
-                                }
-                            ]
-                        },
-                    ]
-                }
-            ]
-        };
-    }
-
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /**
      * Iterate over the type collection
@@ -262,7 +213,13 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
         const options = this.options;
         let params = new HttpParams();
         params = params.set('limit', '0');
-        params = params.set('filter', JSON.stringify(this.getAclFilter(aclRequirement)));
+
+        // READ is applied server-side by default, only stricter requirements are sent.
+        if (aclRequirement) {
+            const requirements = Array.isArray(aclRequirement) ? aclRequirement : [aclRequirement];
+            params = params.set('acl', requirements.join(','));
+        }
+
         options.params = params;
 
         return this.api.callGet<Array<T>>(this.servicePrefix + '/', options).pipe(
@@ -299,32 +256,24 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
     /**
      * Get types by the name or label
      * @param name Name/Label of the type
-     * @param aclRequirements
      */
-    public getTypesByNameOrLabel(name: string, aclRequirements?: AccessControlPermission | AccessControlPermission[]):
-            Observable<Array<T>> {
+    public getTypesByNameOrLabel(name: string): Observable<Array<T>> {
+        const regex = ValidatorService.validateRegex(name).trim();
 
-                const regex = ValidatorService.validateRegex(name).trim();
+        const filter = {
+            $or: [
+                { name: { $regex: regex, $options: 'ism' } },
+                { label: { $regex: regex, $options: 'ism' } }
+            ]
+        };
 
-                const filter = {
-                    $and: [
-                        {
-                            $or: [
-                                { name: { $regex: regex, $options: 'ism' } },
-                                { label: { $regex: regex, $options: 'ism' } }
-                            ]
-                        },
-                        this.getAclFilter(aclRequirements)
-                    ]
-                };
+        const options = HttpProtocolHelper.createHttpProtocolOptions(this.options, JSON.stringify(filter), 0);
 
-                const options = HttpProtocolHelper.createHttpProtocolOptions(this.options, JSON.stringify(filter), 0);
-
-                return this.api.callGet<Array<T>>(this.servicePrefix + '/', options).pipe(
-                    map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
-                        return apiResponse.body.results as Array<T>;
-                    })
-                );
+        return this.api.callGet<Array<T>>(this.servicePrefix + '/', options).pipe(
+            map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+                return apiResponse.body.results as Array<T>;
+            })
+        );
     }
 
 
@@ -377,117 +326,41 @@ export class TypeService<T = CmdbType> implements ApiServicePrefix {
 
     /**
      * Get all uncategorized types
-     * @param aclRequirements
      * @param active filter types by activation status. Default: Active types are fetched
      */
-    public getUncategorizedTypes(aclRequirements?: AccessControlPermission | AccessControlPermission[],
-            active: boolean = true): Observable<APIGetMultiResponse<T>> {
+    public getUncategorizedTypes(active: boolean = true): Observable<APIGetMultiResponse<T>> {
+        const options = this.options;
+        let params = new HttpParams();
+        params = params.set('limit', '0');
+        params = params.set('uncategorized', 'true');
+        params = params.set('active', JSON.stringify(active));
+        options.params = params;
 
-            const pipeline = [
-                {
-                    $match: this.getAclFilter(aclRequirements)
-                },
-                {
-                    $lookup: {
-                        from: 'framework.categories',
-                        localField: 'public_id',
-                        foreignField: 'types',
-                        as: 'categories'
-                    }
-                },
-                {
-                    $match: { categories: { $size: 0 } }
-                },
-                {
-                    $project: { categories: 0 }
-                }
-            ];
-
-            const options = HttpProtocolHelper.createHttpProtocolOptions(this.options, JSON.stringify(pipeline), 0);
-            options.params = options.params.set('active', JSON.stringify(active));
-
-            return this.api.callGet<T[]>(this.servicePrefix + '/', options).pipe(
-                map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
-                    return apiResponse.body as APIGetMultiResponse<T>;
-                })
-            );
+        return this.api.callGet<T[]>(this.servicePrefix + '/', options).pipe(
+            map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+                return apiResponse.body as APIGetMultiResponse<T>;
+            })
+        );
     }
 
 
     /**
      * Get a list of types by the category
      * @param categoryID PublicID of the category
-     * @param aclRequirements
      */
-    public getTypeListByCategory(categoryID: number, aclRequirements?: AccessControlPermission | AccessControlPermission[]):
-        Observable<Array<T>> {
+    public getTypeListByCategory(categoryID: number): Observable<Array<T>> {
+        const options = this.options;
+        let params = new HttpParams();
+        params = params.set('limit', '0');
+        params = params.set('category', categoryID.toString());
+        params = params.set('active', 'false');
+        options.params = params;
 
-            // Previous problematic pipeline (commented out for reference):
-            // const pipeline = [
-            //     {
-            //         $lookup: {
-            //             from: 'framework.categories',
-            //             pipeline: [
-            //                 { $match: { public_id: categoryID } },
-            //                 { 
-            //                     $addFields: { type_id: { $toInt: '$$ROOT.public_id' } } 
-            //                 },
-            //                 { $match: { $expr: { $in: ['$type_id', '$types'] } } }
-            //             ],
-            //             as: 'category'
-            //         }
-            //     },
-            //     {
-            //         $match: {
-            //             $and: [
-            //                 { 'category.0': { $exists: true } },
-            //                 this.getAclFilter(aclRequirements)
-            //             ]
-            //         }
-            //     },
-            //     {
-            //         $project: { category: 0 }
-            //     }
-            // ];
-            //
-            // Issue: The pipeline incorrectly used $$ROOT.public_id which referred to the category's public_id
-            // instead of the type's public_id. This caused the lookup to fail when matching types against
-            // the category's types array.
-
-            // Corrected pipeline (active):
-            const pipeline = [
-                {
-                    $lookup: {
-                        from: 'framework.categories',
-                        let: { type_public_id: '$public_id' },
-                        pipeline: [
-                            { $match: { public_id: categoryID } },
-                            { $match: { $expr: { $in: ['$$type_public_id', '$types'] } } }
-                        ],
-                        as: 'category'
-                    }
-                },
-                {
-                    $match: {
-                        $and: [
-                            { 'category.0': { $exists: true } },
-                            this.getAclFilter(aclRequirements)
-                        ]
-                    }
-                },
-                {
-                    $project: { category: 0 }
-                }
-            ];
-
-            const options = HttpProtocolHelper.createHttpProtocolOptions(this.options, JSON.stringify(pipeline), 0);
-            options.params = options.params.set('active', false.toString());
-
-            return this.api.callGet<Array<T>>(this.servicePrefix + '/', options).pipe(
-                map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
-                    return apiResponse.body.results as Array<T>;
-                })
-            );
+        return this.api.callGet<Array<T>>(this.servicePrefix + '/', options).pipe(
+            map((apiResponse: HttpResponse<APIGetMultiResponse<T>>) => {
+                return apiResponse.body.results as Array<T>;
+            })
+        );
     }
 
 
