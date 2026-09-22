@@ -18,7 +18,7 @@
 import { SimpleChange } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 
-import { SortDirection } from 'src/app/layout/table/table.types';
+import { Column, SortDirection } from 'src/app/layout/table/table.types';
 import { PortRow } from '../../models/ports-overview.types';
 import { PortsTableComponent } from './ports-table.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -108,6 +108,47 @@ describe('PortsTableComponent', () => {
             component.onBulkDisconnect();
 
             expect(emitted).toEqual([]);
+        });
+    });
+
+
+    describe('column visibility', () => {
+        const columnNamed = (name: string): Column => component.columns.find((column) => column.name === name);
+
+        beforeEach(() => {
+            component.ngOnInit();
+        });
+
+        it('keeps a column the user hid out of sight when the column set is rebuilt', () => {
+            const speed = columnNamed('speed');
+            speed.hidden = true;
+            component.onColumnVisibilityChange(speed);
+
+            component.showInterfaceColumn = true;
+            component.ngOnChanges({ showInterfaceColumn: new SimpleChange(false, true, false) });
+
+            expect(columnNamed('speed').hidden).toBeTrue();
+            expect(columnNamed('port_type').hidden).toBeFalse();
+        });
+
+        it('offers every column for a reset, including the hidden ones', () => {
+            const speed = columnNamed('speed');
+            speed.hidden = true;
+            component.onColumnVisibilityChange(speed);
+
+            expect(component.visibleColumns).toContain('speed');
+        });
+
+        it('forgets the hidden columns once the table reports a reset', () => {
+            const speed = columnNamed('speed');
+            speed.hidden = true;
+            component.onColumnVisibilityChange(speed);
+            component.onColumnVisibilityChange();
+
+            component.showInterfaceColumn = true;
+            component.ngOnChanges({ showInterfaceColumn: new SimpleChange(false, true, false) });
+
+            expect(columnNamed('speed').hidden).toBeFalse();
         });
     });
 });

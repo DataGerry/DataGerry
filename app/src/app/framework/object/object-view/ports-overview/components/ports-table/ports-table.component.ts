@@ -119,6 +119,9 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
     public readonly connectionState = PortConnectionState;
 
+    /** The columns the user unticked. Kept for this view only - nothing is persisted. */
+    private readonly hiddenColumnNames = new Set<string>();
+
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
@@ -156,6 +159,20 @@ export class PortsTableComponent implements OnInit, OnChanges {
     public onSortChange(sort: Sort): void {
         this.clearSelection();
         this.sortChange.emit(sort);
+    }
+
+    /** The table mutates `hidden` itself; this only remembers it so a rebuild keeps the choice. */
+    public onColumnVisibilityChange(column?: Column): void {
+        if (!column) {
+            this.hiddenColumnNames.clear();
+            return;
+        }
+
+        if (column.hidden) {
+            this.hiddenColumnNames.add(column.name);
+        } else {
+            this.hiddenColumnNames.delete(column.name);
+        }
     }
 
     public onSelectedChange(rows: PortRow[]): void {
@@ -249,7 +266,13 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
     private applyColumns(): void {
         this.columns = this.buildColumns();
+
+        // Reset restores every column, so the initial set stays the full one.
         this.visibleColumns = this.columns.map((column) => column.name);
+
+        for (const column of this.columns) {
+            column.hidden = this.hiddenColumnNames.has(column.name);
+        }
     }
 
 

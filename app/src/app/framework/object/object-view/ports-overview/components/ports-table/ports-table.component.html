@@ -12,7 +12,7 @@
   [selectEnabled]="selectEnabled"
   [selectedItems]="selectedRows"
   [customButtons]="bulkButtonTemplates"
-  [toggleable]="false"
+  [toggleable]="true"
   [searchEnabled]="false"
   [paginationEnabled]="true"
   [pageSizeEnabled]="true"
@@ -20,6 +20,7 @@
   (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)"
   (sortChange)="onSortChange($event)"
+  (columnVisibilityChange)="onColumnVisibilityChange($event)"
   (selectedChange)="onSelectedChange($event)">
 </cmdb-table>
 

@@ -8,11 +8,6 @@
     width: 100%;
 }
 
-/* Keep the wide port list inside the attributes card instead of pushing the layout sideways. */
-.ports-table ::ng-deep .table-container {
-    overflow-x: auto;
-}
-
 .ports-name {
     font-weight: 500;
     color: var(--dg-ink);
