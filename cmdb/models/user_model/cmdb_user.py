@@ -25,7 +25,6 @@ deciding which of the two it belongs in
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
-from dateutil.parser import parse
 
 from cmdb.class_schema.user_model.cmdb_user_schema import (
     get_cmdb_user_schema,
@@ -35,6 +34,7 @@ from cmdb.class_schema.user_model.cmdb_user_schema import (
     DEFAULT_DATABASE,
     DEFAULT_GROUP,
 )
+from cmdb.utils import coerce_document_dates
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
 
@@ -59,6 +59,7 @@ class CmdbUser(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'management.users'
+    DATE_FIELDS: tuple[str, ...] = (CmdbUserKey.REGISTRATION_TIME.value,)
     INDEX_KEYS: list[dict[str, Any]] = [
         {
             'keys': [('user_name', CmdbDAO.DAO_ASCENDING)],
@@ -187,10 +188,13 @@ class CmdbUser(CmdbDAO):
             CmdbUser: CmdbUser with the given data
         """
         try:
-            reg_date = data.get(CmdbUserKey.REGISTRATION_TIME.value)
+            # The registration time is coerced strictly: a value that cannot be read is refused
+            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
+            # 'sometime in March' into a date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if reg_date and isinstance(reg_date, str):
-                reg_date = parse(reg_date, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
                 public_id=data[CmdbUserKey.PUBLIC_ID.value],
@@ -200,7 +204,7 @@ class CmdbUser(CmdbDAO):
                 api_level=data.get(CmdbUserKey.API_LEVEL.value, DEFAULT_API_LEVEL),
                 config_items_limit=data.get(CmdbUserKey.CONFIG_ITEMS_LIMIT.value, DEFAULT_CONFIG_ITEMS_LIMIT),
                 group_id=data.get(CmdbUserKey.GROUP_ID.value),
-                registration_time=reg_date,
+                registration_time=data.get(CmdbUserKey.REGISTRATION_TIME.value),
                 authenticator=data.get(CmdbUserKey.AUTHENTICATOR.value),
                 email=data.get(CmdbUserKey.EMAIL.value),
                 password=data.get(CmdbUserKey.PASSWORD.value),

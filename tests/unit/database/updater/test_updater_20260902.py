@@ -398,10 +398,13 @@ class TestStartUpdate:
         updater.settings_manager = settings_manager = MagicMock()
 
         dbm.aggregate.return_value = iter([])
-        dbm.get_index_info.side_effect = RuntimeError('index info unavailable')
+        failure = RuntimeError('index info unavailable')
+        dbm.get_index_info.side_effect = failure
 
-        with pytest.raises(UpdaterException):
+        with pytest.raises(UpdaterException) as caught:
             updater.start_update()
+
+        assert caught.value.args[0] is failure
 
         settings_manager.write.assert_not_called()
 

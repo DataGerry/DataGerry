@@ -56,7 +56,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
@@ -88,6 +88,7 @@ section_template_blueprint = APIBlueprint('section_templates', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.ADD.value)
 @section_template_blueprint.parse_request_parameters()
+@handle_route_errors("while creating the SectionTemplate")
 def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates a CmdbSectionTemplate from the request body
@@ -155,14 +156,9 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         created_section_template_id: int = section_templates_manager.insert_section_template(params)
 
         return DefaultResponse(created_section_template_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except SectionTemplatesManagerInsertError as err:
         LOGGER.error("[create_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to create the SectionTemplate!")
-    except Exception as err:
-        LOGGER.error("[create_section_template] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while creating the SectionTemplate!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -171,6 +167,7 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 @section_template_blueprint.parse_collection_parameters(view='native')
+@handle_route_errors("while iterating SectionTemplates")
 def get_all_section_templates(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Returns a paginated collection of CmdbSectionTemplates matching the query parameters
@@ -205,20 +202,16 @@ def get_all_section_templates(params: CollectionParameters, request_user: CmdbUs
         )
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except SectionTemplatesManagerIterationError as err:
         LOGGER.error("[get_all_section_templates] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to iterate SectionTemplates!")
-    except Exception as err:
-        LOGGER.error("[get_all_section_templates] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while iterating SectionTemplates!")
 
 
 @section_template_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
+@handle_route_errors("while retrieving SectionTemplate with ID: {public_id}")
 def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves a single CmdbSectionTemplate by public_id
@@ -247,20 +240,16 @@ def get_section_template(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"SectionTemplate with ID: {public_id} not found!")
 
         return DefaultResponse(CmdbSectionTemplate.to_json(section_template_instance)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[get_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_section_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving SectionTemplate with ID: {public_id}!")
 
 
 @section_template_blueprint.route('/<int:public_id>/count', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
+@handle_route_errors("while retrieving global SectionTemplate count for ID: {public_id}")
 def get_global_section_template_count(public_id: int, request_user: CmdbUser) -> Response:
     """
     Returns what deleting a CmdbSectionTemplate would affect
@@ -299,16 +288,9 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
         )
 
         return DefaultResponse(counts).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[get_global_section_template_count] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve global SectionTemplate count for ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_global_section_template_count] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500,
-            f"An internal server error occured while retrieving global SectionTemplate count for ID: {public_id}!"
-        )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -449,6 +431,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.DELETE.value)
+@handle_route_errors("while deleting the SectionTemplate with ID:{public_id}")
 def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes a CmdbSectionTemplate by its public_id
@@ -509,14 +492,9 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
             raise
 
         return DefaultResponse(ack).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[delete_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve SectionTemplate with public_id: {public_id}!")
     except SectionTemplatesManagerDeleteError as err:
         LOGGER.error("[delete_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to delete SectionTemplate with public_id: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_section_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the SectionTemplate with ID:{public_id}!")

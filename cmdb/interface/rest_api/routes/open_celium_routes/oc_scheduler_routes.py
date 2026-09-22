@@ -23,12 +23,12 @@ from flask import abort, request, current_app
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import OcSchedulerManager, OcConnectionManager, DgServicePortalManager, CachedUserManager
-from cmdb.open_celium import map_oc_name, unmap_oc_name
+from cmdb.manager import OcSchedulerManager, OcConnectionManager, DgServicePortalManager
+from cmdb.open_celium import map_oc_name, unmap_oc_name, is_hosted_cloud
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
+from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors, get_cached_user_manager
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper import (
@@ -104,9 +104,9 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         conn_title = conn_data[OcResponseKey.TITLE.value]
 
         # CLOUD MODE → map connection title
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             conn_title = map_oc_name(request_user.database, conn_title)
             conn_data[OcResponseKey.TITLE.value] = conn_title
@@ -115,7 +115,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         # Reject if connection name already exists
         if oc_connection_manager.check_connection_name_exists(conn_title):
             # Unmap for frontend error message
-            if current_app.cloud_mode and not current_app.local_mode:
+            if is_hosted_cloud():
                 conn_title = unmap_oc_name(conn_title)
 
             abort(400, f"The connection name: {conn_title} already exists!")
@@ -124,7 +124,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         created_connection = oc_connection_manager.create_connection(conn_data)
 
         # CLOUD MODE → save connectionId in DG SP
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager.save_connection_id(
                 created_connection[OcResponseKey.CONNECTION_ID.value],
                 request_user.email,
@@ -137,7 +137,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         # Create scheduler
         sched_data[OcResponseKey.CONNECTION_ID.value] = created_connection[OcResponseKey.CONNECTION_ID.value]
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             sched_data[OcResponseKey.TITLE.value] = map_oc_name(
                 request_user.database, sched_data[OcResponseKey.TITLE.value]
             )
@@ -145,7 +145,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         created_scheduler = oc_scheduler_manager.create_scheduler(sched_data)
 
         # CLOUD MODE → save schedulerId in DG SP
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager.save_scheduler_id(
                 created_scheduler[OcResponseKey.SCHEDULER_ID.value],
                 request_user.email,
@@ -199,7 +199,7 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         scheduler = oc_scheduler_manager.get_scheduler(scheduler_id)
 
         # CLOUD MODE → Unmap title before sending to frontend
-        if scheduler and current_app.cloud_mode and not current_app.local_mode:
+        if scheduler and is_hosted_cloud():
             scheduler[OcResponseKey.TITLE.value] = unmap_oc_name(scheduler[OcResponseKey.TITLE.value])
             connection = scheduler[OcResponseKey.CONNECTION.value]
             connection[OcResponseKey.TITLE.value] = unmap_oc_name(connection[OcResponseKey.TITLE.value])
@@ -234,7 +234,7 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
         )
 
         # CLOUD MODE → Retrieve scheduler IDs (CACHE FIRST)
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             scheduler_ids = get_accessible_scheduler_ids(request_user)
 
             schedulers = None
@@ -274,7 +274,7 @@ def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
 
         running_schedulers: list[dict[str, Any]] = oc_scheduler_manager.get_running_schedulers()
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             scheduler_ids: list[int] = get_accessible_scheduler_ids(request_user)
 
             if scheduler_ids:
@@ -403,13 +403,13 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         params: dict[str, Any] = request.json
 
         # Map titles
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             params[OcResponseKey.TITLE.value] = map_oc_name(request_user.database, params[OcResponseKey.TITLE.value])
 
         updated_oc_scheduler = oc_scheduler_manager.update_scheduler(params, scheduler_id)
 
         # Unmap for UI
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             unmap_scheduler_titles(updated_oc_scheduler)
 
         return DefaultResponse(updated_oc_scheduler).make_response()
@@ -456,9 +456,9 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         connection_id = int(scheduler[OcResponseKey.CONNECTION.value][OcResponseKey.CONNECTION_ID.value])
 
         # CLOUD MODE → VALIDATE ID ACCESS (CACHE FIRST)
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             # Validate the scheduler + its backing connection both belong to the user (cache-first)
             assert_scheduler_access(request_user, scheduler_id)
@@ -473,7 +473,7 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         # scheduler delete cannot orphan its backing connection (or the Service Portal entries)
         if deleted_scheduler:
             # Cleanup ServicePortal scheduler entry
-            if current_app.cloud_mode and not current_app.local_mode:
+            if is_hosted_cloud():
                 dg_sp_manager.delete_scheduler_id(
                     scheduler_id,
                     request_user.email,
@@ -486,7 +486,7 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             oc_connection_manager.delete_connection(connection_id)
 
             # Cleanup ServicePortal connection entry
-            if current_app.cloud_mode and not current_app.local_mode:
+            if is_hosted_cloud():
                 dg_sp_manager.delete_connection_id(
                     connection_id,
                     request_user.email,

@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ControlMeasureManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -32,7 +31,7 @@ from cmdb.models.isms_model import IsmsControlMeasure
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     bulk_delete_reporting_in_use,
@@ -69,6 +68,7 @@ control_measure_blueprint = APIBlueprint('control_measure', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
 @control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
+@handle_route_errors("while creating the ControlMeasure")
 def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasure into the database
@@ -94,17 +94,12 @@ def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) ->
             abort(404, "Could not retrieve the created ControlMeasure from the database!")
 
         return InsertSingleResponse(created_control_measure, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureManagerInsertError as err:
         LOGGER.error("[insert_isms_control_measure] ControlMeasureManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new ControlMeasure in the database!")
     except ControlMeasureManagerGetError as err:
         LOGGER.error("[insert_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created ControlMeasure from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_isms_control_measure] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the ControlMeasure!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -155,6 +150,7 @@ def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUs
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.view')
+@handle_route_errors("while retrieving the ControlMeasure with ID: {public_id}")
 def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsControlMeasure
@@ -174,14 +170,9 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
                                                     f"The ControlMeasure with ID:{public_id} was not found!")
 
         return GetSingleResponse(requested_control_measure, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureManagerGetError as err:
         LOGGER.error("[get_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ControlMeasure with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_control_measure] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the ControlMeasure with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -190,6 +181,7 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.edit')
 @control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
+@handle_route_errors("while updating the ControlMeasure with ID: {public_id}")
 def update_isms_control_measure(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasure
@@ -216,17 +208,12 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
         control_measure_manager.update_item(public_id, IsmsControlMeasure.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureManagerGetError as err:
         LOGGER.error("[update_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ControlMeasure with ID: {public_id} from the database!")
     except ControlMeasureManagerUpdateError as err:
         LOGGER.error("[update_isms_control_measure] ControlMeasureManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the ControlMeasure with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_control_measure] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the ControlMeasure with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -234,6 +221,7 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
+@handle_route_errors("while deleting the ControlMeasure with ID: {public_id}")
 def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsControlMeasure
@@ -258,23 +246,19 @@ def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Respo
         control_measure_manager.delete_item(public_id)
 
         return DeleteSingleResponse(to_delete_control_measure).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureManagerDeleteError as err:
         LOGGER.error("[delete_isms_control_measure] ControlMeasureManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the ControlMeasure with ID:{public_id}!")
     except ControlMeasureManagerGetError as err:
         LOGGER.error("[delete_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ControlMeasure with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_isms_control_measure] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the ControlMeasure with ID: {public_id}!")
 
 
 @control_measure_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
+@handle_route_errors("while bulk-deleting ControlMeasures")
 def delete_many_isms_control_measures(public_ids: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to bulk-delete IsmsControlMeasures by a comma-separated id list
@@ -308,14 +292,9 @@ def delete_many_isms_control_measures(public_ids: str, request_user: CmdbUser) -
         )
 
         return DefaultResponse(payload).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ControlMeasureManagerGetError as err:
         LOGGER.error("[delete_many_isms_control_measures] ControlMeasureManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to determine which ControlMeasures are still in use!")
     except ControlMeasureManagerDeleteError as err:
         LOGGER.error("[delete_many_isms_control_measures] ControlMeasureManagerDeleteError: %s", err, exc_info=True)
         abort(400, "Failed to delete one of the requested ControlMeasures!")
-    except Exception as err:
-        LOGGER.error("[delete_many_isms_control_measures] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while bulk-deleting ControlMeasures!")

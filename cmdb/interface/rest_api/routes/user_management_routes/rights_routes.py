@@ -40,16 +40,15 @@ from logging import Logger, getLogger
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RightsManager
 
 from cmdb.framework.results import IterationResult
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.constants import NAME_TO_LEVEL
+from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.all_rights import ALL_RIGHTS
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -73,6 +72,7 @@ rights_manager: RightsManager = RightsManager()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rights_blueprint.parse_collection_parameters(sort='name', view='list')
+@handle_route_errors("while retrieving DataGerry Rights")
 def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for an iterable collection of DataGerry rights
@@ -102,44 +102,39 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
     # signature because `insert_request_user` injects it, and that decorator is what makes the
     # route authenticated at all - removing either republishes an unauthenticated read (T162)
     # pylint: disable=unused-argument
-    try:
-        body: bool = request_wants_body()
+    body: bool = request_wants_body()
 
-        if params.optional['view'] == 'tree':
-            api_response = GetMultiResponse(RightsManager.tree_to_json(ALL_RIGHTS),
-                                            total=len(rights_manager.rights),
-                                            params=params,
-                                            url=request.url,
-                                            body=body)
-
-            return api_response.make_response(pagination=False)
-
-        iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
-                                                                        limit = params.limit,
-                                                                        skip = params.skip,
-                                                                        sort = params.sort,
-                                                                        order = params.order
-                                                                      )
-
-        rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
-
-        api_response = GetMultiResponse(rights,
-                                        total=iteration_result.total,
+    if params.optional['view'] == 'tree':
+        api_response = GetMultiResponse(RightsManager.tree_to_json(ALL_RIGHTS),
+                                        total=len(rights_manager.rights),
                                         params=params,
                                         url=request.url,
                                         body=body)
 
-        return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_rights] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving DataGerry Rights!")
+        return api_response.make_response(pagination=False)
+
+    iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
+                                                                    limit = params.limit,
+                                                                    skip = params.skip,
+                                                                    sort = params.sort,
+                                                                    order = params.order
+                                                                  )
+
+    rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
+
+    api_response = GetMultiResponse(rights,
+                                    total=iteration_result.total,
+                                    params=params,
+                                    url=request.url,
+                                    body=body)
+
+    return api_response.make_response()
 
 
 @rights_blueprint.route('/<string:name>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while retrieving Right with name: {name}")
 def get_right(name: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a single right resource
@@ -168,26 +163,23 @@ def get_right(name: str, request_user: CmdbUser) -> Response:
             abort(404, f"Right with name: {name} was not found!")
 
         return GetSingleResponse(BaseRight.to_dict(right), body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RightsManagerGetError as err:
         LOGGER.error("[get_right] RightsManagerGetError: %s", err, exc_info=True)
         abort(500, f"Failed to retrieve the Right with name: {name}!")
-    except Exception as err:
-        LOGGER.error("[get_right] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving Right with name: {name}!")
 
 
 @rights_blueprint.route('/levels', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while retrieving the Right levels")
 def get_levels(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for a static collection of levels
 
     Returns:
-        GetSingleResponse: The name -> level mapping (`NAME_TO_LEVEL`), keyed by name because the
-            frontend renders a selector from the names and sends back the numeric value
+        GetSingleResponse: The name -> level mapping (`Levels.as_name_map`), keyed by name because
+            that is the direction a catalogue is read in - a client shows the names and works with
+            the numbers - and in the enum's declaration order, CRITICAL first
 
     Raises:
         HTTPException: 500 when the mapping could not be serialised
@@ -200,8 +192,4 @@ def get_levels(request_user: CmdbUser) -> Response:
     # signature because `insert_request_user` injects it, and that decorator is what makes the
     # route authenticated at all - removing either republishes an unauthenticated read (T162)
     # pylint: disable=unused-argument
-    try:
-        return GetSingleResponse(NAME_TO_LEVEL, body=request_wants_body()).make_response()
-    except Exception as err:
-        LOGGER.error("[get_levels] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while processing Right levels!")
+    return GetSingleResponse(Levels.as_name_map(), body=request_wants_body()).make_response()

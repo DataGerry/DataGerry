@@ -51,7 +51,6 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ExtendableOptionsManager, ObjectsManager, TypesManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
@@ -91,7 +90,7 @@ from cmdb.framework.port.bulk_create_constants import (
 from cmdb.framework.port.name_preview import preview_has_collisions
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 
@@ -123,6 +122,7 @@ port_bulk_blueprint = APIBlueprint('port_bulk', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.ADD.value)
+@handle_route_errors("while creating the Ports")
 def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to create a whole device's ports, and a patch panel's internal pairing
@@ -186,17 +186,12 @@ def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
             BulkCreateKey.TOTAL_PORTS.value: len(result.port_ids),
             BulkCreateKey.TOTAL_CONNECTIONS.value: len(result.connection_ids),
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[bulk_create_ports] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortsManagerGetError as err:
         LOGGER.error("[bulk_create_ports] PortsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the existing Ports of CmdbObject ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[bulk_create_ports] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while creating the Ports!')
 
 
 def _abort_for_failed_batch(result: BulkCreateResult) -> None:
@@ -235,6 +230,7 @@ def _abort_for_failed_batch(result: BulkCreateResult) -> None:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.EDIT.value)
+@handle_route_errors("while updating the selected Ports")
 def bulk_edit_ports(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to set the shared properties of several CmdbPorts of one CmdbObject at once
@@ -294,23 +290,19 @@ def bulk_edit_ports(object_id: int, request_user: CmdbUser) -> Response:
             BulkActionKey.UPDATED.value: len(port_ids),
             BulkActionKey.PORT_IDS.value: port_ids,
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[bulk_edit_ports] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except (PortsManagerGetError, PortsManagerUpdateError) as err:
         LOGGER.error("[bulk_edit_ports] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to update the selected Ports of CmdbObject ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[bulk_edit_ports] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while updating the selected Ports!')
 
 
 @port_bulk_blueprint.route('/object/<int:object_id>/bulk/delete_preview', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while previewing the deletion of the Ports")
 def preview_bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route answering what a bulk delete of these CmdbPorts would take with it
@@ -368,23 +360,19 @@ def preview_bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Respons
                 interface_links, PortInterfaceLinkKey.PUBLIC_ID.value,
             ),
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[preview_bulk_delete_ports] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortsManagerGetError as err:
         LOGGER.error("[preview_bulk_delete_ports] PortsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the selected Ports of CmdbObject ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[preview_bulk_delete_ports] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while previewing the deletion of the Ports!')
 
 
 @port_bulk_blueprint.route('/object/<int:object_id>/bulk', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.DELETE.value)
+@handle_route_errors("while deleting the selected Ports")
 def bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete several CmdbPorts of one CmdbObject at once
@@ -450,14 +438,9 @@ def bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:
                 interface_links, PortInterfaceLinkKey.PUBLIC_ID.value,
             ),
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[bulk_delete_ports] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except (PortsManagerGetError, PortsManagerDeleteError) as err:
         LOGGER.error("[bulk_delete_ports] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to delete the selected Ports of CmdbObject ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[bulk_delete_ports] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while deleting the selected Ports!')

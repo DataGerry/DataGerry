@@ -24,7 +24,6 @@ the object export engine (tracked as discussion-backlog #39).
 """
 from logging import Logger, getLogger
 from flask import abort, Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import TypesManager
@@ -33,7 +32,7 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import build_types_json_export_response
@@ -53,6 +52,7 @@ exporter_type_blueprint = APIBlueprint('exporter_type', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @exporter_type_blueprint.protect(auth=True, right=ExporterRight.TYPE.value)
+@handle_route_errors("while exporting Types")
 def export_cmdb_types(request_user: CmdbUser) -> Response:
     """
     Exports every CmdbType as a downloadable JSON file
@@ -81,8 +81,6 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
         types: list[CmdbType] = types_manager.get_all_types(direction=CmdbDAO.DAO_ASCENDING)
 
         return build_types_json_export_response(types)
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[export_cmdb_types] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Types to export!")
@@ -91,15 +89,13 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
         # and the whole export fails rather than silently shipping a short file
         LOGGER.error("[export_cmdb_types] CmdbTypeToJsonError: %s", err, exc_info=True)
         abort(500, "A Type could not be serialized, so the export was not produced!")
-    except Exception as err:
-        LOGGER.error("[export_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while exporting Types!")
 
 
 @exporter_type_blueprint.route('/<string:public_ids>', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @exporter_type_blueprint.protect(auth=True, right=ExporterRight.TYPE.value)
+@handle_route_errors("while exporting Types by IDs")
 def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Response:
     """
     Exports the selected CmdbTypes by their public_ids as a downloadable JSON file
@@ -134,8 +130,6 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
         )
 
         return build_types_json_export_response(types)
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[export_cmdb_types_by_ids] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Types to export!")
@@ -144,6 +138,3 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
         # and the whole export fails rather than silently shipping a short file
         LOGGER.error("[export_cmdb_types_by_ids] CmdbTypeToJsonError: %s", err, exc_info=True)
         abort(500, "A Type could not be serialized, so the export was not produced!")
-    except Exception as err:
-        LOGGER.error("[export_cmdb_types_by_ids] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while exporting Types by IDs!")

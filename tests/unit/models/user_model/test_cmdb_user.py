@@ -278,3 +278,32 @@ def test_a_falsy_limit_is_replaced_by_the_default(limit: Any) -> None:
 
     assert user.is_config_item_limit_reached(5) is False
     assert user.config_items_limit == DEFAULT_CONFIG_ITEMS_LIMIT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             STRICT DATE COERCION                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUnreadableTimestampsAreRefused:
+    """
+    A registration time that cannot be read is refused, not guessed
+
+    Until 2026-09-21 it was parsed with `fuzzy=True`, which reads a note like 'sometime in March' as a
+    date assembled from today's day number.
+    """
+
+    def test_an_unreadable_timestamp_raises(self) -> None:
+        """The model's own error, so a caller maps it instead of storing the guess."""
+        with pytest.raises(CmdbUserInitFromDataError):
+            CmdbUser.from_data(_document(registration_time='sometime in March'))
+
+    def test_a_timestamp_string_is_still_read(self) -> None:
+        """Strictness must not cost the shapes that ARE readable - an ISO string is one."""
+        built = CmdbUser.from_data(_document(registration_time='2026-03-01T10:00:00'))
+
+        assert isinstance(built.registration_time, datetime)
+
+    def test_the_mongo_wrapper_shape_is_read_too(self) -> None:
+        """`{'$date': <millis>}` is the shape the frontend sends back, so it has to be read."""
+        built = CmdbUser.from_data(_document(registration_time={'$date': 1772000000000}))
+
+        assert isinstance(built.registration_time, datetime)

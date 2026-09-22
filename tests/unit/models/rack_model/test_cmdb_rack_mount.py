@@ -315,3 +315,33 @@ def test_the_object_id_index_is_partial_on_the_fields_presence() -> None:
 
     assert index['unique'] is True
     assert index['partialFilterExpression'] == {'object_id': {'$exists': True}}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             STRICT DATE COERCION                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUnreadableTimestampsAreRefused:
+    """
+    A timestamp that cannot be read is refused, not guessed
+
+    Until 2026-09-21 these were parsed with `fuzzy=True`, which reads a note like 'sometime in March'
+    as a date assembled from today's day number - the document would then carry a date nobody wrote,
+    and nothing would ever say so.
+    """
+
+    def test_an_unreadable_timestamp_raises(self) -> None:
+        """The model's own error, so a caller maps it instead of storing the guess."""
+        with pytest.raises(CmdbRackMountInitFromDataError):
+            CmdbRackMount.from_data(_mount_data(creation_time='sometime in March'))
+
+    def test_a_timestamp_string_is_still_read(self) -> None:
+        """Strictness must not cost the shapes that ARE readable - an ISO string is one."""
+        built = CmdbRackMount.from_data(_mount_data(creation_time='2026-03-01T10:00:00'))
+
+        assert isinstance(built.creation_time, datetime)
+
+    def test_the_mongo_wrapper_shape_is_read_too(self) -> None:
+        """`{'$date': <millis>}` is the shape the frontend sends back, so it has to be read."""
+        built = CmdbRackMount.from_data(_mount_data(creation_time={'$date': 1772000000000}))
+
+        assert isinstance(built.creation_time, datetime)

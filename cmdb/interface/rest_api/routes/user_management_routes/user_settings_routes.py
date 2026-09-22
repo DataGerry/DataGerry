@@ -29,7 +29,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import UserSettingsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -38,7 +37,7 @@ from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     GetListResponse,
@@ -68,6 +67,7 @@ user_settings_blueprint = APIBlueprint('user_settings', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @user_settings_blueprint.validate(build_write_schema(CmdbUserSetting.SCHEMA))
+@handle_route_errors("while creating a UserSetting")
 def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbUserSetting into the database
@@ -102,17 +102,12 @@ def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: C
             raw={**data, UserSettingKey.PUBLIC_ID.value: new_public_id},
             result_id=new_public_id,
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except UserSettingsManagerInsertError as err:
         LOGGER.error("[insert_cmdb_user_setting] UserSettingsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new UserSetting in the database!")
     except UserSettingsManagerGetError as err:
         LOGGER.error("[insert_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created UserSetting from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_user_setting] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating a UserSetting!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -151,6 +146,7 @@ def get_cmdb_user_settings(user_id: int, request_user: CmdbUser) -> Response:
 @user_settings_blueprint.route('/<string:resource>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while retrieving the UserSetting for resource: {resource}")
 def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbUserSetting
@@ -173,14 +169,9 @@ def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -
             return GetSingleResponse(requested_user_setting, body=request_wants_body()).make_response()
 
         abort(404, f"The requested UserSetting for resource: '{resource}' was not found!")
-    except HTTPException as http_err:
-        raise http_err
     except UserSettingsManagerGetError as err:
         LOGGER.error("[get_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserSetting for resource: '{resource}' from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_user_setting] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the UserSetting for resource: {resource}!")
 
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -189,6 +180,7 @@ def get_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @user_settings_blueprint.validate(build_write_schema(CmdbUserSetting.SCHEMA))
+@handle_route_errors("while updating the UserSetting for resource: {resource}")
 def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbUserSetting or create it if it does not exist
@@ -219,8 +211,6 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], 
             user_settings_manager.update_user_setting(user_id, resource, CmdbUserSetting.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except UserSettingsManagerGetError as err:
         LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserSetting for resource: '{resource}' from the database!")
@@ -230,15 +220,13 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], 
     except UserSettingsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the UserSetting for resource: '{resource}' in the database!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_user_setting] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the UserSetting for resource: {resource}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @user_settings_blueprint.route('/<string:resource>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while deleting the UserSetting for resource: {resource}")
 def delete_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbUserSetting
@@ -263,14 +251,9 @@ def delete_cmdb_user_setting(user_id: int, resource: str, request_user: CmdbUser
         user_settings_manager.delete_user_setting(user_id=user_id, resource=resource)
 
         return DeleteSingleResponse(to_delete_user_setting).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except UserSettingsManagerGetError as err:
         LOGGER.error("[delete_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserSetting for resource: '{resource}' from the database!")
     except UserSettingsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_user_setting] UserSettingsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the UserSetting for resource: '{resource}' from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_user_setting] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the UserSetting for resource: {resource}!")

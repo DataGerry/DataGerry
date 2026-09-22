@@ -26,7 +26,6 @@ only, so the route is hidden (404) whenever the process runs in cloud or local m
 from logging import Logger, getLogger
 
 from flask import abort, current_app, request, Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import LicenseActivationRequestsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -40,7 +39,7 @@ from cmdb.security.license import (
 from cmdb.utils import str_to_bool
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
@@ -64,6 +63,7 @@ ACTIVATION_REQUEST_MIME_TYPE: str = 'text/plain'
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_activation_blueprint.protect(auth=True, right=ACTIVATION_VIEW_RIGHT)
+@handle_route_errors("while generating the license activation request")
 def get_license_activation_request(request_user: CmdbUser):
     """
     HTTP `GET` route generating an offline activation request
@@ -89,24 +89,18 @@ def get_license_activation_request(request_user: CmdbUser):
     except ValueError:
         abort(400, f"Query parameter '{ACTIVATION_REQUEST_AS_STRING_PARAM}' must be 'true' or 'false'!")
 
-    try:
-        activation_requests_manager: LicenseActivationRequestsManager = ManagerProvider.get_manager(
-                                                                            ManagerType.LICENSE_ACTIVATION_REQUESTS,
-                                                                            request_user
-                                                                        )
+    activation_requests_manager: LicenseActivationRequestsManager = ManagerProvider.get_manager(
+                                                                        ManagerType.LICENSE_ACTIVATION_REQUESTS,
+                                                                        request_user
+                                                                    )
 
-        activation_request = activation_requests_manager.create_activation_request(get_machine_fingerprint())
-        blob = activation_request_blob(activation_request)
+    activation_request = activation_requests_manager.create_activation_request(get_machine_fingerprint())
+    blob = activation_request_blob(activation_request)
 
-        if as_string:
-            return DefaultResponse({ACTIVATION_REQUEST_RESPONSE_KEY: blob}).make_response()
+    if as_string:
+        return DefaultResponse({ACTIVATION_REQUEST_RESPONSE_KEY: blob}).make_response()
 
-        response = Response(blob, mimetype=ACTIVATION_REQUEST_MIME_TYPE)
-        response.headers['Content-Disposition'] = f'attachment; filename="{ACTIVATION_REQUEST_FILENAME}"'
+    response = Response(blob, mimetype=ACTIVATION_REQUEST_MIME_TYPE)
+    response.headers['Content-Disposition'] = f'attachment; filename="{ACTIVATION_REQUEST_FILENAME}"'
 
-        return response
-    except HTTPException:
-        raise
-    except Exception as err:
-        LOGGER.error("[get_license_activation_request] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while generating the license activation request!")
+    return response

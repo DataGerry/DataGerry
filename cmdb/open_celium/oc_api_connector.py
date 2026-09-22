@@ -30,8 +30,8 @@ from typing import Any
 from requests import Response, request
 from requests.exceptions import Timeout, RequestException
 
-from flask import current_app
 
+from cmdb.open_celium.oc_helpers import is_hosted_cloud
 from cmdb.database.mongo_database_manager import MongoDatabaseManager
 
 from cmdb.open_celium.oc_constants import (
@@ -83,7 +83,7 @@ class OcApiConnector:
         from cmdb.manager.system_manager.settings_manager import SettingsManager
 
         config: dict[str, Any] = (
-            self._load_cloud_config() if current_app.cloud_mode and not current_app.local_mode
+            self._load_cloud_config() if is_hosted_cloud()
             else self._load_local_config()
         )
 

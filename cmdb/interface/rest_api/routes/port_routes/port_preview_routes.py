@@ -35,7 +35,6 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.ports_manager import PortsManager
@@ -49,7 +48,7 @@ from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.ports_manager import PortsManagerGetError
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 
@@ -71,6 +70,7 @@ port_preview_blueprint = APIBlueprint('port_previews', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_preview_blueprint.protect(auth=True, right=PortRight.ADD.value)
+@handle_route_errors("while previewing the Port names")
 def preview_port_names(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to preview the port names a batch would produce, writing nothing
@@ -107,14 +107,9 @@ def preview_port_names(object_id: int, request_user: CmdbUser) -> Response:
         return DefaultResponse(
             build_preview_or_abort(ports_manager, object_id, payload),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[preview_port_names] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortsManagerGetError as err:
         LOGGER.error("[preview_port_names] PortsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the existing Ports of CmdbObject ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[preview_port_names] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while previewing the Port names!')

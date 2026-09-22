@@ -70,6 +70,7 @@ RA_ID_FOR_ENRICH: int = 99205
 RA_ID_FOR_DUPLICATE: int = 99206
 OTHER_RA_ID: int = 99207
 RA_ID_FOR_GROUP: int = 99208
+RA_ID_FOR_DYNAMIC_GROUP: int = 99209
 RA_ID_ENRICH_OBJECT: int = 99209
 RA_ID_ENRICH_PGROUP: int = 99210
 MISSING_RA_ID: int = 99299
@@ -83,6 +84,7 @@ CMA_ID_OWNED: int = 99255
 RISK_ID: int = 99260
 OBJECT_GROUP_ID: int = 99270
 OBJECT_GROUP_STATIC_ID: int = 99271
+OBJECT_GROUP_DYNAMIC_ID: int = 99272
 OBJECT_ID: int = 99275
 TYPE_ID: int = 99276
 PERSON_ID: int = 99286
@@ -99,13 +101,13 @@ OBJECT_GROUP_NAME: str = 'Enrichment Group'
 
 ALL_RA_IDS: list[int] = [
     RA_ID_FOR_GET, RA_ID_FOR_UPDATE, RA_ID_FOR_DELETE, RA_ID_FOR_CASCADE, RA_ID_FOR_ENRICH, RA_ID_FOR_DUPLICATE,
-    OTHER_RA_ID, RA_ID_FOR_GROUP, RA_ID_ENRICH_OBJECT, RA_ID_ENRICH_PGROUP,
+    OTHER_RA_ID, RA_ID_FOR_GROUP, RA_ID_FOR_DYNAMIC_GROUP, RA_ID_ENRICH_OBJECT, RA_ID_ENRICH_PGROUP,
 ]
 ALL_CMA_IDS: list[int] = [
     CMA_ID_FOR_CASCADE, CMA_ID_TO_CREATE, CMA_ID_TO_DELETE, CMA_ID_FOREIGN, CMA_ID_CREATE_NO_ID, CMA_ID_OWNED,
 ]
 ALL_RISK_IDS: list[int] = [RISK_ID]
-ALL_OBJECT_GROUP_IDS: list[int] = [OBJECT_GROUP_ID, OBJECT_GROUP_STATIC_ID]
+ALL_OBJECT_GROUP_IDS: list[int] = [OBJECT_GROUP_ID, OBJECT_GROUP_STATIC_ID, OBJECT_GROUP_DYNAMIC_ID]
 ALL_OBJECT_IDS: list[int] = [OBJECT_ID]
 ALL_IMPACT_IDS: list[int] = [IMPACT_LOW_ID, IMPACT_HIGH_ID]
 ALL_PERSON_IDS: list[int] = [PERSON_ID]
@@ -383,6 +385,57 @@ class TestGetRiskAssessment:
         assert response.status_code == HTTPStatus.OK
         returned_ids = [item['public_id'] for item in response.get_json()['results']]
         assert RA_ID_FOR_GROUP in returned_ids
+
+    def test_list_expands_dynamic_object_group_membership(self, rest_api,
+                                                         database_manager: MongoDatabaseManager,
+                                                         database_name: str) -> None:
+        """
+        The other half of membership: a DYNAMIC group lists the object's TYPE, not the object
+
+        Both halves are one query (`ObjectGroupsManager.find_group_ids_containing`), and they pair a
+        mode with a different id - so a change that kept only one clause would still pass the static
+        test above.
+        """
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .insert_one({'public_id': OBJECT_ID, 'type_id': TYPE_ID, 'author_id': 1})
+        database_manager.get_collection(CmdbObjectGroup.COLLECTION, database_name).insert_one(
+            {'public_id': OBJECT_GROUP_DYNAMIC_ID, 'name': 'Dynamic Group',
+             'group_type': 'DYNAMIC', 'assigned_ids': [TYPE_ID]}
+        )
+        _insert_ra(database_manager, database_name, RA_ID_FOR_DYNAMIC_GROUP,
+                   object_id_ref_type=ObjectReferenceType.OBJECT_GROUP, object_id=OBJECT_GROUP_DYNAMIC_ID)
+
+        filter_json = json.dumps({'$and': [{'object_id': OBJECT_ID},
+                                           {'object_id_ref_type': ObjectReferenceType.OBJECT.value}]})
+        response = rest_api.get(f'{ROUTE_URL}/?filter={filter_json}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert RA_ID_FOR_DYNAMIC_GROUP in [item['public_id'] for item in response.get_json()['results']]
+
+    def test_a_group_of_the_wrong_mode_does_not_expand_the_filter(self, rest_api,
+                                                                 database_manager: MongoDatabaseManager,
+                                                                 database_name: str) -> None:
+        """
+        A DYNAMIC group listing the OBJECT's id means 'every object of type <object_id>'
+
+        The two modes hold different kinds of id in the same key, so matching without the mode would
+        pull in assessments of a group this object is not in.
+        """
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .insert_one({'public_id': OBJECT_ID, 'type_id': TYPE_ID, 'author_id': 1})
+        database_manager.get_collection(CmdbObjectGroup.COLLECTION, database_name).insert_one(
+            {'public_id': OBJECT_GROUP_DYNAMIC_ID, 'name': 'Dynamic Group',
+             'group_type': 'DYNAMIC', 'assigned_ids': [OBJECT_ID]}
+        )
+        _insert_ra(database_manager, database_name, RA_ID_FOR_DYNAMIC_GROUP,
+                   object_id_ref_type=ObjectReferenceType.OBJECT_GROUP, object_id=OBJECT_GROUP_DYNAMIC_ID)
+
+        filter_json = json.dumps({'$and': [{'object_id': OBJECT_ID},
+                                           {'object_id_ref_type': ObjectReferenceType.OBJECT.value}]})
+        response = rest_api.get(f'{ROUTE_URL}/?filter={filter_json}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert RA_ID_FOR_DYNAMIC_GROUP not in [item['public_id'] for item in response.get_json()['results']]
 
     def test_list_enriches_person_naming(self, rest_api,
                                        database_manager: MongoDatabaseManager, database_name: str) -> None:

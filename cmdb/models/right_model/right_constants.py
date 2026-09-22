@@ -20,20 +20,10 @@ Shared constants of the rights domain
 `BaseRight` marks such a right `is_master`, and `CmdbUserGroup.has_extended_right` walks a qualified
 name segment by segment asking whether the group holds the '*' right of each parent.
 
-``NAME_TO_LEVEL`` is the level mapping the API serves (`GET /rest/rights/levels`), keyed by name
-because that is the direction the frontend needs: it renders a level selector from names and sends
-back the numeric value.
+The level catalogue `GET /rest/rights/levels` serves does NOT live here: it is
+``Levels.as_name_map()``, built by the enum that owns the members. A hand-written copy used to sit
+beside this constant, kept in step with the enum by nothing but a unit test.
 """
-from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GLOBAL_RIGHT_IDENTIFIER = '*'
-
-NAME_TO_LEVEL = {
-    'CRITICAL': Levels.CRITICAL,
-    'DANGER': Levels.DANGER,
-    'SECURE': Levels.SECURE,
-    'PROTECTED': Levels.PROTECTED,
-    'PERMISSION': Levels.PERMISSION,
-    'NOTSET': Levels.NOTSET,
-}

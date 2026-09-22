@@ -27,9 +27,8 @@ of the batch. An imported type only adds to the `success_imports` count; a rejec
 the object import's `failed_object`. The per-entry work lives in importer_type_helper
 """
 from logging import Logger, getLogger
-from flask import request, abort
+from flask import request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.importer.responses.import_report_response import ImportReportResponse
@@ -39,7 +38,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import 
     update_type_from_entry,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import ImporterRight
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -55,6 +54,7 @@ LOGGER: Logger = getLogger(__name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_type_blueprint.protect(auth=True, right=ImporterRight.TYPE.value)
+@handle_route_errors("while creating Types from imported data")
 def add_type(request_user: CmdbUser) -> Response:
     """
     Adds new CmdbTypes based on uploaded JSON data
@@ -86,17 +86,11 @@ def add_type(request_user: CmdbUser) -> Response:
                   not be imported (each as `{failed_type, errors}`, carrying the uploaded data and the
                   reason). An empty `failed_imports` means every type was imported
     """
-    try:
-        import_report: ImportReportResponse = run_type_import_request(
-            request, request_user, create_type_from_entry,
-        )
+    import_report: ImportReportResponse = run_type_import_request(
+        request, request_user, create_type_from_entry,
+    )
 
-        return DefaultResponse(import_report).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[add_type] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while creating Types from imported data!")
+    return DefaultResponse(import_report).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -104,6 +98,7 @@ def add_type(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_type_blueprint.protect(auth=True, right=ImporterRight.TYPE.value)
+@handle_route_errors("while updating Types from imported data")
 def update_type(request_user: CmdbUser) -> Response:
     """
     Updates existing CmdbTypes based on uploaded JSON data
@@ -131,14 +126,8 @@ def update_type(request_user: CmdbUser) -> Response:
                   not be updated (each as `{failed_type, errors}`, carrying the uploaded data and the
                   reason). An empty `failed_imports` means every type was updated
     """
-    try:
-        import_report: ImportReportResponse = run_type_import_request(
-            request, request_user, update_type_from_entry,
-        )
+    import_report: ImportReportResponse = run_type_import_request(
+        request, request_user, update_type_from_entry,
+    )
 
-        return DefaultResponse(import_report).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while updating Types from imported data!")
+    return DefaultResponse(import_report).make_response()

@@ -575,3 +575,34 @@ def test_the_schema_normalises_an_omitted_port_section_index() -> None:
     })
 
     assert validator.document[TypeSchemaKey.PORT_SECTION_INDEX.value] == DEFAULT_PORT_SECTION_INDEX
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             STRICT DATE COERCION                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUnreadableTimestampsAreRefused:
+    """
+    A timestamp that cannot be read is refused, not guessed
+
+    Until 2026-09-21 these were parsed with `fuzzy=True`, which reads a note like 'sometime in March'
+    as a date assembled from today's day number. The type importer stamps both timestamps server-side before building the model, so a string
+    never reaches here through an upload - the strictness protects a caller that does not exist yet
+    rather than a live path.
+    """
+
+    def test_an_unreadable_timestamp_raises(self) -> None:
+        """The model's own error, so a caller maps it instead of storing the guess."""
+        with pytest.raises(CmdbTypeInitFromDataError):
+            CmdbType.from_data(_document(creation_time='sometime in March'))
+
+    def test_a_timestamp_string_is_still_read(self) -> None:
+        """Strictness must not cost the shapes that ARE readable - an ISO string is one."""
+        built = CmdbType.from_data(_document(creation_time='2026-03-01T10:00:00'))
+
+        assert isinstance(built.creation_time, datetime)
+
+    def test_the_mongo_wrapper_shape_is_read_too(self) -> None:
+        """`{'$date': <millis>}` is the shape the frontend sends back, so it has to be read."""
+        built = CmdbType.from_data(_document(creation_time={'$date': 1772000000000}))
+
+        assert isinstance(built.creation_time, datetime)

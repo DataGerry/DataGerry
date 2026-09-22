@@ -47,7 +47,6 @@ from typing import Any
 
 from flask import abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
@@ -70,7 +69,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import (
     IpamRight,
     VALIDATION_ROWS_NOT_A_LIST_MESSAGE,
 )
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 
 from cmdb.interface.blueprints import APIBlueprint
@@ -108,6 +107,7 @@ def _build_validation_response(errors: list[dict[str, Any]]) -> dict[str, Any]:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while validating the subnet candidate")
 def validate_subnet_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a subnet candidate without writing anything
@@ -133,39 +133,34 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
     Returns:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
-    try:
-        payload: dict[str, Any] = read_json_object_body()
+    payload: dict[str, Any] = read_json_object_body()
 
-        network_range: str = read_required_string(payload, IpamValidationRequestKey.NETWORK_RANGE.value)
-        subnet_type: Any = payload.get(IpamValidationRequestKey.SUBNET_TYPE.value)
+    network_range: str = read_required_string(payload, IpamValidationRequestKey.NETWORK_RANGE.value)
+    subnet_type: Any = payload.get(IpamValidationRequestKey.SUBNET_TYPE.value)
 
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        errors: list[dict[str, Any]] = validate_subnet(
-            objects_manager,
-            types_manager,
-            network_range=network_range,
-            parent_supernet_id=read_optional_object_id(
-                payload, IpamValidationRequestKey.PARENT_SUPERNET_ID.value,
-            ),
-            exclude_subnet_id=read_optional_object_id(
-                payload, IpamValidationRequestKey.EXCLUDE_SUBNET_ID.value,
-            ),
-            subnet_type=subnet_type if isinstance(subnet_type, str) else None,
-        )
+    errors: list[dict[str, Any]] = validate_subnet(
+        objects_manager,
+        types_manager,
+        network_range=network_range,
+        parent_supernet_id=read_optional_object_id(
+            payload, IpamValidationRequestKey.PARENT_SUPERNET_ID.value,
+        ),
+        exclude_subnet_id=read_optional_object_id(
+            payload, IpamValidationRequestKey.EXCLUDE_SUBNET_ID.value,
+        ),
+        subnet_type=subnet_type if isinstance(subnet_type, str) else None,
+    )
 
-        return DefaultResponse(_build_validation_response(errors)).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[validate_subnet_route] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while validating the subnet candidate!")
+    return DefaultResponse(_build_validation_response(errors)).make_response()
 
 
 @ipam_validation_blueprint.route('/supernet', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while validating the supernet candidate")
 def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
     """
     HTTP `POST` route that pre-validates a supernet candidate without writing anything
@@ -190,29 +185,24 @@ def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disa
     Returns:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
-    try:
-        payload: dict[str, Any] = read_json_object_body()
+    payload: dict[str, Any] = read_json_object_body()
 
-        network_range: str = read_required_string(payload, IpamValidationRequestKey.NETWORK_RANGE.value)
-        supernet_type: Any = payload.get(IpamValidationRequestKey.SUPERNET_TYPE.value)
+    network_range: str = read_required_string(payload, IpamValidationRequestKey.NETWORK_RANGE.value)
+    supernet_type: Any = payload.get(IpamValidationRequestKey.SUPERNET_TYPE.value)
 
-        errors: list[dict[str, Any]] = validate_supernet(
-            network_range=network_range,
-            supernet_type=supernet_type if isinstance(supernet_type, str) else None,
-        )
+    errors: list[dict[str, Any]] = validate_supernet(
+        network_range=network_range,
+        supernet_type=supernet_type if isinstance(supernet_type, str) else None,
+    )
 
-        return DefaultResponse(_build_validation_response(errors)).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[validate_supernet_route] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while validating the supernet candidate!")
+    return DefaultResponse(_build_validation_response(errors)).make_response()
 
 
 @ipam_validation_blueprint.route('/vlan', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while validating the vlan candidate")
 def validate_vlan_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a vlan candidate without writing anything
@@ -232,27 +222,22 @@ def validate_vlan_route(request_user: CmdbUser) -> Response:
     Returns:
         Response: {'valid': bool, 'errors': list[{message}]}
     """
-    try:
-        payload: dict[str, Any] = read_json_object_body()
+    payload: dict[str, Any] = read_json_object_body()
 
-        subnet_id: int = read_required_object_id(payload, IpamValidationRequestKey.SUBNET_ID.value)
+    subnet_id: int = read_required_object_id(payload, IpamValidationRequestKey.SUBNET_ID.value)
 
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        errors: list[dict[str, Any]] = validate_vlan(objects_manager, types_manager, subnet_id)
+    errors: list[dict[str, Any]] = validate_vlan(objects_manager, types_manager, subnet_id)
 
-        return DefaultResponse(_build_validation_response(errors)).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[validate_vlan_route] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while validating the vlan candidate!")
+    return DefaultResponse(_build_validation_response(errors)).make_response()
 
 
 @ipam_validation_blueprint.route('/interface', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
+@handle_route_errors("while validating the interface candidates")
 def validate_interface_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a batch of dg-ipam-interface rows without writing
@@ -291,32 +276,26 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
     Returns:
         Response: {'valid': bool, 'errors': list[{message, details: {row_index}}]}
     """
-    try:
-        payload: dict[str, Any] = read_json_object_body()
+    payload: dict[str, Any] = read_json_object_body()
 
-        raw_rows: Any = payload.get(IpamValidationRequestKey.ROWS.value)
+    raw_rows: Any = payload.get(IpamValidationRequestKey.ROWS.value)
 
-        if not isinstance(raw_rows, list):
-            abort(400, VALIDATION_ROWS_NOT_A_LIST_MESSAGE.format(
-                field=IpamValidationRequestKey.ROWS.value,
-            ))
+    if not isinstance(raw_rows, list):
+        abort(400, VALIDATION_ROWS_NOT_A_LIST_MESSAGE.format(
+            field=IpamValidationRequestKey.ROWS.value,
+        ))
 
-        rows: list[tuple[int, int | None, str | None, str | None]] = parse_interface_rows_payload(raw_rows)
+    rows: list[tuple[int, int | None, str | None, str | None]] = parse_interface_rows_payload(raw_rows)
 
-        objects_manager, types_manager = read_ipam_managers(request_user)
+    objects_manager, types_manager = read_ipam_managers(request_user)
 
-        errors: list[dict[str, Any]] = validate_interface_rows(
-            objects_manager,
-            types_manager,
-            rows,
-            exclude_object_id=read_optional_object_id(
-                payload, IpamValidationRequestKey.EXCLUDE_OBJECT_ID.value,
-            ),
-        )
+    errors: list[dict[str, Any]] = validate_interface_rows(
+        objects_manager,
+        types_manager,
+        rows,
+        exclude_object_id=read_optional_object_id(
+            payload, IpamValidationRequestKey.EXCLUDE_OBJECT_ID.value,
+        ),
+    )
 
-        return DefaultResponse(_build_validation_response(errors)).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[validate_interface_route] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while validating the interface candidates!")
+    return DefaultResponse(_build_validation_response(errors)).make_response()

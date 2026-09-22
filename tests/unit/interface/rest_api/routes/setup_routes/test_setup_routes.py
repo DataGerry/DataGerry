@@ -17,7 +17,7 @@
 Unit tests for cmdb.interface.rest_api.routes.setup_routes.setup_routes
 
 Each handler is unwrapped past its decorator chain (route / verify_api_access) and driven inside a
-Flask test_request_context; CachedUserManager is patched at the route module path and the database
+Flask test_request_context; the cached-user manager is patched at the route module path (`get_cached_user_manager`) and the database
 drop goes through the app's MagicMock database_manager, so no MongoDB is involved
 
 Pinned here: the error mapping of all three routes (a missing database only produces a 400, a failed
@@ -74,10 +74,10 @@ def fixture_flask_app() -> Flask:
 
 @pytest.fixture(name='cached_user_manager')
 def fixture_cached_user_manager() -> Iterator[MagicMock]:
-    """Patches CachedUserManager at the route path and yields the manager instance mock."""
+    """Patches `get_cached_user_manager` at the route path and yields the manager instance mock."""
     manager = MagicMock()
 
-    with patch(f'{ROUTE_PATH}.CachedUserManager', return_value=manager):
+    with patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=manager):
         yield manager
 
 
@@ -243,7 +243,7 @@ class TestDeleteCachedUser:
 
     def test_invalid_email_type_aborts_400(self, flask_app: Flask, cached_user_manager: MagicMock) -> None:
         """A non-string, non-list 'email' is rejected with 400."""
-        del cached_user_manager  # only needed to activate the CachedUserManager patch
+        del cached_user_manager  # only needed to activate the get_cached_user_manager patch
 
         with flask_app.test_request_context(CACHE_USER_ROUTE, method=DELETE_METHOD, json={'email': 5}):
             with pytest.raises(HTTPException) as exc_info:
@@ -253,7 +253,7 @@ class TestDeleteCachedUser:
 
     def test_missing_email_key_aborts_400(self, flask_app: Flask, cached_user_manager: MagicMock) -> None:
         """A payload without the 'email' key is rejected with 400."""
-        del cached_user_manager  # only needed to activate the CachedUserManager patch
+        del cached_user_manager  # only needed to activate the get_cached_user_manager patch
 
         with flask_app.test_request_context(CACHE_USER_ROUTE, method=DELETE_METHOD, json={'other': 'x'}):
             with pytest.raises(HTTPException) as exc_info:

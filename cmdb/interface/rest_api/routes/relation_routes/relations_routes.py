@@ -44,7 +44,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RelationsManager, ObjectRelationsManager, CiExplorerProfileManager, TypesManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -56,7 +55,7 @@ from cmdb.models.object_relation_model import ObjectRelationKey
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -114,6 +113,7 @@ IN_USE_PROBE_LIMIT: int = 1
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right=RelationRight.ADD.value)
 @relations_blueprint.validate(build_write_schema(CmdbRelation.SCHEMA))
+@handle_route_errors("while creating the new Relation")
 def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbRelation into the database
@@ -157,8 +157,6 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
 
         # The insert reported success, so a missing document is a server-side inconsistency
         abort(500, "The Relation was created but could not be retrieved from the database!")
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[insert_cmdb_relation] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to validate the Types referenced by the Relation!")
@@ -168,9 +166,6 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
     except RelationsManagerGetError as err:
         LOGGER.error("[insert_cmdb_relation] RelationsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created Relation from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the new Relation!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -225,6 +220,7 @@ def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> 
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right=RelationRight.VIEW.value)
+@handle_route_errors("while retrieving Relation with ID: {public_id}")
 def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbRelation
@@ -252,14 +248,9 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
             return GetSingleResponse(requested_relation, body=request_wants_body()).make_response()
 
         abort(404, f"The Relation with ID:{public_id} was not found!")
-    except HTTPException as http_err:
-        raise http_err
     except RelationsManagerGetError as err:
         LOGGER.error("[get_cmdb_relation] RelationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Relation with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving Relation with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -268,6 +259,7 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right=RelationRight.EDIT.value)
 @relations_blueprint.validate(build_write_schema(CmdbRelation.SCHEMA))
+@handle_route_errors("while updating Relation with ID: {public_id}")
 def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbRelation
@@ -316,8 +308,6 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
         cascade_relation_update(public_id, to_update_relation, data, changed_fields, object_relations_manager)
 
         return UpdateSingleResponse(CmdbRelation.to_json(relation)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[update_cmdb_relation] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to validate the Types referenced by the Relation!")
@@ -332,9 +322,6 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
         LOGGER.error("[update_cmdb_relation] Cascade failed: %s", err, exc_info=True)
         abort(500, f"The Relation with ID: {public_id} was updated, but its ObjectRelations could not "
                    "be updated accordingly!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating Relation with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -342,6 +329,7 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @relations_blueprint.protect(auth=True, right=RelationRight.DELETE.value)
+@handle_route_errors("while deleting Relation with ID:{public_id}")
 def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbRelation
@@ -399,8 +387,6 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
         ci_explorer_profile_manager.remove_relation_from_profiles(public_id)
 
         return DeleteSingleResponse(raw=to_delete_relation).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RelationsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_relation] RelationsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the Relation with ID:{public_id}!")
@@ -416,6 +402,3 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[delete_cmdb_relation] CiExplorerProfile cleanup failed: %s", err, exc_info=True)
         abort(500, f"The Relation with ID:{public_id} was deleted, but could not be removed from all "
                    "CI Explorer profiles!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_relation] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting Relation with ID:{public_id}!")

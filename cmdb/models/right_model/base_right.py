@@ -33,7 +33,7 @@ Two invariants are worth knowing before touching this class:
 from typing import Any
 
 from cmdb.models.right_model.levels_enum import Levels
-from cmdb.models.right_model.constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 
 from cmdb.errors.security import InvalidLevelRightError, MinLevelRightError, MaxLevelRightError
 # -------------------------------------------------------------------------------------------------------------------- #

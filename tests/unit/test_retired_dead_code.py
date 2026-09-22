@@ -92,24 +92,35 @@ class TestWhatTheyReadIsStillReachable:
         assert section.get_fields() == ['f']
 
 
-class TestPasswordAbleIsNowUnread:
+class TestPasswordAbleFoundItsReader:
     """
-    `PASSWORD_ABLE` is kept, and nothing reads it
+    `PASSWORD_ABLE` outlived its accessor, and was wired on 2026-09-21
 
-    `is_password_able` was its only reader, so removing the accessor leaves a flag that is declared
-    on the base, deliberately overridden to False by the LDAP provider, and consulted by nothing.
-    That looks like a feature that was never wired rather than something to delete, so it is recorded
-    here instead of being removed with the accessor - see the sweep notes.
+    `is_password_able` was removed with the rest above because nothing called it - but the flag was
+    KEPT, on the grounds that the LDAP provider's deliberate override was evidence somebody meant it
+    to do something. It now means: DataGerry owns this provider's users' passwords. The reader is
+    `AuthModule.provider_owns_passwords`, and the password-change route refuses a user whose
+    directory owns the credentials (see tests/functional/management/test_functional_users_route.py).
     """
+
+    def test_the_accessor_stayed_removed(self) -> None:
+        """Wiring the flag did not resurrect the one-line accessor - callers read the flag."""
+        assert not hasattr(BaseAuthenticationProvider, 'is_password_able')
 
     def test_the_flag_survives_on_the_base(self) -> None:
-        """Deleting it would discard the LDAP provider's deliberate override as well."""
+        """True by default: a provider that says nothing owns its users' passwords locally."""
         assert BaseAuthenticationProvider.PASSWORD_ABLE is True
 
     def test_the_ldap_provider_still_overrides_it(self) -> None:
-        """The override is the evidence that somebody meant this flag to do something."""
+        """The override is the rule now - the directory owns those passwords, not DataGerry."""
         from cmdb.security.auth.providers.ldap_auth_provider import (  # pylint: disable=import-outside-toplevel
             LdapAuthenticationProvider,
         )
 
         assert LdapAuthenticationProvider.PASSWORD_ABLE is False
+
+    def test_it_is_read_through_the_auth_module(self) -> None:
+        """The flag is no longer dead state: one lookup answers it for a stored `authenticator`."""
+        from cmdb.security.auth.auth_module import AuthModule  # pylint: disable=import-outside-toplevel
+
+        assert AuthModule.provider_owns_passwords('LdapAuthenticationProvider') is False

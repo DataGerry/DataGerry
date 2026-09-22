@@ -48,7 +48,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
@@ -60,7 +59,7 @@ from cmdb.manager import (
 
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -113,6 +112,7 @@ location_blueprint = APIBlueprint('locations', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.ADD.value)
 @location_blueprint.parse_request_body()
+@handle_route_errors("while creating the new Location")
 def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbLocation into the database
@@ -176,8 +176,6 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
         )
 
         return DefaultResponse(created_location_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[insert_cmdb_location] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Type of the linked Object from the database!")
@@ -187,9 +185,6 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
     except LocationsManagerInsertError as err:
         LOGGER.error("[insert_cmdb_location] LocationsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new Location in the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_location] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the new Location!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -198,6 +193,7 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 @location_blueprint.parse_collection_parameters()
+@handle_route_errors("while iterating Locations")
 def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbLocations
@@ -231,14 +227,9 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
                                         body=request_wants_body())
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerIterationError as err:
         LOGGER.error("[get_cmdb_locations] LocationsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Locations from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_locations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while iterating Locations!")
 
 
 @location_blueprint.route('/tree', methods=['GET', 'HEAD'])
@@ -246,6 +237,7 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
 @location_blueprint.parse_collection_parameters()
+@handle_route_errors("while requesting the Location tree")
 def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to return all CmdbLocations as a location tree
@@ -283,20 +275,16 @@ def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser
                                         body=request_wants_body())
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerIterationError as err:
         LOGGER.error("[get_cmdb_locations_tree] LocationsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Locations from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_locations_tree] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while requesting the Location tree!")
 
 
 @location_blueprint.route('/tree/roots', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while requesting the root Locations")
 def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the first level of the location tree
@@ -326,20 +314,16 @@ def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
         )
 
         return DefaultResponse(build_location_level(children, locations_manager)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location_tree_roots] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the root Locations from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_location_tree_roots] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while requesting the root Locations!")
 
 
 @location_blueprint.route('/tree/search', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while searching the Location tree")
 def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning a pruned location tree matching a search query
@@ -380,20 +364,16 @@ def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
         forest: list[dict[str, Any]] = build_location_forest(matches_and_ancestors, parents_with_children)
 
         return DefaultResponse(forest).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[search_cmdb_location_tree] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to search the Location tree!")
-    except Exception as err:
-        LOGGER.error("[search_cmdb_location_tree] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while searching the Location tree!")
 
 
 @location_blueprint.route('/tree/path/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while requesting the path to Location with ID:{public_id}")
 def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the location tree pre-expanded to one location
@@ -436,20 +416,16 @@ def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Respo
         forest: list[dict[str, Any]] = build_location_forest(path_locations, parents_with_children)
 
         return DefaultResponse(forest).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location_tree_path] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Location tree path to Location with ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_location_tree_path] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while requesting the path to Location with ID:{public_id}!")
 
 
 @location_blueprint.route('/tree/<int:public_id>/children', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while requesting children of Location with ID:{public_id}")
 def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the direct children of one location in the tree
@@ -478,20 +454,16 @@ def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> R
         children: list[dict[str, Any]] = locations_manager.get_child_location_documents(public_id)
 
         return DefaultResponse(build_location_level(children, locations_manager)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location_tree_children] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the child Locations of Location with ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_location_tree_children] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while requesting children of Location with ID:{public_id}!")
 
 
 @location_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while retrieving the Location with ID:{public_id}")
 def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbLocation
@@ -518,20 +490,16 @@ def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"The Location with ID:{public_id} was not found!")
 
         return DefaultResponse(requested_location).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Location with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_location] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the Location with ID:{public_id}!")
 
 
 @location_blueprint.route('/<int:object_id>/object', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while retrieving the Location for Object with ID:{object_id}")
 def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to return the selected CmdbLocation for a given object_id (public_id of CmdbObject)
@@ -558,20 +526,16 @@ def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Resp
             abort(404, f"The Location for Object with ID:{object_id} was not found!")
 
         return DefaultResponse(requested_location).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location_for_object] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Location for Object with ID: {object_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the Location for Object with ID:{object_id}!")
 
 
 @location_blueprint.route('/<int:object_id>/parent', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while retrieving the parent location for Object with ID:{object_id}")
 def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to return the parent CmdbLocation for a given object_id (public_id of CmdbObject)
@@ -612,22 +576,16 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response
                 )
 
         return DefaultResponse(parent).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location_parent] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the parent Location for Object with ID: {object_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_location_parent] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500,
-            f"An internal server error occured while retrieving the parent location for Object with ID:{object_id}!"
-        )
 
 
 @location_blueprint.route('/<int:object_id>/children', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
+@handle_route_errors("while retrieving childen for Location of Object with ID: {object_id}")
 def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to get all direct child CmdbLocations for a given object_id
@@ -665,16 +623,9 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
             )
 
         return DefaultResponse(children).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_children] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve Location for Object with ID: {object_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_children] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500,
-            f"An internal server error occured while retrieving childen for Location of Object with ID: {object_id}!"
-        )
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -683,6 +634,7 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
 @location_blueprint.parse_request_body()
+@handle_route_errors("while updating a Location")
 def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update the CmdbLocation linked to an object
@@ -745,17 +697,12 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
         )
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_location_for_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the linked Object from the database!")
     except (LocationsManagerUpdateError, ObjectsManagerUpdateError) as err:
         LOGGER.error("[update_cmdb_location_for_object] Update error: %s", err, exc_info=True)
         abort(400, "Failed to update the Location in the database!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating a Location!")
 
 # ---------------------------------------------- CRUD - MOVE (drag & drop) ------------------------------------------- #
 
@@ -763,6 +710,7 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
+@handle_route_errors("while moving the Location of Object with ID:{object_id}")
 def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to move a single object's location placement to a new parent
@@ -810,23 +758,19 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         return DefaultResponse(
             {LocationKey.OBJECT_ID.value: object_id, LocationKey.PARENT.value: parent}
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
         LOGGER.error("[move_cmdb_location_for_object] ObjectsManager error: %s", err, exc_info=True)
         abort(400, f"Failed to move the Location of Object with ID:{object_id}!")
     except (LocationsManagerGetError, LocationsManagerUpdateError) as err:
         LOGGER.error("[move_cmdb_location_for_object] LocationsManager error: %s", err, exc_info=True)
         abort(400, f"Failed to move the Location of Object with ID:{object_id}!")
-    except Exception as err:
-        LOGGER.error("[move_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while moving the Location of Object with ID:{object_id}!")
 
 
 @location_blueprint.route('/parents', methods=['PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
+@handle_route_errors("while moving the Locations of the requested Objects")
 def move_cmdb_locations(request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to move several objects' location placements under one common parent
@@ -895,17 +839,12 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
         return DefaultResponse(
             {BULK_MOVE_OBJECT_IDS_KEY: object_ids, LocationKey.PARENT.value: parent}
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except (ObjectsManagerGetError, ObjectsManagerUpdateError) as err:
         LOGGER.error("[move_cmdb_locations] ObjectsManager error: %s", err, exc_info=True)
         abort(400, "Failed to move the Locations of the requested Objects!")
     except (LocationsManagerGetError, LocationsManagerUpdateError) as err:
         LOGGER.error("[move_cmdb_locations] LocationsManager error: %s", err, exc_info=True)
         abort(400, "Failed to move the Locations of the requested Objects!")
-    except Exception as err:
-        LOGGER.error("[move_cmdb_locations] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while moving the Locations of the requested Objects!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -913,6 +852,7 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @location_blueprint.protect(auth=True, right=LocationRight.DELETE.value)
+@handle_route_errors("while deleting an Location for Object with ID:{object_id}")
 def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete the CmdbLocation linked to the given object_id
@@ -957,11 +897,6 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
         )
 
         return DefaultResponse(ack).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_location_for_object] LocationsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the Location linked to Object with ID: {object_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_location_for_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting an Location for Object with ID:{object_id}!")

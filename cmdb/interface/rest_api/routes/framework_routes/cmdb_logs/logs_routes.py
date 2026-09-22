@@ -39,7 +39,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -48,7 +47,7 @@ from cmdb.manager import LogsManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -73,6 +72,7 @@ logs_blueprint = APIBlueprint('logs', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
+@handle_route_errors("when trying to retrieve the Log with ID:{public_id}")
 def get_log(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single log by its public_id
@@ -97,14 +97,9 @@ def get_log(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"The Log with ID:{public_id} was not found!")
 
         return DefaultResponse(requested_log).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except BaseManagerGetError as err:
         LOGGER.error("[get_log] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested log from database!")
-    except Exception as err:
-        LOGGER.error("[get_log] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured when trying to retrieve the Log with ID:{public_id}!")
 
 
 @logs_blueprint.route('/object/exists', methods=['GET', 'HEAD'])
@@ -112,6 +107,7 @@ def get_log(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
+@handle_route_errors("when trying to retrieve existing ObjectLogs")
 def get_logs_with_existing_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for object logs whose referenced object still exists
@@ -132,14 +128,9 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
         query = logs_manager.query_builder.prepare_log_query()
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
-    except HTTPException as http_err:
-        raise http_err
     except BaseManagerIterationError as err:
         LOGGER.error("[get_logs_with_existing_objects] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve existing ObjectLogs from database!")
-    except Exception as err:
-        LOGGER.error("[get_logs_with_existing_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured when trying to retrieve existing ObjectLogs!")
 
 
 @logs_blueprint.route('/object/notexists', methods=['GET', 'HEAD'])
@@ -147,6 +138,7 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
+@handle_route_errors("when trying to retrieve Logs of deleted Objects")
 def get_logs_with_deleted_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for object logs whose referenced object has been deleted
@@ -167,14 +159,9 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
         query = logs_manager.query_builder.prepare_log_query(False)
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
-    except HTTPException as http_err:
-        raise http_err
     except BaseManagerIterationError as err:
         LOGGER.error("[get_logs_with_deleted_objects] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Logs of deleted Objects from database!")
-    except Exception as err:
-        LOGGER.error("[get_logs_with_deleted_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured when trying to retrieve Logs of deleted Objects!")
 
 
 @logs_blueprint.route('/object/deleted', methods=['GET', 'HEAD'])
@@ -182,6 +169,7 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
+@handle_route_errors("when trying to retrieve deleted object logs")
 def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for logs recording an object deletion (action DELETE)
@@ -205,14 +193,9 @@ def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser)
         }
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
-    except HTTPException as http_err:
-        raise http_err
     except BaseManagerIterationError as err:
         LOGGER.error("[get_object_delete_logs] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the deleted object logs from database!")
-    except Exception as err:
-        LOGGER.error("[get_object_delete_logs] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured when trying to retrieve deleted object logs!")
 
 
 @logs_blueprint.route('/object/<int:object_id>', methods=['GET', 'HEAD'])
@@ -220,6 +203,7 @@ def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser)
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
 @logs_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving logs for Object with ID:{object_id}")
 def get_logs_by_object(object_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for all logs belonging to a single object
@@ -241,20 +225,16 @@ def get_logs_by_object(object_id: int, params: CollectionParameters, request_use
         query: dict[str, Any] = {LogKey.OBJECT_ID.value: object_id}
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
-    except HTTPException as http_err:
-        raise http_err
     except BaseManagerIterationError as err:
         LOGGER.error("[get_logs_by_object] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve logs for Object with ID:{object_id}!")
-    except Exception as err:
-        LOGGER.error("[get_logs_by_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving logs for Object with ID:{object_id}!")
 
 
 @logs_blueprint.route('/<int:public_id>/corresponding', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @logs_blueprint.protect(auth=True, right=LogRight.VIEW.value)
+@handle_route_errors("while retrieving corresponding logs for ID:{public_id}")
 def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for the other edit logs of the same object as the given log
@@ -304,17 +284,12 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
         corresponding_logs = [CmdbObjectLog.to_json(log) for log in logs.results]
 
         return DefaultResponse(corresponding_logs).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except BaseManagerGetError as err:
         LOGGER.error("[get_corresponding_object_logs] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve corresponding logs for ID:{public_id}!")
     except BaseManagerIterationError as err:
         LOGGER.error("[get_corresponding_object_logs] BaseManagerIterationError: %s", err, exc_info=True)
         abort(400, f"Failed to iterate corresponding logs for ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_corresponding_object_logs] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving corresponding logs for ID:{public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -322,6 +297,7 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @logs_blueprint.protect(auth=True, right=LogRight.DELETE.value)
+@handle_route_errors("while deleting Log with ID:{public_id}")
 def delete_log(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single log by its public_id
@@ -349,14 +325,9 @@ def delete_log(public_id: int, request_user: CmdbUser) -> Response:
         deleted = logs_manager.delete({LogKey.PUBLIC_ID.value: public_id})
 
         return DefaultResponse(deleted).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except BaseManagerGetError as err:
         LOGGER.error("[delete_log] BaseManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the log with ID:{public_id} from database!")
     except BaseManagerDeleteError as err:
         LOGGER.error("[delete_log] BaseManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the log with the ID:{public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_log] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting Log with ID:{public_id}!")

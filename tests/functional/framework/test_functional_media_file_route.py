@@ -198,6 +198,22 @@ class TestGetSingle:
         # DefaultResponse returns the file document directly (not wrapped in a 'result' envelope)
         assert response.get_json()['filename'] == 'dg-func-single.txt'
 
+    def test_the_trailing_slash_form_is_not_registered(self, rest_api) -> None:
+        """
+        The same read with a trailing slash does not resolve - the route is registered once
+
+        It answered both forms until 2026-09-21, the last duplicate registration in the API
+        (discussion-backlog #36). The form that survived is the one the frontend sends
+        (`file.service.ts::getFileElement`), so this 404 is routing, not a missing file - the
+        assertion above proves the file is there.
+        """
+        _upload(rest_api, 'dg-func-slash.txt')
+        metadata = json.dumps({'author_id': AUTHOR_ID})
+
+        response = rest_api.get(f'{BASE_URL}/dg-func-slash.txt/?metadata={metadata}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
 
 class TestDownload:
     """GET /media_file/download/<filename> streams the file content."""

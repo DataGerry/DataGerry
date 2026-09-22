@@ -70,7 +70,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_db_errors
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access, handle_db_errors
 from cmdb.interface.rest_api.routes.routes_helper import (
     as_pipeline_criteria,
     extract_public_ids,
@@ -148,6 +148,7 @@ objects_blueprint = APIBlueprint('objects', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.add')
 @objects_blueprint.validate(CmdbObject.SCHEMA)
+@handle_route_errors("while creating the Object")
 def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbObject into the database
@@ -184,8 +185,6 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
         new_object_id: int = apply_object_insert(data, request_user, objects_manager, types_manager)
 
         return DefaultResponse(new_object_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except (DocumentLockTimeoutError, DocumentNetworkError) as db_err:
         # Re-raised so `@handle_db_errors` can map them to 423 / 503. Without this arm the generic
         # `except Exception` below claims them first and the decorator - which only ever sees what
@@ -201,9 +200,6 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
     except AccessDeniedError as err:
         LOGGER.error("[insert_cmdb_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission to insert the Object!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the Object!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -211,6 +207,7 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@handle_route_errors("while retrieving the Object with ID: {public_id}")
 def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbObject with render information
@@ -274,17 +271,12 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(500, f"Object with ID: {public_id} could not be rendered!")
 
         return DefaultResponse(render_result).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Object with ID: {public_id} from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission to retrieve the object!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the Object with ID: {public_id}!")
 
 
 @objects_blueprint.route('/', methods=['GET', 'HEAD'])
@@ -292,6 +284,7 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@handle_route_errors("while retrieving Objects from the database")
 def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjects
@@ -338,14 +331,9 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
                                         body=request_wants_body())
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerIterationError as err:
         LOGGER.error("[get_cmdb_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving Objects from the database!")
 
 
 @objects_blueprint.route('/count', methods=['GET'])
@@ -422,6 +410,7 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@handle_route_errors("while retrieving the native Object with ID: {public_id}")
 def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbObject in its raw (un-rendered) form
@@ -445,17 +434,12 @@ def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"The Object with ID:{public_id} was not found!")
 
         return DefaultResponse(object_instance).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_native_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Object with ID: {public_id} from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_native_cmdb_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission to retrieve the object!")
-    except Exception as err:
-        LOGGER.error("[get_native_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the native Object with ID: {public_id}!")
 
 
 @objects_blueprint.route('/group/<string:value>', methods=['GET'])
@@ -528,6 +512,7 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@handle_route_errors("while retrieving the MDS reference for Object with ID: {public_id}")
 def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the rendered MDS reference summary for a single CmdbObject
@@ -562,25 +547,19 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
         mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(public_id)
 
         return DefaultResponse(mds_reference).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_mds_reference] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object_mds_reference] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission for this action!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_mds_reference] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500,
-            f"An internal server error occured while retrieving the MDS reference for Object with ID: {public_id}!"
-        )
 
 
 @objects_blueprint.route('/<int:public_id>/mds_references', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@handle_route_errors("while retrieving MDS references")
 def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning rendered MDS reference summaries for one or more CmdbObjects
@@ -629,17 +608,12 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
             summary_lines[object_id] = mds_reference
 
         return DefaultResponse(summary_lines).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_mds_references] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve an Object from the database!")
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object_mds_references] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission for this action!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_mds_references] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving MDS references!")
 
 
 @objects_blueprint.route('/references/<int:public_id>', methods=['GET', 'HEAD'])
@@ -764,6 +738,7 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.edit')
 @objects_blueprint.validate(CmdbObject.SCHEMA)
+@handle_route_errors("while updating Object with ID:{public_id}")
 def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route to fully replace one or more CmdbObjects with the same payload
@@ -819,8 +794,6 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
         ]
 
         return UpdateMultiResponse(results=results).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -829,15 +802,13 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
         abort(400, "Failed to update the requested Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating Object with ID:{public_id}!")
 
 
 @objects_blueprint.route('/<int:public_id>', methods=['PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+@handle_route_errors("while patching Object with ID:{public_id}")
 def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PATCH` route to partially update a single CmdbObject
@@ -898,8 +869,6 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         )
 
         return UpdateSingleResponse(result).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[patch_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -908,15 +877,13 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         abort(400, "Failed to update the requested Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[patch_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while patching Object with ID:{public_id}!")
 
 
 @objects_blueprint.route('/state/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.activation')
+@handle_route_errors("while updating Object state of ID:{public_id}")
 def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     Updates the active state of a CmdbObject
@@ -995,8 +962,6 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         )
 
         return UpdateSingleResponse(result=CmdbObject.to_json(found_object)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_object_state] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -1005,9 +970,6 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         abort(400, "Failed to update the Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_object_state] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating Object state of ID:{public_id}!")
 
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -1016,6 +978,7 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@handle_route_errors("while deleting the Object with ID: {public_id}")
 def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to remove a single CmdbObject from the database
@@ -1064,8 +1027,6 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         delete_one_cascade(request_user, to_delete_object, objects_manager, LogAction.DELETE)
 
         return DefaultResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerUpdateError as err:
         LOGGER.error("[delete_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(500, "Failed to delete Object references from the database!")
@@ -1077,15 +1038,13 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         abort(500, "Failed to delete the Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the Object with ID: {public_id}!")
 
 
 @objects_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@handle_route_errors("while deleting multiple Objects")
 # Cohesive bulk delete: location guard -> IPAM guard -> RA cascade -> per-object delete + side
 # effects -> reference scrub -> cloud count sync; the locals are inherent to the sequence
 # pylint: disable=too-many-locals
@@ -1214,8 +1173,6 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
             handle_sync_config_item_count(request_user, objects_count)
 
         return DefaultResponse({BulkDeleteKey.SUCCESSFULLY.value: ack}).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[delete_many_cmdb_objects] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -1224,6 +1181,3 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
         abort(500, "Failed to delete the Object in the database!")
     except AccessDeniedError:
         abort(403, "Access denied: You do not have sufficient permissions to perform this action!")
-    except Exception as err:
-        LOGGER.error("[delete_many_cmdb_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while deleting multiple Objects!")

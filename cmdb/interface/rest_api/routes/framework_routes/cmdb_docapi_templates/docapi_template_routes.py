@@ -53,7 +53,7 @@ from cmdb.framework.exporter.export_filename_helper import build_document_export
 from cmdb.framework.results import IterationResult
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import GetMultiResponse, DefaultResponse
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
@@ -293,6 +293,7 @@ def get_template(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @docapi_blueprint.protect(auth=True, right=DocapiTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
+@handle_route_errors("when trying to retrieve the Template with name:{name}")
 def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route for resolving a DocapiTemplate by its name
@@ -323,14 +324,9 @@ def get_template_by_name(name: str, request_user: CmdbUser) -> Response:
         tpl = docapi_manager.get_template_by_name(name=name)
 
         return DefaultResponse(tpl).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except DocapiTemplatesManagerGetError as err:
         LOGGER.error("[get_template_by_name] %s", err, exc_info=True)
         abort(400, f"Could not retrieve the template with name:{name}!")
-    except Exception as err:
-        LOGGER.error("[get_template_by_name] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, f"An internal server error occured when trying to retrieve the Template with name:{name}!")
 
 
 @docapi_blueprint.route('/template/<int:public_id>/render/<int:object_id>', methods=['GET'])

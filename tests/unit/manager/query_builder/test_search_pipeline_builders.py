@@ -39,6 +39,7 @@ from cmdb.manager.query_builder import (
     SearchPipelineBuilder,
 )
 from cmdb.framework.search.search_param import SearchParam
+from cmdb.framework.search.search_constants import SearchFormType
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -466,3 +467,59 @@ class TestSearchPipelineBuilder:
     def test_an_empty_pipeline_answers_empty(self) -> None:
         """Called before build() - the searcher constructs the builder around a pipeline"""
         assert SearchPipelineBuilder().get_regex_pipes_values() == []
+
+
+class TestTheDisjunctionMarker:
+    """The one accepted search form that drives no stage, and the flag that decides OR vs AND."""
+
+    @pytest.fixture(autouse=True)
+    def _stub_managers(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Stubs the managers build() resolves lazily: CategoriesManager and the ACL TypesManager."""
+        _stub_manager_provider(monkeypatch, DENIED_TYPE_IDS)
+
+    def test_a_disjunction_marker_adds_no_stage_at_all(self) -> None:
+        """
+        The marker the search bar appends produces the same pipeline as not sending it
+
+        `SearchFormType.DISJUNCTION` drives no branch of `build`, and this asserts the consequence
+        rather than the absence: a pipeline identical to the one without it, so the parameter cannot
+        filter, cannot widen and cannot reorder anything (discussion-backlog #212, kept as a
+        documented no-op).
+        """
+        marker = SearchParam('or', SearchFormType.DISJUNCTION.value, disjunction=True)
+
+        with_marker = SearchPipelineBuilder().build([SearchParam('srv', 'text'), marker])
+        without_marker = SearchPipelineBuilder().build([SearchParam('srv', 'text')])
+
+        assert with_marker == without_marker
+
+    def test_a_disjunction_marker_contributes_no_search_pattern(self) -> None:
+        """
+        Its own text never becomes a `$regex`, which is what keeps it out of the match highlighting
+
+        The hits' `matches` are computed from the executed pipeline's regexes, so a marker that
+        reached a stage would highlight the word it carries ('or') in every result.
+        """
+        pipeline = SearchPipelineBuilder()
+        pipeline.build([
+            SearchParam('srv', 'text'),
+            SearchParam('or', SearchFormType.DISJUNCTION.value, disjunction=True),
+        ])
+
+        assert pipeline.get_regex_pipes_values() == ['srv']
+
+    def test_only_an_explicit_key_reaches_the_and_branch(self) -> None:
+        """
+        A request reaches the AND branch only by spelling `disjunction: false` on a TYPE parameter
+
+        The default is True and the search bar never sets the key, so the branch above is unreachable
+        from the UI - it exists for API clients. This pins the one way in, so the AND path is not
+        mistaken for something the frontend can ask for.
+        """
+        from_ui_shaped_payload = SearchParam.from_request([{'searchText': '', 'searchForm': 'type'}])
+        from_api_client = SearchParam.from_request(
+            [{'searchText': '', 'searchForm': 'type', 'disjunction': False}]
+        )
+
+        assert from_ui_shaped_payload[0].disjunction is True
+        assert from_api_client[0].disjunction is False

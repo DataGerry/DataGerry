@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import RiskManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -32,7 +31,7 @@ from cmdb.models.isms_model import IsmsRisk, RiskType
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_BULK_DELETE_DELETED_KEY,
@@ -71,6 +70,7 @@ risk_blueprint = APIBlueprint('risk', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.add')
 @risk_blueprint.validate(build_write_schema(IsmsRisk.SCHEMA))
+@handle_route_errors("while creating the Risk")
 def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRisk into the database
@@ -98,17 +98,12 @@ def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
             abort(404, "Could not retrieve the created Risk from the database!")
 
         return InsertSingleResponse(created_risk, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskManagerInsertError as err:
         LOGGER.error("[insert_isms_risk] RiskManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new Risk in the database!")
     except RiskManagerGetError as err:
         LOGGER.error("[insert_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created Risk from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_isms_risk] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the Risk!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -157,6 +152,7 @@ def get_isms_risks(params: CollectionParameters, request_user: CmdbUser) -> Resp
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.view')
+@handle_route_errors("while retrieving the Risk with ID: {public_id}")
 def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRisk
@@ -175,14 +171,9 @@ def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
                                          f"The Risk with ID:{public_id} was not found!")
 
         return GetSingleResponse(requested_risk, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskManagerGetError as err:
         LOGGER.error("[get_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Risk with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risk] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the Risk with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -191,6 +182,7 @@ def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.edit')
 @risk_blueprint.validate(build_write_schema(IsmsRisk.SCHEMA))
+@handle_route_errors("while updating the Risk with ID: {public_id}")
 def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRisk
@@ -220,17 +212,12 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
         risk_manager.update_item(public_id, IsmsRisk.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskManagerGetError as err:
         LOGGER.error("[update_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Risk with ID: {public_id} from the database!")
     except RiskManagerUpdateError as err:
         LOGGER.error("[update_isms_risk] RiskManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Risk with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_risk] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the Risk with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -238,6 +225,7 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
+@handle_route_errors("while deleting the Risk with ID: {public_id}")
 def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRisk
@@ -258,23 +246,19 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
         risk_manager.delete_with_follow_up(public_id)
 
         return DeleteSingleResponse(to_delete_risk).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskManagerDeleteError as err:
         LOGGER.error("[delete_isms_risk] RiskManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the Risk with ID:{public_id}!")
     except RiskManagerGetError as err:
         LOGGER.error("[delete_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Risk with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_isms_risk] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the Risk with ID: {public_id}!")
 
 
 @risk_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
+@handle_route_errors("while bulk-deleting Risks")
 def delete_many_isms_risks(public_ids: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to bulk-delete IsmsRisks by a comma-separated id list
@@ -306,14 +290,9 @@ def delete_many_isms_risks(public_ids: str, request_user: CmdbUser) -> Response:
             RISK_BULK_DELETED_RA_KEY: deleted_ras,
             RISK_BULK_DELETED_CMA_KEY: deleted_cmas,
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskManagerDeleteError as err:
         LOGGER.error("[delete_many_isms_risks] RiskManagerDeleteError: %s", err, exc_info=True)
         abort(400, "Failed to bulk-delete the requested Risks!")
-    except Exception as err:
-        LOGGER.error("[delete_many_isms_risks] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while bulk-deleting Risks!")
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

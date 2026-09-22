@@ -211,6 +211,9 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_routes import webhook_event_blueprint
     from cmdb.interface.rest_api.routes.relation_routes.relations_routes import relations_blueprint
     from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes import object_relations_blueprint
+    from cmdb.interface.rest_api.routes.relation_routes.object_relation_logs_routes import (
+        object_relation_logs_blueprint,
+    )
     from cmdb.interface.rest_api.routes.rack_routes.rack_mount_routes import rack_mounts_blueprint
     from cmdb.interface.rest_api.routes.rack_routes.rack_assignable_routes import rack_assignable_blueprint
     from cmdb.interface.rest_api.routes.port_routes import (
@@ -220,7 +223,6 @@ def register_blueprints(app: BaseCmdbApp) -> None:
         port_preview_blueprint,
     )
     from cmdb.interface.rest_api.routes.port_connection_routes import port_connection_blueprint
-    from cmdb.interface.rest_api.routes.log_routes.object_relation_logs_routes import object_relation_logs_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.persons_routes import person_blueprint
     from cmdb.interface.rest_api.routes.user_management_routes.person_groups_routes import person_group_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import isms_importer_blueprint

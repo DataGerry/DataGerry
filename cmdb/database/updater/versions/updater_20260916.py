@@ -393,4 +393,4 @@ class Update20260916(BaseDatabaseUpdate):
 
             self.increase_updater_version(self.creation_date())
         except Exception as err:
-            raise UpdaterException(str(err)) from err
+            raise UpdaterException(err) from err

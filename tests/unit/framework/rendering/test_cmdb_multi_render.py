@@ -31,10 +31,18 @@ import pytest
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.framework.rendering import cmdb_multi_render as mr_module
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
-from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME, RenderTypeInfoKey
+from cmdb.framework.rendering.render_constants import (
+    ANONYMOUS_NAME,
+    RenderedFieldKey,
+    RenderedLocationReferenceKey,
+    RenderedReferenceSectionKey,
+    RenderTypeInfoKey,
+)
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model.type_reference import TypeReference
 from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
@@ -653,6 +661,32 @@ class TestMergeFieldContentSection:
 
         assert isinstance(merged['value'], datetime)
 
+    def test_an_unreadable_date_string_is_left_as_it_is(self, managers) -> None:
+        """
+        The one place a date is read out of USER data, so it must not be invented
+
+        A DATE field whose stored value is free text used to be parsed with `fuzzy=True`: 'ask Bob'
+        rendered as a date assembled from today, on READ, and travelled into every export and report
+        without the stored document ever changing. Refusing is not an option either - the render is
+        crash-tolerant by construction - so the raw value survives and the reader sees what is stored.
+        """
+        render = _render(managers, [], types_cache={})
+        obj = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [{'type': FieldType.DATE, 'name': DATE_FIELD, 'value': 'ask Bob'}])
+
+        merged = self._merge(render, {'name': DATE_FIELD, 'type': FieldType.DATE, 'value': None}, obj)
+
+        assert merged['value'] == 'ask Bob'
+
+    def test_the_mongo_wrapper_shape_is_read_too(self, managers) -> None:
+        """The frontend sends a date back as `{'$date': <millis>}`, and a re-render must read it."""
+        render = _render(managers, [], types_cache={})
+        obj = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID,
+                   [{'type': FieldType.DATE, 'name': DATE_FIELD, 'value': '2026-03-01T10:00:00'}])
+
+        merged = self._merge(render, {'name': DATE_FIELD, 'type': FieldType.DATE, 'value': None}, obj)
+
+        assert isinstance(merged['value'], datetime)
+
     def test_reference_field_merges_reference_when_ref_render(self, managers) -> None:
         """A reference field with ref_render on gets its reference resolved inline."""
         render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
@@ -793,6 +827,97 @@ class TestMergeFieldsValue:
         assert all('references' not in f for f in fields)
 
 
+class TestTheRenderedReferencePayload:
+    """Every render path fills a reference field with the SAME seven-key TypeReference payload."""
+
+    EXTRA_FIELD: str = 'not-a-summary-field'
+    EXTRA_VALUE: str = 'ignored by the summary'
+
+    def _two_field_ref_type(self) -> CmdbType:
+        """A referenced type with two fields, of which only the first is its summary field."""
+        return CmdbType.from_data(make_type_doc(
+            REF_TYPE_ID, 'ref-type',
+            fields=[
+                {'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'},
+                {'type': FieldType.TEXT, 'name': self.EXTRA_FIELD, 'label': 'Extra'},
+            ],
+            sections=[{'type': 'section', 'name': 'main', 'label': 'Main',
+                       'fields': [NAME_FIELD, self.EXTRA_FIELD]}],
+        ))
+
+    def _two_field_ref_obj(self) -> CmdbObject:
+        """The referenced object carrying a value for both of those fields."""
+        return _obj(REF_OBJ_ID, REF_TYPE_ID, [
+            {'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': REF_NAME_VALUE},
+            {'type': FieldType.TEXT, 'name': self.EXTRA_FIELD, 'value': self.EXTRA_VALUE},
+        ])
+
+    def _render_main(self, managers) -> CmdbMultiRender:
+        """A ref-rendering CmdbMultiRender over the main object, with the two-field ref type cached."""
+        return _render(
+            managers, [_main_obj()], ref_render=True,
+            objects_cache={REF_OBJ_ID: self._two_field_ref_obj()},
+            types_cache={MAIN_TYPE_ID: _main_type(), REF_TYPE_ID: self._two_field_ref_type()},
+        )
+
+    def test_a_plain_section_reference_is_a_full_type_reference(self, managers) -> None:
+        """
+        A reference field of a plain section renders the complete TypeReference payload
+
+        The frontend reads LINE, ICON and PREFIX out of this block, so a short payload leaves the
+        reference field rendering without them
+        """
+        # result(single_object=True) returns a single RenderResult; pylint infers the list union
+        # pylint: disable=no-member
+        result = self._render_main(managers).result(single_object=True)
+
+        reference = _field(result.fields, REF_FIELD)[RenderedFieldKey.REFERENCE.value]
+
+        assert set(reference) == {key.value for key in TypeReferenceKey}
+        assert reference[TypeReferenceKey.OBJECT_ID.value] == REF_OBJ_ID
+        assert reference[TypeReferenceKey.TYPE_ID.value] == REF_TYPE_ID
+
+    def test_the_summaries_are_the_types_configured_summary_fields(self, managers) -> None:
+        """
+        Only the referenced type's SUMMARY fields are summarised, not every field it defines
+
+        The expansion built for a plain section used to list all of them, so a type with twenty
+        fields shipped twenty summary entries per reference - and the frontend showed them
+        """
+        # pylint: disable=no-member
+        result = self._render_main(managers).result(single_object=True)
+
+        summaries = _field(result.fields, REF_FIELD)[RenderedFieldKey.REFERENCE.value][
+            RenderedFieldKey.SUMMARIES.value
+        ]
+
+        assert [entry[FieldKey.VALUE.value] for entry in summaries] == [REF_NAME_VALUE]
+
+    def test_the_expansion_path_agrees_with_the_merge_path(self, managers) -> None:
+        """
+        `_expand_reference_field` (used when the merge did not expand) answers the same payload
+
+        The two paths are the reason the same `reference` key used to carry two shapes
+        """
+        # pylint: disable=no-member
+        render = self._render_main(managers)
+        merged = render.result(single_object=True)
+
+        expanded = render._expand_reference_field(REF_FIELD, _main_obj(), _main_type())
+
+        assert expanded[RenderedFieldKey.REFERENCE.value] == \
+            _field(merged.fields, REF_FIELD)[RenderedFieldKey.REFERENCE.value]
+
+    def test_a_location_reference_stays_a_placeholder(self, managers) -> None:
+        """A location field is the ONE expansion that is not a TypeReference - nothing resolves it."""
+        render = _render(managers, [], types_cache={})
+
+        reference = render._build_location_reference(REF_OBJ_ID)
+
+        assert set(reference) == {key.value for key in RenderedLocationReferenceKey}
+        assert reference[RenderedLocationReferenceKey.OBJECT_ID.value] == REF_OBJ_ID
+
+
 class TestDoesNotMutateCache:
     """Rendering never writes back onto the shared cached type."""
 
@@ -858,6 +983,27 @@ class TestMergeReferenceSection:
         ref_field = render._merge_reference_section(section, self._refsec_obj(ref_value=None), refsec_type, 3)
 
         assert ref_field['references']['type_id'] == REF_TYPE_ID
+
+
+class TestReferenceSectionDepth:
+    """The ref-section merge stops recursing at level 0 but still pulls the section's own fields."""
+
+    def test_level_zero_pulls_the_fields_without_recursing(self, managers) -> None:
+        """At the bottom of the recursion a pulled field keeps its value and gains no nested block."""
+        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [
+            {'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'Owner'},
+            {'type': FieldType.REFERENCE, 'name': REFSEC_REF_FIELD, 'value': REF_OBJ_ID},
+        ])
+        refsec_type = _refsec_type()
+        render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
+
+        ref_field = render._merge_reference_section(
+            refsec_type.render_meta.sections[1], refsec_obj, refsec_type, 0
+        )
+
+        pulled = ref_field[RenderedFieldKey.REFERENCES.value][RenderedReferenceSectionKey.FIELDS.value]
+        assert [field[FieldKey.VALUE.value] for field in pulled] == [REF_NAME_VALUE]
 
 
 class TestReportsAnUnresolvableReferenceSection:
@@ -1192,18 +1338,26 @@ class TestMergeReferencesSummaryLine:
         assert reference['line'] == 'Static'
         assert reference['summaries'] == []
 
-    def test_reference_expansion_field_error_skipped(self, managers) -> None:
-        """A referenced summary field that fails to resolve is skipped in the expansion."""
-        ref_type = self._mock_ref_type()
-        ref_type.get_fields.return_value = [{'name': 'ghost'}]
-        ref_type.get_field.side_effect = RuntimeError('no field')
-        ref_type.public_id = REF_TYPE_ID
-        ref_type.name = 'ref'
-        render = self._render_with_mock_type(managers, ref_type)
+    def test_the_expansion_serialises_a_type_reference(self, managers) -> None:
+        """
+        `_build_reference_expansion` answers the SAME payload as the inline merge
+
+        It used to build a five-key dict of its own - no `line`, no `icon`, no `prefix`, and
+        `summaries` holding every field of the referenced type instead of its configured summary
+        fields - so one `reference` key carried two shapes depending on the render path.
+        """
+        render = self._render_with_mock_type(managers, self._mock_ref_type())
 
         reference = render._build_reference_expansion(REF_OBJ_ID)
 
-        assert reference['summaries'] == []
+        assert set(reference) == {key.value for key in TypeReferenceKey}
+        assert reference[TypeReferenceKey.LINE.value] == f'Name {REF_NAME_VALUE}'
+
+    def test_an_unresolvable_reference_is_reported_as_none(self, managers) -> None:
+        """The callers clear the field's value on None, so the empty reference maps back to it."""
+        render = _render(managers, [], types_cache={}, objects_cache={})
+
+        assert render._build_reference_expansion(REF_OBJ_ID) is None
 
 
 class TestLinkedObjectsFallback:
@@ -1217,6 +1371,26 @@ class TestLinkedObjectsFallback:
         render.types_manager.get_type_instance.return_value = None
 
         assert render.get_all_linked_objects() == {}
+
+    def test_the_fallback_type_is_fetched_once_per_type(self, managers) -> None:
+        """
+        Several untyped fields of the same type cost ONE type lookup, not one per field
+
+        The fallback used to re-query the type for every untyped field - an N+1 over the whole
+        render, on exactly the legacy objects that trip it
+        """
+        untyped = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [
+            {'name': REF_FIELD, 'value': REF_OBJ_ID},
+            {'name': LOC_FIELD, 'value': REF_OBJ_ID},
+        ])
+        render = _render(managers, [], types_cache={}, ref_render=True)
+        render.to_render_objects = [untyped]
+        render.types_manager.get_type_instance.return_value = _main_type()
+        render.objects_manager.get_objects_lookup.return_value = {REF_OBJ_ID: _ref_obj()}
+
+        render.get_all_linked_objects()
+
+        render.types_manager.get_type_instance.assert_called_once_with(MAIN_TYPE_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1413,18 +1587,63 @@ class TestRenderDegradation:
 
 
 class TestUnknownSectionType:
-    """__merge_fields_value only knows three section kinds."""
+    """A section kind the render does not know is merged as a plain one, and says so."""
 
-    def test_a_section_of_an_unknown_kind_contributes_nothing(self, managers) -> None:
-        """
-        Current behaviour, pinned rather than endorsed (discussion-backlog #172)
+    UNKNOWN_KIND: str = 'a-kind-from-a-newer-version'
 
-        A section that is neither a field/MDS section nor a reference section is skipped silently -
-        no fields, no log - so a fourth section kind would render as an invisible gap.
+    def _type_with_an_unknown_section(self) -> CmdbType:
+        """A stored type whose only section declares a kind no SectionType member covers."""
+        return CmdbType.from_data(make_type_doc(
+            MAIN_TYPE_ID, 'main-type',
+            fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}],
+            sections=[{'type': self.UNKNOWN_KIND, 'name': 'main', 'label': 'Main',
+                       'fields': [NAME_FIELD]}],
+        ))
+
+    def test_a_stored_unknown_kind_still_renders_its_fields(self, managers) -> None:
         """
+        The render follows `SECTION_CLASSES`: a kind it does not know is a PLAIN section
+
+        This is the whole reason a type saved by a newer version stays readable - the registry
+        answers the unknown kind with a TypeFieldSection, and the render must not then drop what the
+        registry kept.
+        """
+        unknown_type = self._type_with_an_unknown_section()
+        render = _render(managers, [], types_cache={MAIN_TYPE_ID: unknown_type})
+
+        fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), unknown_type, 1)
+
+        assert _field(fields, NAME_FIELD)[FieldKey.VALUE.value] == MAIN_NAME_VALUE
+
+    def test_a_section_class_the_render_does_not_know_is_merged_as_plain(self, managers, caplog) -> None:
+        """A section object outside the three classes is merged as plain and reported."""
+        section = SimpleNamespace(type=self.UNKNOWN_KIND, name='main', label='Main',
+                                  fields=[NAME_FIELD])
         main_type = _main_type()
-        main_type.render_meta.sections = [Mock(name='unknown-kind')]
+        main_type.render_meta.sections = [section]
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        assert render._CmdbMultiRender__merge_fields_value(_main_obj(), main_type, 1) == []
+        with caplog.at_level(logging.WARNING):
+            fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), main_type, 1)
+
+        assert _field(fields, NAME_FIELD)[FieldKey.VALUE.value] == MAIN_NAME_VALUE
+        assert self.UNKNOWN_KIND in caplog.text
+
+    def test_a_section_without_a_fields_list_is_skipped_with_a_log(self, managers, caplog) -> None:
+        """
+        Nothing to merge is still reported - the gap discussion-backlog #172 named
+
+        The `elif` chain used to end with no branch, so such a section contributed no fields with no
+        log and no marker; the section itself still appears in the render result's `sections` block,
+        which is what made it look like a rendering glitch rather than a missing kind.
+        """
+        main_type = _main_type()
+        main_type.render_meta.sections = [TypeSection(type=self.UNKNOWN_KIND, name='main', label='Main')]
+        render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
+
+        with caplog.at_level(logging.WARNING):
+            fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), main_type, 1)
+
+        assert fields == []
+        assert self.UNKNOWN_KIND in caplog.text
 

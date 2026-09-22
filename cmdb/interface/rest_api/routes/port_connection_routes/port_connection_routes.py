@@ -58,7 +58,6 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
@@ -92,7 +91,7 @@ from cmdb.errors.manager.port_connections_manager import (
 )
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -156,6 +155,7 @@ port_connection_blueprint = APIBlueprint('port_connections', __name__)
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.ADD.value)
 @port_connection_blueprint.validate(get_cmdb_port_connection_write_schema())
+@handle_route_errors("while creating the Port connection")
 def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to create a CmdbPortConnection between two CmdbPorts
@@ -217,16 +217,11 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
             abort(404, 'Could not retrieve the created Port connection from the database!')
 
         return InsertSingleResponse(with_cable_view(created, request_user), new_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PortConnectionsManagerInsertError as err:
         # The partial unique indexes are what stop two concurrent creates, and they are the only thing
         # that can: every check above is a read followed by a write
         LOGGER.error("[insert_cmdb_port_connection] PortConnectionsManagerInsertError: %s", err, exc_info=True)
         duplicate_key_abort(err, connection_type, endpoints)
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_port_connection] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while creating the Port connection!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #
@@ -236,6 +231,7 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
+@handle_route_errors("while retrieving the Port connection ID: {public_id}")
 def get_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbPortConnection
@@ -259,20 +255,16 @@ def get_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Response
         return GetSingleResponse(
             with_cable_view(connection, request_user), body=request_wants_body(),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PortConnectionsManagerGetError as err:
         LOGGER.error("[get_cmdb_port_connection] PortConnectionsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the Port connection with ID: {public_id} from the database!')
-    except Exception as err:
-        LOGGER.error("[get_cmdb_port_connection] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while retrieving the Port connection ID: {public_id}!')
 
 
 @port_connection_blueprint.route('/port/<int:port_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
+@handle_route_errors("while retrieving the connections of Port ID: {port_id}")
 def get_cmdb_port_connections_of_port(port_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve every CmdbPortConnection one CmdbPort takes part in
@@ -302,19 +294,15 @@ def get_cmdb_port_connections_of_port(port_id: int, request_user: CmdbUser) -> R
         return DefaultResponse(
             with_cable_views(port_connections_manager.get_connections_of_port(port_id), request_user),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PortConnectionsManagerGetError as err:
         LOGGER.error("[get_cmdb_port_connections_of_port] PortConnectionsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the Port connections of Port ID: {port_id} from the database!')
-    except Exception as err:
-        LOGGER.error("[get_cmdb_port_connections_of_port] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while retrieving the connections of Port ID: {port_id}!')
 
 @port_connection_blueprint.route('/object/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
+@handle_route_errors("while retrieving the connections of CmdbObject ID: {object_id}")
 def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve every CmdbPortConnection of one CmdbObject's CmdbPorts
@@ -367,8 +355,6 @@ def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) 
                 port_connections_manager.get_connections_of_ports(collect_port_ids(ports)), request_user,
             ),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_port_connections_of_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
@@ -379,16 +365,12 @@ def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) 
         LOGGER.error("[get_cmdb_port_connections_of_object] PortConnectionsManagerGetError: %s", err,
                      exc_info=True)
         abort(400, f'Failed to retrieve the Port connections of CmdbObject ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[get_cmdb_port_connections_of_object] Exception: %s. Type: %s", err, type(err),
-                     exc_info=True)
-        abort(500,
-              f'An internal server error occured while retrieving the connections of CmdbObject ID: {object_id}!')
 
 @port_connection_blueprint.route('/cable_usage/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
+@handle_route_errors("while determining the Port connection usage of the Cable with ID: {object_id}")
 def get_cable_usage_of_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to answer whether a Cable CI is still used by a CmdbPortConnection
@@ -428,24 +410,19 @@ def get_cable_usage_of_object(object_id: int, request_user: CmdbUser) -> Respons
         return DefaultResponse(
             build_cable_usage_payload(port_connections_manager, object_id),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[get_cable_usage_of_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortConnectionsManagerGetError as err:
         LOGGER.error("[get_cable_usage_of_object] PortConnectionsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to determine the Port connection usage of the Cable with ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[get_cable_usage_of_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while determining the Port connection usage of the '
-                   f'Cable with ID: {object_id}!')
 
 @port_connection_blueprint.route('/cables/unassigned/', methods=['GET', 'HEAD'])
 @port_connection_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
+@handle_route_errors("while listing the assignable Cables")
 def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to list the Cable CIs that can still be assigned to a CmdbPortConnection
@@ -519,8 +496,6 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
             url=request.url,
             body=request_wants_body(),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PortConnectionsManagerGetError as err:
         LOGGER.error("[get_unassigned_cables] PortConnectionsManagerGetError: %s", err, exc_info=True)
         abort(400, 'Failed to retrieve the Cables already used by a Port connection!')
@@ -530,9 +505,6 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
     except TypesManagerGetError as err:
         LOGGER.error("[get_unassigned_cables] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, 'Failed to retrieve the Cable types!')
-    except Exception as err:
-        LOGGER.error("[get_unassigned_cables] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while listing the assignable Cables!')
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -544,6 +516,7 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.EDIT.value)
 @port_connection_blueprint.validate(get_cmdb_port_connection_write_schema())
+@handle_route_errors("while updating the Port connection ID: {public_id}")
 def update_cmdb_port_connection(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update the cable information of a single CmdbPortConnection
@@ -606,14 +579,9 @@ def update_cmdb_port_connection(public_id: int, data: dict[str, Any], request_us
         updated: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
 
         return UpdateSingleResponse(with_cable_view(updated, request_user)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PortConnectionsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_port_connection] PortConnectionsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f'Failed to update the Port connection with ID: {public_id}!')
-    except Exception as err:
-        LOGGER.error("[update_cmdb_port_connection] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while updating the Port connection ID: {public_id}!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - DELETE                                                      #
@@ -623,6 +591,7 @@ def update_cmdb_port_connection(public_id: int, data: dict[str, Any], request_us
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.DELETE.value)
+@handle_route_errors("while deleting the Port connection ID: {public_id}")
 def delete_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbPortConnection
@@ -652,19 +621,15 @@ def delete_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Respo
         port_connections_manager.delete_item(public_id)
 
         return DeleteSingleResponse(connection).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PortConnectionsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_port_connection] PortConnectionsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f'Failed to delete the Port connection with ID: {public_id}!')
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_port_connection] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while deleting the Port connection ID: {public_id}!')
 
 @port_connection_blueprint.route('/object/<int:object_id>/bulk', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.DELETE.value)
+@handle_route_errors("while resolving the selected Port connections")
 def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to resolve several CmdbPortConnections of one CmdbObject's ports at once
@@ -720,11 +685,6 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
             BulkActionKey.RESOLVED.value: len(connection_ids),
             BulkActionKey.CONNECTION_IDS.value: connection_ids,
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except (PortConnectionsManagerGetError, PortConnectionsManagerDeleteError) as err:
         LOGGER.error("[bulk_resolve_port_connections] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to resolve the selected Port connections of CmdbObject ID: {object_id}!')
-    except Exception as err:
-        LOGGER.error("[bulk_resolve_port_connections] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while resolving the selected Port connections!')

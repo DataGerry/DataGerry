@@ -33,7 +33,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import PersonGroupsManager, PersonsManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -49,7 +48,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.person_membership_hel
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -81,6 +80,7 @@ person_group_blueprint = APIBlueprint('person_group', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.add')
 @person_group_blueprint.validate(build_write_schema(CmdbPersonGroup.SCHEMA))
+@handle_route_errors("while creating the PersonGroup")
 def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an CmdbPersonGroup into the database
@@ -117,17 +117,12 @@ def insert_cmdb_person_group(data: dict[str, Any], request_user: CmdbUser) -> Re
             abort(404, "Could not retrieve the created PersonGroup from the database!")
 
         return InsertSingleResponse(created_person_group, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PersonGroupsManagerInsertError as err:
         LOGGER.error("[insert_cmdb_person_group] PersonGroupsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new PersonGroup in the database!")
     except PersonGroupsManagerGetError as err:
         LOGGER.error("[insert_cmdb_person_group] PersonGroupsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created PersonGroup from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_person_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the PersonGroup!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -180,6 +175,7 @@ def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.view')
+@handle_route_errors("while retrieving the PersonGroup with ID: {public_id}")
 def get_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbPersonGroup
@@ -205,14 +201,9 @@ def get_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
             return GetSingleResponse(requested_person_group, body=request_wants_body()).make_response()
 
         abort(404, f"The PersonGroup with ID:{public_id} was not found!")
-    except HTTPException as http_err:
-        raise http_err
     except PersonGroupsManagerGetError as err:
         LOGGER.error("[get_cmdb_person_group] PersonGroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the PersonGroup with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_person_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the PersonGroup with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -221,6 +212,7 @@ def get_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.edit')
 @person_group_blueprint.validate(build_write_schema(CmdbPersonGroup.SCHEMA))
+@handle_route_errors("while updating the PersonGroup with ID: {public_id}")
 def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbPersonGroup
@@ -267,17 +259,12 @@ def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user:
         persons_manager.update_group_in_persons(public_id, persons_to_add, persons_to_remove)
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PersonGroupsManagerGetError as err:
         LOGGER.error("[update_cmdb_person_group] PersonGroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the PersonGroup with ID: {public_id} from the database!")
     except PersonGroupsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_person_group] PersonGroupsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the PersonGroup with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_person_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the PersonGroup with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -285,6 +272,7 @@ def update_cmdb_person_group(public_id: int, data: dict[str, Any], request_user:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @person_group_blueprint.protect(auth=True, right='base.user-management.personGroup.delete')
+@handle_route_errors("while deleting the PersonGroup with ID: {public_id}")
 def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbPersonGroup
@@ -314,14 +302,9 @@ def delete_cmdb_person_group(public_id: int, request_user: CmdbUser) -> Response
         person_groups_manager.delete_with_follow_up(public_id)
 
         return DeleteSingleResponse(to_delete_person_group).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except PersonGroupsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_person_group] PersonGroupsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the PersonGroup with ID:{public_id}!")
     except PersonGroupsManagerGetError as err:
         LOGGER.error("[delete_cmdb_person_group] PersonGroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the PersonGroup with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_person_group] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the PersonGroup with ID: {public_id}!")

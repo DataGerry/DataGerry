@@ -39,12 +39,13 @@ defect in its cloud-only branch could go unnoticed.
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, current_app
+from flask import abort
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import OcConnectionLogManager
 
+from cmdb.open_celium import is_hosted_cloud
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
@@ -154,7 +155,7 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
 
         flowcharts: Any = oc_connection_log_manager.get_flowcharts(target_id)
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             flowcharts = unmap_flowchart_connector_names(flowcharts)
 
         return DefaultResponse(flowcharts).make_response()
