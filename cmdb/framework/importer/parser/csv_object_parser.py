@@ -152,8 +152,8 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
                     # auto_cast recognises only what a cell unambiguously spells - a number or a
                     # boolean. Anything else stays the text it is, because the layer that knows the
                     # target field's declared type runs later (object_import_validator) and is the
-                    # one entitled to decide. Guessing here used to win that race: '007' reached a
-                    # TEXT field as '7' (tier 2 T163/T164/T165)
+                    # one entitled to decide. Guessing here would win that race and reach a TEXT
+                    # field with '7' where the file said '007'
                     entries.append(self._generate_index_pair([auto_cast(entry) for entry in row]))
 
                 if not entries:

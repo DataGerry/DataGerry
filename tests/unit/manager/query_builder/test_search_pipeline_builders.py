@@ -22,10 +22,10 @@ dict constructors; their external dependencies are resolved lazily through Manag
 here - SearchPipelineBuilder's CategoriesManager, and the TypesManager the ACL filter reads the denied
 types from.
 
-Since 2026-09-10 also: the **stage order** (the ACL stages last of the builder's own output, since the
-caller appends its facet after them), the AND path of the TYPE parameters - whose test used to assert
-the OR path under a name that said otherwise, because `SearchParam.disjunction` defaults to True - the
-parameters that contribute no stage at all, the pattern extraction the result highlighting depends on,
+Also: the **stage order** (the ACL stages last of the builder's own output, since the caller appends
+its facet after them), the AND path of the TYPE parameters - easy to assert under a name that says
+otherwise, because `SearchParam.disjunction` defaults to True - the parameters that contribute no
+stage at all, the pattern extraction the result highlighting depends on,
 and that the category parameters cost ONE query however many of them a search carries.
 """
 from types import SimpleNamespace
@@ -214,8 +214,8 @@ class TestSearchPipelineBuilder:
         """
         A search box must not answer 400 because somebody typed `*`
 
-        `*` is not a pattern, so before 2026-09-17 it reached the database as one and the query was
-        refused. It is escaped here instead - tier 2 T187, the half that needed no frontend change.
+        `*` is not a pattern, so reaching the database as one gets the query refused. It is escaped
+        here instead.
         """
         pipeline = SearchPipelineBuilder().build([SearchParam('*', 'text')])
 
@@ -483,8 +483,7 @@ class TestTheDisjunctionMarker:
 
         `SearchFormType.DISJUNCTION` drives no branch of `build`, and this asserts the consequence
         rather than the absence: a pipeline identical to the one without it, so the parameter cannot
-        filter, cannot widen and cannot reorder anything (discussion-backlog #212, kept as a
-        documented no-op).
+        filter, cannot widen and cannot reorder anything. It is kept as a documented no-op.
         """
         marker = SearchParam('or', SearchFormType.DISJUNCTION.value, disjunction=True)
 

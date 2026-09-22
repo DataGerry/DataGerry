@@ -197,8 +197,8 @@ class TestGetOcLicenseInfo:
         """
         `?page=abc` reads as the default page rather than a 400
 
-        Recorded as behaviour - discussion-backlog #226 - and asserted at the route as well as at the
-        helper, because this is the surface a caller actually sees it through.
+        Recorded as behaviour, and asserted at the route as well as at the helper, because this is
+        the surface a caller actually sees it through.
         """
         del patched_manager
         license_manager.get_active_license.return_value = {}
@@ -213,8 +213,7 @@ class TestGetOcLicenseInfo:
         """
         Two sequential OpenCelium round-trips per request, in this order
 
-        Pinned because it is the cost the route pays for answering both halves at once:
-        discussion-backlog #227.
+        Pinned because it is the cost the route pays for answering both halves at once.
         """
         del patched_manager
         calls: list[str] = []
@@ -231,7 +230,7 @@ class TestGetOcLicenseInfo:
         The licence half is not answered on its own when the usage read fails
 
         Both halves come from the same try block, so a failing usage read costs the caller the
-        licence too - the other consequence of #227.
+        licence too.
         """
         del patched_manager
         license_manager.get_active_license.return_value = ACTIVE_LICENSE

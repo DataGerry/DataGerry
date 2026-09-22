@@ -21,9 +21,8 @@ there is no public_id in any of these paths, because `(user_id, resource)` is th
 `CmdbUserSetting`). Both write routes pin `user_id` (and PUT also `resource`) to the URL, so a
 mismatched body cannot store a setting under another id.
 
-The two reads answer slightly different shapes today: the single-resource read hands back the stored
-document (including the stamped `public_id`), the list read the four normalised keys. Which one both
-should answer is discussion-backlog #218
+The two reads answer slightly different shapes: the single-resource read hands back the stored
+document (including the stamped `public_id`), the list read the four normalised keys
 """
 from logging import Logger, getLogger
 from typing import Any

@@ -20,6 +20,14 @@ A CmdbUser is a DataGerry user account (collection ``management.users``).
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbUser.SCHEMA.
+
+**It validates the REQUEST BODY, not the stored document.** Its only consumers are the two write
+routes, through ``build_write_schema(CmdbUser.SCHEMA)``. That is why ``registration_time`` is typed
+``dict``: a datetime leaves the API as ``{'$date': millis}`` (``cmdb.database.json_codec.default``,
+applied at the single serialization point in ``base_api_response``) and the frontend sends that same
+wrapper back, because it PUTs the whole user it was given. What is STORED is a BSON date, and
+``CmdbUser.registration_time`` is a ``datetime`` in between. Three shapes, one field; when this rule
+changes, the one it describes is the wire.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -38,83 +46,93 @@ def get_cmdb_user_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbUser document
 
+    The keys come from `CmdbUserKey` so the schema, `CmdbUser.from_data` and `CmdbUser.to_json`
+    cannot drift apart. The import is deliberately INSIDE the builder: `cmdb.models` imports this
+    module at class-definition time, so importing the model package at module level would close a
+    cycle
+
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbUser.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
+
     return {
-        'public_id': {
+        CmdbUserKey.PUBLIC_ID.value: {
             'type': 'integer'
         },
-        'user_name': {
+        CmdbUserKey.USER_NAME.value: {
             'type': 'string',
             'required': True,
         },
-        'active': {
+        CmdbUserKey.ACTIVE.value: {
             'type': 'boolean',
             'default': True,
             'required': False
         },
-        'group_id': {
+        CmdbUserKey.GROUP_ID.value: {
             'type': 'integer',
             'default': DEFAULT_GROUP,
             'required': True
         },
-        'registration_time': {
+        CmdbUserKey.REGISTRATION_TIME.value: {
+            # The WIRE shape {'$date': millis}, not the stored one - see the module docstring.
+            # CmdbUser.from_data casts it to a datetime through coerce_document_dates
             'type': 'dict',
             'nullable': True,
             'empty': True,
             'required': False
         },
-        'authenticator': {
+        CmdbUserKey.AUTHENTICATOR.value: {
             'type': 'string',
             'nullable': True,
             'default': DEFAULT_AUTHENTICATOR,
             'required': False
         },
-        'password': {
+        CmdbUserKey.PASSWORD.value: {
             'type': 'string',
             'nullable': True,
             'empty': True,
             'required': False
         },
-        'first_name': {
+        CmdbUserKey.FIRST_NAME.value: {
             'type': 'string',
             'nullable': True,
             'empty': True,
             'required': False
         },
-        'last_name': {
+        CmdbUserKey.LAST_NAME.value: {
             'type': 'string',
             'nullable': True,
             'empty': True,
             'required': False
         },
-        'email': {
+        CmdbUserKey.EMAIL.value: {
             'type': 'string',
             'nullable': True,
             'empty': True,
             'required': False
         },
-        'image': {
+        CmdbUserKey.IMAGE.value: {
             'type': 'string',
             'nullable': True,
             'empty': True,
             'required': False
         },
-        'database': {
+        CmdbUserKey.DATABASE.value: {
             'type': 'string',
             'nullable': True,
             'empty': True,
             'required': False
         },
-        'api_level': {
+        CmdbUserKey.API_LEVEL.value: {
             'type': 'integer',
             'nullable': True,
             'empty': True,
             'default': DEFAULT_API_LEVEL,
             'required': False
         },
-        'config_items_limit': {
+        CmdbUserKey.CONFIG_ITEMS_LIMIT.value: {
             'type': 'integer',
             'nullable': True,
             'empty': True,

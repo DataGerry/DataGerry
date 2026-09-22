@@ -50,6 +50,11 @@ def parse_registration_time(raw: Any) -> Any:
     date in the API. Any value the caster cannot read (an unexpected shape, None) is returned
     unchanged, which keeps this route's "pass through what you do not understand" behaviour
 
+    Note the bare-string branch is not reachable through the two write routes: ``CmdbUser.SCHEMA``
+    types ``registration_time`` as a ``dict``, so a body carrying a plain timestamp string is
+    refused with a 400 before the handler runs. It is kept because this helper is also the shape
+    other callers would use, and because widening or narrowing that rule is a schema decision
+
     Args:
         raw (Any): The incoming registration_time value
 

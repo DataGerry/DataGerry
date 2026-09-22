@@ -55,10 +55,8 @@ class ExporterRight(BaseStrEnum):
 
     **Who holds them:** nobody by default. The seeded `user` group carries neither, so a default user
     may read objects and types and may not export them - reading a thing and taking it away as a file
-    are different permissions, and a type export additionally carries every Type's stored `acl` block.
-    Decided 2026-09-21 (discussion-backlog #38); until 2026-07-23 the object export asked for
-    `base.framework.object.view` instead, which that group does hold. The audience is pinned by
-    tests/functional/framework/test_functional_export_rights.py, and stated in `workflows/rights.md`
+    are different permissions, and a type export additionally carries every Type's stored `acl`
+    block.
 
     Note the IPAM overview CSVs and the DocAPI render answer the same question differently - they are
     guarded by the feature's own view right, on the grounds that whoever may read the view may take it

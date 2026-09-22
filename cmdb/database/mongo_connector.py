@@ -22,26 +22,21 @@ attributes (including dropping the lazily-created `MongoClient`). The `MongoClie
 on first access to the `client` property rather than in the constructor, so a forked gunicorn worker
 builds its own client instead of inheriting the parent's.
 
-Two behaviours of this module are surprising and are recorded as open items rather than changed here:
+Two behaviours of this module are surprising and are left as they are rather than changed here:
 
 * **TLS is decided by the connection string alone.** `__init__` drops the caller's deprecated `ssl`
   option **without carrying its value over** and sets `tls` solely from whether `CONNECTION_STRING`
   uses the `mongodb+srv://` scheme. A caller asking for `ssl=True` over a plain host/port therefore
   connects without TLS, and a `mongodb://…?tls=true` connection string has its TLS overridden to off
-  by the injected keyword - see discussion-backlog #139. It also mutates the caller's options dict
-  in place (#140).
-* **Each lifecycle method says what its own name promises**, since 2026-09-17 (tier 2 T123 / T124).
-  `connect()` raises, because the retry policy reads the raised error's cause; `is_connected()`
-  reports a boolean, catching that raise so the caller asking a yes/no question gets one; and
-  `disconnect()` raises on a failed close instead of returning the same disconnected status a
-  successful one returns - and clears its client reference either way, so a failed close cannot strand
-  a broken client.
-* **The `@retry_operation` decorators do retry since 2026-09-09.** They used to be inert, because the
-  errors they caught were converted before they could escape; `cmdb.database.retry` now decides from
-  the typed error's cause, so a failed `connect()` is repeated (a connection attempt has no side
-  effect) within a sub-second budget.
-
-The singleton, its lifecycle and the `__new__` / `__init__` overlap are tracked as #144-#147.
+  by the injected keyword. It also mutates the caller's options dict in place.
+* **Each lifecycle method says what its own name promises.** `connect()` raises, because the retry
+  policy reads the raised error's cause; `is_connected()` reports a boolean, catching that raise so
+  the caller asking a yes/no question gets one; and `disconnect()` raises on a failed close instead
+  of returning the same disconnected status a successful one returns - and clears its client
+  reference either way, so a failed close cannot strand a broken client.
+* **The `@retry_operation` decorators retry from the typed error's cause.** `cmdb.database.retry`
+  decides there, so a failed `connect()` is repeated (a connection attempt has no side effect)
+  within a sub-second budget.
 """
 import os
 from logging import Logger, getLogger
@@ -83,8 +78,7 @@ class MongoConnector:
 
         The instance is cached on the class regardless of the arguments, so a later construction with
         a different host/port returns the existing instance - whose attributes `__init__` then
-        overwrites (see discussion-backlog #145). The attributes assigned here are assigned again by
-        `__init__` on the same call; the overlap is tracked as #146
+        overwrites. The attributes assigned here are assigned again by `__init__` on the same call
 
         Args:
             host (str): MongoDB host
@@ -114,20 +108,20 @@ class MongoConnector:
         `tls` is set - unless the caller already supplied it - from the scheme of `CONNECTION_STRING`
         alone. The removed `ssl` value is NOT carried over, so `ssl=True` over a plain host/port ends
         up as `tls=False`, and a `mongodb://…?tls=true` connection string is overridden to off by the
-        injected keyword; both are recorded as discussion-backlog #139
+        injected keyword
 
         Args:
             `host` (str): Host of the connection
             `port` (int): Port of the connection
             `client_options` (dict[str, Any] | None): Additional MongoClient options. Defaults to None.
                                                       **Stored and mutated by reference** - the caller's
-                                                      dict loses its 'ssl' key and gains 'tls' (#140)
+                                                      dict loses its 'ssl' key and gains 'tls'
 
         Note:
             MongoConnector is a singleton, so __init__ runs on every constructor call and refreshes
             these attributes (including resetting the lazily-created client) for the shared instance.
-            `MongoDatabaseManager.reset_connection` relies on that reset to drop a stale client (#147),
-            and the dropped client is not closed first (#144)
+            `MongoDatabaseManager.reset_connection` relies on that reset to drop a stale client,
+            and the dropped client is not closed first
         """
         self.connection_string: str | None = os.getenv(MONGO_CONNECTION_STRING_ENV)
         self.host: str = host
@@ -242,18 +236,17 @@ class MongoConnector:
         """
         Closes the connection to the database
 
-        **The client is dropped whatever happens.** A failing `close()` used to leave `_client` set, so
-        the next `client` access handed back the same broken object instead of building a new one -
-        the close had failed *and* the connector kept the corpse (tier 2 T124). The reference is
-        cleared in a `finally`, so a failed close still leaves the connector able to reconnect.
+        **The client is dropped whatever happens.** The reference is cleared in a `finally`, so a
+        failed `close()` cannot leave `_client` set and hand the next `client` access the same broken
+        object instead of building a new one.
 
-        **A failure is reported, not disguised.** It used to return the same `connected=False` a
-        successful close returns, with only the message differing, so no caller could tell the two
-        apart. It raises now - the mirror of `connect()`, which raises rather than reporting, and of
+        **A failure is reported, not disguised.** Returning the same `connected=False` a successful
+        close returns, with only the message differing, would leave no caller able to tell the two
+        apart. It raises - the mirror of `connect()`, which raises rather than reporting, and of
         `is_connected()`, which reports rather than raising: each says what its own name promises.
 
         Note the manager's keep-alive thread re-creates the client within its ping interval, so a
-        disconnect does not stay closed (**T129**)
+        disconnect does not stay closed
 
         Raises:
             DatabaseConnectionError: If closing the client failed. The client reference is cleared
@@ -291,11 +284,9 @@ class MongoConnector:
         Nothing is retried here that has not been retried already: `connect()` carries
         `@retry_operation`, and reaching the database is side-effect free, so a transient failure has
         been repeated within its budget before it arrives as a `DatabaseConnectionError`. A False from
-        here means the database did not answer *and the retries are spent*.
-
-        Until 2026-09-17 this re-raised instead, which is why `GET /rest/` - the probe whose entire job
-        is to report connectivity - answered **500** rather than `connected: false` when the database
-        was down (tier 2 T123)
+        here means the database did not answer *and the retries are spent*. `GET /rest/` - the probe
+        whose entire job is to report connectivity - depends on that: a raise here would reach it as
+        a **500** where it means to answer `connected: false`.
 
         Returns:
             bool: True when the database answered the probe, False when it did not

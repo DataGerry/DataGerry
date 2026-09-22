@@ -123,8 +123,8 @@ def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
 
     The body carries the grid counted three ways - `risk_matrix_before_treatment`,
     `risk_matrix_current_state`, `risk_matrix_after_treatment` - plus `configured`, which is False
-    while the ISMS config wizard has not produced the risk matrix yet. Before 2026-09-09 that state
-    was indistinguishable from a configured matrix nothing had been assessed against
+    while the ISMS config wizard has not produced the risk matrix yet. Without that flag the state
+    is indistinguishable from a configured matrix nothing has been assessed against
 
     Args:
         request_user (CmdbUser): CmdbUser requesting the RiskMatrix report
@@ -409,7 +409,6 @@ def get_isms_soa_report(params: CollectionParameters, request_user: CmdbUser) ->
     """
     # This route resolves two option-label maps and paginates the sorted result, so the local count
     # legitimately exceeds the default
-    # pylint: disable=too-many-locals
     try:
         body: bool = request_wants_body()
 

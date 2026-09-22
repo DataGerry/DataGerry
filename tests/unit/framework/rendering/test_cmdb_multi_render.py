@@ -238,9 +238,9 @@ class TestObjectAndTypeInformation:
         The two TYPE-level capability flags are forwarded to the render result
 
         `uses_ports` is what decides whether a client renders the ports panel for an object, and
-        `selectable_as_parent` whether the object may be offered as a location parent. Both were
-        absent from the block until 2026-09-04, which forced a client to fetch the CmdbType
-        separately for one boolean on a view that already has the type server-side.
+        `selectable_as_parent` whether the object may be offered as a location parent. Absent from
+        the block, either would force a client to fetch the CmdbType separately for one boolean on a
+        view that already has the type server-side.
         """
         main_type = _main_type()
         main_type.uses_ports = True
@@ -1431,7 +1431,7 @@ class TestLinkedUserCollection:
 class TestRenderDegradation:
     """
     Every step degrades instead of failing: a piece that cannot be built is dropped and the render
-    continues, with only a DEBUG line (discussion-backlog #170)
+    continues, with only a DEBUG line
     """
 
     def test_a_failing_reference_expansion_yields_an_empty_reference(self, managers) -> None:
@@ -1452,7 +1452,7 @@ class TestRenderDegradation:
 
         NOTE this exercises the outcome, not the `except` arm inside the method - the nested render
         the method builds resolves its own managers from the patched provider, so a failure injected
-        on the outer render does not reach it. That arm is still uncovered; see discussion-backlog #173.
+        on the outer render does not reach it. That arm is still uncovered.
         """
         render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
 
@@ -1467,7 +1467,7 @@ class TestRenderDegradation:
         A ref-section field pointing at an object the render cannot resolve accumulates no fields
 
         Same caveat as above: this pins the OUTCOME. Reaching the method's own `except` arm needs the
-        nested render's manager to fail, which this harness cannot inject - discussion-backlog #173.
+        nested render's manager to fail, which this harness cannot inject.
         """
         render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
         # the nested render is what fails: the referenced object is not in the cache and the fetch
@@ -1509,9 +1509,9 @@ class TestRenderDegradation:
         """
         A line whose placeholders do not fit the summary values is answered EMPTY, not raw
 
-        fill_line leaves the template in place, and until 2026-09-10 the reference was answered with
-        it - so the Angular reference field rendered a literal '{}' (it shows `line` verbatim when
-        one is set). An empty line is its documented fallback: icon + label + #id + the summary
+        fill_line leaves the template in place, and answering the reference with it makes the
+        Angular reference field render a literal '{}' (it shows `line` verbatim when one is set).
+        An empty line is its documented fallback: icon + label + #id + the summary
         fields. The mismatch is reported at WARNING, because a summary line that no longer fits its
         type is a configuration problem.
         """
@@ -1631,10 +1631,11 @@ class TestUnknownSectionType:
 
     def test_a_section_without_a_fields_list_is_skipped_with_a_log(self, managers, caplog) -> None:
         """
-        Nothing to merge is still reported - the gap discussion-backlog #172 named
+        Nothing to merge is still reported
 
-        The `elif` chain used to end with no branch, so such a section contributed no fields with no
-        log and no marker; the section itself still appears in the render result's `sections` block,
+        An `elif` chain ending with no branch would leave such a section contributing no fields with
+        no log and no marker; the section itself still appears in the render result's `sections`
+        block,
         which is what made it look like a rendering glitch rather than a missing kind.
         """
         main_type = _main_type()

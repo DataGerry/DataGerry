@@ -180,7 +180,7 @@ def test_get_many_media_files_returns_every_match() -> None:
 
 
 def test_get_many_media_files_ignores_the_paging_params() -> None:
-    """Documented gap (discussion-backlog #48): limit / skip / sort never reach the GridFS query"""
+    """Documented gap: limit / skip / sort never reach the GridFS query"""
     mock_self = _manager()
     mock_self.fs.find.return_value = []
 

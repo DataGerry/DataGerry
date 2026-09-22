@@ -127,7 +127,7 @@ class TestVersionBumpOrdering:
         survives even a wrapper built from `str(err)` - it is the traceback. `args[0]` is the wrapped
         exception itself, and it is there only when the exception rather than its text was passed,
         which is what lets a caller branch on a `DuplicateKeyError` instead of matching on message
-        text (discussion-backlog #207).
+        text (the updater error-wrapping rule).
         """
         updater = build_stubbed_updater(updater_cls)
         failure = RuntimeError('boom')

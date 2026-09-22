@@ -188,8 +188,8 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
     except (DocumentLockTimeoutError, DocumentNetworkError) as db_err:
         # Re-raised so `@handle_db_errors` can map them to 423 / 503. Without this arm the generic
         # `except Exception` below claims them first and the decorator - which only ever sees what
-        # escapes this function - never fires at all, so a transient lock timeout was reported as a
-        # flat 500 'internal server error' with nothing telling the caller to retry (tier 2 T135/T185)
+        # escapes this function - never fires at all, so a transient lock timeout would be reported
+        # as a flat 500 'internal server error' with nothing telling the caller to retry
         raise db_err
     except ObjectsManagerInsertError as err:
         LOGGER.error("[insert_cmdb_object] ObjectsManagerInsertError: %s", err, exc_info=True)

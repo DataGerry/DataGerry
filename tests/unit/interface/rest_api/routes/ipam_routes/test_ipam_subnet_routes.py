@@ -548,7 +548,7 @@ def test_read_ipam_managers_passes_the_request_user_through() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 # Pinned because coverage cannot see it: every line of export_subnet_ips runs either way. The route
 # accepts no query parameters at all while its sibling overview narrows by four, so the Export button
-# beside a filtered IP table exports the whole subnet - discussion-backlog #202. If that is ever
+# beside a filtered IP table exports the whole subnet. If that is ever
 # changed, these two tests are what should fail first
 FILTERED_EXPORT_QUERY: str = '/overview/5/export?search=db8&sort=ip&order=-1&status=assigned&type=50,51'
 

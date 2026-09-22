@@ -67,7 +67,7 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     checks). A failure inside that startup routine is logged and terminates the process via
     ``sys.exit(1)`` so the supervising ``ProcessManager`` does not bring up an
     incompletely-initialised API. In cloud mode that means one tenant database failing its update
-    aborts startup for **every** tenant - see discussion-backlog #156
+    aborts startup for **every** tenant
 
     **CORS is unrestricted.** Only ``expose_headers`` is configured - ``X-API-Version``,
     ``X-Total-Count`` and ``Content-Disposition``, the last so a cross-origin frontend can read the
@@ -75,7 +75,7 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     may call the API with any of the standard methods. That is not a session-riding hole - DataGerry
     authenticates with a Bearer JWT in a header rather than a cookie, and ``supports_credentials``
     stays False, so a foreign origin has no token to ride - but it does mean an operator cannot
-    restrict origins for a hardened deployment. Recorded as discussion-backlog #157
+    restrict origins for a hardened deployment
 
     Args:
         database_manager (MongoDatabaseManager): Manager that owns the MongoDB connection
@@ -170,8 +170,7 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     are gated first and registered immediately afterwards
 
     Pylint rules R0914 (too many locals) and R0915 (too many statements) are disabled because the
-    registration list is intentionally flat for readability; splitting it per domain is recorded as
-    discussion-backlog #158
+    registration list is intentionally flat for readability
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -464,12 +463,11 @@ def register_error_pages(app: BaseCmdbApp) -> None:
     the ones a future route invents. Flask routes an unhandled non-HTTP exception here too, having
     converted it to an ``InternalServerError`` first
 
-    **It used to be a whitelist of nine codes** (400, 401, 403, 404, 405, 406, 410, 500, 503) and
-    anything else fell through to Flask's HTML page, breaking the envelope for a client that reads
-    ``message`` off it. That was reachable: **415 answered HTML on the running API**, because
-    Werkzeug raises it before any route runs - so no ``abort()`` census could see it (tier 2 T135).
-    Two of the nine (406 and 410) were never raised anywhere in ``cmdb/`` and were kept as defensive
-    catches; under a class handler that reasoning is no longer needed
+    **A whitelist of codes would not be enough.** Werkzeug raises some statuses before any route
+    runs - 415 among them - so a status no ``abort()`` in ``cmdb/`` names can still reach a client,
+    and under a whitelist it would fall through to Flask's HTML page and break the envelope for a
+    client that reads ``message`` off it. Handling the exception CLASS covers every status without
+    anyone having to enumerate them
 
     Args:
         app (BaseCmdbApp): Flask app the error handler is attached to

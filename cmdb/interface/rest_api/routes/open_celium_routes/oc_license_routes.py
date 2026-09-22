@@ -25,11 +25,10 @@ stored by DataGerry - both routes are read-only proxies.
 (`init_rest_api`), because the whole integration is that licensed feature - but OpenCelium's own
 licence has to stay readable, which is exactly the state an operator needs to see when something is
 wrong with it. The routes are still authenticated and `ApiLevel.LOCKED`; they carry no per-route ACL
-right, which is discussion-backlog #115 (this file is the fifth unprotected OpenCelium blueprint).
+right.
 
 **Frontend usage: `/licenses/info` only** (`license.service.ts`, which always sends `page` and
-`size`). The activation route has no caller at all - neither in the frontend nor in the backend - and
-its documented answer disagrees with what it actually returns: discussion-backlog #224.
+`size`). The activation route has no caller at all - neither in the frontend nor in the backend.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -73,9 +72,8 @@ def get_oc_license_activation(request_user: CmdbUser) -> Response:
 
     The activation request is what an operator sends to becon to have their OpenCelium licence
     issued. **Answered as whatever OpenCelium's body parses to**: the manager reads it through
-    `parse_response`, i.e. as JSON. This docstring used to promise "a text file", which the code
-    cannot produce - which of the two is right needs the OpenCelium endpoint's actual answer and is
-    discussion-backlog #224. No caller exists today, in either layer
+    `parse_response`, i.e. as JSON - not as the text file the endpoint's name suggests, which this
+    code cannot produce. No caller exists today, in either layer
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -103,10 +101,9 @@ def get_oc_license_info(request_user: CmdbUser) -> Response:
     **GET**/**HEAD** route to retrieve the OpenCelium licence and its usage of the current month
 
     Answers **both halves in one body** - `{'license': ..., 'usage': ...}`, the shape the Angular
-    `LicenseInfoResponse` reads - which costs two sequential OpenCelium calls per request
-    (discussion-backlog #227). `?page=` / `?size=` page the usage report; see `read_usage_paging` for
+    `LicenseInfoResponse` reads - which costs two sequential OpenCelium calls per request.
+    `?page=` / `?size=` page the usage report; see `read_usage_paging` for
     what an unreadable value does, and note that the usage WINDOW is the host's local month
-    (discussion-backlog #225)
 
     Args:
         request_user (CmdbUser): User requesting this data

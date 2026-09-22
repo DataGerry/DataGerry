@@ -59,8 +59,7 @@ def read_ops_included_flag() -> bool:
     expected one - and **only the literal `false` turns them off** (case-insensitively). Deliberately
     not `request.args.get(..., type=bool)`, which would answer True for the string `'false'`, and
     deliberately not a list of accepted spellings: `0`, `no`, `off` and an EMPTY value all mean
-    "include" today, and whether they should is discussion-backlog #223. The rule lives here so that
-    decision has one place to land
+    "include". The rule lives here so that it has one place to change
 
     Returns:
         bool: True when the operations should be requested with the invokers

@@ -398,7 +398,7 @@ def unassigned_subnet_nodes(
 
     "Unassigned" means no usable `dg-supernet-ref`. Note what that excludes: a subnet referencing a
     supernet that does not exist is NOT unassigned by this definition and is not under any supernet
-    either, so it appears in no block at all - discussion-backlog #204
+    either, so it appears in no block at all
 
     Args:
         subnet_objs (list[dict[str, Any]]): Every SUBNET CmdbObject document

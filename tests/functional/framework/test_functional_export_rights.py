@@ -16,16 +16,16 @@
 """
 Who may export: the audience of the /exporter and /export/type routes
 
-**The rule, decided 2026-09-21 (discussion-backlog #38): exporting is not a default user's
-capability.** The seeded ``user`` group holds ``base.framework.object.*`` and a handful of view
-rights, but no ``base.export.*`` - so a member of it may read objects and types through the API and
+**The rule: exporting is not a default user's capability.** The seeded ``user`` group holds
+``base.framework.object.*`` and a handful of view rights, but no ``base.export.*`` - so a member of
+it may read objects and types through the API and
 still may not take them away as a file. Only a group that is granted an export right explicitly (the
 ``admin`` group holds it through the master right) can.
 
-That is a decision rather than an accident, which is exactly why it is pinned here: the object export
-used to be guarded by ``base.framework.object.view``, a right the ``user`` group DOES hold, so before
-the 2026-07-23 gating every non-admin user could export. Nothing failed when that changed, because no
-test named the audience - this module is that test.
+That is a decision rather than an accident, which is exactly why it is pinned here. Guarding the
+object export with ``base.framework.object.view`` instead - a right the ``user`` group DOES hold -
+would let every non-admin user export, and nothing else in the suite names the audience. This module
+is that test.
 
 The other half is the *distinctness*: object export and type export ask for their own right, so a
 group granted one of them does not get the other.

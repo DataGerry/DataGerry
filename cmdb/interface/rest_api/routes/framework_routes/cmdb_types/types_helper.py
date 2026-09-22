@@ -21,10 +21,11 @@ uses_ports / selectable_as_parent / location-field change guards, the payload no
 applies in place (the ACL block, the ports section index, the CI Explorer label field) and the
 persistence side effects an update or a delete owes the rest of the database.
 
-The **reference-section** dependency cluster - who depends on a section, what an edit would break and
-the pre-check payload behind it - lives in `types_reference_section_helper` since 2026-09-11; it is one
-self-contained theme and the module had grown past pylint's 1,500-line cap. Only the type-delete guard
-still reaches across, to ask whether another type references the one being deleted
+The **reference-section** dependency cluster - who depends on a section, what an edit would break
+and the pre-check payload behind it - lives in `types_reference_section_helper`: it is one
+self-contained theme, and keeping it here would push this module past pylint's 1,500-line cap. Only
+the type-delete guard still reaches across, to ask whether another type references the one being
+deleted
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -492,9 +493,9 @@ def build_category_criteria(
     """
     Builds the category membership restriction a types listing was asked for, if any
 
-    The server-side form of the two ``$lookup`` pipelines the Angular app used to post as
-    ``?filter=`` (**F3**). Both resolve to a set of type public_ids and then filter this collection
-    on it, which is a plain indexed ``$in`` / ``$nin`` instead of a join per request.
+    The server-side form of the two ``$lookup`` pipelines a client would otherwise post as
+    ``?filter=``. Both resolve to a set of type public_ids and then filter this collection on it,
+    which is a plain indexed ``$in`` / ``$nin`` instead of a join per request.
 
     The CategoriesManager is built only when one of the two parameters is actually present, so the
     ordinary listing - which is almost every request - pays for no extra manager and no extra read
@@ -695,7 +696,7 @@ def get_objects_using_location_field(
     (an integer > 0) in the location-typed field of the given CmdbType
 
     Returns an empty list if the CmdbType has no location field. The result is unbounded - every
-    matching public_id is returned, which for a large type is a large list (discussion backlog #187)
+    matching public_id is returned, which for a large type is a large list
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -806,8 +807,8 @@ def build_uses_ports_usage_payload(request_user: CmdbUser, target_type: CmdbType
     """
     Builds the "may 'uses_ports' be turned off" pre-check payload
 
-    Counts only, never an id list - the equivalent location payload is unbounded for a large type
-    (discussion backlog #187) and the type builder only needs to know whether the flag may be cleared.
+    Counts only, never an id list - the equivalent location payload is unbounded for a large type,
+    and the type builder only needs to know whether the flag may be cleared.
     `in_use: false` means it may
 
     Args:

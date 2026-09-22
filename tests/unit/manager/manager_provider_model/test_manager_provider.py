@@ -207,3 +207,20 @@ class TestCloudModeArguments:
         with cloud_app.app_context():
             with pytest.raises(BaseManagerInitError):
                 ManagerProvider.get_manager(registered_stub, None)
+
+    @pytest.mark.parametrize('database', [None, ''])
+    def test_a_falsy_database_is_refused(
+            self, cloud_app: BaseCmdbApp, registered_stub: ManagerType, database) -> None:
+        """A user carrying no usable tenant name must fail, not fall through to another tenant
+
+        The stored `database` may legitimately be absent - CmdbUser.SCHEMA allows null and
+        `from_data` passes a stored null straight through, because `.get(key, default)` only
+        defaults a MISSING key. BaseManager then binds to `dbm.db_name` for any falsy db_name, so
+        without this guard a cloud user with a null database would silently be served out of the
+        process-wide database
+        """
+        user = CmdbUser(public_id=4, user_name='no-tenant', active=True, group_id=1, database=database)
+
+        with cloud_app.app_context():
+            with pytest.raises(BaseManagerInitError):
+                ManagerProvider.get_manager(registered_stub, user)

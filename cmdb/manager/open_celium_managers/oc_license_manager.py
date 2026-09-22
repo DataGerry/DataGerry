@@ -68,8 +68,8 @@ class OcLicenseManager(OcBaseManager):
         Retrieves the license activation request from OpenCelium
 
         What an operator sends to becon to have their OpenCelium licence issued. Read through
-        `parse_response`, so **the body has to be JSON** - the route documented a text file, which
-        this cannot answer; which of the two OpenCelium actually returns is discussion-backlog #224
+        `parse_response`, so **the body has to be JSON** - a text file, which the endpoint's name
+        suggests, cannot be answered from here
 
         Raises:
             OcLicenseGetError: When OpenCelium refused the request or answered no readable body
@@ -110,7 +110,7 @@ class OcLicenseManager(OcBaseManager):
 
         The window is **always the current month** - it is not a parameter - and is computed on the
         host's LOCAL timezone, so a tenant in another zone is reported a month that is not theirs
-        (discussion-backlog #225, together with the 999 ms the window ends short of)
+        - together with the 999 ms the window ends short of
 
         Args:
             page (int): Zero-based page of the usage report to ask OpenCelium for. Forwarded as sent;
@@ -149,7 +149,7 @@ def get_current_month_boundaries() -> tuple[int, int]:
     A pure function of the clock - it touches no manager state, which is why it sits at module level:
     it can be read and tested without an OpenCelium connector.
 
-    Two properties are behaviour rather than intent, both discussion-backlog #225:
+    Two properties are behaviour rather than intent:
 
     - the month is the one of the **host's local timezone**, since `datetime.now()` and
       `datetime.timestamp()` are both local, so a tenant elsewhere is reported another month

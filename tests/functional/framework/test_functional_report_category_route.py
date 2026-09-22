@@ -509,7 +509,7 @@ class TestFrontendRequestShape:
     def test_delete_without_a_trailing_slash_is_not_redirected(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The URL the frontend calls matches the route directly - no 308 round-trip (backlog #108)"""
+        """The URL the frontend calls matches the route directly - no 308 round-trip"""
         categories = _categories(database_manager, database_name)
         categories.insert_one({'public_id': CATEGORY_ID_FOR_DELETE, 'name': 'To Delete', 'predefined': False})
         try:

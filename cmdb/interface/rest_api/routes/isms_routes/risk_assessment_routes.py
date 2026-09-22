@@ -260,7 +260,7 @@ def duplicate_isms_risk_assessment(
         DefaultResponse: All created public_ids of IsmsRiskAssessments
     """
     # Duplicating across three modes with optional CMA copying spans several branches / locals
-    # pylint: disable=too-many-locals,too-many-branches
+    # pylint: disable=too-many-locals
     try:
         duplicate_modes = ('object','risk', 'object_group')
 

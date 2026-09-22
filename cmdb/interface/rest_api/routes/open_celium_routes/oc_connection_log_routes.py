@@ -28,9 +28,8 @@ other's; the flowchart route strips it (see `oc_connection_log_helper`). That re
 of logic in the file - everything else forwards.
 
 The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`) but carries
-no per-route ACL right, unlike the sibling connection and connector routes; that gap is
-discussion-backlog #115, which lists this file by name and records that the rights it would need do
-not exist yet.
+no per-route ACL right, unlike the sibling connection and connector routes - the rights it would need
+do not exist yet.
 
 **No frontend calls these.** The Automations view's log menu and viewer read
 `open_celium/schedulers/logs` (a scheduler route); this file is API-only surface, which is also why a

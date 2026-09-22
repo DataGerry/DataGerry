@@ -65,7 +65,7 @@ _FILE_LESS_LABEL: str = '<file-less>'
 #: `27017` reached `OcApiConnector.password` - annotated `str` - as the int `27017` and was sent in
 #: the login body as a JSON **number**, so the connection failed and reported bad credentials. The
 #: cloud path never had the problem, because it reads `OC_PASSWORD` with a bare `os.getenv`, so the
-#: same secret had a different type depending on where it was configured (tier 2 T163, finding S1).
+#: same secret had a different type depending on where it was configured.
 #:
 #: Matched on the setting name alone, in any section, so a new section carrying a `password` or an
 #: `api_key` inherits the rule instead of having to remember it

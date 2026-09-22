@@ -241,7 +241,7 @@ def test_every_report_right_names_an_existing_right() -> None:
     """A ReportRight value that matches no declared right would silently deny every user.
 
     ``user_has_right`` resolves the string against the rights tree, so a typo here does not raise -
-    it just never matches, turning the guarded route into a permanent 403 (backlog #109).
+    it just never matches, turning the guarded route into a permanent 403.
     """
     rights_manager = RightsManager()
 

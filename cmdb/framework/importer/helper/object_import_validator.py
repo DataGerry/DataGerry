@@ -570,7 +570,7 @@ def _coerce_number(value: Any) -> int | float | None:
     `inf`, `-inf` and `Infinity`, BSON stores them, and no equality or range query ever matches one
     again - `NaN != NaN` also breaks the importer's own whole-row comparison, so re-importing an
     unchanged file reports every row as changed. A rejected row is visible to the user; a stored NaN
-    is not (tier 2 T163)
+    is not
 
     Args:
         value (Any): The value to coerce

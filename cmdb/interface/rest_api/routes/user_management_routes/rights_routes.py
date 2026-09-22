@@ -27,10 +27,10 @@ requests instead of re-flattening ~200 rights per call.
 **None of the routes carries an ACL right, and that is deliberate** - the catalogue is product
 metadata, identical for every installation and already public in the source of an AGPL product, and
 the group-edit screen needs it for anyone who may manage a group. **They are authenticated, though.**
-Until 2026-09-16 they were not: the only guard was `verify_api_access`, which returns immediately when
-the process is not in cloud mode, so on-premise the whole catalogue answered with no credentials at
-all. `insert_request_user` is what fixes that - it is the authentication, not the authorization, which
-is why every handler takes a `request_user` it never reads (tier 2 T162, and T78 as its duplicate).
+`verify_api_access` alone is not enough: it returns immediately when the process is not in cloud
+mode, so on-premise it would leave the whole catalogue answering with no credentials at all.
+`insert_request_user` is what authenticates - authentication, not authorization, which is why every
+handler takes a `request_user` it never reads.
 
 A repo-wide scan on that date found exactly two route files with `verify_api_access` and neither
 `insert_request_user` nor `.protect`: this one and `setup_routes.py`, which was made cloud-only the

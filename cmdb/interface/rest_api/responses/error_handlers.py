@@ -17,11 +17,11 @@
 The REST API's single error handler: every failure answers the same JSON envelope
 
 **One handler for every status, rather than one per status.** Until 2026-09-16 nine codes were
-registered individually (400, 401, 403, 404, 405, 406, 410, 500, 503) and anything outside that list
-fell through to Flask's HTML page - which broke the envelope the Angular client reads
-(`err?.error?.message`) for any status nobody had thought of. That was not hypothetical: **415 was
-reachable on the running API today**, because Werkzeug raises it while parsing the request, before
-any route runs and therefore out of reach of any `abort()` census (tier 2 T135).
+Registering statuses individually would leave anything outside the list falling through to Flask's
+HTML page - which breaks the envelope the Angular client reads (`err?.error?.message`) for any
+status nobody thought of. That is not hypothetical: **415 is reachable without any route raising
+it**, because Werkzeug raises it while parsing the request, before any route runs and therefore out
+of reach of any `abort()` census.
 
 Registering the `HTTPException` **class** closes the whole family at once, including the statuses a
 future route invents, and including an unhandled non-HTTP exception - Flask converts one to

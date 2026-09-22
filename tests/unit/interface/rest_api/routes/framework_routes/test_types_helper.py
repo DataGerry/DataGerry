@@ -1045,7 +1045,7 @@ class TestBuildUsesPortsUsagePayload:
 
     def test_carries_no_id_list(self) -> None:
         """
-        Counts only - the equivalent location payload is unbounded for a large Type (backlog #187)
+        Counts only - the equivalent location payload is unbounded for a large Type
 
         The type builder needs to know WHETHER it may clear the flag, not which ports stand in the way.
         """

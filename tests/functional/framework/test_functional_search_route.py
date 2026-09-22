@@ -18,11 +18,11 @@ Functional coverage for the /search routes
 
 Covers the quick-search counter (result envelope, the empty -> zeroed counts, and the
 ObjectsManagerIterationError -> 400 / unexpected -> 500 mappings) and the search framework
-(GET + POST happy paths, the query/body parse errors -> 400, and - since 2026-09-09 - a failing
-search REPORTED as 400/500 instead of the empty 204 it used to answer, plus the paging contract:
-`limit=0` means every match, a negative limit or skip is refused).
+(GET + POST happy paths, the query/body parse errors -> 400, a failing search REPORTED as 400/500
+rather than as an empty 204, plus the paging contract: `limit=0` means every match, a negative limit
+or skip is refused).
 
-TestGetCarriesTheSamePayloadAsPost and TestRequestParametersAreStrict were added 2026-09-14 with the
+TestGetCarriesTheSamePayloadAsPost and TestRequestParametersAreStrict cover the
 fixes they describe: a GET search carrying an actual parameter list used to answer 500, and a
 non-numeric `?limit=` / an unrecognised `?resolve=` used to be accepted with the default substituted.
 
@@ -233,9 +233,9 @@ class TestSearchFramework:
         """
         A failing search is a 500, not an empty 204
 
-        Until 2026-09-09 every error inside the search block answered 204 with an empty body, which a
-        client cannot tell apart from "nothing matched" - so a broken pipeline, a Mongo timeout and an
-        unusable page size all looked like a successful empty search.
+        An error inside the search block answering 204 with an empty body cannot be told apart
+        from "nothing matched" - a broken pipeline, a Mongo timeout and an unusable page size would
+        all look like a successful empty search.
         """
         monkeypatch.setattr(SearcherFramework, 'aggregate', _raiser(RuntimeError('boom')))
 
@@ -284,10 +284,10 @@ class TestGetCarriesTheSamePayloadAsPost:
     """
     A GET search carries the SAME parameter array as a POST, in ?query=
 
-    Until 2026-09-14 it did not: the GET branch handed the raw JSON to the pipeline builder without
-    building SearchParam objects, so the builder read `.search_form` off plain strings and the route
-    answered 500. It went unnoticed because every GET test in this file sent `?query={}` - the one
-    payload that happens to work, because an empty parameter list needs no parameters.
+    Handing the raw JSON to the pipeline builder without building SearchParam objects makes the
+    builder read `.search_form` off plain strings and the route answer 500. A GET test sending
+    `?query={}` would not catch it - that is the one payload that works either way, because an empty
+    parameter list needs no parameters.
     """
 
     def test_a_real_parameter_list_is_accepted(self, rest_api) -> None:
@@ -463,9 +463,9 @@ class TestMatchedFields:
         A search with the marker answers exactly what the same search without it answers
 
         Accepting a parameter and IGNORING it are two different claims, and only this one is about
-        the second. The marker is kept as a documented no-op (discussion-backlog #212), so the pair
-        of searches has to stay indistinguishable - including the total, which is what a marker
-        quietly turned into a filter would move.
+        the second. The marker is kept as a documented no-op, so the pair of searches has to stay
+        indistinguishable - including the total, which is what a marker quietly turned into a filter
+        would move.
         """
         with_marker = json.dumps([
             {'searchText': NAME_VALUE, 'searchForm': SearchFormType.TEXT.value},
@@ -507,8 +507,8 @@ class TestAnUnusableSearchParameterIsRefused:
     """
     A search that cannot read one of its parameters answers 400 instead of searching without it
 
-    Until 2026-09-08 the parameter was logged and skipped, so the request ran with fewer criteria than
-    the caller sent - and a dropped FILTER returns more objects than the filter allows, with a 200.
+    Logging and skipping the parameter instead would run the request with fewer criteria than the
+    caller sent - and a dropped FILTER returns more objects than the filter allows, with a 200.
     """
 
     def test_a_parameter_without_a_form_is_a_400(self, rest_api) -> None:
@@ -574,10 +574,9 @@ class TestAnUnusableTextTermIsAnswered:
     """
     A search box must not answer 400 because somebody typed a regex metacharacter
 
-    A TEXT term reaches MongoDB as a regular expression, so before 2026-09-17 `*` was not a search
-    that found nothing - it was a query the database refused. Tier 2 **T187**; this is the half that
-    needed no frontend change, because the Angular search bar escapes every term it sends and an
-    escaped term always compiles.
+    A TEXT term reaches MongoDB as a regular expression, so an unescaped `*` is not a search that
+    finds nothing - it is a query the database refuses. Escaping happens here; the Angular search bar
+    escapes every term it sends as well, and an escaped term always compiles.
     """
 
     @pytest.mark.parametrize('term', ['*', '[unclosed', 'a**', '+'], ids=repr)
