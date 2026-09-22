@@ -39,8 +39,7 @@ A HTTP 400 from these routes therefore always means "your request was malformed"
 candidate is invalid" - an invalid candidate is a 200 with ``valid: false`` and the reasons.
 
 The whole surface sits behind the licensed IPAM feature (the blueprint is gated in
-``init_rest_api``) and, like the rest of the folder, carries no per-user ACL right yet -
-discussion-backlog #149
+``init_rest_api``) and, like the rest of the folder, carries no per-user ACL right
 """
 from logging import Logger, getLogger
 from typing import Any

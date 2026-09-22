@@ -16,8 +16,8 @@
 """
 Unit tests for CollectionParameters - the pager of every list route
 
-The package had no test module at all before 2026-08-27; it was covered only incidentally through route
-tests, which is how the pager validation gaps survived.
+Covered only incidentally through route tests, the pager's validation gaps go unnoticed - which is
+why it has a module of its own.
 
 Two things these tests exist to pin:
 
@@ -226,9 +226,8 @@ class TestFromData:
         """
         A filter may be a LIST of aggregation stages, not only a criteria dict
 
-        Several routes and the frontend's log tables send that shape; discussion-backlog #175 is the
-        decision about restricting which stages are allowed, and it would be implemented behind this
-        parsing.
+        Several routes and the frontend's log tables send that shape. Restricting which stages are
+        allowed would be implemented behind this parsing.
         """
         params = CollectionParameters.from_data(
             QUERY_STRING, **{ParameterKey.FILTER.value: '[{"$match": {"a": 1}}]'},

@@ -23,7 +23,7 @@ Three GET routes behind the sidebar's IPAM section:
   user expands that entry
 * ``GET /unassigned`` - the 'Unassigned' block alone, for a targeted refresh. **Nothing calls this
   today**: the frontend service exposes only the first two, and this route's payload is the block
-  ``GET /`` already returned - discussion-backlog #205
+  ``GET /`` already returned
 
 All payloads carry lightweight nodes (public_id, name, cidr, address family under 'type', the
 CmdbType icon) sorted IPv4 before IPv6 and ascending by CIDR within each family. "Lightweight" is
@@ -35,12 +35,12 @@ These routes are transport glue: resolve the managers, delegate, map failures on
 payloads are built by ``cmdb.framework.ipam.tree_overview``, which also owns the one shape worth
 knowing before reading a tree: a subnet is 'unassigned' when it has no usable supernet reference, so
 a subnet referencing a supernet that does **not exist** is in neither block and appears nowhere in
-the tree (discussion-backlog #204 - unreachable through the write and delete guards, but nothing
-reports it if the data ever gets there).
+the tree. The write and delete guards make that unreachable, but nothing reports it if the data
+ever gets there.
 
 Like the rest of the folder the surface sits behind the licensed IPAM feature (the blueprint is
-gated in ``init_rest_api``), carries no per-user ACL right (#149) and does not filter reads by the
-object ACL (#150, which names the tree loaders explicitly)
+gated in ``init_rest_api``), carries no per-user ACL right and does not filter reads by the
+object ACL
 """
 from logging import Logger, getLogger
 from typing import Any

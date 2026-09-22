@@ -16,8 +16,8 @@
 """
 Unit tests for cmdb.framework.ci_explorer.access
 
-Pure tests: no Mongo, no Flask. The module is the object-ACL filter the whole graph runs through
-(backlog #146), so what is pinned here is exactly what may and may not reach the payload:
+Pure tests: no Mongo, no Flask. The module is the object-ACL filter the whole graph runs through,
+so what is pinned here is exactly what may and may not reach the payload:
 
   - an ACL is a property of the CmdbType, so the decision is per type and costs no query
   - a denied object is dropped, and nothing distinguishes it from an object that is not there

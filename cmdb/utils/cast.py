@@ -25,10 +25,9 @@ stored or used:
     * the CSV object importer casts **every cell** of an uploaded file, so a spreadsheet column of
       numbers is stored as numbers instead of as text
 
-**The rule is: recognise only what is unambiguous, and leave everything else alone.** Until
-2026-09-16 the casters were `int()` and `float()` themselves, which accept far more than a data file
-means by "a number", and every one of those acceptances destroyed a value that could not be
-recovered afterwards (tier 2 T163 / T164 / T165):
+**The rule is: recognise only what is unambiguous, and leave everything else alone.** `int()` and
+`float()` themselves accept far more than a data file means by "a number", and every one of those
+acceptances destroys a value that cannot be recovered afterwards:
 
 | was | became | now |
 |---|---|---|

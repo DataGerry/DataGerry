@@ -32,7 +32,7 @@ Two things about this surface are easy to get wrong:
   status code. A 4xx/5xx from this route means the request could not be processed at all
 * **The CREATE logs are best-effort.** The objects are committed before `_log_imported_objects` runs,
   so a failure there costs the audit entries and nothing else - the response still reports the objects
-  as imported, and the user is not told (discussion-backlog #160)
+  as imported, and the user is not told
 
 The heavy lifting - parsing, mapping, per-object validation and insertion - lives in
 `cmdb.framework.importer`; the routes here resolve the format, authorise the target type, build the
@@ -636,7 +636,7 @@ def _log_imported_objects(
     The objects are already persisted by the time this runs, so nothing here may fail the import: a
     read/render batch that blows up costs every log entry, a single failing insert costs only its own,
     and either way the import still reports success. Nothing surfaces that to the user - the response
-    reports the objects as imported, because they are - see discussion-backlog #160
+    reports the objects as imported, because they are
 
     Args:
         success_messages (list): The ImportSuccessMessage entries of the imported objects. They exist

@@ -26,8 +26,7 @@ Three things about this module decide how a change here behaves:
   `except Exception: LOGGER.debug(...)` and continues with whatever it has - a reference that cannot be
   expanded, a summary that cannot be built or a ref-section field that cannot be read costs that piece
   of the result and nothing more. The trade-off is that a partial render is indistinguishable from a
-  complete one: nothing marks the RenderResult and the only trace is a DEBUG line. Recorded as
-  discussion-backlog #170
+  complete one: nothing marks the RenderResult and the only trace is a DEBUG line.
 * **References recurse, bounded by `level`.** `result(level=3)` is the default depth; each nested
   expansion decrements it and `level == 0` stops the recursion. A reference cycle therefore terminates
   by depth rather than by cycle detection
@@ -47,10 +46,9 @@ A section kind this version does not know is **rendered, not dropped**. `TypeRen
 answers an unrecognised `type` with a `TypeFieldSection` that keeps its original kind string, so a Type
 saved by a newer version stays readable; `__merge_fields_value` follows that policy - anything that is
 not a reference section and carries a `fields` list is merged as a plain section, and
-`_accept_unknown_section` logs what it did. The dispatch used to be an `elif` chain ending in nothing,
-so a section class outside the three contributed no fields with no log and no marker (discussion-backlog
-#172). On the WRITE side the schema is strict instead: `render_meta.sections.type` only accepts a
-`SectionType` member.
+`_accept_unknown_section` logs what it did. An `elif` chain ending in nothing would leave a section
+class outside the three contributing no fields with no log and no marker. On the WRITE side the
+schema is strict instead: `render_meta.sections.type` only accepts a `SectionType` member.
 
 There is exactly ONE producer per payload. A reference expansion is always a serialised
 `TypeReference` built by `__merge_references` - `_build_reference_expansion` delegates to it rather
@@ -388,7 +386,7 @@ class CmdbMultiRender:
         whenever a field is added to a type and put in its summary before existing objects are saved -
         drops the summaries entirely and falls back to '<type label> #<public_id>'. A summary naming a
         field that no longer exists on the TYPE does not reach here: `CmdbType.get_summary` skips it, so
-        the remaining fields still render (see discussion-backlog #170 for the visibility question)
+        the remaining fields still render
 
         Args:
             render_result (RenderResult): The current render result object to update
@@ -877,10 +875,10 @@ class CmdbMultiRender:
         """
         # ONE producer for this payload: `__merge_references` serialises a `TypeReference`, whose keys
         # `TypeReferenceKey` owns and the frontend, the human-readable exporter and the search matcher
-        # all read. This method used to build a five-key dict of its own - no `line`, no `icon`, no
-        # `prefix`, and `summaries` holding EVERY field of the referenced type rather than the type's
-        # configured summary fields - so the same `reference` key carried two different shapes
-        # depending on which render path filled it
+        # all read. A second, five-key dict built here - no `line`, no `icon`, no `prefix`, and
+        # `summaries` holding EVERY field of the referenced type rather than the type's configured
+        # summary fields - would make the same `reference` key carry two different shapes depending
+        # on which render path filled it
         reference: dict[str, Any] = self.__merge_references({FieldKey.VALUE: reference_id})
 
         # The empty reference (object_id 0) is how `TypeReference` reports "did not resolve"; this
@@ -1015,10 +1013,10 @@ class CmdbMultiRender:
                 field = type_instance.get_field(sf_name)
                 field = self.__merge_field_content_section(field, object_instance)
 
-                # Only when the merge above did not expand it. The check used to read
-                # `'summaries' not in field`, which is ALWAYS true - summaries live inside the
-                # `reference` payload, never at field level - so this branch replaced the merged
-                # field (and its reference) on every reference/location field of a plain section
+                # Only when the merge above did not expand it. Testing `'summaries' not in field`
+                # instead is ALWAYS true - summaries live inside the `reference` payload, never at
+                # field level - which would replace the merged field (and its reference) on every
+                # reference/location field of a plain section
                 if field[FieldKey.TYPE] in (FieldType.REFERENCE, FieldType.LOCATION) and \
                    RenderedFieldKey.REFERENCE.value not in field:
                     field = self._expand_reference_field(field[FieldKey.NAME], object_instance, type_instance)
@@ -1080,9 +1078,9 @@ class CmdbMultiRender:
 
         These three situations - the referenced Type gone, its section gone, or the section no longer
         carrying any of the referenced fields - all end with the frontend drawing nothing where a
-        block used to be, and every one of them used to be entirely silent. A CmdbType update refuses
-        the edits that cause them, but data written before that guard existed can still be in a
-        database, so the render says so instead of quietly dropping the block.
+        block belongs. A CmdbType update refuses the edits that cause them, but a database can still
+        hold data written without that guard, so the render says so instead of quietly dropping the
+        block.
 
         Deduplicated per reference: a list render walks many objects through the same type
         definition, and one broken reference must not produce one line per object

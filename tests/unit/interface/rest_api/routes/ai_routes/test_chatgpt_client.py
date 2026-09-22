@@ -20,6 +20,10 @@ Pure tests: no Flask app context, no real OpenAI SDK calls. ``current_app``, the
 constructor and the ``SystemConfigReader`` are patched at the module level so each branch of
 ``__init__`` and ``get_document_generator_prompt`` is exercised in isolation. The trivial
 one-line ``get_client`` is intentionally outside the scope
+
+``resolve_api_key`` is covered branch by branch because every one of its arms is a way for an
+installation to be unconfigured, and they used to be indistinguishable from a failure: the client
+raised whatever the reader or the OpenAI SDK raised and the route turned all of it into one 500
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -27,7 +31,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client import ChatGptClient
-from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client_constants import ChatGptKeys
+from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client_constants import (
+    ChatGptKeys,
+    CHATGPT_NOT_CONFIGURED_CONFIG_MESSAGE,
+    CHATGPT_NOT_CONFIGURED_ENV_MESSAGE,
+)
+
+from cmdb.errors.ai import ChatGptNotConfiguredError
+from cmdb.errors.system_config import ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.rest_api.routes.ai_routes.chatgpt_client'
@@ -76,7 +87,10 @@ class TestInit:
              patch(f'{MODULE_PATH}.SystemConfigReader', return_value=scr_instance):
             ChatGptClient()
 
-        scr_instance.get_value.assert_called_once_with(ChatGptKeys.CONFIG_API_KEY, ChatGptKeys.CONFIG_SECTION)
+        scr_instance.get_value.assert_called_once_with(
+            ChatGptKeys.CONFIG_API_KEY.value,
+            ChatGptKeys.CONFIG_SECTION.value,
+        )
         openai_cls.assert_called_once_with(api_key=LOCAL_API_KEY)
 
     def test_cloud_plus_local_uses_system_config_reader(self) -> None:
@@ -90,6 +104,134 @@ class TestInit:
             ChatGptClient()
 
         openai_cls.assert_called_once_with(api_key=LOCAL_API_KEY)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               resolve_api_key                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestResolveApiKeyWhenConfigured:
+    """The happy paths: a usable key is returned, whichever source holds it."""
+
+    def test_cloud_returns_the_environment_key(self) -> None:
+        """Cloud (non-local) reads ChatGptKeys.ENV_API_KEY."""
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=True, local_mode=False)), \
+             patch.dict('os.environ', {ChatGptKeys.ENV_API_KEY.value: CLOUD_API_KEY}, clear=False):
+            assert ChatGptClient.resolve_api_key() == CLOUD_API_KEY
+
+    def test_a_non_string_config_value_is_stringified(self) -> None:
+        """The reader's auto_cast hands back an int for a digits-only key; OpenAI needs a str
+
+        Not hypothetical: `get_value` casts every config value, so a key of `1234` arrives as an
+        int and would reach the SDK as one
+        """
+        scr_instance = MagicMock()
+        scr_instance.get_value.return_value = 1234
+
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=False, local_mode=False)), \
+             patch(f'{MODULE_PATH}.SystemConfigReader', return_value=scr_instance):
+            resolved: Any = ChatGptClient.resolve_api_key()
+
+        assert resolved == '1234'
+        assert isinstance(resolved, str)
+
+
+class TestResolveApiKeyWhenNotConfigured:
+    """Every way of having no key raises ChatGptNotConfiguredError, carrying the fix instructions.
+
+    These are the four shapes a real installation arrives in. Before the fix each one raised
+    something different - SectionError, KeyError, OpenAIError - and none of them reached the client
+    as anything but a 500 that named the route rather than the cause.
+    """
+
+    @pytest.mark.parametrize('env_value', [None, '', '   '])
+    def test_cloud_without_a_usable_environment_variable(self, env_value: Any) -> None:
+        """Unset, empty and whitespace-only all mean not configured."""
+        environment: dict[str, str] = {} if env_value is None else {ChatGptKeys.ENV_API_KEY.value: env_value}
+
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=True, local_mode=False)), \
+             patch.dict('os.environ', environment, clear=True):
+            with pytest.raises(ChatGptNotConfiguredError) as raised:
+                ChatGptClient.resolve_api_key()
+
+        assert str(raised.value) == CHATGPT_NOT_CONFIGURED_ENV_MESSAGE
+
+    @pytest.mark.parametrize('reader_error', [
+        SectionError("The section 'ChatGPT' does not exist!"),
+        ConfigNotLoaded('No config file loaded!'),
+        KeyError('api_key'),
+    ])
+    def test_config_file_without_the_section_or_the_entry(self, reader_error: Exception) -> None:
+        """A missing section, an unloaded file and a missing entry answer with the same message."""
+        scr_instance = MagicMock()
+        scr_instance.get_value.side_effect = reader_error
+
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=False, local_mode=False)), \
+             patch(f'{MODULE_PATH}.SystemConfigReader', return_value=scr_instance):
+            with pytest.raises(ChatGptNotConfiguredError) as raised:
+                ChatGptClient.resolve_api_key()
+
+        assert str(raised.value) == CHATGPT_NOT_CONFIGURED_CONFIG_MESSAGE
+
+    def test_the_reader_error_is_kept_as_the_cause(self) -> None:
+        """The original failure stays reachable for whoever reads the log"""
+        reader_error = SectionError("The section 'ChatGPT' does not exist!")
+        scr_instance = MagicMock()
+        scr_instance.get_value.side_effect = reader_error
+
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=False, local_mode=False)), \
+             patch(f'{MODULE_PATH}.SystemConfigReader', return_value=scr_instance):
+            with pytest.raises(ChatGptNotConfiguredError) as raised:
+                ChatGptClient.resolve_api_key()
+
+        assert raised.value.__cause__ is reader_error
+
+    @pytest.mark.parametrize('configured', [None, '', '   '])
+    def test_config_file_with_an_empty_entry(self, configured: Any) -> None:
+        """An `api_key =` with nothing after it is not a configured key."""
+        scr_instance = MagicMock()
+        scr_instance.get_value.return_value = configured
+
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=False, local_mode=False)), \
+             patch(f'{MODULE_PATH}.SystemConfigReader', return_value=scr_instance):
+            with pytest.raises(ChatGptNotConfiguredError) as raised:
+                ChatGptClient.resolve_api_key()
+
+        assert str(raised.value) == CHATGPT_NOT_CONFIGURED_CONFIG_MESSAGE
+
+    def test_the_openai_client_is_never_constructed(self) -> None:
+        """__init__ fails before the SDK is reached, so no SDK error can mask the real cause."""
+        scr_instance = MagicMock()
+        scr_instance.get_value.side_effect = SectionError('missing')
+
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=False, local_mode=False)), \
+             patch(f'{MODULE_PATH}.SystemConfigReader', return_value=scr_instance), \
+             patch(f'{MODULE_PATH}.OpenAI') as openai_cls:
+            with pytest.raises(ChatGptNotConfiguredError):
+                ChatGptClient()
+
+        openai_cls.assert_not_called()
+
+
+class TestTheConfiguredSectionIsNamedByItsValue:
+    """The reader is given the section/key STRINGS, not the enum members."""
+
+    def test_the_reader_receives_plain_strings(self) -> None:
+        """A ConfigFileError formats what it was handed - a member renders as 'ChatGptKeys.X'
+
+        The lookup works either way (BaseStrEnum is a str subclass), so only the message an admin
+        reads is at stake, which is exactly the message that has to name the section to add
+        """
+        scr_instance = MagicMock()
+        scr_instance.get_value.return_value = LOCAL_API_KEY
+
+        with patch(f'{MODULE_PATH}.current_app', _mock_current_app(cloud_mode=False, local_mode=False)), \
+             patch(f'{MODULE_PATH}.SystemConfigReader', return_value=scr_instance):
+            ChatGptClient.resolve_api_key()
+
+        name, section = scr_instance.get_value.call_args.args
+
+        assert (type(name), type(section)) == (str, str)
+        assert (name, section) == ('api_key', 'ChatGPT')
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -28,9 +28,9 @@ report roughly half of all connected ports as free, and no test using a single f
 Membership in the array is therefore the only question asked here.
 
 Pure and free of Flask and of managers: the routes perform the one batched read and hand the result
-in, so this can be exercised over a stubbed connection set. What it does NOT do is resolve the peer -
-per Q21 this step returns the boolean and nothing else, and whether the ports list names the port at
-the other end is discussion backlog #195
+in, so this can be exercised over a stubbed connection set. What it does NOT do is resolve the peer:
+this step returns the boolean and nothing else, and the ports list does not name the port at the
+other end
 """
 from logging import Logger, getLogger
 from typing import Any, Iterable

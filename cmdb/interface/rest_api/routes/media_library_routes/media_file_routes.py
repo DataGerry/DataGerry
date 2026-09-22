@@ -250,10 +250,9 @@ def get_file(filename: str, request_user: CmdbUser) -> Resp:
     the lookup to one folder, which is what makes the name unambiguous - the same name may exist in
     several folders.
 
-    Registered **once**, without a trailing slash, like every other item path on this blueprint. The
-    trailing-slash twin it also carried until 2026-09-21 was the last duplicate registration in the
-    API (discussion-backlog #36): two rules for one handler, so a change to one of them was silently
-    not a change to the other
+    Registered **once**, without a trailing slash, like every other item path on this blueprint. A
+    trailing-slash twin would be two rules for one handler, so a change to one of them would
+    silently not be a change to the other.
 
     Args:
         filename (str): Name of the MediaFile, unique within its folder

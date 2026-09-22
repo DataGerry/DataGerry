@@ -26,7 +26,7 @@ Two normalisations happen here and nowhere else:
 
   - ``type`` is always a LABEL. An inline connection stores the CABLE_TYPE CmdbExtendableOption's
     public_id, a Cable CI stores the label its ordinary CmdbType select carries (a stored type field
-    has no option_type key, which is why the two sides can not store the same thing - backlog #196).
+    has no option_type key, which is why the two sides can not store the same thing).
     The inline id is resolved here, so a client never has to; ``type_id`` carries it alongside, and is
     null for a CI because there is no id to carry.
   - every value is text. The cable fields of a CmdbObject are ordinary field values and an import can
@@ -292,7 +292,6 @@ def _build_ci_view(cable_ci_id: int, cable_ci: dict[str, Any] | None) -> dict[st
     ``type_id`` is always null here, and that is not a gap: the CI's cable type is an ordinary
     CmdbType select storing the option's LABEL, so there is no CmdbExtendableOption id to report.
     Resolving the label back to an id would guess across two lists that are allowed to drift apart
-    (backlog #196)
 
     Args:
         cable_ci_id (int): public_id of the referenced Cable CI

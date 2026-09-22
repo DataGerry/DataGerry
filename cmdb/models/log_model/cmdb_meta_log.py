@@ -55,7 +55,6 @@ class CmdbMetaLog(CmdbDAO):
         },
     ]
 
-    #pylint: disable=too-many-positional-arguments
     def __init__(self, public_id: int, log_type, log_time: datetime, action: LogAction, action_name: str):
         """
         Initializes a CmdbMetaLog

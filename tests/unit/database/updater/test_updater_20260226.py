@@ -603,7 +603,7 @@ class TestStartUpdate:
             updater.start_update()
 
         # The text reads the same whether the wrapper holds the exception or `str()` of it; the
-        # identity is what says a caller can still see WHICH error it was (backlog #207)
+        # identity is what says a caller can still see WHICH error it was (the updater wrapping rule)
         assert 'boom' in str(err.value)
         assert err.value.args[0] is failure
         updater.increase_updater_version.assert_not_called()

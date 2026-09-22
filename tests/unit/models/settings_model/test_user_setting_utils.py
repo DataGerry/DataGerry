@@ -17,9 +17,9 @@
 Unit tests for cmdb.models.settings_model.user_setting_utils
 
 The read side of the settings collection, which sees documents this version of DataGerry did not
-necessarily write. Until 2026-09-09 reading them was strict and fatal: one unresolvable `setting_type`
-failed the whole list read for that user, and the frontend - which syncs settings on login and only
-logs a failure - then silently stopped restoring any of them.
+necessarily write. Read strictly, one unresolvable `setting_type` fails the whole list read for
+that user, and the frontend - which syncs settings on login and only logs a failure - then silently
+stops restoring any of them.
 
 What is pinned here: the answer shape, every coercion (a numeric string user_id, an absent or null
 payload list), the values that are REFUSED (a bool user_id, a scope outside the enum), and that an
@@ -140,7 +140,7 @@ class TestNormalizeUserSettingDocument:
     """One stored document in the shape the list route answers."""
 
     def test_the_answer_carries_exactly_the_four_keys(self) -> None:
-        """`public_id` is stamped in the collection but is not part of this shape (backlog #218)"""
+        """`public_id` is stamped in the collection but is not part of this shape"""
         answered = normalize_user_setting_document(_document())
 
         assert answered == {

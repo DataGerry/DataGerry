@@ -253,7 +253,7 @@ def test_the_response_keys_are_pinned(enum_cls, expected: dict) -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                            the numbers a face carries (backlog #201)                                                 #
+#                            the numbers a face carries                                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestAFaceCarriesItsNumbers:
     """

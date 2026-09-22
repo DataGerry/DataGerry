@@ -23,10 +23,9 @@ and the two halves of the RSA keypair that signs and verifies tokens:
 2. **cloud** (hosted): a Base64 value in an environment variable
 3. **on-premise**: the ``security`` section of the settings collection
 
-That ladder used to be written out three times - once in ``SecurityManager.get_symmetric_aes_key`` and
-twice, byte for byte, in ``KeyHolder``. The two in ``KeyHolder`` differed only in a dict key and an
-environment variable name, which is how the same missing-environment-variable bug came to exist in
-both and had to be fixed in both (tier 2 T110 (d)).
+The ladder lives here once. Written out per caller it differs only in a dict key and an environment
+variable name, which is how one missing-environment-variable bug comes to exist in several copies at
+once.
 
 Nothing here imports from ``cmdb.manager``: ``KeyHolder`` and ``SecurityManager`` sit on opposite
 sides of that package boundary (``cmdb.security.key`` imports the manager layer, and the manager layer
@@ -72,9 +71,9 @@ def decode_env_secret(env_var: str, label: str) -> bytes:
     Reads a Base64 secret from an environment variable
 
     Both failures answer the same way - a ValueError naming the variable - because both are the same
-    operator mistake seen from different angles. The malformed case used to differ: `b64decode` raised
-    `binascii.Error` out of a login request, surfacing as a 500 that said nothing about the
-    environment (tier 2 T110, B2)
+    operator mistake seen from different angles. Left to `b64decode`, the malformed case raises
+    `binascii.Error` out of a login request and surfaces as a 500 that says nothing about the
+    environment
 
     Args:
         env_var (str): Name of the environment variable holding the Base64 value

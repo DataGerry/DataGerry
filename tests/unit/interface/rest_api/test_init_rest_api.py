@@ -59,9 +59,8 @@ TENANT_DBS: list[str] = ['tenant-a', 'tenant-b']
 # envelope is proved for every one the API really emits
 RAISED_STATUS_CODES: tuple[int, ...] = (400, 401, 403, 404, 405, 500, 503)
 
-# Statuses NOTHING in cmdb/ aborts. Each used to answer Flask's HTML page; 415 is the one that was
-# reachable in practice, because Werkzeug raises it while parsing a request - before any route runs,
-# and therefore out of reach of any abort() census (tier 2 T135)
+# Statuses NOTHING in cmdb/ aborts. 415 is the one reachable in practice, because Werkzeug raises it
+# while parsing a request - before any route runs, and therefore out of reach of any abort() census
 UNRAISED_STATUS_CODES: tuple[int, ...] = (409, 413, 415, 422, 423, 429, 451, 501, 502)
 
 
@@ -81,8 +80,8 @@ def _build(monkeypatch: pytest.MonkeyPatch, mode: str, cloud: bool = False, loca
 
     Blueprint registration is patched out too: the blueprints are module-level singletons and
     `gate_blueprint` attaches `before_request` hooks to them, which Flask refuses once a blueprint has
-    been registered - so an app carrying the real blueprints can only be built ONCE per process (see
-    discussion-backlog #159). The registration itself is covered separately by the fixture below.
+    been registered - so an app carrying the real blueprints can only be built ONCE per process.
+    The registration itself is covered separately by the fixture below.
     """
     monkeypatch.setattr(cmdb, '__MODE__', mode, raising=False)
     monkeypatch.setattr(cmdb, '__CLOUD_MODE__', cloud, raising=False)
@@ -426,10 +425,10 @@ def test_a_blueprint_is_imported_from_the_package_of_the_entity_it_serves() -> N
     """
     The route package holds the entity it serves - the log routes with the relations they record
 
-    `/object_relation_logs` used to be imported from a top-level `log_routes` package holding that one
-    module, which read as the home of every log route while the OBJECT logs were somewhere else
-    entirely (discussion-backlog #174). The import path is the only trace of that layout left in this
-    file, so this is where a move back would show up.
+    `/object_relation_logs` is imported from the package that holds the entity it records. A
+    top-level `log_routes` package holding that one module would read as the home of every log route
+    while the OBJECT logs sit elsewhere. The import path is the only trace of that in this file, so
+    this is where such a move would show up.
     """
     body = _registration_source()
 
@@ -653,7 +652,7 @@ def test_execute_update_checks_skips_up_to_date_tenants() -> None:
 
 
 def test_execute_update_checks_stops_at_the_first_failing_tenant() -> None:
-    """No per-tenant isolation: one failing database aborts the whole loop (discussion-backlog #156)"""
+    """No per-tenant isolation: one failing database aborts the whole loop"""
     with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
          patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
          patch(f'{MODULE_PATH}.DatabaseUpdater'):

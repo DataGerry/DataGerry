@@ -21,11 +21,9 @@ value arrives already typed and there is nothing to guess: `7` is a number, `"00
 `json.load` preserves the difference. CSV has no types at all, so its parser recognises the two
 things a cell can unambiguously spell (a number, a boolean) and leaves everything else as text.
 
-The two used to diverge further than that: the CSV caster guessed aggressively, so the same value
-imported as CSV and as JSON could be stored as two different types - `"007"` stayed a string through
-JSON and became `7` through CSV. Since the caster was tightened (tier 2 T163 / T164 / T165) the two
-paths agree on everything except a bare number written without quotes, which is a difference the
-source formats genuinely have.
+The two paths agree on everything except a bare number written without quotes, which is a difference
+the source formats genuinely have. That holds because the caster is strict: a value like `"007"`
+stays a string through either format rather than being guessed into a number by one of them.
 
 Both paths then meet at the same typed layer: `object_import_validator` coerces every value against
 its target field's declared `type`, so the stored type follows the field either way.

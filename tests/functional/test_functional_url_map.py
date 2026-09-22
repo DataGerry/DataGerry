@@ -23,10 +23,8 @@ works perfectly.
 
 **A path is registered once.** A handler carrying two `@blueprint.route` decorators that differ only
 by a trailing slash answers both forms, and every later change has to remember both: a method added
-to one, a decorator reordered on one, a rename applied to one. Five such pairs were collapsed in the
-importer routes on 2026-07-23 (discussion-backlog #36) and the last one, on the media-file read, on
-2026-09-21 - it survived that pass and the follow-up pass, which is why the rule is pinned here
-instead of being re-checked by hand.
+to one, a decorator reordered on one, a rename applied to one. Such pairs are easy to miss by hand -
+which is why the rule is pinned here instead of being re-checked.
 
 **Which form survives is decided by the callers, not by a preference.** The importer's five kept the
 trailing slash because the frontend's `ImportService` called them that way; the media-file read

@@ -88,10 +88,10 @@ class TestPostObject:
         """
         The exact shape `new CmdbObject()` serialises to in object-add.component.ts
 
-        Pinned because the create route gained `@validate(CmdbObject.SCHEMA)` (backlog #2) and the
-        validator purges unknown keys: the frontend class initialises `status`, which the schema does
-        not declare. It was never stored anyway - `CmdbObject.from_data`/`to_json` already dropped it -
-        so purging changes nothing, and this test is what keeps that true.
+        Pinned because the create route carries `@validate(CmdbObject.SCHEMA)` and the validator
+        purges unknown keys: the frontend class initialises `status`, which the schema does not
+        declare. It is not stored either way - `CmdbObject.from_data`/`to_json` drop it - so purging
+        changes nothing, and this test is what keeps that true.
         """
         try:
             response = rest_api.post(f'{ROUTE_URL}/', json={
@@ -297,11 +297,11 @@ class TestPatchObject:
         database_name: str,
     ) -> None:
         """
-        The log and the document agreed on nothing until 2026-09-08
+        The log and the document agree on the version
 
-        ``update_version`` returned the new version without storing it, so the update wrote the bumped
-        string into the document while the edit log read the un-bumped one off the model instance -
-        every object's history was one bump behind the object it described.
+        ``update_version`` returning the new version without storing it would make the update write
+        the bumped string into the document while the edit log read the un-bumped one off the model
+        instance - every object's history one bump behind the object it describes.
         """
         insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_PATCH, ORIGINAL_VALUE)
         logs = database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name)

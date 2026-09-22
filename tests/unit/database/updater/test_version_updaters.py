@@ -90,11 +90,10 @@ def test_no_updater_reduces_its_failure_to_a_message() -> None:
 
     `UpdaterError.__init__` takes `str | Exception`, and passing the exception keeps it inspectable
     through `args[0]` while `str()` reads exactly the same - so a caller can branch on a
-    `DuplicateKeyError` instead of matching on message text. Thirteen modules still reduced it on
-    2026-09-21 (discussion-backlog #207), **two of them written after the finding was filed**: the
-    shape is copied from the file next door, which is why it is asserted over the whole folder rather
-    than fixed once. A behavioural version of this lives in each updater's own suite; this one needs
-    no test double and covers every module, including the ones whose failure tail nothing drives.
+    `DuplicateKeyError` instead of matching on message text. The shape is copied from the file next
+    door, which is why it is asserted over the whole folder rather than fixed once. A behavioural
+    version of this lives in each updater's own suite; this one needs no test double and covers
+    every module, including the ones whose failure tail nothing drives.
     """
     offenders: list[str] = sorted(
         path.name for path in VERSIONS_DIR.glob('updater_*.py')

@@ -208,10 +208,9 @@ def test_an_httpexception_from_a_builder_propagates_untouched(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                     the initial payload and the unassigned route must agree                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
-# `GET /` carries an 'unassigned' block and `GET /unassigned` returns that block alone. They used to be
-# two copies of the same expression; both now call `unassigned_subnet_nodes`, and these tests are what
-# keeps them honest if either is edited (see discussion-backlog #205 for whether the second route
-# survives at all)
+# `GET /` carries an 'unassigned' block and `GET /unassigned` returns that block alone. Both call
+# `unassigned_subnet_nodes` rather than carrying two copies of the same expression, and these tests
+# are what keeps them honest if either is edited
 SUBNET_TYPE_ID: int = 11
 
 
@@ -282,7 +281,7 @@ def test_a_dangling_reference_is_in_no_block() -> None:
 
     A subnet referencing a supernet that does not exist is not 'unassigned' (it has a reference) and
     is not under any supernet (its parent is gone), so it appears nowhere in the tree. Unreachable
-    through the write and delete guards today - discussion-backlog #204.
+    through the write and delete guards today.
     """
     subnets: list[dict[str, Any]] = [_subnet_doc(5, 'orphan', '10.9.0.0/24', parent=4242)]
     objects_manager = MagicMock()

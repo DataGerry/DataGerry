@@ -16,10 +16,10 @@
 """
 The vocabulary of a CmdbUserSetting document
 
-The four keys were bare literals in the model, in four of the manager's criteria dicts and in the
-routes until 2026-09-09; naming them here is what keeps the three layers spelling one document the
-same way. `PUBLIC_ID` is in the list because the collection **does** carry one - the manager stamps it
-on insert - even though it is not part of the model and not part of what the list route answers
+The four keys are spelled in the model, in the manager's criteria dicts and in the routes; naming
+them here is what keeps the three layers spelling one document the same way. `PUBLIC_ID` is in the
+list because the collection **does** carry one - the manager stamps it on insert - even though it is
+not part of the model and not part of what the list route answers
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,7 +31,7 @@ class UserSettingKey(BaseStrEnum):
     RESOURCE + USER_ID are its identity (a unique compound index, see `CmdbUserSetting.INDEX_KEYS`);
     PAYLOADS holds whatever the client stores under that resource; SETTING_TYPE is the stored value of
     a `UserSettingType`. PUBLIC_ID is stamped by the manager on insert and answered by the
-    single-resource read only - which read answers which shape is discussion-backlog #218
+    single-resource read only
     """
     PUBLIC_ID = 'public_id'
     RESOURCE = 'resource'

@@ -31,13 +31,13 @@ oversight, and each is tracked so the asymmetry stays visible:
   between validation and write and keeps the whole batch in one write. The cost is that it does
   **not** go through ``ObjectsManager.update_object``: no object-level ACL check, no entry in the
   objects' change history, no version bump and no webhook - unlike the SUBNET unassign route,
-  which writes each owner individually and gets all four. Recorded as discussion-backlog #152
+  which writes each owner individually and gets all four.
 * **The subnets CSV export is uncapped.** Its SUBNET counterpart refuses an export above
   ``IpamSubnetIpsExport.MAX_EXPORT_ROWS``; ``IpamExport`` defines no such limit, so a supernet with
-  very many subnets builds the whole file in memory. Recorded as #153
+  very many subnets builds the whole file in memory.
 * **The children endpoint is unpaginated.** Every other route on this blueprint pages its rows;
   this one returns all direct CIDR-children of the expanded subnet in a single response, which is
-  also what the frontend expects today. Recorded as #154
+  also what the frontend expects.
 
 These routes are transport glue: reading the query string / body, resolving the managers and
 mapping failures onto HTTP. The payloads themselves are built by ``cmdb.framework.ipam``
@@ -161,7 +161,7 @@ def get_supernet_subnet_children(public_id: int, subnet_id: int, request_user: C
         request_user (CmdbUser): CmdbUser making the request
 
     The row list is NOT paginated - every direct child comes back in one response, which is what
-    the frontend expects when it expands a row (see discussion-backlog #154)
+    the frontend expects when it expands a row
 
     Raises:
         HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
@@ -203,7 +203,7 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
 
     The export is **uncapped**: unlike the SUBNET IP export, which refuses anything above
     ``IpamSubnetIpsExport.MAX_EXPORT_ROWS``, every assigned subnet is written out however many there
-    are (see discussion-backlog #153)
+    are
 
     Raises:
         HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
@@ -310,7 +310,7 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     The fourth - the ACL - is applied: ``request_user`` is forwarded and
     ``verify_subnet_write_access`` asks once, before the write, whether the caller's group may
     update SUBNET objects. One question answers it for the whole batch because an ACL lives on the
-    CmdbType and every target here is a SUBNET. The remaining three are still open as tier-2 T203
+    CmdbType and every target here is a SUBNET. The remaining three are not applied.
 
     Body:
         subnet_ids (list[int]): public_ids of SUBNETs to detach; must be a non-empty list,

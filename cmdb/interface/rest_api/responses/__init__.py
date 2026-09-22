@@ -27,7 +27,7 @@ Two members are not envelopes:
 * `LoginResponse` is the token exchange and deliberately carries no envelope keys
 * `GridFsResponse` is a plain result container for the media library, not an HTTP response at all -
   it has no `make_response`. It is also imported by `media_files_manager`, which makes the manager
-  layer depend on the interface layer; where it should move instead is discussion-backlog #216
+  layer depend on the interface layer
 
 `ErrorResponse` in `error_handlers.py` is the other half of the contract: it owns the shape of a
 failed request (`status`, `response`, `description`, `message`), which is what every `abort()` in the

@@ -25,12 +25,11 @@ overwrites that instance's host / port / options / client. An autouse fixture th
 restores `_instance` around every test - without it these tests would break every later DB-touching
 test in the session.
 
-Several tests pin behaviour the audit flagged as wrong and that was deliberately left unchanged: the
-'ssl' option being dropped without carrying its value into 'tls' (discussion-backlog #139), the
-caller's options dict being mutated in place (#140), `is_connected` raising instead of returning False
-(#141) and `disconnect` swallowing a failed close
-(#143). They are regression pins for the CURRENT contract, not endorsements - each names its item so a
-fix knows which test to rewrite.
+Several tests pin behaviour that is known to be wrong and deliberately left unchanged: the 'ssl'
+option being dropped without carrying its value into 'tls', the caller's options dict being mutated
+in place, `is_connected` raising instead of returning False, and `disconnect` swallowing a failed
+close. They are regression pins for the CURRENT contract, not endorsements - each says so, so a fix
+knows which test to rewrite.
 """
 from typing import Any, Iterator
 from unittest.mock import MagicMock, patch
@@ -94,7 +93,7 @@ def test_second_construction_returns_the_same_instance() -> None:
 
 
 def test_a_later_construction_overwrites_host_and_port() -> None:
-    """The cached instance is re-pointed by a later construction (discussion-backlog #145)"""
+    """The cached instance is re-pointed by a later construction"""
     _connector({}, host='first.example.test', port=1111)
     connector = _connector({}, host='second.example.test', port=2222)
 
@@ -102,7 +101,7 @@ def test_a_later_construction_overwrites_host_and_port() -> None:
 
 
 def test_a_later_construction_drops_the_cached_client_without_closing_it() -> None:
-    """__init__ resets the lazy client on the shared instance; the old one is not closed (#144)"""
+    """__init__ resets the lazy client on the shared instance; the old one is not closed"""
     client = MagicMock()
     connector = _with_client(_connector({}), client)
 
@@ -121,7 +120,7 @@ def test_port_is_coerced_to_int() -> None:
 #                                                 TLS / ssl handling                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_ssl_option_is_dropped_without_carrying_its_value(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#139: an explicit ssl=True over host/port ends up as tls=False, NOT tls=True"""
+    """An explicit ssl=True over host/port ends up as tls=False, NOT tls=True"""
     monkeypatch.delenv(MONGO_CONNECTION_STRING_ENV, raising=False)
 
     options = _connector({MONGO_SSL_OPTION: True}).client_options
@@ -138,7 +137,7 @@ def test_srv_connection_string_enables_tls(monkeypatch: pytest.MonkeyPatch) -> N
 
 
 def test_plain_connection_string_does_not_enable_tls(monkeypatch: pytest.MonkeyPatch) -> None:
-    """#139: a plain mongodb:// string gets tls=False injected, overriding what the URI may ask for"""
+    """A plain mongodb:// string gets tls=False injected, overriding what the URI may ask for"""
     monkeypatch.setenv(MONGO_CONNECTION_STRING_ENV, PLAIN_STRING)
 
     assert _connector({}).client_options[MONGO_TLS_OPTION] is False
@@ -153,7 +152,7 @@ def test_a_caller_supplied_tls_option_is_respected(provided: bool, monkeypatch: 
 
 
 def test_the_callers_options_dict_is_mutated_in_place() -> None:
-    """#140: the caller's dict is stored by reference and loses 'ssl' / gains 'tls'"""
+    """The caller's dict is stored by reference and loses 'ssl' / gains 'tls'"""
     options: dict[str, Any] = {'retryReads': True, MONGO_SSL_OPTION: True}
 
     connector = _connector(options)
@@ -270,10 +269,10 @@ def test_connect_raises_when_the_server_is_unreachable() -> None:
 
 def test_connect_retries_a_transient_failure(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    The retry wrapper fires again since 2026-09-09 (was discussion-backlog #142)
+    The retry wrapper fires on a converted error
 
-    ``connect`` converts a `ConnectionFailure` into a `DatabaseConnectionError`, which the decorator
-    used to ignore - so the four decorators on this class never retried anything. The policy now
+    ``connect`` converts a `ConnectionFailure` into a `DatabaseConnectionError`. A decorator that
+    ignored it would leave the four decorators on this class retrying nothing. The policy
     reads the typed error's cause, and a failed connection attempt is exactly what may be repeated.
     """
     monkeypatch.setattr(retry_module.time, 'sleep', lambda *_args: None)

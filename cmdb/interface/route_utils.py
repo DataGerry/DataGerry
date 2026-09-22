@@ -166,11 +166,10 @@ def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
         - DocumentNetworkError -> 503 Service Unavailable
         - DocumentLockTimeoutError -> 423 Locked
 
-    **It only sees what escapes the view**, being the outermost decorator - which is what made it
-    inert until 2026-09-16: the one route carrying it ends in `except Exception: abort(500, ...)`,
-    and the manager below had already re-wrapped the raw errors into its own type, so neither status
-    had ever been emitted and a lock timeout was reported as an internal server error. Both layers
-    now re-raise these two unchanged (tier 2 T135 / T185)
+    **It only sees what escapes the view**, being the outermost decorator. A route ending in
+    `except Exception: abort(500, ...)`, or a manager re-wrapping the raw errors into its own type,
+    makes it inert: neither status is ever emitted and a lock timeout is reported as an internal
+    server error. Both layers therefore re-raise these two unchanged
 
     So a route decorated with this **must not** swallow them in a blanket `except Exception` of its
     own; if it does, the decorator silently does nothing and the failure looks like a server fault
@@ -223,7 +222,7 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
             except (DocumentLockTimeoutError, DocumentNetworkError):
                 # A TRANSIENT database failure is not an internal error: `@handle_db_errors` maps it to
                 # 423 / 503 so the caller knows to retry, and it only ever sees what escapes this
-                # wrapper. Claiming it here would put back the flat 500 that tier 2 T135/T185 removed
+                # wrapper. Claiming it here would make that a flat 500 instead
                 raise
             except Exception as err:
                 LOGGER.error(

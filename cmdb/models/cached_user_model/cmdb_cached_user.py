@@ -63,7 +63,6 @@ class CmdbCachedUser(CmdbDAO):
 
     SCHEMA: dict[str, Any] = get_cmdb_cached_user_schema()
 
-    #pylint: disable=R0917
     def __init__(
         self,
         public_id: int,
@@ -128,8 +127,8 @@ class CmdbCachedUser(CmdbDAO):
         """
         try:
             # The audit timestamps are coerced strictly: a value that cannot be read is refused
-            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
-            # 'sometime in March' into a date built from today's day number
+            # rather than guessed. A fuzzy parse turns a note like 'sometime in March' into a
+            # date built from today's day number
             unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
             if unusable_dates:

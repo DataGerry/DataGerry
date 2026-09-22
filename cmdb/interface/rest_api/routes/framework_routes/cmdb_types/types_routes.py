@@ -37,10 +37,9 @@ lookup failures) or HTTP 500 (unexpected), following the codebase convention - 4
 **Access control**: the two listing routes are additionally filtered by the type ACL. ``GET /types/``
 filters to the types the caller's group holds the requested permissions on (``?acl=``, default READ);
 ``/types/overview`` always uses READ. The single-type read and the write routes are **not** -
-a type filtered out of the listing can still be fetched, edited and deleted by public_id. That is a
-known hole, filed as **T212**; the listings were closed first because they were the routes whose
-only access control was a filter the Angular app posted, which any other API consumer could simply
-omit.
+a type filtered out of the listing can still be fetched, edited and deleted by public_id. The
+listings matter most because their only access control is a filter the Angular app posts, which any
+other API consumer can simply omit.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -150,7 +149,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Note:
         A payload ``public_id`` is currently honoured - the database only generates one when the key
-        is absent - so a client can choose the new Type's id (discussion backlog #186)
+        is absent - so a client can choose the new Type's id
 
     Args:
         data (CmdbType.SCHEMA): Data of the CmdbType which should be inserted
@@ -243,8 +242,8 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
     ``?acl=`` names the permission that restriction asks about, defaulting to READ. It **replaces**
     READ rather than adding to it, so ``?acl=CREATE`` answers "the types my group may create an
     object of", and ``?acl=READ,CREATE`` requires both. The filter is a query, not a boundary: the
-    single-type read applies no ACL at all (tier 2 T212), so nothing here is reachable that was not
-    reachable before.
+    single-type read applies no ACL at all, so nothing here is reachable that was not reachable
+    before.
 
     ``?category=<public_id>`` restricts the listing to the CmdbTypes assigned to that CmdbCategory
     and ``?uncategorized=true`` to the CmdbTypes assigned to none; the two cannot be combined
@@ -409,7 +408,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
 
     Note:
         The count covers every CmdbObject of the Type regardless of the caller's object ACL, so it
-        can exceed what the same user is allowed to see (discussion backlog #189)
+        can exceed what the same user is allowed to see
 
     Args:
         public_id (int): The public_id of the CmdbType to count CmdbObjects for
@@ -519,7 +518,6 @@ def get_selectable_as_parent_usage_of_cmdb_type(public_id: int, request_user: Cm
         This route has **no frontend caller** - the type builder toggles 'selectable_as_parent'
         locally and only learns of the block from the 400 the update route returns. Whether the
         frontend should pre-check here or the route should be retired is a pending decision
-        (discussion backlog #188)
 
     Args:
         public_id (int): public_id of the CmdbType to inspect
@@ -602,7 +600,7 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
     `guard_uses_ports_change`. ``in_use: false`` means the flag may be cleared.
 
     Counts only, deliberately: the equivalent location payload returns every matching public_id and is
-    unbounded for a large Type (discussion backlog #187).
+    unbounded for a large Type.
 
     Note this read is NOT license-gated, unlike the rest of the feature. Turning the flag off is the
     cleanup direction and is always allowed, so gating the pre-check would blind exactly the users who

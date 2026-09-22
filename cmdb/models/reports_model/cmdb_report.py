@@ -136,7 +136,6 @@ class CmdbReport(CmdbDAO):
     SCHEMA: dict[str, Any] = get_cmdb_report_schema()
 
 
-    #pylint: disable=R0913, R0917
     def __init__(
         self,
         report_category_id: int,

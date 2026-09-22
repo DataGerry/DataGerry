@@ -66,7 +66,6 @@ disable=raw-checker-failed,
         locally-disabled,
         file-ignored,
         suppressed-message,
-        useless-suppression,
         deprecated-pragma,
         use-symbolic-message-instead,
         broad-exception-caught,
@@ -76,7 +75,11 @@ disable=raw-checker-failed,
 # either give multiple identifier separated by comma (,) or put this option
 # multiple time (only on the command line, not in the configuration file where
 # it should appear only once). See also the "--disable" option for examples.
-enable=c-extension-no-member
+# useless-suppression is INFORMATIONAL (I0021): removing it from the disable list above is not
+# enough, it has to be enabled explicitly. It reports a `# pylint: disable=...` that no longer
+# suppresses anything, so a waiver cannot outlive the code that earned it
+enable=c-extension-no-member,
+       useless-suppression
 
 
 [REPORTS]

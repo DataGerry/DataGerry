@@ -177,13 +177,13 @@ class MongoDatabaseManager:
         """
         Closes the connection when the with-block ends
 
-        The half of the protocol this class used to be missing: `__enter__` alone makes a `with`
-        statement fail at ENTRY with a TypeError, so the support it advertised never worked. Closing is
-        the connector's own no-raise disconnect - a failed close reports the same disconnected status a
+        The other half of the protocol: `__enter__` alone makes a `with` statement fail at ENTRY
+        with a TypeError, so both are needed for the support this class advertises. Closing is the
+        connector's own no-raise disconnect - a failed close reports the same disconnected status a
         successful one does (see the note on `MongoConnector.disconnect`).
 
         **The keep-alive thread outlives this block**, because it cannot be stopped: it re-creates the
-        client within its ping interval (discussion-backlog #148), so a `with` block releases the
+        client within its ping interval, so a `with` block releases the
         connection rather than ending the manager's life
 
         Args:
@@ -240,7 +240,7 @@ class MongoDatabaseManager:
         which is what `reset_connection` relies on: it calls this again after building a new connector,
         the existing thread is still running, and that thread picks the new client up on its next ping
         (see `_keepalive_once`). The thread is a daemon and has no stop flag, so it ends with the
-        process - a disconnect does not stay closed, recorded as discussion-backlog #148
+        process - a disconnect does not stay closed
         """
 
         # Avoid multiple threads
@@ -492,8 +492,8 @@ class MongoDatabaseManager:
         Reports whether the database answered a connection probe
 
         A plain boolean, because `MongoConnector.is_connected` catches the connection error rather
-        than re-raising it. Until 2026-09-17 it did re-raise, and this method inherited that: the one
-        route that reads it answered a 500 where it meant to answer `connected: false` (tier 2 T123)
+        than re-raising it. A raise would be inherited by this method and reach the one route that
+        reads it as a 500, where it means to answer `connected: false`.
 
         Returns:
             bool: True when the database answered, False when it did not
@@ -856,8 +856,8 @@ class MongoDatabaseManager:
                     )
 
             # If something got created, the id came from the caller (the criteria IS the public_id),
-            # so the counter is raised TO that id rather than bumped by one - an upsert creating
-            # public_id 500 while the counter sits at 3 used to leave it at 4
+            # so the counter is raised TO that id rather than bumped by one: an upsert creating
+            # public_id 500 while the counter sits at 3 has to leave it at 500, not 4
             if result.upserted_id:
                 self.update_public_id_counter(collection, db_name, value=data['public_id'])
 

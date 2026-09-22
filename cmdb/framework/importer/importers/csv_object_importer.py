@@ -73,7 +73,6 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
 
     Extends: ObjectImporter, CSVContent
     """
-    #pylint: disable=R0917
     def __init__(
             self,
             file=None,

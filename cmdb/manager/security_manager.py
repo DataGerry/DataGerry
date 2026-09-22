@@ -140,7 +140,7 @@ class SecurityManager:
         """
         Reads the symmetric key from the 'security' settings section, generating one when absent
 
-        **The lazy generation is a hazard, not a feature, and is filed as tier 2 T202.** It is correct
+        **The lazy generation is a hazard, not a feature.** It is correct
         on a first use and wrong on a loss, and this code cannot tell those apart: the key is what
         keys the password HMAC, so generating a replacement silently invalidates every stored password
         hash - nobody can log in afterwards, admin included, with nothing reported. Kept as-is here so

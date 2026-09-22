@@ -46,10 +46,10 @@ Both are blueprint-wide on purpose. A route added here inherits them; a per-hand
 to be remembered, and it is precisely a per-route guard that was relied on and turned out to be inert
 in one mode.
 
-Still open for the CLOUD side, where the routes do exist: ``verify_api_access`` evaluates no API level
-for a request carrying a Bearer token (tier 2 T95), and the database name is used as given, so any
-database on the cluster is a valid target (T96). Both are filed for decision rather than narrowed
-here, because tightening them changes the contract the Service Portal calls against
+Two things are left as they are on the CLOUD side, where the routes do exist: ``verify_api_access``
+evaluates no API level for a request carrying a Bearer token, and the database name is used as
+given, so any database on the cluster is a valid target. Tightening either changes the contract the
+Service Portal calls against
 """
 from logging import Logger, getLogger
 from typing import Any

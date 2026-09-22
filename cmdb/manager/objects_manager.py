@@ -216,7 +216,7 @@ class ObjectsManager(BaseManager):
             # Propagated unchanged, the same rule MongoDatabaseManager.insert applies one layer down:
             # re-wrapping these as an insert error hides the one thing that distinguishes them - they
             # are transient and the request can simply be retried. The route maps them to 423 / 503
-            # through `handle_db_errors`, and used to report both as a flat 500 (tier 2 T135 / T185)
+            # through `handle_db_errors`
             raise err
         except Exception as err:
             LOGGER.error("[insert_object] Exception: %s. Type: %s", err, type(err))

@@ -302,7 +302,7 @@ class TestBuildCableView:
         """
         Not a gap: a CmdbType select stores its option's LABEL and knows no CmdbExtendableOption id
 
-        Guessing one back would map across two lists that are allowed to drift apart (backlog #196).
+        Guessing one back would map across two lists that are allowed to drift apart.
         """
         view = build_cable_view(
             _connection(**{PortConnectionKey.CABLE_CI_ID.value: CABLE_CI_ID}),

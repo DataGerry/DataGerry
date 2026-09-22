@@ -129,9 +129,8 @@ VALID_SORT_ORDERS: frozenset[int] = frozenset({SORT_ASCENDING, SORT_DESCENDING})
 #: and the frontend never sends them - and so is every stage that reads or writes another collection
 #: apart from the two ``$lookup`` targets below
 #:
-#: ``$lookup`` and ``$group`` are here **only because the frontend depends on them** and removing them
-#: would break live screens; both are recorded as tier 2 T204 / T205 with the call sites that have to
-#: move server-side first
+#: ``$lookup`` and ``$group`` are here **only because the frontend depends on them** and removing
+#: them would break live screens; the call sites have to move server-side first
 ALLOWED_PIPELINE_STAGES: frozenset[str] = frozenset({
     '$match',
     '$addFields',

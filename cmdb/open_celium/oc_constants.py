@@ -54,8 +54,7 @@ OC_DEFAULT_USAGE_SIZE: int = 5
 
 # The only value that turns the flag off. Deliberately not a truthiness test - `bool('false')` is
 # True, which is the footgun `request.args.get(..., type=bool)` walks into - and deliberately not a
-# list of spellings: whether '0' / 'no' / an EMPTY value should also disable operations is
-# discussion-backlog #223
+# list of spellings: '0', 'no' and an EMPTY value do not disable operations
 OC_FLAG_DISABLED_VALUE: str = "false"
 
 # OpenCelium login endpoint + max token-refresh attempts before giving up on a 403 loop

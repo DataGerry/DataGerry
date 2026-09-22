@@ -47,8 +47,7 @@ A third thing to know about the surface as a whole: **the CSV export takes none 
 filters**. `GET /overview/<public_id>` narrows its IP table by `search`, `sort`, `status` and a
 `type` id list, while `GET /overview/<public_id>/export` accepts no query parameters at all and
 always writes the whole subnet. The frontend matches that rather than working around it, so the
-Export button beside a filtered table exports more than the table shows - recorded as
-discussion-backlog #202, where the decision is whether the export follows the view or says so.
+Export button beside a filtered table exports more than the table shows.
 
 These routes are transport glue: reading the query string / body, resolving the managers and
 mapping failures onto HTTP. The payloads themselves are built by `cmdb.framework.ipam`

@@ -25,8 +25,7 @@ OpenCelium, and that registration is what a business template is filtered by (se
 All three routes are **read-only proxies**: DataGerry stores no invokers, and OpenCelium answers
 whatever it answers. The blueprint is license-gated as part of the `AUTOMATIONS` feature (see
 `init_rest_api`) and carries no per-route ACL right, unlike the sibling connection and connector
-routes - discussion-backlog #115 lists this file by name and records that the rights it would need do
-not exist yet.
+routes - the rights it would need do not exist yet.
 
 **Only the list route has a frontend caller**: `GET /invokers`, read once per connector form through
 the connectors resolver (`connectors.service.ts`), which sends no query parameters at all. The

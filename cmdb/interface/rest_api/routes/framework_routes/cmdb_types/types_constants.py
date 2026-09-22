@@ -110,7 +110,7 @@ class UsesPortsUsageKey(BaseStrEnum):
     Response keys of the ``/types/uses_ports_usage/<public_id>`` pre-check
 
     Counts only, never an id list: the equivalent location payload returns every matching public_id
-    and is unbounded for a large Type (discussion backlog #187). The type builder needs to know
+    and is unbounded for a large Type. The type builder needs to know
     WHETHER it may clear the flag, not which ports stand in the way
     """
     IN_USE = 'in_use'

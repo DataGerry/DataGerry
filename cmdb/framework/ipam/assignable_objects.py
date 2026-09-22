@@ -267,8 +267,7 @@ def build_assignable_objects_page(
         }
 
     # The picker offers objects the caller may actually open, so it is ACL-scoped like every other
-    # presentation read. The rack picker's equivalent question is tier 2 T65 - whatever is decided
-    # there should match this
+    # presentation read
     object_docs: list[dict[str, Any]] = objects_manager.find_objects(
         {CmdbObjectKey.TYPE_ID: {'$in': capable_type_ids}},
         as_dict=True,
