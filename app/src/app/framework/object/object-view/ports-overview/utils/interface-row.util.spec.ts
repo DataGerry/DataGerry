@@ -173,15 +173,31 @@ describe('toInterfaceLinkView', () => {
 describe('summarisePortInterfaces', () => {
 
     it('reports nothing for a port without links', () => {
-        expect(summarisePortInterfaces([])).toEqual({ label: null, address: null, additional: 0, dangling: 0 });
+        expect(summarisePortInterfaces([])).toEqual({ label: null, address: null, additionalLabels: [], dangling: 0 });
     });
 
 
-    it('counts the links beyond the first one', () => {
-        const summary = summarisePortInterfaces([link(), link({ public_id: 42 }), link({ public_id: 43 })]);
+    it('names the links beyond the first one, so the badge can list them', () => {
+        const other = link({
+            public_id: 42,
+            interface_row: row({
+                [IPAM_INTERFACE_FIELD_NAMES.HOST]: 'srv02',
+                [IPAM_INTERFACE_FIELD_NAMES.IP_ADDRESS]: '10.0.0.2'
+            })
+        });
+
+        const summary = summarisePortInterfaces([link(), other, link({ public_id: 43 })]);
 
         expect(summary.label).toBe('10.0.0.1');
-        expect(summary.additional).toBe(2);
+        expect(summary.additionalLabels).toEqual(['srv02 \u00b7 10.0.0.2', '10.0.0.1']);
+    });
+
+
+    it('names a further link whose interface row is gone as removed', () => {
+        const dangling = link({ public_id: 42, interface_multi_data_id: 7 });
+        delete dangling.interface_row;
+
+        expect(summarisePortInterfaces([link(), dangling]).additionalLabels).toEqual(['Removed interface (row #7)']);
     });
 
 
@@ -214,5 +230,19 @@ describe('summarisePortInterfaces', () => {
         delete dangling.interface_row;
 
         expect(summarisePortInterfaces([dangling]).label).toBeNull();
+    });
+
+
+    // The shown link is the first resolvable one, so the counts stay in step when none resolves.
+    it('still names only the links beyond the first when every one of them is dangling', () => {
+        const first = link();
+        const second = link({ public_id: 42, interface_multi_data_id: 7 });
+        delete first.interface_row;
+        delete second.interface_row;
+
+        const summary = summarisePortInterfaces([first, second]);
+
+        expect(summary.additionalLabels).toEqual(['Removed interface (row #7)']);
+        expect(summary.dangling).toBe(2);
     });
 });

@@ -3,24 +3,12 @@
   .connection-info-panel {
     width: 320px;
   }
-
-  .legend {
-    width: 220px;
-  }
 }
 
 @media (max-width: 1200px) {
   .top-toolbar {
     .search-box {
       width: 320px;
-    }
-  }
-
-  .legend {
-    width: 200px;
-    
-    .legend-item {
-      font-size: 12px;
     }
   }
 }
@@ -77,6 +65,10 @@
 
   .ci-explorer-container {
     background: white;
+  }
+
+  .graph-viewport {
+    background-image: none;
   }
 
   .ci-node {

@@ -188,8 +188,8 @@ export interface PortInterfaceSummary {
     /** The address shown beside the label, left out when the label already is one. */
     address: string | null;
 
-    /** Links beyond the first, resolvable or not. */
-    additional: number;
+    /** The links beyond the shown one, named for the badge's tooltip. A dangling one reads as removed. */
+    additionalLabels: string[];
 
     /** Links whose interface row is gone. */
     dangling: number;

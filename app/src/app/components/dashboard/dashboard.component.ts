@@ -299,44 +299,6 @@ export class DashboardComponent implements OnInit, OnDestroy {
     }
 
 
-    /**
-     * Deletes the object, the corresponding location and all locations from child objects
-     * 
-     * @param value object which should be deleted
-     */
-    public onObjectDeleteWithLocations(value: RenderResult) {
-        this.objectService.deleteObjectWithLocations(value.object_information.object_id).pipe(takeUntil(this.unSubscribe))
-            .subscribe({
-                next: () => {
-                    this.toastService.success(`Object ${value.object_information.object_id} was deleted successfully`);
-                    this.sidebarService.updateTypeCounter(value.type_information.type_id).then(() => {
-                        this.loadLatestObjects();
-                        this.loadNewestObjects();
-                    });
-                },
-                error: (error) => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
-    }
-
-
-    public onObjectDeleteWithObjects(value: RenderResult) {
-        this.objectService.deleteObjectWithChildren(value.object_information.object_id).pipe(takeUntil(this.unSubscribe))
-            .subscribe({
-                next: () => {
-                    this.toastService.success(`Object ${value.object_information.object_id} was deleted successfully`);
-                    this.sidebarService.updateTypeCounter(value.type_information.type_id).then(() => {
-                        this.loadLatestObjects();
-                        this.loadNewestObjects();
-                    });
-                },
-                error: (error) => {
-                    this.toastService.error(error?.error?.message);
-                }
-            });
-    }
-
     /* ----------------------------------------------- OBJECT API - HELPER ---------------------------------------------- */
 
     public onNewestPageChange(event) {

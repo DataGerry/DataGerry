@@ -15,21 +15,39 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable, ElementRef } from '@angular/core';
+import { Injectable, ElementRef, OnDestroy } from '@angular/core';
 import { GraphNode } from '../interfaces/graph.interfaces';
 import { LAYOUT_CONFIG } from '../constants/graph.constants';
 
+export interface MinimapViewportRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+}
+
 @Injectable()
-export class GraphViewportService {
+export class GraphViewportService implements OnDestroy {
     private viewportX = 0;
     private viewportY = 0;
     private zoom = 0.65;
     private targetZoom = 0.65;
+    private zoomFrameHandle?: number;
+    private onFrame?: () => void;
+
+    ngOnDestroy(): void {
+        this.cancelZoomAnimation();
+    }
 
     getViewportX(): number { return this.viewportX; }
     getViewportY(): number { return this.viewportY; }
     getZoom(): number { return this.zoom; }
     getTargetZoom(): number { return this.targetZoom; }
+
+    /** Called on every eased frame so an OnPush view knows the zoom moved. */
+    setFrameCallback(onFrame: () => void): void {
+        this.onFrame = onFrame;
+    }
 
     /**
      * Sets the viewport position based on the provided x and y coordinates.
@@ -159,17 +177,27 @@ export class GraphViewportService {
         const startZoom = this.zoom;
         const startTime = performance?.now();
 
+        // A second click part way through would otherwise leave two loops writing the same zoom.
+        this.cancelZoomAnimation();
+
         const animate = (currentTime: number) => {
             const elapsed = currentTime - startTime;
             const progress = Math.min(elapsed / duration, 1);
             const easeProgress = 1 - Math.pow(1 - progress, 3);
             this.zoom = startZoom + (this.targetZoom - startZoom) * easeProgress;
 
-            if (progress < 1) {
-                requestAnimationFrame(animate);
-            }
+            this.zoomFrameHandle = progress < 1 ? requestAnimationFrame(animate) : undefined;
+            this.onFrame?.();
         };
-        requestAnimationFrame(animate);
+        this.zoomFrameHandle = requestAnimationFrame(animate);
+    }
+
+
+    private cancelZoomAnimation(): void {
+        if (this.zoomFrameHandle !== undefined) {
+            cancelAnimationFrame(this.zoomFrameHandle);
+            this.zoomFrameHandle = undefined;
+        }
     }
 
 
@@ -241,7 +269,7 @@ export class GraphViewportService {
      * @param graphContainer  The container element for the graph, used to get its dimensions.
      * @returns  An object representing the viewport rectangle with x, y, width, and height properties.
      */
-    getMinimapViewportRect(graphContainer?: ElementRef): any {
+    getMinimapViewportRect(graphContainer?: ElementRef): MinimapViewportRect | null {
         if (!graphContainer) return null;
         const container = graphContainer?.nativeElement;
         const rect = container?.getBoundingClientRect();

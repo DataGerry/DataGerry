@@ -166,6 +166,24 @@ $sb-speed : 200ms;
     background: $sb-row-hover;
   }
 
+  /* Collapsed rail: marks which icon the open flyout belongs to */
+  &.is-open {
+    position: relative;
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand);
+
+    &::before {
+      content: '';
+      position: absolute;
+      left: -16px;
+      top: 9px;
+      bottom: 9px;
+      width: 3px;
+      border-radius: 0 3px 3px 0;
+      background: var(--dg-brand);
+    }
+  }
+
   &.sb-item--action {
     background: rgba(233, 77, 24, 0.08);
     color: $sb-accent;
@@ -567,16 +585,29 @@ $sb-speed : 200ms;
   }
 }
 
-// FLYOUT PANEL (Collapsed Mode)  
+// FLYOUT PANEL (Collapsed Mode)
+@keyframes sb-flyout-in {
+  from {
+    opacity: 0;
+    transform: translateX(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
 .sb-flyout {
   position: fixed;
-  left : calc(#{$sb-closed} + 8px);
-  width: 260px;
+  left : calc(#{$sb-closed} + 10px);
+  width: 280px;
   background: #ffffff;
-  border: 1px solid $sb-border-color;
-  border-radius: $sb-radius-sm;
+  border: 1px solid var(--dg-border);
+  border-radius: var(--dg-radius-lg);
   z-index: 9000;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  box-shadow: var(--dg-shadow-modal);
+  animation: sb-flyout-in 120ms ease-out both;
 
   /* Invisible bridge to prevent mouseleave thrashing */
   &::before {
@@ -584,37 +615,126 @@ $sb-speed : 200ms;
     position: absolute;
     top: 0;
     bottom: 0;
-    left: -16px;
-    width: 16px;
+    left: -10px;
+    width: 10px;
     background: transparent;
-    z-index: -1;
   }
 
-  /* Branded Headers */
+  /* Anchors the card to the hovered icon; outer wedge carries the border, inner one the surface */
+  &__arrow {
+    position: absolute;
+    left: -9px;
+    margin-top: -9px;
+    width: 0;
+    height: 0;
+    border-style: solid;
+    border-width: 9px 9px 9px 0;
+    border-color: transparent var(--dg-border) transparent transparent;
+
+    /* Offset by 2px so it also covers the card's own left border */
+    &::after {
+      content: '';
+      position: absolute;
+      top: -8px;
+      left: 2px;
+      width: 0;
+      height: 0;
+      border-style: solid;
+      border-width: 8px 8px 8px 0;
+      border-color: transparent #ffffff transparent transparent;
+    }
+  }
+
   &__head {
-    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 13px 14px;
+    border-bottom: 1px solid var(--dg-hairline);
+  }
+
+  &__head-icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex: 0 0 auto;
+    width: 26px;
+    height: 26px;
+    border-radius: var(--dg-radius-sm);
+    background: rgba(var(--dg-brand-rgb), 0.1);
+    color: var(--dg-brand);
     font-size: 12px;
-    font-weight: 800;
-    text-transform: uppercase;
-    color: $sb-accent;
-    background: rgba(233, 77, 24, 0.06);
-    border-bottom: 1px solid rgba(233, 77, 24, 0.15);
+  }
+
+  &__head-text {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--dg-ink);
   }
 
   &__section-label {
-    font-size: 10px;
-    font-weight: 800;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 10.5px;
+    font-weight: 600;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
-    color: $sb-accent;
-    padding: 12px 8px 6px;
+    letter-spacing: 0.08em;
+    color: var(--dg-muted);
+    padding: 12px 14px 6px;
     margin: 0;
+
+    &::after {
+      content: '';
+      flex: 1 1 auto;
+      height: 1px;
+      background: var(--dg-hairline);
+    }
   }
 
   &__body {
-    padding: 8px;
+    padding: 6px 0 8px;
     max-height: 400px;
     overflow-y: auto;
+    overscroll-behavior: contain;
+
+    /* Without this the card inherits the global accent-colored scrollbar and its 13px buttons */
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+
+    &::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    &::-webkit-scrollbar-button {
+      display: none;
+    }
+
+    &::-webkit-scrollbar-track {
+      background: transparent;
+    }
+
+    &::-webkit-scrollbar-thumb {
+      background: rgba(0, 0, 0, 0.15);
+      border-radius: 4px;
+    }
+
+    &::-webkit-scrollbar-thumb:hover {
+      background: rgba(0, 0, 0, 0.25);
+    }
+  }
+
+  /* A zero count is information, not an alert */
+  ::ng-deep .badge.is-empty {
+    background: #f1f2f5 !important;
+    color: $sb-text-muted !important;
+    font-weight: 600 !important;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sb-flyout {
+    animation: none;
   }
 }
 

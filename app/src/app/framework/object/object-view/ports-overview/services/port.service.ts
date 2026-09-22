@@ -28,8 +28,11 @@ import {
     APIUpdateSingleResponse
 } from 'src/app/services/models/api-response';
 import {
+    PortBulkDeletePreview,
+    PortBulkDeleteResult,
     PortBulkRequest,
     PortBulkResult,
+    PortBulkUpdateRequest,
     PortNamePreview,
     PortNamingRequest
 } from '../models/port-bulk.types';
@@ -116,6 +119,44 @@ export class PortService {
 
         return this.api.callPost<PortBulkResult>(route, payload, options).pipe(
             map((response: HttpResponse<PortBulkResult>) => response?.body)
+        );
+    }
+
+
+    /**
+     * Writes the same values onto several ports of one object.
+     *
+     * Only the four fields the route accepts can be set, and only the ones the payload names - which
+     * is why `values` is built key by key rather than from a whole port.
+     */
+    public bulkUpdatePorts(objectId: number, payload: PortBulkUpdateRequest): Observable<void> {
+        const options = { headers: this.jsonHeaders, observe: resp };
+        const route = `${ this.servicePrefix }/object/${ objectId }/bulk`;
+
+        return this.api.callPatch<void>(route, payload, options).pipe(
+            map(() => undefined)
+        );
+    }
+
+
+    /** What a bulk delete would remove, so the confirmation can name the connections and links too. */
+    public previewBulkDelete(objectId: number, portIds: readonly number[]): Observable<PortBulkDeletePreview> {
+        const options = { headers: this.jsonHeaders, observe: resp };
+        const route = `${ this.servicePrefix }/object/${ objectId }/bulk/delete_preview`;
+
+        return this.api.callPost<PortBulkDeletePreview>(route, { port_ids: [...portIds] }, options).pipe(
+            map((response: HttpResponse<PortBulkDeletePreview>) => response?.body)
+        );
+    }
+
+
+    /** Deletes several ports of one object. Their connections and interface links go with them. */
+    public bulkDeletePorts(objectId: number, portIds: readonly number[]): Observable<PortBulkDeleteResult> {
+        const options = { headers: this.jsonHeaders, body: { port_ids: [...portIds] }, observe: resp };
+        const route = `${ this.servicePrefix }/object/${ objectId }/bulk`;
+
+        return this.api.callDelete<PortBulkDeleteResult>(route, options).pipe(
+            map((response: HttpResponse<PortBulkDeleteResult>) => response?.body)
         );
     }
 

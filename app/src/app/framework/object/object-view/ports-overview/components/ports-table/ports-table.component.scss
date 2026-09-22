@@ -80,6 +80,46 @@
     }
 }
 
+.ports-interfaces {
+    display: grid;
+    gap: 0.1rem;
+
+    &__label {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        font-size: 0.8125rem;
+        font-weight: 500;
+        color: var(--dg-ink);
+    }
+
+    &__more {
+        font-size: 0.7rem;
+        padding: 0.05rem 0.4rem;
+        cursor: default;
+
+        &:focus-visible {
+            outline: 2px solid var(--dg-brand);
+            outline-offset: 2px;
+        }
+    }
+
+    &__address {
+        color: var(--dg-muted);
+        font-size: 0.72rem;
+        line-height: 1.3;
+    }
+
+    &__dangling {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        color: var(--dg-danger);
+        font-size: 0.72rem;
+        line-height: 1.3;
+    }
+}
+
 .ports-muted {
     color: var(--dg-faint);
 }
@@ -167,4 +207,26 @@
             color: #7f1d1d;
         }
     }
+}
+
+/* The tooltip is rendered in the body, and it lists one interface per line. */
+::ng-deep .tooltip.ports-interfaces-tooltip .tooltip-inner {
+    white-space: pre-line;
+    text-align: left;
+    max-width: 22rem;
+}
+
+/* The selection bar rides in the table toolbar, so it only takes room once rows are ticked. */
+.ports-bulk {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+}
+
+.ports-bulk__count {
+    color: var(--dg-muted);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    white-space: nowrap;
 }

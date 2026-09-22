@@ -52,8 +52,6 @@
         [publicID]="data"
         [result]="item"
         [acl]="item.type_information.acl"
-        (deleteObjectsEmitter)="onObjectDeleteWithObjects(data)"
-        (deleteLocationsEmitter)="onObjectDeleteWithLocations(data)"
         (deleteEmitter)="onObjectDelete(data)"
     ></cmdb-object-table-actions>
 </ng-template>

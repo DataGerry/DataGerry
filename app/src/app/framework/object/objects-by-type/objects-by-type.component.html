@@ -70,8 +70,6 @@
         [result]="item"
         [acl]="type?.acl"
         (deleteEmitter)="onObjectDelete($event)"
-        (deleteObjectsEmitter)="onObjectDeleteWithObjects(item.object_information.object_id)"
-        (deleteLocationsEmitter)="onObjectDeleteWithLocations(item.object_information.object_id)"
     ></cmdb-object-table-actions>
 }
 </ng-template>

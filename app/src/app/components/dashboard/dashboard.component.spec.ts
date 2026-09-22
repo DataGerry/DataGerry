@@ -18,7 +18,7 @@ describe('DashboardComponent', () => {
     let sidebarServiceMock: any;
 
     beforeEach(async () => {
-        objectServiceMock = jasmine.createSpyObj('ObjectService', ['countObjects', 'getLastObjectCount', 'getNewestObjects', 'getLatestObjects', 'deleteObject', 'deleteObjectWithLocations', 'deleteObjectWithChildren', 'groupObjectsByType']);
+        objectServiceMock = jasmine.createSpyObj('ObjectService', ['countObjects', 'getLastObjectCount', 'getNewestObjects', 'getLatestObjects', 'deleteObject', 'groupObjectsByType']);
         toastServiceMock = jasmine.createSpyObj('ToastService', ['error', 'success']);
         sidebarServiceMock = jasmine.createSpyObj('SidebarService', ['updateTypeCounter']);
 

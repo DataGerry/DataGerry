@@ -56,7 +56,7 @@ describe('ObjectActionsComponent delete', () => {
     beforeEach(() => {
         locationService = jasmine.createSpyObj<LocationService>('LocationService', ['getChildren']);
         objectService = jasmine.createSpyObj<ObjectService>(
-            'ObjectService', ['openModalComponent', 'openLocationModalComponent', 'deleteObject']);
+            'ObjectService', ['openModalComponent', 'deleteObject']);
         modalService = jasmine.createSpyObj<NgbModal>('NgbModal', ['open']);
         connectionService = jasmine.createSpyObj<PortConnectionService>('PortConnectionService', ['getCableUsage']);
 
@@ -67,7 +67,6 @@ describe('ObjectActionsComponent delete', () => {
         locationService.getChildren.and.returnValue(of([]));
         // ngOnDestroy closes whatever modal is open, so every stub answers to close().
         objectService.openModalComponent.and.returnValue({ result: Promise.resolve(false), close: () => undefined } as any);
-        objectService.openLocationModalComponent.and.returnValue({ result: Promise.resolve(''), close: () => undefined } as any);
         modalService.open.and.returnValue(
             { componentInstance: {}, result: Promise.resolve(0), close: () => undefined } as any);
         endpointService.endpointOf.and.callFake((portId: number) => of({

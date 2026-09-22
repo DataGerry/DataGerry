@@ -75,7 +75,6 @@ import { ActiveBadgeComponent } from './helpers/active-badge/active-badge.compon
 import { SpecialTypeBadgeComponent } from './helpers/special-type-badge/special-type-badge.component';
 import { AddAttachmentsModalComponent } from './helpers/modals/add-attachments-modal/add-attachments-modal.component';
 import { GeneralModalComponent } from './helpers/modals/general-modal/general-modal.component';
-import { LocationsModalComponent } from './helpers/modals/locations-modal/locations-modal.component';
 import { ObjectPreviewModalComponent } from '../framework/object/modals/object-preview-modal/object-preview-modal.component';
 import { InfoBoxComponent } from './components/info-box/info-box.component';
 import { FilemanagerModalComponent } from './helpers/modals/filemanager-modal/filemanager-modal.component';
@@ -122,7 +121,6 @@ import { CoreModule } from '../core/core.module';
         AddAttachmentsModalComponent,
         FilemanagerModalComponent,
         GeneralModalComponent,
-        LocationsModalComponent,
         ObjectPreviewModalComponent,
         InfoBoxComponent,
         FileExplorerComponent,

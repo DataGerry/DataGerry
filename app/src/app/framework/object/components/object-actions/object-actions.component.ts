@@ -23,7 +23,6 @@ import { finalize, ReplaySubject, takeUntil } from 'rxjs';
 import { NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { ObjectService } from '../../../services/object.service';
-import { LocationService } from 'src/app/framework/services/location.service';
 import { SidebarService } from 'src/app/layout/services/sidebar.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
@@ -45,7 +44,6 @@ export class ObjectActionsComponent implements OnDestroy {
     @Input() acl: AccessControlList;
 
     public subscriber: ReplaySubject<void>;
-    private locationSubscription: ReplaySubject<void> = new ReplaySubject<void>();
     public isLoading$ = this.loaderService.isLoading$;
 
     private modalRef: NgbModalRef;
@@ -55,7 +53,6 @@ export class ObjectActionsComponent implements OnDestroy {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     constructor(private objectService: ObjectService, 
-                private locationService: LocationService, 
                 private sidebarService: SidebarService, 
                 private toastService: ToastService, 
                 private router: Router,
@@ -72,13 +69,12 @@ export class ObjectActionsComponent implements OnDestroy {
         }
 
         this.subscriber?.unsubscribe();
-        this.locationSubscription?.unsubscribe();
     }
 
 /* ------------------------------------------------- MODAL FUNCTIONS ------------------------------------------------ */
 
     /**
-     * Decides if it a normal delete or locations are involved
+     * Opens the delete confirmation for the given object
      * 
      * @param publicID public_id of object which should be deleted
      */
@@ -87,24 +83,7 @@ export class ObjectActionsComponent implements OnDestroy {
         this.cableDeleteGuard.ensureDeletable(this.renderResult).pipe(takeUntil(this.subscriber))
         .subscribe((deletable: boolean) => {
             if (deletable) {
-                this.confirmDelete(publicID);
-            }
-        });
-    }
-
-
-    /** Locations first: a parent of child locations needs the user to decide what goes with it. */
-    private confirmDelete(publicID: number): void {
-        this.locationService.getChildren(publicID).pipe(takeUntil(this.locationSubscription))
-        .subscribe({
-            next: (children: RenderResult[]) => {
-                if(children && children.length > 0){
-                    this.deleteWithLocations(publicID);
-                } else {
-                    this.deleteObject(publicID);
-                }
-            },
-            error:  (error) => {
+                this.deleteObject(publicID);
             }
         });
     }
@@ -139,47 +118,5 @@ export class ObjectActionsComponent implements OnDestroy {
                 });
             }
         });
-    }
-
-
-    /**
-     * Opens a modal where the user has to decide to either delete locations with objects or only locations
-     * of sub nodes in the location tree
-     * @param publicID 
-     */
-    private deleteWithLocations(publicID: number){
-      this.modalRef = this.objectService.openLocationModalComponent();
-
-      this.modalRef.result.then((result) => {
-            //delete all child objects with their locations
-            if(result == 'objects'){
-                this.objectService.deleteObjectWithChildren(publicID).pipe(takeUntil(this.subscriber))
-                .subscribe({
-                    next: () => {
-                        this.toastService.success(`Object ${ this.renderResult.object_information.object_id } and child locations were deleted succesfully!`);
-                        this.router.navigate(['/framework/object/type/' + this.renderResult.type_information.type_id]);
-                        this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
-                    },
-                    error: (error) => {
-                        this.toastService.error(error?.error?.message);
-                    }
-                });
-            }
-
-            //delete only locations of children
-            if(result == 'locations'){
-                this.objectService.deleteObjectWithLocations(publicID).pipe(takeUntil(this.subscriber))
-                .subscribe({
-                    next: () => {
-                        this.toastService.success(`Object ${ this.renderResult.object_information.object_id } and child locations were deleted succesfully!`);
-                        this.router.navigate(['/framework/object/type/' + this.renderResult.type_information.type_id]);
-                        this.sidebarService.updateTypeCounter(this.renderResult.type_information.type_id);
-                    },
-                    error: (error) => {
-                        this.toastService.error(error?.error?.message);
-                    }
-                });
-            }
-      });
     }
 }

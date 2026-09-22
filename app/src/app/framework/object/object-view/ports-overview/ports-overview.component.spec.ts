@@ -27,7 +27,8 @@ import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.s
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
-import { CmdbPort, PORT_DELETE_RIGHT, PORT_EDIT_RIGHT, PortSide } from './models/ports-overview.types';
+import { CONNECTION_DELETE_RIGHT } from './models/port-connection.types';
+import { CmdbPort, PORT_DELETE_RIGHT, PORT_EDIT_RIGHT, PortRow, PortSide } from './models/ports-overview.types';
 import { PortsOverviewComponent } from './ports-overview.component';
 import { PortConnectionService } from './services/port-connection.service';
 import { PortService } from './services/port.service';
@@ -64,7 +65,7 @@ describe('PortsOverviewComponent', () => {
     beforeEach(() => {
         portService = jasmine.createSpyObj<PortService>('PortService', ['getPortsOfObject', 'deletePort']);
         portConnectionService = jasmine.createSpyObj<PortConnectionService>(
-            'PortConnectionService', ['getConnectionsOfObject', 'deleteConnection']);
+            'PortConnectionService', ['getConnectionsOfObject', 'deleteConnection', 'bulkDeleteConnections']);
         permission = jasmine.createSpyObj<PermissionService>('PermissionService', ['hasRight', 'hasExtendedRight']);
         deleteModal = jasmine.createSpyObj<DeleteModalService>('DeleteModalService', ['confirmDelete']);
         modalService = jasmine.createSpyObj<NgbModal>('NgbModal', ['open']);
@@ -79,6 +80,7 @@ describe('PortsOverviewComponent', () => {
         portService.deletePort.and.returnValue(of(undefined));
         portConnectionService.getConnectionsOfObject.and.returnValue(of([]));
         portConnectionService.deleteConnection.and.returnValue(of(undefined));
+        portConnectionService.bulkDeleteConnections.and.returnValue(of(undefined));
         permission.hasRight.and.returnValue(true);
         permission.hasExtendedRight.and.returnValue(false);
         modalService.open.and.returnValue({ componentInstance: {}, result: Promise.resolve(false) } as any);
@@ -159,6 +161,63 @@ describe('PortsOverviewComponent', () => {
             component.onEditPort({ ...component.rows[0], publicId: 999 });
 
             expect(modalService.open).not.toHaveBeenCalled();
+        });
+    });
+
+    describe('bulk actions', () => {
+        // The connection cell is what the table row carries; a free port simply has no cable id.
+        const cabled = (row: PortRow, cableConnectionId: number | null): PortRow =>
+            ({ ...row, cableConnectionId });
+
+        beforeEach(() => component.ngOnChanges(objectIdChange(20)));
+
+        it('hands the whole selection to the bulk edit dialog', () => {
+            component.onBulkEditPorts(component.rows);
+
+            expect(modalService.open.calls.mostRecent().returnValue.componentInstance.ports)
+                .toEqual(component.rows);
+        });
+
+        it('opens no dialog for an empty selection', () => {
+            component.onBulkEditPorts([]);
+            component.onBulkDeletePorts([]);
+
+            expect(modalService.open).not.toHaveBeenCalled();
+        });
+
+        it('cuts only the cables of the selection, each of them once', async () => {
+            modalService.open.and.returnValue(
+                { componentInstance: {}, result: Promise.resolve('confirmed') } as any);
+
+            component.onBulkDisconnectPorts([
+                cabled(component.rows[0], 9720),
+                cabled(component.rows[1], 9720)
+            ]);
+            await modalService.open.calls.mostRecent().returnValue.result;
+
+            expect(portConnectionService.bulkDeleteConnections).toHaveBeenCalledWith(20, [9720]);
+        });
+
+        it('asks nothing when no selected port carries a cable', () => {
+            component.onBulkDisconnectPorts([cabled(component.rows[0], null)]);
+
+            expect(modalService.open).not.toHaveBeenCalled();
+            expect(portConnectionService.bulkDeleteConnections).not.toHaveBeenCalled();
+        });
+
+        it('writes nothing while the user has not confirmed', async () => {
+            component.onBulkDisconnectPorts([cabled(component.rows[0], 9720)]);
+            await modalService.open.calls.mostRecent().returnValue.result;
+
+            expect(portConnectionService.bulkDeleteConnections).not.toHaveBeenCalled();
+        });
+
+        it('gates disconnecting on the connection right, not on the port right', () => {
+            component.manageable = true;
+            permission.hasRight.and.callFake((right: string) => right === CONNECTION_DELETE_RIGHT);
+
+            expect(component.canDisconnect).toBeTrue();
+            expect(component.canDelete).toBeFalse();
         });
     });
 

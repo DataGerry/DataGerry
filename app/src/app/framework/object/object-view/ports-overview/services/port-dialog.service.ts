@@ -21,14 +21,17 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { EMPTY, Observable, from } from 'rxjs';
 import { catchError, filter, map } from 'rxjs/operators';
 
+import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 
 import { ConnectionFormModalComponent } from '../components/connection-form-modal/connection-form-modal.component';
 import { InterfaceLinksModalComponent } from '../components/interface-links-modal/interface-links-modal.component';
+import { PortBulkDeleteModalComponent } from '../components/port-bulk-delete-modal/port-bulk-delete-modal.component';
+import { PortBulkEditModalComponent } from '../components/port-bulk-edit-modal/port-bulk-edit-modal.component';
 import { PortCreateWizardModalComponent } from '../components/port-create-wizard-modal/port-create-wizard-modal.component';
 import { PortFormModalComponent } from '../components/port-form-modal/port-form-modal.component';
 import { CmdbPortConnection } from '../models/port-connection.types';
-import { CmdbPort } from '../models/ports-overview.types';
+import { CmdbPort, PortSelection } from '../models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -75,6 +78,56 @@ export class PortDialogService {
             instance.objectLabel = objectLabel;
             instance.connection = connection;
         });
+    }
+
+
+    /** Writes the same status, type, speed or description onto every selected port. */
+    public openBulkEdit(objectId: number, objectLabel: string, ports: readonly PortSelection[]): Observable<void> {
+        return this.open(PortBulkEditModalComponent, (instance) => {
+            instance.objectId = objectId;
+            instance.objectLabel = objectLabel;
+            instance.ports = ports;
+        });
+    }
+
+
+    /** Deletes the selected ports, after showing what the delete takes with them. */
+    public openBulkDelete(objectId: number, objectLabel: string, ports: readonly PortSelection[]): Observable<void> {
+        return this.open(PortBulkDeleteModalComponent, (instance) => {
+            instance.objectId = objectId;
+            instance.objectLabel = objectLabel;
+            instance.ports = ports;
+        });
+    }
+
+
+    /**
+     * Asks before cutting the cables of several ports at once.
+     *
+     * Deliberately not the delete dialog: no port is removed, and that wording is what makes a user
+     * fear for the ports themselves. Emits once the user confirmed.
+     */
+    public confirmBulkDisconnect(portCount: number, connectionCount: number): Observable<void> {
+        const modal = this.modalService.open(CoreConfirmationModalComponent, this.fullscreenModal.withFullscreenContainer({
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        }));
+
+        modal.componentInstance.title = 'Disconnect ports';
+        modal.componentInstance.message =
+            `Do you want to disconnect ${ portCount } selected ports? `
+            + `That cuts ${ connectionCount } connection(s).`;
+        modal.componentInstance.confirmButtonText = 'Disconnect';
+        modal.componentInstance.confirmButtonClass = 'btn-danger';
+        modal.componentInstance.warningMessage =
+            'The cable information is removed with each connection. Every port stays.';
+
+        return from(modal.result as Promise<string>).pipe(
+            catchError(() => EMPTY),
+            filter((result) => result === 'confirmed'),
+            map(() => undefined)
+        );
     }
 
 

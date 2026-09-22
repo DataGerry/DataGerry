@@ -16,6 +16,8 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
+import { ResolvedCable } from '../object/object-view/ports-overview/models/port-connection.types';
+
 /** Guards every CI Explorer read route, and with it the graph view of an object. */
 export const CI_EXPLORER_VIEW_RIGHT = 'base.framework.ciExplorer.view';
 
@@ -58,6 +60,20 @@ export interface Field {
   
   /* -------- Hierarchy helpers --------------------------- */
   export type Direction = 'root' | 'parent' | 'child';
+
+  /* -------- Which edge sources the backend should walk ------------------ */
+  /** The optional edge sources a CI Explorer read may include, sent as request args. */
+  export interface CiExplorerScope {
+    withLocations: boolean;
+    withIpamRelations: boolean;
+    withPortConnections: boolean;
+  }
+
+  export const DEFAULT_CI_EXPLORER_SCOPE: CiExplorerScope = {
+    withLocations: true,
+    withIpamRelations: true,
+    withPortConnections: true
+  };
   
   /* -------- Node shape received from / sent to the UI ------------------- */
   export interface CINode {
@@ -65,24 +81,42 @@ export interface Field {
     level: number; //  0 = root, +1 = child, –1 = parent, …
     direction: Direction; //  "root" | "child" | "parent"
     color: string; 
-    title: string; //  short label shown in the node
+    title: string | null; //  short label shown in the node
     relation_color?: string;
     ci_explorer_tooltip?: string;
-    ci_explorer_label?: string;
+    ci_explorer_label?: string | null;
   
     /* domain data -------------------------------------------------------- */
     linked_object: LinkedObject;
     type_info: TypeInfo;
   }
   
+  /** Response of the label-field route; the type's new CI Explorer label field, or none. */
+  export interface CiExplorerLabelField {
+    ci_explorer_label: string | null;
+  }
+
   /* -------- Edge & relation metadata ----------------------------------- */
+  /** One physical hop of a collapsed port connection; `cable` is absent on a panel's internal pairing. */
+  export interface CiExplorerPathHop {
+    public_id: number;
+    endpoints: number[];
+    connection_type: string;
+    cable?: ResolvedCable | null;
+  }
+
   export interface RelationMeta {
     relation_id: number | null;
     relation_name?: string;
     relation_label?: string;
     relation_icon?: string;
     relation_color?: string;
+    /** Where the edge came from when it is not a modelled relation, e.g. `ipam`, `port_connection`. */
     source?: string;
+    /** A port connection has no direction, so it is drawn without an arrow head. */
+    undirected?: boolean;
+    /** The physical hops a port connection collapsed, focal end first. */
+    path?: CiExplorerPathHop[];
   }
   
   export interface CIEdge {

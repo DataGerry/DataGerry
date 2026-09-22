@@ -419,3 +419,36 @@
 }
 .graph-canvas.ci-exporting svg .connection-labels { display: none !important; }
 .graph-canvas.ci-exporting svg path[stroke="transparent"] { display: none !important; }
+
+/* Layout the filter bar used to carry as inline style attributes. */
+.manual-filter-selector {
+  align-items: start;
+}
+
+.filter-action-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.filter-scope-row {
+  grid-column: 1 / -1;
+  display: flex;
+  gap: 20px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.profile-row {
+  display: flex;
+  gap: 20px;
+}
+
+.profile-select {
+  flex: 1;
+  min-width: 300px;
+}
+
+.profile-actions {
+  gap: 10px;
+}

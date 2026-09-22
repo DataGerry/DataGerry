@@ -65,6 +65,11 @@ export class ConnectionDetailsModalComponent implements OnInit {
     }
   }
 
+  /** A location link has no relation behind it, which is what the synthetic source marks. */
+  isLocationLink(connection: ConnectionDetailsData): boolean {
+    return connection.metadata?.source === 'location';
+  }
+
   getTextColor(backgroundColor: string): string {
     if (!backgroundColor) return '#000000';
     

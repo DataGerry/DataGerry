@@ -89,9 +89,8 @@
             </td>
 
             <td class="relation-name">
-              @if(connection.metadata?.relation_label === 'Location')
-              {
-              {{'Location'}}
+              @if (isLocationLink(connection)) {
+              Location
               }
               @else {
               {{ connection.metadata?.relation_name || 'Unknown' }}
@@ -99,28 +98,19 @@
             </td>
 
             <td class="relation-label">
-              <!-- Check if this is a location-based connection -->
-              @if (connection.metadata?.relation_label === 'Location') {
+              @if (isLocationLink(connection)) {
               <span class="label-chip location-chip">
                 <span class="material-icons">location_on</span>
                 Located
               </span>
               }
-
-              <!-- Normal relation label -->
-              @if (connection.metadata?.relation_label !== 'Location') {
+              @else {
               <span class="label-chip" [style.background-color]="connection.metadata?.relation_color || '#666'"
                 [style.color]="getTextColor(connection.metadata?.relation_color || '#666')">
                 @if (connection.metadata?.relation_icon) {
                 <i [ngClass]="connection.metadata.relation_icon" [title]="connection.metadata.relation_icon"></i>
                 }
-                @if(connection.metadata?.relation_label === 'Location')
-                {
-                {{'Located'}}
-                }
-                @else {
                 {{ connection.metadata?.relation_label || 'Unknown' }}
-                }
               </span>
               }
             </td>

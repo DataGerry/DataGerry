@@ -19,10 +19,7 @@ import { Component, ElementRef, Input, ViewChild, forwardRef } from '@angular/co
 import { ControlValueAccessor, NG_VALUE_ACCESSOR } from '@angular/forms';
 import { NgbDropdown } from '@ng-bootstrap/ng-bootstrap';
 
-import { Hsl, hexToHsl, hslToHex } from '../../../utils/color-utils';
-
-/** A colour is only painted/committed when it is a plain CSS name or a hex literal. */
-const SAFE_COLOR = /^(#(?:[0-9a-f]{3}|[0-9a-f]{6})|[a-z]{3,20})$/i;
+import { Hsl, hexToHsl, hslToHex, safeCssColor } from '../../../utils/color-utils';
 
 /** A small, fixed palette - enough to pick a common cable/port colour without touching the sliders. */
 const DEFAULT_PRESETS: readonly string[] = [
@@ -73,9 +70,7 @@ export class ColorPickerComponent implements ControlValueAccessor {
 
     /** Only painted once the typed text is something a browser can actually render. */
     public get swatchColor(): string | null {
-        const trimmed = this.value.trim();
-
-        return SAFE_COLOR.test(trimmed) ? trimmed : null;
+        return safeCssColor(this.value);
     }
 
     /** What the sliders currently describe - shown next to them, not written until one is moved. */

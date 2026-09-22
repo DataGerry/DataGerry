@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { CINode } from 'src/app/framework/models/ci-explorer.model';
+import { CINode, RelationMeta } from 'src/app/framework/models/ci-explorer.model';
 
 export interface GraphNode {
   /* persistent CI identity */
@@ -52,6 +52,9 @@ export interface GraphNode {
   metadata?: any;
 }
 
+/** Which source produced an edge; `unknown` keeps the default relation styling. */
+export type GraphEdgeKind = 'relation' | 'cable' | 'ipam' | 'location' | 'unknown';
+
 export interface Connection {
   from: number;
   to: number;
@@ -68,6 +71,11 @@ export interface Connection {
   isValid?: boolean;
   strength?: number;
   dataFlow?: boolean;
+  /** Port connections run both ways, so they are drawn without an arrow head. */
+  undirected?: boolean;
+  kind?: GraphEdgeKind;
+  /** The physical cable's own colour, already allow-listed for painting. */
+  cableColor?: string | null;
   metadata?: any;
 }
 
@@ -81,20 +89,6 @@ export interface NodeGroup {
   collapsed?: boolean;
 }
 
-export interface BreadcrumbItem {
-  id: number;
-  label: string;
-  icon: string;
-  level: number;
-}
-
-export interface PerformanceMetrics {
-  nodeCount: number;
-  connectionCount: number;
-  renderTime: number;
-  fps: number;
-}
-
 export interface FilterProfile {
     public_id?: number;
     name: string;
@@ -104,48 +98,13 @@ export interface FilterProfile {
 
 
 
-  export interface ConnectionData {
-    from: number;
-    to: number;
-    metadata: {
-      relation_id: number;
-      relation_name: string;
-      relation_label: string;
-      relation_icon: string;
-      relation_color: string;
-    };
-  }
-  
-  export interface NodeConnectionDetails {
-    sourceNode: {
-      id: number;
-      label: string;
-      type: string;
-      color: string;
-    };
-    targetNode: {
-      id: number;
-      label: string;
-      type: string;
-      color: string;
-    };
-    connections: ConnectionData[];
-    direction: 'incoming' | 'outgoing' | 'bidirectional';
-  }
-
-
   export interface UidBasedConnection {
       fromNodeId: number;
       toNodeId: number;
       fromUid: string;
       toUid: string;
-      metadata: {
-          relation_id: number;
-          relation_name: string;
-          relation_label: string;
-          relation_color: string;
-          relation_icon?: string;
-      };
+      /** The edge's own relation block, kept whole so `source` reaches the details modal. */
+      metadata?: RelationMeta;
       source: 'initial' | 'expansion';
       instanceId: number; // Unique identifier for each edge instance
   }
