@@ -35,9 +35,9 @@ the `from_data` / `to_json` round-trip are defined once rather than spelled out 
 from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime, timezone
-from dateutil.parser import parse
 
 from cmdb.security.acl.access_control_list import AccessControlList
+from cmdb.utils import coerce_document_dates
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model.type_summary import TypeSummary
 from cmdb.models.type_model.type_external_link import TypeExternalLink
@@ -73,6 +73,8 @@ class CmdbType(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.types"
+    DATE_FIELDS: tuple[str, ...] = (TypeSchemaKey.CREATION_TIME.value,
+                                    TypeSchemaKey.LAST_EDIT_TIME.value)
     DEFAULT_VERSION = '1.0.0'
     SCHEMA: dict[str, Any] = get_cmdb_type_schema()
 
@@ -184,13 +186,13 @@ class CmdbType(CmdbDAO):
             CmdbType: CmdbType with the given data
         """
         try:
-            creation_time: datetime | None = data.get(TypeSchemaKey.CREATION_TIME.value)
-            if isinstance(creation_time, str):
-                creation_time = parse(creation_time, fuzzy=True)
+            # The audit timestamps are coerced strictly: a value that cannot be read is refused
+            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
+            # 'sometime in March' into a date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            last_edit_time: datetime | None = data.get(TypeSchemaKey.LAST_EDIT_TIME.value)
-            if isinstance(last_edit_time, str):
-                last_edit_time = parse(last_edit_time, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             raw_editor_id: Any | None = data.get(TypeSchemaKey.EDITOR_ID.value)
 
@@ -205,9 +207,9 @@ class CmdbType(CmdbDAO):
                 active=data.get(TypeSchemaKey.ACTIVE.value, True),
                 special_type=data.get(TypeSchemaKey.SPECIAL_TYPE.value),
                 author_id=int(data[TypeSchemaKey.AUTHOR_ID.value]),
-                creation_time=creation_time,
+                creation_time=data.get(TypeSchemaKey.CREATION_TIME.value),
                 editor_id=int(raw_editor_id) if raw_editor_id is not None else None,
-                last_edit_time=last_edit_time,
+                last_edit_time=data.get(TypeSchemaKey.LAST_EDIT_TIME.value),
                 label=data.get(TypeSchemaKey.LABEL.value),
                 version=data.get(TypeSchemaKey.VERSION.value),
                 description=data.get(TypeSchemaKey.DESCRIPTION.value),

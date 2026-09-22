@@ -60,7 +60,7 @@ from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.type_constants import TypeRight
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses.response_parameters import ParameterKey
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -137,6 +137,7 @@ USES_PORTS_USAGE_SUBJECT: str = 'port usage'
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.ADD.value)
 @types_blueprint.validate(build_write_schema(CmdbType.SCHEMA))
+@handle_route_errors("while creating the new Type")
 def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbType into the database
@@ -216,17 +217,12 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
             created_type = types_manager.get_type(result_id) or created_type
 
         return InsertSingleResponse(created_type, result_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[insert_cmdb_type] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to retrieve the created Type from the database!")
     except TypesManagerInsertError as err:
         LOGGER.error("[insert_cmdb_type] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to insert the new Type into the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the new Type!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -235,6 +231,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 @types_blueprint.parse_parameters(TypeIterationParameters)
+@handle_route_errors("while retrieving the Types")
 def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbTypes
@@ -284,14 +281,9 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
         )
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerIterationError as err:
         LOGGER.error("[get_cmdb_types] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to iterate Types from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_types] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the Types!")
 
 
 @types_blueprint.route('/overview', methods=['GET', 'HEAD'])
@@ -299,6 +291,7 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
 @types_blueprint.parse_parameters(TypeIterationParameters)
+@handle_route_errors("while retrieving the Types overview")
 def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for the types overview listing
@@ -363,20 +356,16 @@ def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbU
         )
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerIterationError as err:
         LOGGER.error("[get_cmdb_types_overview] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to iterate Types from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_types_overview] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the Types overview!")
 
 
 @types_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+@handle_route_errors("while retrieving Type with ID:{public_id}")
 def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbType
@@ -400,20 +389,16 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
         requested_type: dict[str, Any] = get_type_or_404(types_manager, public_id)
 
         return GetSingleResponse(requested_type, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[get_cmdb_type] %s: %s", type(err), err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving Type with ID:{public_id}!")
 
 
 @types_blueprint.route('/count_objects/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+@handle_route_errors("while counting Objects for Type with ID: {public_id}")
 def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     Counts the number of CmdbObjects in the database with the given public_id as the type_id
@@ -447,16 +432,12 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         objects_count: int = objects_manager.count_documents(count_query)
 
         return DefaultResponse(objects_count).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[count_objects_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to count Objects for Type with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[count_objects_of_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while counting Objects for Type with ID: {public_id}!")
 
 
+@handle_route_errors("while determining {subject} for Type with ID: {public_id}")
 def build_type_usage_response(public_id: int, request_user: CmdbUser, route_name: str, subject: str) -> Response:
     """
     Answers a "is this Type's location placement still in use" pre-check route
@@ -483,17 +464,12 @@ def build_type_usage_response(public_id: int, request_user: CmdbUser, route_name
         target_type: CmdbType = get_type_instance_or_404(types_manager, public_id)
 
         return DefaultResponse(build_location_usage_payload(request_user, target_type)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[%s] ObjectsManagerGetError: %s", route_name, err, exc_info=True)
         abort(400, f"Failed to determine {subject} for Type with ID: {public_id}!")
     except TypesManagerGetError as err:
         LOGGER.error("[%s] TypesManagerGetError: %s", route_name, err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[%s] Exception: %s. Type: %s", route_name, err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while determining {subject} for Type with ID: {public_id}!")
 
 
 @types_blueprint.route('/location_field_usage/<int:public_id>', methods=['GET'])
@@ -667,6 +643,7 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.EDIT.value)
 @types_blueprint.validate(build_write_schema(CmdbType.SCHEMA))
+@handle_route_errors("when trying to update the Type with ID: {public_id}")
 def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbType
@@ -782,8 +759,6 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
             abort(404, f"The updated Type with ID:{public_id} could not be read back after its update!")
 
         return UpdateSingleResponse(final_type).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except LocationsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_type] LocationsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Although the Type got updated, the update of Locations failed!")
@@ -802,9 +777,6 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     except TypesManagerUpdateMDSError as err:
         LOGGER.error("[update_cmdb_type] TypesManagerUpdateMDSError: %s", err, exc_info=True)
         abort(400, "Although the Type got updated, the Multi-Data-Section updates failed!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_type] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured when trying to update the Type with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -812,6 +784,7 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.DELETE.value)
+@handle_route_errors("while deleting Type with ID: {public_id}")
 def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbType
@@ -853,8 +826,6 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
         # All the followup actions where the public_id need to be removed
         type_deletion_followup(request_user, public_id, to_delete_type.get(TypeSchemaKey.SPECIAL_TYPE))
         return DeleteSingleResponse(to_delete_type).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[delete_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id}!")
@@ -867,6 +838,3 @@ def delete_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     except TypesManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_type] TypesManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the Type with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_type] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, f"An internal server error occured while deleting Type with ID: {public_id}!")

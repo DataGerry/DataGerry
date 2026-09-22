@@ -45,6 +45,50 @@ class RenderedFieldKey(BaseStrEnum):
     REFERENCES = 'references'
     #: List of the pulled-in fields, inside `REFERENCES`
     FIELDS = 'fields'
+    #: Where the merge parks the type definition's own value once the object's value has replaced it,
+    #: so a client can still show what the type proposes. Render-only: the stored field definition
+    #: keeps its proposal under `FieldKey.VALUE`
+    DEFAULT = 'default'
+
+
+class RenderedReferenceSectionKey(BaseStrEnum):
+    """
+    Enumeration of the keys inside a rendered `RenderedFieldKey.REFERENCES` block
+
+    `CmdbMultiRender` writes this block onto the `<section>-field` of a reference section: the
+    referenced TYPE's identity plus the fields pulled in from its section. It is NOT a
+    `TypeReference` payload - it describes the type a section was pulled FROM, not a referenced
+    object - which is why it carries `TYPE_NAME` and `TYPE_ICON` and has no `line` / `object_id`
+
+    Attributes:
+        TYPE_ID: public_id of the referenced CmdbType
+        TYPE_NAME: The referenced type's unique name
+        TYPE_LABEL: The referenced type's display label
+        TYPE_ICON: Icon class of the referenced type
+        FIELDS: The merged fields pulled in from the referenced section
+    """
+    TYPE_ID = 'type_id'
+    TYPE_NAME = 'type_name'
+    TYPE_LABEL = 'type_label'
+    TYPE_ICON = 'type_icon'
+    FIELDS = RenderedFieldKey.FIELDS.value
+
+
+class RenderedLocationReferenceKey(BaseStrEnum):
+    """
+    Enumeration of the keys of the PLACEHOLDER reference a location field carries
+
+    A `FieldType.LOCATION` field points at an object like a reference field does, but nothing
+    resolves it here: `CmdbMultiRender._build_location_reference` answers the referenced id with the
+    type keys blanked. The key set is a subset of `TypeReferenceKey` plus `TYPE_NAME`, and the blanks
+    are EMPTY STRINGS rather than the `0` an empty `TypeReference` uses - kept as it is because the
+    frontend's location field reads exactly this shape
+    """
+    TYPE_ID = TypeReferenceKey.TYPE_ID.value
+    TYPE_NAME = RenderedReferenceSectionKey.TYPE_NAME.value
+    TYPE_LABEL = TypeReferenceKey.TYPE_LABEL.value
+    OBJECT_ID = TypeReferenceKey.OBJECT_ID.value
+    SUMMARIES = TypeReferenceKey.SUMMARIES.value
 
 
 class RenderObjectInfoKey(BaseStrEnum):

@@ -19,18 +19,18 @@ All API routes for OpenCelium Connectors
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request, current_app
+from flask import abort, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
-from cmdb.manager import OcConnectorManager, DgServicePortalManager, CachedUserManager
+from cmdb.manager import OcConnectorManager, DgServicePortalManager
 
 from cmdb.open_celium.oc_constants import OC_INTERNAL_CONNECTOR_NAME
-from cmdb.open_celium import map_oc_name, unmap_oc_name
+from cmdb.open_celium import map_oc_name, unmap_oc_name, is_hosted_cloud
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
+from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors, get_cached_user_manager
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connector_helper import (
@@ -78,7 +78,7 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
 
         reserved_error = f"The title:'{OC_INTERNAL_CONNECTOR_NAME}' is reserved for the internal DataGerry connector!"
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             if params[OcResponseKey.TITLE.value] == map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME):
                 abort(400, reserved_error)
             else:
@@ -93,9 +93,9 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
         created_oc_connector: dict[str, Any] = oc_connector_manager.create_connector(params)
 
         # Save the new connectorId in DG ServicePortal
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             cached_user_manager.delete_cached_user(request_user.email)
 
@@ -177,9 +177,9 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
         # -------------------------------------------------
         # 1) CLOUD MODE → Try to use cached user first
         # -------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             cached_user = cached_user_manager.get_cached_user(request_user.email)
             pw_valid = validate_master_password(
@@ -204,7 +204,7 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
         # -------------------------------------------------
         # 4) Validate connectorId using cache first if available
         # -------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             connector_exists = connector_in_subscription(
                 request_user, int(connector_id), cached_user_manager, dg_sp_manager, cached_user
             )
@@ -278,9 +278,9 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         cached_user_manager = None
 
         # 1) CLOUD MODE → Try cache first
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             cached_user = cached_user_manager.get_cached_user(request_user.email)
 
@@ -290,7 +290,7 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
                 abort(400, f"The target Connector with ID:{connector_id} was not found!")
 
         # Check the password if provided (reuse the cached_user already resolved above)
-        if current_app.cloud_mode and not current_app.local_mode and master_password:
+        if is_hosted_cloud() and master_password:
             pw_valid = validate_master_password(
                 request_user, master_password, cached_user_manager, dg_sp_manager, cached_user
             )
@@ -304,7 +304,7 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         # 2) Retrieve the connector
         connector = {}
 
-        if current_app.cloud_mode and not current_app.local_mode and master_password:
+        if is_hosted_cloud() and master_password:
             # Retrieve connector from OC (cloud mode) with master pw
             connector: dict[str, Any] | None = oc_connector_manager.get_connector(
                 int(connector_id),
@@ -318,7 +318,7 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         # -----------------------------
         # 3) Cloud mode → unmap title
         # -----------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             connector[OcResponseKey.TITLE.value] = unmap_oc_name(connector[OcResponseKey.TITLE.value])
 
         return DefaultResponse(connector).make_response()
@@ -419,9 +419,9 @@ def get_all_oc_connectors(request_user: CmdbUser) -> Response:
         # -----------------------------
         # 1) CLOUD MODE → try cached user
         # -----------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             connector_ids = get_accessible_connector_ids(request_user, cached_user_manager, dg_sp_manager)
 
@@ -468,7 +468,7 @@ def check_oc_connector_exists(request_user: CmdbUser, title: str) -> Response:
     try:
         oc_connector_manager: OcConnectorManager = build_connector_manager(request_user)
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             title = map_oc_name(request_user.database, title)
 
         connector_exists: bool = oc_connector_manager.connector_exists(title)
@@ -509,9 +509,9 @@ def update_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         # -----------------------------
         # 1) CLOUD MODE → validate connector
         # -----------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             if not connector_in_subscription(request_user, connector_id, cached_user_manager, dg_sp_manager):
                 abort(400, f"The target Connector with ID:{connector_id} was not found!")
@@ -527,7 +527,7 @@ def update_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
         updated_connector: dict[str, Any] = oc_connector_manager.update_connector(params, connector_id)
 
         # Unmap title in cloud mode
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             updated_connector[OcResponseKey.TITLE.value] = unmap_oc_name(updated_connector[OcResponseKey.TITLE.value])
 
         return DefaultResponse(updated_connector).make_response()
@@ -568,9 +568,9 @@ def delete_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     # -----------------------------
     # 1) CLOUD MODE → validate connector
     # -----------------------------
-    if current_app.cloud_mode and not current_app.local_mode:
+    if is_hosted_cloud():
         dg_sp_manager = DgServicePortalManager()
-        cached_user_manager = CachedUserManager(current_app.database_manager)
+        cached_user_manager = get_cached_user_manager()
 
         if not connector_in_subscription(request_user, connector_id, cached_user_manager, dg_sp_manager):
             abort(400, f"The target Connector with ID:{connector_id} was not found!")
@@ -580,7 +580,7 @@ def delete_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     # -----------------------------
     deleted = oc_connector_manager.delete_connector(connector_id)
 
-    if current_app.cloud_mode and not current_app.local_mode:
+    if is_hosted_cloud():
         cached_user_manager.delete_cached_user(request_user.email)
 
     return DefaultResponse(deleted).make_response()
@@ -610,7 +610,7 @@ def create_oc_internal_connector(request_user: CmdbUser) -> Response:
 
         params: dict[str, Any] = request.json
 
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             params[OcResponseKey.TITLE.value] = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
         else:
             params[OcResponseKey.TITLE.value] = OC_INTERNAL_CONNECTOR_NAME
@@ -619,9 +619,9 @@ def create_oc_internal_connector(request_user: CmdbUser) -> Response:
         created_oc_connector = oc_connector_manager.create_connector(params)
 
         # Cloud mode → save connector ID and unmap title
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             dg_sp_manager = DgServicePortalManager()
-            cached_user_manager = CachedUserManager(current_app.database_manager)
+            cached_user_manager = get_cached_user_manager()
 
             dg_sp_manager.save_connector_id(
                 created_oc_connector[OcResponseKey.CONNECTOR_ID.value],
@@ -668,7 +668,7 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
         # ----------------------------------------------------------
         # 1) Apply correct internal connector title
         # ----------------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             params[OcResponseKey.TITLE.value] = map_oc_name(request_user.database, OC_INTERNAL_CONNECTOR_NAME)
         else:
             params[OcResponseKey.TITLE.value] = OC_INTERNAL_CONNECTOR_NAME
@@ -692,7 +692,7 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
         # ----------------------------------------------------------
         # 4) Cloud → Return unmapped name to frontend
         # ----------------------------------------------------------
-        if current_app.cloud_mode and not current_app.local_mode:
+        if is_hosted_cloud():
             updated_oc_connector[OcResponseKey.TITLE.value] = unmap_oc_name(
                 updated_oc_connector[OcResponseKey.TITLE.value]
             )
@@ -731,7 +731,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
         params: dict[str, Any] = request.json or {}
         provided_pw: str | None = params.get(OcResponseKey.PASSWORD.value)
 
-        is_cloud = current_app.cloud_mode and not current_app.local_mode
+        is_cloud = is_hosted_cloud()
 
         # Determine name
         if is_cloud:
@@ -750,7 +750,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
         if provided_pw:
             if is_cloud:
                 dg_sp_manager = DgServicePortalManager()
-                cached_user_manager = CachedUserManager(current_app.database_manager)
+                cached_user_manager = get_cached_user_manager()
 
                 # Resolve the cached user once and reuse it for the id check below (avoids a 2nd portal seed)
                 cached_user = cached_user_manager.get_cached_user(request_user.email)

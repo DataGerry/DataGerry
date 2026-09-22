@@ -43,14 +43,13 @@ from typing import Any
 
 from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import WebhooksEventManager
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -87,6 +86,7 @@ webhook_event_blueprint = APIBlueprint('webhook_events', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @webhook_event_blueprint.protect(auth=True, right=WebhookRight.VIEW.value)
+@handle_route_errors("while retrieving Webhook Event with ID: {public_id}")
 def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbWebhookEvent
@@ -115,14 +115,9 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
             abort(404, f"The Webhook Event with ID: {public_id} was not found!")
 
         return DefaultResponse(requested_webhook_event).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except WebhooksEventManagerGetError as err:
         LOGGER.error("[get_webhook_event] WebhooksEventManagerGetError: %s", err, exc_info=True)
         abort(400, f"Could not retrieve Webhook Event with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_webhook_event] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving Webhook Event with ID: {public_id}!")
 
 
 @webhook_event_blueprint.route('/', methods=['GET', 'HEAD'])
@@ -130,6 +125,7 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @webhook_event_blueprint.protect(auth=True, right=WebhookRight.VIEW.value)
 @webhook_event_blueprint.parse_collection_parameters()
+@handle_route_errors("while iterating the Webhook Events")
 def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a paged list of CmdbWebhookEvents
@@ -178,14 +174,9 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
                                         body=request_wants_body())
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except WebhooksEventManagerIterationError as err:
         LOGGER.error("[get_webhook_events] WebhooksEventManagerIterationError: %s", err, exc_info=True)
         abort(400, "Could not retrieve Webhook Events!")
-    except Exception as err:
-        LOGGER.error("[get_webhook_events] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while iterating the Webhook Events!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -193,6 +184,7 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @webhook_event_blueprint.protect(auth=True, right=WebhookRight.DELETE.value)
+@handle_route_errors("while deleting Webhook Event with ID: {public_id}")
 def delete_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a CmdbWebhookEvent
@@ -226,14 +218,9 @@ def delete_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
         ack: bool = webhook_events_manager.delete_item(public_id)
 
         return DefaultResponse(ack).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except WebhooksEventManagerGetError as err:
         LOGGER.error("[delete_webhook_event] WebhooksEventManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve Webhook Event with ID: {public_id}!")
     except WebhooksEventManagerDeleteError as err:
         LOGGER.error("[delete_webhook_event] WebhooksEventManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete Webhook Event with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_webhook_event] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting Webhook Event with ID: {public_id}!")

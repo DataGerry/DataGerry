@@ -18,7 +18,7 @@ Unit tests for cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_r
 
 Each handler is unwrapped past its decorator chain (handle_oc_errors / insert_request_user /
 verify_api_access / protect) and driven inside a BaseCmdbApp test_request_context. The three
-managers the handlers construct (OcConnectionManager, DgServicePortalManager, CachedUserManager) are
+managers the handlers construct (OcConnectionManager, DgServicePortalManager, `get_cached_user_manager`) are
 patched at the route module path, so no external OpenCelium HTTP call is made and no Mongo is
 touched. The app runs on-premise (cloud_mode/local_mode False), so the cloud title-mapping and
 Service-Portal branches are skipped - those belong to a cloud-mode suite.
@@ -98,7 +98,7 @@ def fixture_patched_managers(oc_manager: MagicMock) -> Any:
     """Patches the three managers the connection handlers construct at the route module path."""
     with patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=oc_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=MagicMock()), \
-         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=MagicMock()):
+         patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=MagicMock()):
         yield
 
 
@@ -322,7 +322,7 @@ def fixture_cloud_managers(oc_manager: MagicMock) -> Any:
     dg_sp = MagicMock()
     with patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=oc_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
-         patch(f'{ROUTE_PATH}.CachedUserManager', return_value=cached):
+         patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=cached):
         yield SimpleNamespace(cached=cached, dg_sp=dg_sp)
 
 

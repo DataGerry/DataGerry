@@ -21,7 +21,6 @@ from typing import Any
 
 from flask import request, current_app, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager
@@ -37,7 +36,7 @@ from cmdb.security.auth.auth_settings_masking import (
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.auth_helper import cloud_login, local_login
 
@@ -51,6 +50,7 @@ auth_blueprint = APIBlueprint('auth', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @auth_blueprint.route('/login', methods=['POST'])
+@handle_route_errors("while validating the login data")
 def post_login() -> Response:
     """
     Handles user login authentication
@@ -64,28 +64,22 @@ def post_login() -> Response:
     Returns:
         Response: A response containing authentication tokens or subscription options
     """
-    try:
-        login_data: Any | None = request.json
+    login_data: Any | None = request.json
 
-        if not login_data:
-            abort(400, 'No valid JSON data was provided')
+    if not login_data:
+        abort(400, 'No valid JSON data was provided')
 
-        request_user_name: str = login_data['user_name']
-        request_password: str = login_data['password']
-        request_subscription = None
+    request_user_name: str = login_data['user_name']
+    request_password: str = login_data['password']
+    request_subscription = None
 
-        if 'subscription' in login_data:
-            request_subscription = login_data['subscription']
+    if 'subscription' in login_data:
+        request_subscription = login_data['subscription']
 
-        if current_app.cloud_mode:
-            return cloud_login(request_user_name, request_password, request_subscription)
+    if current_app.cloud_mode:
+        return cloud_login(request_user_name, request_password, request_subscription)
 
-        return local_login(request_user_name, request_password)
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[post_login] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while validating the login data!")
+    return local_login(request_user_name, request_password)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -164,6 +158,7 @@ def get_installed_providers(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.view')
+@handle_route_errors("while retrieving the provider configuration")
 def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response:
     """
     Retrieves the configuration for a specified authentication provider
@@ -178,26 +173,20 @@ def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response
     Returns:
         DefaultResponse: A response object containing the provider's configuration if found
     """
-    try:
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        auth_module = AuthModule(
-            settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
-        )
+    auth_module = AuthModule(
+        settings_manager.get_all_values_from_section(AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__)
+    )
 
-        provider = auth_module.get_provider(provider_class)
+    provider = auth_module.get_provider(provider_class)
 
-        if provider is None:
-            abort(404, f"Provider: '{provider_class}' not found!")
+    if provider is None:
+        abort(404, f"Provider: '{provider_class}' not found!")
 
-        return DefaultResponse(
-            mask_provider_config(provider_class, vars(provider.get_config()))
-        ).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_provider_config] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the provider configuration!")
+    return DefaultResponse(
+        mask_provider_config(provider_class, vars(provider.get_config()))
+    ).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -205,6 +194,7 @@ def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @auth_blueprint.protect(auth=True, right='base.system.edit')
+@handle_route_errors("while updating auth settings")
 def update_auth_settings(request_user: CmdbUser) -> Response:
     """
     Updates authentication settings for the given user
@@ -218,47 +208,41 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
     Returns:
         DefaultResponse: A response object containing the updated authentication settings if successful
     """
+    new_auth_settings_values = request.get_json()
+
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+
+    if not new_auth_settings_values:
+        abort(400, 'No new data was provided')
+
+    # The reads mask every credential, and this route takes the WHOLE section - so a client that
+    # read the settings, changed one field and sent the object back posts the mask where the bind
+    # password was. Resolving it against what is stored is what keeps that from becoming the new
+    # password; a payload carrying a real value at that path is a deliberate change and is written
+    stored_auth_settings = settings_manager.get_all_values_from_section(
+        AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__,
+    )
+    new_auth_settings_values = restore_masked_secrets(new_auth_settings_values, stored_auth_settings)
+
     try:
-        new_auth_settings_values = request.get_json()
+        # require_complete: the update carries the WHOLE section. A payload omitting 'providers'
+        # would otherwise blank the configured LDAP provider, since an absent key and a reset to
+        # the default are indistinguishable once the defaults have been applied
+        new_auth_setting_instance = CmdbAuthSettings.from_data(new_auth_settings_values, require_complete=True)
+    except AuthSettingsInitError as err:
+        # A malformed auth-settings payload is a client error, not a server fault
+        LOGGER.error("[update_auth_settings] Error: %s", err)
+        abort(400, f"Could not initialise auth settings from the provided data: {err}")
 
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    update_result = settings_manager.write(
+        _id=AUTH_SETTINGS_ID,
+        data=CmdbAuthSettings.to_json(new_auth_setting_instance),
+    )
 
-        if not new_auth_settings_values:
-            abort(400, 'No new data was provided')
+    if update_result.acknowledged:
+        # Masked like every other read: the echo is the stored section, credentials included
+        return DefaultResponse(
+            mask_auth_settings(settings_manager.get_section(AUTH_SETTINGS_ID))
+        ).make_response()
 
-        # The reads mask every credential, and this route takes the WHOLE section - so a client that
-        # read the settings, changed one field and sent the object back posts the mask where the bind
-        # password was. Resolving it against what is stored is what keeps that from becoming the new
-        # password; a payload carrying a real value at that path is a deliberate change and is written
-        stored_auth_settings = settings_manager.get_all_values_from_section(
-            AUTH_SETTINGS_ID, default=AuthModule.__DEFAULT_SETTINGS__,
-        )
-        new_auth_settings_values = restore_masked_secrets(new_auth_settings_values, stored_auth_settings)
-
-        try:
-            # require_complete: the update carries the WHOLE section. A payload omitting 'providers'
-            # would otherwise blank the configured LDAP provider, since an absent key and a reset to
-            # the default are indistinguishable once the defaults have been applied
-            new_auth_setting_instance = CmdbAuthSettings.from_data(new_auth_settings_values, require_complete=True)
-        except AuthSettingsInitError as err:
-            # A malformed auth-settings payload is a client error, not a server fault
-            LOGGER.error("[update_auth_settings] Error: %s", err)
-            abort(400, f"Could not initialise auth settings from the provided data: {err}")
-
-        update_result = settings_manager.write(
-            _id=AUTH_SETTINGS_ID,
-            data=CmdbAuthSettings.to_json(new_auth_setting_instance),
-        )
-
-        if update_result.acknowledged:
-            # Masked like every other read: the echo is the stored section, credentials included
-            return DefaultResponse(
-                mask_auth_settings(settings_manager.get_section(AUTH_SETTINGS_ID))
-            ).make_response()
-
-        abort(400, 'Could not update auth settings')
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[update_auth_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating auth settings!")
+    abort(400, 'Could not update auth settings')

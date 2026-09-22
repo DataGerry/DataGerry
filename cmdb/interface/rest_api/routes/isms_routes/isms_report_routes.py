@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 import re
 from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
@@ -44,7 +43,7 @@ from cmdb.models.extendable_option_model import OptionType, CmdbExtendableOption
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -117,6 +116,7 @@ def _replace_object_ids_with_summaries(items: list[dict], object_key: str, objec
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_report_blueprint.protect(auth=True, right='base.isms.report.view')
+@handle_route_errors("while retrieving the RiskMatrix report")
 def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix report
@@ -156,14 +156,9 @@ def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
         risk_matrix_report = report_builder.build_risk_matrix_report()
 
         return DefaultResponse(risk_matrix_report).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except RiskMatrixReportError as err:
         LOGGER.error("[get_isms_risk_matrix_report] RiskMatrixReportError: %s", err, exc_info=True)
         abort(400, "Failed to build the RiskMatrix report from the stored ISMS configuration!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risk_matrix_report] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the RiskMatrix report!")
 
 
 @isms_report_blueprint.route('/risk_treatment_plan', methods=['GET', 'HEAD'])

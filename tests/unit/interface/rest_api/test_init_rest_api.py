@@ -405,6 +405,9 @@ def test_the_registration_list_covers_every_domain() -> None:
     ('special_blueprint', '/special'),
     ('ipam_subnet_blueprint', '/ipam/subnet'),
     ('risk_blueprint', '/isms/risks'),
+    ('relations_blueprint', '/relations'),
+    ('object_relations_blueprint', '/object_relations'),
+    ('object_relation_logs_blueprint', '/object_relation_logs'),
 ])
 def test_known_mount_points_are_declared_at_the_registration_site(blueprint: str, prefix: str) -> None:
     """
@@ -417,6 +420,21 @@ def test_known_mount_points_are_declared_at_the_registration_site(blueprint: str
     body = _registration_source()
 
     assert f"register_blueprint({blueprint}, url_prefix='{prefix}')" in body
+
+
+def test_a_blueprint_is_imported_from_the_package_of_the_entity_it_serves() -> None:
+    """
+    The route package holds the entity it serves - the log routes with the relations they record
+
+    `/object_relation_logs` used to be imported from a top-level `log_routes` package holding that one
+    module, which read as the home of every log route while the OBJECT logs were somewhere else
+    entirely (discussion-backlog #174). The import path is the only trace of that layout left in this
+    file, so this is where a move back would show up.
+    """
+    body = _registration_source()
+
+    assert 'routes.relation_routes.object_relation_logs_routes import (' in body
+    assert 'log_routes.object_relation_logs_routes' not in body
 
 
 def test_the_setup_blueprint_is_registered_only_in_cloud_mode() -> None:

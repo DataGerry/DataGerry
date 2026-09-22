@@ -30,7 +30,6 @@ from logging import Logger, getLogger
 from bson import json_util
 from flask import abort, request, Response
 from werkzeug.wrappers.response import Response as Resp
-from werkzeug.exceptions import HTTPException
 from werkzeug.http import quote_header_value
 
 from cmdb.interface.rest_api.responses.gridfs_response import GridFsResponse
@@ -38,7 +37,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     MediaFileKey,
@@ -84,6 +83,7 @@ media_file_blueprint = APIBlueprint('media_file_blueprint', __name__, url_prefix
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.VIEW.value)
 @media_file_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving the FilesList")
 def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
     """
     HTTP `GET`/`HEAD` route to list the MediaFiles of the library
@@ -115,20 +115,16 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
         api_response = GetMultiResponse(output.result, total=output.total, params=params, url=request.url)
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except MediaFileManagerGetError as err:
         LOGGER.error("[get_file_list] MediaFileManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the FilesList from the database!")
-    except Exception as err:
-        LOGGER.error("[get_file_list] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the FilesList!")
 
 
 @media_file_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
+@handle_route_errors("while adding the file")
 def add_new_file(request_user: CmdbUser) -> Resp:
     """
     HTTP `POST` route to upload a MediaFile into the library
@@ -172,23 +168,19 @@ def add_new_file(request_user: CmdbUser) -> Resp:
             media_files_manager.delete_file(replaced_file[MediaFileKey.PUBLIC_ID.value])
 
         return InsertSingleResponse(result, result[MediaFileKey.PUBLIC_ID.value]).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except MediaFileManagerGetError as err:
         LOGGER.error("[add_new_file] MediaFileManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the File which would be replaced from the database!")
     except MediaFileManagerInsertError as err:
         LOGGER.error("[add_new_file] MediaFileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the File in the database!")
-    except Exception as err:
-        LOGGER.error("[add_new_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while adding the file!")
 
 
 @media_file_blueprint.route('/', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
+@handle_route_errors("while updating the file")
 def update_file(request_user: CmdbUser) -> Resp:
     """
     HTTP `PUT` route to update a MediaFile's name, folder or metadata
@@ -240,28 +232,28 @@ def update_file(request_user: CmdbUser) -> Resp:
         media_files_manager.update_file(data)
 
         return DefaultResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except MediaFileManagerUpdateError as err:
         LOGGER.error("[update_file] MediaFileManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the File in the database!")
-    except Exception as err:
-        LOGGER.error("[update_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating the file!")
 
 
-@media_file_blueprint.route('/<string:filename>/', methods=['GET'])
 @media_file_blueprint.route('/<string:filename>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.VIEW.value)
+@handle_route_errors("while retrieving the file: {filename}")
 def get_file(filename: str, request_user: CmdbUser) -> Resp:
     """
     HTTP `GET` route to retrieve a single MediaFile by name
 
     Requires the ``base.framework.object.view`` right. The optional ``metadata`` query parameter narrows
     the lookup to one folder, which is what makes the name unambiguous - the same name may exist in
-    several folders
+    several folders.
+
+    Registered **once**, without a trailing slash, like every other item path on this blueprint. The
+    trailing-slash twin it also carried until 2026-09-21 was the last duplicate registration in the
+    API (discussion-backlog #36): two rules for one handler, so a change to one of them was silently
+    not a change to the other
 
     Args:
         filename (str): Name of the MediaFile, unique within its folder
@@ -274,30 +266,25 @@ def get_file(filename: str, request_user: CmdbUser) -> Resp:
     Returns:
         DefaultResponse: The requested MediaFile
     """
-    try:
-        media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
-                                                                            request_user)
+    media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
+                                                                        request_user)
 
-        filter_metadata = generate_metadata_filter(MediaFileRequestKey.METADATA.value, request)
-        filter_metadata.update({MediaFileKey.FILENAME.value: filename})
+    filter_metadata = generate_metadata_filter(MediaFileRequestKey.METADATA.value, request)
+    filter_metadata.update({MediaFileKey.FILENAME.value: filename})
 
-        result = media_files_manager.get_file(metadata=filter_metadata)
+    result = media_files_manager.get_file(metadata=filter_metadata)
 
-        if not result:
-            abort(404, f"The File with the name: {filename} was not found!")
+    if not result:
+        abort(404, f"The File with the name: {filename} was not found!")
 
-        return DefaultResponse(result).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the file: {filename}!")
+    return DefaultResponse(result).make_response()
 
 
 @media_file_blueprint.route('/download/<path:filename>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.VIEW.value)
+@handle_route_errors("while downloading the file: {filename}")
 def download_file(filename: str, request_user: CmdbUser) -> Resp:
     """
     HTTP `GET` route to download a MediaFile's content
@@ -320,30 +307,24 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
     Returns:
         Response: The file content as an attachment
     """
-    try:
-        media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
-                                                                            request_user)
+    media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES,
+                                                                        request_user)
 
-        filter_metadata = generate_metadata_filter(MediaFileRequestKey.METADATA.value, request)
-        filter_metadata.update({MediaFileKey.FILENAME.value: filename})
-        result = media_files_manager.get_file(metadata=filter_metadata, blob=True)
+    filter_metadata = generate_metadata_filter(MediaFileRequestKey.METADATA.value, request)
+    filter_metadata.update({MediaFileKey.FILENAME.value: filename})
+    result = media_files_manager.get_file(metadata=filter_metadata, blob=True)
 
-        if result is None:
-            # Without this the empty body went out as a 200 - the caller saved a 0-byte file
-            abort(404, f"The File with the name: {filename} was not found!")
+    if result is None:
+        # Without this the empty body went out as a 200 - the caller saved a 0-byte file
+        abort(404, f"The File with the name: {filename} was not found!")
 
-        return Response(
-            result,
-            mimetype="application/octet-stream",
-            headers={
-                "Content-Disposition": f'attachment; filename={quote_header_value(filename)}',
-            },
-        )
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[download_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while downloading the file: {filename}!")
+    return Response(
+        result,
+        mimetype="application/octet-stream",
+        headers={
+            "Content-Disposition": f'attachment; filename={quote_header_value(filename)}',
+        },
+    )
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -351,6 +332,7 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
+@handle_route_errors("while deleting the file with ID: {public_id}")
 def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
     """
     HTTP `DELETE` route to delete a MediaFile or a whole folder
@@ -379,11 +361,6 @@ def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
             media_files_manager.delete_file(_id)
 
         return DefaultResponse(file_to_delete).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except MediaFileManagerDeleteError as err:
         LOGGER.error("[delete_file] MediaFileManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the File with ID: {public_id} in the database!")
-    except Exception as err:
-        LOGGER.error("[delete_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the file with ID: {public_id}!")

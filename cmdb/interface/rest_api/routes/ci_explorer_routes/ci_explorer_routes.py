@@ -45,7 +45,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import (
     ExtendableOptionsManager,
@@ -80,7 +79,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -127,6 +126,7 @@ ci_explorer_blueprint = APIBlueprint('ci_explorer', __name__)
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
 @ci_explorer_blueprint.validate(build_write_schema(CmdbCiExplorerProfile.SCHEMA))
+@handle_route_errors("while creating the CiExplorer Profile")
 def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbCiExplorerProfile into the database
@@ -164,17 +164,12 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 
         # The profile WAS created, so this is a server-side problem, not a missing resource
         abort(500, "Could not retrieve the created CiExplorer Profile from the database!")
-    except HTTPException as http_err:
-        raise http_err
     except CiExplorerProfileManagerInsertError as err:
         LOGGER.error("[insert_cmdb_ci_explorer_profile] CiExplorerProfileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new CiExplorer Profile in the database!")
     except CiExplorerProfileManagerGetError as err:
         LOGGER.error("[insert_cmdb_ci_explorer_profile] CiExplorerProfileManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created CiExplorer Profile from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_ci_explorer_profile] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the CiExplorer Profile!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -183,6 +178,7 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.parse_collection_parameters()
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.VIEW.value)
+@handle_route_errors("while retrieving CiExplorer Profiles")
 def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbCiExplorerProfiles
@@ -224,14 +220,9 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
                                         send_body)
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except CiExplorerProfileManagerIterationError as err:
         LOGGER.error("[get_cmdb_ci_explorer_profiles] CiExplorerProfileManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve CiExplorer Profiles from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_ci_explorer_profiles] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving CiExplorer Profiles!")
 
 
 @ci_explorer_blueprint.route('/items', methods=['GET'])
@@ -239,6 +230,7 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 # The locals are the 8 parsed query args + the 5 managers the framework graph builder requires
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.VIEW.value)
+@handle_route_errors("while retrieving CI Explorer nodes and edges")
 def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: disable=too-many-locals
     """
     HTTP `GET` route returning the CI Explorer node/edge payload
@@ -349,17 +341,12 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         )
 
         return DefaultResponse(response).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except CiExplorerTargetNotFoundError as err:
         LOGGER.error("[get_ci_explorer_nodes_edges] %s", err)
         abort(404, f"The Object with ID:{target_id} was not found!")
     except CiExplorerGraphBuildError as err:
         LOGGER.error("[get_ci_explorer_nodes_edges] %s", err, exc_info=True)
         abort(500, f"The CI Explorer graph of the Object with ID:{target_id} could not be built!")
-    except Exception as err:
-        LOGGER.error("[get_ci_explorer_nodes_edges] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving CI Explorer nodes and edges!")
 
 # ----------------------------------- PRESENTATION FIELDS - CmdbObject / CmdbType ------------------------------------ #
 
@@ -368,6 +355,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
 @ci_explorer_blueprint.validate(get_ci_explorer_label_schema())
+@handle_route_errors("while updating the CI Explorer label field for Type-ID: {public_id}")
 def update_type_label_field(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to nominate the field the CI Explorer shows on a CmdbType's nodes
@@ -430,15 +418,9 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
             TypeSchemaKey.CI_EXPLORER_LABEL.value: stored_label_field,
             CiExplorerResponseKey.SELECTABLE_FIELDS.value: selectable_label_fields(target_type),
         }).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except (TypesManagerGetError, TypesManagerUpdateError) as err:
         LOGGER.error("[update_type_label_field] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to update the CI Explorer label field for Type-ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_type_label_field] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating the CI Explorer label field for "
-                   f"Type-ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -447,6 +429,7 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
 @ci_explorer_blueprint.validate(build_write_schema(CmdbCiExplorerProfile.SCHEMA))
+@handle_route_errors("while updating the CiExplorer Profile with ID: {public_id}")
 def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbCiExplorerProfile
@@ -486,17 +469,12 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
         ci_explorer_profile_manager.update_item(public_id, CmdbCiExplorerProfile.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except CiExplorerProfileManagerGetError as err:
         LOGGER.error("[update_cmdb_ci_explorer_profile] CiExplorerProfileManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the CiExplorer Profile with ID: {public_id} from the database!")
     except CiExplorerProfileManagerUpdateError as err:
         LOGGER.error("[update_cmdb_ci_explorer_profile] CiExplorerProfileManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the CiExplorer Profile with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_cmdb_ci_explorer_profile] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the CiExplorer Profile with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -504,6 +482,7 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.EDIT.value)
+@handle_route_errors("while deleting the CiExplorer Profile with ID: {public_id}")
 def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbCiExplorerProfile
@@ -536,14 +515,9 @@ def delete_cmdb_ci_explorer_profile(public_id: int, request_user: CmdbUser) -> R
         ci_explorer_profile_manager.delete_item(public_id)
 
         return DeleteSingleResponse(CmdbCiExplorerProfile.to_json(to_delete_explorer_profile)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except CiExplorerProfileManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_ci_explorer_profile] CiExplorerProfileManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the CiExplorer Profile with ID:{public_id}!")
     except CiExplorerProfileManagerGetError as err:
         LOGGER.error("[delete_cmdb_ci_explorer_profile] CiExplorerProfileManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the CiExplorer Profile with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_ci_explorer_profile] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the CiExplorer Profile with ID: {public_id}!")

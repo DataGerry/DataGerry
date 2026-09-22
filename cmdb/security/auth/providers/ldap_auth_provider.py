@@ -82,7 +82,10 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
     Extends: BaseAuthenticationProvider
 
     Attributes:
-        PASSWORD_ABLE (bool): Flag indicating if the provider supports password-based authentication
+        PASSWORD_ABLE (bool): False - the DIRECTORY owns these users' passwords. The bind below is a
+            password check, but nothing about the password is stored here, so DataGerry may not set
+            one: the local provider refuses a user without a stored digest, and that refusal is what
+            keeps a directory-managed account out of the fallback sweep
         EXTERNAL_PROVIDER (bool): Marks this as an external authentication source. `AuthModule` skips
                                   the provider entirely when external providers are disabled
         PROVIDER_CONFIG_CLASS: The associated configuration class for this provider

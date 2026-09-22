@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager
@@ -28,7 +27,7 @@ from cmdb.settings.date_settings import DateSettingsDAO
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.settings_routes.date_helper import build_date_settings
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -42,6 +41,7 @@ LOGGER: Logger = getLogger(__name__)
 @date_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@handle_route_errors("while retrieving the DateSettings")
 def get_date_settings(request_user: CmdbUser) -> Response:
     """
     Retrieves the date-related settings for the current user
@@ -52,19 +52,13 @@ def get_date_settings(request_user: CmdbUser) -> Response:
     Returns:
         DefaultResponse: The HTTP response containing the date settings
     """
-    try:
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        date_settings = settings_manager.get_all_values_from_section('date', DateSettingsDAO.__DEFAULT_SETTINGS__)
+    date_settings = settings_manager.get_all_values_from_section('date', DateSettingsDAO.__DEFAULT_SETTINGS__)
 
-        date_settings = build_date_settings(date_settings)
+    date_settings = build_date_settings(date_settings)
 
-        return DefaultResponse(date_settings).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[get_date_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving the DateSettings!")
+    return DefaultResponse(date_settings).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -72,6 +66,7 @@ def get_date_settings(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @date_blueprint.protect(auth=True, right='base.system.edit')
+@handle_route_errors("while updating the DateSettings")
 def update_date_settings(request_user: CmdbUser) -> Response:
     """
     Updates the date-related settings for the current user
@@ -82,24 +77,18 @@ def update_date_settings(request_user: CmdbUser) -> Response:
     Returns:
         DefaultResponse: The HTTP response containing the updated date settings, or an error message
     """
-    try:
-        new_date_settings_values = request.get_json()
+    new_date_settings_values = request.get_json()
 
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        if not new_date_settings_values:
-            abort(400, 'No new data was provided')
+    if not new_date_settings_values:
+        abort(400, 'No new data was provided')
 
-        new_date_settings_instance = build_date_settings(new_date_settings_values)
+    new_date_settings_instance = build_date_settings(new_date_settings_values)
 
-        update_result = settings_manager.write(_id='date', data=new_date_settings_instance.__dict__)
+    update_result = settings_manager.write(_id='date', data=new_date_settings_instance.__dict__)
 
-        if update_result.acknowledged:
-            return DefaultResponse(settings_manager.get_section('date')).make_response()
+    if update_result.acknowledged:
+        return DefaultResponse(settings_manager.get_section('date')).make_response()
 
-        abort(400, 'Could not update the DateSettings')
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[update_date_settings] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating the DateSettings!")
+    abort(400, 'Could not update the DateSettings')

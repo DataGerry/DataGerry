@@ -30,7 +30,6 @@ patched module, so patching the source is what a deferred import responds to.
 """
 # pylint: disable=protected-access,no-member  # no-member: settings_manager is a MagicMock in tests
 from http import HTTPStatus
-from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -54,13 +53,14 @@ _LOCAL_CONFIG: dict[str, str] = {
 
 def _make_connector(token: str | None = 'jwt') -> OcApiConnector:
     """Builds a connector via the local config path; its SettingsManager returns the given token."""
-    current = SimpleNamespace(cloud_mode=False, local_mode=True)
     scr = MagicMock()
     scr.get_value.side_effect = lambda key, section: _LOCAL_CONFIG[key]
     settings_manager = MagicMock()
     settings_manager.get_all_values_from_section.return_value = {'token': token}
 
-    with patch(f'{MODULE}.current_app', current), \
+    # `--cloud --local` is a developer's own stack, which the connector treats as on-premise: one
+    # predicate (`is_hosted_cloud`) rather than the two app flags read inline
+    with patch(f'{MODULE}.is_hosted_cloud', return_value=False), \
          patch(SYSTEM_CONFIG_READER, return_value=scr), \
          patch(SETTINGS_MANAGER, return_value=settings_manager):
         return OcApiConnector(MagicMock(), 'db')
@@ -93,9 +93,8 @@ class TestConfigResolution:
             'OC_HOST': 'oc.host', 'OC_PORT': '443', 'OC_PROTOCOL': 'https',
             'OC_EMAIL': 'a@b.c', 'OC_USER': 'u', 'OC_PASSWORD': 'pw',
         }
-        current = SimpleNamespace(cloud_mode=True, local_mode=False)
 
-        with patch(f'{MODULE}.current_app', current), \
+        with patch(f'{MODULE}.is_hosted_cloud', return_value=True), \
              patch(f'{MODULE}.os.getenv', side_effect=env.get), \
              patch(SETTINGS_MANAGER, return_value=MagicMock()):
             connector = OcApiConnector(MagicMock(), 'db')
@@ -108,9 +107,8 @@ class TestConfigResolution:
             'OC_HOST': 'oc.host', 'OC_PORT': '443', 'OC_PROTOCOL': 'https',
             'OC_EMAIL': 'a@b.c', 'OC_USER': 'u',
         }
-        current = SimpleNamespace(cloud_mode=True, local_mode=False)
 
-        with patch(f'{MODULE}.current_app', current), \
+        with patch(f'{MODULE}.is_hosted_cloud', return_value=True), \
              patch(f'{MODULE}.os.getenv', side_effect=env.get), \
              patch(SETTINGS_MANAGER, return_value=MagicMock()):
             with pytest.raises(ValueError):

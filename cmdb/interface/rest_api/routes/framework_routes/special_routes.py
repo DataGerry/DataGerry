@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
@@ -32,6 +31,7 @@ from cmdb.manager.section_templates_manager import SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import (
+    handle_route_errors,
     insert_request_user,
     verify_api_access,
     parse_assistant_parameters,
@@ -91,6 +91,7 @@ def show_datagerry_assistant(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @parse_assistant_parameters()
 @insert_request_user
+@handle_route_errors("while creating initial Profiles")
 def create_initial_profiles(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Creates all profiles selected in the assistant
@@ -133,14 +134,9 @@ def create_initial_profiles(data: dict[str, Any], request_user: CmdbUser) -> Res
         created_ids = profile_assistant.create_profiles(profiles)
 
         return DefaultResponse(created_ids).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ProfileCreationError as err:
         LOGGER.error("[create_initial_profiles] Error: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "Failed to create initial Profiles!")
     except (CategoriesManagerGetError, TypesManagerGetError, ObjectsManagerGetError) as err:
         LOGGER.error("[create_initial_profiles] Error: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, "Failed to check prerequisites if the DataGerry Assistant can be executed!")
-    except Exception as err:
-        LOGGER.error("[create_initial_profiles] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating initial Profiles!")

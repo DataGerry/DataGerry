@@ -70,8 +70,14 @@ class SearchFormType(BaseStrEnum):
         carrying a `publicID` setting instead
       - DISJUNCTION is a marker the result bar appends when type filtering switches to OR. Nothing
         reads it: the OR itself comes from each TYPE parameter's own `disjunction` flag, which
-        defaults to True. It is accepted so the UI's payload validates - see discussion-backlog for
-        whether it should be implemented or dropped
+        defaults to True. It is accepted so the UI's payload validates, and **kept as a documented
+        no-op** - ruled 2026-09-21, discussion-backlog #212. Implementing it would make the
+        parameter the UI already sends the switch it looks like; dropping it would answer 400 to
+        every type-filter click the UI performs, so it needs the frontend to stop sending it first
+        (`notes/FRONTEND_TO_BACKEND.md` F10). It is inert rather than merely unused: the builder
+        dispatches by form, so the marker reaches no stage, and the highlight matcher reads the
+        executed pipeline's `$regex` values - no stage means no bogus match either.
+        The rules of this whole surface are in `workflows/search.md`
     """
     TEXT = 'text'
     REGEX = 'regex'

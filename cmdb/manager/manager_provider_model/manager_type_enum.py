@@ -77,7 +77,10 @@ class ManagerType(BaseStrEnum):
     CONTROL_MEASURE_ASSIGNMENT = 'ControlMeasureAssignmentManager'
 
     # System Managers
-    CACHED_USER = 'CachedUserManager'
+    # NOTE there is deliberately no CACHED_USER entry: the cloud user cache never lives in a tenant
+    # database (CachedUserManager ignores the database argument and always uses DG_CACHE_DB), and the
+    # login path needs it BEFORE a request_user exists - which cloud-mode get_manager requires. It is
+    # built by cmdb.interface.route_utils.get_cached_user_manager instead
 
     # License Managers
     LICENSE_ACTIVATION_REQUESTS = 'LicenseActivationRequestsManager'

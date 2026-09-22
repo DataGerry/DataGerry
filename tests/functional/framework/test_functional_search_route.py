@@ -56,6 +56,9 @@ from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 QUICK_COUNT_URL: str = '/search/quick/count/'
 SEARCH_URL: str = '/search/'
 
+#: Stamped per render, so it differs between two otherwise identical answers
+RENDER_TIME_KEY: str = 'current_render_time'
+
 #: The payload both methods carry - a JSON array of search parameters
 TEXT_PARAM: list[dict[str, str]] = [{'searchText': 'searchable', 'searchForm': SearchFormType.TEXT.value}]
 
@@ -129,6 +132,28 @@ def _entry_for_seeded_object(body: dict[str, Any]) -> dict[str, Any] | None:
             return entry
 
     return None
+
+
+def _without_render_times(body: dict[str, Any]) -> dict[str, Any]:
+    """
+    A search answer with each hit's render timestamp dropped
+
+    `current_render_time` is stamped per render, so two identical searches differ by milliseconds -
+    the one key that makes two answers unequal without meaning anything.
+    """
+    stripped = dict(body)
+    stripped[SearchResultKey.RESULTS.value] = [
+        {
+            **entry,
+            SearchResultMapKey.RESULT.value: {
+                key: value for key, value in entry[SearchResultMapKey.RESULT.value].items()
+                if key != RENDER_TIME_KEY
+            },
+        }
+        for entry in body[SearchResultKey.RESULTS.value]
+    ]
+
+    return stripped
 
 
 def _raiser(exc: Exception):
@@ -433,6 +458,50 @@ class TestMatchedFields:
 
         assert EMPTY_FIELD not in matched_names
 
+    def test_the_marker_changes_nothing_about_the_answer(self, rest_api) -> None:
+        """
+        A search with the marker answers exactly what the same search without it answers
+
+        Accepting a parameter and IGNORING it are two different claims, and only this one is about
+        the second. The marker is kept as a documented no-op (discussion-backlog #212), so the pair
+        of searches has to stay indistinguishable - including the total, which is what a marker
+        quietly turned into a filter would move.
+        """
+        with_marker = json.dumps([
+            {'searchText': NAME_VALUE, 'searchForm': SearchFormType.TEXT.value},
+            {'searchText': 'or', 'searchForm': SearchFormType.DISJUNCTION.value,
+             'searchLabel': 'or', 'disjunction': True},
+        ])
+        without_marker = json.dumps([
+            {'searchText': NAME_VALUE, 'searchForm': SearchFormType.TEXT.value},
+        ])
+
+        answered = rest_api.post(SEARCH_URL, data=with_marker, content_type='application/json').get_json()
+        baseline = rest_api.post(SEARCH_URL, data=without_marker, content_type='application/json').get_json()
+
+        assert _without_render_times(answered) == _without_render_times(baseline)
+        # ...and the seeded object really is in both, so the comparison is not two empty pages
+        assert _entry_for_seeded_object(answered) is not None
+
+    def test_the_marker_contributes_no_highlight(self, rest_api) -> None:
+        """
+        Its own searchText ('or') must not come back as a matched field
+
+        A hit's `matches` are computed by re-running the EXECUTED pipeline's regexes, so a marker
+        that ever reached a stage would start highlighting the letters "or" in every result.
+        """
+        body = json.dumps([
+            {'searchText': NAME_VALUE, 'searchForm': SearchFormType.TEXT.value},
+            {'searchText': 'or', 'searchForm': SearchFormType.DISJUNCTION.value,
+             'searchLabel': 'or', 'disjunction': True},
+        ])
+
+        entry = _entry_for_seeded_object(
+            rest_api.post(SEARCH_URL, data=body, content_type='application/json').get_json()
+        )
+
+        matched_names = [field['name'] for field in entry[SearchResultMapKey.MATCHES.value]]
+        assert matched_names == [NAME_FIELD]
 
 class TestAnUnusableSearchParameterIsRefused:
     """
@@ -501,8 +570,6 @@ class TestAnUnusableSearchParameterIsRefused:
 
         assert rest_api.post(SEARCH_URL, data=body, content_type='application/json').status_code \
             == HTTPStatus.OK
-
-
 class TestAnUnusableTextTermIsAnswered:
     """
     A search box must not answer 400 because somebody typed a regex metacharacter

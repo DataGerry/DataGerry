@@ -84,6 +84,36 @@ def _updater_module_versions() -> set[int]:
 #                                        hand-maintained registries (all updaters)                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def test_no_updater_reduces_its_failure_to_a_message() -> None:
+    """
+    Every migration wraps the ORIGINAL exception, not `str()` of it
+
+    `UpdaterError.__init__` takes `str | Exception`, and passing the exception keeps it inspectable
+    through `args[0]` while `str()` reads exactly the same - so a caller can branch on a
+    `DuplicateKeyError` instead of matching on message text. Thirteen modules still reduced it on
+    2026-09-21 (discussion-backlog #207), **two of them written after the finding was filed**: the
+    shape is copied from the file next door, which is why it is asserted over the whole folder rather
+    than fixed once. A behavioural version of this lives in each updater's own suite; this one needs
+    no test double and covers every module, including the ones whose failure tail nothing drives.
+    """
+    offenders: list[str] = sorted(
+        path.name for path in VERSIONS_DIR.glob('updater_*.py')
+        if 'UpdaterException(str(err))' in path.read_text(encoding='utf-8')
+    )
+
+    assert offenders == []
+
+
+def test_every_updater_module_carries_a_failure_tail() -> None:
+    """Guards the assertion above: a module with no wrapper at all would satisfy it vacuously"""
+    without_tail: list[str] = sorted(
+        path.name for path in VERSIONS_DIR.glob('updater_*.py')
+        if 'raise UpdaterException(err) from err' not in path.read_text(encoding='utf-8')
+    )
+
+    assert without_tail == []
+
+
 def test_every_updater_module_is_registered() -> None:
     """An updater missing from __UPDATE_VERSIONS__ is never executed - and nothing else complains"""
     assert _updater_module_versions() == set(DatabaseUpdater.__UPDATE_VERSIONS__)
@@ -182,14 +212,22 @@ def test_20260720_pulls_clean_right_and_bumps_version() -> None:
 
 
 def test_start_update_wraps_failures_in_updater_exception() -> None:
-    """A failure during the migration is re-raised as UpdaterException"""
+    """A failure during the migration is re-raised as UpdaterException, carrying what failed"""
     updater = _new(Update20251203)
     updater.dbm = dbm = MagicMock()
+    # db_name too: without it the migration fails on a missing ATTRIBUTE before it ever reaches the
+    # database call, and the test passed anyway - asserting only that *something* was wrapped
+    updater.db_name = "testdb"
     updater.settings_manager = MagicMock()
-    dbm.update_many_raw.side_effect = RuntimeError("db down")
+    failure = RuntimeError("db down")
+    dbm.update_many_raw.side_effect = failure
 
-    with pytest.raises(UpdaterException):
+    with pytest.raises(UpdaterException) as caught:
         updater.start_update()
+
+    # The exception itself, not its text: `str()` reads the same either way, so only this tells them apart
+    assert caught.value.args[0] is failure
+    assert caught.value.__cause__ is failure
 
 
 def test_20260731_backfills_both_report_keys_and_bumps_version() -> None:
@@ -239,9 +277,11 @@ def test_20260731_wraps_a_failure_as_an_updater_exception() -> None:
     updater.dbm = dbm = MagicMock()
     updater.db_name = "testdb"
     updater.settings_manager = settings_manager = MagicMock()
-    dbm.update_many_raw.side_effect = RuntimeError('boom')
+    failure = RuntimeError('boom')
+    dbm.update_many_raw.side_effect = failure
 
-    with pytest.raises(UpdaterException):
+    with pytest.raises(UpdaterException) as caught:
         updater.start_update()
 
+    assert caught.value.args[0] is failure
     settings_manager.write.assert_not_called()

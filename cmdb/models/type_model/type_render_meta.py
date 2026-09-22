@@ -35,7 +35,11 @@ LOGGER: Logger = getLogger(__name__)
 #: Which section class builds a stored section, chosen by its `type` key. A `type` this version does
 #: not know - or a document written before the key existed - falls back to TypeFieldSection rather
 #: than being refused or dropped: refusing would make a type saved by a newer version unreadable, and
-#: dropping would silently lose the section's fields
+#: dropping would silently lose the section's fields.
+#: This is a READ policy only - a write may not invent a kind, `CmdbType.SCHEMA` allows exactly the
+#: `SectionType` members there. Every consumer follows the fallback: `CmdbMultiRender` merges such a
+#: section as a plain one (`_accept_unknown_section`) and the frontend's section factory draws it as a
+#: field section, so a kind added here needs no change in either to remain visible
 SECTION_CLASSES: dict[str, type[TypeSection]] = {
     SectionType.SECTION.value: TypeFieldSection,
     SectionType.MDS_SECTION.value: TypeMultiDataSection,

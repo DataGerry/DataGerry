@@ -40,8 +40,13 @@ class BaseAuthenticationProvider:
     that can be used or overridden by subclasses to implement specific authentication mechanisms. 
 
     Attributes:
-        PASSWORD_ABLE (bool): Flag indicating if the provider supports password-based authentication
-        EXTERNAL_PROVIDER (bool): Flag indicating if the provider is an external authentication provider
+        PASSWORD_ABLE (bool): Whether DataGerry OWNS the passwords of this provider's users - i.e.
+            whether a password may be stored and changed here. It does not mean "authenticates with a
+            password": the LDAP provider does exactly that, by binding, and still sets this False,
+            because the password lives in the directory. Read through
+            ``AuthModule.provider_owns_passwords`` and enforced by the password-change route
+        EXTERNAL_PROVIDER (bool): Flag indicating if the provider is an external authentication
+            provider. A different question - whether the provider may run at all (`enable_external`)
         PROVIDER_CONFIG_CLASS (type): The configuration class used by the authentication provider
     """
     PASSWORD_ABLE: bool = True

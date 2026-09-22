@@ -120,7 +120,15 @@ class TestVersionBumpOrdering:
 
     def test_the_original_error_is_kept_as_the_cause(
             self, updater_cls: type[BaseDatabaseUpdate], version: int) -> None:
-        """The UpdaterException wrapper must not swallow what actually failed."""
+        """
+        The UpdaterException wrapper must not swallow what actually failed
+
+        Both halves are asserted because they fail separately. `__cause__` comes from `from err` and
+        survives even a wrapper built from `str(err)` - it is the traceback. `args[0]` is the wrapped
+        exception itself, and it is there only when the exception rather than its text was passed,
+        which is what lets a caller branch on a `DuplicateKeyError` instead of matching on message
+        text (discussion-backlog #207).
+        """
         updater = build_stubbed_updater(updater_cls)
         failure = RuntimeError('boom')
         updater.types_manager.update_many.side_effect = failure
@@ -129,6 +137,9 @@ class TestVersionBumpOrdering:
             updater.start_update()
 
         assert raised.value.__cause__ is failure
+        assert raised.value.args[0] is failure
+        # ...and the message a human reads is unchanged by carrying the exception
+        assert str(raised.value) == str(failure)
 
     def test_both_collections_are_updated_exactly_once(
             self, updater_cls: type[BaseDatabaseUpdate], version: int) -> None:

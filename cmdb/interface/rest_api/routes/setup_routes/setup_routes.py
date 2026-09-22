@@ -63,7 +63,7 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.setup_routes.setup_constants import SetupQueryParam, SetupRequestKey
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import verify_api_access
+from cmdb.interface.route_utils import verify_api_access, get_cached_user_manager
 
 from cmdb.errors.database import DatabaseNotFoundError, DatabaseConnectionError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -172,7 +172,7 @@ def delete_cached_user() -> Response:
             abort(400, "'email' key not provided in the request payload!")
 
         target_emails: Any = payload[SetupRequestKey.EMAIL]
-        cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
+        cached_user_manager: CachedUserManager = get_cached_user_manager()
 
         if isinstance(target_emails, str):
             cached_user_manager.delete_cached_user(target_emails)
@@ -205,7 +205,7 @@ def delete_all_cached_users() -> Response:
         HTTPException: 500 on an unexpected error while clearing the cache
     """
     try:
-        cached_user_manager: CachedUserManager = CachedUserManager(current_app.database_manager)
+        cached_user_manager: CachedUserManager = get_cached_user_manager()
 
         cached_user_manager.clear_cache()
 

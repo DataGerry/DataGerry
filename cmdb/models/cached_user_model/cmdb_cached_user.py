@@ -18,8 +18,8 @@ Represents a cached cloud user in DataGerry
 """
 from typing import Any
 from datetime import datetime, timezone
-from dateutil.parser import parse
 
+from cmdb.utils import coerce_document_dates
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.cached_user_model.cached_user_constants import CACHE_TTL_SECONDS, CachedUserKey
 
@@ -45,6 +45,7 @@ class CmdbCachedUser(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'cache.users'
+    DATE_FIELDS: tuple[str, ...] = (CachedUserKey.CREATION_TIME,)
     INDEX_KEYS: list[dict[str, Any]] = [
         {
             'keys': [(CachedUserKey.EMAIL.value, CmdbDAO.DAO_ASCENDING)],
@@ -126,10 +127,13 @@ class CmdbCachedUser(CmdbDAO):
             CmdbCachedUser: CmdbCachedUser with the given data
         """
         try:
-            creation_time: Any | None = data[CachedUserKey.CREATION_TIME]
+            # The audit timestamps are coerced strictly: a value that cannot be read is refused
+            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
+            # 'sometime in March' into a date built from today's day number
+            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if creation_time and isinstance(creation_time, str):
-                creation_time = parse(creation_time, fuzzy=True)
+            if unusable_dates:
+                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
 
             return cls(
                 public_id = data[CachedUserKey.PUBLIC_ID],
@@ -138,7 +142,7 @@ class CmdbCachedUser(CmdbDAO):
                 email = data[CachedUserKey.EMAIL],
                 active = data[CachedUserKey.ACTIVE],
                 subscriptions = data[CachedUserKey.SUBSCRIPTIONS],
-                creation_time = creation_time,
+                creation_time = data[CachedUserKey.CREATION_TIME],
             )
         except Exception as err:
             raise CmdbCachedUserInitFromDataError(str(err)) from err

@@ -32,6 +32,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager, ObjectsManager
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
@@ -254,6 +255,46 @@ class TestPostType:
 
             follow_up = rest_api.get(f'{ROUTE_URL}/{created_id}')
             assert follow_up.status_code == HTTPStatus.OK
+        finally:
+            if created_id is not None:
+                _drop_type(database_manager, database_name, created_id)
+
+    def test_an_unknown_section_kind_is_refused(self, rest_api) -> None:
+        """
+        A section kind outside SectionType is refused by the write schema
+
+        The type IMPORT has always refused one (`INVALID_SECTION_TYPES`); the write route used to
+        accept any string, so a mistyped `multi-data-section` was stored as a kind of its own,
+        read back as a plain section, and its fields quietly stopped being multi-data fields.
+        """
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['render_meta']['sections'][0]['type'] = 'multi-data-sections'
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_every_known_section_kind_is_accepted(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The three SectionType members all pass the write schema."""
+        created_id: int | None = None
+        payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
+        payload['render_meta']['sections'] = [
+            {'type': SectionType.SECTION.value, 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]},
+            {'type': SectionType.MDS_SECTION.value, 'name': 'mds', 'label': 'MDS', 'fields': []},
+            {'type': SectionType.REF_SECTION.value, 'name': 'ref', 'label': 'Ref', 'fields': [],
+             'reference': {'type_id': 1, 'section_name': 'main', 'selected_fields': []}},
+        ]
+
+        try:
+            response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+
+            assert response.status_code == HTTPStatus.CREATED
+            created_id = response.get_json()['result_id']
         finally:
             if created_id is not None:
                 _drop_type(database_manager, database_name, created_id)

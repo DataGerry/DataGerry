@@ -44,7 +44,6 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ExtendableOptionsManager, ObjectsManager, TypesManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
@@ -69,7 +68,7 @@ from cmdb.errors.manager.ports_manager import (
 from cmdb.framework.port.cascade import delete_connections_of_port, delete_interface_links_of_port
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -112,6 +111,7 @@ port_blueprint = APIBlueprint('ports', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_blueprint.protect(auth=True, right=PortRight.ADD.value)
+@handle_route_errors("while creating the Port")
 def insert_cmdb_port(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to create a CmdbPort on a CmdbObject
@@ -168,8 +168,6 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
             abort(404, 'Could not retrieve the created Port from the database!')
 
         return InsertSingleResponse(created_port, new_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[insert_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
@@ -183,9 +181,6 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
             side=payload.get(PortRequestKey.SIDE.value),
             object_id=payload.get(PortRequestKey.OBJECT_ID.value),
         ))
-    except Exception as err:
-        LOGGER.error("[insert_cmdb_port] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, 'An internal server error occured while creating the Port!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #
@@ -195,6 +190,7 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving the Port with ID: {public_id}")
 def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbPort
@@ -240,23 +236,19 @@ def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         with_interface_links(port_interface_links_manager, objects_manager, [port], owner)
 
         return GetSingleResponse(port, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortsManagerGetError as err:
         LOGGER.error("[get_cmdb_port] PortsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the Port with ID: {public_id} from the database!')
-    except Exception as err:
-        LOGGER.error("[get_cmdb_port] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while retrieving the Port with ID: {public_id}!')
 
 
 @port_blueprint.route('/object/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving the Ports of CmdbObject ID: {object_id}")
 def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve every CmdbPort of one CmdbObject
@@ -303,17 +295,12 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
         with_interface_links(port_interface_links_manager, objects_manager, ports, owner)
 
         return DefaultResponse(ports).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_ports_of_object] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortsManagerGetError as err:
         LOGGER.error("[get_cmdb_ports_of_object] PortsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
-    except Exception as err:
-        LOGGER.error("[get_cmdb_ports_of_object] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while retrieving the Ports of CmdbObject ID: {object_id}!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - UPDATE                                                      #
@@ -323,6 +310,7 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_blueprint.protect(auth=True, right=PortRight.EDIT.value)
+@handle_route_errors("while updating the Port with ID: {public_id}")
 def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbPort
@@ -375,17 +363,12 @@ def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         ports_manager.update_item(public_id, candidate)
 
         return UpdateSingleResponse(candidate).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[update_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortsManagerUpdateError as err:
         LOGGER.error("[update_cmdb_port] PortsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f'Failed to update the Port with ID: {public_id}!')
-    except Exception as err:
-        LOGGER.error("[update_cmdb_port] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while updating the Port with ID: {public_id}!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - DELETE                                                      #
@@ -395,6 +378,7 @@ def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_blueprint.protect(auth=True, right=PortRight.DELETE.value)
+@handle_route_errors("while deleting the Port with ID: {public_id}")
 def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single CmdbPort
@@ -440,14 +424,9 @@ def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         ports_manager.delete_item(public_id)
 
         return DeleteSingleResponse(port).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[delete_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortsManagerDeleteError as err:
         LOGGER.error("[delete_cmdb_port] PortsManagerDeleteError: %s", err, exc_info=True)
         abort(400, f'Failed to delete the Port with ID: {public_id}!')
-    except Exception as err:
-        LOGGER.error("[delete_cmdb_port] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f'An internal server error occured while deleting the Port with ID: {public_id}!')

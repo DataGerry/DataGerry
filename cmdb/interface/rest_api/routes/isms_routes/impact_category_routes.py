@@ -20,7 +20,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ImpactCategoryManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -32,7 +31,7 @@ from cmdb.models.isms_model import IsmsImpactCategory
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     update_multiple_items,
@@ -69,6 +68,7 @@ impact_category_blueprint = APIBlueprint('impact_categories', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.add')
 @impact_category_blueprint.validate(build_write_schema(IsmsImpactCategory.SCHEMA))
+@handle_route_errors("while creating the ImpactCategory")
 def insert_isms_impact_category(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsImpactCategory into the database
@@ -92,17 +92,12 @@ def insert_isms_impact_category(data: dict[str, Any], request_user: CmdbUser) ->
             return InsertSingleResponse(created_impact, result_id).make_response()
 
         abort(404, "Could not retrieve the created ImpactCategory from the database!")
-    except HTTPException as http_err:
-        raise http_err
     except ImpactCategoryManagerInsertError as err:
         LOGGER.error("[insert_isms_impact_category] ImpactCategoryManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new ImpactCategory in the database!")
     except ImpactCategoryManagerGetError as err:
         LOGGER.error("[insert_isms_impact_category] ImpactCategoryManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created ImpactCategory from the database!")
-    except Exception as err:
-        LOGGER.error("[insert_isms_impact_category] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while creating the ImpactCategory!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -153,6 +148,7 @@ def get_isms_impact_categories(params: CollectionParameters, request_user: CmdbU
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.view')
+@handle_route_errors("while retrieving the ImpactCategory with ID: {public_id}")
 def get_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsImpactCategory
@@ -172,14 +168,9 @@ def get_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response
                                             f"The ImpactCategory with ID:{public_id} was not found!")
 
         return GetSingleResponse(requested_impact, body=request_wants_body()).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ImpactCategoryManagerGetError as err:
         LOGGER.error("[get_isms_impact_category] ImpactCategoryManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ImpactCategory with ID: {public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_impact_category] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while retrieving the ImpactCategory with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -188,6 +179,7 @@ def get_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.edit')
 @impact_category_blueprint.validate(build_write_schema(IsmsImpactCategory.SCHEMA))
+@handle_route_errors("while updating the ImpactCategory with ID: {public_id}")
 def update_isms_impact_category(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsImpactCategory
@@ -214,23 +206,19 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
         impact_category_manager.update_item(public_id, IsmsImpactCategory.from_data(data))
 
         return UpdateSingleResponse(data).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ImpactCategoryManagerGetError as err:
         LOGGER.error("[update_isms_impact_category] ImpactCategoryManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ImpactCategory with ID: {public_id} from the database!")
     except ImpactCategoryManagerUpdateError as err:
         LOGGER.error("[update_isms_impact_category] ImpactCategoryManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the ImpactCategory with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_isms_impact_category] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating the ImpactCategory with ID: {public_id}!")
 
 
 @impact_category_blueprint.route('/multiple', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.edit')
+@handle_route_errors("while updating multiple ImpactCategories")
 def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update multiple IsmsImpactCategory records.
@@ -242,24 +230,18 @@ def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
     Returns:
         DefaultResponse: Per-item summary of successes and failures
     """
-    try:
-        impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
-                                                                                     request_user)
+    impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
+                                                                                 request_user)
 
-        results = update_multiple_items(
-            impact_category_manager,
-            IsmsImpactCategory,
-            request.get_json(silent=True),
-            "ImpactCategory",
-            "update_multiple_isms_impact_categories",
-        )
+    results = update_multiple_items(
+        impact_category_manager,
+        IsmsImpactCategory,
+        request.get_json(silent=True),
+        "ImpactCategory",
+        "update_multiple_isms_impact_categories",
+    )
 
-        return DefaultResponse(results).make_response()
-    except HTTPException as http_err:
-        raise http_err
-    except Exception as err:
-        LOGGER.error("[update_multiple_isms_impact_categories] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while updating multiple ImpactCategories!")
+    return DefaultResponse(results).make_response()
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -267,6 +249,7 @@ def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @impact_category_blueprint.protect(auth=True, right='base.isms.impactCategory.delete')
+@handle_route_errors("while deleting the ImpactCategory with ID: {public_id}")
 def delete_isms_impact_category(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsImpactCategory
@@ -288,14 +271,9 @@ def delete_isms_impact_category(public_id: int, request_user: CmdbUser) -> Respo
         impact_category_manager.delete_with_follow_up(public_id)
 
         return DeleteSingleResponse(to_delete_impact).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ImpactCategoryManagerDeleteError as err:
         LOGGER.error("[delete_isms_impact_category] ImpactCategoryManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the ImpactCategory with ID:{public_id}!")
     except ImpactCategoryManagerGetError as err:
         LOGGER.error("[delete_isms_impact_category] ImpactCategoryManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ImpactCategory with ID:{public_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[delete_isms_impact_category] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while deleting the ImpactCategory with ID: {public_id}!")

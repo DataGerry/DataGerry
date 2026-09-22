@@ -34,7 +34,6 @@ from typing import Any
 
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -52,7 +51,7 @@ from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.utils import is_truthy_query_arg
 
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -82,6 +81,7 @@ rack_assignable_blueprint = APIBlueprint('rack_assignable', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_assignable_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@handle_route_errors("while listing the objects assignable to the Rack")
 def get_assignable_objects(params: CollectionParameters, rack_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to list the CmdbObjects that can be mounted into a Rack
@@ -151,8 +151,6 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
             url=request.url,
             body=request_wants_body(),
         ).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerIterationError as err:
         LOGGER.error("[get_assignable_objects] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the objects assignable to the Rack!")
@@ -162,6 +160,3 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
     except TypesManagerGetError as err:
         LOGGER.error("[get_assignable_objects] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Rack types!")
-    except Exception as err:
-        LOGGER.error("[get_assignable_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while listing the objects assignable to the Rack!")

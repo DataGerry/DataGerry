@@ -29,7 +29,6 @@ from the CmdbType rather than from exported data.
 from logging import Logger, getLogger
 from flask import abort, current_app
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager import TypesManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -48,7 +47,7 @@ from cmdb.framework.exporter.exporter_constants import EXPORT_FORMAT_MODULE_PREF
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import resolve_export_format
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import ExporterRight
@@ -94,6 +93,7 @@ def get_export_file_types(request_user: CmdbUser) -> Response:  # pylint: disabl
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @exporter_blueprint.protect(auth=True, right=ExporterRight.OBJECT.value)
 @exporter_blueprint.parse_collection_parameters(view='native')
+@handle_route_errors("while exporting Objects")
 def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Export objects based on the provided parameters and the requesting user's permissions.
@@ -134,8 +134,6 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
         exporter.from_database(current_app.database_manager, request_user, AccessControlPermission.READ, db_name)
 
         return exporter.export()
-    except HTTPException as http_err:
-        raise http_err
     except AccessDeniedError as err:
         LOGGER.error("[export_objects] AccessDeniedError: %s", err)
         abort(403, "No permission to export the Objects!")
@@ -150,15 +148,13 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
     except ModuleNotFoundError as err:
         LOGGER.error("[export_objects] ModuleNotFoundError: %s", err, exc_info=True)
         abort(500, f"Module not found for export format: {export_format}!")
-    except Exception as err:
-        LOGGER.error("[export_objects] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while exporting Objects!")
 
 
 @exporter_blueprint.route('/template/<int:type_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @exporter_blueprint.protect(auth=True, right=ExporterRight.OBJECT.value)
+@handle_route_errors("while creating the import template for Type with ID: {type_id}")
 def export_object_import_template(type_id: int, request_user: CmdbUser) -> Response:
     """
     Returns the object-import template of a CmdbType as a CSV holding only its header row
@@ -207,12 +203,6 @@ def export_object_import_template(type_id: int, request_user: CmdbUser) -> Respo
                 "Content-Disposition": f'attachment; filename="{filename}"'
             }
         )
-    except HTTPException as http_err:
-        raise http_err
     except TypesManagerGetError as err:
         LOGGER.error("[export_object_import_template] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {type_id} from the database!")
-    except Exception as err:
-        LOGGER.error("[export_object_import_template] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while creating the import template for Type "
-                   f"with ID: {type_id}!")
