@@ -349,13 +349,20 @@ class TestGetType:
         assert response.status_code == HTTPStatus.NOT_FOUND
 
     def test_get_list_returns_results_envelope(self, rest_api) -> None:
-        """A GET /types/ returns a JSON envelope whose results length matches X-Total-Count."""
+        """A GET /types/ returns a JSON envelope reporting one page of a larger match
+
+        `count` counts the page the response carries, `total` and the X-Total-Count header the whole
+        match - so the relation holds however many Types the rest of the suite left behind, which
+        `len(results) == X-Total-Count` did not once the database held more than one page of them.
+        """
         response = rest_api.get(f'{ROUTE_URL}/')
 
         assert response.status_code == HTTPStatus.OK
         body = response.get_json()
         assert 'results' in body
-        assert len(body['results']) == int(response.headers['X-Total-Count'])
+        assert len(body['results']) == body['count']
+        assert body['total'] == int(response.headers['X-Total-Count'])
+        assert body['count'] <= body['total']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -438,7 +445,9 @@ class TestTypeReadExtras:
         """GET /overview returns 200 with a list of {type_data, user_data} items."""
         _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_GET, ORIGINAL_LABEL)
         try:
-            response = rest_api.get(f'{ROUTE_URL}/overview')
+            # Unpaged, like every other listing assertion here: the seeded type has to be IN the
+            # answer, and one page of it holds whatever the rest of the suite left behind
+            response = rest_api.get(f'{ROUTE_URL}/overview?limit=0')
 
             assert response.status_code == HTTPStatus.OK
             results = response.get_json()['results']

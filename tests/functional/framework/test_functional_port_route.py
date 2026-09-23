@@ -18,8 +18,9 @@ Functional tests for the ``/ports`` REST routes
 
 Covers the whole surface over HTTP: create / read single / read per object / update / delete, plus the
 four invariants the routes exist to hold - the owner's Type must declare ``uses_ports``, the identity
-and audit fields are server-owned, ``object_id`` and ``side`` are immutable after creation, and a port
-name is unique per face of an object (both through the pre-check and through the unique index, which
+and audit fields are server-owned, ``object_id`` and ``side`` are immutable after creation, an object
+is either an ordinary device or a patch panel and never both, and a port name is unique per face of an
+object (both through the pre-check and through the unique index, which
 is the half that covers concurrent writes).
 
 Note the test database never goes through CollectionValidator, so its collections carry no declared
@@ -975,3 +976,75 @@ class TestConnectedFlag:
         port = rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result']
 
         assert port[PORT_CONNECTED_KEY] is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        DEVICE KIND - ports XOR panel ports                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestAnObjectIsOneKindOfDevice:
+    """An object has ordinary ports or patch-panel ports, never both.
+
+    A device's ports are SINGLE; a panel's are FRONT and REAR, paired by an INTERNAL connection.
+    Mixing them on one object describes a thing that does not exist, and every consumer asking
+    "is this a panel?" reads the side of whichever port it looks at first. The kind is not switched
+    by editing - the only way out of one is to delete every port of it.
+    """
+
+    def test_a_panel_port_is_refused_on_a_device(self, rest_api) -> None:
+        """The object already has a SINGLE port, so a FRONT one would make it two things at once"""
+        assert _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED
+
+        response = _create(rest_api, name='F1', side=PortSide.FRONT.value)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'patch panel' in response.get_json()['message']
+
+    def test_a_device_port_is_refused_on_a_panel(self, rest_api) -> None:
+        """And the same the other way round"""
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+        response = _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'ordinary device' in response.get_json()['message']
+
+    def test_the_refusal_names_the_way_out(self, rest_api) -> None:
+        """The only way to change kind is to delete what is there, so the message says so"""
+        _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value)
+
+        message = _create(rest_api, name='F1', side=PortSide.FRONT.value).get_json()['message']
+
+        assert 'Delete all of its existing ports first' in message
+
+    def test_both_panel_faces_live_on_one_object(self, rest_api) -> None:
+        """FRONT and REAR are the SAME kind - a panel needs both"""
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+        assert _create(rest_api, name='R1', side=PortSide.REAR.value).status_code == HTTPStatus.CREATED
+
+    def test_more_ports_of_the_same_kind_are_fine(self, rest_api) -> None:
+        """The rule is about the kind, not about the number"""
+        assert _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED
+        assert _create(rest_api, name='Gi0/2', side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED
+
+    def test_an_object_without_ports_may_become_either(self, rest_api) -> None:
+        """Nothing is decided until the first port exists"""
+        assert _create(rest_api, object_id=SECOND_OWNER_OBJECT_ID, name='F1',
+                       side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+    def test_deleting_every_port_frees_the_object(self, rest_api) -> None:
+        """The documented way to switch kind, end to end"""
+        created = _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value)
+        port_id = created.get_json()['result_id']
+
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.BAD_REQUEST
+
+        assert rest_api.delete(f'{ROUTE_URL}/{port_id}').status_code == HTTPStatus.ACCEPTED
+
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+    def test_another_object_is_judged_on_its_own_ports(self, rest_api) -> None:
+        """The rule is per object - one device being a panel says nothing about the next"""
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+        assert _create(rest_api, object_id=SECOND_OWNER_OBJECT_ID, name='Gi0/1',
+                       side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED

@@ -35,16 +35,18 @@ object list matched a `summary_line` that is not stored at all.
 one for `.*` finds nothing. `object_list_search` is the richer sibling: the same match, over values
 gathered through a `$lookup` as well as from the document itself
 """
-from collections.abc import Sequence
+import re
+from collections.abc import Iterable, Sequence
 from typing import Any
 
 from cmdb.manager.query_builder.builder import Builder
-from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS
+from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS, SEARCH_REGEX_RE_FLAGS
 from cmdb.framework.search.search_pattern import escape_search_term
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__ = [
     'SEARCHABLE_VALUES_FIELD',
+    'matches_search_term',
     'as_text',
     'build_list_search_stages',
     'build_search_match_stages',
@@ -119,6 +121,35 @@ def build_search_match_stages(values_expression: Any,
         Builder.match_(Builder.regex_(SEARCHABLE_VALUES_FIELD, escape_search_term(search_term), SEARCH_REGEX_FLAGS)),
         {'$project': cleanup},
     ]
+
+
+def matches_search_term(values: Iterable[Any], search_term: str | None) -> bool:
+    """
+    Reports whether any of the given values contains the search term - the in-memory `?search=`
+
+    The counterpart of `build_list_search_stages` for a collection that is NOT in MongoDB: the
+    rights catalogue is a static in-code tree, so its list route cannot splice stages into a
+    pipeline. Both sides share the same definition of a match, which is what keeps one `?search=`
+    contract across the API - the term is escaped (it is text, never a pattern), matched
+    case-insensitively, and every value is read as a string first
+
+    An empty or absent term matches everything, exactly as an unsearched listing returns everything
+
+    Args:
+        values (Iterable[Any]): The values of one record's searchable fields
+        search_term (str | None): The term as the request carried it; None or blank means no search
+
+    Returns:
+        bool: True when the record should be part of a searched listing
+    """
+    term: str = (search_term or '').strip()
+
+    if not term:
+        return True
+
+    pattern = re.compile(escape_search_term(term), SEARCH_REGEX_RE_FLAGS)
+
+    return any(pattern.search(str(value)) for value in values if value is not None)
 
 
 def build_list_search_stages(search_term: str | None, fields: Sequence[str]) -> list[dict[str, Any]]:

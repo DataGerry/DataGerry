@@ -103,7 +103,8 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
 from cmdb.interface.rest_api.routes.port_routes.port_preview_helper import build_preview_or_abort
 from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
     abort_bulk_action,
-    build_shared_port_values,
+    build_values_by_side,
+    rear_select_payload,
     get_selected_ports_or_abort,
     get_selection_or_abort,
     read_created_connections,
@@ -161,6 +162,9 @@ def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
         )
         enforce_type_uses_ports(types_manager, owner)
         enforce_select_values(extendable_options_manager, payload)
+        # The rear face's own select values, judged by the same rule: the projection puts them under
+        # the unprefixed key names the validator knows
+        enforce_select_values(extendable_options_manager, rear_select_payload(payload))
 
         preview: dict[str, Any] = build_preview_or_abort(ports_manager, object_id, payload)
 
@@ -172,7 +176,7 @@ def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
 
         result: BulkCreateResult = create_batch(
             ports_manager, port_connections_manager, object_id, preview,
-            request_user.get_public_id(), build_shared_port_values(payload),
+            request_user.get_public_id(), build_values_by_side(payload),
         )
 
         if not result.succeeded():

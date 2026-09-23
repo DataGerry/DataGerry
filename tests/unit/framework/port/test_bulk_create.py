@@ -621,3 +621,34 @@ class TestTheLedger:
         ports_manager.delete_many.assert_called_once_with(
             {PortKey.PUBLIC_ID.value: {'$in': [101, 102, 201]}},
         )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      per-face field values on a panel                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValuesAreResolvedPerFace:
+    """A panel's two faces are not the same equipment, so each carries its own field values."""
+
+    def test_each_face_is_handed_its_own_values(self) -> None:
+        """create_batch looks the face's values up by side rather than spreading one set"""
+        manager = _ports_manager()
+
+        create_batch(manager, _connections_manager(), OBJECT_ID, _panel_preview(['F1'], ['R1']), AUTHOR_ID, {
+            PortSide.FRONT.value: {PortKey.DESCRIPTION.value: 'front side'},
+            PortSide.REAR.value: {PortKey.DESCRIPTION.value: 'rear side'},
+        })
+
+        written = {
+            call.args[0][PortKey.SIDE.value]: call.args[0][PortKey.DESCRIPTION.value]
+            for call in manager.insert_item.call_args_list
+        }
+
+        assert written == {PortSide.FRONT.value: 'front side', PortSide.REAR.value: 'rear side'}
+
+    def test_a_face_the_mapping_does_not_name_gets_no_values(self) -> None:
+        """Absent rather than guessed - the model's own defaults still apply"""
+        manager = _ports_manager()
+
+        create_batch(manager, _connections_manager(), OBJECT_ID, _standard_preview(['1']), AUTHOR_ID, {})
+
+        assert PortKey.DESCRIPTION.value not in manager.insert_item.call_args_list[0].args[0]

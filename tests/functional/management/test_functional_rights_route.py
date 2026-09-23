@@ -23,6 +23,8 @@ tree view switch, sorting/pagination, the single-right lookup, the 404 on a miss
 """
 from http import HTTPStatus
 
+import pytest
+
 from werkzeug.exceptions import NotFound
 
 from cmdb.manager import RightsManager
@@ -215,3 +217,159 @@ class TestErrorMapping:
         response = rest_api.get(f'{ROUTE_URL}/levels')
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            GET /rights/overview                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGetRightsOverview:
+    """A page of rights, each carrying the CmdbUserGroups that hold it.
+
+    The column this feeds used to be filled by one count request PER RIGHT - ~200 of them for a
+    catalogue of ~200 rights, because the page loads the whole thing unpaginated. The route answers
+    the same data in two queries, whatever the page size.
+    """
+
+    def test_every_entry_carries_both_group_keys(self, rest_api) -> None:
+        """Filled for every right, so an empty list is an answer and not a missing one"""
+        results = rest_api.get(f'{ROUTE_URL}/overview').get_json()['results']
+
+        assert results
+        assert all('groups' in entry and 'groups_count' in entry for entry in results)
+
+    def test_the_count_matches_the_group_list(self, rest_api) -> None:
+        """The number beside the list and the list itself come from one answer"""
+        results = rest_api.get(f'{ROUTE_URL}/overview?limit=0').get_json()['results']
+
+        assert all(entry['groups_count'] == len(entry['groups']) for entry in results)
+
+    def test_the_seeded_user_group_is_reported_for_a_right_it_holds(self, rest_api) -> None:
+        """The bootstrap 'user' group holds base.framework.type.view - it has to show up"""
+        results = rest_api.get(f'{ROUTE_URL}/overview?limit=0').get_json()['results']
+        entry = next(right for right in results if right['name'] == KNOWN_RIGHT_NAME)
+
+        assert entry['groups_count'] >= 1
+        assert all({'public_id', 'name', 'label'} <= set(group) for group in entry['groups'])
+
+    def test_membership_is_literal_not_inherited(self, rest_api) -> None:
+        """The bootstrap 'admin' group holds only the master right, and is counted only for it
+
+        Deliberate: a wildcard grants the right at request time through `has_extended_right`, but
+        counting it here would make the number disagree with the listing behind it, which matches
+        on the stored name.
+        """
+        results = rest_api.get(f'{ROUTE_URL}/overview?limit=0').get_json()['results']
+        by_name = {right['name']: right for right in results}
+
+        admin_holds_master = any(group['name'] == 'admin' for group in by_name['base.*']['groups'])
+        admin_holds_a_leaf = any(
+            group['name'] == 'admin' for group in by_name[KNOWN_RIGHT_NAME]['groups']
+        )
+
+        assert admin_holds_master
+        assert not admin_holds_a_leaf
+
+    def test_a_right_no_group_holds_reports_zero(self, rest_api) -> None:
+        """Absent from the aggregation, present in the payload"""
+        results = rest_api.get(f'{ROUTE_URL}/overview?limit=0').get_json()['results']
+        unheld = [entry for entry in results if entry['groups_count'] == 0]
+
+        assert unheld
+        assert all(entry['groups'] == [] for entry in unheld)
+
+    def test_it_paginates(self, rest_api) -> None:
+        """The page is a window on the catalogue, and the total is the whole of it"""
+        response = rest_api.get(f'{ROUTE_URL}/overview?limit={PAGE_LIMIT}&sort=name&order=1&page=1')
+        body = response.get_json()
+
+        assert response.status_code == HTTPStatus.OK
+        assert len(body['results']) == PAGE_LIMIT
+        assert body['total'] == DECLARED_RIGHTS_COUNT
+
+    def test_a_second_page_carries_different_rights(self, rest_api) -> None:
+        """Paging moves the window rather than repeating it"""
+        first = rest_api.get(f'{ROUTE_URL}/overview?limit=3&sort=name&order=1&page=1').get_json()
+        second = rest_api.get(f'{ROUTE_URL}/overview?limit=3&sort=name&order=1&page=2').get_json()
+
+        assert [entry['name'] for entry in first['results']] != \
+            [entry['name'] for entry in second['results']]
+
+    def test_it_sorts(self, rest_api) -> None:
+        """Same ordering contract as the plain list route"""
+        names = [entry['name'] for entry in
+                 rest_api.get(f'{ROUTE_URL}/overview?limit=0&sort=name&order=1').get_json()['results']]
+
+        assert names == sorted(names)
+
+    def test_it_requires_authentication(self, rest_api) -> None:
+        """A token is required, like every route of this blueprint"""
+        response = rest_api.get(f'{ROUTE_URL}/overview', environ_overrides={'HTTP_AUTHORIZATION': ''})
+
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+
+
+class TestRightsOverviewSearch:
+    """`?search=` narrows the catalogue before the page is cut."""
+
+    def test_it_narrows_the_results(self, rest_api) -> None:
+        """A term matches against name, label and description"""
+        body = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=docapi').get_json()
+
+        assert body['results']
+        assert all('docapi' in entry['name'] for entry in body['results'])
+
+    def test_the_total_counts_matches_not_the_catalogue(self, rest_api) -> None:
+        """Otherwise a pager built on it offers pages that come back empty"""
+        body = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=docapi').get_json()
+
+        assert body['total'] == len(body['results'])
+        assert body['total'] < DECLARED_RIGHTS_COUNT
+
+    def test_it_paginates_the_matches(self, rest_api) -> None:
+        """The window is cut out of the matches, and the total stays the match count"""
+        body = rest_api.get(f'{ROUTE_URL}/overview?limit=2&page=1&sort=name&order=1&search=docapi').get_json()
+        unpaged = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=docapi').get_json()
+
+        assert len(body['results']) == 2
+        assert body['total'] == unpaged['total']
+
+    def test_it_matches_the_label_too(self, rest_api) -> None:
+        """The term is what a human reads in the table, not only the identifier"""
+        body = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=View type').get_json()
+
+        assert any(entry['name'] == KNOWN_RIGHT_NAME for entry in body['results'])
+
+    def test_it_is_case_insensitive(self, rest_api) -> None:
+        """Same contract as every other list route's search"""
+        lower = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=docapi').get_json()
+        upper = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=DOCAPI').get_json()
+
+        assert lower['total'] == upper['total'] > 0
+
+    def test_the_term_is_literal_text_not_a_pattern(self, rest_api) -> None:
+        """A dot is a dot: `base.docapi` must not match as `base<any char>docapi`"""
+        dotted = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=base.docapi').get_json()
+        wildcarded = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=base%5Bacdipo%5D%2Bdocapi').get_json()
+
+        assert dotted['total'] > 0
+        assert wildcarded['total'] == 0
+
+    @pytest.mark.parametrize('query', ['', '   '])
+    def test_a_blank_term_narrows_nothing(self, rest_api, query: str) -> None:
+        """An unsearched listing is exactly what it was"""
+        body = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search={query}').get_json()
+
+        assert body['total'] == DECLARED_RIGHTS_COUNT
+
+    def test_no_match_is_an_empty_page_not_an_error(self, rest_api) -> None:
+        """A term nothing matches answers 200 with nothing in it"""
+        response = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=zzz-no-such-right')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['total'] == 0
+
+    def test_the_group_data_survives_a_search(self, rest_api) -> None:
+        """The column the route exists for is filled on a searched page too"""
+        body = rest_api.get(f'{ROUTE_URL}/overview?limit=0&search=docapi').get_json()
+
+        assert all('groups' in entry and 'groups_count' in entry for entry in body['results'])

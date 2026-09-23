@@ -26,6 +26,7 @@ from cmdb.utils import BaseStrEnum
 ACTIVATION_REQUEST_ROUTE: str = '/activation-request'
 CURRENT_LICENSE_ROUTE: str = '/current'
 ACTIVATE_LICENSE_ROUTE: str = '/activate'
+LICENSE_ENTITLEMENTS_ROUTE: str = '/entitlements'
 
 # ACL rights
 ACTIVATION_VIEW_RIGHT: str = 'base.license.activation.view'
@@ -63,6 +64,27 @@ class CurrentLicenseResponseKey(BaseStrEnum):
     """
     IS_ACTIVE = 'is_active'
     STATUS = 'status'
+
+
+class LicenseEntitlementsResponseKey(BaseStrEnum):
+    """
+    Keys of the entitlements route's JSON response payload
+
+    What a client needs to decide what to show, and nothing that identifies the license: no id, no
+    subscription, no binding HMAC, no dates. The tier is in because it is what a screen NAMES the
+    plan by - a badge reads "Business", not a feature list - while saying nothing about which
+    license granted it
+
+    Attributes:
+        IS_ACTIVE: True when a stored license verifies as valid - which includes being bound to this
+            machine, already started and not yet expired
+        TYPE: The effective tier (a LicenseTier value). Always answered: an install with no valid
+            license runs on the free entitlement, so the key reads 'free' rather than being absent
+        FEATURES: The feature keys the effective entitlement unlocks; empty on the free tier
+    """
+    IS_ACTIVE = 'is_active'
+    TYPE = 'type'
+    FEATURES = 'features'
 
 
 # Cerberus schema for the activate/upload request body

@@ -221,6 +221,39 @@ class TestIterateRights:
         assert result.results == []
         assert result.total == TOTAL_FIXTURE_RIGHTS
 
+    def test_a_search_narrows_the_results(self, manager: RightsManager) -> None:
+        """The term is matched against name, label and description"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search='.a')
+
+        assert [right.name for right in result.results] == [f'{RIGHT_PREFIX}a']
+
+    def test_a_searched_total_counts_matches_not_the_catalogue(self, manager: RightsManager) -> None:
+        """A pager built on the total has to offer the pages that exist"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search='.a')
+
+        assert result.total == 1
+
+    def test_a_search_is_applied_before_the_page_is_cut(self, manager: RightsManager) -> None:
+        """Narrow first, then sort, then slice - otherwise a page could come back empty by accident"""
+        result = manager.iterate_rights(limit=1, skip=0, sort='name', order=ORDER_ASC, search=RIGHT_PREFIX)
+
+        assert len(result.results) == 1
+        assert result.total == TOTAL_FIXTURE_RIGHTS
+
+    @pytest.mark.parametrize('search', [None, '', '   '])
+    def test_a_blank_search_returns_every_right(self, manager: RightsManager, search) -> None:
+        """An unsearched listing is exactly what it was before the parameter existed"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search=search)
+
+        assert result.total == TOTAL_FIXTURE_RIGHTS
+
+    def test_a_search_matching_nothing_is_an_empty_page(self, manager: RightsManager) -> None:
+        """Not an error, and the total says so too"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search='zzz')
+
+        assert result.results == []
+        assert result.total == 0
+
     def test_total_is_always_the_full_count(self, manager: RightsManager) -> None:
         """The reported total reflects all rights, not just the returned page"""
         result = manager.iterate_rights(limit=PAGE_LIMIT, skip=0, sort='name', order=ORDER_ASC)

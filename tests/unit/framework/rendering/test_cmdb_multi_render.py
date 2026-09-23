@@ -652,6 +652,31 @@ class TestMergeFieldContentSection:
 
         assert merged['value'] == 'keep'
 
+    def test_a_field_without_a_default_still_carries_a_value_key(self, managers) -> None:
+        """A rendered field entry is a name+value+type TRIPLE, whatever the object holds
+
+        A type field with no configured default has no `value` key at all, so returning it unchanged
+        answered a field a consumer cannot read a value off - `undefined` rather than null on the
+        frontend, for every field an object has no entry for. Reachable without any stale data: a
+        create that sends only some of the Type's fields leaves the rest in exactly this state.
+        """
+        render = _render(managers, [], types_cache={})
+        obj = _obj(REF_OBJ_ID, REF_TYPE_ID, [])
+
+        merged = self._merge(render, {'name': NAME_FIELD, 'type': FieldType.TEXT}, obj)
+
+        assert 'value' in merged
+        assert merged['value'] is None
+
+    def test_a_configured_default_is_not_overwritten_by_the_fallback(self, managers) -> None:
+        """`setdefault` only establishes the key - a type default still reaches the reader"""
+        render = _render(managers, [], types_cache={})
+        obj = _obj(REF_OBJ_ID, REF_TYPE_ID, [])
+
+        merged = self._merge(render, {'name': NAME_FIELD, 'type': FieldType.TEXT, 'value': 'keep'}, obj)
+
+        assert merged['value'] == 'keep'
+
     def test_date_string_parsed(self, managers) -> None:
         """A string date value is coerced to a datetime."""
         render = _render(managers, [], types_cache={})

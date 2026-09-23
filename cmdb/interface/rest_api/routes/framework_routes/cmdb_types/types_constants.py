@@ -57,8 +57,51 @@ REFERENCED_SECTION_EMPTIED_MESSAGE: str = (
 REFERENCED_SECTION_EMPTIED_DETAIL_FORMAT: str = "'{section_name}' would show nothing in {dependents}"
 
 
-# Refusal returned (HTTP 400) when a CmdbType may not be deleted because another CmdbType's
-# reference section points at it. Same dangling reference as above, one level up
+# Refusals (HTTP 400) for a Type payload that is not internally consistent. A Type declares every
+# field once in its flat `fields` list; its sections and its summary line only REFERENCE those
+# names, so five ways of writing one make the Type unusable without anything else noticing:
+#
+# * a section naming a field the Type does not declare renders nothing for that entry, and a Type
+#   whose sections name none of its fields shows an empty form while still holding the fields
+# * two fields sharing one name make every read of that name ambiguous, and an Object keys its
+#   stored values by the name alone
+# * two sections sharing one name collide in the MDS propagation, which matches sections on
+#   (type, name)
+# * a summary line naming a field the Type does not declare loses that entry from the one line every
+#   list, picker and reference identifies an Object by - the name resolves to nothing and is skipped,
+#   so the Object reads as if it simply had no value there
+# * a summary line naming one field twice renders its value twice, separated by the ' | ' the line
+#   puts between two DIFFERENT fields - which reads as two fields that happen to hold the same value
+#
+# None of these is reachable through the type builder's normal editing, but all of them are reachable
+# by a client that rewrites `fields` without rewriting the section reference lists - which is what a
+# copied Type whose identifiers are renamed looks like. The type IMPORT refuses the same shapes in
+# `validate_type_structure`, bar the repeated summary entry
+SECTION_FIELD_UNKNOWN_MESSAGE: str = (
+    "A section can only show fields this Type declares. Unknown in {section_name}: {unknown}. "
+    "Add the fields to the Type, or remove them from the section."
+)
+
+DUPLICATE_FIELD_IDENTIFIER_MESSAGE: str = (
+    "A field's name is its identifier and has to be unique within the Type. Used more than once: "
+    "{duplicates}."
+)
+
+DUPLICATE_SECTION_IDENTIFIER_MESSAGE: str = (
+    "A section's name is its identifier and has to be unique within the Type. Used more than once: "
+    "{duplicates}."
+)
+
+SUMMARY_FIELD_UNKNOWN_MESSAGE: str = (
+    "The summary line can only show fields this Type declares. Unknown: {unknown}. "
+    "Add the fields to the Type, or remove them from the summary line."
+)
+
+SUMMARY_DUPLICATE_FIELD_MESSAGE: str = (
+    "The summary line can show a field once. Used more than once: {duplicates}."
+)
+
+
 # Refusal (HTTP 400) when an update would rename a field identifier while the Type has Objects. A
 # field's `name` IS its identity - every CmdbObject keys its stored values by it and there is no id
 # underneath - so a rename cannot be told apart from one removal plus one addition, and the shape
@@ -81,6 +124,9 @@ MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE: str = (
     "If this is not a rename, remove and add the sections in separate updates."
 )
 
+# Refusal returned (HTTP 400) when a CmdbType may not be deleted because another CmdbType's
+# reference section points at it. Same dangling reference as a removed referenced section, one
+# level up
 REFERENCED_TYPE_DELETE_MESSAGE: str = (
     'Delete not possible if other Types reference this Type in a reference section: {dependents}!'
 )

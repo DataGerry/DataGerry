@@ -834,9 +834,15 @@ class CmdbMultiRender:
             (x for x in object_instance.fields if x[FieldKey.NAME] == t_field[FieldKey.NAME]), None
         )
 
-        # The object may not carry this field yet (e.g. a type field added after its last save);
-        # leave the type's default value in place rather than raising
+        # The object may not carry this field yet (e.g. a type field added after its last save, or a
+        # create that sent only some of the Type's fields); leave the type's default value in place
+        # rather than raising. `setdefault` is what keeps the rendered entry a name+value+type
+        # TRIPLE: a type field without a configured default has no 'value' key at all, so returning
+        # it unchanged answers a field a consumer cannot read a value off - `undefined` rather than
+        # null on the frontend, for every field an object has no entry for
         if obj_field is None:
+            t_field.setdefault(FieldKey.VALUE, None)
+
             return t_field
 
         if t_field.get(FieldKey.VALUE):

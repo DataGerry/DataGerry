@@ -87,6 +87,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     build_port_candidate,
     with_connected_flag,
+    enforce_port_kind,
     enforce_port_name_available,
     enforce_select_values,
     enforce_type_uses_ports,
@@ -153,6 +154,8 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
         name: str = get_requested_name_or_abort(payload)
 
         enforce_select_values(extendable_options_manager, payload)
+        # An object is either an ordinary device or a patch panel, never both
+        enforce_port_kind(ports_manager, object_id, side)
         enforce_port_name_available(ports_manager, object_id, side, name)
 
         candidate: dict[str, Any] = build_port_candidate(object_id, side, name, payload)

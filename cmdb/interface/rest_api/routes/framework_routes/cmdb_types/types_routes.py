@@ -68,6 +68,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
     build_referenced_section_usage_payload,
     guard_referenced_section_removal,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
+    guard_type_structure,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     normalize_type_acl,
     verify_type_is_unique,
@@ -182,6 +185,12 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # 'ci_explorer_label' names one of the Type's own fields - the one whose value the CI
         # Explorer shows on every node of the Type - so a name the Type does not offer is refused
         normalize_ci_explorer_label(data)
+
+        # The sections and the summary line only REFERENCE the fields the flat list declares, and
+        # nothing downstream re-checks that pairing - a payload that breaks it is stored as sent and
+        # yields a Type that holds fields and renders none of them, or a summary line that drops
+        # the entry it was configured to show
+        guard_type_structure(data)
 
         data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
         data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
@@ -696,6 +705,10 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # The CI Explorer label field, judged against THIS payload: an update that removes the
         # nominated field clears the nomination instead of being refused over it
         normalize_ci_explorer_label(data, old_type)
+
+        # An update writes the whole document, so it can introduce the same inconsistency a create
+        # can: sections or a summary line referencing fields the payload does not declare
+        guard_type_structure(data)
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id

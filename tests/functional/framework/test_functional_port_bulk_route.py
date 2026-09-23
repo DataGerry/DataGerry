@@ -36,6 +36,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
 from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager
@@ -617,3 +618,130 @@ class TestErrorMapping:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert 'left behind' in response.get_json()['message']
         assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 2
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        DEVICE KIND - the object is one thing                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBulkCreateRefusesTheOtherKind:
+    """A batch may not make an object two kinds of device at once."""
+
+    def test_a_panel_batch_is_refused_on_a_device(self, rest_api, ports) -> None:
+        """Nothing is written - the refusal happens while the preview is being built"""
+        ports.insert_one({'public_id': 7801, 'object_id': OWNER_OBJECT_ID, 'side': 'single', 'name': 'Gi0/1'})
+
+        response = _bulk(rest_api, device_kind=PortDeviceKind.PATCH_PANEL.value,
+                         syntax='F{n}', rear_syntax='R{n}', count=2)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'patch panel' in response.get_json()['message']
+        assert ports.count_documents({'object_id': OWNER_OBJECT_ID}) == 1
+
+    def test_a_device_batch_is_refused_on_a_panel(self, rest_api, ports) -> None:
+        """And the other way round"""
+        ports.insert_one({'public_id': 7802, 'object_id': OWNER_OBJECT_ID, 'side': 'front', 'name': 'F1'})
+
+        response = _bulk(rest_api, device_kind=PortDeviceKind.STANDARD.value, syntax='Gi0/{n}', count=2)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'ordinary device' in response.get_json()['message']
+
+    def test_the_matching_kind_still_creates(self, rest_api, ports) -> None:
+        """A second batch of the kind the object already is stays legal"""
+        ports.insert_one({'public_id': 7803, 'object_id': OWNER_OBJECT_ID, 'side': 'single', 'name': 'Gi0/9'})
+
+        response = _bulk(rest_api, device_kind=PortDeviceKind.STANDARD.value, syntax='Gi1/{n}', count=2)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   PER-FACE FIELD VALUES on a patch panel                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+PANEL_STATUS_OPTION_ID: int = 9860
+PANEL_SPEED_OPTION_ID: int = 9861
+
+
+@pytest.fixture(name='port_options')
+def fixture_port_options(database_manager: MongoDatabaseManager, database_name: str):
+    """Seeds one option of each list the port select fields draw from, and removes them after."""
+    options = database_manager.get_collection(CmdbExtendableOption.COLLECTION, database_name)
+    option_ids = [PANEL_STATUS_OPTION_ID, PANEL_SPEED_OPTION_ID]
+
+    options.delete_many({'public_id': {'$in': option_ids}})
+    options.insert_many([
+        {'public_id': PANEL_STATUS_OPTION_ID, 'value': 'Up',
+         'option_type': OptionType.PORT_STATUS.value, 'predefined': True},
+        {'public_id': PANEL_SPEED_OPTION_ID, 'value': '1G',
+         'option_type': OptionType.PORT_SPEED.value, 'predefined': True},
+    ])
+
+    yield
+
+    options.delete_many({'public_id': {'$in': option_ids}})
+
+
+class TestAPanelsFacesCarryTheirOwnValues:
+    """A panel's rear ports are not the same equipment as its front ports.
+
+    The four field values are settable per face: the unprefixed key is the value for BOTH faces, a
+    `rear_*` key overrides it for the rear one - the shape `syntax` / `rear_syntax` already uses.
+    """
+
+    def _panel(self, rest_api, **values):
+        """Creates a 2+2 panel with the given field values."""
+        return _bulk(rest_api, device_kind=PortDeviceKind.PATCH_PANEL.value,
+                     syntax='F{n}', rear_syntax='R{n}', count=2, **values)
+
+    def _by_side(self, ports) -> dict:
+        """The created ports grouped by face."""
+        grouped: dict = {}
+        for port in ports.find({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}):
+            grouped.setdefault(port[PortKey.SIDE.value], []).append(port)
+
+        return grouped
+
+    def test_the_rear_face_takes_its_own_values(self, rest_api, ports) -> None:
+        """Every rear port carries the rear values, every front port the unprefixed ones"""
+        response = self._panel(rest_api, description='front side', rear_description='rear side')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+        grouped = self._by_side(ports)
+        assert {port[PortKey.DESCRIPTION.value] for port in grouped['front']} == {'front side'}
+        assert {port[PortKey.DESCRIPTION.value] for port in grouped['rear']} == {'rear side'}
+
+    def test_an_unprefixed_value_applies_to_both_faces(self, rest_api, ports) -> None:
+        """A panel described once still means the same on both sides"""
+        self._panel(rest_api, description='both faces')
+
+        grouped = self._by_side(ports)
+        assert {port[PortKey.DESCRIPTION.value] for port in grouped['front']} == {'both faces'}
+        assert {port[PortKey.DESCRIPTION.value] for port in grouped['rear']} == {'both faces'}
+
+    def test_a_rear_key_overrides_only_the_field_it_names(self, rest_api, ports, port_options) -> None:
+        """The rest of the rear face keeps the shared value rather than being emptied"""
+        self._panel(rest_api, description='shared text', status=PANEL_STATUS_OPTION_ID,
+                    rear_description='rear text')
+
+        grouped = self._by_side(ports)
+        rear = grouped['rear'][0]
+
+        assert rear[PortKey.DESCRIPTION.value] == 'rear text'
+        assert rear[PortKey.STATUS.value] == PANEL_STATUS_OPTION_ID
+
+    def test_the_rear_select_values_are_validated_too(self, rest_api, ports, port_options) -> None:
+        """A rear option id from the wrong list is refused, like an unprefixed one"""
+        response = self._panel(rest_api, rear_status=PANEL_SPEED_OPTION_ID)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
+
+    def test_a_standard_batch_ignores_the_rear_keys(self, rest_api, ports) -> None:
+        """A device has one face, so a rear value has nothing to apply to"""
+        response = _bulk(rest_api, device_kind=PortDeviceKind.STANDARD.value,
+                         syntax='Gi0/{n}', count=2, description='device', rear_description='ignored')
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        assert {port[PortKey.DESCRIPTION.value]
+                for port in ports.find({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID})} == {'device'}

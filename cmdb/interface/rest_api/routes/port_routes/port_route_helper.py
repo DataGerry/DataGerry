@@ -33,6 +33,7 @@ from cmdb.manager.ports_manager import PortsManager
 from cmdb.models.extendable_option_model import ExtendableOptionKey
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.port_model import PORT_SELECT_FIELD_OPTION_TYPES, PortKey, PortSide
+from cmdb.framework.port.name_syntax_constants import PortDeviceKind
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 
@@ -44,6 +45,8 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
     PORT_CONNECTED_KEY,
     PORT_FIELD_IMMUTABLE_MESSAGE,
     PORT_NAME_REQUIRED_MESSAGE,
+    PORT_KIND_CONFLICT_MESSAGE,
+    PORT_KIND_LABELS,
     PORT_NAME_TAKEN_MESSAGE,
     PORT_NOT_FOUND_MESSAGE,
     PORT_OPTION_INVALID_MESSAGE,
@@ -143,6 +146,139 @@ def enforce_type_uses_ports(types_manager: TypesManager, owner_object: dict[str,
         abort(400, PORT_TYPE_NOT_PORT_BEARING_MESSAGE.format(
             object_id=owner_object.get(CmdbObjectKey.PUBLIC_ID),
         ))
+
+
+def port_kind_of_side(side: str | None) -> str:
+    """
+    Reports which kind of device a single port side belongs to
+
+    The two kinds are the creation assistant's first question, and a port's side is the only thing
+    that answers it - nothing stores "is a panel"
+
+    Args:
+        side (str | None): A PortSide value, or None for a port that carries none
+
+    Returns:
+        str: A PortDeviceKind value - PATCH_PANEL for FRONT/REAR, STANDARD for anything else
+    """
+    return (PortDeviceKind.PATCH_PANEL if PortSide.is_panel_side(side) else PortDeviceKind.STANDARD).value
+
+
+def current_port_kind(ports: list[dict[str, Any]]) -> str | None:
+    """
+    Reports which kind an object currently is, from the ports it holds
+
+    Args:
+        ports (list[dict[str, Any]]): The object's stored ports
+
+    Returns:
+        str | None: The PortDeviceKind value, or None when the object holds no ports and is therefore
+            still free to become either
+    """
+    for port in ports:
+        return port_kind_of_side(port.get(PortKey.SIDE.value))
+
+    return None
+
+
+def port_kind_blocker(existing_ports: list[dict[str, Any]], requested_side: str | None) -> str | None:
+    """
+    Reports why a port of the requested side may not join this object, if it may not
+
+    **An object is either an ordinary device or a patch panel, never both.** A device's ports are
+    PortSide.SINGLE; a panel's are FRONT and REAR, paired by an INTERNAL connection. Mixing the two
+    on one object describes a thing that does not exist, and every consumer that asks "is this a
+    panel?" reads the side of whichever port it happens to look at first.
+
+    The kind is not switched by editing either: while an object holds ports of one kind, a port of
+    the other is refused whatever the route, so the only way out of a kind is to delete every port
+    of it. That includes an object holding a single port - flipping its side would change what the
+    object is without anything being deleted, which is the one workflow this rule exists to remove.
+
+    The reason is returned rather than raised so every write path can use it - the routes abort with
+    it, and a preview refuses on it before it offers names that could not be created
+
+    Args:
+        existing_ports (list[dict[str, Any]]): The object's ports as stored, excluding the one being
+            updated when the caller is an update
+        requested_side (str | None): The PortSide the write asks for
+
+    Returns:
+        str | None: The reason the write is refused, or None when the kinds agree
+    """
+    current: str | None = current_port_kind(existing_ports)
+    requested: str = port_kind_of_side(requested_side)
+
+    if current is None or current == requested:
+        return None
+
+    return PORT_KIND_CONFLICT_MESSAGE.format(
+        object_id=existing_ports[0].get(PortKey.OBJECT_ID.value),
+        current=PORT_KIND_LABELS[current],
+        requested=PORT_KIND_LABELS[requested],
+    )
+
+
+def enforce_port_kind(
+    ports_manager: PortsManager,
+    object_id: int,
+    requested_side: str | None,
+    exclude_id: int | None = None,
+) -> None:
+    """
+    Aborts 400 when a write would give an object ports of the kind it is not
+
+    The route-level wrapper around `port_kind_blocker`, reading the object's current ports itself.
+    `exclude_id` is the port being updated: it is left out of the comparison so a port is never
+    measured against itself
+
+    Args:
+        ports_manager (PortsManager): db interface for CmdbPorts
+        object_id (int): public_id of the owner CmdbObject
+        requested_side (str | None): The PortSide the write asks for
+        exclude_id (int | None): public_id of the port being updated. Defaults to None
+
+    Raises:
+        HTTPException: 400 when the object already holds ports of the other kind
+    """
+    existing: list[dict[str, Any]] = [
+        port for port in ports_manager.get_ports_of_object(object_id)
+        if port.get(PortKey.PUBLIC_ID.value) != exclude_id
+    ]
+
+    blocker: str | None = port_kind_blocker(existing, requested_side)
+
+    if blocker:
+        abort(400, blocker)
+
+
+def enforce_bulk_port_kind(ports_manager: PortsManager, object_id: int, device_kind: str) -> None:
+    """
+    Aborts 400 when a bulk creation would give an object ports of the kind it is not
+
+    The same rule as `enforce_port_kind`, asked with the assistant's vocabulary instead of a port
+    side: a bulk request names a `PortDeviceKind` directly, and a PATCH_PANEL batch creates both
+    faces at once, so there is no single side to compare
+
+    Args:
+        ports_manager (PortsManager): db interface for CmdbPorts
+        object_id (int): public_id of the owner CmdbObject
+        device_kind (str): The PortDeviceKind the request asks for
+
+    Raises:
+        HTTPException: 400 when the object already holds ports of the other kind
+    """
+    existing: list[dict[str, Any]] = ports_manager.get_ports_of_object(object_id)
+    current: str | None = current_port_kind(existing)
+
+    if current is None or current == device_kind:
+        return
+
+    abort(400, PORT_KIND_CONFLICT_MESSAGE.format(
+        object_id=object_id,
+        current=PORT_KIND_LABELS[current],
+        requested=PORT_KIND_LABELS[device_kind],
+    ))
 
 
 def enforce_port_name_available(

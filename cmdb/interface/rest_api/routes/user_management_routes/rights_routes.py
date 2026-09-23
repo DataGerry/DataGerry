@@ -29,19 +29,22 @@ metadata, identical for every installation and already public in the source of a
 the group-edit screen needs it for anyone who may manage a group. **They are authenticated, though.**
 `verify_api_access` alone is not enough: it returns immediately when the process is not in cloud
 mode, so on-premise it would leave the whole catalogue answering with no credentials at all.
-`insert_request_user` is what authenticates - authentication, not authorization, which is why every
-handler takes a `request_user` it never reads.
+`insert_request_user` is what authenticates, and `.protect` is what authorizes.
 
-A repo-wide scan on that date found exactly two route files with `verify_api_access` and neither
-`insert_request_user` nor `.protect`: this one and `setup_routes.py`, which was made cloud-only the
-same day. There is no third.
+**The right is `base.user-management.group.view`, borrowed rather than owned.** The catalogue has no
+right of its own, and giving it one would gate an existing route on a right no group holds until an
+administrator grants it. The group screens are what the catalogue exists for - the right-picker of
+the group form reads it - so the right that opens those screens is the one that opens this. A group
+holding a wildcard above it (`base.user-management.group.*`, `base.user-management.*`, `base.*`)
+reaches it the same way.
 """
 from logging import Logger, getLogger
 
 from flask import request, abort
 from werkzeug import Response
 
-from cmdb.manager import RightsManager
+from cmdb.manager import GroupsManager, RightsManager
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.framework.results import IterationResult
 from cmdb.models.right_model.base_right import BaseRight
@@ -51,9 +54,19 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.interface.rest_api.responses.response_parameters.response_parameters_constants import ParameterKey
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import GetMultiResponse, GetSingleResponse
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import GROUP_VIEW_RIGHT
+from cmdb.interface.rest_api.routes.user_management_routes.rights_constants import (
+    RIGHTS_OVERVIEW_ROUTE,
+    RightHolderKey,
+)
+from cmdb.interface.rest_api.routes.user_management_routes.rights_helper import (
+    resolve_right_holders,
+    with_right_holders,
+)
 
 from cmdb.errors.manager.rights_manager import RightsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -71,6 +84,7 @@ rights_manager: RightsManager = RightsManager()
 @rights_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@rights_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
 @rights_blueprint.parse_collection_parameters(sort='name', view='list')
 @handle_route_errors("while retrieving DataGerry Rights")
 def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response:
@@ -95,12 +109,12 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
                        which reaches `BaseRight.__getitem__` as an unknown attribute)
 
     Notes:
-        No ACL right is required - the rights catalogue is static product metadata.
+        Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD will result in an empty body
     """
-    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
-    # signature because `insert_request_user` injects it, and that decorator is what makes the
-    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # `request_user` is never read here: the catalogue is the same for every caller who may see it.
+    # It is in the signature because `insert_request_user` injects it, and that decorator is what
+    # authenticates the route - `.protect` above is what authorizes it
     # pylint: disable=unused-argument
     body: bool = request_wants_body()
 
@@ -114,11 +128,11 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
         return api_response.make_response(pagination=False)
 
     iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
-                                                                    limit = params.limit,
-                                                                    skip = params.skip,
-                                                                    sort = params.sort,
-                                                                    order = params.order
-                                                                  )
+        limit=params.limit,
+        skip=params.skip,
+        sort=params.sort,
+        order=params.order,
+    )
 
     rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
 
@@ -131,9 +145,76 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
     return api_response.make_response()
 
 
+@rights_blueprint.route(RIGHTS_OVERVIEW_ROUTE, methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@rights_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
+@rights_blueprint.parse_collection_parameters(sort='name')
+@handle_route_errors("while retrieving the DataGerry Rights overview")
+def get_rights_overview(params: CollectionParameters, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for a page of rights, each carrying the CmdbUserGroups that hold it
+
+    The same paginated, sorted list `GET /rights/` answers, plus the two keys a rights table needs
+    for its "Groups" column: `groups` (public_id / name / label of each holding group) and
+    `groups_count`. Both are filled for every right on the page, so an empty list is an answer and
+    not a missing one
+
+    **Two queries per page, whatever the page size.** The holders come from ONE aggregation over
+    `management.groups`, asked for the page's right names only - the alternative is a count query
+    per right, which for this catalogue means ~200 of them
+
+    `?search=` narrows the catalogue before the page is cut, so the reported total is the number of
+    MATCHES and a pager built on it offers the pages that exist. The term is matched the way every
+    other list route matches it - as literal text, case-insensitively, against the right's name,
+    label and description (`RIGHT_SEARCHABLE_FIELDS`)
+
+    Membership is **literal**: a group holds a right when its stored `rights` list carries that
+    exact name. A wildcard above it grants the right at request time but is not counted here, which
+    is what keeps this count equal to the listing a client gets from
+    `GET /groups/?filter={{"rights": "<name>"}}`
+
+    Args:
+        params (CollectionParameters): Passed parameters over the http query string
+        request_user (CmdbUser): The user requesting the overview
+
+    Returns:
+        GetMultiResponse: One page of rights, each with `groups` and `groups_count`
+
+    Raises:
+        HTTPException: 500 when the rights or their holders could not be assembled (e.g. an unknown
+                       `?sort=` value, which reaches `BaseRight.__getitem__` as an unknown attribute)
+
+    Notes:
+        Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
+        Calling the route over HTTP HEAD will result in an empty body
+    """
+    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+
+    iteration_result: IterationResult[BaseRight] = rights_manager.iterate_rights(
+        limit=params.limit,
+        skip=params.skip,
+        sort=params.sort,
+        order=params.order,
+        search=params.optional.get(ParameterKey.SEARCH.value),
+    )
+
+    rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
+    holders = resolve_right_holders(groups_manager, [right[RightHolderKey.NAME.value] for right in rights])
+
+    api_response = GetMultiResponse(with_right_holders(rights, holders),
+                                    total=iteration_result.total,
+                                    params=params,
+                                    url=request.url,
+                                    body=request_wants_body())
+
+    return api_response.make_response()
+
+
 @rights_blueprint.route('/<string:name>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@rights_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
 @handle_route_errors("while retrieving Right with name: {name}")
 def get_right(name: str, request_user: CmdbUser) -> Response:
     """
@@ -149,12 +230,12 @@ def get_right(name: str, request_user: CmdbUser) -> Response:
         HTTPException: 404 when no right matches the given name, 500 when the lookup itself failed
 
     Notes:
-        No ACL right is required - the rights catalogue is static product metadata.
+        Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD will result in an empty body
     """
-    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
-    # signature because `insert_request_user` injects it, and that decorator is what makes the
-    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # `request_user` is never read here: the catalogue is the same for every caller who may see it.
+    # It is in the signature because `insert_request_user` injects it, and that decorator is what
+    # authenticates the route - `.protect` above is what authorizes it
     # pylint: disable=unused-argument
     try:
         right: BaseRight | None = rights_manager.get_right(name)
@@ -171,6 +252,7 @@ def get_right(name: str, request_user: CmdbUser) -> Response:
 @rights_blueprint.route('/levels', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@rights_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
 @handle_route_errors("while retrieving the Right levels")
 def get_levels(request_user: CmdbUser) -> Response:
     """
@@ -185,11 +267,11 @@ def get_levels(request_user: CmdbUser) -> Response:
         HTTPException: 500 when the mapping could not be serialised
 
     Notes:
-        No ACL right is required - the levels are a static enum.
+        Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD method will result in an empty body
     """
-    # `request_user` is never read here: the catalogue is the same for everyone. It is in the
-    # signature because `insert_request_user` injects it, and that decorator is what makes the
-    # route authenticated at all - removing either republishes an unauthenticated read (T162)
+    # `request_user` is never read here: the catalogue is the same for every caller who may see it.
+    # It is in the signature because `insert_request_user` injects it, and that decorator is what
+    # authenticates the route - `.protect` above is what authorizes it
     # pylint: disable=unused-argument
     return GetSingleResponse(Levels.as_name_map(), body=request_wants_body()).make_response()
