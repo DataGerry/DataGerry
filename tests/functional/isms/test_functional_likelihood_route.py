@@ -118,7 +118,7 @@ class TestLikelihoodWithoutADescriptionCanBeSaved:
 
     ``description`` is optional, so a POST that omits it stores nothing; the list route answers
     ``to_json``, which emits every declared key, so the frontend receives ``description: null`` and its
-    edit modal patches that straight into the form it later saves. The schema used to refuse the null
+    edit modal patches that straight into the form it later saves, so the schema must accept the null
     with 'null value not allowed', so such a level could not be edited at all.
     """
 
@@ -146,7 +146,7 @@ class TestZeroWeightIsRefused:
     """A zero-weight level would flatten every risk that uses it - on either axis of the matrix."""
 
     def test_a_zero_calculation_basis_returns_400(self, rest_api) -> None:
-        """The likelihood scale has always refused it; the impact scale did not until 2026-09-07."""
+        """Both scales refuse it, which is what keeps the two axes of one matrix comparable."""
         payload = _likelihood_payload(LIKELIHOOD_ID_FOR_GET, basis=0.0)
 
         assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST

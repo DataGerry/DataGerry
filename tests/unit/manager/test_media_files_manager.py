@@ -136,7 +136,7 @@ def test_get_file_returns_none_for_an_absent_file() -> None:
 
 def test_get_file_raises_for_a_storage_failure() -> None:
     """
-    Regression: every failure used to be swallowed into None
+    Regression: a failure must not be swallowed into None
 
     A database outage then reached the client as "file not found", logged at DEBUG only. Only NoFile
     may answer None; anything else has to reach the route's 500.
@@ -234,7 +234,7 @@ def test_update_file_targets_the_files_sub_collection() -> None:
 
 def test_update_file_does_not_touch_the_upload_date() -> None:
     """
-    Regression: the update used to stamp uploadDate with 'now'
+    Regression: the update must not stamp uploadDate with 'now'
 
     uploadDate is GridFS's record of when the CONTENT was stored, so renaming a file or moving it to
     another folder must not make it look freshly uploaded.
@@ -249,7 +249,7 @@ def test_update_file_does_not_touch_the_upload_date() -> None:
 
 
 def test_update_file_does_not_mutate_the_callers_dict() -> None:
-    """Regression: the caller's dict used to come back carrying our edits"""
+    """Regression: the caller's dict must not come back carrying our edits"""
     mock_self = _manager()
     original = {'public_id': PUBLIC_ID, 'filename': 'renamed.png', 'uploadDate': 'ORIGINAL'}
 
@@ -289,7 +289,7 @@ def test_delete_file_deletes_the_resolved_grid_id() -> None:
 
 def test_deleting_a_file_that_does_not_exist_reports_false() -> None:
     """
-    Regression: a missing file and a failed delete used to raise the same error
+    Regression: a missing file and a failed delete must not raise the same error
 
     Nothing to delete is the state the caller wanted; it is not a storage failure.
     """

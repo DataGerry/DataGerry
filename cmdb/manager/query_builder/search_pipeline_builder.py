@@ -38,11 +38,11 @@ out of the pipeline (`get_regex_pipes_values`) to highlight the matching fields 
 escapes the term before sending it (`search-bar.component.ts`), so the UI behaves literally - but an
 API client posting `searchForm: "text"` gets regex semantics: `Data (EU)` does not match itself.
 Aligning the two ends fully needs the frontend to stop escaping at the same time (escaping every TEXT
-term here would double-escape what it already escaped), so it stays recorded as tier 2 **T187**.
+term here would double-escape what it already escaped), so the two ends stay as they are.
 
-**One of its three symptoms is closed as of 2026-09-17:** a TEXT term that is not a usable pattern is
-matched as a literal instead of being handed to the database to refuse, so `*` and `[unclosed` answer
-results rather than a 400. It needed no frontend change, because every term the search bar sends is
+**One symptom of that is closed here:** a TEXT term that is not a usable pattern is matched as a
+literal instead of being handed to the database to refuse, so `*` and `[unclosed` answer results
+rather than a 400. It needs no frontend change, because every term the search bar sends is
 escaped and therefore always compiles - the fallback can only fire for a term the UI never produces.
 The other two symptoms remain and are the half the two ends have to change together: `C++` and
 `Data (EU)` are both **valid** patterns, so nothing here can tell that they were meant literally.
@@ -175,11 +175,11 @@ class SearchPipelineBuilder(PipelineBuilder):
         Adds one regex `$match` per TEXT or REGEX parameter
 
         Both forms are matched as regular expressions - see the module docstring for what that means
-        for a client that does not escape a TEXT term. The one difference, since 2026-09-17, is that
-        a TEXT term which is **not a usable pattern** is matched as a literal rather than handed to
+        for a client that does not escape a TEXT term. The one difference is that a TEXT term which
+        is **not a usable pattern** is matched as a literal rather than handed to
         the database to refuse (`as_executable_pattern`): a search box must not answer 400 because
-        somebody typed `*`. A term that *is* a usable pattern is still executed as one, which is the
-        rest of T187. A REGEX term is passed through untouched, because there the caller asked
+        somebody typed `*`. A term that *is* a usable pattern is still executed as one.
+        A REGEX term is passed through untouched, because there the caller asked
         for a pattern and a stricter engine's opinion of it must not silently change their query.
 
         The parameters keep the order they were sent in - consecutive `$match` stages commute, but
@@ -236,7 +236,7 @@ class SearchPipelineBuilder(PipelineBuilder):
         The categories are resolved by their LABEL, matched against the parameter's search text - the
         type ids the parameter also carries under `settings['categories']` are not used, which is
         recorded rather than changed here. All category parameters are resolved in ONE query: a
-        search carrying several category tags used to cost a query per tag
+        search carrying several category tags therefore costs one query, not one per tag
 
         Args:
             params (list[SearchParam]): The search parameters to read the category forms from

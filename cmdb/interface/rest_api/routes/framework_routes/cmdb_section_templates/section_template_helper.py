@@ -18,7 +18,12 @@ Helper methods for CmdbSectionTemplate routes
 
 Request-payload validation and coercion helpers shared by the CmdbSectionTemplate CRUD routes, plus
 the guard the update route applies to a stored template. Each helper aborts with HTTP 400 on malformed
-input so the route handlers can stay focused on orchestration
+input so the route handlers can stay focused on orchestration.
+
+**These helpers are the only validation the write routes have.** ``CmdbSectionTemplate.SCHEMA``
+describes the document, not the request - the payload arrives as text, with ``fields`` JSON-encoded -
+and nothing below the route consults it either: the manager builds the model and inserts its
+``__dict__``. So what is checked here is what is true of a stored template
 """
 import json
 from typing import Any
@@ -26,9 +31,111 @@ from typing import Any
 from flask import abort
 
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
-from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
+from cmdb.models.section_template_model.section_template_constants import (
+    SECTION_TEMPLATE_TEXT_MAX_LENGTH,
+    SECTION_TEMPLATE_WRITE_KEYS,
+    SectionTemplateKey,
+)
+from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.utils import str_to_bool
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+def strip_unknown_template_keys(params: dict[str, Any]) -> dict[str, Any]:
+    """
+    Keeps only the client-settable keys of a section-template write payload
+
+    Everything outside ``SECTION_TEMPLATE_WRITE_KEYS`` is dropped instead of rejected, mirroring the
+    ``purge_unknown`` behaviour of the Cerberus-validated write routes.
+
+    **Dropping it is the point, not tidiness.** ``CmdbSectionTemplate.__init__`` takes ``**kwargs``
+    and the manager inserts the instance's ``__dict__``, so any extra request parameter becomes a
+    stored document key that the model's own SCHEMA does not declare - and ``to_json`` drops it on the
+    way out, so it is invisible to every reader while surviving each later edit
+
+    Args:
+        params (dict[str, Any]): The raw request parameters
+
+    Returns:
+        dict[str, Any]: A new dict holding only the whitelisted keys
+    """
+    return {key: value for key, value in params.items() if key in SECTION_TEMPLATE_WRITE_KEYS}
+
+
+def require_text(raw: Any, param_name: str) -> str:
+    """
+    Aborts 400 when a text parameter is blank or unusably long
+
+    ``name`` and ``label`` are what a template is identified and rendered by, and the name is also the
+    **propagation key** consuming types reference it by - and immutable once stored, so a blank one
+    can never be repaired, only deleted. A length cap keeps a name that no UI can render out of that
+    position in the first place
+
+    Args:
+        raw (Any): The raw parameter value
+        param_name (str): The parameter's name, for the refusal message
+
+    Raises:
+        HTTPException: 400 when the value is not a non-blank string within the length cap
+
+    Returns:
+        str: The value, unchanged
+    """
+    if not isinstance(raw, str) or not raw.strip():
+        abort(400, f"The '{param_name}' of a Section Template must not be empty!")
+
+    if len(raw) > SECTION_TEMPLATE_TEXT_MAX_LENGTH:
+        abort(400, f"The '{param_name}' of a Section Template must be at most "
+                   f"{SECTION_TEMPLATE_TEXT_MAX_LENGTH} characters!")
+
+    return raw
+
+
+def guard_template_fields(fields: list[dict[str, Any]]) -> None:
+    """
+    Aborts 400 when a field entry could not be used as a CmdbType field
+
+    A template's fields are **inlined into every consuming CmdbType**, so an entry that is not a
+    usable field definition becomes an unusable field on every one of them - past the type write
+    routes, which is where such a shape would otherwise be refused. The three rules are the ones the
+    type import applies to an uploaded field (``validate_type_structure``), plus uniqueness, which the
+    type structure guard enforces on the other side of the propagation:
+
+      - a non-blank ``name`` - it is the field's identifier, and an Object keys its value by it
+      - a non-blank ``label`` - it is what the field is rendered as on every form and table
+      - a known ``FieldType`` - the kind decides how the field is rendered and stored
+      - names unique within the template - two fields sharing one name make every read of that name
+        ambiguous, and the type they are inlined into would be refused for it
+
+    Args:
+        fields (list[dict[str, Any]]): The parsed field list
+
+    Raises:
+        HTTPException: 400 naming the first rule a field entry breaks
+    """
+    seen: set[str] = set()
+
+    for field in fields:
+        name: Any = field.get(FieldKey.NAME.value)
+        label: Any = field.get(FieldKey.LABEL.value)
+        field_type: Any = field.get(FieldKey.TYPE.value)
+
+        if not isinstance(name, str) or not name.strip():
+            abort(400, "Every field of a Section Template needs a name!")
+
+        if not isinstance(label, str) or not label.strip():
+            abort(400, f"The field '{name}' of a Section Template needs a label!")
+
+        if not FieldType.is_valid(field_type):
+            abort(400, f"The field '{name}' of a Section Template declares the unknown type "
+                       f"'{field_type}'!")
+
+        if name in seen:
+            abort(400, f"A field name has to be unique within a Section Template. Used more than "
+                       f"once: {name}!")
+
+        seen.add(name)
 
 
 def require_params(params: dict[str, Any], keys: list[str]) -> None:

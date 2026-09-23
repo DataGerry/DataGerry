@@ -161,7 +161,7 @@ class TestDeleteGroupFromPersons:
     def test_explicit_ids_only_touches_those_persons(
         self, persons_manager: PersonsManager, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """With explicit ids only the listed persons lose the group (regression: used to crash)."""
+        """With explicit ids only the listed persons lose the group, and nothing crashes."""
         database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_many([
             _person_doc(PERSON_ID_A, groups=[GROUP_ID_A]),
             _person_doc(PERSON_ID_B, groups=[GROUP_ID_A]),
@@ -232,7 +232,7 @@ class TestDeletePersonFromGroups:
         database_manager: MongoDatabaseManager,
         database_name: str,
     ) -> None:
-        """With explicit ids only the listed groups lose the member (regression: used to crash)."""
+        """With explicit ids only the listed groups lose the member, and nothing crashes."""
         database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).insert_many([
             _group_doc(GROUP_ID_A, group_members=[PERSON_ID_A]),
             _group_doc(GROUP_ID_B, group_members=[PERSON_ID_A]),
@@ -376,7 +376,7 @@ class TestDeleteCascadeCleansTheCounterpartCollection:
         """
         Any caller deleting a person now gets the membership cleaned up, not just the delete route
 
-        The route used to make a second call for this, so an importer or a bulk delete left the
+        A second call from the route would leave an importer or a bulk delete holding the
         person listed in every group - a membership pointing at a public_id that no longer resolves.
         """
         database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\

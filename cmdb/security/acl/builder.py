@@ -26,7 +26,7 @@ type_ids from the pipeline:
 A type is denied when its ACL is activated AND the group's entry does not carry the required
 permission - a missing entry denies just as an incomplete one does. Everything else passes: a type
 with no ACL, a type whose ACL is switched off - including one carrying no `activated` key at all,
-which is the model's reading of that shape (T208) - and a type that grants the permission. Because the
+which is the model's reading of that shape - and a type that grants the permission. Because the
 filter is an exclusion, an object whose type_id resolves to no CmdbType at all (an orphan) also
 passes, which is the behaviour the previous `$lookup`-based implementation had through its
 `preserveNullAndEmptyArrays` unwind
@@ -107,12 +107,11 @@ def build_denied_types_criteria(
     list does not contain the required permission. Everything else passes: no `acl` key, an `acl`
     that is switched off, and a group that holds the permission.
 
-    **What "switched on" means is the model's reading, since 2026-09-17** (tier 2 **T208**). An `acl`
-    carrying no `activated` key at all is **not** activated and therefore grants - which is what
-    `acl/helpers.acl_grants_access` has always answered for the same document, because
-    `AccessControlList.from_data` defaults the flag to False. This criteria used to read
-    `activated $ne False`, which denied that shape, so a single object read and a listing disagreed
-    on it. `$exists` plus `$nin: [False, None]` is the closest expression of Python truthiness a
+    **What "switched on" means is the model's reading.** An `acl` carrying no `activated` key at all
+    is **not** activated and therefore grants - which is what `acl/helpers.acl_grants_access` answers
+    for the same document, because `AccessControlList.from_data` defaults the flag to False. Reading
+    it as `activated $ne False` would deny that shape, leaving a single object read and a listing
+    disagreeing on it. `$exists` plus `$nin: [False, None]` is the closest expression of Python truthiness a
     query can give: its one remaining divergence from the model is a stored `0`, which the model
     reads as off and this reads as on - a listing stricter than the single read, which is the safe
     direction for the two to differ in
@@ -166,7 +165,7 @@ def build_permitted_types_criteria(
 
     Both functions are the same rule, so a change to the denial criteria reaches every caller of
     either - including what it says about an ``acl`` carrying no ``activated`` key, which grants,
-    the same answer ``acl/helpers.acl_grants_access`` gives (**T208**)
+    the same answer ``acl/helpers.acl_grants_access`` gives
 
     Args:
         group_id (int): public_id of the CmdbUserGroup the request is made for

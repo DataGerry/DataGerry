@@ -173,8 +173,8 @@ class TestHandleRouteErrors:
         423 / 503 must survive the generic tail
 
         `@handle_db_errors` maps a lock timeout and a network failure to statuses that tell the caller
-        to retry, and it only sees what escapes this wrapper - the routes used to re-raise them by hand
-        for exactly that reason (tier 2 T135/T185).
+        to retry, and it only sees what escapes this wrapper - which is why the routes must not
+        swallow them.
         """
         @ru.handle_route_errors('while doing the thing')
         def route():
@@ -844,7 +844,7 @@ class TestTokenUserClaim:
     """Reading the acting user out of the wrapped DataGerry claim."""
 
     def test_the_user_payload_is_answered(self) -> None:
-        """Four call sites used to spell claims['DATAGERRY']['value']['user'] by hand"""
+        """Four call sites would otherwise spell claims['DATAGERRY']['value']['user'] by hand"""
         assert ru.token_user_claim(DECODED_TOKEN)['public_id'] == DECODED_TOKEN['DATAGERRY']['value']['user'][
             'public_id'
         ]
@@ -1565,7 +1565,7 @@ class TestParseAssistantParameters:
     """
     The decorator behind the assistant route: query parameters as the first positional argument
 
-    Its `try/except Exception -> abort(400)` was removed on 2026-09-14. Werkzeug has already parsed
+    It carries no `try/except Exception -> abort(400)` of its own. Werkzeug has already parsed
     the query string by the time a view runs and `to_dict` tolerates duplicate keys and embedded null
     bytes, so the arm - and the 400 its docstring promised - could never fire.
     """

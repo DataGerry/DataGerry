@@ -21,7 +21,7 @@ pinned here is the document contract (`from_data` / `to_json`, guarded by a roun
 both halves are keyed by `TypeSchemaKey`) and the accessors the renderer and the managers read the
 schema through.
 
-Two behaviours are asserted because they were WRONG before 2026-08-26 and would be easy to
+Two behaviours are asserted because they are easy to get wrong and easy to
 reintroduce: `get_nested_summaries` collects every reference field's overrides rather than the first
 one's, and the summary accessors skip a name that no longer resolves to a field instead of raising
 for the whole summary - a stale summary name is a normal state, because removing a field from a type
@@ -322,7 +322,7 @@ def _nested(type_id: int, **extra: Any) -> dict[str, Any]:
 
 def test_get_nested_summaries_collects_every_reference_field() -> None:
     """
-    Regression: it used to return only the FIRST reference field's overrides
+    Regression: it must not return only the FIRST reference field's overrides
 
     A type with two reference fields may override the same referenced type differently, so both
     entries have to come back.
@@ -385,7 +385,7 @@ def test_get_summary_resolves_the_configured_fields() -> None:
 
 def test_get_summary_skips_a_field_that_no_longer_exists() -> None:
     """
-    Regression: a stale summary name used to raise for the WHOLE summary
+    Regression: a stale summary name must not raise for the WHOLE summary
 
     Removing a field from a type does not clean its name out of render_meta.summary.fields, so a
     stale name is a normal state of a long-lived type.
@@ -584,10 +584,10 @@ class TestUnreadableTimestampsAreRefused:
     """
     A timestamp that cannot be read is refused, not guessed
 
-    Until 2026-09-21 these were parsed with `fuzzy=True`, which reads a note like 'sometime in March'
-    as a date assembled from today's day number. The type importer stamps both timestamps server-side before building the model, so a string
-    never reaches here through an upload - the strictness protects a caller that does not exist yet
-    rather than a live path.
+    Parsed with `fuzzy=True` these read a note like 'sometime in March' as a date assembled from
+    today's day number. The type importer stamps both timestamps server-side before building the
+    model, so a string never reaches here through an upload - the strictness protects a caller that
+    does not exist yet rather than a live path.
     """
 
     def test_an_unreadable_timestamp_raises(self) -> None:

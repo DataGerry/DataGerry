@@ -124,7 +124,7 @@ class TestUpload:
         assert stored['metadata']['folder'] is False
 
     def test_upload_accepts_a_permission(self, rest_api, database_manager, database_name) -> None:
-        """'permission' is a declared key; it used to fail the whole upload as an unexpected argument."""
+        """'permission' is a declared key and must not fail the whole upload as an unexpected argument."""
         form = {
             'file': (BytesIO(b'content'), 'dg-func-permission.txt'),
             'metadata': json.dumps({'author_id': AUTHOR_ID, 'permission': 'read'}),
@@ -335,7 +335,7 @@ class TestUpdateRequestGuards:
     """The update route's parameter and body are checked before anything is written."""
 
     def test_missing_attachment_parameter_returns_400(self, rest_api) -> None:
-        """It used to be a TypeError from json.loads(None) on the way to a 500."""
+        """A TypeError from json.loads(None) here would be a 500."""
         public_id = _upload(rest_api, 'dg-func-attach.txt')
         body = {'public_id': public_id, 'filename': 'dg-func-attach.txt', 'metadata': {'author_id': AUTHOR_ID}}
 
@@ -423,7 +423,7 @@ class TestUploadReplacement:
         """
         The old entry is removed only after the new one exists (regression)
 
-        It used to be deleted first, so a failing insert lost both.
+        Deleting it first would lose both when the insert fails.
         """
         files = database_manager.get_collection(FILES_COLLECTION, database_name)
         _upload(rest_api, 'dg-func-keep.txt')

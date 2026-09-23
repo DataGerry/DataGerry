@@ -21,7 +21,7 @@ storage format both sides of the wire agree on: permissions are the STRING value
 what the stored document holds, what the Angular ACL editor sends, and what the aggregation stage in
 acl/builder.py matches with ``$all: [permission.value]``.
 
-Pins the four fixes of 2026-07-30: granting to a key the section does not know yet works at all (it
+Pins the four rules: granting to a key the section does not know yet works at all (it
 raised TypeError from instantiating a typing alias), grant and verify agree (grant stored the enum
 member while verify compared its value, so a freshly granted permission read back as denied), an ACL
 without a groups section denies instead of raising, and revoking is idempotent.
@@ -176,7 +176,7 @@ class TestGrantAccess:
     """Granting a permission - and the guarantee that verify_access then agrees."""
 
     def test_granting_to_an_unknown_key_creates_the_entry(self) -> None:
-        """The first grant for a group used to raise TypeError."""
+        """The first grant for a group must not raise TypeError."""
         section = GroupACL({})
 
         section.grant_access(GROUP_ID, AccessControlPermission.READ)
@@ -253,7 +253,7 @@ class TestRevokeAccess:
         assert acl.verify_access(GROUP_ID, AccessControlPermission.READ) is False
 
     def test_revoking_a_permission_that_was_never_granted_is_a_noop(self) -> None:
-        """It used to raise ValueError."""
+        """It must not raise ValueError."""
         section = GroupACL({GROUP_ID: ['READ']})
 
         section.revoke_access(GROUP_ID, AccessControlPermission.DELETE)
@@ -261,7 +261,7 @@ class TestRevokeAccess:
         assert section.includes == {GROUP_ID: {'READ'}}
 
     def test_revoking_from_an_unknown_key_is_a_noop(self) -> None:
-        """It used to raise KeyError."""
+        """It must not raise KeyError."""
         section = GroupACL({})
 
         section.revoke_access(UNKNOWN_GROUP_ID, AccessControlPermission.READ)
@@ -297,7 +297,7 @@ class TestVerifyAccess:
         assert _stored_acl({'2': ['READ']}).verify_access(UNKNOWN_GROUP_ID, AccessControlPermission.READ) is False
 
     def test_an_acl_without_groups_denies_instead_of_raising(self) -> None:
-        """A directly constructed ACL used to raise AttributeError into a 500."""
+        """A directly constructed ACL must not raise AttributeError into a 500."""
         assert AccessControlList(activated=True).verify_access(GROUP_ID, AccessControlPermission.READ) is False
 
 
@@ -335,7 +335,7 @@ class TestAccessControlList:
         }
 
     def test_grant_access_defaults_to_the_groups_section(self) -> None:
-        """The natural two-argument call works (it used to raise ValueError)."""
+        """The natural two-argument call works rather than raising ValueError."""
         acl = AccessControlList(activated=True)
 
         acl.grant_access(GROUP_ID, AccessControlPermission.DELETE)

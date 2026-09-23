@@ -16,18 +16,18 @@
 """
 Functional tests for what a protected route does with a token
 
-The token layer is unit-tested in `tests/unit/security/token/`; what is pinned HERE is the part that
+The token layer has its own unit tests; what is pinned HERE is the part that
 only exists once the decorators are stacked on a real route:
 
 * **an expired token is refused end-to-end.** Expiry is enforced in exactly one place -
   `route_utils.parse_authorization_header` -> `_validate_bearer` - while the per-route decorators
   only decode, and `decode_token` accepts an expired token by design. Nothing but a request through
   the stack proves the two halves are still wired together.
-* **a server-side key problem answers 500, not 401.** Until 2026-09-10 every failure inside
+* **a server-side key problem answers 500, not 401.** Reported as a 401, every failure inside
   `decode_token` became `TokenValidationError`, so an installation with unusable key material told
   every client its token was invalid - which logs the user out instead of reporting an outage.
 * **the token is accepted once per request.** The header parse (which validates) and the decode are
-  cached on the request, because a route carries up to three decorators that each used to redo the
+  cached on the request, because a route carries up to three decorators that would each redo the
   whole chain: one GET was measured at 4 decodes and 12 reads of the RSA key document.
 
 The tokens here are signed with the installation's own key through `KeyHolder`, so the signatures

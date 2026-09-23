@@ -18,7 +18,7 @@ Unit tests for cmdb.manager.types_mds_helper
 
 Pure tests: no Mongo, no manager. Two questions are asked of this module - what a CmdbType edit
 changes in its objects' multi-data sections (`plan_mds_changes`) and what that does to one object
-(`apply_plan`) - and three of the answers used to be wrong:
+(`apply_plan`) - and three of the answers are easy to get wrong:
 
   - **a new field's type came from the OLD type**, which by definition does not contain it, so every
     newly added MDS field was written as `text` whatever it was declared as. The plan now carries a
@@ -230,7 +230,7 @@ class TestPlanMdsChanges:
         """
         The bug this pins
 
-        The map used to be built from the OLD type, which cannot contain a newly added field - so the
+        Building the map from the OLD type cannot cover a newly added field - so the
         fallback was the normal path and every new MDS field was stored as `text`.
         """
         plan = plan_mds_changes(
@@ -240,7 +240,7 @@ class TestPlanMdsChanges:
         assert plan.field_type_map['b'] == FieldType.DATE.value
 
     def test_a_removed_section_is_planned_for_removal(self) -> None:
-        """It used to be skipped, which left the objects carrying it forever"""
+        """Skipping it leaves the objects carrying it forever"""
         plan = plan_mds_changes(_old_type(['a']), _updated_doc(None))
 
         assert plan.removed_sections == [SECTION_ID]
@@ -340,7 +340,7 @@ class TestAddFieldEntries:
 
     def test_the_entry_keys_are_plain_strings(self) -> None:
         """
-        They used to be enum MEMBERS, so one row held two shapes
+        Writing them as enum MEMBERS lets one row hold two shapes
 
         It survives BSON because the enums subclass `str`, but `str()` on such a member yields
         'FieldType.TEXT' - the trap this repo has hit before.
@@ -428,7 +428,7 @@ class TestApplyPlan:
 
     def test_drops_a_removed_section_from_the_object(self) -> None:
         """
-        The decision of 2026-09-09: a removed section is removed, not kept silently
+        The decision: a removed section is removed, not kept silently
 
         The object stops carrying rows of a section its type does not declare.
         """

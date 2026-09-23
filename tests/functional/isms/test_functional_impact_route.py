@@ -126,7 +126,7 @@ class TestImpactWithoutADescriptionCanBeSaved:
 
     ``description`` is optional, so a POST that omits it stores nothing; the list route answers
     ``to_json``, which emits every declared key, so the frontend receives ``description: null`` and its
-    edit modal patches that straight into the form it later saves. The schema used to refuse the null
+    edit modal patches that straight into the form it later saves, so the schema must accept the null
     with 'null value not allowed', so such an impact could not be edited at all.
     """
 
@@ -163,7 +163,7 @@ class TestTheRiskMatrixIsRegeneratedWithoutRiskClasses:
     """
     Creating an impact builds the grid even when no IsmsRiskClass exists yet
 
-    ``calculate_risk_matrix`` used to require at least one risk class - which is not an input to the
+    ``calculate_risk_matrix`` must not require at least one risk class - which is not an input to the
     calculation - and no risk-class route recalculates, so configuring risk classes LAST left the grid
     permanently empty while the config wizard reported that step complete.
     """

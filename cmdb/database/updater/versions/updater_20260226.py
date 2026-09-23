@@ -46,7 +46,7 @@ Every write phase is therefore repeatable and converges to the same end state:
 * ``reserve_public_ids`` is an atomic counter increment, so an abandoned block is only an id gap.
 
 Every literal this module writes or queries is a **local, frozen constant**: a migration is a
-historical record of the 2026-02-26 schema, so it must keep reading and writing those names even if
+historical record of the schema it migrates, so it must keep reading and writing those names even if
 the live models rename them later. That is why nothing here is imported from the model classes or
 their key enums - see the constants block below.
 
@@ -61,7 +61,7 @@ from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 from cmdb.errors.updater import UpdaterException
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# Collection names as of 2026-02-26. Frozen on purpose: reading them from CmdbRelation.COLLECTION /
+# The collection names this migration targets. Frozen on purpose: reading them from CmdbRelation.COLLECTION /
 # CmdbObjectRelation.COLLECTION would silently redirect this migration if a collection is ever renamed
 OBJECT_LINK_COLLECTION: str = "framework.links"
 RELATION_COLLECTION: str = "framework.relations"
@@ -135,7 +135,7 @@ def get_mapper_relation(existing_type_ids: list[int]) -> dict[str, Any]:
 
     The type lists are the caller's snapshot of every existing CmdbType and are stored as-is, so the
     relation is frozen to the types present at migration time. The presentation values (labels, icons,
-    colors) are the 2026-02-26 defaults and are only written on creation - a user editing them
+    colors) are this migration's defaults and are only written on creation - a user editing them
     afterwards is never overwritten, since a re-run adopts the relation instead of rebuilding it
 
     Args:

@@ -17,8 +17,8 @@
 Unit tests for APIParameters and the shared JSON-parameter parsing
 
 ``APIParameters`` is the base of every request-parameter class, and both of its classmethods were
-entirely untested before 2026-08-27 (the file sat at 52%). ``from_data`` is now the ONE place the
-JSON-valued query parameters are parsed - the three subclasses used to repeat that block - so these
+little exercised elsewhere. ``from_data`` is the ONE place the JSON-valued query parameters are
+parsed, rather than the three subclasses each repeating that block, so these
 tests are what pins that single implementation.
 """
 import pytest
@@ -137,7 +137,7 @@ class TestApiParametersToDict:
     """to_dict was entirely untested; it is the base of the echoed `parameters` block."""
 
     def test_emits_the_query_string_and_optional(self) -> None:
-        """`optional` used to be dropped here while both siblings included it."""
+        """`optional` must not be dropped here while both siblings include it."""
         params = APIParameters(QUERY_STRING, view='native')
 
         assert APIParameters.to_dict(params) == {

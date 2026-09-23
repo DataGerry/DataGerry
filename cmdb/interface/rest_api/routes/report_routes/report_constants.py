@@ -81,6 +81,39 @@ REPORT_REQUIRED_PARAMS: list[str] = [
 # request is dropped instead of being persisted as a document key
 REPORT_WRITE_KEYS: frozenset[str] = frozenset(REPORT_REQUIRED_PARAMS)
 
+# Refusals (HTTP 400) for a report write payload whose values are the wrong shape. The write reads a
+# JSON body when one is sent and the query string otherwise, so a value arrives either already typed
+# or as text - and until these checks existed only its PARSEABILITY was verified, never what it parsed
+# INTO. A non-dict `conditions` and a non-list `selected_fields` both reached
+# `abort_if_ref_section_fields`, which reads them as a rule tree and as a set of names: the first
+# raised AttributeError and the second TypeError, so a malformed client payload answered 500. The two
+# shapes that did NOT raise were stored instead - a dict under `selected_fields` and a blank name -
+# leaving a document its own SCHEMA rejects
+REPORT_CONDITIONS_NOT_A_TREE_MSG: str = (
+    "The Report's 'conditions' must be a rule tree (a JSON object) or null, not {actual}!"
+)
+
+REPORT_SELECTED_FIELDS_NOT_A_LIST_MSG: str = (
+    "The Report's 'selected_fields' must be a list of field names, not {actual}!"
+)
+
+REPORT_SELECTED_FIELD_NOT_A_NAME_MSG: str = (
+    "Every entry of the Report's 'selected_fields' must be a field name, but {actual} is not!"
+)
+
+REPORT_NAME_BLANK_MSG: str = "The Report's 'name' must not be empty!"
+
+# Refusal (HTTP 400) for a 'conditions' / 'selected_fields' that is not valid JSON at all. Only a
+# query-string payload can hit it - a JSON body has already been parsed by the time it is read
+REPORT_PARAMS_MALFORMED_MSG: str = 'One or more Report parameters are malformed!'
+
+REPORT_ID_NOT_A_NUMBER_MSG: str = "The Report's '{param_name}' must be a whole number, not {actual}!"
+
+REPORT_BODY_NOT_AN_OBJECT_MSG: str = (
+    "The Report write payload must be a JSON object when it is sent as a request body!"
+)
+
+
 # Query-string parameter that, when true, runs a report in capped 'preview' mode
 PREVIEW_PARAM: str = 'preview'
 

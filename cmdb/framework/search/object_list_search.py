@@ -18,9 +18,9 @@ The free-text search of the object list, as `?search=`
 
 The object list has to match a term against a CmdbObject's own field values **and** against the
 values of the objects it references - a search for a customer's name finds the servers pointing at
-that customer. Until 2026-09-17 the Angular app implemented that itself, as a nine-stage aggregation
+that customer. The Angular app would otherwise implement that itself, as a nine-stage aggregation
 posted through `?filter=`, copied into five files
-(`notes/FRONTEND_TO_BACKEND.md` **F1**). This module is the server-side replacement.
+posted as a client filter. This module is the server-side replacement.
 
 **What is searchable:** the object's `public_id`, its two timestamps, the values of its own fields,
 and the values of the fields of every object it references. Not the summary line - it is composed
@@ -31,7 +31,7 @@ and said so with a 200.
 `C++` and a search for `*` finds a `*`. That is the newer convention across the backend
 (`locations_manager`, `mongo_query_builder`, `assignable_cables`, ...) and it is deliberately NOT
 what `GET /search/`'s TEXT form does yet - that one is a regular expression by contract, and aligning
-it needs the frontend to stop escaping at the same time (tier 2 **T187**).
+it needs the frontend to stop escaping at the same time.
 
 **Nothing is projected away.** The browser's pipeline rebuilt each document with an explicit
 `$project`, which silently dropped everything it did not list - `multi_data_sections`, `version`,

@@ -26,7 +26,7 @@ The route emits three distinct edge shapes:
     the supernet side); ``relation_label`` is the fixed verb 'assigned' on every IPAM edge
     (no CmdbRelation backs them)
   - port-connection edges carry the same metadata shape as IPAM edges plus ``undirected: true``
-    and a ``path`` listing the physical hops the CI-level projection collapsed; ``source`` is
+    and a ``path`` listing the cable the edge is; ``source`` is
     ``'port_connection'``. They are the only undirected edges the graph emits - a cable has no
     direction, so the flag tells the FE to draw no arrowhead
   - location edges are bare ``{from, to}`` only; the FE renders them with fixed colors
@@ -149,7 +149,7 @@ def compose_port_connection_edge(
         edge_to: int,
         path: list[dict[str, Any]]) -> dict[str, Any]:
     """
-    Builds one collapsed port-connection edge for the CI Explorer response
+    Builds one port-connection edge for the CI Explorer response
 
     The physical layer has no direction - a cable runs between two ports, not from one to the other -
     so the edge carries ``metadata.undirected: true`` and the frontend suppresses the arrowhead. It
@@ -157,18 +157,18 @@ def compose_port_connection_edge(
     which is what keeps the wire format unchanged for every existing client; the precedent is the
     ``metadata.source`` field IPAM and location edges already set.
 
-    ``metadata.path`` is where the hidden physical path lives (case C5): the connections the CI-level
-    projection collapsed, ordered from the focal end outwards, each with its resolved cable block. It
-    travels with the graph rather than behind a second request, so "show the physical path" costs the
-    frontend no round trip.
+    ``metadata.path`` is the cable itself, as a one-entry list carrying its resolved cable block - an
+    edge is exactly one CmdbPortConnection, so there is never a second hop to report. It travels with
+    the graph rather than behind a second request, so naming the cable costs the frontend no round
+    trip, and the list shape means a reader never has to care that it is always one long.
 
     One connection is one edge (Q36): two objects cabled together twice produce two edges sharing
     ``from`` and ``to``, each carrying its own path, rather than one edge holding a list of paths
 
     Args:
         edge_from (int): public_id of the focal CmdbObject
-        edge_to (int): public_id of the CmdbObject at the far end of the physical chain
-        path (list[dict[str, Any]]): The collapsed physical hops, focal end first
+        edge_to (int): public_id of the CmdbObject owning the port at the far end of the cable
+        path (list[dict[str, Any]]): The cable this edge is, as a one-entry list
 
     Returns:
         dict[str, Any]: ``{from, to, metadata: {relation_id, relation_name, relation_label,

@@ -20,9 +20,8 @@ The two REST routes of the object search
   objects a regex term matches, split into active / inactive / total
 * `GET|POST /rest/search/` - the search itself. Both methods carry the SAME payload, a JSON array of
   search parameters (`SearchParamKey` objects): POST in its body, GET in `?query=`. Both are turned
-  into `SearchParam` objects before they reach the pipeline builder - until 2026-09-14 the GET branch
-  skipped that step and handed the raw JSON to the builder, which answered **500** for every GET
-  search carrying an actual term
+  into `SearchParam` objects before they reach the pipeline builder - skipping that step and handing
+  the raw JSON to the builder answers **500** for every GET search carrying an actual term
 
 Both routes build their pipeline with the request user and READ permission, so the ACL filter is in
 the aggregation before it reaches the database. Neither checks an ACL *right*, which is recorded in
@@ -114,8 +113,8 @@ def _parse_search_parameters(raw_query: str) -> list[SearchParam]:
 
     Shared by both methods on purpose: GET carries the payload in `?query=` and POST in its body, but
     it is the same array of `SearchParamKey` objects and it has to become the same
-    `list[SearchParam]`. Handing the raw JSON to `SearchPipelineBuilder` instead - which is what the
-    GET branch used to do - makes it read `.search_form` off plain strings and raise `AttributeError`
+    `list[SearchParam]`. Handing the raw JSON to `SearchPipelineBuilder` instead makes it read
+    `.search_form` off plain strings and raise `AttributeError`
 
     Args:
         raw_query (str): The request's JSON payload
@@ -192,13 +191,12 @@ def search_framework(request_user: CmdbUser) -> Response:
     The criteria are built with the request user and READ permission, so the pipeline the searcher
     runs is ACL-filtered before it reaches the database.
 
-    Two behaviours here were wrong for a long time and are worth knowing:
+    Two failure modes this route has to avoid:
 
-    * until 2026-09-09 every error in the search block answered **204 with an empty body**, which a
-      client cannot tell apart from "nothing matched" - and which turned an unusable `?limit=0` into
-      a silently empty page
-    * until 2026-09-14 the GET branch never built `SearchParam` objects, so any GET search carrying
-      an actual term answered **500**; only `?query={}` worked, which is the only form the tests sent
+    * an error in the search block answering **204 with an empty body**, which a client cannot tell
+      apart from "nothing matched" - and which turns an unusable `?limit=0` into a silently empty page
+    * the GET branch not building `SearchParam` objects, which answers **500** for any GET search
+      carrying an actual term and leaves only `?query={}` working
 
     Args:
         request_user (CmdbUser): The user making the request, used for permission checks and data access

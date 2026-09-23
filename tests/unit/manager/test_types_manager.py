@@ -22,7 +22,7 @@ enums per the no-magic-values rule.
 
 The multi-data-section propagation is split across two modules and so are its tests: what a type
 edit CHANGES (and what that does to one object in memory) is pure and lives in
-tests/unit/manager/test_types_mds_helper.py; what is pinned here is the manager's own half - which
+the MDS helper's own unit tests; what is pinned here is the manager's own half - which
 objects it reads, with which projection, in which batches, and that it YIELDS the changed ones so the
 caller can write one batch before the next is read. A propagation that collected everything first was
 one unbounded read and one unbounded bulk write per type.
@@ -165,7 +165,7 @@ def test_iterate_applies_the_access_control_to_the_criteria_not_the_pipeline() -
 
     ``iterate_query`` builds its total from the criteria alone, so an access rule that lived only in
     the data pipeline would filter the rows and leave the count beside them unfiltered - the bug
-    T211 records for the object listing.
+    the object listing records separately.
     """
     mgr = MagicMock(spec=TypesManager)
     mgr.iterate_query.return_value = ([], 0)
@@ -204,7 +204,7 @@ def test_delete_type_reports_the_acknowledgement() -> None:
     """
     A caller can tell a deletion from a no-op
 
-    It used to return None, so "deleted" and "no such type" were the same answer - while update_type
+    Returning None would make "deleted" and "no such type" the same answer - while update_type
     deliberately returns its UpdateResult for exactly that reason.
     """
     mgr = MagicMock(spec=TypesManager)
@@ -221,7 +221,7 @@ def test_as_stored_type_dict_keeps_a_timestamp_through_the_bson_round_trip() -> 
     """
     The round trip a raw dict takes on its way into the collection
 
-    It decodes with the shared json_codec, whose ISO branch used to read a naive timestamp as the
+    It decodes with the shared json_codec, whose ISO branch must not read a naive timestamp as the
     HOST's local time - so a type's creation_time moved by the server's UTC offset on every update
     that went through this path.
     """
@@ -483,7 +483,7 @@ def test_handle_multi_data_sections_drops_a_removed_section() -> None:
     """
     A section the edit no longer declares is removed from the objects
 
-    Before 2026-09-09 it was skipped, so every object kept the rows of a section its type did not
+    Skipping it leaves every object holding the rows of a section its type does not
     have - invisible to every read and impossible to edit.
     """
     obj = _mds_object(1, SECTION_ID, [[_entry('a', 'kept value')]])
@@ -517,7 +517,7 @@ def test_handle_multi_data_sections_survives_a_payload_without_render_meta() -> 
     """
     A malformed payload costs the propagation, not the data
 
-    It used to raise a KeyError, which the route reported as "the Type got updated but the MDS
+    A KeyError here is reported by the route as "the Type got updated but the MDS
     updates failed" - a 400 for a type that was already written. And now that a missing section means
     "removed", a payload describing no sections at all must not be read as "every section was
     removed": that would drop the MDS rows of every object of the type.
@@ -594,7 +594,7 @@ def test_get_type_ids_of_special_type_accepts_a_member_or_a_string(marker: Any) 
 
 def test_check_special_type_exists_wraps_a_failing_lookup() -> None:
     """
-    It used to leak the BaseManager error
+    It must not leak the BaseManager error
 
     The class promises that every public method answers with a TypesManager* error, and a caller
     handling only those would have seen an unhandled BaseManagerGetError.

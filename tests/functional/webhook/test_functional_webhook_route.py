@@ -20,10 +20,10 @@ Covers CRUD over the GenericManager-backed WebhooksManager: HTTP status codes, t
 event_types parsing (400 on missing/invalid), the 404 on a missing id, the manager-error -> 400 / 500
 mappings, and the public_id pinning on update. Params arrive as query args (parse_request_parameters).
 
-Since 2026-08-27 also: the write-route VALIDATION, which is the whole guard a webhook document gets
+Also covered: the write-route VALIDATION, which is the whole guard a webhook document gets
 because ``CmdbWebhook.SCHEMA`` is never applied - a missing name or url, a non-http(s) or host-less
 url, and an event_types that is not a non-empty list of known WebhookEventType values are all 400 now
-(each of them used to be a 200 that stored an unusable webhook). Plus the DELETE route without its
+(without it each is a 200 that stores an unusable webhook). Plus the DELETE route without its
 odd trailing slash, and the per-route error tails that no test reached.
 """
 from http import HTTPStatus
@@ -196,7 +196,7 @@ class TestDeleteWebhook:
         """
         The slash-less form is served directly, not via a redirect (regression)
 
-        The route used to be registered as ``/<public_id>/`` while its GET/PUT siblings had no slash,
+        Registering the route as ``/<public_id>/`` while its GET/PUT siblings carry no slash
         so the frontend's slash-less DELETE (webhook.service.ts) took a 308 first.
         """
         _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_DELETE)
@@ -423,7 +423,7 @@ class TestFrontendContract:
     """
     Replays the exact request shapes ``app/src/app/toolbox/webhook/services/webhook.service.ts`` builds
 
-    The 2026-08-27 sweep added validation to the write routes and moved the DELETE route off its
+    The write routes carry validation and the DELETE route sits off its
     trailing slash, so what the frontend actually sends is pinned here rather than reasoned about. The
     Angular form (``webhook-form.component.ts``) validates more strictly than the backend does - its
     url pattern demands a dotted host - so every payload it can produce has to be accepted.
@@ -492,7 +492,7 @@ class TestFrontendContract:
         """
         DELETE webhooks/<id> - the FE never sends the trailing slash
 
-        This is the call that used to take a 308 first, because the route carried a slash its siblings
+        This is the call that would take a 308 first if the route carried a slash its siblings
         did not.
         """
         _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_DELETE)

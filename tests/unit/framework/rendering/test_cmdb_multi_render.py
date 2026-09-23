@@ -484,7 +484,7 @@ class TestSummaries:
         `ValueError` for a field the object has no row for, which happens whenever a field is added to
         a type and put in its summary before existing objects are saved.
 
-        It used to be written as `summary.fields = ['does-not-exist']`, which reached the same arm only
+        Writing it as `summary.fields = ['does-not-exist']` reaches the same arm only
         because `CmdbType.get_summary` raised for a name missing from the TYPE. Since that accessor now
         skips a stale name, that setup stopped exercising this path while still passing - the two cases
         produce identical output - so they are pinned separately below.
@@ -690,7 +690,7 @@ class TestMergeFieldContentSection:
         """
         The one place a date is read out of USER data, so it must not be invented
 
-        A DATE field whose stored value is free text used to be parsed with `fuzzy=True`: 'ask Bob'
+        A DATE field whose stored value is free text must not be parsed with `fuzzy=True`: 'ask Bob'
         rendered as a date assembled from today, on READ, and travelled into every export and report
         without the stored document ever changing. Refusing is not an option either - the render is
         crash-tolerant by construction - so the raw value survives and the reader sees what is stored.
@@ -906,7 +906,7 @@ class TestTheRenderedReferencePayload:
         """
         Only the referenced type's SUMMARY fields are summarised, not every field it defines
 
-        The expansion built for a plain section used to list all of them, so a type with twenty
+        An expansion built for a plain section would list all of them, so a type with twenty
         fields shipped twenty summary entries per reference - and the frontend showed them
         """
         # pylint: disable=no-member
@@ -922,7 +922,7 @@ class TestTheRenderedReferencePayload:
         """
         `_expand_reference_field` (used when the merge did not expand) answers the same payload
 
-        The two paths are the reason the same `reference` key used to carry two shapes
+        The two paths are the reason the same `reference` key can end up carrying two shapes
         """
         # pylint: disable=no-member
         render = self._render_main(managers)
@@ -1033,7 +1033,7 @@ class TestReferenceSectionDepth:
 
 class TestReportsAnUnresolvableReferenceSection:
     """
-    The three ways a reference section renders nothing, all of which used to be entirely silent
+    The three ways a reference section renders nothing, each of which is otherwise entirely silent
 
     A CmdbType update now refuses the edits that cause them, but data written before that guard can
     still be in a database, so the render says so at WARNING instead of quietly dropping the block.
@@ -1367,7 +1367,7 @@ class TestMergeReferencesSummaryLine:
         """
         `_build_reference_expansion` answers the SAME payload as the inline merge
 
-        It used to build a five-key dict of its own - no `line`, no `icon`, no `prefix`, and
+        Building a five-key dict of its own would leave out `line`, `icon` and `prefix`, and
         `summaries` holding every field of the referenced type instead of its configured summary
         fields - so one `reference` key carried two shapes depending on the render path.
         """
@@ -1401,7 +1401,7 @@ class TestLinkedObjectsFallback:
         """
         Several untyped fields of the same type cost ONE type lookup, not one per field
 
-        The fallback used to re-query the type for every untyped field - an N+1 over the whole
+        Re-querying the type for every untyped field would be an N+1 over the whole
         render, on exactly the legacy objects that trip it
         """
         untyped = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [

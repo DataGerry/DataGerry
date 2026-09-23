@@ -63,6 +63,7 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
+    read_report_write_payload,
     build_report_create_payload,
     build_report_update_payload,
     load_report_or_404,
@@ -101,13 +102,17 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
     """
     Creates a CmdbReport in the database
 
-    Sanitises and normalises the request parameters, verifies the report's CmdbReportCategory and
-    CmdbType, rejects any referenced Ref-Section-Field and builds the persisted report query before
-    inserting the report. 'predefined' is forced to False, so a client can never create a predefined
-    CmdbReport
+    Reads the payload from the request **body** when one is sent and from the query string otherwise,
+    sanitises and normalises it, verifies the report's CmdbReportCategory and CmdbType, rejects any
+    referenced Ref-Section-Field and builds the persisted report query before inserting the report.
+    'predefined' is forced to False, so a client can never create a predefined CmdbReport
+
+    A body is the better place for it: a report's 'conditions' is an arbitrarily deep rule tree, and in
+    a query string it counts against the request-line limit and is written to every access log in
+    plain text
 
     Args:
-        params (dict[str, Any]): CmdbReport request parameters
+        params (dict[str, Any]): The query-string parameters; a JSON body overrides them key by key
         request_user (CmdbUser): User which is creating the CmdbReport
 
     Returns:
@@ -121,7 +126,9 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
-        payload: dict[str, Any] = build_report_create_payload(reports_manager, params)
+        payload: dict[str, Any] = build_report_create_payload(
+            reports_manager, read_report_write_payload(params),
+        )
 
         new_report_id: int = reports_manager.insert_item(payload)
 
@@ -318,9 +325,10 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
     """
     Updates a CmdbReport
 
-    Sanitises and normalises the request parameters, pins the identity to the URL public_id and
-    'predefined' to the stored value, verifies both foreign keys, rejects any referenced
-    Ref-Section-Field and rebuilds the persisted report query before updating
+    Reads the payload from the request **body** when one is sent and from the query string otherwise,
+    sanitises and normalises it, pins the identity to the URL public_id and 'predefined' to the stored
+    value, verifies both foreign keys, rejects any referenced Ref-Section-Field and rebuilds the
+    persisted report query before updating
 
     The response is the stored document with the written payload merged over it. The update is a
     ``$set`` of that payload, so the merge is what a re-read would return - without paying for the
@@ -328,7 +336,7 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
 
     Args:
         public_id (int): public_id of CmdbReport which should be updated
-        params (dict[str, Any]): updated CmdbReport parameters
+        params (dict[str, Any]): The query-string parameters; a JSON body overrides them key by key
         request_user (CmdbUser): CmdbUser which is requesting this update
 
     Returns:
@@ -344,7 +352,9 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
 
         current_report: dict[str, Any] = load_report_or_404(reports_manager, public_id)
 
-        payload: dict[str, Any] = build_report_update_payload(reports_manager, params, public_id, current_report)
+        payload: dict[str, Any] = build_report_update_payload(
+            reports_manager, read_report_write_payload(params), public_id, current_report,
+        )
 
         reports_manager.update_item(public_id, payload)
 

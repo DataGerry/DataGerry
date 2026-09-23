@@ -22,7 +22,7 @@ in the product goes through it. Three rules govern the methods here:
 **Every write is guarded by the object's CmdbType, and the guard runs first.** ``_guard_writable_type``
 is the one place that checks the type exists, is active, and that the caller's ACL grants the
 permission; insert, update and delete all call it, and ``delete_with_follow_up`` calls it *before* the
-ISMS cascade so a refused delete cannot destroy the object's risk assessments (it used to).
+ISMS cascade so a refused delete cannot destroy the object's risk assessments.
 
 **A read may skip what the caller cannot see, a write may not.** ``get_objects_by`` and
 ``group_objects_by_value`` drop the objects whose type ACL denies the user and return the rest, so a
@@ -1027,7 +1027,7 @@ class ObjectsManager(BaseManager):
         except AccessDeniedError as err:
             raise err
         except Exception as err:
-            # One arm, one log line: the named errors used to be re-wrapped silently while everything
+            # One arm, one log line: re-wrapping the named errors silently while everything
             # else was logged, so the likely failures were the ones an operator could not see
             LOGGER.error("[delete_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerDeleteError(err) from err
@@ -1042,7 +1042,7 @@ class ObjectsManager(BaseManager):
         """
         Deletes a CmdbObject together with the IsmsRiskAssessments that reference it
 
-        **Access is verified before anything is deleted.** The cascade used to run first and the
+        **Access is verified before anything is deleted.** A cascade running first would leave the
         permission check second - inside ``delete_object`` - so a delete the caller was not allowed
         to make, or one whose type had been deactivated, answered 403 with the object's risk
         assessments and their control-measure assignments already gone. The object survived; its

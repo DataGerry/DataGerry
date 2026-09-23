@@ -209,7 +209,7 @@ class TestIsmsReports:
 
     def test_risk_matrix_report_reports_the_unconfigured_state(self, rest_api) -> None:
         """
-        The test database has no IsmsRiskMatrix, and since 2026-09-09 the report says so
+        The test database has no IsmsRiskMatrix, and the report says so
 
         `configured: false` is what distinguishes "the config wizard has not run" from "the matrix is
         configured and nothing has been assessed against it" - both answered three empty grids before.
@@ -229,7 +229,7 @@ class TestIsmsReports:
         """
         A report that cannot be built from the stored data is a 400, not a 500
 
-        Every failure behind it used to reach the route's blanket handler.
+        Every failure behind it otherwise reaches the route's blanket handler.
         """
         def _fail(*_args, **_kwargs):
             raise RiskMatrixReportError('unusable configuration')
@@ -560,7 +560,7 @@ class TestReportFilterShapes:
     Both filter shapes the API documents reach the reports without a 500
 
     ``CollectionParameters`` types ``?filter=`` as ``dict | list[dict]`` and the rest of the backend
-    reads it that way, but the report routes used to wrap it unconditionally in ``{"$match": ...}`` -
+    reads it that way, so the report routes must not wrap it unconditionally in ``{"$match": ...}`` -
     so a list produced ``{"$match": [...]}``, which MongoDB rejects. A documented filter shape answered
     500 until 2026-09-07.
     """
@@ -574,7 +574,7 @@ class TestReportFilterShapes:
 
     @pytest.mark.parametrize('report', ['risk_treatment_plan', 'risk_assessments'])
     def test_a_list_filter_is_accepted(self, rest_api, report: str) -> None:
-        """The shape that used to 500: the caller sends pipeline stages instead of a query."""
+        """The shape that most easily 500s: the caller sends pipeline stages instead of a query."""
         stages = [{'$match': {'risk_treatment_option': 'AVOID'}}]
         query = urlencode({'filter': json.dumps(stages), 'limit': 10})
 

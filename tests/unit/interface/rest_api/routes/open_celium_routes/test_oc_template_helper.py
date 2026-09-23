@@ -16,7 +16,7 @@
 """
 Unit tests for the OpenCelium template route helpers
 
-The two decisions the detailed template route used to make inline, now testable without driving a
+The two decisions the detailed template route delegates here, testable without driving a
 route:
 
 * **which invoker marks a template as DataGerry's own.** A hosted cloud installation is registered
@@ -29,7 +29,7 @@ route:
   whole list because one template was malformed.
 
 `filter_datagerry_templates` also absorbs the manager's `None` (OpenCelium answered an empty body),
-which one of the two list routes used to hand to the frontend as `null`.
+which a list route must not hand to the frontend as `null`.
 """
 from typing import Any
 
@@ -148,7 +148,7 @@ class TestFilterDatagerryTemplates:
         """
         The manager reports 'OpenCelium answered an empty body' as None
 
-        One of the two list routes used to hand that null straight to the frontend while the other
+        Handing that null straight to the frontend from one list route while the other
         answered [].
         """
         assert filter_datagerry_templates(None, OC_DATAGERRY_INVOKER_NAME) == []
@@ -172,7 +172,7 @@ class TestFilterDatagerryTemplates:
     ])
     def test_a_malformed_template_is_dropped_not_fatal(self, template: dict[str, Any]) -> None:
         """
-        A null level used to raise AttributeError, i.e. a 500 for the whole list
+        A null level must not raise AttributeError, i.e. a 500 for the whole list
 
         The payload is another product's; every level of it is treated as optional.
         """
@@ -200,7 +200,7 @@ class TestFilterDatagerryTemplates:
 #                                                 the manager factory                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestBuildTemplateManager:
-    """The construction the four routes used to repeat."""
+    """The construction all four routes share."""
 
     def test_it_scopes_the_manager_to_the_users_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """

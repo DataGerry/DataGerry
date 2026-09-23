@@ -23,7 +23,7 @@ exercised.
 
 What is pinned here:
 
-  - **a malformed parameter refuses the request.** It used to be logged and skipped, so the search ran
+  - **a malformed parameter refuses the request.** Logging and skipping it would let the search run
     with fewer criteria than the user asked for - and a lost FILTER parameter returns MORE objects,
     with a 200 and nothing to notice
   - **one default for `disjunction`.** The constructor said False and `from_request` said True, so the
@@ -53,7 +53,7 @@ def _param(**overrides: Any) -> dict[str, Any]:
 
 
 class TestAMalformedParameterRefusesTheRequest:
-    """The behaviour change of 2026-09-08, and the reason for it."""
+    """Refusing rather than skipping, and the reason for it."""
 
     @pytest.mark.parametrize('missing', [
         SearchParamKey.SEARCH_TEXT.value,
@@ -84,7 +84,7 @@ class TestAMalformedParameterRefusesTheRequest:
         assert 'position 2' in str(caught.value)
 
     def test_an_unknown_form_is_refused(self) -> None:
-        """A typo'd form used to be dropped, and the search silently ran without that criterion."""
+        """A typo'd form must not be dropped, leaving the search to run without that criterion."""
         with pytest.raises(SearchParamError) as caught:
             SearchParam.from_request([_param(searchForm='nope')])
 
@@ -121,7 +121,7 @@ class TestAMalformedParameterRefusesTheRequest:
 
 
 class TestTheDisjunctionDefault:
-    """One concept, one default - it used to have two."""
+    """One concept, one default - two of them cannot agree."""
 
     def test_both_constructors_default_to_or(self) -> None:
         """

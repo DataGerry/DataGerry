@@ -142,7 +142,7 @@ def fixture_cmdb_app():
     """Provides a request context so current_app.cloud_mode is readable.
 
     Deliberately NOT named 'app_context': that name belongs to the session-scoped autouse fixture in
-    tests/fixtures/fixture_rest_api, and shadowing it leaves the session without an app context.
+    the REST API fixture, and shadowing it leaves the session without an app context.
     """
     app = BaseCmdbApp(__name__)
     app.cloud_mode = False
@@ -193,7 +193,7 @@ class TestInitSettings:
         assert appended[PROVIDER_CLASS_NAME_KEY] == LDAP_PROVIDER_NAME
 
     def test_the_appended_entry_is_resolvable_afterwards(self) -> None:
-        """The topped-up entry can be read back by name (it used to raise KeyError 'class_name')."""
+        """The topped-up entry can be read back by name, rather than raising KeyError 'class_name'."""
         module = _module([_stub_entry(LOCAL_PROVIDER_NAME)])
 
         assert isinstance(module.settings.get_provider_settings(LDAP_PROVIDER_NAME), dict)
@@ -286,7 +286,7 @@ class TestProviderRegistry:
         assert AuthModule.unregister_provider(_StubProvider) is False
 
     def test_the_registry_does_not_mutate_the_shipped_baseline(self) -> None:
-        """register_provider must not extend the pre-installed list (they used to be the same object)."""
+        """register_provider must not extend the pre-installed list, which one shared object would."""
         AuthModule.register_provider(_StubProvider)
 
         # pylint: disable=protected-access
@@ -333,7 +333,7 @@ class TestProviderRegistry:
             is _ExternalStubProvider.PASSWORD_ABLE
 
     def test_internals_and_external_are_split_by_the_flag(self) -> None:
-        """The two accessors filter on EXTERNAL_PROVIDER (they used to both return everything)."""
+        """The two accessors filter on EXTERNAL_PROVIDER rather than both returning everything."""
         internals = AuthModule.get_installed_internals()
         external = AuthModule.get_installed_external()
 
@@ -389,7 +389,7 @@ class TestProviderBuilders:
         assert 'No settings entry for provider' in caplog.text
 
     def test_get_provider_returns_an_instance_carrying_the_stored_config(self) -> None:
-        """The configured provider really gets the stored values (it used to always get the defaults)."""
+        """The configured provider really gets the stored values rather than the defaults."""
         module = _module([
             _stub_entry(LOCAL_PROVIDER_NAME),
             {PROVIDER_CLASS_NAME_KEY: LDAP_PROVIDER_NAME, PROVIDER_CONFIG_KEY: {

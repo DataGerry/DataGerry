@@ -263,7 +263,7 @@ class TestPostType:
         """
         A section kind outside SectionType is refused by the write schema
 
-        The type IMPORT has always refused one (`INVALID_SECTION_TYPES`); the write route used to
+        The type IMPORT refuses one (`INVALID_SECTION_TYPES`); a write route accepting any string would
         accept any string, so a mistyped `multi-data-section` was stored as a kind of its own,
         read back as a plain section, and its fields quietly stopped being multi-data fields.
         """
@@ -1107,7 +1107,7 @@ class TestListingCategoryFilters:
 
     def test_the_category_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
         """
-        The migration contract for **F3**: same rows, same order, same documents
+        The migration contract: same rows, same order, same documents
 
         The Angular app asks "types in category N" with a `$lookup` into `framework.categories`
         posted as `?filter=`. `?category=` has to be a drop-in for it, or switching the frontend over
@@ -1129,7 +1129,7 @@ class TestListingCategoryFilters:
         assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
 
     def test_the_uncategorized_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
-        """The same contract for the other half of **F3**: "types in no category"."""
+        """The same contract for the other half: "types in no category"."""
         frontend_pipeline = (
             '[{"$lookup":{"from":"framework.categories","localField":"public_id",'
             '"foreignField":"types","as":"categories"}},'
@@ -1231,7 +1231,7 @@ class TestCreateNormalisesTheAcl:
     """
     ``POST /types/`` stores the same ``acl`` block every other write path stores
 
-    The insert hands the raw payload to the manager, so before 2026-09-17 a create without an ``acl``
+    The insert hands the raw payload to the manager, so without completion here a create without an ``acl``
     stored a document without one and the first edit silently added it - two stored shapes for one
     meaning, decided by whether anyone had edited the type.
     """
@@ -1274,7 +1274,7 @@ class TestCreateNormalisesTheAcl:
     def test_a_partial_acl_is_completed_rather_than_refused(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """Groups without the flag is the shape the model and the query used to read differently."""
+        """Groups without the flag is the shape the model and the query most easily read differently."""
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         payload['acl'] = {'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
 
@@ -1301,7 +1301,7 @@ class TestCreateNormalisesTheAcl:
     def test_a_null_groups_does_not_become_a_500(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """``GroupACL.from_data`` used to raise on a null groups; the create path must not inherit that."""
+        """``GroupACL.from_data`` must not raise on a null groups, and the create path must not inherit one."""
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         payload['acl'] = {'activated': False, 'groups': None}
 

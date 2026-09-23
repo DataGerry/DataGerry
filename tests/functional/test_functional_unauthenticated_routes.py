@@ -11,9 +11,9 @@ looks like a third but is not - it gates the external API **channel**, and it op
 so outside cloud mode it is a pass-through. A route guarded by it alone is therefore **unauthenticated
 on-premise**, whatever `required_api_level` it names.
 
-On 2026-09-16 a repo-wide scan found exactly two route files in that state: `setup_routes.py`, whose
+A repo-wide scan finds exactly two route files in that state: `setup_routes.py`, whose
 blueprint is now registered only in cloud mode, and `rights_routes.py`, which gained
-`insert_request_user` (tier 2 T162; no ACL right, deliberately - the catalogue is product metadata).
+`insert_request_user` (no ACL right, deliberately - the catalogue is product metadata).
 
 This file keeps both closed: the rights routes are checked by calling them, and the family is checked
 by scanning the source, so a third one cannot appear unnoticed.
@@ -51,7 +51,7 @@ def _without_credentials(rest_api, route: str):
 
 
 class TestTheRightsCatalogueIsAuthenticated:
-    """T162: the catalogue used to answer to anyone who could reach the port."""
+    """The catalogue must not answer to anyone who can reach the port."""
 
     @pytest.mark.parametrize('route', RIGHTS_ROUTES)
     def test_no_credentials_is_refused(self, rest_api, route: str) -> None:

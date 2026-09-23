@@ -14,9 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The `?filter=` disclosures of tier 2 T148, re-run over HTTP (tier 2 T148)
+The `?filter=` disclosures, driven over HTTP
 
-Each request below **was verified answering 200 against this code on 2026-09-16**, as an ordinary
+Each request below answers 200 without the guard, as an ordinary
 authenticated caller with nothing but a list right. They are kept here as requests rather than as unit
 calls because what made the finding real was the status code and the response body, not the shape of
 an argument: the first one returned a stored password digest.
@@ -69,7 +69,7 @@ def _get_with_filter(rest_api, pipeline: Any):
 
 
 class TestTheVerifiedExploitsAreRefused:
-    """Each one is a request that used to answer 200 with data the caller may not have."""
+    """Each one is a request that would answer 200 with data the caller may not have."""
 
     @pytest.mark.parametrize('label,pipeline', VERIFIED_EXPLOITS, ids=[e[0] for e in VERIFIED_EXPLOITS])
     def test_it_answers_400(self, rest_api, label: str, pipeline: list[dict[str, Any]]) -> None:
@@ -91,7 +91,7 @@ class TestTheVerifiedExploitsAreRefused:
         """
         The message reaches the caller (finding B2)
 
-        Every rejection from the parameter package used to be flattened into
+        A rejection from the parameter package must not be flattened into
         *"Failed to parse the request parameters!"*, which told a client nothing and told a developer
         less. A refused stage now names itself.
         """

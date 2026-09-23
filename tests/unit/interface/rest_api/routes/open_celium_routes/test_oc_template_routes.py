@@ -199,7 +199,7 @@ class TestTheListRoutesNormalise:
         """
         The manager reports an empty OpenCelium body as None
 
-        It used to reach the frontend as `null` on this route while the detailed route answered [] -
+        It must not reach the frontend as `null` on this route while the detailed route answers [] -
         two shapes for one concept.
         """
         del patched_manager
@@ -227,7 +227,7 @@ class TestTheListRoutesNormalise:
 
     def test_a_malformed_template_does_not_fail_the_list(
             self, flask_app, template_manager, patched_manager) -> None:
-        """A null connection level used to raise AttributeError, i.e. a 500 for every template"""
+        """A null connection level must not raise AttributeError, i.e. a 500 for every template"""
         del patched_manager
         template_manager.get_all_templates.return_value = [
             {'connection': None},
@@ -248,7 +248,7 @@ class TestTheReadRoutesHonourHead:
     """A HEAD request must not cost the payload it discards."""
 
     def test_get_single_sends_no_body_for_head(self, flask_app, template_manager, patched_manager) -> None:
-        """DefaultResponse ignored the HEAD case until 2026-09-10 - werkzeug dropped the body after
+        """DefaultResponse answers the HEAD case itself - werkzeug drops the body after
         the whole payload had been built and serialized"""
         del patched_manager
         template_manager.get_template_by_id.return_value = {'templateId': TEMPLATE_ID}

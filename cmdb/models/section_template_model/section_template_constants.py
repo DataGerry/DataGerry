@@ -41,6 +41,26 @@ class SectionTemplateKey(BaseStrEnum):
     PREDEFINED = 'predefined'
 
 
+# The keys a client may set on a section-template write. Everything else is dropped rather than
+# stored: `CmdbSectionTemplate.__init__` takes **kwargs and the manager inserts the instance's
+# __dict__, so an extra request parameter would become a document key the SCHEMA does not declare -
+# invisible on read, because to_json drops it, and surviving every later edit
+SECTION_TEMPLATE_WRITE_KEYS: frozenset[str] = frozenset({
+    SectionTemplateKey.PUBLIC_ID,
+    SectionTemplateKey.NAME,
+    SectionTemplateKey.LABEL,
+    SectionTemplateKey.TYPE,
+    SectionTemplateKey.FIELDS,
+    SectionTemplateKey.IS_GLOBAL,
+    SectionTemplateKey.PREDEFINED,
+})
+
+# Cap on a template's `name` and `label`. Neither has a storage limit - the cap exists because both
+# are rendered: the label heads the section on every consuming type's form, and the name is the
+# propagation key shown wherever a template is listed. The value matches the frontend's own text cap
+SECTION_TEMPLATE_TEXT_MAX_LENGTH: int = 255
+
+
 class SectionTemplateUsageKey(BaseStrEnum):
     """
     Keys of the usage payload ``GET /section_templates/<public_id>/count`` answers

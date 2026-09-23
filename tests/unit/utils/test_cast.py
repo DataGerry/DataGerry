@@ -16,18 +16,13 @@
 """
 Unit tests for cmdb.utils.cast
 
-**This file used to pin the opposite of what it pins now.** Until 2026-09-16 eight of its tests
-carried a docstring saying "pinning today's behaviour, not endorsing it" and named a backlog item:
-`auto_cast` was `int()` and `float()` themselves, so it renumbered `'007'` to `7`, swallowed `'null'`,
-produced `nan`, and truncated a real `3.5` to `3`. Tier 2 **T163 / T164 / T165** were those tests.
+The rule is **recognise only what is unambiguous**. The interesting half of this file is therefore
+what is *refused*: every spelling below is one a permissive caster destroys - `'007'` renumbered to
+`7`, `'null'` swallowed, `nan` produced, a real `3.5` truncated to `3` - and a regression that
+re-admits one fails here rather than in a customer's data.
 
-The rule now is **recognise only what is unambiguous**. The interesting half of this file is
-therefore what is *refused*: every spelling below was a value the old casters destroyed, and a
-regression that re-admits one fails here rather than in a customer's data.
-
-Where the type really is known, it is applied elsewhere and afterwards - the CSV importer coerces
-every value against its target field's declared type. `tests/unit/framework/importer/
-test_csv_import_typing.py` is the end-to-end proof that the two layers now compose.
+Where the type really is known, it is applied elsewhere and afterwards: the CSV importer coerces
+every value against its target field's declared type, which is where the two layers compose.
 """
 from typing import Any
 
@@ -90,7 +85,7 @@ class TestNumberifyAccepts:
 
 class TestNumberifyRefuses:
     """
-    The heart of the change: every one of these used to be cast, and casting destroyed it
+    Every one of these is refused, because casting it destroys it
 
     Each case names the value a real installation loses. They are kept one per line rather than
     collapsed into a single list so that a failure names the spelling that regressed.
@@ -98,28 +93,26 @@ class TestNumberifyRefuses:
 
     @pytest.mark.parametrize('value', ['007', '0042', '00', '007.5'])
     def test_a_leading_zero_means_an_identifier(self, value: str) -> None:
-        """Asset tags, serials, part numbers and postcodes - `'007'` used to store as `7` (T165)."""
+        """Asset tags, serials, part numbers and postcodes - casting `'007'` stores it as `7`."""
         with pytest.raises(ValueError):
             numberify(value)
 
     @pytest.mark.parametrize('value', ['+7', '+49123', '+1 555'])
     def test_a_leading_plus_means_a_phone_number(self, value: str) -> None:
-        """`'+49123'` used to store as `49123`, with the country code silently removed."""
+        """Casting `'+49123'` stores `49123`, with the country code silently removed."""
         with pytest.raises(ValueError):
             numberify(value)
 
     @pytest.mark.parametrize('value', ['1_000', '1_0.5'])
     def test_the_underscore_separator_is_python_syntax_not_a_data_format(self, value: str) -> None:
-        """`int('1_000')` is 1000 in Python; no spreadsheet means that (T165)."""
+        """`int('1_000')` is 1000 in Python; no spreadsheet means that."""
         with pytest.raises(ValueError):
             numberify(value)
 
     @pytest.mark.parametrize('value', ['٧', '٠', '０７', '５'])
     def test_non_ascii_digits_are_not_numbers_here(self, value: str) -> None:
         """
-        Found by this audit, in no backlog entry
-
-        `int()` accepts every Unicode decimal digit, so a CSV from a localized spreadsheet used to
+        `int()` accepts every Unicode decimal digit, so a CSV from a localized spreadsheet would
         arrive as ASCII integers with the original text gone.
         """
         with pytest.raises(ValueError):
@@ -128,7 +121,7 @@ class TestNumberifyRefuses:
     @pytest.mark.parametrize('value', ['nan', 'NaN', 'inf', '-inf', 'Infinity', 'INF'])
     def test_the_non_finite_spellings_are_not_numbers(self, value: str) -> None:
         """
-        BSON stores them and no query ever matches them (T163)
+        BSON stores them and no query ever matches them
 
         `NaN != NaN` also breaks the importer's own whole-row comparison, so a re-import of an
         unchanged file reported every row as changed.
@@ -186,7 +179,7 @@ class TestAutoCast:
 
 class TestTheNoneSpellingsAreNoLongerErased:
     """
-    T163(a) / T164: `'null'` and `'None'` used to become `None`, and only in those two spellings
+    Casting turns `'null'` and `'None'` into `None`, and only in those two spellings
 
     `'NULL'` and `'none'` survived, so whether a cell was erased depended on its capitalisation. The
     fix is not to erase more consistently - it is to stop erasing here. An untyped source has no way
@@ -202,31 +195,29 @@ class TestTheNoneSpellingsAreNoLongerErased:
 
 class TestNonStringsAreReturnedUnchanged:
     """
-    T163(c), and the case it did not mention
-
-    Every caster used to be tried against non-strings too, so `int()` claimed whatever it could and
-    `str()` caught the rest.
+    Trying every caster against non-strings too lets `int()` claim whatever it can and `str()`
+    catch the rest.
     """
 
     def test_a_real_float_is_not_truncated(self) -> None:
         """
-        The worst of them, and in no backlog entry: `int(3.5)` is `3`
+        `int(3.5)` is `3`
 
-        The declared return type has always included `float`, so a float is a supported value - and
-        passing one back in used to destroy it.
+        The declared return type includes `float`, so a float is a supported value - and casting one
+        back destroys it.
         """
         assert auto_cast(3.5) == 3.5
 
     def test_a_real_bool_stays_a_bool(self) -> None:
-        """`boolify` rejects a native bool, so `int()` used to claim it and `True` became `1`."""
+        """`boolify` rejects a native bool, so `int()` would claim it and `True` become `1`."""
         assert auto_cast(True) is True
         assert auto_cast(False) is False
 
     def test_a_real_none_stays_none(self) -> None:
-        """It used to reach the string fallback and come back as the text `'None'` (T163c)."""
+        """Without this it reaches the string fallback and comes back as the text `'None'`."""
         assert auto_cast(None) is None
 
     @pytest.mark.parametrize('value', [['a'], {'k': 1}, 0, 1, 42, -3])
     def test_everything_else_is_the_same_object(self, value: Any) -> None:
-        """A list used to become its repr. Nothing is stringified here any more."""
+        """A list would become its repr. Nothing is stringified here."""
         assert auto_cast(value) is value

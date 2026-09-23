@@ -566,8 +566,8 @@ def __check_api_level(
 
 
 # Per-request caches. Accepting a token costs a settings read of the RSA key document plus an RSA
-# signature verification, and up to three decorators of one route each used to redo the whole chain:
-# a single GET was measured at 4 TokenValidator constructions, 4 decodes and 12 reads of the key
+# signature verification, and up to three decorators of one route each would redo the whole chain -
+# a single GET costing 4 TokenValidator constructions, 4 decodes and 12 reads of the key
 # document. The header parse (which for a bearer token also VALIDATES it, see _validate_bearer) and
 # the decode are therefore memoised for the duration of the request
 _PARSED_TOKEN_CACHE_KEY: str = 'dg_parsed_authorization_headers'
@@ -638,8 +638,8 @@ def token_user_claim(claims: dict[str, Any]) -> dict[str, Any]:
     """
     Reads the acting user's data out of a token's claims
 
-    The `DATAGERRY` claim is wrapped - `{'essential': True, 'value': {...}}` - so every consumer
-    used to spell `claims['DATAGERRY']['value']['user']` by hand. See `token_constants` for why the
+    The `DATAGERRY` claim is wrapped - `{'essential': True, 'value': {...}}` - so without this every
+    consumer spells `claims['DATAGERRY']['value']['user']` by hand. See `token_constants` for why the
     wrapper exists and why it stays
 
     Args:

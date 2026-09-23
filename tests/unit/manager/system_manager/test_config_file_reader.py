@@ -207,11 +207,11 @@ def fixture_secret_config_dir(tmp_path: Path) -> Path:
 
 class TestSecretsAreServedVerbatim:
     """
-    Tier 2 T163, finding S1 - the one finding of that audit with a live consequence
+    The secret list, and the live consequence of casting one
 
-    An `[OpenCelium] password` of `27017` used to reach `OcApiConnector.password` - annotated `str` -
-    as the int `27017`, and was sent in the login body as a JSON **number**. The connection failed
-    and reported bad credentials. The cloud path never had it, because it reads `OC_PASSWORD` with a
+    An `[OpenCelium] password` of `27017` cast to the int `27017` reaches `OcApiConnector.password` -
+    annotated `str` - and is sent in the login body as a JSON **number**. The connection fails and
+    reports bad credentials. The cloud path never has it, because it reads `OC_PASSWORD` with a
     bare `os.getenv`, so the same secret had a different type depending on where it was configured.
     """
 
@@ -256,8 +256,8 @@ class TestSecretsAreServedVerbatim:
         """
         `user = 0815` is not in the secret list and does not need to be
 
-        The leading zero alone keeps it text now, which is the wider T165 fix doing the work - worth
-        pinning so the two fixes are not confused for one another.
+        The leading zero alone keeps it text, which is the caster's identifier rule doing the work
+        rather than the secret list - worth pinning so the two are not confused for one another.
         """
         assert _reader(secret_config_dir).get_value('user', SECRET_SECTION) == '0815'
 
@@ -287,10 +287,10 @@ class TestGetValue:
 
     def test_the_text_none_is_no_longer_erased(self, config_dir: Path) -> None:
         """
-        `keepalive = None` is served as the string it is (tier 2 T163)
+        `keepalive = None` is served as the string it is
 
-        `auto_cast` used to turn the two exact spellings `None` and `null` into Python `None` - and
-        only those two, so `NULL` and `none` survived. The erasure is gone rather than made
+        Erasing it would catch the two exact spellings `None` and `null` and only those, so `NULL`
+        and `none` survive. The erasure is gone rather than made
         consistent: an ini file has no "absent" literal, and the way to leave a setting unset is to
         omit the line. A caller that wants a default asks for one - `get_value(..., default=...)`.
         """
@@ -306,8 +306,8 @@ class TestGetValue:
         """
         A setting written TRUE is the same setting as one written true.
 
-        The caster used to compare the two exact spellings 'True' / 'true', so an uppercase value
-        stayed a string - truthy, but not the bool the reader promises.
+        Comparing the two exact spellings 'True' / 'true' leaves an uppercase value a string -
+        truthy, but not the bool the reader promises.
         """
         monkeypatch.setenv(_env_key(WEBSERVER_SECTION, 'threaded'), spelling)
 
@@ -320,7 +320,7 @@ class TestGetValue:
         assert _reader(config_dir).get_value(HOST_KEY, DATABASE_SECTION) == ENV_HOST
 
     def test_environment_values_are_cast_too(self, config_dir: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An overlay value is cast like a file value (it used to stay a string)."""
+        """An overlay value is cast like a file value rather than staying a string."""
         monkeypatch.setenv(_env_key(DATABASE_SECTION, PORT_KEY), str(ENV_PORT))
 
         assert _reader(config_dir).get_value(PORT_KEY, DATABASE_SECTION) == ENV_PORT
@@ -341,7 +341,7 @@ class TestGetValue:
             _reader(config_dir).get_value(MISSING_KEY, DATABASE_SECTION)
 
     def test_missing_section_returns_the_default(self, config_dir: Path) -> None:
-        """A default also covers a section that does not exist (it used to raise SectionError)."""
+        """A default also covers a section that does not exist, rather than raising SectionError."""
         assert _reader(config_dir).get_value(HOST_KEY, GHOST_SECTION, default='fallback') == 'fallback'
 
     def test_an_explicit_none_default_is_served(self, config_dir: Path) -> None:

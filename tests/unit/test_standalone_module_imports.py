@@ -25,16 +25,15 @@ something enters through the other one - a maintenance script, a PyInstaller hid
 test module that imports the lower half directly.
 
 The modules pinned here are the ones that were reachable through the
-`cmdb.models.location_model` <-> `cmdb.database.predefined_data.cmdb_data` cycle (fixed 2026-09-07 by
+`cmdb.models.location_model` <-> `cmdb.database.predefined_data.cmdb_data` cycle (broken by
 deferring the model layer's reach UP into the database layer into `validate_root_location`), plus
 `cmdb.security.acl.builder`, whose own cycle with `base_query_builder` is gone since the ACL query
 builder was rewritten, `routes/connection.py`, which needed a live app context on import until its
 database manager moved from module level into the view, and the five `cmdb.open_celium` modules, which
 cycled with `cmdb.manager` until the connector's own manager imports moved into their methods (all
-2026-09-07). `cmdb/class_schema` has its own, wider tripwire in
-tests/unit/test_class_schema_standalone_imports.py.
+the same rule). `cmdb/class_schema` has its own, wider tripwire.
 
-As of 2026-09-07 the invariant holds for **every** module: a scan of all 1,010 modules under `cmdb/`,
+The invariant holds for **every** module: a scan of all 1,010 modules under `cmdb/`,
 each imported as the first cmdb module of a purged `sys.modules`, reports zero failures (it was 16).
 That scan is not this test - it takes ~55s, too slow to run on every suite - so what is pinned here is
 the set of modules that has actually broken, which is where a regression is most likely. Re-run the

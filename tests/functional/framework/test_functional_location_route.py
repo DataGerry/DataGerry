@@ -23,12 +23,12 @@ codes and the JSON envelopes for the CmdbLocation routes - POST create, GET-list
 correctness itself is asserted at the manager layer; these tests only verify the routes wrap
 it correctly.
 
-Since 2026-08-27 also: the per-route error tails no test reached (the ``/tree/search`` 500 and the two
+Also covered: the per-route error tails (the ``/tree/search`` 500 and the two
 move routes' manager-error and unexpected-error arms), the HTTPException pass-throughs the five read
 routes were missing, and the ``/<id>/parent`` route answering 200 with ``null`` for a dangling parent
 instead of 404.
 
-Since 2026-09-09 also: the root document is reachable as ``DELETE /<0>/object`` (it carries the
+And: the root document is reachable as ``DELETE /<0>/object`` (it carries the
 object_id sentinel 0) and is refused there, and one tree level answers in name order rather than in
 the read's insertion order.
 """
@@ -897,7 +897,7 @@ class TestParentOfDanglingLocation:
         """
         A location whose parent id resolves to nothing answers 200 + null (regression)
 
-        It used to 404, while an object with no location at all answered 200 + null - the same outcome
+        A 404 here, while an object with no location at all answers 200 + null, is the same outcome
         with two encodings, and a data-integrity problem reported as a missing resource.
         """
         collection = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)

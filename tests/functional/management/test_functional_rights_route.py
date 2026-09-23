@@ -19,7 +19,7 @@ Functional smoke for the ``/rights`` REST routes
 The rights are a static, in-memory tree (not database-backed), so there is no CRUD to seed.
 These tests verify the route-layer contract: the list envelope + X-Total-Count, the flat vs
 tree view switch, sorting/pagination, the single-right lookup, the 404 on a missing name
-(regression: a missing right used to surface as a 500), and the static levels endpoint.
+(a missing right must not surface as a 500), and the static levels endpoint.
 """
 from http import HTTPStatus
 
@@ -44,7 +44,7 @@ PAGE_LIMIT: int = 5
 ORDER_DESC: int = -1
 
 # The number of rights the tree declares - what BOTH views have to report as their total. The tree
-# view used to report len(ALL_RIGHTS) instead, i.e. the number of top-level groups
+# the view must not report len(ALL_RIGHTS) instead, i.e. the number of top-level groups
 DECLARED_RIGHTS_COUNT: int = len(flat_rights_tree(ALL_RIGHTS))
 TOP_LEVEL_GROUP_COUNT: int = len(ALL_RIGHTS)
 
@@ -161,7 +161,7 @@ class TestGetLevels:
         CRITICAL first, descending - a JSON object preserves the order it was built in
 
         The catalogue is derived from the enum (`Levels.as_name_map`), so the order is the enum's.
-        It used to come from a hand-written dict whose order happened to match; a member inserted
+        A hand-written dict whose order happens to match is not enough; a member inserted
         between two others now appears where it was declared instead of where someone remembered to
         type it.
         """
@@ -225,7 +225,7 @@ class TestErrorMapping:
 class TestGetRightsOverview:
     """A page of rights, each carrying the CmdbUserGroups that hold it.
 
-    The column this feeds used to be filled by one count request PER RIGHT - ~200 of them for a
+    The column this feeds would otherwise take one count request PER RIGHT - ~200 of them for a
     catalogue of ~200 rights, because the page loads the whole thing unpaginated. The route answers
     the same data in two queries, whatever the page size.
     """

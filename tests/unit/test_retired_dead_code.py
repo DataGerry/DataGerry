@@ -14,15 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Members removed on 2026-09-14 because nothing called them
+Members removed because nothing called them
 
-The coverage gap table had shrunk to 48 files missing one to three statements each. Checking callers
-before writing tests for them turned up eight methods with **no caller anywhere** - not in `cmdb/`,
-not in `tests/`, and not through `getattr`. They were removed rather than covered.
+Eight methods had **no caller anywhere** - not in `cmdb/`, not in `tests/`, and not through
+`getattr` - so they were removed rather than covered.
 
-Asserted here, as `test_type_reference.py::TestTheRetiredMembers` does for the 2026-09-10 batch, so a
-future caller writes what it needs instead of resurrecting a default nobody checked. Two of the eight
-were actively wrong, which is fair evidence they were never called:
+Their absence is asserted here so a future caller writes what it needs instead of resurrecting a
+default nobody checked. Two of the eight were actively wrong, which is fair evidence they were never
+called:
 
 * `TypeMultiDataSection.get_hidden_fields` returned `self.fields` - **every** field, byte-identical
   to `get_fields()` one method above it
@@ -59,7 +58,7 @@ RETIRED: list[tuple[type, str]] = [
 
 
 class TestTheRetiredMembers:
-    """Eight methods had no caller anywhere and were removed on 2026-09-14."""
+    """Eight methods had no caller anywhere and are gone."""
 
     @pytest.mark.parametrize('owner, member', RETIRED, ids=lambda arg: arg if isinstance(arg, str) else arg.__name__)
     def test_they_are_gone(self, owner: type, member: str) -> None:
@@ -94,13 +93,13 @@ class TestWhatTheyReadIsStillReachable:
 
 class TestPasswordAbleFoundItsReader:
     """
-    `PASSWORD_ABLE` outlived its accessor, and was wired on 2026-09-21
+    `PASSWORD_ABLE` outlived its accessor, and is wired to a new one
 
     `is_password_able` was removed with the rest above because nothing called it - but the flag was
     KEPT, on the grounds that the LDAP provider's deliberate override was evidence somebody meant it
     to do something. It now means: DataGerry owns this provider's users' passwords. The reader is
     `AuthModule.provider_owns_passwords`, and the password-change route refuses a user whose
-    directory owns the credentials (see tests/functional/management/test_functional_users_route.py).
+    directory owns the credentials.
     """
 
     def test_the_accessor_stayed_removed(self) -> None:

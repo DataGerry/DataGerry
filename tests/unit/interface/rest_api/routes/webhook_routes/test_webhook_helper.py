@@ -24,9 +24,9 @@ Two properties are the point of this module, because both were broken and neithe
 coverage (the helper was at 100% while failing them):
 
 * **isolation** - one unreachable webhook must not stop the webhooks after it, and must still be
-  logged. The delivery used to sit in a single function-level ``try``, so the first failure ended the
+  logged. A single function-level ``try`` around the delivery lets the first failure end the
   fan-out and no CmdbWebhookEvent was written for any webhook, including the one that failed.
-* **any 2xx is a delivery** - a receiver answering 204 used to be recorded with ``status`` False.
+* **any 2xx is a delivery** - a receiver answering 204 must not be recorded with ``status`` False.
 
 The dispatch is forced onto the calling thread by the autouse fixture below; the delivery code itself
 is untouched by that, only the thread it runs on.
@@ -270,7 +270,7 @@ class TestDeliveredStatus:
 
     @pytest.mark.parametrize('status_code', [200, 201, 202, 204, 299])
     def test_every_2xx_counts_as_delivered(self, monkeypatch, status_code: int) -> None:
-        """204 used to be recorded as a failure, because the check was == 200."""
+        """204 must not be recorded as a failure, which a check of == 200 would do."""
         event_manager = _StubEventManager()
         monkeypatch.setattr(webhook_helper.ManagerProvider, 'get_manager',
                             staticmethod(_manager_resolver([SimpleNamespace(public_id=1, url='http://a.test/h')],
@@ -397,7 +397,7 @@ class TestParseWebhookParams:
     ], ids=['no-name', 'blank-name', 'no-url', 'bad-scheme', 'no-host', 'no-event-types',
             'event-types-int', 'event-types-empty', 'event-types-unknown', 'event-types-unparsable'])
     def test_rejects_an_unusable_payload(self, params: dict) -> None:
-        """Each of these used to be accepted and stored."""
+        """Each of these must be refused rather than accepted and stored."""
         with pytest.raises(HTTPException) as raised:
             parse_webhook_params(dict(params))
 

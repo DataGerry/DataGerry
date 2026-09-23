@@ -21,12 +21,11 @@ Pure tests: no Mongo, no Flask. The two sibling modules cover the standalone hel
 had no test of its own although every read, write, import, export, render and history entry in the
 framework passes through it.
 
-The model declares ``KEYS`` and inherits ``from_data`` / ``to_json`` from CmdbDAO
-(tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is pinned here is
-what remains its own:
+The model declares ``KEYS`` and inherits ``from_data`` / ``to_json`` from CmdbDAO, whose shared
+machinery has its own tests, so what is pinned here is what remains its own:
 
-  - **nothing is invented**: an object without a creation time reads as None, where the constructor
-    used to answer ``datetime.now()`` - a different value on every read
+  - **nothing is invented**: an object without a creation time reads as None, not as
+    ``datetime.now()`` - which would be a different value on every read
   - **nothing that was readable becomes unreadable**: only ``type_id`` and ``author_id`` are required,
     the two keys the previous implementation already read with ``data['key']``. The keys the schema
     defaults (fields, multi_data_sections, active, version) are defaulted here too, in the hook
@@ -124,7 +123,7 @@ class TestNothingIsInvented:
 
     def test_an_object_without_a_creation_time_reports_none(self) -> None:
         """
-        The constructor used to answer datetime.now(), evaluated per call
+        A ``datetime.now()`` default would be evaluated per call
 
         So an old document reported *today* as its creation date, and a different value each time it
         was fetched - on the collection whose history the whole audit trail hangs off.
@@ -231,7 +230,7 @@ class TestTheTimestamps:
 
     def test_an_unreadable_timestamp_is_refused(self) -> None:
         """
-        'sometime in March 2020' used to parse into a date built from today's day number
+        'sometime in March 2020' parses, fuzzily, into a date built from today's day number
 
         No write route can reach it today - create stamps, update pins, PATCH refuses and the importer
         forces - but the model is called directly by the search pipeline and by integrations.
@@ -262,7 +261,7 @@ class TestTheDocumentContract:
 
     def test_an_unknown_key_is_ignored_rather_than_stored(self) -> None:
         """
-        The constructor used to take **kwargs and setattr whatever a document carried
+        A constructor taking **kwargs would setattr whatever a document carried
 
         A drifted or misspelled key became a silent attribute that to_json then dropped. It is also
         what lets the transient 'location_name' of a create payload pass through harmlessly.
@@ -292,8 +291,7 @@ class TestTheDocumentContract:
         """
         Declaring more would make documents unreadable that have always been read
 
-        Pinned as a decision: the other keys the list used to name are optional in the schema and
-        defaulted in the hook.
+        Pinned as a decision: every other key is optional in the schema and defaulted in the hook.
         """
         assert set(CmdbObject.REQUIRED_INIT_KEYS) == {
             CmdbObjectKey.TYPE_ID.value,
@@ -462,7 +460,8 @@ class TestCollectionAndIndexes:
         """
         A renamed key cannot leave an index pointing at a path that no longer exists
 
-        The five declarations used to spell their dotted paths as literals.
+        The five declarations compose their dotted paths from the key enums rather than spelling
+        them as literals.
         """
         index_paths: set[str] = {
             key for index in CmdbObject.get_index_keys() for key in index.document['key']
