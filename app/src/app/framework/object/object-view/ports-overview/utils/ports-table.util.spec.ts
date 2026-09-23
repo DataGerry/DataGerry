@@ -15,7 +15,6 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { FieldOption } from 'src/app/framework/models/cmdb-section-template';
 import { IPAM_INTERFACE_FIELD_NAMES } from 'src/app/framework/render/special-types/ipam-interface/models/interface-fields';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
 import {
@@ -23,41 +22,40 @@ import {
     InterfaceRelationType,
     PortInterfaceLink
 } from '../models/interface-link.types';
-import {
-    CableSource,
-    CmdbPortConnection,
-    ConnectionType,
-    PortConnectionState,
-    ResolvedCable
-} from '../models/port-connection.types';
-import { CmdbPort, PortSide } from '../models/ports-overview.types';
-import { indexConnectionsByPort } from './port-connection.util';
+import { PortDeviceKind } from '../models/port-bulk.types';
+import { CableSource, ConnectionType, PortConnectionState, ResolvedCable } from '../models/port-connection.types';
+import { OverviewPort, PortSide } from '../models/ports-overview.types';
 import {
     clampPage,
-    hasConnectionState,
-    hasInterfaceLinks,
-    hasPanelSides,
-    pagePortRows,
+    overviewPorts,
+    pageRows,
+    portsOfPanelRows,
+    sortPatchPanelRows,
     sortPortRows,
-    toOptionLabels,
-    toPortRows
+    toCableConnection,
+    toCmdbPort,
+    toPatchPanelRows,
+    toPortRow,
+    toStandardRows
 } from './ports-table.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-function port(overrides: Partial<CmdbPort> = {}): CmdbPort {
+function port(overrides: Partial<OverviewPort> = {}): OverviewPort {
     return {
-        public_id: 1,
-        object_id: 8802,
+        port_id: 1,
         side: PortSide.SINGLE,
-        name: 'Gi1/0/1',
         port_number: 1,
-        status: null,
-        port_type: null,
-        speed: null,
+        name: 'Gi1/0/1',
         description: null,
-        author_id: 1,
-        creation_time: null,
-        last_edit_time: null,
+        connected: false,
+        cable: null,
+        cable_connection_id: null,
+        connected_port: null,
+        connected_object: null,
+        interface_links: [],
+        status: { id: null, label: null },
+        port_type: { id: null, label: null },
+        speed: { id: null, label: null },
         ...overrides
     };
 }
@@ -95,17 +93,17 @@ function cable(overrides: Partial<ResolvedCable> = {}): ResolvedCable {
     };
 }
 
-function connection(overrides: Partial<CmdbPortConnection> = {}): CmdbPortConnection {
-    return {
-        public_id: 1,
-        endpoints: [1, 2],
-        connection_type: ConnectionType.CABLE,
-        cable: cable(),
-        author_id: 1,
-        creation_time: null,
-        last_edit_time: null,
+/** A port cabled to Gi1/1 of object 9872. */
+function cabledPort(overrides: Partial<OverviewPort> = {}): OverviewPort {
+    return port({
+        port_id: 9880,
+        connected: true,
+        cable: cable({ name: 'Patch 3m' }),
+        cable_connection_id: 9890,
+        connected_port: { port_id: 9884, name: 'Gi1/1', side: PortSide.SINGLE },
+        connected_object: { object_id: 9872, label: 'host-9872', restricted: false },
         ...overrides
-    };
+    });
 }
 
 const BY_NAME: Sort = { name: 'name', order: SortDirection.ASCENDING };
@@ -113,154 +111,160 @@ const BY_NAME: Sort = { name: 'name', order: SortDirection.ASCENDING };
 
 describe('ports-table.util', () => {
 
-    describe('toOptionLabels', () => {
-        it('flattens every option type into one public_id lookup', () => {
-            const options = new Map<string, FieldOption[]>([
-                ['PORT_STATUS', [{ name: '7', label: 'Up' }]],
-                ['PORT_SPEED', [{ name: '25', label: '1G' }]]
-            ]);
+    describe('toPortRow', () => {
+        it('reads the labels the overview already resolved', () => {
+            const row = toPortRow(port({
+                status: { id: 7, label: 'Up' },
+                port_type: { id: 10, label: 'RJ45' },
+                speed: { id: 25, label: '1G' }
+            }));
 
-            expect(toOptionLabels(options).get('7')).toBe('Up');
-            expect(toOptionLabels(options).get('25')).toBe('1G');
-        });
-    });
-
-
-    describe('toPortRows', () => {
-        it('resolves the option ids into their labels', () => {
-            const labels = new Map([['7', 'Up'], ['10', 'RJ45'], ['25', '1G']]);
-
-            const [row] = toPortRows([port({ status: 7, port_type: 10, speed: 25 })], labels);
-
-            expect(row.status).toBe('Up');
-            expect(row.portType).toBe('RJ45');
-            expect(row.speed).toBe('1G');
+            expect([row.status, row.portType, row.speed]).toEqual(['Up', 'RJ45', '1G']);
         });
 
-        it('keeps no label for an id whose option is gone, rather than showing the raw id', () => {
-            const [row] = toPortRows([port({ status: 999 })], new Map());
-
-            expect(row.status).toBeNull();
+        it('shows nothing for an option without a label, never its id', () => {
+            expect(toPortRow(port({ status: { id: 999, label: null } })).status).toBeNull();
         });
 
-        it('summarises the embedded interface links and sorts by the resolved label', () => {
-            const [row] = toPortRows([port({ interface_links: [interfaceLink(), interfaceLink({ public_id: 5502 })] })], new Map());
-
-            expect(row.interfaces.label).toBe('10.0.0.5');
-            expect(row.interfaces.additionalLabels).toEqual(['10.0.0.5']);
-            expect(row.interfaceLabel).toBe('10.0.0.5');
-        });
-
-        it('leaves a port without embedded links with an empty summary', () => {
-            const [row] = toPortRows([port()], new Map());
-
-            expect(row.interfaces).toEqual({ label: null, address: null, additionalLabels: [], dangling: 0 });
-            expect(row.interfaceLabel).toBeNull();
-        });
-
-        it('reads an unknown side as an ordinary device port', () => {
-            const [row] = toPortRows([port({ side: 'somewhere' as PortSide })], new Map());
-
-            expect(row.side).toBe(PortSide.SINGLE);
-            expect(row.sideLabel).toBe('');
-        });
-
-        it('treats a missing connection state as not connected', () => {
-            const [row] = toPortRows([port()], new Map());
-
-            expect(row.connected).toBeFalse();
-        });
-    });
-
-
-    describe('the connection cell', () => {
-        const panel = [
-            port({ public_id: 1, name: 'PP-01/F01', side: PortSide.FRONT }),
-            port({ public_id: 2, name: 'PP-01/R01', side: PortSide.REAR })
-        ];
-
-        it('reads as free while nothing is connected', () => {
-            const [row] = toPortRows(panel, new Map());
+        it('reads a port without a cable as free', () => {
+            const row = toPortRow(port({ connected: true }));
 
             expect(row.connectionState).toBe(PortConnectionState.FREE);
             expect(row.connectionLabel).toBe('Free');
-            expect(row.cableConnectionId).toBeNull();
+            expect(row.farEndLabel).toBeNull();
         });
 
-        it('names the counterpart of an internal pairing, which belongs to the same object', () => {
-            const connections = indexConnectionsByPort([
-                connection({ endpoints: [1, 2], connection_type: ConnectionType.INTERNAL, cable: null })
-            ]);
+        it('names the cable and the port and object at its far end', () => {
+            const row = toPortRow(cabledPort());
 
-            const [front] = toPortRows(panel, new Map(), connections);
-
-            expect(front.connectionState).toBe(PortConnectionState.PAIRED);
-            expect(front.connectionLabel).toBe('Paired with PP-01/R01');
-            expect(front.pairedPortName).toBe('PP-01/R01');
+            expect(row.connectionState).toBe(PortConnectionState.CABLED);
+            expect(row.connectionLabel).toBe('Patch 3m');
+            expect(row.cableConnectionId).toBe(9890);
+            expect(row.farEndLabel).toBe('Gi1/1 · host-9872');
         });
 
-        it('reads as its cable once one is attached, and offers that cable to edit', () => {
-            const connections = indexConnectionsByPort([
-                connection({
-                    public_id: 7,
-                    endpoints: [1, 99],
-                    cable: cable({ name: 'Patch A-12', length: '3 m' })
-                })
-            ]);
+        it('does not name a far end the user may not read', () => {
+            const row = toPortRow(cabledPort({
+                connected_port: { port_id: 9885, name: null, side: null },
+                connected_object: { object_id: 9873, label: null, restricted: true }
+            }));
 
-            const [front] = toPortRows(panel, new Map(), connections);
-
-            expect(front.connectionState).toBe(PortConnectionState.CABLED);
-            expect(front.connectionLabel).toBe('Patch A-12 · 3 m');
-            expect(front.cableConnectionId).toBe(7);
+            expect(row.farEndLabel).toBe('Restricted object');
         });
 
-        it('keeps the pairing of a panel port that also carries a cable', () => {
-            const connections = indexConnectionsByPort([
-                connection({ public_id: 7, endpoints: [1, 99] }),
-                connection({
-                    public_id: 8,
-                    endpoints: [1, 2],
-                    connection_type: ConnectionType.INTERNAL,
-                    cable: null
-                })
-            ]);
+        it('summarises the embedded interface links', () => {
+            const row = toPortRow(port({ interface_links: [interfaceLink(), interfaceLink({ public_id: 5502 })] }));
 
-            const [front] = toPortRows(panel, new Map(), connections);
-
-            expect(front.connectionState).toBe(PortConnectionState.CABLED);
-            expect(front.pairedPortName).toBe('PP-01/R01');
+            expect(row.interfaceLabel).toBe('10.0.0.5');
+            expect(row.interfaces.additionalLabels.length).toBe(1);
         });
     });
 
 
-    describe('optional columns', () => {
-        it('reports panel sides only when a port sits on a face', () => {
-            const single = toPortRows([port()], new Map());
-            const panel = toPortRows([port({ side: PortSide.REAR })], new Map());
+    describe('toStandardRows', () => {
+        it('builds one row per port', () => {
+            const rows = toStandardRows([{ port: port() }, { port: port({ port_id: 2, name: 'Gi1/0/2' }) }]);
 
-            expect(hasPanelSides(single)).toBeFalse();
-            expect(hasPanelSides(panel)).toBeTrue();
+            expect(rows.map((row) => row.publicId)).toEqual([1, 2]);
+        });
+    });
+
+
+    describe('toPatchPanelRows', () => {
+        const front = port({ port_id: 9881, side: PortSide.FRONT, name: 'F01', port_number: 1 });
+        const rear = cabledPort({ port_id: 9882, side: PortSide.REAR, name: 'R01', port_number: 1 });
+        const lonely = port({ port_id: 9883, side: PortSide.FRONT, name: 'F02', port_number: 2 });
+
+        const rows = toPatchPanelRows([
+            { front, rear, paired: true },
+            { front: lonely, rear: null, paired: false }
+        ]);
+
+        it('builds one row per pairing with both faces side by side', () => {
+            expect(rows.length).toBe(2);
+            expect(rows[0].front.name).toBe('F01');
+            expect(rows[0].rear.name).toBe('R01');
+            expect(rows[0].paired).toBeTrue();
         });
 
-        it('reports a connection state only when the backend sends the key', () => {
-            expect(hasConnectionState([port()])).toBeFalse();
-            expect(hasConnectionState([port({ connected: false })])).toBeTrue();
+        it('keeps an unpaired port on its own row', () => {
+            expect(rows[1].key).toBe(9883);
+            expect(rows[1].rear).toBeNull();
+            expect(rows[1].paired).toBeFalse();
         });
 
-        it('reports interface links only when the backend embeds the key', () => {
-            expect(hasInterfaceLinks([port()])).toBeFalse();
-            expect(hasInterfaceLinks([port({ interface_links: [] })])).toBeTrue();
+        it('falls back to the rear port when the front one is missing', () => {
+            const [row] = toPatchPanelRows([{ front: null, rear, paired: false }]);
+
+            expect(row.key).toBe(9882);
+            expect(row.portNumber).toBe(1);
+        });
+
+        it('hands both faces of a selected pairing to the bulk actions', () => {
+            expect(portsOfPanelRows(rows).map((row) => row.name)).toEqual(['F01', 'R01', 'F02']);
+        });
+
+        it('sorts pairings by the rear port name', () => {
+            const sorted = sortPatchPanelRows(rows, { name: 'rear', order: SortDirection.ASCENDING });
+
+            expect(sorted.map((row) => row.key)).toEqual([9881, 9883]);
+        });
+    });
+
+
+    describe('overviewPorts', () => {
+        it('collects the ports of either row shape', () => {
+            const standard = overviewPorts({
+                device_kind: PortDeviceKind.STANDARD,
+                rows: [{ port: port() }],
+                total: 1
+            });
+            const panel = overviewPorts({
+                device_kind: PortDeviceKind.PATCH_PANEL,
+                rows: [{ front: port({ port_id: 2 }), rear: null, paired: false }],
+                total: 1
+            });
+
+            expect(standard.map((entry) => entry.port_id)).toEqual([1]);
+            expect(panel.map((entry) => entry.port_id)).toEqual([2]);
+        });
+    });
+
+
+    describe('toCmdbPort', () => {
+        it('keeps the option ids the edit form preselects', () => {
+            const stored = toCmdbPort(port({ status: { id: 7, label: 'Up' }, speed: { id: 25, label: '1G' } }), 20);
+
+            expect(stored.object_id).toBe(20);
+            expect(stored.status).toBe(7);
+            expect(stored.speed).toBe(25);
+            expect(stored.port_type).toBeNull();
+        });
+    });
+
+
+    describe('toCableConnection', () => {
+        it('rebuilds the cable with both endpoints sorted', () => {
+            const connection = toCableConnection(cabledPort());
+
+            expect(connection.public_id).toBe(9890);
+            expect(connection.endpoints).toEqual([9880, 9884]);
+            expect(connection.connection_type).toBe(ConnectionType.CABLE);
+            expect(connection.cable.name).toBe('Patch 3m');
+        });
+
+        it('is null for a port without a cable', () => {
+            expect(toCableConnection(port())).toBeNull();
         });
     });
 
 
     describe('sortPortRows', () => {
-        const rows = toPortRows([
-            port({ public_id: 1, name: 'Gi1/0/2', port_number: 2, description: 'Uplink' }),
-            port({ public_id: 2, name: 'Gi1/0/10', port_number: 10 }),
-            port({ public_id: 3, name: 'Gi1/0/1', port_number: 1 })
-        ], new Map());
+        const rows = toStandardRows([
+            { port: port({ port_id: 1, name: 'Gi1/0/2', port_number: 2, description: 'Uplink' }) },
+            { port: port({ port_id: 2, name: 'Gi1/0/10', port_number: 10 }) },
+            { port: port({ port_id: 3, name: 'Gi1/0/1', port_number: 1 }) }
+        ]);
 
         it('collates numbered port names naturally', () => {
             const sorted = sortPortRows(rows, BY_NAME);
@@ -281,14 +285,9 @@ describe('ports-table.util', () => {
         });
 
         it('sorts rows without a value last', () => {
-            const mixed = toPortRows([
-                port({ public_id: 1, description: null }),
-                port({ public_id: 2, description: 'Patch panel' })
-            ], new Map());
+            const sorted = sortPortRows(rows, { name: 'description', order: SortDirection.ASCENDING });
 
-            const sorted = sortPortRows(mixed, { name: 'description', order: SortDirection.ASCENDING });
-
-            expect(sorted.map(row => row.description)).toEqual(['Patch panel', null]);
+            expect(sorted[0].description).toBe('Uplink');
         });
 
         it('keeps the backend order for an unsorted column', () => {
@@ -308,17 +307,16 @@ describe('ports-table.util', () => {
 
 
     describe('paging', () => {
-        const rows = toPortRows(
-            Array.from({ length: 12 }, (_, index) => port({ public_id: index + 1, port_number: index + 1 })),
-            new Map()
+        const rows = toStandardRows(
+            Array.from({ length: 12 }, (_, index) => ({ port: port({ port_id: index + 1, port_number: index + 1 }) }))
         );
 
         it('cuts the requested page out of the result', () => {
-            expect(pagePortRows(rows, 2, 10).length).toBe(2);
+            expect(pageRows(rows, 2, 10).length).toBe(2);
         });
 
         it('yields nothing for a page beyond the result', () => {
-            expect(pagePortRows(rows, 5, 10)).toEqual([]);
+            expect(pageRows(rows, 5, 10)).toEqual([]);
         });
 
         it('falls back to the last page that still exists', () => {

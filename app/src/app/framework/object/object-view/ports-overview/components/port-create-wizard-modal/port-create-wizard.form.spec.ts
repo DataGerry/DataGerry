@@ -30,11 +30,11 @@ describe('PortCreateWizardForm', () => {
             form.group.patchValue({ syntax: 'P{n}-F' });
 
             expect(form.isPatchPanel).toBeTrue();
-            expect(form.isStepValid(1)).toBeFalse();
+            expect(form.isStepValid(2)).toBeFalse();
 
             form.group.patchValue({ rearSyntax: 'P{n}-R' });
 
-            expect(form.isStepValid(1)).toBeTrue();
+            expect(form.isStepValid(2)).toBeTrue();
         });
 
         it('refuses the same name on both faces', () => {
@@ -55,7 +55,7 @@ describe('PortCreateWizardForm', () => {
             form.selectDeviceKind(PortDeviceKind.STANDARD);
 
             expect(form.group.controls.rearSyntax.value).toBe('');
-            expect(form.isStepValid(1)).toBeTrue();
+            expect(form.isStepValid(2)).toBeTrue();
         });
     });
 
@@ -72,33 +72,33 @@ describe('PortCreateWizardForm', () => {
             form.selectDeviceKind(PortDeviceKind.STANDARD);
             form.group.patchValue({ syntax: '   ' });
 
-            expect(form.isStepValid(1)).toBeFalse();
+            expect(form.isStepValid(2)).toBeFalse();
         });
 
         it('refuses a count below one', () => {
             form.group.patchValue({ count: '0' });
 
-            expect(form.isStepValid(2)).toBeFalse();
-            form.markStepTouched(2);
+            expect(form.isStepValid(1)).toBeFalse();
+            form.markStepTouched(1);
             expect(form.errorOf('count')).toBe('Please enter a whole number of at least 1.');
         });
 
         it('accepts a start index of zero', () => {
             form.group.patchValue({ startIndex: '0' });
 
-            expect(form.isStepValid(2)).toBeTrue();
+            expect(form.isStepValid(1)).toBeTrue();
         });
 
         it('checks the rear description length on a patch panel only', () => {
             form.selectDeviceKind(PortDeviceKind.STANDARD);
             form.group.patchValue({ rearDescription: 'x'.repeat(256) });
 
-            expect(form.isStepValid(2)).toBeTrue();
+            expect(form.isStepValid(1)).toBeTrue();
 
             form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
             form.group.patchValue({ rearDescription: 'x'.repeat(256) });
 
-            expect(form.isStepValid(2)).toBeFalse();
+            expect(form.isStepValid(1)).toBeFalse();
         });
 
 
@@ -120,6 +120,18 @@ describe('PortCreateWizardForm', () => {
                 device_kind: PortDeviceKind.STANDARD,
                 syntax: 'Gi0/{n}',
                 count: 24,
+                start_index: 1
+            });
+        });
+
+        it('names a single port as typed and drops the hidden prefix and slot', () => {
+            form.group.patchValue({ syntax: 'Uplink', count: '1', prefix: 'Gi', slot: '0' });
+
+            expect(form.isSingle).toBeTrue();
+            expect(form.toNamingRequest(PortDeviceKind.STANDARD)).toEqual({
+                device_kind: PortDeviceKind.STANDARD,
+                syntax: 'Uplink',
+                count: 1,
                 start_index: 1
             });
         });

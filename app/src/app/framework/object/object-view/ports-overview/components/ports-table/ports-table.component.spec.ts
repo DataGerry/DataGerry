@@ -96,8 +96,8 @@ describe('PortsTableComponent', () => {
             speed.hidden = true;
             component.onColumnVisibilityChange(speed);
 
-            component.showInterfaceColumn = true;
-            component.ngOnChanges({ showInterfaceColumn: new SimpleChange(false, true, false) });
+            component.canConnect = true;
+            component.ngOnChanges({ canConnect: new SimpleChange(false, true, false) });
 
             expect(columnNamed('speed').hidden).toBeTrue();
             expect(columnNamed('port_type').hidden).toBeFalse();
@@ -117,8 +117,8 @@ describe('PortsTableComponent', () => {
             component.onColumnVisibilityChange(speed);
             component.onColumnVisibilityChange();
 
-            component.showInterfaceColumn = true;
-            component.ngOnChanges({ showInterfaceColumn: new SimpleChange(false, true, false) });
+            component.canConnect = true;
+            component.ngOnChanges({ canConnect: new SimpleChange(false, true, false) });
 
             expect(columnNamed('speed').hidden).toBeFalse();
         });

@@ -20,7 +20,8 @@ import {
     ConnectionEndpoint,
     ConnectionType,
     PortConnectionInfo,
-    PortConnectionState
+    PortConnectionState,
+    ResolvedCable
 } from '../models/port-connection.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -78,8 +79,12 @@ export function peerPortIdOf(connection: CmdbPortConnection | null, portId: numb
  * from the connection or from a linked CI, and `type` already arrives as a label.
  */
 export function cableSummary(connection: CmdbPortConnection | null): string {
-    const cable = connection?.cable;
+    return cableLabel(connection?.cable ?? null);
+}
 
+
+/** The same one-line summary, read off a cable on its own. */
+export function cableLabel(cable: ResolvedCable | null): string {
     if (!cable) {
         return '';
     }

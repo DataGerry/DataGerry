@@ -25,8 +25,8 @@ const MAX_TEXT_LENGTH = 255;
 /** Which fields each step owns, so a step is validated on its own. */
 const STEP_CONTROLS: readonly (readonly PortWizardControl[])[] = [
     ['deviceKind'],
-    ['syntax', 'rearSyntax', 'prefix', 'slot'],
     ['count', 'startIndex', 'description', 'rearDescription'],
+    ['syntax', 'rearSyntax', 'prefix', 'slot'],
     []
 ];
 
@@ -95,6 +95,12 @@ export class PortCreateWizardForm {
 
     public get isPatchPanel(): boolean {
         return this.deviceKind === PortDeviceKind.PATCH_PANEL;
+    }
+
+
+    /** One port (one per side on a panel) is named by hand, so the naming step drops its pattern help. */
+    public get isSingle(): boolean {
+        return this.trimmed('count') === '1';
     }
 
 
@@ -174,8 +180,9 @@ export class PortCreateWizardForm {
         }
 
         // Both are optional token values; an empty one is left out instead of sent as ''.
-        const prefix = this.trimmed('prefix');
-        const slot = this.trimmed('slot');
+        // A single port hides them, so a value typed earlier is not sent.
+        const prefix = this.isSingle ? '' : this.trimmed('prefix');
+        const slot = this.isSingle ? '' : this.trimmed('slot');
 
         if (prefix) {
             request.prefix = prefix;

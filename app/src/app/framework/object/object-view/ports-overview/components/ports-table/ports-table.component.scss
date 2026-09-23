@@ -55,20 +55,11 @@
     }
 }
 
-/* A panel pairing is a connection, but not a cable - it reads as a state, not as an achievement. */
-.ports-state--paired {
-    color: var(--dg-label);
-
-    .ports-state__dot {
-        background-color: var(--dg-brand);
-    }
-}
-
 .ports-connection {
     display: grid;
     gap: 0.1rem;
 
-    &__pair {
+    &__far-end {
         color: var(--dg-muted);
         font-size: 0.72rem;
         line-height: 1.3;

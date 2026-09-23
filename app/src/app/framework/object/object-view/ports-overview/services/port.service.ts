@@ -36,7 +36,7 @@ import {
     PortNamePreview,
     PortNamingRequest
 } from '../models/port-bulk.types';
-import { CmdbPort, PortPayload } from '../models/ports-overview.types';
+import { CmdbPort, PortOverviewResponse, PortPayload } from '../models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** REST access to the ports of the CmdbObject collection `framework.ports`. */
@@ -56,6 +56,18 @@ export class PortService {
 
         return this.api.callGet<CmdbPort[]>(`${ this.servicePrefix }/object/${ objectId }`, options).pipe(
             map((response: HttpResponse<CmdbPort[]>) => response?.body ?? [])
+        );
+    }
+
+
+    /** What the ports section lists: the device kind and its rows, already shaped for the table. */
+    public getPortOverview(objectId: number): Observable<PortOverviewResponse> {
+        const options = { headers: this.jsonHeaders, params: new HttpParams(), observe: resp };
+        const route = `${ this.servicePrefix }/object/${ objectId }/overview`;
+
+        return this.api.callGet<PortOverviewResponse>(route, options).pipe(
+            map((response: HttpResponse<PortOverviewResponse>) =>
+                response?.body ?? { device_kind: null, rows: [], total: 0 })
         );
     }
 

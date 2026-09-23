@@ -22,13 +22,20 @@ import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 import { of } from 'rxjs';
 
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
-import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { CONNECTION_DELETE_RIGHT } from './models/port-connection.types';
-import { CmdbPort, PORT_DELETE_RIGHT, PORT_EDIT_RIGHT, PortRow, PortSide } from './models/ports-overview.types';
+import { PortDeviceKind } from './models/port-bulk.types';
+import {
+    OverviewPort,
+    PORT_DELETE_RIGHT,
+    PORT_EDIT_RIGHT,
+    PortOverviewResponse,
+    PortRow,
+    PortSide
+} from './models/ports-overview.types';
 import { PortsOverviewComponent } from './ports-overview.component';
 import { PortConnectionService } from './services/port-connection.service';
 import { PortService } from './services/port.service';
@@ -43,42 +50,56 @@ describe('PortsOverviewComponent', () => {
     let portConnectionService: jasmine.SpyObj<PortConnectionService>;
     let toast: jasmine.SpyObj<ToastService>;
 
-    const port = (publicId: number, name: string): CmdbPort => ({
-        public_id: publicId,
-        object_id: 20,
-        side: PortSide.SINGLE,
+    const port = (portId: number, name: string, side = PortSide.SINGLE): OverviewPort => ({
+        port_id: portId,
+        side,
+        port_number: portId,
         name,
-        port_number: publicId,
-        status: null,
-        port_type: null,
-        speed: null,
         description: null,
-        author_id: 1,
-        creation_time: null,
-        last_edit_time: null
+        connected: false,
+        cable: null,
+        cable_connection_id: null,
+        connected_port: null,
+        connected_object: null,
+        interface_links: [],
+        status: { id: 7, label: 'Up' },
+        port_type: { id: null, label: null },
+        speed: { id: null, label: null }
     });
+
+    const standard: PortOverviewResponse = {
+        device_kind: PortDeviceKind.STANDARD,
+        rows: [{ port: port(1, 'Gi0/1') }, { port: port(2, 'Gi0/2') }],
+        total: 2
+    };
+
+    const patchPanel: PortOverviewResponse = {
+        device_kind: PortDeviceKind.PATCH_PANEL,
+        rows: [
+            { front: port(11, 'F01', PortSide.FRONT), rear: port(12, 'R01', PortSide.REAR), paired: true },
+            { front: port(13, 'F02', PortSide.FRONT), rear: null, paired: false }
+        ],
+        total: 2
+    };
 
     const objectIdChange = (objectId: number): SimpleChanges => ({
         objectId: new SimpleChange(null, objectId, true)
     });
 
     beforeEach(() => {
-        portService = jasmine.createSpyObj<PortService>('PortService', ['getPortsOfObject', 'deletePort']);
+        portService = jasmine.createSpyObj<PortService>('PortService', ['getPortOverview', 'deletePort']);
         portConnectionService = jasmine.createSpyObj<PortConnectionService>(
-            'PortConnectionService', ['getConnectionsOfObject', 'deleteConnection', 'bulkDeleteConnections']);
+            'PortConnectionService', ['deleteConnection', 'bulkDeleteConnections']);
         permission = jasmine.createSpyObj<PermissionService>('PermissionService', ['hasRight', 'hasExtendedRight']);
         deleteModal = jasmine.createSpyObj<DeleteModalService>('DeleteModalService', ['confirmDelete']);
         modalService = jasmine.createSpyObj<NgbModal>('NgbModal', ['open']);
         toast = jasmine.createSpyObj<ToastService>('ToastService', ['success', 'error']);
 
-        const catalog = jasmine.createSpyObj<ExtendableOptionCatalogService>('Catalog', ['optionsForTypes']);
         const loader = jasmine.createSpyObj<LoaderService>(
             'LoaderService', ['show', 'hide'], { isLoading$: of(false) });
 
-        catalog.optionsForTypes.and.returnValue(of(new Map()));
-        portService.getPortsOfObject.and.returnValue(of([port(1, 'Gi0/1'), port(2, 'Gi0/2')]));
+        portService.getPortOverview.and.returnValue(of(standard));
         portService.deletePort.and.returnValue(of(undefined));
-        portConnectionService.getConnectionsOfObject.and.returnValue(of([]));
         portConnectionService.deleteConnection.and.returnValue(of(undefined));
         portConnectionService.bulkDeleteConnections.and.returnValue(of(undefined));
         permission.hasRight.and.returnValue(true);
@@ -89,7 +110,6 @@ describe('PortsOverviewComponent', () => {
             providers: [
                 { provide: PortService, useValue: portService },
                 { provide: PortConnectionService, useValue: portConnectionService },
-                { provide: ExtendableOptionCatalogService, useValue: catalog },
                 { provide: LoaderService, useValue: loader },
                 { provide: PermissionService, useValue: permission },
                 { provide: DeleteModalService, useValue: deleteModal },
@@ -143,7 +163,7 @@ describe('PortsOverviewComponent', () => {
             deleteModal.confirmDelete.calls.mostRecent().args[0].onConfirm();
 
             expect(portService.deletePort).toHaveBeenCalledWith(1);
-            expect(portService.getPortsOfObject).toHaveBeenCalledTimes(2);
+            expect(portService.getPortOverview).toHaveBeenCalledTimes(2);
             expect(toast.success).toHaveBeenCalled();
         });
     });
@@ -151,10 +171,14 @@ describe('PortsOverviewComponent', () => {
     describe('editing a port', () => {
         beforeEach(() => component.ngOnChanges(objectIdChange(20)));
 
-        it('hands the stored port to the form, not the table row', () => {
+        it('hands the form the option ids, not the labels the row shows', () => {
             component.onEditPort(component.rows[1]);
 
-            expect(modalService.open.calls.mostRecent().returnValue.componentInstance.port).toEqual(port(2, 'Gi0/2'));
+            const stored = modalService.open.calls.mostRecent().returnValue.componentInstance.port;
+
+            expect(stored.public_id).toBe(2);
+            expect(stored.object_id).toBe(20);
+            expect(stored.status).toBe(7);
         });
 
         it('does nothing for a row that is no longer loaded', () => {
@@ -234,6 +258,67 @@ describe('PortsOverviewComponent', () => {
 
             expect(component.canDisconnect).toBeTrue();
             expect(component.canDelete).toBeFalse();
+        });
+    });
+
+    describe('device kind', () => {
+        it('lists a standard device one port per row', () => {
+            component.ngOnChanges(objectIdChange(20));
+
+            expect(component.deviceKind).toBe(PortDeviceKind.STANDARD);
+            expect(component.rows.map((row) => row.name)).toEqual(['Gi0/1', 'Gi0/2']);
+            expect(component.panelRows).toEqual([]);
+        });
+
+        it('lists a patch panel one pairing per row', () => {
+            portService.getPortOverview.and.returnValue(of(patchPanel));
+
+            component.ngOnChanges(objectIdChange(20));
+
+            expect(component.deviceKind).toBe(PortDeviceKind.PATCH_PANEL);
+            expect(component.rows).toEqual([]);
+            expect(component.panelRows.map((row) => [row.frontName, row.rearName])).toEqual([['F01', 'R01'], ['F02', null]]);
+            expect(component.totalRows).toBe(2);
+        });
+
+        it('shows the empty standard table while the object has no ports', () => {
+            portService.getPortOverview.and.returnValue(of({ device_kind: null, rows: [], total: 0 }));
+
+            component.ngOnChanges(objectIdChange(20));
+
+            expect(component.deviceKind).toBeNull();
+            expect(component.rows).toEqual([]);
+            expect(component.panelRows).toEqual([]);
+        });
+
+        it('selects both faces of a ticked pairing', () => {
+            portService.getPortOverview.and.returnValue(of(patchPanel));
+            component.ngOnChanges(objectIdChange(20));
+
+            component.onSelectedPanelRowsChange([component.panelRows[0]]);
+
+            expect(component.selectedRows.map((row) => row.name)).toEqual(['F01', 'R01']);
+        });
+
+        it('edits a panel port from the stored port', () => {
+            portService.getPortOverview.and.returnValue(of(patchPanel));
+            component.ngOnChanges(objectIdChange(20));
+
+            component.onEditPort(component.panelRows[0].rear);
+
+            expect(modalService.open.calls.mostRecent().returnValue.componentInstance.port.public_id).toBe(12);
+        });
+    });
+
+    describe('adding ports', () => {
+        it('opens the add dialog with the kind the object already is', () => {
+            portService.getPortOverview.and.returnValue(of(patchPanel));
+            component.ngOnChanges(objectIdChange(20));
+
+            component.onAddPorts();
+
+            expect(modalService.open.calls.mostRecent().returnValue.componentInstance.existingKind)
+                .toBe(PortDeviceKind.PATCH_PANEL);
         });
     });
 

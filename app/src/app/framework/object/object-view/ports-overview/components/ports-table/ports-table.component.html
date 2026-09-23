@@ -31,14 +31,6 @@
   }
 </ng-template>
 
-<ng-template #sideTemplate let-data="data">
-  @if (data) {
-    <span class="ports-badge">{{ data }}</span>
-  } @else {
-    <span class="ports-muted" aria-hidden="true">&ndash;</span>
-  }
-</ng-template>
-
 <ng-template #statusTemplate let-data="data">
   @if (data) {
     <span class="ports-badge ports-badge--status">{{ data }}</span>
@@ -51,15 +43,13 @@
   <div class="ports-connection">
     <span
       class="ports-state"
-      [class.ports-state--connected]="item.connectionState === connectionState.CABLED"
-      [class.ports-state--paired]="item.connectionState === connectionState.PAIRED">
+      [class.ports-state--connected]="item.connectionState === connectionState.CABLED">
       <span class="ports-state__dot" aria-hidden="true"></span>
       {{ item.connectionLabel }}
     </span>
 
-    <!-- A panel port can hold a cable and its pairing at once, so the pairing is named as well. -->
-    @if (item.pairedPortName && item.connectionState === connectionState.CABLED) {
-      <small class="ports-connection__pair">Paired with {{ item.pairedPortName }}</small>
+    @if (item.farEndLabel) {
+      <small class="ports-connection__far-end">to {{ item.farEndLabel }}</small>
     }
   </div>
 </ng-template>

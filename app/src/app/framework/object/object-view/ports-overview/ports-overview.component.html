@@ -3,39 +3,14 @@
 
   @if (manageable) {
     <div class="ports-toolbar">
-      <div
-        class="ports-actions"
+      <app-button
         *permissionLink="[portAddRight]"
-        ngbDropdown
-        #addMenu="ngbDropdown"
-        placement="bottom-start">
-        <app-button
-          label="Add"
-          icon="fas fa-plus"
-          bootstrapClass="btn-success btn-sm"
-          title="Add ports to this object"
-          [ariaExpanded]="addMenu.isOpen()"
-          (clicked)="addMenu.toggle()">
-        </app-button>
-
-        <div ngbDropdownMenu class="ports-add-menu" aria-label="Add ports">
-          <button type="button" ngbDropdownItem class="ports-add-menu__item" (click)="onAddPort()">
-            <i class="fas fa-ethernet ports-add-menu__icon" aria-hidden="true"></i>
-            <span class="ports-add-menu__text">
-              <span class="ports-add-menu__label">Single port</span>
-              <small class="ports-add-menu__hint">One port, named by hand.</small>
-            </span>
-          </button>
-
-          <button type="button" ngbDropdownItem class="ports-add-menu__item" (click)="onCreatePorts()">
-            <i class="fas fa-layer-group ports-add-menu__icon" aria-hidden="true"></i>
-            <span class="ports-add-menu__text">
-              <span class="ports-add-menu__label">Multiple ports</span>
-              <small class="ports-add-menu__hint">Name and number a whole device at once.</small>
-            </span>
-          </button>
-        </div>
-      </div>
+        label="Add"
+        icon="fas fa-plus"
+        bootstrapClass="btn-success btn-sm"
+        title="Add ports to this object"
+        (clicked)="onAddPorts()">
+      </app-button>
 
       @if (canEdit) {
         <app-button
@@ -91,34 +66,59 @@
     </app-warning-alert>
   }
 
-  <cmdb-ports-table
-    [rows]="rows"
-    [totalRows]="totalRows"
-    [page]="page"
-    [pageSize]="pageSize"
-    [sort]="sort"
-    [showSideColumn]="showSideColumn"
-    [showConnectionColumn]="showConnectionColumn"
-    [showInterfaceColumn]="showInterfaceColumn"
-    [canEdit]="canEdit"
-    [canDelete]="canDelete"
-    [canConnect]="canConnect"
-    [canEditConnection]="canEditConnection"
-    [canDisconnect]="canDisconnect"
-    [canViewInterfaces]="canViewInterfaces"
-    [emptyMessage]="emptyMessage"
-    [loading]="(isLoading$ | async) === true"
-    (pageChange)="onPageChange($event)"
-    (pageSizeChange)="onPageSizeChange($event)"
-    (sortChange)="onSortChange($event)"
-    (editPort)="onEditPort($event)"
-    (deletePort)="onDeletePort($event)"
-    (connectPort)="onConnectPort($event)"
-    (editConnection)="onEditConnection($event)"
-    (disconnectPort)="onDisconnectPort($event)"
-    (manageInterfaces)="onManageInterfaces($event)"
-    (selectedRowsChange)="onSelectedRowsChange($event)">
-  </cmdb-ports-table>
+  @if (deviceKind === patchPanel) {
+    <cmdb-patch-panel-table
+      [rows]="panelRows"
+      [totalRows]="totalRows"
+      [page]="page"
+      [pageSize]="pageSize"
+      [sort]="sort"
+      [canEdit]="canEdit"
+      [canDelete]="canDelete"
+      [canConnect]="canConnect"
+      [canEditConnection]="canEditConnection"
+      [canDisconnect]="canDisconnect"
+      [canViewInterfaces]="canViewInterfaces"
+      [emptyMessage]="emptyMessage"
+      [loading]="(isLoading$ | async) === true"
+      (pageChange)="onPageChange($event)"
+      (pageSizeChange)="onPageSizeChange($event)"
+      (sortChange)="onSortChange($event)"
+      (editPort)="onEditPort($event)"
+      (deletePort)="onDeletePort($event)"
+      (connectPort)="onConnectPort($event)"
+      (editConnection)="onEditConnection($event)"
+      (disconnectPort)="onDisconnectPort($event)"
+      (manageInterfaces)="onManageInterfaces($event)"
+      (selectedRowsChange)="onSelectedPanelRowsChange($event)">
+    </cmdb-patch-panel-table>
+  } @else {
+    <cmdb-ports-table
+      [rows]="rows"
+      [totalRows]="totalRows"
+      [page]="page"
+      [pageSize]="pageSize"
+      [sort]="sort"
+      [canEdit]="canEdit"
+      [canDelete]="canDelete"
+      [canConnect]="canConnect"
+      [canEditConnection]="canEditConnection"
+      [canDisconnect]="canDisconnect"
+      [canViewInterfaces]="canViewInterfaces"
+      [emptyMessage]="emptyMessage"
+      [loading]="(isLoading$ | async) === true"
+      (pageChange)="onPageChange($event)"
+      (pageSizeChange)="onPageSizeChange($event)"
+      (sortChange)="onSortChange($event)"
+      (editPort)="onEditPort($event)"
+      (deletePort)="onDeletePort($event)"
+      (connectPort)="onConnectPort($event)"
+      (editConnection)="onEditConnection($event)"
+      (disconnectPort)="onDisconnectPort($event)"
+      (manageInterfaces)="onManageInterfaces($event)"
+      (selectedRowsChange)="onSelectedRowsChange($event)">
+    </cmdb-ports-table>
+  }
 </fieldset>
 
 <app-loading-popup
