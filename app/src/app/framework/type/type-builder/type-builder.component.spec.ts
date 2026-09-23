@@ -151,6 +151,7 @@ describe('TypeBuilderComponent (type creation wizard)', () => {
         beforeEach(() => {
             component.mode = CmdbMode.Create;
             component.ngOnInit();
+            component.typeInstance.fields = [{ name: 'f1', type: 'text' }, { name: 'f2', type: 'text' }] as any;
             component.typeInstance.render_meta.sections = [
                 { type: 'section', name: 's1', label: 'S1', fields: [{ name: 'f1' }, 'f2'] }
             ];
@@ -211,6 +212,22 @@ describe('TypeBuilderComponent (type creation wizard)', () => {
             expect(updated.editor_id).toBe(7);
             expect(router.navigate).toHaveBeenCalledWith(['/framework/type/'], { queryParams: { typeEditSuccess: 5 } });
             expect(toast.success).toHaveBeenCalled();
+        });
+
+        it('drops section field names that have no field definition', () => {
+            component.mode = CmdbMode.Edit;
+            component.typeInstance = buildType({ public_id: 5, fields: [{ name: 'f1', type: 'text' }] as any });
+            component.ngOnInit();
+            component.typeInstance.render_meta.sections = [
+                { type: 'section', name: 's1', label: 'S1', fields: ['f1', 'deleted-field'] }
+            ];
+            enableSave(component);
+            typeService.putType.and.returnValue(of({ public_id: 5 } as any));
+
+            component.saveType();
+
+            const updated = typeService.putType.calls.mostRecent().args[0];
+            expect(updated.render_meta.sections[0].fields).toEqual(['f1']);
         });
     });
 

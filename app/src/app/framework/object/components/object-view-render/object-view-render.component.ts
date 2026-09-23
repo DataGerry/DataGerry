@@ -57,6 +57,12 @@ export class ObjectViewRenderComponent {
     }
 
 
+    /** Slot the ports take among the type's sections, or null while the type has no ports. */
+    public get portsSectionIndex(): number | null {
+        return this.portsAvailable ? (this.renderResult?.type_information?.port_section_index ?? 0) : null;
+    }
+
+
     /** Subtitle of the add-port modal. */
     public get objectLabel(): string {
         const label = this.renderResult?.type_information?.type_label ?? '';

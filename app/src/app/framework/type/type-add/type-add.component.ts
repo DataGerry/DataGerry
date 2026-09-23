@@ -65,6 +65,8 @@ export class TypeAddComponent {
      * @returns (CmdbType) CmdbType with new IDs
      */
     private setNewIDs(type: CmdbType): CmdbType {
+        const renamedFields = new Map<string, string>();
+
         for (let sectionIndex in type.render_meta.sections){
             let aSection = type.render_meta.sections[sectionIndex];
 
@@ -85,6 +87,7 @@ export class TypeAddComponent {
                         //set the new id for the type and the section
                         if (aField.name == aFieldName) {
                             const newFieldID = this.generateNewID(aField.type);
+                            renamedFields.set(aField.name, newFieldID);
                             aField.name = newFieldID;
                             aSection.fields[fieldNameIndex] = newFieldID;
                         }
@@ -93,7 +96,30 @@ export class TypeAddComponent {
             }
         }
 
+        this.remapFieldReferences(type, renamedFields);
+
         return type;
+    }
+
+
+    /**
+     * Points the summary fields and the CI Explorer label at the renamed fields and drops the ones
+     * that are no longer part of the type
+     *
+     * @param type(CmdbType) CmdbType whose fields were renamed
+     * @param renamedFields(Map<string, string>) old field name to new field name
+     */
+    private remapFieldReferences(type: CmdbType, renamedFields: Map<string, string>): void {
+        const fieldNames = new Set<string>((type.fields ?? []).map(field => field.name));
+        const remap = (name: string): string => renamedFields.get(name) ?? name;
+
+        type.render_meta.summary = {
+            ...type.render_meta.summary,
+            fields: (type.render_meta.summary?.fields ?? []).map(remap).filter(name => fieldNames.has(name))
+        };
+
+        const ciExplorerLabel = type.ci_explorer_label ? remap(type.ci_explorer_label) : null;
+        type.ci_explorer_label = ciExplorerLabel && fieldNames.has(ciExplorerLabel) ? ciExplorerLabel : null;
     }
 
 

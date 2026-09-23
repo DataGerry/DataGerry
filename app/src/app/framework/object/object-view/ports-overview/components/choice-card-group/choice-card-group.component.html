@@ -1,15 +1,26 @@
 <div class="choice-cards" role="radiogroup" [attr.aria-label]="groupLabel() || null">
-  @for (choice of choices(); track choice.value) {
-    <label class="choice-card" [class.choice-card--selected]="choice.value === selected()">
+  @for (choice of choices(); track choice.value; let index = $index) {
+    <label
+      class="choice-card"
+      [class.choice-card--selected]="choice.value === selected()"
+      [class.choice-card--disabled]="choice.disabled">
       <input
         class="choice-card__input"
         type="radio"
         [name]="name()"
         [checked]="choice.value === selected()"
-        (change)="choiceSelected.emit(choice.value)">
+        [disabled]="!!choice.disabled"
+        [attr.aria-describedby]="choice.disabled && choice.disabledReason ? reasonId(index) : null"
+        (change)="onChange(choice)">
       <span class="choice-card__icon" aria-hidden="true"><i [class]="choice.icon"></i></span>
       <span class="choice-card__label">{{ choice.label }}</span>
       <span class="choice-card__text">{{ choice.text }}</span>
+      @if (choice.disabled && choice.disabledReason) {
+        <span class="choice-card__reason" [id]="reasonId(index)">
+          <i class="fas fa-info-circle" aria-hidden="true"></i>
+          {{ choice.disabledReason }}
+        </span>
+      }
     </label>
   }
 </div>

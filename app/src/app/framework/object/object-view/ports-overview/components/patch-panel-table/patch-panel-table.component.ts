@@ -30,37 +30,29 @@ import {
 
 import { Column, Sort, SortDirection } from 'src/app/layout/table/table.types';
 import { PortConnectionState } from '../../models/port-connection.types';
-import { PortRow } from '../../models/ports-overview.types';
+import { PatchPanelRow, PortRow } from '../../models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Inputs that decide whether the actions column is part of the table. */
-const OPTIONAL_COLUMN_INPUTS = [
-    'canEdit',
-    'canDelete',
-    'canConnect',
-    'canEditConnection',
-    'canDisconnect'
-] as const;
+const ACTION_INPUTS = ['canEdit', 'canDelete', 'canConnect', 'canEditConnection', 'canDisconnect'] as const;
 
 
-/** Presentational list of a standard device, one row per port. Every state change is handed upwards. */
+/** Presentational list of a patch panel, one row per front/rear pairing. Every state change is handed upwards. */
 @Component({
-    selector: 'cmdb-ports-table',
-    templateUrl: './ports-table.component.html',
-    styleUrls: ['./ports-table.component.scss'],
+    selector: 'cmdb-patch-panel-table',
+    templateUrl: './patch-panel-table.component.html',
+    styleUrls: ['../ports-table/ports-table.component.scss', './patch-panel-table.component.scss'],
     changeDetection: ChangeDetectionStrategy.OnPush,
     standalone: false
 })
-export class PortsTableComponent implements OnInit, OnChanges {
+export class PatchPanelTableComponent implements OnInit, OnChanges {
 
-    @Input() public rows: PortRow[] = [];
+    @Input() public rows: PatchPanelRow[] = [];
     @Input() public totalRows = 0;
     @Input() public page = 1;
     @Input() public pageSize = 10;
     @Input() public sort: Sort = { name: 'port_number', order: SortDirection.ASCENDING };
     @Input() public loading = false;
-
-    /** Add mode has no object yet, so it explains the empty list instead of just stating it. */
     @Input() public emptyMessage = 'No ports to display.';
 
     /** Each gates its own action AND, together, the whole actions column. */
@@ -69,8 +61,6 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Input() public canConnect = false;
     @Input() public canEditConnection = false;
     @Input() public canDisconnect = false;
-
-    /** Reading the interfaces of a port is its own right, so the entry can show without write rights. */
     @Input() public canViewInterfaces = false;
 
     @Output() public readonly pageChange = new EventEmitter<number>();
@@ -84,20 +74,19 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Output() public readonly manageInterfaces = new EventEmitter<PortRow>();
 
     /** Not re-emitted when the rows change: whoever replaces the rows drops its own selection. */
-    @Output() public readonly selectedRowsChange = new EventEmitter<PortRow[]>();
+    @Output() public readonly selectedRowsChange = new EventEmitter<PatchPanelRow[]>();
 
-    @ViewChild('nameTemplate', { static: true }) public nameTemplate: TemplateRef<unknown>;
-    @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
-    @ViewChild('connectionTemplate', { static: true }) public connectionTemplate: TemplateRef<unknown>;
-    @ViewChild('interfaceTemplate', { static: true }) public interfaceTemplate: TemplateRef<unknown>;
+    @ViewChild('frontTemplate', { static: true }) public frontTemplate: TemplateRef<unknown>;
+    @ViewChild('frontConnectionTemplate', { static: true }) public frontConnectionTemplate: TemplateRef<unknown>;
+    @ViewChild('pairedTemplate', { static: true }) public pairedTemplate: TemplateRef<unknown>;
+    @ViewChild('rearTemplate', { static: true }) public rearTemplate: TemplateRef<unknown>;
+    @ViewChild('rearConnectionTemplate', { static: true }) public rearConnectionTemplate: TemplateRef<unknown>;
     @ViewChild('valueTemplate', { static: true }) public valueTemplate: TemplateRef<unknown>;
     @ViewChild('actionsTemplate', { static: true }) public actionsTemplate: TemplateRef<unknown>;
 
     public columns: Column[] = [];
     public visibleColumns: string[] = [];
-
-    /** The ticked rows of the current page. The table only ever selects within the page it shows. */
-    public selectedRows: PortRow[] = [];
+    public selectedRows: PatchPanelRow[] = [];
 
     public readonly connectionState = PortConnectionState;
 
@@ -110,16 +99,13 @@ export class PortsTableComponent implements OnInit, OnChanges {
         this.applyColumns();
     }
 
-    /** The actions column appears only once the user's rights allow one of its actions. */
     public ngOnChanges(changes: SimpleChanges): void {
         // A reload builds new row objects, and the table matches a selection by identity.
         if (changes['rows']) {
-            this.clearSelection();
+            this.selectedRows = [];
         }
 
-        const toggled = OPTIONAL_COLUMN_INPUTS.some((input) => changes[input] && !changes[input].firstChange);
-
-        if (toggled) {
+        if (ACTION_INPUTS.some((input) => changes[input] && !changes[input].firstChange)) {
             this.applyColumns();
         }
     }
@@ -128,17 +114,17 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
     /** The table drops its own selection on a page change without reporting it, so this mirrors it. */
     public onPageChange(page: number): void {
-        this.clearSelection();
+        this.selectedRows = [];
         this.pageChange.emit(page);
     }
 
     public onPageSizeChange(pageSize: number): void {
-        this.clearSelection();
+        this.selectedRows = [];
         this.pageSizeChange.emit(pageSize);
     }
 
     public onSortChange(sort: Sort): void {
-        this.clearSelection();
+        this.selectedRows = [];
         this.sortChange.emit(sort);
     }
 
@@ -156,73 +142,69 @@ export class PortsTableComponent implements OnInit, OnChanges {
         }
     }
 
-    public onSelectedChange(rows: PortRow[]): void {
+    public onSelectedChange(rows: PatchPanelRow[]): void {
         this.selectedRows = rows ?? [];
         this.selectedRowsChange.emit([...this.selectedRows]);
     }
 
-    public onEditPort(row: PortRow): void {
-        this.editPort.emit(row);
+    public onEditPort(port: PortRow): void {
+        this.editPort.emit(port);
     }
 
-    public onDeletePort(row: PortRow): void {
-        this.deletePort.emit(row);
+    public onDeletePort(port: PortRow): void {
+        this.deletePort.emit(port);
     }
 
-    public onConnectPort(row: PortRow): void {
-        this.connectPort.emit(row);
+    public onConnectPort(port: PortRow): void {
+        this.connectPort.emit(port);
     }
 
-    public onEditConnection(row: PortRow): void {
-        this.editConnection.emit(row);
+    public onEditConnection(port: PortRow): void {
+        this.editConnection.emit(port);
     }
 
-    public onDisconnectPort(row: PortRow): void {
-        this.disconnectPort.emit(row);
+    public onDisconnectPort(port: PortRow): void {
+        this.disconnectPort.emit(port);
     }
 
-    public onManageInterfaces(row: PortRow): void {
-        this.manageInterfaces.emit(row);
+    public onManageInterfaces(port: PortRow): void {
+        this.manageInterfaces.emit(port);
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    /** Ticking rows is only worth offering while at least one bulk action is permitted. */
     public get selectEnabled(): boolean {
         return this.canEdit || this.canDelete || this.canDisconnect;
     }
 
 
-    /** A row without any permitted action shows a dash instead of an empty menu. */
-    public hasRowActions(row: PortRow): boolean {
-        return this.canEdit || this.canDelete || this.canViewInterfaces || this.hasConnectionActions(row);
+    /** A pairing whose ports offer no permitted action shows a dash instead of an empty menu. */
+    public hasRowActions(row: PatchPanelRow): boolean {
+        return this.hasPortActions(row.front) || this.hasPortActions(row.rear);
     }
 
 
-    /** The further interfaces of a port, one per line, as the badge's tooltip lists them. */
-    public moreInterfacesTooltip(row: PortRow): string {
-        return row.interfaces.additionalLabels.join('\n');
+    public hasPortActions(port: PortRow | null): boolean {
+        return !!port && (this.canEdit || this.canDelete || this.canViewInterfaces || this.hasConnectionActions(port));
     }
 
 
     /** Connect applies to a free port; edit cable and disconnect to a cabled one. */
-    public hasConnectionActions(row: PortRow): boolean {
-        return row.cableConnectionId
+    public hasConnectionActions(port: PortRow): boolean {
+        return port.cableConnectionId
             ? this.canEditConnection || this.canDisconnect
             : this.canConnect;
     }
 
-/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-    private clearSelection(): void {
-        this.selectedRows = [];
+    public pairingLabel(row: PatchPanelRow): string {
+        return row.paired ? 'Paired' : 'Not paired';
     }
 
+/* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private applyColumns(): void {
         this.columns = this.buildColumns();
-
-        // Reset restores every column, so the initial set stays the full one.
         this.visibleColumns = this.columns.map((column) => column.name);
 
         for (const column of this.columns) {
@@ -231,80 +213,67 @@ export class PortsTableComponent implements OnInit, OnChanges {
     }
 
 
-    /**
-     * The table renders exactly the columns it is given - `initialVisibleColumns` only feeds its reset
-     * action - so a column that must not be shown is left out here instead of being hidden.
-     */
     private buildColumns(): Column[] {
         const columns: Column[] = [
             {
-                display: 'Port Name',
-                name: 'name',
-                data: 'name',
-                sortable: true,
-                searchable: false,
-                fixed: true,
-                template: this.nameTemplate,
-                style: { 'min-width': '140px' }
-            },
-            {
-                display: 'Port No.',
+                display: 'No.',
                 name: 'port_number',
                 data: 'portNumber',
                 sortable: true,
                 searchable: false,
                 template: this.valueTemplate,
-                style: { 'min-width': '90px' }
+                style: { 'width': '70px' }
             },
             {
-                display: 'Port Type',
-                name: 'port_type',
-                data: 'portType',
+                display: 'Front Port',
+                name: 'front',
+                data: 'frontName',
                 sortable: true,
                 searchable: false,
-                template: this.valueTemplate,
-                style: { 'min-width': '120px' }
+                fixed: true,
+                template: this.frontTemplate,
+                style: { 'min-width': '140px' }
             },
             {
-                display: 'Speed',
-                name: 'speed',
-                data: 'speed',
+                display: 'Front Connection',
+                name: 'front_connection',
+                data: 'frontConnection',
                 sortable: true,
                 searchable: false,
-                template: this.valueTemplate,
-                style: { 'min-width': '100px' }
-            },
-            {
-                display: 'Status',
-                name: 'status',
-                data: 'status',
-                sortable: true,
-                searchable: false,
-                template: this.statusTemplate,
-                style: { 'min-width': '100px' }
-            },
-            {
-                display: 'Connection',
-                name: 'connected',
-                data: 'connectionLabel',
-                sortable: true,
-                searchable: false,
-                template: this.connectionTemplate,
+                template: this.frontConnectionTemplate,
                 style: { 'min-width': '180px' }
             },
             {
-                display: 'Interfaces',
-                name: 'interfaces',
-                data: 'interfaceLabel',
+                display: 'Pairing',
+                name: 'paired',
+                data: 'paired',
                 sortable: true,
                 searchable: false,
-                template: this.interfaceTemplate,
-                style: { 'min-width': '130px' }
+                template: this.pairedTemplate,
+                style: { 'width': '110px', 'text-align': 'center' }
+            },
+            {
+                display: 'Rear Port',
+                name: 'rear',
+                data: 'rearName',
+                sortable: true,
+                searchable: false,
+                template: this.rearTemplate,
+                style: { 'min-width': '140px' }
+            },
+            {
+                display: 'Rear Connection',
+                name: 'rear_connection',
+                data: 'rearConnection',
+                sortable: true,
+                searchable: false,
+                template: this.rearConnectionTemplate,
+                style: { 'min-width': '180px' }
             },
             {
                 display: 'Actions',
                 name: 'actions',
-                data: 'publicId',
+                data: 'key',
                 sortable: false,
                 searchable: false,
                 fixed: true,
@@ -313,16 +282,9 @@ export class PortsTableComponent implements OnInit, OnChanges {
             }
         ];
 
-        return columns.filter((column) => this.isColumnShown(column.name));
-    }
+        const hasActions = this.canEdit || this.canDelete || this.canConnect
+            || this.canEditConnection || this.canDisconnect;
 
-
-    private isColumnShown(name: string): boolean {
-        if (name === 'actions') {
-            return this.canEdit || this.canDelete || this.canConnect
-                || this.canEditConnection || this.canDisconnect;
-        }
-
-        return true;
+        return hasActions ? columns : columns.filter((column) => column.name !== 'actions');
     }
 }

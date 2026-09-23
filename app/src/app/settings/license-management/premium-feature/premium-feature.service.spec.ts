@@ -25,37 +25,22 @@ import { PREMIUM_FEATURE_MODAL_RESULT } from 'src/app/core/components/dialog/pre
 
 import { PremiumFeatureService } from './premium-feature.service';
 import { LicenseService } from '../services/license.service';
-import { CurrentLicense, LicenseFeature, LicenseVerificationStatus } from '../models/license.model';
+import { LicenseEntitlements, LicenseFeature } from '../models/license.model';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-const DAY_MS = 86_400_000;
+/** Community answer of `GET /rest/license/entitlements`. */
+const COMMUNITY: LicenseEntitlements = { is_active: false, type: 'free', features: [] };
 
 /**
- * Builds a domain-model license. Defaults describe an active, perpetual Business license that
- * unlocks IPAM and ISMS; every field can be overridden per scenario.
+ * Builds an entitlements payload. Defaults describe an active Business license that unlocks IPAM
+ * and ISMS; every field can be overridden per scenario.
  */
-function buildLicense(overrides: {
-  is_active?: boolean;
-  status?: LicenseVerificationStatus | null;
-  type?: string;
-  features?: LicenseFeature[];
-  endDate?: number;
-} = {}): CurrentLicense {
+function buildEntitlements(overrides: Partial<LicenseEntitlements> = {}): LicenseEntitlements {
   return {
     is_active: overrides.is_active ?? true,
-    status: overrides.status ?? LicenseVerificationStatus.Valid,
-    entitlement: {
-      hmac: 'hmac',
-      startDate: 0,
-      endDate: overrides.endDate ?? 0, // 0 = perpetual
-      subId: 'sub-1',
-      licenseId: 'lic-1',
-      operationUsage: 0,
-      duration: 0,
-      type: overrides.type ?? 'business',
-      features: overrides.features ?? [LicenseFeature.Ipam, LicenseFeature.Isms]
-    }
+    type: overrides.type ?? 'business',
+    features: overrides.features ?? [LicenseFeature.Ipam, LicenseFeature.Isms]
   };
 }
 
@@ -66,16 +51,22 @@ describe('PremiumFeatureService', () => {
   let router: jasmine.SpyObj<Router>;
   let originalCloudMode: boolean;
 
-  /** Runs the effect that backs `toObservable(license)`, so reactive streams emit the latest value. */
+  /** Runs the effect that backs `toObservable(entitlements)`, so reactive streams emit the latest value. */
   const flushSignals = () => TestBed.flushEffects();
+
+  /** Warms the cache from the mocked endpoint, the way login does, and arms it for later refreshes. */
+  const hydrate = (entitlements: LicenseEntitlements) => {
+    licenseService.getEntitlements.and.returnValue(of(entitlements));
+    service.refresh().subscribe();
+  };
 
   beforeEach(() => {
     originalCloudMode = environment.cloudMode;
     environment.cloudMode = false;
 
-    licenseService = jasmine.createSpyObj<LicenseService>('LicenseService', ['getCurrentLicense']);
+    licenseService = jasmine.createSpyObj<LicenseService>('LicenseService', ['getEntitlements']);
     // Sensible default: nothing licensed. Entitled scenarios override this before hydration.
-    licenseService.getCurrentLicense.and.returnValue(of(null as unknown as CurrentLicense));
+    licenseService.getEntitlements.and.returnValue(of(COMMUNITY));
 
     modalService = jasmine.createSpyObj<NgbModal>('NgbModal', ['open']);
     router = jasmine.createSpyObj<Router>('Router', ['navigate', 'navigateByUrl'], { url: '/settings/license' });
@@ -103,42 +94,33 @@ describe('PremiumFeatureService', () => {
   /* ------------------------------------- isAvailable() — synchronous snapshot ------------------------------------- */
 
   describe('isAvailable() synchronous snapshot', () => {
-    it('fails closed (locked) before the license is hydrated', () => {
+    it('fails closed (locked) before the entitlements are hydrated', () => {
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
     });
 
     it('is locked on the Community edition (no license)', () => {
-      service.clear();
+      hydrate(COMMUNITY);
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
     });
 
-    it('is unlocked for a listed feature on an active perpetual license', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam] }));
+    it('is unlocked for a listed feature on an active license', () => {
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeTrue();
     });
 
     it('is locked for a feature the license does not include', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Isms] }));
+      hydrate(buildEntitlements({ features: [LicenseFeature.Isms] }));
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
     });
 
     it('is locked when the license is inactive, even if the feature is listed', () => {
-      service.seed(buildLicense({ is_active: false, features: [LicenseFeature.Ipam] }));
+      // `is_active` is the backend's verdict and already covers an expired license.
+      hydrate(buildEntitlements({ is_active: false, features: [LicenseFeature.Ipam] }));
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
-    });
-
-    it('is locked when the license has expired, even if the feature is listed', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam], endDate: Date.now() - 2 * DAY_MS }));
-      expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
-    });
-
-    it('is unlocked when a dated license is still within its validity window', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam], endDate: Date.now() + 30 * DAY_MS }));
-      expect(service.isAvailable(LicenseFeature.Ipam)).toBeTrue();
     });
 
     it('evaluates each feature independently', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam] }));
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeTrue();
       expect(service.isAvailable(LicenseFeature.Isms)).toBeFalse();
       expect(service.isAvailable(LicenseFeature.Automations)).toBeFalse();
@@ -149,7 +131,7 @@ describe('PremiumFeatureService', () => {
 
   describe('isAvailable$() reactive stream', () => {
     it('hydrates once and emits the current availability', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: [LicenseFeature.Ipam] })));
 
       const seen: boolean[] = [];
       const sub = service.isAvailable$(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
@@ -160,7 +142,7 @@ describe('PremiumFeatureService', () => {
     });
 
     it('re-emits FALSE to an existing subscriber after clear() — the sidebar locks without a reload', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: [LicenseFeature.Ipam] })));
 
       const seen: boolean[] = [];
       const sub = service.isAvailable$(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
@@ -174,14 +156,14 @@ describe('PremiumFeatureService', () => {
       sub.unsubscribe();
     });
 
-    it('re-emits TRUE to an existing subscriber after seed() — an imported license unlocks live', () => {
+    it('re-emits TRUE to an existing subscriber after refresh() — an imported license unlocks live', () => {
       // Start locked (Community).
       const seen: boolean[] = [];
       const sub = service.isAvailable$(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
       flushSignals();
       expect(seen).toEqual([false]);
 
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam] }));
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
       flushSignals();
 
       expect(seen).toEqual([false, true]);
@@ -189,22 +171,22 @@ describe('PremiumFeatureService', () => {
     });
 
     it('does not emit duplicates while availability is unchanged', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: [LicenseFeature.Ipam] })));
 
       const seen: boolean[] = [];
       const sub = service.isAvailable$(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
       flushSignals();
 
-      // A different license object that still includes IPAM must not produce a second emission.
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam, LicenseFeature.Isms] }));
+      // A wider entitlement that still includes IPAM must not produce a second emission.
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam, LicenseFeature.Isms] }));
       flushSignals();
 
       expect(seen).toEqual([true]);
       sub.unsubscribe();
     });
 
-    it('fails closed (emits false) when the license lookup errors', () => {
-      licenseService.getCurrentLicense.and.returnValue(throwError(() => new Error('network down')));
+    it('fails closed (emits false) when the entitlements lookup errors', () => {
+      licenseService.getEntitlements.and.returnValue(throwError(() => new Error('network down')));
 
       const seen: boolean[] = [];
       const sub = service.isAvailable$(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
@@ -214,8 +196,8 @@ describe('PremiumFeatureService', () => {
       sub.unsubscribe();
     });
 
-    it('tracks each feature separately from a single license', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
+    it('tracks each feature separately from a single payload', () => {
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: [LicenseFeature.Ipam] })));
 
       const ipam: boolean[] = [];
       const isms: boolean[] = [];
@@ -233,39 +215,36 @@ describe('PremiumFeatureService', () => {
   /* -------------------------- clear() — license removal (regression for the reload bug) -------------------------- */
 
   describe('clear() license removal', () => {
-    it('asserts the de-entitled state WITHOUT another license/current round-trip', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
-      // Hydrate first so the cache is warm and entitled.
-      service.isAvailable$(LicenseFeature.Ipam).subscribe().unsubscribe();
+    it('asserts the de-entitled state WITHOUT another entitlements round-trip', () => {
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
       flushSignals();
-      licenseService.getCurrentLicense.calls.reset();
+      licenseService.getEntitlements.calls.reset();
 
       service.clear();
 
       // The core of the fix: removal must not re-derive entitlement from a cacheable GET.
-      expect(licenseService.getCurrentLicense).not.toHaveBeenCalled();
+      expect(licenseService.getEntitlements).not.toHaveBeenCalled();
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
     });
 
     it('locks a subscriber that connects AFTER removal, still without re-fetching', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
-      service.isAvailable$(LicenseFeature.Ipam).subscribe().unsubscribe();
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
       flushSignals();
 
       service.clear();
-      licenseService.getCurrentLicense.calls.reset();
+      licenseService.getEntitlements.calls.reset();
 
       const seen: boolean[] = [];
       const sub = service.isAvailable$(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
       flushSignals();
 
       expect(seen).toEqual([false]);
-      expect(licenseService.getCurrentLicense).not.toHaveBeenCalled();
+      expect(licenseService.getEntitlements).not.toHaveBeenCalled();
       sub.unsubscribe();
     });
 
     it('is idempotent — clearing twice stays locked', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam] }));
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
       service.clear();
       service.clear();
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
@@ -277,31 +256,38 @@ describe('PremiumFeatureService', () => {
       service.clear();
 
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeTrue();
-      expect(licenseService.getCurrentLicense).not.toHaveBeenCalled();
+      expect(licenseService.getEntitlements).not.toHaveBeenCalled();
     });
   });
 
-  /* ------------------------------------------- seed() — license import ------------------------------------------- */
+  /* ------------------------------------ refresh() — login and license changes ------------------------------------ */
 
-  describe('seed() license import', () => {
-    it('reflects the imported license synchronously without a fetch', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam] }));
+  describe('refresh() entitlements re-read', () => {
+    it('reads license/entitlements and reflects the result synchronously', () => {
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: [LicenseFeature.Ipam] })));
 
+      service.refresh().subscribe();
+
+      expect(licenseService.getEntitlements).toHaveBeenCalledTimes(1);
       expect(service.isAvailable(LicenseFeature.Ipam)).toBeTrue();
-      expect(licenseService.getCurrentLicense).not.toHaveBeenCalled();
     });
 
-    it('unlocks a subscriber that connected while still on Community', () => {
-      const seen: boolean[] = [];
-      const sub = service.isAvailable$(LicenseFeature.Isms).subscribe((v) => seen.push(v));
-      flushSignals();
-      expect(seen).toEqual([false]);
+    it('re-reads on every call, so a license change is never served from the warm cache', () => {
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
+      expect(service.isAvailable(LicenseFeature.Ipam)).toBeTrue();
 
-      service.seed(buildLicense({ features: [LicenseFeature.Isms] }));
-      flushSignals();
+      hydrate(COMMUNITY);
 
-      expect(seen).toEqual([false, true]);
-      sub.unsubscribe();
+      expect(licenseService.getEntitlements).toHaveBeenCalledTimes(2);
+      expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
+    });
+
+    it('does not reach the endpoint in cloud mode', () => {
+      environment.cloudMode = true;
+
+      service.refresh().subscribe();
+
+      expect(licenseService.getEntitlements).not.toHaveBeenCalled();
     });
   });
 
@@ -309,24 +295,24 @@ describe('PremiumFeatureService', () => {
 
   describe('hydration and caching', () => {
     it('performs a single shared fetch for concurrent first-time subscribers', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense()));
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements()));
 
       const s1 = service.isAvailable$(LicenseFeature.Ipam).subscribe();
       const s2 = service.isAvailable$(LicenseFeature.Isms).subscribe();
       flushSignals();
 
-      expect(licenseService.getCurrentLicense).toHaveBeenCalledTimes(1);
+      expect(licenseService.getEntitlements).toHaveBeenCalledTimes(1);
       s1.unsubscribe();
       s2.unsubscribe();
     });
 
-    it('does not re-fetch once the license is hydrated', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense()));
+    it('does not re-fetch once the entitlements are hydrated', () => {
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements()));
 
       service.isAvailable$(LicenseFeature.Ipam).subscribe().unsubscribe();
       service.isAvailable$(LicenseFeature.Isms).subscribe().unsubscribe();
 
-      expect(licenseService.getCurrentLicense).toHaveBeenCalledTimes(1);
+      expect(licenseService.getEntitlements).toHaveBeenCalledTimes(1);
     });
   });
 
@@ -341,7 +327,7 @@ describe('PremiumFeatureService', () => {
     }
 
     it('emits true exactly once and does NOT open the modal when unlocked', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: [LicenseFeature.Ipam] })));
 
       const seen: boolean[] = [];
       service.ensureAccess(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
@@ -351,7 +337,7 @@ describe('PremiumFeatureService', () => {
     });
 
     it('emits false and opens the upgrade modal when locked', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(null as unknown as CurrentLicense));
+      licenseService.getEntitlements.and.returnValue(of(COMMUNITY));
       stubModal(PREMIUM_FEATURE_MODAL_RESULT.later);
 
       const seen: boolean[] = [];
@@ -362,7 +348,7 @@ describe('PremiumFeatureService', () => {
     });
 
     it('blocks access after a license removal (clear())', () => {
-      service.seed(buildLicense({ features: [LicenseFeature.Ipam] }));
+      hydrate(buildEntitlements({ features: [LicenseFeature.Ipam] }));
       service.clear();
       stubModal(PREMIUM_FEATURE_MODAL_RESULT.later);
 
@@ -381,7 +367,7 @@ describe('PremiumFeatureService', () => {
     const latest = (sets: Set<LicenseFeature>[]) => sets[sets.length - 1];
 
     it('reports only the locked subset of the watched features', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: [LicenseFeature.Ipam] })));
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: [LicenseFeature.Ipam] })));
 
       const sets: Set<LicenseFeature>[] = [];
       const sub = service.watchLockedFeatures(WATCHED).subscribe((s) => sets.push(s));
@@ -394,7 +380,7 @@ describe('PremiumFeatureService', () => {
     });
 
     it('locks every watched feature again after clear()', () => {
-      licenseService.getCurrentLicense.and.returnValue(of(buildLicense({ features: WATCHED })));
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ features: WATCHED })));
 
       const sets: Set<LicenseFeature>[] = [];
       const sub = service.watchLockedFeatures(WATCHED).subscribe((s) => sets.push(s));
@@ -416,7 +402,33 @@ describe('PremiumFeatureService', () => {
 
       expect(sets.length).toBe(1);
       expect(sets[0].size).toBe(0);
-      expect(licenseService.getCurrentLicense).not.toHaveBeenCalled();
+      expect(licenseService.getEntitlements).not.toHaveBeenCalled();
+    });
+  });
+
+  /* ------------------------------------------ currentEdition$() — badge ------------------------------------------ */
+
+  describe('currentEdition$() navbar edition badge', () => {
+    it('reports the licensed tier while the license is active', () => {
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ type: 'business' })));
+
+      const seen: string[] = [];
+      const sub = service.currentEdition$().subscribe((v) => seen.push(v));
+      flushSignals();
+
+      expect(seen).toEqual(['business']);
+      sub.unsubscribe();
+    });
+
+    it('falls back to Community for an inactive license, whatever tier it names', () => {
+      licenseService.getEntitlements.and.returnValue(of(buildEntitlements({ is_active: false, type: 'corporate' })));
+
+      const seen: string[] = [];
+      const sub = service.currentEdition$().subscribe((v) => seen.push(v));
+      flushSignals();
+
+      expect(seen).toEqual(['free']);
+      sub.unsubscribe();
     });
   });
 
@@ -477,12 +489,12 @@ describe('PremiumFeatureService', () => {
       expect(service.isAvailable(LicenseFeature.Isms)).toBeTrue();
     });
 
-    it('emits true from isAvailable$ without hitting the license endpoint', () => {
+    it('emits true from isAvailable$ without hitting the entitlements endpoint', () => {
       const seen: boolean[] = [];
       service.isAvailable$(LicenseFeature.Ipam).subscribe((v) => seen.push(v));
 
       expect(seen).toEqual([true]);
-      expect(licenseService.getCurrentLicense).not.toHaveBeenCalled();
+      expect(licenseService.getEntitlements).not.toHaveBeenCalled();
     });
 
     it('grants access from ensureAccess without opening the modal', () => {

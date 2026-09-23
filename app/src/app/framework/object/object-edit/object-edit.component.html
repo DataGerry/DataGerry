@@ -53,15 +53,17 @@
                 [typeInstance]="typeInstance"
                 [mode]="mode"
                 [renderForm]="renderForm"
+                [sectionSlot]="portsSlot"
+                [sectionSlotIndex]="portsSectionIndex"
             />
 
-            <!-- Ports are not part of the type's sections, so they are appended as one of their own. -->
-            @if (portsAvailable) {
-            <cmdb-ports-overview
-                *permissionLink="[portViewRight]"
-                [objectId]="portsObjectId"
-            />
-            }
+            <!-- Ports are no section of the type, so the type stores the slot they take among them. -->
+            <ng-template #portsSlot>
+                <cmdb-ports-overview
+                    *permissionLink="[portViewRight]"
+                    [objectId]="portsObjectId"
+                />
+            </ng-template>
 
             <hr/>
 

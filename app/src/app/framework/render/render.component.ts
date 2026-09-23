@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, Input, OnInit } from '@angular/core';
+import { Component, Input, OnInit, TemplateRef } from '@angular/core';
 import { UntypedFormGroup } from '@angular/forms';
 
 import { CmdbType } from '../models/cmdb-type';
@@ -38,6 +38,10 @@ export class RenderComponent implements OnInit {
     @Input() public renderForm: UntypedFormGroup;
     @Input() public changeForm: UntypedFormGroup;
     @Input() public mode: CmdbMode;
+
+    /** A surface the type does not store as a section, handed in to place between the ones it does. */
+    @Input() public sectionSlot: TemplateRef<unknown> | null = null;
+    @Input() public sectionSlotIndex: number | null = null;
 
     public objectID: number;
     private field: any;
