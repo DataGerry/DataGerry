@@ -59,12 +59,12 @@ export enum LicenseTier {
   Corporate = 'corporate'
 }
 
-/** Human-readable tier names shown on the license card. */
+/** Display names only; backend tier keys stay core/business/corporate. */
 export const LICENSE_TIER_LABELS: Record<LicenseTier, string> = {
   [LicenseTier.Free]: 'Community',
-  [LicenseTier.Core]: 'Core',
-  [LicenseTier.Business]: 'Business',
-  [LicenseTier.Corporate]: 'Corporate'
+  [LicenseTier.Core]: 'Small',
+  [LicenseTier.Business]: 'Medium',
+  [LicenseTier.Corporate]: 'Large'
 };
 
 /**
