@@ -91,6 +91,32 @@ class PortsManager(GenericManager):
             raise PortsManagerGetError(str(err)) from err
 
 
+    def get_ports_by_ids(self, port_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves several CmdbPorts by their public_ids in one query
+
+        The read behind naming what a page of cables ends on: the far end of a connection is a port
+        id, and the ports it names belong to other CmdbObjects. One indexed '$in' answers the whole
+        page, where asking per port would be one query per cable
+
+        Args:
+            port_ids (list[int]): public_ids of the CmdbPorts to read; an empty list reads nothing
+
+        Raises:
+            PortsManagerGetError: If the CmdbPorts could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The ports that exist, in no guaranteed order
+        """
+        if not port_ids:
+            return []
+
+        try:
+            return self.find(criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}})
+        except (BaseManagerGetError, Exception) as err:
+            raise PortsManagerGetError(str(err)) from err
+
+
     def get_port_by_name(self, object_id: int, side: str, name: str) -> dict[str, Any] | None:
         """
         Retrieves the CmdbPort with the given name on one face of one CmdbObject
