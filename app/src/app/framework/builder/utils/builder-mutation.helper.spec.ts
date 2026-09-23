@@ -348,6 +348,26 @@ describe('BuilderMutationHelper', () => {
     });
 
 
+    describe('removing a field from a loaded type', () => {
+
+        it('drops the name from the stored section, not only from the canvas copy', () => {
+            // A loaded type stores names, while the canvas holds field objects in its own copy.
+            ctx.typeInstance.render_meta.sections = [
+                { name: 'section_a', label: 'A', type: 'section', fields: ['field_a', 'field_c'] },
+                { name: 'section_b', label: 'B', type: 'section', fields: ['field_b'] }
+            ];
+            const fieldC = { name: 'field_c', type: 'text', label: 'Field C' };
+            ctx.typeInstance.fields = [fieldA, fieldB, fieldC];
+            helper.syncSectionsFromModel();
+
+            helper.removeField(fieldC, ctx.sections[0]);
+
+            expect(ctx.typeInstance.fields.map((f: any) => f.name)).toEqual(['field_a', 'field_b']);
+            expect(ctx.typeInstance.render_meta.sections[0].fields).toEqual(['field_a']);
+            expect(ctx.typeInstance.render_meta.sections[1].fields).toEqual(['field_b']);
+        });
+    });
+
     describe('removing a section that owns fields', () => {
 
         it('removes a multi-data-section\'s fields from the model with it', () => {

@@ -247,6 +247,7 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
         }
         const saveTypeInstance: CmdbType = Object.assign({}, this.typeInstance) as CmdbType;
         const sections: Array<CmdbTypeSection> = [];
+        const typeFieldNames = new Set((saveTypeInstance?.fields ?? []).map(field => field?.name));
 
         for (const section of saveTypeInstance?.render_meta.sections) {
             const fields = [];
@@ -259,7 +260,8 @@ export class TypeBuilderComponent implements OnInit, OnDestroy {
                 }
             }
 
-            section.fields = fields;
+            // A name without a field definition breaks the object view
+            section.fields = fields.filter(fieldName => typeFieldNames.has(fieldName));
             sections.push(section);
         }
 

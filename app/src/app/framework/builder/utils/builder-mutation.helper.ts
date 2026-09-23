@@ -759,6 +759,7 @@ export class BuilderMutationHelper {
             section?.fields?.splice(sectionFieldIndex, 1);
         }
 
+        this.removeFieldFromModelSection(section?.name, item?.name);
         this.ctx.schema.writeSections(this.ctx.schema.readSections());
 
         let numberOfFields = section?.fields?.length > 0;
@@ -770,6 +771,19 @@ export class BuilderMutationHelper {
         this.highlight.updateHighlightState()
         this.refreshFieldIdentifiers()
         this.releaseDuplicateLockIfResolved();
+    }
+
+    /** The canvas section is a projection, so the stored section has to drop the name as well. */
+    private removeFieldFromModelSection(sectionName: string, fieldName: string): void {
+        const modelSection = this.ctx.schema.readSections()?.find(entry => entry?.name === sectionName);
+
+        if (!modelSection?.fields || !fieldName) {
+            return;
+        }
+
+        modelSection.fields = modelSection.fields.filter(field =>
+            (typeof field === 'string' ? field : field?.name) !== fieldName
+        );
     }
 
     /* ------------------------------------------------- DUPLICATE LOCK ------------------------------------------------- */
