@@ -21,8 +21,8 @@ posted CSV is parsed, validated, de-duplicated and inserted - plus the route gua
 missing file, missing headers) and the de-duplication counting. The route is ISMS-license gated, so
 the check is stubbed.
 
-Also pins the three behaviours fixed on 2026-07-30: a rejected row leaves NO master data behind (it
-used to create the referenced options / threats / goals before deciding the row was invalid), a short
+Also pins three behaviours: a rejected row leaves NO master data behind (creating the referenced
+options / threats / goals before deciding the row is invalid would), a short
 row is a normal invalid row rather than a 500, and a CSV carrying a UTF-8 BOM (i.e. saved by Excel) is
 accepted instead of being reported as missing its first header.
 """
@@ -284,7 +284,7 @@ class TestMalformedFiles:
     def test_a_short_threat_row_is_imported_with_empty_cells(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """A row with only the name is valid - the missing cells are simply empty (used to be a 500)."""
+        """A row with only the name is valid - the missing cells are simply empty, not a 500."""
         response = _post_csv(rest_api, 'threat', SHORT_THREAT_CSV)
 
         assert response.status_code == HTTPStatus.OK

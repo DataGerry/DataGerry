@@ -14,12 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the client-pipeline guard (tier 2 T148)
+Unit tests for the client-pipeline guard
 
 Two halves, and the second is the one that keeps the product working:
 
 * **what must be refused** - the stages and expressions that were verified reading foreign collections
-  and executing JavaScript on 2026-09-16, each pinned here so a widened allow-list fails loudly
+  and executing JavaScript, each pinned here so a widened allow-list fails loudly
 * **what must keep being accepted** - the pipelines the Angular frontend actually builds, transcribed
   from `app/src` verbatim. `$lookup` and `$group` are in the allow-list *only* because of these, so a
   future tightening has to break a test here before it breaks a live screen
@@ -44,7 +44,7 @@ JS_FUNCTION: dict[str, Any] = {'$function': {'body': 'function(){ return 1; }', 
 #                                     reading a collection the caller did not ask for                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestForeignCollectionReads:
-    """The disclosure half of T148, verified over HTTP before the guard existed."""
+    """The disclosure half, which the guard is what closes."""
 
     def test_a_lookup_into_the_user_collection_is_refused(self) -> None:
         """
@@ -248,7 +248,7 @@ class TestTheFrontendKeepsWorking:
     The constraint on every future tightening of the allow-list
 
     `$lookup` and `$group` are permitted only because these pipelines exist. Removing either needs
-    server-side routes first (tier 2 T204 / T205) - and a change that skips that step fails here.
+    server-side routes first - and a change that skips that step fails here.
     """
 
     @pytest.mark.parametrize('pipeline', [

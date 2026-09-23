@@ -59,7 +59,7 @@ Pipeline:
   5. When ``with_ipam_relations``, walk one hop in each direction of the IPAM SpecialType hierarchy
      (SUPERNET <-> SUBNET <-> VLAN/Interface) and collect the raw neighbour CmdbObjects
   5a. When ``with_port_connections``, walk the physical chain out of every cabled port of the focal
-     object and collect the CIs it ends at, collapsing patch panels away (see ``connections.py``)
+     object and collect the CIs its cables reach, patch panels included (see ``connections.py``)
   6. Bulk-fetch the CmdbType documents for every object in scope (single $in)
   6a. Resolve which of those types the user may not read, drop every object of one from all four
      sources, and refuse the whole request when the focal object itself is denied
@@ -70,7 +70,7 @@ Pipeline:
      parent/child buckets as relation neighbours, with ``metadata.source`` distinguishing them
   9. Assemble the response according to ``target_type`` (CHILD / PARENT / BOTH)
 
-**Port connections are undirected**, so they have no parent side to fold into: every collapsed edge
+**Port connections are undirected**, so they have no parent side to fold into: every physical edge
 lands in the children bucket carrying ``metadata.undirected: true``, and a request for parents only
 gets none of them. A cable between two CIs is a fact about both, not a hierarchy.
 
@@ -195,7 +195,7 @@ class ConnectionNeighbourhood:
     Everything the port-connectivity branch produced
 
     Attributes:
-        neighbours: The CIs the physical walk reached, each with the path it collapsed
+        neighbours: The CIs the focal object is cabled to, each with the cable that says so
         objects: Those CmdbObjects by public_id, already type-filtered
     """
     neighbours: list[ConnectionNeighbour] = field(default_factory=list)

@@ -222,7 +222,7 @@ class TestSearchPipelineBuilder:
         assert r'\*' in list(_deep_find(pipeline, '$regex'))
 
     def test_a_usable_text_param_is_still_a_pattern(self) -> None:
-        """The rest of T187: a term that compiles keeps regex semantics, wrong or not."""
+        """A term that compiles keeps regex semantics, wrong or not."""
         pipeline = SearchPipelineBuilder().build([SearchParam('C++', 'text')])
 
         assert 'C++' in list(_deep_find(pipeline, '$regex'))
@@ -249,7 +249,7 @@ class TestSearchPipelineBuilder:
         A type param becomes a type_id $in match
 
         Note what this does NOT assert: `SearchParam.disjunction` defaults to True, so this param is
-        DISJUNCTIVE and the match sits under an `$or`. The test used to claim the opposite in its
+        DISJUNCTIVE and the match sits under an `$or`, which is easy to claim the opposite of in a
         docstring while asserting only the `$in`, which is why the AND path below was never executed.
         """
         pipeline = SearchPipelineBuilder().build([SearchParam('', 'type', settings={'types': [1, 2]})])
@@ -319,7 +319,7 @@ class TestSearchPipelineBuilder:
         """
         Every category tag of a search is resolved in ONE read
 
-        It used to be one query per tag, inside the loop - and the criteria of the batched read is
+        One query per tag inside the loop is what this replaces - and the criteria of the batched read is
         an $or of the label patterns, since the categories are matched by LABEL.
         """
         categories_manager = _CountingCategoriesManager()
@@ -448,7 +448,7 @@ class TestSearchPipelineBuilder:
         """
         The walk goes all the way down
 
-        It used to recurse into dicts and into the dicts of a list, but not into a list inside a
+        Recursing into dicts and into the dicts of a list, but not into a list inside a
         list - so a pattern one level deeper than any current stage would have been missed.
         """
         builder = SearchPipelineBuilder([

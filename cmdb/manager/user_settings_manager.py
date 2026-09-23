@@ -21,7 +21,7 @@ instead of using the public_id-keyed CRUD of its GenericManager base - see `Cmdb
 
 `get_user_settings` is deliberately the one read that does NOT build models: it normalises each
 document and **skips** the ones it cannot read (reporting them), because it answers a whole user's
-settings at once and one unreadable record used to fail all of them
+settings at once, and one unreadable record must not fail all of them
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -97,12 +97,12 @@ class UserSettingsManager(GenericManager):
         Get all CmdbUserSettings of a CmdbUser by the user_id
 
         Answers normalised documents rather than model instances: the four keys, with an absent
-        payload list reported as an empty one. It used to build a `CmdbUserSetting` per document and
+        payload list reported as an empty one. Building a `CmdbUserSetting` per document and
         the caller immediately converted each back into a dict, which cost two objects per setting
         plus one per payload entry for a payload that is handed straight back.
 
         **A document that cannot be read is skipped, not fatal.** Reading one resolves its stored
-        scope, and until 2026-09-09 an unresolvable value failed the whole call - so a single bad
+        scope, and an unresolvable value must not fail the whole call - a single bad
         record answered 400 for every setting the user had, and the frontend (which syncs these on
         login and only logs a failure) silently stopped restoring any of them. The skipped record is
         logged with its resource by `normalize_user_setting_document`

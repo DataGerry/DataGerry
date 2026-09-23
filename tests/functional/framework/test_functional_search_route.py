@@ -22,9 +22,9 @@ ObjectsManagerIterationError -> 400 / unexpected -> 500 mappings) and the search
 rather than as an empty 204, plus the paging contract: `limit=0` means every match, a negative limit
 or skip is refused).
 
-TestGetCarriesTheSamePayloadAsPost and TestRequestParametersAreStrict cover the
-fixes they describe: a GET search carrying an actual parameter list used to answer 500, and a
-non-numeric `?limit=` / an unrecognised `?resolve=` used to be accepted with the default substituted.
+TestGetCarriesTheSamePayloadAsPost and TestRequestParametersAreStrict pin the two rules a client
+depends on: a GET search carries the same parameter list POST accepts, and a non-numeric `?limit=` or
+an unrecognised `?resolve=` is refused rather than served with the default substituted.
 
 TestMatchedFields drives the whole chain against a seeded type + object: a text search must come
 back with the matching field reported under `matches`, in the shape the Angular search result
@@ -72,8 +72,8 @@ EMPTY_FIELD: str = 'dg-search-empty'
 EMPTY_LABEL: str = 'Empty'
 TEXT_FIELD_TYPE: str = 'text'
 
-#: An unset field used to hold the text 'None' when values were stringified before matching, so a
-#: search for this term used to return every object carrying an empty field
+#: Stringifying values before matching turns an unset field into the text 'None', so a search for
+#: this term would return every object carrying an empty field
 NONE_SEARCH_TERM: str = 'none'
 
 
@@ -257,8 +257,8 @@ class TestSearchFramework:
         """
         0 means unlimited here as in every paginated route
 
-        It used to produce a `$limit: 0`, which MongoDB refuses - and the refusal was swallowed as an
-        empty 204, so asking for "all results" answered with none.
+        A `$limit: 0` is refused by MongoDB, and the refusal is swallowed as an empty 204 - so
+        asking for "all results" would answer with none.
         """
         response = rest_api.get(f'{SEARCH_URL}?query={{}}&limit=0')
 
@@ -291,7 +291,7 @@ class TestGetCarriesTheSamePayloadAsPost:
     """
 
     def test_a_real_parameter_list_is_accepted(self, rest_api) -> None:
-        """The exact payload POST accepts used to be a 500 on GET."""
+        """GET accepts the exact payload POST does."""
         response = rest_api.get(f'{SEARCH_URL}?query={_query_arg(TEXT_PARAM)}')
 
         assert response.status_code == HTTPStatus.OK
@@ -325,8 +325,8 @@ class TestRequestParametersAreStrict:
     A malformed parameter is refused, never silently replaced by its default
 
     `request.args.get(name, default, int)` catches the ValueError itself and answers the default, so
-    `?limit=abc` used to be served as an ordinary search with a substituted page size - while
-    `?limit=-1` two lines below was a 400. The route parses the numbers itself now.
+    `?limit=abc` would be served as an ordinary search with a substituted page size - while
+    `?limit=-1` two lines below is a 400. The route parses the numbers itself.
     """
 
     @pytest.mark.parametrize('query', ['limit=abc', 'skip=abc', 'limit=1.5'], ids=str)
@@ -449,7 +449,7 @@ class TestMatchedFields:
         assert _entry_for_seeded_object(response.get_json()) is None
 
     def test_empty_field_is_not_reported_as_matching_none(self, rest_api) -> None:
-        """Regression: an unset field used to be stringified to 'None' and match a search for it."""
+        """Regression: an unset field stringified to 'None' would match a search for it."""
         response = rest_api.post(SEARCH_URL, data=_search_body(NONE_SEARCH_TERM),
                                  content_type='application/json')
         entry = _entry_for_seeded_object(response.get_json())
@@ -521,7 +521,7 @@ class TestAnUnusableSearchParameterIsRefused:
         assert 'position 0' in response.get_json()['message']
 
     def test_an_unknown_form_is_a_400(self, rest_api) -> None:
-        """A typo'd form used to widen the search silently."""
+        """A typo'd form would widen the search silently."""
         body = json.dumps([{'searchText': 'srv', 'searchForm': 'not-a-form'}])
 
         response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')
@@ -545,7 +545,7 @@ class TestAnUnusableSearchParameterIsRefused:
 
     def test_a_non_numeric_public_id_search_is_a_400_naming_the_form(self, rest_api) -> None:
         """
-        It used to fail two layers away, in the pipeline builder's bare int()
+        It is caught here rather than two layers away, in the pipeline builder's bare int()
 
         The route could only answer a generic 400 there; the form is known here, so the message says
         what was wrong with which parameter.
@@ -590,7 +590,7 @@ class TestAnUnusableTextTermIsAnswered:
 
     @pytest.mark.parametrize('term', ['C++', 'Data (EU)'], ids=repr)
     def test_a_usable_text_term_still_answers(self, rest_api, term: str) -> None:
-        """The terms T187's remaining half is about are valid patterns and were never the 400."""
+        """A term carrying regex metacharacters is still a valid pattern, so it answers rather than 400s."""
         body = json.dumps([{'searchText': term, 'searchForm': 'text'}])
 
         response = rest_api.post(SEARCH_URL, data=body, content_type='application/json')

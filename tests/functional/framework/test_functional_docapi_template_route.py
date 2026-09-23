@@ -22,14 +22,14 @@ missing id (get / update / delete), and the render 404 when the template is miss
 this used to surface as a 500 because get_template crashed on a missing id and the route's
 guard was unreachable).
 
-Since 2026-08-25 also: a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and
-the update response is a JSON document rather than a model repr. The PDF render pipeline itself is covered by
-test_integration_docapi_document_generation; here only the route's own error mapping is.
+Also pinned: a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and the
+update response is a JSON document rather than a model repr. The PDF render pipeline itself has its
+own integration coverage; here only the route's own error mapping is.
 
 The by-name read is a name-availability check rather than a fetch, so it answers 200 with ``null`` for
-an unused name (it briefly 404'd there, which made the frontend read "free" off an error). Since
-2026-08-27 the name is also IMMUTABLE on update: a PUT carrying any other name than the stored one is a
-400, even when that name is free - which is what makes the availability check answer a lasting question.
+an unused name, rather than an error the frontend would have to read "free" off. The name is also
+IMMUTABLE on update: a PUT carrying any other name than the stored one is a 400, even when that name
+is free - which is what makes the availability check answer a lasting question.
 """
 from http import HTTPStatus
 from typing import Any
@@ -168,7 +168,7 @@ class TestGetSingle:
                 .delete_one({'public_id': TPL_ID_FOR_GET})
 
     def test_get_missing_returns_404(self, rest_api) -> None:
-        """A missing template id returns 404 (regression: get_template used to crash on None)."""
+        """A missing template id returns 404, rather than get_template crashing on the None."""
         response = rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -195,7 +195,7 @@ class TestUpdate:
                 .delete_one({'public_id': TPL_ID_FOR_UPDATE})
 
     def test_update_missing_returns_404(self, rest_api) -> None:
-        """Updating a non-existent template returns 404 (regression: used to be success-shaped)."""
+        """Updating a non-existent template returns 404, not a success-shaped response."""
         response = rest_api.put(f'{CRUD_URL}/', json=_template_payload(MISSING_TPL_ID))
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -218,7 +218,7 @@ class TestDelete:
                 .delete_one({'public_id': TPL_ID_FOR_DELETE})
 
     def test_delete_missing_returns_404(self, rest_api) -> None:
-        """Deleting a non-existent template returns 404 (regression: used to be success-shaped)."""
+        """Deleting a non-existent template returns 404, not a success-shaped response."""
         response = rest_api.delete(f'{CRUD_URL}/{MISSING_TPL_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -437,8 +437,8 @@ class TestNameIsImmutable:
         """
         The response carries the template as a document (regression)
 
-        It used to hand out the model instance itself, which only serialised by falling back to bson's
-        default encoder.
+        Handing out the model instance itself only serialises by falling back to bson's default
+        encoder.
         """
         _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
         try:
@@ -524,8 +524,7 @@ RENDER_NAME_FIELD: str = 'dg-name'
 PDF_MAGIC: bytes = b'%PDF'
 
 # A rendered document is named like every other export: `<timestamp>_document_<template>-<object>.pdf`,
-# built by cmdb.framework.exporter.export_filename_helper. Before 2026-09-21 every render of every
-# template answered with the one name `output.pdf`
+# built by cmdb.framework.exporter.export_filename_helper - so two renders never share a filename
 RENDERED_FILENAME_PATTERN: str = (
     r'attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_document_render-'
     + str(RENDER_OBJECT_ID)

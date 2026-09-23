@@ -50,8 +50,8 @@ TYPE_MATRIX: list[tuple[int, dict[str, Any] | None, bool]] = [
     (96004, {'activated': True, 'groups': {'includes': {str(GROUP_ID): ['CREATE']}}}, False),
     (96005, {'activated': True, 'groups': {'includes': {str(OTHER_GROUP_ID): ['READ']}}}, False),
     (96006, {'activated': True, 'groups': {'includes': {}}}, False),
-    # No 'activated' key at all: NOT activated, so both of these grant - the model's reading, adopted
-    # by the query builder on 2026-09-17 (tier 2 T208). 96008 used to be denied here
+    # No 'activated' key at all: NOT activated, so both of these grant - the model's reading, which
+    # the query builder follows too
     (96007, {'groups': {'includes': {str(GROUP_ID): ['READ']}}}, True),
     (96008, {'groups': {'includes': {str(OTHER_GROUP_ID): ['READ']}}}, True),
     (96009, {'activated': True, 'groups': {'includes': {str(GROUP_ID): []}}}, False),
@@ -159,8 +159,8 @@ class TestDeniedTypesResolution:
 
         96008's ACL names only the *other* group, which under an activated ACL would deny - it is
         granted here purely because the flag is absent. This is the model's reading
-        (`AccessControlList.from_data` defaults it to False) and the query builder adopted it on
-        2026-09-17, so `GET /objects/<id>` and `GET /objects/` stop disagreeing on this document.
+        (`AccessControlList.from_data` defaults it to False) and the query builder follows it, so
+        `GET /objects/<id>` and `GET /objects/` agree on this document.
         """
         denied = _denied_ids(database_manager, database_name, GROUP_ID)
 
@@ -222,7 +222,7 @@ class TestQueryStageOrder:
         return [next(iter(stage)) for stage in query]
 
     def test_acl_match_precedes_skip(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression: $skip used to run before the ACL filter, so a page could omit visible rows."""
+        """Regression: $skip running before the ACL filter lets a page omit visible rows."""
         monkeypatch.setattr(
             'cmdb.security.acl.builder.resolve_denied_type_ids', lambda *_a, **_k: DENIED_TYPE_IDS
         )
@@ -344,9 +344,8 @@ class TestPermittedTypesCriteriaOverSeveralPermissions:
     """
     Asking for a permission other than READ, against the same seeded ACL shapes
 
-    Until 2026-09-17 the criteria took exactly one permission and every caller passed READ, so the
-    multi-permission form the Angular app has always posted as a client filter had never run
-    server-side. These pin what it answers.
+    The criteria take several permissions at once, which is the form the Angular app posts as a
+    client filter. These pin what it answers.
     """
 
     @staticmethod
@@ -382,7 +381,7 @@ class TestPermittedTypesCriteriaOverSeveralPermissions:
         A missing `activated` key grants, so no permission list can narrow those two away
 
         96007 and 96008 carry group entries that would matter under an activated ACL; with the flag
-        absent the ACL is off and the entries are never consulted (tier 2 T208).
+        absent the ACL is off and the entries are never consulted.
         """
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
 
@@ -402,7 +401,7 @@ class TestPermittedTypesCriteriaOverSeveralPermissions:
 
         96004 grants the group CREATE and not READ. Asked for READ it is denied; asked for CREATE it
         is permitted - which is why the listing filter is documented as a query rather than an access
-        boundary (the single-type read applies no ACL at all, tier 2 T212).
+        boundary (the single-type read applies no ACL at all).
         """
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
 
@@ -440,9 +439,9 @@ class TestTheQueryAgreesWithTheModel:
 
     An ACL is read two ways in this codebase: `acl/helpers.acl_grants_access` decides for one loaded
     document (every `get_object` path), and `acl/builder.build_denied_types_criteria` decides for a
-    whole query (every listing). They disagreed on a stored `acl` carrying no `activated` key until
-    2026-09-17, so `GET /objects/<id>` and `GET /objects/` answered differently for the same type -
-    tier 2 T208. This is the guard that keeps them together: it asks both about every seeded shape.
+    whole query (every listing). A stored `acl` carrying no `activated` key is the shape they can most
+    easily disagree on, which would make `GET /objects/<id>` and `GET /objects/` answer differently for
+    the same type. This is the guard that keeps them together: it asks both about every seeded shape.
     """
 
     @staticmethod

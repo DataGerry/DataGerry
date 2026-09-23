@@ -201,21 +201,21 @@ class TestTheBuilderProtocol:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                               how a criteria becomes stages - the T148 surface                                       #
+#                                     how a criteria becomes stages                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHowCriteriaBecomesStages:
     """
-    The branch tier 2 T148 was about, and the reason the guard is not here
+    The branch a client pipeline reaches, and the reason the guard is not here
 
     A dict criteria becomes one `$match`; a **list** criteria is spliced into the aggregation
-    verbatim, stage for stage. Until 2026-09-16 that was reachable straight from `?filter=`, so a
+    verbatim, stage for stage. Unguarded that is reachable straight from `?filter=`, so a
     caller could append `$lookup` and read any collection in the database.
 
     The splice itself is deliberate and stays: the frontend builds real stages, and `objects_manager`
     hands its own `$lookup` + `$unwind` pipeline in here as criteria. What changed is upstream -
     `CollectionParameters` now refuses a client filter that is not on the allow-list, so by the time
     a client's value reaches this method it has already been checked. These tests pin the splice, not
-    the checking; `tests/unit/interface/rest_api/responses/response_parameters/test_pipeline_guard.py`
+    the checking; the guard's own unit tests
     pins that.
     """
 
@@ -246,7 +246,7 @@ class TestHowCriteriaBecomesStages:
 
     def test_the_builders_own_stages_always_follow_the_criteria(self) -> None:
         """
-        Why `$out` / `$merge` used to fail, and why that was never a guard
+        Why `$out` / `$merge` fail on their own, and why that is not a guard
 
         The pager appends `$sort` / `$skip` after the client's stages, so a write stage - which must
         be last - was rejected by MongoDB for a reason that had nothing to do with permission. A

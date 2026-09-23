@@ -105,7 +105,7 @@ def request_wants_body(current_request: Request | None = None) -> bool:
     what makes a HEAD answer carry the status and the headers (`X-Total-Count` included) but no
     payload - and, because the payload is then never built, no serialization cost either.
 
-    It exists as one function on purpose: until 2026-09-09 the routes spelled the question inline as
+    It exists as one function on purpose: spelled inline the routes each write the question as
     `body=request.method == 'HEAD'` in six different spellings, which is the answer INVERTED (the flag
     means "send a body"), and the mistake was invisible because the flag itself was inert.
 
@@ -128,7 +128,7 @@ def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] |
     ``?search=`` term, a "which of these may I pick" rule - and the two filter shapes have to be one
     thing before it can. A plain filter document becomes a single ``$match``; a pipeline is copied.
 
-    **The copy is the point.** Routes used to append their stages to ``params.filter`` in place, and
+    **The copy is the point.** A route appending its stages to ``params.filter`` in place leaves
     the same object is handed to ``GetMultiResponse``, which echoes it back as ``parameters.filter`` -
     so the response claimed the caller had sent stages the server injected. An empty filter answers no
     stages at all rather than an empty ``$match``
@@ -155,7 +155,7 @@ def build_searchable_builder_params(params: Any, searchable_fields: Sequence[str
     The one place a list route reaches for when its table has a search box. It composes the caller's
     ``?filter=`` with the search stages and hands the rest of the pager through unchanged, so every
     table searches the same way and the set of searchable columns is declared server-side rather than
-    hard-coded in eighteen Angular components (`notes/FRONTEND_TO_BACKEND.md` **F4**).
+    hard-coded in eighteen Angular components.
 
     An absent or blank ``?search=`` adds nothing, so an unsearched listing is exactly what it was
 

@@ -49,6 +49,12 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
+    coerce_report_id,
+    guard_report_conditions,
+    guard_report_name,
+    guard_report_selected_fields,
+    parse_report_json_param,
+    read_report_write_payload,
     abort_if_report_category_missing,
     abort_if_ref_section_fields,
     build_report_create_payload,
@@ -157,6 +163,145 @@ def _valid_params(**overrides: Any) -> dict[str, Any]:
     params.update(overrides)
 
     return params
+
+
+# ---------------------------------------- the write payload's shape checks ---------------------------------------- #
+#
+# The values arrive either already typed (a JSON body) or as text (a query string), so each is read
+# through its own coercion before it is judged. What these pin is that a wrong SHAPE is a 400: read
+# as a rule tree and as a set of names further down the write, a non-dict `conditions` and a non-list
+# `selected_fields` raise AttributeError / TypeError out of the route, and the two wrong shapes that
+# do NOT raise are stored as a document the CmdbReport schema rejects.
+
+@pytest.mark.parametrize('raw, expected', [('7', 7), (7, 7), (' 7 ', 7), ('-3', -3)])
+def test_an_id_is_read_from_text_or_from_a_number(raw: Any, expected: int) -> None:
+    """A query string carries it as text and a JSON body as a number; both end up an int"""
+    assert coerce_report_id(raw, 'type_id') == expected
+
+
+@pytest.mark.parametrize('raw', ['abc', '', '2.5', None, [], {}, 2.5])
+def test_an_unreadable_id_maps_to_400(raw: Any) -> None:
+    """Anything that is not a whole number is the caller's mistake, not a 500"""
+    with pytest.raises(HTTPException) as exc_info:
+        coerce_report_id(raw, 'type_id')
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('raw', [True, False])
+def test_a_bool_is_not_an_id(raw: Any) -> None:
+    """`bool` is an `int` subclass, so True would otherwise resolve to the Type with public_id 1"""
+    with pytest.raises(HTTPException) as exc_info:
+        coerce_report_id(raw, 'type_id')
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+def test_a_json_param_is_parsed_from_text_and_passed_through_otherwise() -> None:
+    """A query string carries JSON text; a body carries the value itself"""
+    assert parse_report_json_param('{"a": 1}') == {'a': 1}
+    assert parse_report_json_param({'a': 1}) == {'a': 1}
+    assert parse_report_json_param([1]) == [1]
+
+
+def test_unparseable_json_maps_to_400() -> None:
+    """Only a query-string payload can reach this - a body is parsed before it is read"""
+    with pytest.raises(HTTPException) as exc_info:
+        parse_report_json_param('{not json')
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('conditions', [{'condition': 'and', 'rules': []}, {}, None])
+def test_a_rule_tree_or_nothing_is_accepted(conditions: Any) -> None:
+    """None means 'no conditions', which is what an absent tree already resolves to"""
+    guard_report_conditions(conditions)
+
+
+@pytest.mark.parametrize('conditions', ['hello', [1, 2], 5, True])
+def test_conditions_that_are_not_a_rule_tree_map_to_400(conditions: Any) -> None:
+    """`collect_condition_field_names` reads `.get` off it, so anything else is an AttributeError 500"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_conditions(conditions)
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('selected_fields', [[], ['text-a'], ['text-a', 'text-b']])
+def test_a_list_of_field_names_is_accepted(selected_fields: Any) -> None:
+    """Including an empty one: a report under construction selects nothing yet"""
+    guard_report_selected_fields(selected_fields)
+
+
+@pytest.mark.parametrize('selected_fields', [{'a': 1}, 7, 'text-a', None])
+def test_selected_fields_that_are_not_a_list_map_to_400(selected_fields: Any) -> None:
+    """A dict is the shape that survives `set(...)` and would be stored as the report's columns"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_selected_fields(selected_fields)
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('entry', [1, {'x': 2}, None, '', '   '])
+def test_a_selected_field_that_is_not_a_name_maps_to_400(entry: Any) -> None:
+    """An unhashable entry is a TypeError inside `set(...)`, and a blank one names no field"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_selected_fields(['text-a', entry])
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('name', ['', '   ', None, 7, []])
+def test_a_report_without_a_usable_name_maps_to_400(name: Any) -> None:
+    """The name is what every list and the run view identify the report by"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_name(name)
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+def test_a_usable_name_is_accepted() -> None:
+    """Surrounding whitespace is tolerated - only a blank name is refused"""
+    guard_report_name(' My Report ')
+
+
+# ------------------------------------------- read_report_write_payload -------------------------------------------- #
+
+def test_the_body_is_preferred_and_the_query_string_fills_the_gaps(flask_app: Flask) -> None:
+    """A client may send either; one that sends both is served from the body, key by key"""
+    with flask_app.test_request_context(json={'name': 'from-body'}, query_string={'name': 'from-query',
+                                                                                 'type_id': '5'}):
+        payload = read_report_write_payload({'name': 'from-query', 'type_id': '5'})
+
+    assert payload == {'name': 'from-body', 'type_id': '5'}
+
+
+def test_without_a_body_the_query_string_is_the_payload(flask_app: Flask) -> None:
+    """The shape every caller used before a body was read at all"""
+    with flask_app.test_request_context(query_string={'name': 'from-query'}):
+        payload = read_report_write_payload({'name': 'from-query'})
+
+    assert payload == {'name': 'from-query'}
+
+
+def test_the_query_parameters_are_not_mutated(flask_app: Flask) -> None:
+    """The decorator's dict belongs to the request, not to the payload builder"""
+    params = {'name': 'from-query'}
+
+    with flask_app.test_request_context(json={'name': 'from-body'}):
+        read_report_write_payload(params)
+
+    assert params == {'name': 'from-query'}
+
+
+@pytest.mark.parametrize('body', [[1, 2], 'text', 7])
+def test_a_body_that_is_not_an_object_maps_to_400(flask_app: Flask, body: Any) -> None:
+    """It was meant as the payload, so reading the query string instead would answer the wrong 400"""
+    with flask_app.test_request_context(json=body):
+        with pytest.raises(HTTPException) as exc_info:
+            read_report_write_payload({})
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
 
 
 # ------------------------------------------------- normalize_report_params ------------------------------------------ #

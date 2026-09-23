@@ -57,7 +57,7 @@ ALL_TYPE_IDS: list[int] = [ACTIVE_TYPE_ID, INACTIVE_TYPE_ID, OTHER_TYPE_ID]
 EXISTING_OBJECT_ID: int = 47350  # the public_id an overwrite import carries
 
 CSV_BODY: bytes = b'dg-name\nhost-1\n'
-# A boolean column written the way a spreadsheet exports it - the spelling that used to stay a string
+# A boolean column written the way a spreadsheet exports it - the spelling a strict caster must take
 UPPERCASE_BOOL_CSV_BODY: bytes = b'dg-name,dg-active\nhost-1,TRUE\n'
 # A header-only file: what a freshly downloaded import template looks like before it is filled in
 HEADER_ONLY_CSV_BODY: bytes = b'dg-name\n'
@@ -158,7 +158,7 @@ class TestParseObjects:
         """
         The parse preview shows the caller what their file will import as.
 
-        A spreadsheet writes TRUE, which used to come back as the string 'TRUE' while a
+        A spreadsheet writes TRUE, which must not come back as the string 'TRUE' while a
         lowercase 'true' came back as a real boolean - so the preview showed two types for one
         logical column.
         """
@@ -273,7 +273,7 @@ class TestImportObjects:
         """
         End to end: the spelling a spreadsheet writes reaches MongoDB as a bool, not as text.
 
-        The caster used to accept only 'True' / 'true', so a file exported from Excel stored the
+        A caster accepting only 'True' / 'true' leaves a file exported from Excel storing the
         string 'TRUE' in `active` - truthy in Python, but not the boolean the field is declared as,
         and not equal to the `true` a file written by hand produced for the same column.
         """
@@ -761,7 +761,7 @@ class TestImporterConfigIsClientInput:
         }
 
     def test_an_unexpected_config_key_returns_400(self, rest_api) -> None:
-        """A typo used to reach the config constructor and surface as a 500."""
+        """A typo must not reach the config constructor and surface as a 500."""
         response = rest_api.post(
             f'{BASE_URL}/', data=self._form({'type_id': ACTIVE_TYPE_ID, 'typo_key': 1}),
             content_type='multipart/form-data',

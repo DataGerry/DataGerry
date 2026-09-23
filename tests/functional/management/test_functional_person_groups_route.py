@@ -19,7 +19,7 @@ Functional smoke for the ``/person_groups`` REST routes
 Covers the route-layer concerns on top of the PersonGroupsManager integration suite: HTTP status
 codes, schema validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400
 mapping, and the reciprocal member sync on update (including the remove-a-member regression that
-used to crash with 'CmdbPersonGroup not subscriptable'). The routes are ISMS-license gated, so the
+must not crash with 'CmdbPersonGroup not subscriptable'). The routes are ISMS-license gated, so the
 license check is stubbed.
 """
 from http import HTTPStatus
@@ -212,7 +212,7 @@ class TestPutPersonGroup:
 
     def test_removing_a_member_syncs_membership(self, rest_api,
                                                database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Dropping a member on update pulls the group out of that person (regression: used to 500)."""
+        """Dropping a member on update pulls the group out of that person, rather than answering 500."""
         _insert_group(database_manager, database_name, GROUP_ID_FOR_UPDATE,
                       group_members=[PERSON_ID_A, PERSON_ID_B])
         _insert_person(database_manager, database_name, PERSON_ID_A, groups=[GROUP_ID_FOR_UPDATE])
@@ -465,7 +465,7 @@ class TestUnknownPersonReferences:
 
 
 class TestDeleteCleansThePersonSide:
-    """The half of the cascade that used to live in this route."""
+    """The half of the cascade that belongs to the manager rather than this route."""
 
     def test_deleting_a_group_removes_it_from_every_person(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,

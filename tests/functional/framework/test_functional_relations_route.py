@@ -35,6 +35,8 @@ from cmdb.manager import RelationsManager, ObjectRelationsManager, CiExplorerPro
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerUpdateError
 from cmdb.errors.manager.ci_explorer_profile_manager import CiExplorerProfileManagerUpdateError
 from cmdb.errors.manager.relations_manager import (
@@ -77,6 +79,26 @@ ALL_REL_IDS: list[int] = [
     REL_ID_FOR_INUSE,
     FORGED_PUBLIC_ID,
 ]
+
+
+#: The one field the structure tests declare, in the shape a CmdbType field has
+_USABLE_FIELD: dict[str, Any] = {'type': FieldType.TEXT.value, 'name': 'f1', 'label': 'F'}
+
+
+def _section(name: str, fields: list[Any]) -> dict[str, Any]:
+    """A relation section, which references its fields by NAME."""
+    return {
+        'type': SectionType.SECTION.value,
+        'name': name,
+        'label': 'Section',
+        'fields': fields,
+    }
+
+
+def _purge_relation(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
+    """Removes one CmdbRelation written by a test."""
+    database_manager.get_collection(CmdbRelation.COLLECTION, database_name)\
+        .delete_one({'public_id': public_id})
 
 
 def _relation_payload(public_id: int | None = None,
@@ -549,3 +571,119 @@ class TestErrorMapping:
         monkeypatch.setattr(RelationsManager, 'delete_relation', _raise(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_REL_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            THE STRUCTURE OF A RELATION                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheRelationStructureIsEnforced:
+    """
+    A relation declares every field once; its sections carry only the NAMES
+
+    Two layers, and both write routes apply both: `CmdbRelation.SCHEMA` owns the SHAPE (a section's
+    `fields` is a list of non-blank strings, a field's `type` is a known FieldType) and
+    `guard_relation_structure` owns the rules that span two keys - that a referenced name is declared,
+    and that no identifier is used twice.
+
+    The stakes are higher than for a CmdbType: `get_added_and_removed_fields` reads the names out of
+    the sections, and what it finds is written onto every dependent CmdbObjectRelation. A section
+    naming a field the relation does not declare is therefore propagated, not merely unrendered.
+    """
+
+    @staticmethod
+    def _payload(fields: list[dict[str, Any]] | None = None,
+                 sections: list[dict[str, Any]] | None = None) -> dict[str, Any]:
+        """A valid relation payload carrying the given structure."""
+        payload = _relation_payload()
+        payload['fields'] = fields if fields is not None else [_USABLE_FIELD]
+        payload['sections'] = sections if sections is not None else []
+
+        return payload
+
+    def test_a_section_naming_an_undeclared_field_is_refused(self, rest_api) -> None:
+        """The name would reach every dependent CmdbObjectRelation through the update diff"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(
+            sections=[_section('s1', ['does-not-exist'])],
+        ))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'does-not-exist' in response.get_json()['message']
+
+    @pytest.mark.parametrize('entries', [[1, {'x': 2}], [''], [None]], ids=repr)
+    def test_a_section_field_that_is_not_a_name_is_refused(self, rest_api, entries: list[Any]) -> None:
+        """The schema's own half: the list holds non-blank strings, or it is not a field list"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(
+            sections=[_section('s1', entries)],
+        ))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_an_unknown_field_type_is_refused(self, rest_api) -> None:
+        """The kind decides how the field renders and stores - a typo used to surface in the browser"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(
+            fields=[{'type': 'nonsense', 'name': 'f1', 'label': 'F'}],
+        ))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('field_type', [kind.value for kind in FieldType])
+    def test_every_known_field_type_is_accepted(self, rest_api, database_manager: MongoDatabaseManager,
+                                                database_name: str, field_type: str) -> None:
+        """The rule may not narrow what a relation can hold"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(
+            fields=[{'type': field_type, 'name': 'f1', 'label': 'F'}],
+        ))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        _purge_relation(database_manager, database_name, response.get_json()['result_id'])
+
+    def test_two_sections_with_one_name_are_refused(self, rest_api) -> None:
+        """The name is how a section is addressed"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(
+            sections=[_section('s1', []), _section('s1', [])],
+        ))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_two_fields_with_one_name_are_refused(self, rest_api) -> None:
+        """An ObjectRelation keys its stored values by the name alone"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(
+            fields=[_USABLE_FIELD, {'type': 'text', 'name': 'f1', 'label': 'Other'}],
+        ))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_consistent_relation_is_still_created(self, rest_api,
+                                                    database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+        """The guard may not cost the ordinary case"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(
+            sections=[_section('s1', ['f1'])],
+        ))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        _purge_relation(database_manager, database_name, response.get_json()['result_id'])
+
+    def test_a_declared_field_no_section_shows_is_still_created(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A relation under construction legitimately carries one"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=self._payload(sections=[]))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        _purge_relation(database_manager, database_name, response.get_json()['result_id'])
+
+    def test_the_update_route_enforces_the_same_rules(self, rest_api,
+                                                      database_manager: MongoDatabaseManager,
+                                                      database_name: str) -> None:
+        """Both write routes write the whole document, so both can introduce the inconsistency"""
+        created = rest_api.post(f'{ROUTE_URL}/', json=self._payload(sections=[_section('s1', ['f1'])]))
+        public_id = created.get_json()['result_id']
+
+        try:
+            response = rest_api.put(f'{ROUTE_URL}/{public_id}', json=self._payload(
+                sections=[_section('s1', ['does-not-exist'])],
+            ))
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _purge_relation(database_manager, database_name, public_id)

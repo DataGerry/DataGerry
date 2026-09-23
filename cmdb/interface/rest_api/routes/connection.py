@@ -30,8 +30,8 @@ the backend is unreachable. Neither response carries anything user-specific
 
 Two things to know before changing this file:
 
-* **``connected`` reports the truth**, since 2026-09-17 (tier 2 **T123**). An unreachable database
-  answers **200** with ``connected: false``; it used to raise out of ``dbm.status()`` and become the
+* **``connected`` reports the truth.** An unreachable database answers **200** with
+  ``connected: false``; raising out of ``dbm.status()`` would make it the
   500 below, so the one route whose job is to report connectivity could not report the negative case.
   The 500 is now reserved for the route genuinely failing.
   **This route is unauthenticated and that answer is deliberate**: a caller learns "the API is up, the
@@ -39,7 +39,7 @@ Two things to know before changing this file:
   that much is the entire purpose of a health probe, and the 500 already disclosed that the instance
   was unhealthy - so this is a recorded decision, not an oversight.
 * **The database manager is resolved per request**, inside the view, like every other route module.
-  It used to be bound at module level inside ``with current_app.app_context()``, which meant importing
+  Binding it at module level inside ``with current_app.app_context()`` would mean importing
   this module needed a live app, the captured manager outlived the app it came from, and a test had to
   patch module state to reach it. Do not reintroduce that.
 """

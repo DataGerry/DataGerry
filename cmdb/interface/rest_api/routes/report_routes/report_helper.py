@@ -18,9 +18,13 @@ Helper methods for the CmdbReport API routes
 
 Holds what the Create / Read / Update / Run / Delete routes share:
 
+* reading the write payload from wherever the client sent it - a JSON request body is preferred and
+  the query string is the fallback, so a caller may send either (and one that sends both, as the
+  Angular report form does, is served from the body)
 * request-payload sanitising and normalisation - the write whitelist (a client may set only the six
   required parameters; 'public_id' comes from the URL, 'predefined' is system-owned and
-  'report_query' is built server-side), the required-parameter check and the type coercions
+  'report_query' is built server-side), the required-parameter check, the type coercions and the
+  SHAPE checks that keep a malformed value out of the document and out of a 500
 * the load-or-404 lookup and the two foreign-key guards (the report's CmdbType and its
   CmdbReportCategory must exist)
 * the Ref-Section-Field guard, the report-query builder and the safe evaluation of a stored query
@@ -34,7 +38,7 @@ from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime
 
-from flask import abort
+from flask import abort, request
 
 from cmdb.database import MongoDBQueryBuilder
 from cmdb.manager import ReportsManager
@@ -49,6 +53,13 @@ from cmdb.utils import str_to_bool
 
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     BOOLEAN_PARAM_INVALID_MSG,
+    REPORT_BODY_NOT_AN_OBJECT_MSG,
+    REPORT_CONDITIONS_NOT_A_TREE_MSG,
+    REPORT_ID_NOT_A_NUMBER_MSG,
+    REPORT_NAME_BLANK_MSG,
+    REPORT_PARAMS_MALFORMED_MSG,
+    REPORT_SELECTED_FIELD_NOT_A_NAME_MSG,
+    REPORT_SELECTED_FIELDS_NOT_A_LIST_MSG,
     REPORT_CATEGORY_MISSING_MSG,
     REPORT_NOT_FOUND_MSG,
     REPORT_QUERY_CORRUPT_MSG,
@@ -84,20 +95,167 @@ def strip_unknown_report_keys(params: dict[str, Any]) -> dict[str, Any]:
     return {key: value for key, value in params.items() if key in REPORT_WRITE_KEYS}
 
 
+def read_report_write_payload(query_params: dict[str, Any]) -> dict[str, Any]:
+    """
+    Reads a report write payload from the request body, falling back to the query string
+
+    **The body wins, key by key.** A client may send the payload either way, and a client that sends
+    both - which the Angular report form does, building query parameters *and* posting the same object
+    as the body - is served from the body: there the values arrive already typed, where the query
+    string can only carry text. Merging rather than choosing means neither half can go missing.
+
+    A body is optional. A body that is not a JSON object is refused rather than ignored: it was meant
+    as the payload, and silently reading the query string instead would answer 400 'missing parameter'
+    for a request whose problem is its body
+
+    Args:
+        query_params (dict[str, Any]): The query-string parameters, as the route decorator read them
+
+    Raises:
+        HTTPException: 400 when a request body is present but is not a JSON object
+
+    Returns:
+        dict[str, Any]: The merged payload, still raw
+    """
+    body: Any = request.get_json(silent=True)
+
+    if body is None:
+        return dict(query_params)
+
+    if not isinstance(body, dict):
+        abort(400, REPORT_BODY_NOT_AN_OBJECT_MSG)
+
+    return {**query_params, **body}
+
+
+def coerce_report_id(value: Any, param_name: str) -> int:
+    """
+    Reads one of a report's two foreign-key ids, whichever way it arrived
+
+    A JSON body carries a number, a query string carries text, and both have to end up an int. A bool
+    is refused explicitly: it is an ``int`` subclass, so ``True`` would otherwise resolve to the
+    CmdbType with public_id 1
+
+    Args:
+        value (Any): The raw id
+        param_name (str): The parameter's name, for the refusal message
+
+    Raises:
+        HTTPException: 400 when the value is not a whole number
+
+    Returns:
+        int: The id
+    """
+    if isinstance(value, bool) or not isinstance(value, (int, str)):
+        abort(400, REPORT_ID_NOT_A_NUMBER_MSG.format(param_name=param_name, actual=type(value).__name__))
+
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        abort(400, REPORT_ID_NOT_A_NUMBER_MSG.format(param_name=param_name, actual=repr(value)))
+
+
+def parse_report_json_param(value: Any) -> Any:
+    """
+    Reads a payload value that a query string can only carry as JSON text
+
+    A JSON body carries ``conditions`` and ``selected_fields`` as real objects; a query string carries
+    the same values as text. Anything that is not text is passed through untouched, so the body shape
+    reaches the shape checks unchanged
+
+    Args:
+        value (Any): The raw value
+
+    Raises:
+        HTTPException: 400 when the text is not valid JSON
+
+    Returns:
+        Any: The parsed value
+    """
+    if not isinstance(value, str):
+        return value
+
+    try:
+        return json.loads(value)
+    except (TypeError, ValueError):
+        abort(400, REPORT_PARAMS_MALFORMED_MSG)
+
+
+def guard_report_conditions(conditions: Any) -> None:
+    """
+    Refuses a ``conditions`` value that is not a rule tree
+
+    ``collect_condition_field_names`` reads it as ``{'condition': ..., 'rules': [...]}`` and the query
+    builder walks the same shape, so anything else raises out of the route as a 500. None is allowed
+    and means "no conditions", which is what an absent tree already resolves to
+
+    Args:
+        conditions (Any): The parsed 'conditions' value
+
+    Raises:
+        HTTPException: 400 when the value is neither a JSON object nor null
+    """
+    if conditions is not None and not isinstance(conditions, dict):
+        abort(400, REPORT_CONDITIONS_NOT_A_TREE_MSG.format(actual=type(conditions).__name__))
+
+
+def guard_report_selected_fields(selected_fields: Any) -> None:
+    """
+    Refuses a ``selected_fields`` value that is not a list of field names
+
+    The write reads it as a set of names and the run route reads it as the report's columns, so a
+    non-list is a 500 and a list holding anything unhashable is another. A dict is the one wrong shape
+    that survives both, and it would be stored as the report's column list
+
+    Args:
+        selected_fields (Any): The parsed 'selected_fields' value
+
+    Raises:
+        HTTPException: 400 when the value is not a list, or holds an entry that is not a field name
+    """
+    if not isinstance(selected_fields, list):
+        abort(400, REPORT_SELECTED_FIELDS_NOT_A_LIST_MSG.format(actual=type(selected_fields).__name__))
+
+    for entry in selected_fields:
+        if not isinstance(entry, str) or not entry.strip():
+            abort(400, REPORT_SELECTED_FIELD_NOT_A_NAME_MSG.format(actual=repr(entry)))
+
+
+def guard_report_name(name: Any) -> None:
+    """
+    Refuses a report name that is not usable text
+
+    The name is what every report list and the run view identify a report by, so a blank one leaves a
+    row nothing can name
+
+    Args:
+        name (Any): The raw 'name' value
+
+    Raises:
+        HTTPException: 400 when the name is not a non-blank string
+    """
+    if not isinstance(name, str) or not name.strip():
+        abort(400, REPORT_NAME_BLANK_MSG)
+
+
 def normalize_report_params(params: dict[str, Any]) -> dict[str, Any]:
     """
     Builds the sanitised, type-normalised write payload of a report Create / Update request
 
-    Drops every key a client may not set, then aborts 400 when a required parameter is missing or when
-    a value is malformed (a non-integer id, or 'conditions' / 'selected_fields' that are not valid
-    JSON) - so a bad request surfaces as 400 instead of crashing into an internal 500. An unrecognised
-    'mds_mode' falls back to MdsMode.ROWS
+    Drops every key a client may not set, then aborts 400 when a required parameter is missing, when a
+    value cannot be read (a non-integer id, or 'conditions' / 'selected_fields' that are not valid
+    JSON) **or when a value is the wrong shape** - so a bad request surfaces as 400 instead of
+    crashing into an internal 500 or being stored as a document the schema would reject. An
+    unrecognised 'mds_mode' falls back to MdsMode.ROWS
+
+    The values arrive either already typed (a JSON body) or as text (a query string), which is why
+    each is read through its own coercion before it is judged
 
     Args:
         params (dict[str, Any]): The raw request parameters (left untouched)
 
     Raises:
-        HTTPException: 400 when a required parameter is missing or a value is malformed
+        HTTPException: 400 when a required parameter is missing, unreadable or the wrong shape
 
     Returns:
         dict[str, Any]: The normalised payload, holding the whitelisted keys only
@@ -109,15 +267,16 @@ def normalize_report_params(params: dict[str, Any]) -> dict[str, Any]:
     if missing:
         abort(400, f"Missing required Report parameter(s): {', '.join(missing)}!")
 
-    try:
-        payload[ReportKey.REPORT_CATEGORY_ID] = int(payload[ReportKey.REPORT_CATEGORY_ID])
-        payload[ReportKey.TYPE_ID] = int(payload[ReportKey.TYPE_ID])
-        # The frontend JSON-encodes both, so a single parser keeps them consistent
-        payload[ReportKey.CONDITIONS] = json.loads(payload[ReportKey.CONDITIONS])
-        payload[ReportKey.SELECTED_FIELDS] = json.loads(payload[ReportKey.SELECTED_FIELDS])
-    except (ValueError, TypeError) as err:
-        LOGGER.error("[normalize_report_params] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(400, "One or more Report parameters are malformed!")
+    payload[ReportKey.REPORT_CATEGORY_ID] = coerce_report_id(
+        payload[ReportKey.REPORT_CATEGORY_ID], ReportKey.REPORT_CATEGORY_ID.value,
+    )
+    payload[ReportKey.TYPE_ID] = coerce_report_id(payload[ReportKey.TYPE_ID], ReportKey.TYPE_ID.value)
+    payload[ReportKey.CONDITIONS] = parse_report_json_param(payload[ReportKey.CONDITIONS])
+    payload[ReportKey.SELECTED_FIELDS] = parse_report_json_param(payload[ReportKey.SELECTED_FIELDS])
+
+    guard_report_name(payload[ReportKey.NAME])
+    guard_report_conditions(payload[ReportKey.CONDITIONS])
+    guard_report_selected_fields(payload[ReportKey.SELECTED_FIELDS])
 
     payload[ReportKey.MDS_MODE] = (
         payload[ReportKey.MDS_MODE]

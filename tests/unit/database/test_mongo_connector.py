@@ -311,7 +311,7 @@ def test_disconnect_without_a_client_is_a_no_op() -> None:
 
 def test_disconnect_reports_a_failing_close_instead_of_disguising_it() -> None:
     """
-    T124: a failed close used to answer the same connected=False a successful one does
+    A failed close must not answer the same connected=False a successful one does
 
     Only the message differed, so no caller could tell a close from a failure to close.
     """
@@ -325,9 +325,9 @@ def test_disconnect_reports_a_failing_close_instead_of_disguising_it() -> None:
 
 def test_disconnect_drops_the_client_even_when_the_close_failed() -> None:
     """
-    T124: a client whose close() failed must not be handed to the next caller
+    A client whose close() failed must not be handed to the next caller
 
-    It used to be left in place, so the next `client` access returned the same broken object instead
+    Leaving it in place lets the next `client` access return the same broken object instead
     of building a new one - the close had failed AND the connector kept the corpse.
     """
     client = MagicMock()
@@ -363,9 +363,9 @@ def test_is_connected_is_true_when_the_server_answers() -> None:
 
 def test_is_connected_is_false_when_the_server_does_not_answer() -> None:
     """
-    T123: the method answers the question it is named for, rather than raising
+    The method answers the question it is named for, rather than raising
 
-    It used to re-raise, which is why `GET /rest/` - the probe whose whole job is to report
+    Re-raising here is why `GET /rest/` - the probe whose whole job is to report
     connectivity - answered 500 instead of `connected: false` when the database was down.
     """
     client = MagicMock()

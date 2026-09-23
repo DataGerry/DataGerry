@@ -22,7 +22,7 @@ whichever applies to its current state. Each reported cell carries the identity 
 `RiskMatrixCellKey` plus `count` and `risk_assessment_ids`; the Angular `ReportRiskMatrix` model
 mirrors the three matrix keys and the cell shape, so both are a frontend contract.
 
-Four things decide the numbers, and each of them used to be able to go wrong silently:
+Four things decide the numbers, and each of them can go wrong silently:
 
 * **the current-state rule.** An assessment contributes its after-treatment values only when its
   ``implementation_status`` is the predefined IMPLEMENTED option, and its before-treatment values
@@ -33,13 +33,13 @@ Four things decide the numbers, and each of them used to be able to go wrong sil
   config wizard produces; until it exists the report says so with ``configured: false`` beside three
   empty grids, instead of returning three empty grids that look like "nothing assessed yet"
 * **a drifted cell costs its own cell only.** A grid cell missing one of its keys is reported and
-  skipped; it used to raise a KeyError that the route turned into a 500 for the whole report
+  skipped rather than raising a KeyError the route would turn into a 500 for the whole report
 * **the reads are bounded.** The assessments are read ONCE, projected to the four keys the report
   uses, and indexed for all three matrices in a single pass - so the report costs two queries
   whatever the number of assessments, and does not carry their impacts, dates and references along
 
 This is a service, not a model: it takes three managers and orchestrates reads. It lived in
-`cmdb/models/isms_model/` until 2026-09-09, which made importing the ISMS model package pull in three
+`cmdb/models/isms_model/`, which would make importing the ISMS model package pull in three
 managers - the framework layer sits above the managers, so this is where that dependency belongs
 """
 from logging import Logger, getLogger
@@ -253,7 +253,7 @@ class RiskMatrixReportBuilder:
         Reports one matrix: every grid cell with the assessments that fall into it
 
         A cell that does not carry its identity pair cannot be filled and is skipped with a warning -
-        reading it unguarded used to fail the whole report with a 500
+        reading it unguarded fails the whole report with a 500
 
         Args:
             grid (list[dict[str, Any]]): The IsmsRiskMatrix grid cells

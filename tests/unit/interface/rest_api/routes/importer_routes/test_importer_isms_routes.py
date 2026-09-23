@@ -25,7 +25,7 @@ Supersedes the former test_importer_isms_helpers.py: its parse_list_of_strings /
 carried over here, and its parse_bool cases went with that function (the module now uses the shared
 strict cmdb.utils.helpers.parse_import_bool).
 
-The route-level behaviour lives in tests/functional/isms/test_functional_isms_importer_route.py.
+The route-level behaviour is covered by the functional ISMS importer tests.
 """
 from io import BytesIO
 from typing import Any
@@ -91,7 +91,7 @@ class TestStrippedCell:
         assert stripped_cell(row, 'name') is None
 
     def test_a_short_row_does_not_raise(self) -> None:
-        """The None DictReader fills a short row with used to raise AttributeError."""
+        """The None a DictReader fills a short row with is read as an absent cell, not an error."""
         assert stripped_cell({'name': 'R1', 'consequences': None}, 'consequences') is None
 
 
@@ -134,7 +134,7 @@ class TestReadCsvFile:
         assert next(reader)['name'] == 'T1'
 
     def test_accepts_a_utf8_bom(self) -> None:
-        """A file saved by Excel keeps a usable first header (it used to become '\\ufeffname')."""
+        """A file saved by Excel keeps a usable first header rather than '\\ufeffname'."""
         reader = read_csv_file(_csv_file(f'{THREAT_HEADER_LINE}\nT1,S,ID,D\n', 'utf-8-sig'), THREAT_HEADERS)
 
         assert next(reader)['name'] == 'T1'

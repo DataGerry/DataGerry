@@ -127,9 +127,9 @@ class CmdbDAO:
         """
         self.public_id: int = int(public_id)
 
-        # Every leftover keyword becomes an attribute. 'version' used to have a branch of its own
-        # here, doing character for character what setattr does - see the class docstring for which
-        # models still reach this loop at all
+        # Every leftover keyword becomes an attribute, 'version' included - a branch of its own here
+        # would do character for character what setattr does. See the class docstring for which
+        # models reach this loop at all
         for key, value in kwargs.items():
             setattr(self, key, value)
 
@@ -210,14 +210,14 @@ class CmdbDAO:
         """
         Applies a semantic version bump and stores the result on the instance
 
-        **This mutates ``self.version`` and returns it.** It used to only return the new string, so a
-        caller that wrote the return value into the document (the object update does) left the
-        instance carrying the old one - and the edit log, which reads ``get_version()`` off that same
-        instance, recorded every object edit one bump behind the object it described.
+        **This mutates ``self.version`` and returns it.** Only returning the new string would leave a
+        caller that writes the return value into the document (the object update does) holding an
+        instance with the old one - and the edit log, which reads ``get_version()`` off that same
+        instance, would record every object edit one bump behind the object it describes.
 
-        The bump kind must be one of the three VERSIONING_ constants. An unrecognised value used to
-        fall through to a patch bump, so a typo'd or future constant degraded silently instead of
-        being refused
+        The bump kind must be one of the three VERSIONING_ constants. An unrecognised value is
+        refused rather than falling through to a patch bump, which would degrade a typo'd or future
+        constant silently
 
         Args:
             update (int): VERSIONING_MAJOR, VERSIONING_MINOR or VERSIONING_PATCH
@@ -306,9 +306,9 @@ class CmdbDAO:
         (``threats or []``), with ``normalize_document`` for whatever has to happen to the raw
         document first.
 
-        ``REQUIRED_INIT_KEYS`` names the keys the document itself must carry: a model that used to read
-        them with ``data['key']`` keeps that strictness by declaring them, and a document missing one is
-        refused rather than turned into an instance holding None.
+        ``REQUIRED_INIT_KEYS`` names the keys the document itself must carry: a model that would read
+        them with ``data['key']`` keeps that strictness by declaring them, and a document missing one
+        is refused rather than turned into an instance holding None.
 
         A model that declares no ``KEYS`` must implement this itself; the ISMS family is the group
         that shares it, and collapsing eleven copies of it is what retired thirty untested

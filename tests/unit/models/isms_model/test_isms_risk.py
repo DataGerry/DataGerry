@@ -17,16 +17,16 @@
 Unit tests for cmdb.models.isms_model.isms_risk.IsmsRisk
 
 Pure tests: no Mongo, no Flask. The model now declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO, whose shared machinery has its own tests, so what is
 pinned here is what remains this model's own:
 
   - **what its own schema accepts.** An unset identifier, consequences or description round-trips as
     null, and the frontend patches that null back into the form it later saves - so ``to_json``'s output
-    is validated against ``SCHEMA`` here. It used to fail with 'null value not allowed', which made an
+    is validated against ``SCHEMA`` here. Failing it with 'null value not allowed' would make an
     imported risk unsaveable from the UI
   - **the three reference lists are never null**, whether the key is missing, null or empty - the
-    constructor coerces all three, where it used to coerce only two
-  - ``risk_type`` is pinned to RiskType by the schema, not by the route that used to re-check it
+    constructor coerces all three, not only two
+  - ``risk_type`` is pinned to RiskType by the schema rather than by a re-check in the route
   - the index set, ``protection_goals`` included: without it, every ProtectionGoal delete scanned this
     collection
 
@@ -170,7 +170,7 @@ class TestWhatTheModelEmitsIsAcceptedBack:
         assert _validate(payload).errors == {}
 
     def test_an_unknown_risk_type_is_refused_by_the_schema_itself(self) -> None:
-        """It used to pass validation and be caught by a re-check in the insert and update routes."""
+        """Without the schema rule it passes validation and is caught only by a re-check in the routes."""
         errors = _validate(_document(risk_type='NOT_A_RISK_TYPE')).errors
 
         assert RiskKey.RISK_TYPE.value in errors
@@ -186,7 +186,7 @@ class TestReferenceListsAreAlwaysLists:
 
     @pytest.mark.parametrize('list_key', REFERENCE_LIST_KEYS)
     def test_a_missing_key_reads_as_an_empty_list(self, list_key: str) -> None:
-        """protection_goals was the odd one out - it used to read as None."""
+        """protection_goals is the odd one out: it is the one that reads as None without the coercion."""
         document = _document()
         del document[list_key]
 
@@ -217,7 +217,7 @@ class TestDocumentIdentity:
         """
         Index changes need a migration (reconciliation is additive), so the set is pinned
 
-        protection_goals is the one added on 2026-09-07: delete_isms_item_if_unused_by_risk asks this
+        protection_goals is the third of them: delete_isms_item_if_unused_by_risk asks this
         collection whether a risk still references a ProtectionGoal, exactly as it does for the other
         two lists, and that question was a collection scan.
         """

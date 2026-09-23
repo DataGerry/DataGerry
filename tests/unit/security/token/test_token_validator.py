@@ -17,7 +17,7 @@
 Unit tests for cmdb.security.token.validator
 
 The gate every protected request passes through, and it had **no test module of its own** until
-2026-09-10: the only tests that reached it patched it out at the interface layer, which is why its
+its own module: the tests that reach it otherwise patch it out at the interface layer, which is why its
 two refusal arms were its uncovered statements.
 
 Real RSA keys are generated per test and the validator's KeyHolder is replaced with a stub, so
@@ -30,7 +30,7 @@ The properties pinned here are the ones a refactor would silently break:
   successfully - and `validate_claims` is the single place a token expires. Three of the four call
   sites in the product call `decode_token` alone and are safe only because the header parser ran both
   steps first;
-* **`exp` is required**: a signed token carrying no time claims used to validate forever, because a
+* **`exp` is required**: a signed token carrying no time claims would validate forever, because a
   claims registry only checks what it is handed;
 * **a server-side key problem is not a bad credential**: it raises `TokenKeyMaterialError`, which the
   routes answer with 500 rather than logging the user out with a 401;
@@ -168,7 +168,7 @@ class TestDecodeToken:
         """
         A server-side key problem must not be answered as a bad credential
 
-        An unset DG_RSA_PUBLIC_KEY or an unreadable settings document used to surface as
+        An unset DG_RSA_PUBLIC_KEY or an unreadable settings document must not surface as
         TokenValidationError, i.e. 401 'Invalid Token!' for every client of a misconfigured
         installation.
         """
@@ -200,7 +200,7 @@ class TestValidateClaims:
         `exp` is essential
 
         A claims registry only checks what it is handed, so a signed token carrying no time claims
-        used to be valid forever.
+        would be valid forever.
         """
         claims = _claims()
         del claims[TokenTimeClaim.EXPIRATION.value]

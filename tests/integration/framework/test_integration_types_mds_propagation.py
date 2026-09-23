@@ -22,8 +22,8 @@ multi_data_section (an object with none of them can not change), the propagation
 it touches - a type's `fields` list never enters it - and it yields the changed objects batch by
 batch, so neither the documents in memory nor the caller's bulk write is sized by the whole type.
 
-Since 2026-09-09 it also pins the section-removal rule: a section the edit no longer declares is
-removed from the objects, where it used to be skipped and left every object carrying rows of a
+It also pins the section-removal rule: a section the edit no longer declares is removed from the
+objects, rather than being skipped and leaving every object carrying rows of a
 section its type did not have.
 """
 from datetime import datetime, timezone
@@ -189,7 +189,7 @@ class TestThePropagationAgainstARealDatabase:
         assert [entry['name'] for entry in row_data] == []
 
     def test_removes_a_section_the_type_no_longer_declares(self, types_manager: TypesManager) -> None:
-        """The 2026-09-09 rule: the object stops carrying rows of a section its type does not have."""
+        """The rule: the object stops carrying rows of a section its type does not have."""
         changed = self._propagate(types_manager, ['a'], None)
 
         assert [obj.public_id for obj in changed] == [OBJECT_WITH_A]

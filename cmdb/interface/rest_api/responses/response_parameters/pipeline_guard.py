@@ -16,9 +16,9 @@
 """
 The guard on the client-supplied ``?filter=`` aggregation pipeline
 
-**What a list-shaped ``?filter=`` used to be.** ``BaseQueryBuilder.__init_query`` splices every element
+**What a list-shaped ``?filter=`` is.** ``BaseQueryBuilder.__init_query`` splices every element
 of a list filter into the aggregation verbatim, and the ISMS report routes splice it into a pipeline of
-their own. Neither checked what the stages were. Verified against this code on 2026-09-16, as an
+their own. Neither checks what the stages are, which is what this guard is for, as an
 ordinary authenticated caller:
 
 * ``$lookup`` / ``$graphLookup`` / ``$unionWith`` read **any** collection in the database, and
@@ -45,8 +45,8 @@ stage is reported as a refused stage, rather than surfacing much later as the ro
 
 **Why the allow-list is not tighter.** ``$lookup`` and ``$group`` are in it only because the Angular
 frontend builds them into filters on live screens (object search, the reference tables, the
-uncategorized-types view). Removing them needs server-side routes first, tracked as tier 2 **T204** and
-**T205**; ``ALLOWED_LOOKUP_COLLECTIONS`` bounds the damage in the meantime. An allow-listed ``$lookup``
+uncategorized-types view). Removing them needs server-side routes first;
+``ALLOWED_LOOKUP_COLLECTIONS`` bounds the damage in the meantime. An allow-listed ``$lookup``
 into ``framework.objects`` still returns documents the object ACL never filters - that residue is
 **T206**
 """

@@ -23,7 +23,7 @@ and that a second run changes nothing.
 A real server is needed for the part that matters: whether MongoDB's ``$exists`` / null filter really
 does pass over a document that already holds an empty value is the whole re-run-safety argument, and a
 stubbed manager can only prove the filter's shape. The end state is then checked the way the API sees
-it - the stored documents pass their own Cerberus schema, which is the round trip that used to be
+it - the stored documents pass their own Cerberus schema, which is the round trip most at risk of
 answered 400
 """
 from typing import Any
@@ -66,7 +66,7 @@ def fixture_pre_migration_db(database_manager: MongoDatabaseManager, database_na
 
     persons.insert_many([
         {
-            # What the model used to write for a payload without the optional keys
+            # What a model writes for a payload without the optional keys
             'public_id': NULLED_PERSON_ID,
             PersonKey.DISPLAY_NAME.value: 'Ada Lovelace',
             PersonKey.FIRST_NAME.value: 'Ada',
@@ -134,7 +134,7 @@ def _group(database_manager: MongoDatabaseManager, database_name: str, public_id
 
 
 class TestNullsAreConverged:
-    """The documents the models used to write."""
+    """The documents this migration has to repair."""
 
     def test_a_nulled_person_gets_the_empty_values(
         self, database_manager: MongoDatabaseManager, database_name: str,

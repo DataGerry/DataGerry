@@ -558,7 +558,7 @@ def test_init_management_skips_admin_user_in_cloud_mode(
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTheSeedersRunOnEveryPass:
     """
-    'The collection exists' used to stand for 'it has been seeded', and the two are not the same
+    'The collection exists' must not stand for 'it has been seeded', because the two are not the same
 
     A boot that created a collection and then failed while seeding it left the collection behind. On
     the next start the create branch was skipped, so the seeding never happened again - a database
@@ -709,13 +709,13 @@ class TestTheDefaultAdminUser:
 
 
 class TestTheCacheDatabase:
-    """The one registered collection that used to be created and then never looked at again."""
+    """The one registered collection that is created and then never looked at again."""
 
     def test_an_existing_cache_database_has_its_indexes_reconciled(
         self, validator: CollectionValidator, dbm: MagicMock,
     ) -> None:
         """
-        A new index on CmdbCachedUser used to reach a fresh installation only
+        Without this a new index on CmdbCachedUser reaches a fresh installation only
 
         Every upgraded one kept the index set of the day its cache database was created, and the
         collection-registry guard counts CmdbCachedUser as registered, so nothing pointed at it.
@@ -881,7 +881,7 @@ class TestTheRootLocation:
         self, validator: CollectionValidator, dbm: MagicMock,
     ) -> None:
         """
-        The 'create' flag used to select between two identical upserts
+        A 'create' flag would select between two identical upserts
 
         It now selects only whether the public_id counter is initialised as well.
         """

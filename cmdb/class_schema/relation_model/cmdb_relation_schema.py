@@ -21,6 +21,12 @@ A CmdbRelation defines a relation type between two CmdbTypes
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbRelation.SCHEMA.
+
+A relation declares every field once, in its flat ``fields`` list; its sections carry only the NAMES
+of the fields they show - the same shape a CmdbType has. What this schema can express of that is the
+SHAPE: a section's ``fields`` is a list of non-blank strings, and a field's ``type`` is a known
+``FieldType``. What it cannot express - that a named field is actually declared, and that no name is
+used twice - is enforced by ``relation_structure_helper`` on both write routes
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
@@ -31,6 +37,10 @@ def get_cmdb_relation_schema() -> dict:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbRelation.SCHEMA
     """
+    # Imported inside the builder: the enum lives in the model layer, which imports this package
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.type_model.field_type_enum import FieldType
+
     return {
         'public_id': {  # public_id of CmdbRelation
             'type': 'integer'
@@ -107,9 +117,13 @@ def get_cmdb_relation_schema() -> dict:
                         'required': True,
                         'empty': False
                     },
-                    'fields': {  # All fields of the section
+                    'fields': {  # The NAMES of the fields this section shows
                         'type': 'list',
                         'empty': True,
+                        'schema': {
+                            'type': 'string',
+                            'empty': False,
+                        },
                     }
                 }
             },
@@ -121,10 +135,11 @@ def get_cmdb_relation_schema() -> dict:
             'schema': {
                 'type': 'dict',
                 'schema': {
-                    "type": {
-                        'type': 'string',  # Text, Password, Textarea, radio, select, date etc.
+                    "type": {  # The field's kind, one of FieldType
+                        'type': 'string',
                         'required': True,
-                        'empty': False
+                        'empty': False,
+                        'allowed': [field_type.value for field_type in FieldType],
                     },
                     "required": {  # If field is required
                         'type': 'boolean',

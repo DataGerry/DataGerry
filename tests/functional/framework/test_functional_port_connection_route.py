@@ -134,7 +134,7 @@ def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
     Licenses IPAM so the gated /port_connections surface is reachable
 
     Port Connectivity is gated behind LicenseFeature.IPAM by decision D6. That the gate really blocks
-    the surface is asserted in tests/functional/license/.
+    the surface is asserted by the license tests.
     """
     monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
 
@@ -1292,7 +1292,7 @@ class TestWriteSchema:
     """
     What the routes accept as a body at all
 
-    Both write routes validate against the write schema before any handler runs. Until 2026-09-08 they
+    Both write routes validate against the write schema before any handler runs. Without it they
     did not: the document schema existed but nothing enforced it, so a value of the wrong type was
     stored as-is under a key the schema declares a string.
     """
@@ -1301,7 +1301,7 @@ class TestWriteSchema:
         """
         The gap the schema closes
 
-        cable_length is text on purpose - '5 m', '2.5 m' - and a bare 5 used to be stored verbatim.
+        cable_length is text on purpose - '5 m', '2.5 m' - and a bare 5 must not be stored verbatim.
         """
         response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID], cable_length=5)
 

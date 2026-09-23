@@ -17,17 +17,17 @@
 Unit tests for cmdb.models.object_relation_model
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO, whose shared machinery has its own tests, so what is
 pinned here is what remains its own:
 
   - **both timestamps end up as real datetimes**, from any of the three shapes a date arrives in. The
-    ``{'$date': ...}`` wrapper used to be stored verbatim in ``last_edit_time`` - the create route left
+    ``{'$date': ...}`` wrapper must not be stored verbatim in ``last_edit_time`` - the create route leaves
     that key to the body and nothing normalised it - so one collection held two different types for its
     two date keys and MongoDB could sort neither the wrapper nor a tab ordered by it
   - **an unreadable timestamp is refused, not guessed.** The previous implementation parsed strings
     with ``fuzzy=True``, which reads 'sometime in March 2020' as a real date built from today's day
     number
-  - **a document without a creation time reports None**, where the constructor used to invent
+  - **a document without a creation time reports None**, rather than the constructor inventing
     ``datetime.now()`` on every read - so a legacy document's creation date changed each time it was
     fetched
   - the two compound tab indexes, which are what make a relation tab's match and sort one index lookup
@@ -65,7 +65,7 @@ CHILD_ID: int = 200
 CHILD_TYPE_ID: int = 4
 AUTHOR_ID: int = 1
 
-# 2020-09-13 12:26:40 UTC in the three shapes a timestamp reaches the model in
+# One instant in the three shapes a timestamp reaches the model in
 STAMP_MILLIS: int = 1600000000000
 STAMP: datetime = datetime(2020, 9, 13, 12, 26, 40, tzinfo=timezone.utc)
 STAMP_STRING: str = '2020-09-13T12:26:40Z'
@@ -107,7 +107,7 @@ class TestTimestampsBecomeRealDates:
     ])
     def test_every_shape_of_last_edit_time_is_stored_as_a_datetime(self, shape: str, value: Any) -> None:
         """
-        The wrapper is the shape the frontend sends, and it used to be stored as a sub-document
+        The wrapper is the shape the frontend sends, and storing it as a sub-document
 
         MongoDB cannot sort or range-filter that, and the relation-tab route lets a client sort by this
         very key - which then ordered by BSON type instead of by time.
@@ -150,7 +150,7 @@ class TestTimestampsBecomeRealDates:
 
     def test_an_unreadable_timestamp_is_refused(self) -> None:
         """
-        The fuzzy parser used to turn a note into a date built from today's day number
+        A fuzzy parser turns a note into a date built from today's day number
 
         Refusing is the only safe answer: nothing about a wrong date looks wrong afterwards.
         """
@@ -177,7 +177,7 @@ class TestNoValueIsInvented:
 
     def test_a_document_without_a_creation_time_reports_none(self) -> None:
         """
-        The constructor used to default to datetime.now(), on every read
+        A datetime.now() default would be evaluated on every read
 
         A document written before the create route stamped the key therefore reported *today* as its
         creation date, and a different value each time it was fetched. None says what is true: this

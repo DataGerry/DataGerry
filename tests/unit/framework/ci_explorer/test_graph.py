@@ -166,7 +166,7 @@ class TestTheFocalObjectMustExist:
 
     def test_a_missing_target_raises(self) -> None:
         """
-        An empty graph and a graph of nothing used to be the same 200 response
+        An empty graph and a graph of nothing must not be the same 200 response
 
         Which meant a mistyped id looked exactly like an isolated CI, and nothing in the payload could
         tell the two apart.
@@ -181,7 +181,7 @@ class TestTheFocalObjectMustExist:
 
     def test_the_target_is_loaded_even_without_root_or_ipam(self) -> None:
         """
-        The read used to be skipped unless the root block or the IPAM walk needed it
+        The read is not skipped when neither the root block nor the IPAM walk needs it
 
         Existence is now checked on every request, which is what the 404 rests on - one indexed read
         by public_id.
@@ -194,7 +194,7 @@ class TestTheFocalObjectMustExist:
 
     def test_a_missing_root_type_raises_rather_than_dropping_the_root_node(self) -> None:
         """
-        with_root=True and no CmdbType used to answer 200 with no root_node at all
+        with_root=True and no CmdbType must not answer 200 with no root_node at all
 
         The frontend then draws neighbours around nothing. A type cannot be deleted while its objects
         exist, so reaching this means the data is inconsistent - which is worth reporting, not hiding.
@@ -476,7 +476,7 @@ class TestTheLocationBudget:
         """
         The children hop is offered what the parent hop left, not the original budget
 
-        Spending the cap twice is how a limit of 1 used to return two location neighbours.
+        Spending the cap twice is how a limit of 1 would return two location neighbours.
         """
         managers = _managers(
             types=[_type_doc()],
@@ -661,7 +661,7 @@ class TestResolveComposable:
 
     def test_a_neighbour_without_a_public_id_is_skipped_not_crashed_on(self) -> None:
         """
-        The compose passes used to dereference public_id with '[]'
+        The compose passes must not dereference public_id with '[]'
 
         One step after the enrichment had deliberately skipped that document - so a single malformed
         neighbour turned the whole request into a 500 instead of a graph missing one node.

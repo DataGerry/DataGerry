@@ -17,10 +17,10 @@
 Unit tests for cmdb.models.object_group_model
 
 Pure tests: no Mongo, no Flask. The rules shared with the two person models are pinned once in
-tests/unit/models/test_membership_models_are_null_free.py; what is pinned here belongs to the object
+the shared membership-model tests; what is pinned here belongs to the object
 group alone:
 
-  - **``group_type`` is constrained to ObjectGroupMode.** It used to be any string, and a group stored
+  - **``group_type`` is constrained to ObjectGroupMode.** Left as any string, a group stored
     with a third value is invisible to BOTH cleanup paths (objects_helper maintains the STATIC groups,
     types_helper the DYNAMIC ones), so it keeps deleted ids forever. The schema rule is the only thing
     standing between a typo and that state
@@ -188,7 +188,7 @@ class TestReferenceEnums:
 
     def test_categories_are_extendable_options_of_the_object_group_type(self) -> None:
         """
-        Not CmdbCategories, which is what the schema comment used to say
+        Not CmdbCategories, whatever the name suggests
 
         The categories key holds public_ids of CmdbExtendableOptions filed under this option type, and
         deleting one of those options clears it from every group that used it.

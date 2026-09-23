@@ -14,18 +14,16 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Integration tests for the CI Explorer's port-connectivity walk against a real MongoDB
+Integration tests for the CI Explorer's port-connectivity source against a real MongoDB
 
-The walk rests on one assumption that the code does not enforce and cannot check:
+The source rests on one assumption that the code does not enforce and cannot check:
 
     **a port has at most one CABLE and at most one INTERNAL connection**
 
-That is what makes every physical path a simple chain with no fan-out, and it is why
-``index_connections_by_port`` can be a dict keyed by (port, type) rather than a list that the walk
-would have to branch over. Nothing in ``connections.py`` verifies it - it is held by the two partial
-unique indexes on ``endpoints``, and a unit test with a hand-built fixture would satisfy it by
-construction whether the database did or not. These tests put the real indexes in front of the real
-walk.
+That is what makes a port's cable unambiguous - there is no fan-out to choose between. Nothing in
+``connections.py`` verifies it; it is held by the two partial unique indexes on ``endpoints``, and a
+unit test with a hand-built fixture would satisfy it by construction whether the database did or not.
+These tests put the real indexes in front of the real source.
 
 The second thing only a real MongoDB can show is that ``{endpoints: {$in: [...]}}`` is a MULTIKEY
 match: it must find a connection whether the port sits at the first or the second position of the
@@ -211,66 +209,68 @@ def test_a_port_cannot_hold_a_second_cable(collections) -> None:
 
 def test_a_port_may_hold_one_cable_and_one_internal(collections, managers) -> None:
     """
-    Both at once is the patch panel itself, so the walk depends on this being allowed
+    Both at once is the patch panel itself, so the source depends on this being allowed
 
     The seeded front port already holds one of each; that the collection accepted it is the
-    assertion, and the walk crossing it is the proof it is usable.
+    assertion, and the edge to the panel is the proof it is usable.
     """
     del collections
     neighbours, _objects = _collect(managers, SERVER_A)
 
-    assert [neighbour.neighbour_object_id for neighbour in neighbours] == [SWITCH_B]
+    assert [neighbour.neighbour_object_id for neighbour in neighbours] == [PANEL_P]
 
 
 def test_the_endpoint_query_matches_at_either_position(collections, managers) -> None:
     """
     ``endpoints`` is stored sorted, so a port's position in the array is decided by the ids
 
-    PORT_A is the lower id of its pair and PORT_B the higher, so a walk that only matched one
-    position would find the chain from one end and lose it from the other. Both directions must
-    resolve.
+    A port at the lower id of its pair and one at the higher must both resolve: a query that only
+    matched one position would find a cable from one end and lose it from the other, and which end
+    would depend on the numbering.
     """
     del collections
     from_a, _objects_a = _collect(managers, SERVER_A)
     from_b, _objects_b = _collect(managers, SWITCH_B)
 
-    assert [neighbour.neighbour_object_id for neighbour in from_a] == [SWITCH_B]
-    assert [neighbour.neighbour_object_id for neighbour in from_b] == [SERVER_A]
+    assert [neighbour.neighbour_object_id for neighbour in from_a] == [PANEL_P]
+    assert [neighbour.neighbour_object_id for neighbour in from_b] == [PANEL_P]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        the walk against real documents                                               #
+#                                      the source against real documents                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_the_panel_is_collapsed_out_of_the_result(collections, managers) -> None:
-    """The panel owns the two ports in the middle of the chain and appears in neither side."""
+def test_the_panel_is_a_neighbour_of_both_devices(collections, managers) -> None:
+    """The panel owns the two ports in the middle, and is a node on both sides of them."""
     del collections
-    _neighbours, objects = _collect(managers, SERVER_A)
+    _neighbours_a, objects_a = _collect(managers, SERVER_A)
+    _neighbours_b, objects_b = _collect(managers, SWITCH_B)
 
-    assert PANEL_P not in objects
+    assert set(objects_a) == {PANEL_P}
+    assert set(objects_b) == {PANEL_P}
 
 
-def test_the_full_physical_path_is_reported(collections, managers) -> None:
-    """All three stored connections, ordered from the focal end outwards."""
+def test_the_edge_carries_the_one_cable_it_is(collections, managers) -> None:
+    """The stored connection the edge is, and only that one."""
     del collections
     neighbours, _objects = _collect(managers, SERVER_A)
 
     assert [hop[PortConnectionKey.PUBLIC_ID.value] for hop in neighbours[0].path] == [
-        CONNECTION_IDS[0], CONNECTION_IDS[1], CONNECTION_IDS[2],
+        CONNECTION_IDS[0],
     ]
 
 
-def test_the_path_from_the_other_end_is_reversed(collections, managers) -> None:
-    """'Focal end first' has to mean the focal object of THIS request, not the lower public_id."""
+def test_each_end_carries_its_own_cable(collections, managers) -> None:
+    """The two devices are cabled to the panel by different connections, and each edge names its own."""
     del collections
-    neighbours, _objects = _collect(managers, SWITCH_B)
+    from_a, _objects_a = _collect(managers, SERVER_A)
+    from_b, _objects_b = _collect(managers, SWITCH_B)
 
-    assert [hop[PortConnectionKey.PUBLIC_ID.value] for hop in neighbours[0].path] == [
-        CONNECTION_IDS[2], CONNECTION_IDS[1], CONNECTION_IDS[0],
-    ]
+    assert [hop[PortConnectionKey.PUBLIC_ID.value] for hop in from_a[0].path] == [CONNECTION_IDS[0]]
+    assert [hop[PortConnectionKey.PUBLIC_ID.value] for hop in from_b[0].path] == [CONNECTION_IDS[2]]
 
 
 def test_the_focal_panel_reaches_both_ends(collections, managers) -> None:
-    """Case C4 against real data: the panel is transparent when it is the focal object."""
+    """Against real data: opening the panel shows the objects at both ends of its patched pair."""
     del collections
     neighbours, objects = _collect(managers, PANEL_P)
 
@@ -278,9 +278,9 @@ def test_the_focal_panel_reaches_both_ends(collections, managers) -> None:
     assert set(objects) == {SERVER_A, SWITCH_B}
 
 
-def test_removing_the_last_cable_empties_the_graph(collections, managers) -> None:
+def test_removing_the_rear_cable_leaves_the_front_edge(collections, managers) -> None:
     """
-    Case C1 against real data: unplug the rear cable and the chain dies inside the panel
+    Against real data: unplug the rear cable and Server A is still cabled to the panel
 
     The connection is deleted rather than built differently, so what is exercised is the same
     documents in the state an installation reaches by unpatching.
@@ -289,15 +289,27 @@ def test_removing_the_last_cable_empties_the_graph(collections, managers) -> Non
 
     neighbours, objects = _collect(managers, SERVER_A)
 
-    assert not neighbours
-    assert not objects
+    assert [neighbour.neighbour_object_id for neighbour in neighbours] == [PANEL_P]
+    assert set(objects) == {PANEL_P}
 
 
-def test_removing_the_internal_pairing_empties_the_graph(collections, managers) -> None:
-    """Case C2 against real data: the cable now lands on an unpaired panel face."""
+def test_removing_the_internal_pairing_leaves_both_cables(collections, managers) -> None:
+    """The faces are no longer patched to each other, but both cables are still real edges."""
     collections.delete_one({PortConnectionKey.PUBLIC_ID.value: CONNECTION_IDS[1]})
 
-    neighbours, objects = _collect(managers, SERVER_A)
+    from_a, _objects_a = _collect(managers, SERVER_A)
+    from_panel, _objects_panel = _collect(managers, PANEL_P)
+
+    assert [neighbour.neighbour_object_id for neighbour in from_a] == [PANEL_P]
+    assert {neighbour.neighbour_object_id for neighbour in from_panel} == {SERVER_A, SWITCH_B}
+
+
+def test_an_internal_pairing_alone_draws_nothing(collections, managers) -> None:
+    """Both its ends are ports of the panel, so it is a self-loop whichever way it is read."""
+    collections.delete_many({PortConnectionKey.PUBLIC_ID.value: {'$in': [CONNECTION_IDS[0],
+                                                                        CONNECTION_IDS[2]]}})
+
+    neighbours, objects = _collect(managers, PANEL_P)
 
     assert not neighbours
     assert not objects
