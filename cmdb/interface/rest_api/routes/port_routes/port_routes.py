@@ -66,6 +66,8 @@ from cmdb.errors.manager.ports_manager import (
 )
 
 from cmdb.framework.port.cascade import delete_connections_of_port, delete_interface_links_of_port
+from cmdb.framework.port.connection_cable_view import attach_cable_views
+from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
@@ -79,6 +81,14 @@ from cmdb.interface.rest_api.responses import (
 )
 
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import with_interface_links
+from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import PORT_OVERVIEW_SUBJECT
+from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
+    build_port_overview,
+    collect_peer_port_ids,
+    index_connections_by_kind,
+    load_peer_objects,
+    load_port_option_labels,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
     PORT_NAME_TAKEN_MESSAGE,
     PortRequestKey,
@@ -86,6 +96,8 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
 )
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     build_port_candidate,
+    collect_port_ids,
+    current_port_kind,
     with_connected_flag,
     enforce_port_kind,
     enforce_port_name_available,
@@ -304,6 +316,98 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
     except PortsManagerGetError as err:
         LOGGER.error("[get_cmdb_ports_of_object] PortsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
+
+@port_blueprint.route('/object/<int:object_id>/overview', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving " + PORT_OVERVIEW_SUBJECT + " of CmdbObject ID: {object_id}")
+def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for the ports panel of one CmdbObject, in the shape it renders
+
+    The wiring view of an object, as opposed to `GET /ports/object/<object_id>`, which answers the
+    ports as they are stored. Three things are resolved here that a client would otherwise have to
+    assemble itself: the labels behind a port's three option ids, the cable on the port, and the CI
+    that cable ends on.
+
+    **`device_kind` decides the row shape**, and an object can only ever be one kind - the port write
+    guards refuse a port of the other while any port exists:
+
+      - `STANDARD` - one row per port, under `port`
+      - `PATCH_PANEL` - one row per front/rear pairing, under `front` and `rear`, either of which may
+        be null: a face whose counterpart was never paired is listed with the other slot empty rather
+        than hidden, and `paired` says which it is. The INTERNAL connection is the pairing, never the
+        names
+      - `null` - the object holds no ports, so it is still free to become either kind
+
+    The connected CI is **one cable hop**, never a chain: a device cabled into a patch panel reports
+    the panel. One whose ACL denies the requesting user is reported by id and marked `restricted`,
+    without its summary line.
+
+    **The whole answer costs a fixed handful of queries** whatever the port count - the ports, their
+    connections, the interface links, the peer ports, the peer objects, their summary lines and the
+    option labels are each read once for the entire object
+
+    Args:
+        object_id (int): public_id of the owner CmdbObject
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the object's ACL denies it; 404 when the object does not exist;
+                       400 when the ports could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: The overview: its `device_kind`, its `rows` and their `total`
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+            ManagerType.PORT_CONNECTIONS, request_user)
+        port_interface_links_manager: PortInterfaceLinksManager = ManagerProvider.get_manager(
+            ManagerType.PORT_INTERFACE_LINKS, request_user)
+        extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+            ManagerType.EXTENDABLE_OPTIONS, request_user)
+
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
+            objects_manager, object_id, request_user, AccessControlPermission.READ,
+        )
+
+        ports: list[dict[str, Any]] = ports_manager.get_ports_of_object(object_id)
+
+        # The same two enrichments the stored read answers with, so a row never disagrees with the
+        # port it was built from
+        with_connected_flag(port_connections_manager, ports)
+        with_interface_links(port_interface_links_manager, objects_manager, ports, owner)
+
+        # The resolved cable block every connection read answers with, so the panel reads one shape
+        # whether the cable is described inline or held by a cable CI
+        connections: list[dict[str, Any]] = attach_cable_views(
+            port_connections_manager.get_connections_of_ports(collect_port_ids(ports)),
+            objects_manager,
+            extendable_options_manager,
+        )
+
+        peer_ids: list[int] = collect_peer_port_ids(
+            ports, index_connections_by_kind(connections, ConnectionType.CABLE),
+        )
+        overview: dict[str, Any] = build_port_overview(
+            ports,
+            connections,
+            current_port_kind(ports),
+            load_port_option_labels(extendable_options_manager),
+            load_peer_objects(ports_manager, objects_manager, peer_ids, request_user),
+        )
+
+        return DefaultResponse(overview).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_ports_overview] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_ports_overview] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - UPDATE                                                      #
