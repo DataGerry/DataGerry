@@ -22,6 +22,7 @@ import {
   CurrentLicense,
   CurrentLicenseResponse,
   LicenseEdition,
+  LicenseEntitlements,
   LicenseVerificationStatus
 } from '../models/license.model';
 
@@ -46,6 +47,17 @@ export function mapCurrentLicenseResponse(response: CurrentLicenseResponse): Cur
       type: response.type,
       features: response.features ?? []
     }
+  };
+}
+
+/**
+ * Normalises the `/rest/license/entitlements` payload, tolerating an omitted `features` list.
+ */
+export function mapEntitlementsResponse(response: LicenseEntitlements): LicenseEntitlements {
+  return {
+    is_active: !!response?.is_active,
+    type: response?.type || COMMUNITY_TIER,
+    features: response?.features ?? []
   };
 }
 

@@ -125,6 +125,17 @@ export interface CurrentLicenseResponse {
   status: LicenseVerificationStatus | null;
 }
 
+/**
+ * Raw wire payload of `GET /rest/license/entitlements` — the gating-only view of the license.
+ *
+ * Carries no dates or license identity, so `is_active` is the authoritative liveness flag.
+ */
+export interface LicenseEntitlements {
+  is_active: boolean;
+  type: string;
+  features: LicenseFeature[];
+}
+
 /** Domain model the UI consumes: the verification flags plus the entitlement grouped together. */
 export interface CurrentLicense {
   is_active: boolean;
