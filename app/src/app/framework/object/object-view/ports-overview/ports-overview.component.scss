@@ -3,9 +3,16 @@
 }
 
 // Sits where a multi-data section puts its own Add button, above the table.
+.ports-toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.25rem;
+    margin: 0 0 5px 5px;
+}
+
 .ports-actions {
     display: inline-block;
-    margin: 0 0 5px 5px;
 }
 
 // One entry per way of adding ports: the single form, or the creation assistant.

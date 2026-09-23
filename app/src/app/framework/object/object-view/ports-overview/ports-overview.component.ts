@@ -112,6 +112,12 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     /** What the pagination counts. */
     public totalRows = 0;
 
+    /** The ticked rows of the current page, which the bulk buttons act on. */
+    public selectedRows: PortRow[] = [];
+
+    /** Disconnecting applies to the cabled rows of the selection only. */
+    public selectedConnectedRows: PortRow[] = [];
+
     public page = 1;
     public pageSize = DEFAULT_PAGE_SIZE;
     public sort: Sort = { name: 'port_number', order: SortDirection.ASCENDING };
@@ -175,6 +181,12 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
         this.sort = sort;
         this.page = 1;
         this.applyQuery();
+    }
+
+
+    public onSelectedRowsChange(rows: PortRow[]): void {
+        this.selectedRows = rows;
+        this.selectedConnectedRows = rows.filter((row) => row.cableConnectionId != null);
     }
 
 
@@ -460,7 +472,15 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
         this.totalRows = ordered.length;
         this.page = clampPage(this.page, this.totalRows, this.pageSize);
         this.rows = pagePortRows(ordered, this.page, this.pageSize);
+        this.clearSelection();
         this.changesRef.markForCheck();
+    }
+
+
+    /** New row objects never match the table's identity-based selection. */
+    private clearSelection(): void {
+        this.selectedRows = [];
+        this.selectedConnectedRows = [];
     }
 
 
@@ -469,6 +489,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
         this.portsById = new Map();
         this.connectionsByPort = new Map();
         this.rows = [];
+        this.clearSelection();
         this.totalRows = 0;
         this.showSideColumn = false;
         this.showConnectionColumn = false;

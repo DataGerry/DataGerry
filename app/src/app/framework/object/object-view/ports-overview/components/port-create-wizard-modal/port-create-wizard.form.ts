@@ -26,20 +26,22 @@ const MAX_TEXT_LENGTH = 255;
 const STEP_CONTROLS: readonly (readonly PortWizardControl[])[] = [
     ['deviceKind'],
     ['syntax', 'rearSyntax', 'prefix', 'slot'],
-    ['count', 'startIndex', 'description'],
+    ['count', 'startIndex', 'description', 'rearDescription'],
     []
 ];
 
-/** Step 1 names a second face on a patch panel only. */
-const PANEL_ONLY_CONTROLS: readonly PortWizardControl[] = ['rearSyntax'];
+/** A second face is named and valued on a patch panel only. */
+const PANEL_ONLY_CONTROLS: readonly PortWizardControl[] = ['rearSyntax', 'rearDescription'];
 
 /** Every control of the wizard form. */
 export type PortWizardControl =
     'deviceKind' | 'syntax' | 'rearSyntax' | 'prefix' | 'slot'
-    | 'count' | 'startIndex' | 'status' | 'portType' | 'speed' | 'description';
+    | 'count' | 'startIndex' | 'status' | 'portType' | 'speed' | 'description'
+    | 'rearStatus' | 'rearPortType' | 'rearSpeed' | 'rearDescription';
 
 /** The controls a message can be asked for. */
-export type PortWizardTextControl = 'syntax' | 'rearSyntax' | 'count' | 'startIndex' | 'description';
+export type PortWizardTextControl =
+    'syntax' | 'rearSyntax' | 'count' | 'startIndex' | 'description' | 'rearDescription';
 
 /** The form group itself, for the template that binds it. */
 export type PortWizardFormGroup = PortCreateWizardForm['group'];
@@ -77,7 +79,11 @@ export class PortCreateWizardForm {
         status: new FormControl<string | null>(null),
         portType: new FormControl<string | null>(null),
         speed: new FormControl<string | null>(null),
-        description: new FormControl<string>('', [Validators.maxLength(MAX_TEXT_LENGTH)])
+        description: new FormControl<string>('', [Validators.maxLength(MAX_TEXT_LENGTH)]),
+        rearStatus: new FormControl<string | null>(null),
+        rearPortType: new FormControl<string | null>(null),
+        rearSpeed: new FormControl<string | null>(null),
+        rearDescription: new FormControl<string>('', [Validators.maxLength(MAX_TEXT_LENGTH)])
     });
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
@@ -103,6 +109,7 @@ export class PortCreateWizardForm {
         } else {
             rearSyntax.setValidators([Validators.maxLength(MAX_TEXT_LENGTH)]);
             rearSyntax.setValue('');
+            this.group.patchValue({ rearStatus: null, rearPortType: null, rearSpeed: null, rearDescription: '' });
         }
 
         rearSyntax.updateValueAndValidity();
@@ -184,16 +191,47 @@ export class PortCreateWizardForm {
 
     /** The creation additionally carries the values every generated port is given. */
     public toBulkRequest(kind: PortDeviceKind): PortBulkRequest {
-        return {
+        const request: PortBulkRequest = {
             ...this.toNamingRequest(kind),
             status: this.asNumber(this.group.controls.status.value),
             port_type: this.asNumber(this.group.controls.portType.value),
             speed: this.asNumber(this.group.controls.speed.value),
             description: this.trimmed('description') || null
         };
+
+        if (kind === PortDeviceKind.PATCH_PANEL) {
+            this.addRearValues(request);
+        }
+
+        return request;
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** An empty rear value is left out, so the backend can fall back to the front one. */
+    private addRearValues(request: PortBulkRequest): void {
+        const rearStatus = this.asNumber(this.group.controls.rearStatus.value);
+        const rearPortType = this.asNumber(this.group.controls.rearPortType.value);
+        const rearSpeed = this.asNumber(this.group.controls.rearSpeed.value);
+        const rearDescription = this.trimmed('rearDescription');
+
+        if (rearStatus !== null) {
+            request.rear_status = rearStatus;
+        }
+
+        if (rearPortType !== null) {
+            request.rear_port_type = rearPortType;
+        }
+
+        if (rearSpeed !== null) {
+            request.rear_speed = rearSpeed;
+        }
+
+        if (rearDescription) {
+            request.rear_description = rearDescription;
+        }
+    }
+
 
     /** A panel-only field is not part of a standard device's step. */
     private controlsOfStep(stepIndex: number): AbstractControl[] {

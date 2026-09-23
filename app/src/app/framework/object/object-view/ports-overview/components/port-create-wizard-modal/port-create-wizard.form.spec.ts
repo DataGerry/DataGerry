@@ -89,6 +89,19 @@ describe('PortCreateWizardForm', () => {
             expect(form.isStepValid(2)).toBeTrue();
         });
 
+        it('checks the rear description length on a patch panel only', () => {
+            form.selectDeviceKind(PortDeviceKind.STANDARD);
+            form.group.patchValue({ rearDescription: 'x'.repeat(256) });
+
+            expect(form.isStepValid(2)).toBeTrue();
+
+            form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
+            form.group.patchValue({ rearDescription: 'x'.repeat(256) });
+
+            expect(form.isStepValid(2)).toBeFalse();
+        });
+
+
         it('holds no message before the user has left the field', () => {
             form.group.patchValue({ count: 'x' });
 
@@ -154,6 +167,49 @@ describe('PortCreateWizardForm', () => {
             expect(request.port_type).toBe(10);
             expect(request.speed).toBe(23);
             expect(request.description).toBe('Uplink');
+        });
+
+
+        it('leaves out empty rear values, so the backend copies them from the front', () => {
+            form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
+            form.group.patchValue({ rearSyntax: 'P{n}-R', status: '7', portType: '10' });
+
+            const request = form.toBulkRequest(PortDeviceKind.PATCH_PANEL);
+
+            expect(request.status).toBe(7);
+            expect(request.port_type).toBe(10);
+            expect('rear_status' in request).toBeFalse();
+            expect('rear_port_type' in request).toBeFalse();
+            expect('rear_speed' in request).toBeFalse();
+            expect('rear_description' in request).toBeFalse();
+        });
+
+        it('sends the rear values of a patch panel', () => {
+            form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
+            form.group.patchValue({
+                rearSyntax: 'P{n}-R',
+                rearStatus: '9875',
+                rearPortType: '9874',
+                rearSpeed: '9872',
+                rearDescription: ' rear side '
+            });
+
+            const request = form.toBulkRequest(PortDeviceKind.PATCH_PANEL);
+
+            expect(request.rear_status).toBe(9875);
+            expect(request.rear_port_type).toBe(9874);
+            expect(request.rear_speed).toBe(9872);
+            expect(request.rear_description).toBe('rear side');
+        });
+
+        it('drops the rear values when switching to a standard device', () => {
+            form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
+            form.group.patchValue({ rearStatus: '9875', rearDescription: 'rear side' });
+
+            form.selectDeviceKind(PortDeviceKind.STANDARD);
+
+            expect(form.group.controls.rearStatus.value).toBeNull();
+            expect(form.toBulkRequest(PortDeviceKind.STANDARD).rear_description).toBeUndefined();
         });
     });
 });

@@ -14,4 +14,7 @@
     <i [class]="icon" aria-hidden="true"></i>
   }
   {{ label }}
+  @if (badge !== null) {
+    <span class="badge bg-pill" [ngClass]="badgeClass">{{ badge }}</span>
+  }
 </button>

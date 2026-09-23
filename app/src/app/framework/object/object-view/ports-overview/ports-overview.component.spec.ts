@@ -171,6 +171,22 @@ describe('PortsOverviewComponent', () => {
 
         beforeEach(() => component.ngOnChanges(objectIdChange(20)));
 
+        it('keeps the cabled rows of the selection apart for a disconnect', () => {
+            component.onSelectedRowsChange([cabled(component.rows[0], 9720), cabled(component.rows[1], null)]);
+
+            expect(component.selectedRows.length).toBe(2);
+            expect(component.selectedConnectedRows.map((row) => row.cableConnectionId)).toEqual([9720]);
+        });
+
+        it('drops the selection once the rows are rebuilt', () => {
+            component.onSelectedRowsChange([component.rows[0]]);
+
+            component.onPageChange(1);
+
+            expect(component.selectedRows).toEqual([]);
+            expect(component.selectedConnectedRows).toEqual([]);
+        });
+
         it('hands the whole selection to the bulk edit dialog', () => {
             component.onBulkEditPorts(component.rows);
 
