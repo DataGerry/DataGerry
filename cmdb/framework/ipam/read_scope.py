@@ -27,7 +27,7 @@ the lookup is a query against `framework.types`, and an overview performs severa
 **Presentation reads scope; invariant reads must not.** The validators check a candidate against every
 existing object, not only the visible ones, because the rule they enforce is global: an ACL-filtered
 check would report an overlapping CIDR as valid and the write would then accept it. Those callers pass
-no user and get an empty scope. See `workflows/ipam.md`
+no user and get an empty scope.
 """
 from logging import Logger, getLogger
 

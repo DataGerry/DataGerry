@@ -17,8 +17,7 @@
 Enumeration of all available Managers which can be requested from the `ManagerProvider`
 
 Every member's *value* is the exact class name of the manager it names. That is not cosmetic:
-`ManagerProvider` keeps an explicit member -> class map, and the registry-integrity test
-(`tests/unit/manager/manager_provider_model/test_manager_provider.py`) asserts
+`ManagerProvider` keeps an explicit member -> class map, and the registry-integrity test asserts
 `member.value == manager_class.__name__` for all of them, so a typo in either place fails the
 suite instead of surfacing as a runtime error from a route
 """

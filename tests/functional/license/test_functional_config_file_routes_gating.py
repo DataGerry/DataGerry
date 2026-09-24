@@ -19,7 +19,7 @@ Functional tests for the /config_file route feature-gating over HTTP
 `GET /config_file/status/opencelium` only ever reports on the `[OpenCelium]` section and is consumed
 by the Automations view alone, so it is gated with the OpenCelium routes it serves: with no license
 active a blueprint-level guard blocks it with HTTP 403. When Automations is licensed, or in local
-(cloud) mode, the guard lets the request through (asserted as "no longer 403").
+(cloud) mode, the guard lets the request through (asserted as "not 403").
 """
 from http import HTTPStatus
 
@@ -54,7 +54,7 @@ def test_config_status_route_blocked_without_license(rest_api) -> None:
 #                                          allowed when licensed / bypassed                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_config_status_route_allowed_when_licensed(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With Automations licensed the guard lets the request through (no longer 403)"""
+    """With Automations licensed the guard lets the request through (not 403)"""
     monkeypatch.setattr(
         LicenseService,
         'has_feature',

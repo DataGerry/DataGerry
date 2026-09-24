@@ -22,8 +22,8 @@ for a deleted reference target. Two things are worth knowing before changing any
 
 **A group's deletion is a cascade, and the whole cascade lives here.** ``delete_with_follow_up`` clears
 the ISMS references, removes the group from every CmdbPerson that lists it and only then deletes the
-document. The person half used to be a second call made by the delete route, which meant any *other*
-caller deleting a group left it listed on every member.
+document. The person half is not left to the delete route, so any *other* caller deleting a group
+removes it from every member too.
 
 **A group is referenced where a person can be.** An IsmsRiskAssessment's owner, responsible persons and
 auditor, and an IsmsControlMeasureAssignment's responsible party, each hold either kind - which is what

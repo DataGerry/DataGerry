@@ -29,6 +29,11 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import BadRequest, HTTPException
 
+from cmdb.manager.objects_propagation_helper import (
+    build_add_field_update,
+    build_remove_undeclared_fields_update,
+)
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     render_or_native,
     build_field_value_map,
@@ -882,51 +887,54 @@ class TestGuardObjectsDelete:
 #                                        emit_object_state_change_events                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestRealignObjectsToType:
-    """realign_objects_to_type drops stale fields, adds missing ones, returns removed names."""
+    """
+    realign_objects_to_type hands the objects manager server-side statements - it reads no object
+
+    One pull of every name the type does not declare, then one push per declared field that only
+    matches the objects lacking it, seeded with the field's default.
+    """
 
     @staticmethod
     def _type(fields: list[dict[str, Any]], public_id: int = 1) -> SimpleNamespace:
         """A CmdbType stand-in exposing only .fields and .public_id."""
         return SimpleNamespace(fields=fields, public_id=public_id)
 
-    @staticmethod
-    def _object(field_names: list[str], public_id: int) -> MagicMock:
-        """A CmdbObject stand-in whose get_all_fields returns name-only field dicts."""
-        obj = MagicMock()
-        obj.public_id = public_id
-        obj.get_all_fields.return_value = [{'name': name} for name in field_names]
-        return obj
-
-    def test_removes_stale_and_adds_missing(self) -> None:
-        """An object with a stale field and a missing field yields one bulk write + the removed name."""
+    def test_pulls_the_undeclared_names_and_pushes_every_declared_field(self) -> None:
+        """The statements cover both halves of the drift, whatever the objects hold"""
         objects_manager = MagicMock()
-        objects_manager.get_objects_by.return_value = [self._object(['keep', 'stale'], public_id=11)]
-
         type_instance = self._type([
             {'name': 'keep', 'type': 'text'},
-            {'name': 'added', 'type': 'text', 'value': 'def'},
+            {'name': 'added', 'type': 'date', 'value': 'def'},
+        ], public_id=5)
+
+        realign_objects_to_type(objects_manager, type_instance)
+
+        objects_manager.apply_raw_updates.assert_called_once_with([
+            build_remove_undeclared_fields_update(5, ['added', 'keep']),
+            build_add_field_update(5, {'name': 'keep', 'type': 'text', 'value': None}),
+            build_add_field_update(5, {'name': 'added', 'type': 'date', 'value': 'def'}),
         ])
 
-        removed = realign_objects_to_type(objects_manager, type_instance)
-
-        assert removed == {'stale'}
-        objects_manager.bulk_write.assert_called_once()
-
-    def test_no_drift_writes_nothing(self) -> None:
-        """An object already matching the type produces no bulk write and an empty removed set."""
+    def test_reads_no_object(self) -> None:
+        """Nothing is loaded to decide the drift - the statements match what needs changing"""
         objects_manager = MagicMock()
-        objects_manager.get_objects_by.return_value = [self._object(['keep'], public_id=12)]
 
-        removed = realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
+        realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
 
-        assert removed == set()
-        objects_manager.bulk_write.assert_not_called()
+        objects_manager.get_objects_by.assert_not_called()
 
-    def test_bulk_write_failure_aborts_500(self) -> None:
-        """A bulk-write failure surfaces as a 500."""
+    def test_a_type_without_fields_only_pulls(self) -> None:
+        """With nothing declared every flat entry is stale"""
         objects_manager = MagicMock()
-        objects_manager.get_objects_by.return_value = [self._object(['stale'], public_id=13)]
-        objects_manager.bulk_write.side_effect = RuntimeError('boom')
+
+        realign_objects_to_type(objects_manager, self._type([], public_id=6))
+
+        objects_manager.apply_raw_updates.assert_called_once_with([build_remove_undeclared_fields_update(6, [])])
+
+    def test_a_failing_statement_aborts_500(self) -> None:
+        """A write failure surfaces as a 500, the route's answer for a broken re-alignment"""
+        objects_manager = MagicMock()
+        objects_manager.apply_raw_updates.side_effect = ObjectsManagerUpdateError('boom')
 
         with pytest.raises(HTTPException) as exc_info:
             realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
@@ -940,8 +948,8 @@ class TestRealignObjectsToType:
 class TestCleanTypeReports:
     """clean_type_reports is the route-layer wrapper: it delegates and maps failures to 500.
 
-    The stripping itself lives on ReportsManager (so the section-template removal and the database
-    updaters can reuse it) and is covered in tests/unit/manager/test_reports_manager.py.
+    The stripping itself lives on ReportsManager, so the section-template removal and the database
+    updaters can reuse it; its own tests pin what it strips.
     """
 
     def test_delegates_to_the_reports_manager(self) -> None:

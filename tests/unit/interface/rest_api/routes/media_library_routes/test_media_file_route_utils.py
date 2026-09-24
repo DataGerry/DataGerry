@@ -19,11 +19,11 @@ Unit tests for the MediaFile route utilities
 Filter-building / naming helpers exercised inside a minimal Flask request context and against
 lightweight stub managers: generate_metadata_filter (reference -> $in, plain keys, missing -> 400),
 generate_collection_parameters (the search-term filter), create_attachment_name (copy-suffixing) and
-recursive_delete_filter (parent/child collection, and that it no longer re-fetches each node's root
+recursive_delete_filter (parent/child collection, and that it does not re-fetch each node's root
 document). The shared request-parsing helpers (get_file_in_request / get_element_from_data_request)
-moved to routes_helper and are tested there.
+live in routes_helper and are not covered here.
 
-Also the steps the upload / update routes were decomposed into: resolving a stored file (404 for a
+Also the steps the upload / update routes are made of: resolving a stored file (404 for a
 missing one), reading the required ``attachment`` parameter, reading the upload form (which refuses
 metadata carrying an undeclared key), and building the metadata / merged document each write persists.
 """
@@ -53,6 +53,7 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     metadata_field,
     recursive_delete_filter,
     validate_upload_metadata,
+    stream_grid_file,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -122,9 +123,9 @@ class TestGenerateCollectionParameters:
         assert result['$and'][0] == {'metadata.folder': False}
 
     def test_a_multi_word_term_can_match(self) -> None:
-        """Regression: the regex options defaulted to 'imsx', and the 'x' flag made the engine strip
-        unescaped whitespace from the pattern - so searching a file called 'my file.png' for
-        'my file' silently matched nothing."""
+        """The regex options must not carry the 'x' flag: it makes the engine strip unescaped
+        whitespace from the pattern - so searching a file called 'my file.png' for 'my file' would
+        silently match nothing."""
         result = generate_collection_parameters(self._params('my file'))
         options = {clause[field]['$options']
                    for clause in result['$and'][1]['$or']
@@ -215,7 +216,7 @@ class TestRecursiveDeleteFilter:
         assert recursive_delete_filter(1, stub) == [1, 2, 4, 3]
 
     def test_only_queries_children_no_root_refetch(self) -> None:
-        """Every query filters by metadata.parent - the redundant per-node root lookup is gone."""
+        """Every query filters by metadata.parent - there is no per-node root lookup."""
         stub = _DeleteStub({1: [{'public_id': 2}], 2: []})
 
         recursive_delete_filter(1, stub)
@@ -235,9 +236,9 @@ class _StoredFileStub:
     def __init__(self, stored: dict[str, Any] | None) -> None:
         self.stored = stored
 
-    def get_file(self, metadata: dict[str, Any], blob: bool = False) -> dict[str, Any] | None:
+    def get_file(self, metadata: dict[str, Any]) -> dict[str, Any] | None:
         """Returns the configured document, ignoring the filter"""
-        del metadata, blob
+        del metadata
 
         return self.stored
 
@@ -253,7 +254,7 @@ class TestGetStoredFileOrAbort:
 
     def test_missing_file_aborts_404(self) -> None:
         """
-        Without this the None reached the next subscript and the request ended as a 500
+        Without the abort the None would reach the next subscript and end the request as a 500
 
         The manager swallows GridFS's NoFile, so None is how "not there" arrives.
         """
@@ -273,7 +274,7 @@ class TestGetReferenceAttachmentOrAbort:
             assert get_reference_attachment_or_abort() == {'reference': True}
 
     def test_missing_parameter_aborts_400(self) -> None:
-        """A TypeError from json.loads(None) here is a 500."""
+        """A missing parameter is a 400, not a TypeError from json.loads(None) surfacing as a 500."""
         with app.test_request_context('/'):
             with pytest.raises(HTTPException) as exc_info:
                 get_reference_attachment_or_abort()
@@ -320,7 +321,7 @@ class TestBuildUploadMetadata:
         assert result['reference_type'] == 'object'
 
     def test_a_replaced_file_without_reference_keys_is_tolerated(self) -> None:
-        """An entry written before the keys existed carries neither - a KeyError -> 500 before."""
+        """An entry written before the keys existed carries neither, and is read without a KeyError."""
         upload = SimpleNamespace(mimetype='image/png', filename=UPLOAD_NAME)
 
         result = build_upload_metadata({}, upload, AUTHOR_ID, {'metadata': {}})
@@ -358,7 +359,7 @@ class TestBuildUpdatedFileData:
         {'filename': 'new.png'},
     ], ids=['no-filename', 'no-metadata'])
     def test_incomplete_payload_aborts_400(self, payload: dict[str, Any]) -> None:
-        """A missing key used to be a KeyError -> 500."""
+        """A missing key is a 400, not a KeyError surfacing as a 500."""
         stored = {'public_id': PUBLIC_ID, 'filename': 'old.png', 'metadata': {}}
 
         with app.test_request_context():
@@ -463,3 +464,47 @@ class TestGetUploadFromRequest:
 
         assert exc_info.value.code == 400
         assert 'permissions' in exc_info.value.description
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  stream_grid_file                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestStreamGridFile:
+    """The download body: one GridFS chunk at a time, and the file closed however the stream ends."""
+
+    @staticmethod
+    def _grid_out(*chunks: bytes) -> MagicMock:
+        """A GridOut stand-in whose readchunk yields the given chunks, then b''."""
+        grid_out = MagicMock()
+        grid_out.readchunk.side_effect = [*chunks, b'']
+
+        return grid_out
+
+    def test_yields_every_chunk_in_order(self) -> None:
+        """Nothing is concatenated in memory - the chunks go out as they are read"""
+        assert list(stream_grid_file(self._grid_out(b'ab', b'cd', b'e'))) == [b'ab', b'cd', b'e']
+
+    def test_an_empty_file_yields_nothing(self) -> None:
+        """A zero-length download is an empty body, not an error"""
+        grid_out = self._grid_out()
+
+        assert not list(stream_grid_file(grid_out))
+        grid_out.close.assert_called_once()
+
+    def test_the_file_is_closed_after_the_last_chunk(self) -> None:
+        """A finished download releases the file"""
+        grid_out = self._grid_out(b'x')
+
+        list(stream_grid_file(grid_out))
+
+        grid_out.close.assert_called_once()
+
+    def test_the_file_is_closed_when_the_client_goes_away(self) -> None:
+        """A download abandoned half-way closes the generator, and the file with it"""
+        grid_out = self._grid_out(b'first', b'never-sent')
+        stream = stream_grid_file(grid_out)
+
+        assert next(stream) == b'first'
+        stream.close()
+
+        grid_out.close.assert_called_once()

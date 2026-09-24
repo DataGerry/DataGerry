@@ -31,7 +31,12 @@ from unittest.mock import MagicMock, patch
 import pytest
 from werkzeug.exceptions import BadRequest, HTTPException
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import OBJECT_LOG_LOST_MARKER
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    build_object_log_data,
+    log_object_change,
+    report_lost_object_log,
+    write_object_log,
     RELATION_DELETE_LOG_PROJECTION,
     build_type_object_counts,
     emit_object_state_change_events,
@@ -44,11 +49,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     render_single_object,
 )
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
-from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper'
@@ -68,8 +71,22 @@ def _make_object(fields: list[dict[str, Any]], special_type: Any = None, public_
     )
 
 
+def _rendered(object_id: int = 5, version: str = '1.0.1') -> MagicMock:
+    """A RenderResult stand-in carrying the object_information a log entry reads."""
+    rendered = MagicMock(spec=RenderResult)
+    rendered.object_information = {'object_id': object_id, 'version': version}
+
+    return rendered
+
+
 class TestEmitObjectUpdateEvents:
     """emit_object_update_events fires the webhook and writes the edit log, each best-effort."""
+
+    @pytest.fixture(autouse=True)
+    def _encodable_render(self):
+        """The render stand-in is a mock; its JSON encoding is not what these tests are about."""
+        with patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            yield
 
     def test_emits_webhook_and_log(self) -> None:
         """Both the update webhook and the edit log are produced on the happy path."""
@@ -78,18 +95,57 @@ class TestEmitObjectUpdateEvents:
         after = _make_object([{'name': 'a', 'value': 2}])
         updated = _make_object([{'name': 'a', 'value': 2}])
 
-        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook:
+        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook, \
+             patch(f'{HELPER_PATH}.render_single_object', return_value=_rendered()):
             emit_object_update_events(MagicMock(), logs_manager, before, after, updated, {'new': []}, "note")
 
         webhook.assert_called_once()
         logs_manager.insert_log.assert_called_once()
+
+    def test_the_edit_log_stores_the_rendered_object(self) -> None:
+        """
+        render_state is the RENDERED updated object, like every other log action
+
+        The log view draws render_state with the object renderer; the stored document carries no type,
+        section or summary information, so an edit entry built from it rendered empty.
+        """
+        logs_manager = MagicMock()
+        after = _make_object([{'name': 'a', 'value': 2}])
+        rendered = _rendered()
+
+        with patch(f'{HELPER_PATH}.send_webhook_event'), \
+             patch(f'{HELPER_PATH}.render_single_object', return_value=rendered) as render, \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{"rendered": true}') as dumps:
+            emit_object_update_events(MagicMock(), logs_manager, after, after, after, {'new': []}, 'note')
+
+        assert render.call_args.args[0] is after
+        assert dumps.call_args.args[0] is rendered
+        kwargs = logs_manager.insert_log.call_args.kwargs
+        assert kwargs['render_state'] == b'{"rendered": true}'
+        assert kwargs['changes'] == {'new': []}
+        assert kwargs['comment'] == 'note'
+        assert kwargs['action'] == LogAction.EDIT
+
+    def test_the_bumped_version_is_recorded(self) -> None:
+        """The candidate's version, not whatever the render shows"""
+        logs_manager = MagicMock()
+        obj = _make_object([{'name': 'a', 'value': 1}])
+        updated = MagicMock()
+        updated.get_version.return_value = '2.0.0'
+
+        with patch(f'{HELPER_PATH}.send_webhook_event'), \
+             patch(f'{HELPER_PATH}.render_single_object', return_value=_rendered(version='1.0.0')):
+            emit_object_update_events(MagicMock(), logs_manager, obj, obj, updated, {}, '')
+
+        assert logs_manager.insert_log.call_args.kwargs['version'] == '2.0.0'
 
     def test_webhook_failure_does_not_block_log(self) -> None:
         """A webhook error is swallowed and the edit log is still written."""
         logs_manager = MagicMock()
         obj = _make_object([{'name': 'a', 'value': 1}])
 
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError("boom")):
+        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError("boom")), \
+             patch(f'{HELPER_PATH}.render_single_object', return_value=_rendered()):
             emit_object_update_events(MagicMock(), logs_manager, obj, obj, obj, {'new': []}, "")
 
         logs_manager.insert_log.assert_called_once()
@@ -100,8 +156,116 @@ class TestEmitObjectUpdateEvents:
         logs_manager.insert_log.side_effect = RuntimeError("boom")
         obj = _make_object([{'name': 'a', 'value': 1}])
 
-        with patch(f'{HELPER_PATH}.send_webhook_event'):
+        with patch(f'{HELPER_PATH}.send_webhook_event'), \
+             patch(f'{HELPER_PATH}.render_single_object', return_value=_rendered()):
             emit_object_update_events(MagicMock(), logs_manager, obj, obj, obj, {'new': []}, "")  # must not raise
+
+    def test_an_unrenderable_object_is_reported_and_writes_no_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """No entry with a raw document is written in its place - the loss is reported instead"""
+        logs_manager = MagicMock()
+        obj = _make_object([{'name': 'a', 'value': 1}])
+
+        with patch(f'{HELPER_PATH}.send_webhook_event'), \
+             patch(f'{HELPER_PATH}.render_single_object', return_value=None):
+            emit_object_update_events(MagicMock(), logs_manager, obj, obj, obj, {}, '')
+
+        logs_manager.insert_log.assert_not_called()
+        assert OBJECT_LOG_LOST_MARKER in caplog.text
+
+
+class TestLostLogsAreObservable:
+    """Every lost entry is logged under one marker, with what was lost and why."""
+
+    def test_the_report_carries_the_marker_action_and_object(self, caplog: pytest.LogCaptureFixture) -> None:
+        """One search for the marker finds every lost entry"""
+        report_lost_object_log(LogAction.EDIT, 42, 'because')
+
+        assert f'{OBJECT_LOG_LOST_MARKER} action=EDIT object_id=42: because' in caplog.text
+
+    def test_the_report_attaches_the_traceback_when_asked(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The exception being handled is not reduced to its message"""
+        try:
+            raise RuntimeError('disk full')
+        except RuntimeError:
+            report_lost_object_log(LogAction.CREATE, 1, 'the log entry could not be written', with_traceback=True)
+
+        assert caplog.records[-1].exc_info is not None
+        assert 'disk full' in caplog.text
+
+    def test_the_marker_is_a_fixed_text(self) -> None:
+        """Operators alert on it, so it may not drift"""
+        assert OBJECT_LOG_LOST_MARKER == 'OBJECT_LOG_LOST'
+
+
+class TestWriteObjectLog:
+    """write_object_log - the one place an entry is inserted."""
+
+    def test_a_written_entry_answers_true(self) -> None:
+        """The entry goes to insert_log as a CmdbObjectLog"""
+        logs_manager = MagicMock()
+
+        assert write_object_log(logs_manager, LogAction.EDIT, {'object_id': 3}) is True
+        logs_manager.insert_log.assert_called_once_with(action=LogAction.EDIT, log_type='CmdbObjectLog', object_id=3)
+
+    def test_a_failing_insert_answers_false_and_is_reported(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Never raised - the object write it follows is already done"""
+        logs_manager = MagicMock()
+        logs_manager.insert_log.side_effect = RuntimeError('logs collection down')
+
+        assert write_object_log(logs_manager, LogAction.DELETE, {'object_id': 3}) is False
+        assert f'{OBJECT_LOG_LOST_MARKER} action=DELETE object_id=3' in caplog.text
+        assert caplog.records[-1].exc_info is not None
+
+
+class TestBuildObjectLogData:
+    """The entry every object write path stores."""
+
+    def test_builds_the_entry_from_the_render(self) -> None:
+        """The user, the comment, the version and the JSON-encoded render"""
+        user = MagicMock()
+        user.get_public_id.return_value = 1
+        user.get_display_name.return_value = 'admin'
+
+        with patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            entry = build_object_log_data(user, 5, '1.0.1', 'note', _rendered(), {'old': 1, 'new': 2})
+
+        assert entry == {
+            'object_id': 5, 'version': '1.0.1', 'user_id': 1, 'user_name': 'admin', 'comment': 'note',
+            'render_state': b'{}', 'changes': {'old': 1, 'new': 2},
+        }
+
+    def test_an_action_without_changes_stores_no_changes_key(self) -> None:
+        """Create, delete and import record no diff"""
+        with patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            entry = build_object_log_data(MagicMock(), 5, '1.0.1', 'note', _rendered())
+
+        assert 'changes' not in entry
+
+
+class TestLogObjectChange:
+    """log_object_change - render, build, write, and never raise."""
+
+    def test_the_version_defaults_to_the_rendered_one(self) -> None:
+        """Create and delete record the version the render shows"""
+        logs_manager = MagicMock()
+        target = MagicMock()
+        target.get_public_id.return_value = 5
+
+        with patch(f'{HELPER_PATH}.render_single_object', return_value=_rendered(version='3.1.0')), \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            assert log_object_change(MagicMock(), logs_manager, LogAction.CREATE, target, 'c') is True
+
+        assert logs_manager.insert_log.call_args.kwargs['version'] == '3.1.0'
+
+    def test_a_failing_render_is_reported_not_raised(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An exception while rendering costs the entry, never the write"""
+        target = MagicMock()
+        target.get_public_id.return_value = 5
+
+        with patch(f'{HELPER_PATH}.render_single_object', side_effect=RuntimeError('render broke')):
+            assert log_object_change(MagicMock(), MagicMock(), LogAction.EDIT, target, 'c') is False
+
+        assert f'{OBJECT_LOG_LOST_MARKER} action=EDIT object_id=5: the log entry could not be built' in caplog.text
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -343,12 +507,16 @@ class TestHandleCreateObjectLog:
         rendered = MagicMock(spec=RenderResult)
         rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
 
+        target = MagicMock()
+        target.get_public_id.return_value = 5
+
         with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
              patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=logs_manager):
-            handle_create_object_log(MagicMock(), MagicMock(), LogAction.CREATE)
+            handle_create_object_log(MagicMock(), target, LogAction.CREATE)
 
         assert logs_manager.insert_log.call_args.kwargs['object_id'] == 5
+        assert logs_manager.insert_log.call_args.kwargs['version'] == '1.0.1'
         assert logs_manager.insert_log.call_args.kwargs['comment'] == 'Object created'
 
     def test_a_delete_is_labelled_as_one(self) -> None:
@@ -364,8 +532,8 @@ class TestHandleCreateObjectLog:
 
         assert logs_manager.insert_log.call_args.kwargs['comment'] == 'Object was deleted'
 
-    def test_an_unrenderable_object_writes_no_log(self) -> None:
-        """A render that yields nothing is reported and skipped, not dereferenced into an AttributeError."""
+    def test_an_unrenderable_object_writes_no_log(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A render that yields nothing is reported under the marker and skipped."""
         logs_manager = MagicMock()
 
         with patch(f'{HELPER_PATH}.render_single_object', return_value=None), \
@@ -373,17 +541,29 @@ class TestHandleCreateObjectLog:
             handle_create_object_log(MagicMock(), MagicMock(), LogAction.CREATE)
 
         logs_manager.insert_log.assert_not_called()
+        assert OBJECT_LOG_LOST_MARKER in caplog.text
+        assert 'the object could not be rendered' in caplog.text
 
-    def test_a_failing_log_write_is_swallowed(self) -> None:
-        """A logging problem must never fail the surrounding object operation."""
+    def test_an_unresolvable_logs_manager_is_reported(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Even the manager lookup is inside the best-effort boundary"""
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=RuntimeError('no db')):
+            handle_create_object_log(MagicMock(), MagicMock(), LogAction.DELETE)
+
+        assert f'{OBJECT_LOG_LOST_MARKER} action=DELETE' in caplog.text
+
+    def test_a_failing_log_write_is_swallowed(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A logging problem must never fail the surrounding object operation - it is reported instead."""
         logs_manager = MagicMock()
         logs_manager.insert_log.side_effect = RuntimeError('logs collection down')
         rendered = MagicMock(spec=RenderResult)
         rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
 
         with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
              patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=logs_manager):
             handle_create_object_log(MagicMock(), MagicMock(), LogAction.CREATE)
+
+        assert OBJECT_LOG_LOST_MARKER in caplog.text
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -531,3 +711,18 @@ class TestEmitObjectStateChangeEventsErrorArm:
             emit_object_state_change_events(MagicMock(), logs_manager, before, MagicMock(), {}, True)
 
         logs_manager.insert_log.assert_called_once()
+
+    def test_an_entry_that_cannot_be_built_is_reported(self, caplog: pytest.LogCaptureFixture) -> None:
+        """An unencodable render costs the entry and is reported under the marker - nothing is written"""
+        logs_manager = MagicMock()
+        before = MagicMock()
+        before.get_public_id.return_value = 5
+
+        with patch(f'{HELPER_PATH}.send_webhook_event'), \
+             patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={}), \
+             patch(f'{HELPER_PATH}.json.dumps', side_effect=TypeError('not serialisable')):
+            emit_object_state_change_events(MagicMock(), logs_manager, before, MagicMock(), {}, False)
+
+        logs_manager.insert_log.assert_not_called()
+        assert f'{OBJECT_LOG_LOST_MARKER} action=ACTIVE_CHANGE object_id=5: the log entry could not be built' \
+            in caplog.text

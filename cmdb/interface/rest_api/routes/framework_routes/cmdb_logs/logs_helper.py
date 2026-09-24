@@ -20,8 +20,8 @@ Holds the shared list assembly (`build_object_logs_response`, which every list e
 query through) and the server-side user resolution behind ``?include_users=true``.
 
 NOTE the caller's ``filter`` collection parameter is NOT merged into the query here - it is parsed by
-the route decorator and then ignored, which is a known gap (discussion-backlog item), not a decision
-this helper makes on purpose.
+the route decorator and then ignored, which is a known gap, not a decision this helper makes on
+purpose.
 """
 from typing import Any, Union
 
@@ -89,7 +89,7 @@ def build_object_logs_response(logs_manager: LogsManager,
     iterate -> serialize -> GetMultiResponse assembly lives here once. When the request sets
     ``?include_users=true`` the ``results`` payload becomes ``{logs, users}`` - the same paginated
     envelope (total/count/pager) with the referenced users resolved server-side under ``users`` so the
-    frontend no longer fetches each log's user separately. Without the flag the payload stays the plain
+    frontend does not fetch each log's user separately. Without the flag the payload stays the plain
     list of logs (the default, preserved for API clients).
 
     Args:

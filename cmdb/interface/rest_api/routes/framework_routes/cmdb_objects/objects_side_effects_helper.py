@@ -22,14 +22,18 @@ and the update / state-change events.
 
 **Every function here is best-effort by design.** Each catches and logs its own failures, because a
 webhook that cannot be reached or a log that cannot be written must not roll back an object the user
-successfully saved. The trade-off is real: a successful write can leave no audit entry with nothing
-surfaced to the caller. `handle_delete_invalid_object_relations` carries a second one: it reads the
-affected relations and deletes by the same QUERY rather than by the ids it read, so a relation
-created between the two is deleted but never logged.
+successfully saved. The trade-off is real: a successful write can leave no audit entry, and the caller
+is not told. **The change log is observable, though:** every entry goes through `log_object_change` /
+`write_object_log`, and an entry that could not be written is logged under the fixed
+``OBJECT_LOG_LOST`` marker with the action, the object id and the traceback, so an operator can alert
+on it. Every entry stores the object **as rendered**, which is what the log view draws.
 
-Split out of `objects_helper.py` with the PATCH cluster, which keeps that module under pylint's
-1,500-line cap. The group is closed: nothing here calls back into the write pipelines, so the
-import runs one way
+`handle_delete_invalid_object_relations` has a second gap: it reads the affected relations and deletes
+by the same QUERY rather than by the ids it read, so a relation created between the two is deleted but
+never logged.
+
+Kept apart from `objects_helper.py` so that module stays under pylint's 1,500-line cap. The group is
+closed: nothing here calls back into the write pipelines, so the import runs one way
 """
 import json
 from logging import Logger, getLogger
@@ -60,6 +64,7 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
+from cmdb.models.log_model.object_log_constants import ObjectLogKey
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
@@ -67,6 +72,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
 )
 from cmdb.models.object_relation_model import ObjectRelationKey
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    OBJECT_LOG_LOST_MARKER,
+    ObjectLogComment,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -131,6 +140,144 @@ def render_single_object(target_object: CmdbObject, request_user: CmdbUser) -> R
     return rendered if isinstance(rendered, RenderResult) else None
 
 
+def report_lost_object_log(action: LogAction, object_id: Any, reason: str, with_traceback: bool = False) -> None:
+    """
+    Logs that a change-log entry of a CmdbObject could not be written
+
+    Always under ``OBJECT_LOG_LOST_MARKER``, so every lost entry can be found by one search whatever
+    lost it
+
+    Args:
+        action (LogAction): The action the entry would have recorded
+        object_id (Any): public_id of the object the entry was about
+        reason (str): Why the entry is missing
+        with_traceback (bool): Whether to attach the exception being handled. Defaults to False
+    """
+    LOGGER.error(
+        "%s action=%s object_id=%s: %s",
+        OBJECT_LOG_LOST_MARKER, action.name, object_id, reason,
+        exc_info=with_traceback,
+    )
+
+
+def build_object_log_data(
+        request_user: CmdbUser,
+        object_id: int,
+        version: str,
+        comment: str,
+        render_result: RenderResult,
+        changes: Any = None,
+    ) -> dict[str, Any]:
+    """
+    Builds the entry a CmdbObjectLog stores for one change of a CmdbObject
+
+    Args:
+        request_user (CmdbUser): The user credited with the change
+        object_id (int): public_id of the changed object
+        version (str): The object's version the entry records
+        comment (str): The comment stored on the entry
+        render_result (RenderResult): The object as rendered - the log view draws it with the renderer
+        changes (Any): The field-level diff, or None when the action records none. Defaults to None
+
+    Returns:
+        dict[str, Any]: The keyword arguments `LogsManager.insert_log` stores
+    """
+    log_data: dict[str, Any] = {
+        ObjectLogKey.OBJECT_ID.value: object_id,
+        ObjectLogKey.VERSION.value: version,
+        ObjectLogKey.USER_ID.value: request_user.get_public_id(),
+        ObjectLogKey.USER_NAME.value: request_user.get_display_name(),
+        ObjectLogKey.COMMENT.value: comment,
+        ObjectLogKey.RENDER_STATE.value: json.dumps(render_result, default=default).encode('UTF-8'),
+    }
+
+    if changes is not None:
+        log_data[ObjectLogKey.CHANGES.value] = changes
+
+    return log_data
+
+
+def write_object_log(logs_manager: LogsManager, action: LogAction, log_data: dict[str, Any]) -> bool:
+    """
+    Writes one CmdbObjectLog entry, best-effort
+
+    The object write this entry follows is already stored, so nothing here may fail it: any error is
+    reported under ``OBJECT_LOG_LOST_MARKER`` with its traceback and answered with False
+
+    Args:
+        logs_manager (LogsManager): Manager used to persist the entry
+        action (LogAction): The action the entry records
+        log_data (dict[str, Any]): The entry (see `build_object_log_data`)
+
+    Returns:
+        bool: True when the entry was written
+    """
+    try:
+        logs_manager.insert_log(action=action, log_type=CmdbObjectLog.__name__, **log_data)
+
+        return True
+    except Exception:  # pylint: disable=broad-exception-caught
+        report_lost_object_log(
+            action, log_data.get(ObjectLogKey.OBJECT_ID.value), 'the log entry could not be written',
+            with_traceback=True,
+        )
+
+        return False
+
+
+def log_object_change(
+        request_user: CmdbUser,
+        logs_manager: LogsManager,
+        action: LogAction,
+        target_object: CmdbObject,
+        comment: str,
+        version: str | None = None,
+        changes: Any = None,
+    ) -> bool:
+    """
+    Renders a CmdbObject and writes its change-log entry, best-effort
+
+    The one path every single-object log entry takes: render, build, write. An object that cannot be
+    rendered (its type is gone) and any error on the way are reported under ``OBJECT_LOG_LOST_MARKER``
+    and answered with False - never raised, because the object write is already done
+
+    Args:
+        request_user (CmdbUser): The user credited with the change; the render is performed for them
+        logs_manager (LogsManager): Manager used to persist the entry
+        action (LogAction): The action the entry records
+        target_object (CmdbObject): The object as it is after the change
+        comment (str): The comment stored on the entry
+        version (str | None): The version to record; the rendered object's own when None
+        changes (Any): The field-level diff, or None. Defaults to None
+
+    Returns:
+        bool: True when the entry was written
+    """
+    object_id: int = target_object.get_public_id()
+
+    try:
+        render_result: RenderResult | None = render_single_object(target_object, request_user)
+
+        if render_result is None:
+            report_lost_object_log(action, object_id, 'the object could not be rendered')
+
+            return False
+
+        # pylint cannot narrow the union CmdbMultiRender.result declares, so it reads the value as a
+        # list here; render_single_object above guarantees a RenderResult
+        recorded_version: str = version or render_result.object_information['version']  # pylint: disable=no-member
+
+        log_data: dict[str, Any] = build_object_log_data(
+            request_user, object_id, recorded_version, comment, render_result, changes,
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        report_lost_object_log(action, object_id, 'the log entry could not be built', with_traceback=True)
+
+        return False
+
+    return write_object_log(logs_manager, action, log_data)
+
+
 def handle_create_object_log(
         request_user: CmdbUser,
         target_object: CmdbObject,
@@ -139,53 +286,26 @@ def handle_create_object_log(
     """
     Writes a CmdbObjectLog entry for a created or deleted CmdbObject
 
-    Renders the object to capture its render_state in the log. **Best-effort:** every failure - a
-    render that yields nothing because the object's type is gone, or anything raised while writing
-    the entry - is caught and logged so a logging problem never blocks the surrounding object
-    operation. The consequence is that a create or delete can succeed while leaving no audit entry,
-    and the caller is not told
+    Best-effort through `log_object_change`: a create or delete can succeed while leaving no audit entry,
+    and the caller is not told - the loss is logged under ``OBJECT_LOG_LOST_MARKER``
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
         target_object (CmdbObject): The CmdbObject the log entry is about
         log_action (LogAction): The log action to record (CREATE or DELETE)
     """
+    comment: str = ObjectLogComment.DELETED.value if log_action == LogAction.DELETE else ObjectLogComment.CREATED.value
+
     try:
-        rendered_object: RenderResult | None = render_single_object(target_object, request_user)
-
-        # Without this guard the AttributeError on the render below is swallowed by the except arm
-        # and the log entry silently disappears while the object operation still reports success
-        if rendered_object is None:
-            LOGGER.error(
-                "[handle_create_object_log] Object with ID:%s could not be rendered; no ObjectLog written",
-                target_object.get_public_id(),
-            )
-
-            return
-
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
+    except Exception:  # pylint: disable=broad-exception-caught
+        report_lost_object_log(
+            log_action, target_object.get_public_id(), 'no logs manager could be resolved', with_traceback=True,
+        )
 
-        log_comment: str = "Object created"
+        return
 
-        if log_action == LogAction.DELETE:
-            log_comment = "Object was deleted"
-
-        # pylint cannot narrow the union CmdbMultiRender.result declares, so it reads the value as a
-        # list here; render_single_object above guarantees a RenderResult
-        log_data: dict[str, Any] = {
-            # pylint: disable=no-member
-            'object_id': rendered_object.object_information['object_id'],
-            'version': rendered_object.object_information['version'],
-            # pylint: enable=no-member
-            'user_id': request_user.get_public_id(),
-            'user_name': request_user.get_display_name(),
-            'comment': log_comment,
-            'render_state': json.dumps(rendered_object, default=default).encode('UTF-8')
-        }
-
-        logs_manager.insert_log(action=log_action, log_type=CmdbObjectLog.__name__, **log_data)
-    except Exception as err:
-        LOGGER.error("[handle_create_object_log] Failed to create ObjectLog. Error: %s", err)
+    log_object_change(request_user, logs_manager, log_action, target_object, comment)
 
 
 def handle_delete_object_location(
@@ -417,19 +537,12 @@ def emit_object_update_events(
     except Exception as error:
         LOGGER.error("[emit_object_update_events] Send Webhook Event Exception: %s, Type:%s", error, type(error))
 
-    try:
-        log_data: dict[str, Any] = {
-            'object_id': after_object.get_public_id(),
-            'version': updated_object.get_version(),
-            'user_id': request_user.get_public_id(),
-            'user_name': request_user.get_display_name(),
-            'comment': update_comment,
-            'changes': changes,
-            'render_state': json.dumps(updated_object, default=default).encode('UTF-8'),
-        }
-        logs_manager.insert_log(action=LogAction.EDIT, log_type=CmdbObjectLog.__name__, **log_data)
-    except Exception as error:
-        LOGGER.error("[emit_object_update_events] Failed to create Log. Error: %s", error)
+    # The entry stores the object AS RENDERED - the log view draws it with the object renderer, so the
+    # stored document (which carries no type, section or summary information) would render empty
+    log_object_change(
+        request_user, logs_manager, LogAction.EDIT, after_object, update_comment,
+        version=updated_object.get_version(), changes=changes,
+    )
 
 
 def emit_object_state_change_events(
@@ -465,17 +578,19 @@ def emit_object_state_change_events(
             "[emit_object_state_change_events] Send Webhook Event Exception: %s, Type:%s", error, type(error)
         )
 
+    change: dict[str, bool] = {'old': not state, 'new': state}
+
     try:
-        change: dict[str, bool] = {'old': not state, 'new': state}
-        log_data: dict[str, Any] = {
-            'object_id': before_object.get_public_id(),
-            'version': before_object.version,
-            'user_id': request_user.get_public_id(),
-            'user_name': request_user.get_display_name(),
-            'render_state': json.dumps(render_result, default=default).encode('UTF-8'),
-            'comment': 'Active status has changed',
-            'changes': change,
-        }
-        logs_manager.insert_log(action=LogAction.ACTIVE_CHANGE, log_type=CmdbObjectLog.__name__, **log_data)
-    except Exception as error:
-        LOGGER.error("[emit_object_state_change_events] Failed to create Log. Error: %s", error)
+        log_data: dict[str, Any] = build_object_log_data(
+            request_user, before_object.get_public_id(), before_object.version,
+            ObjectLogComment.ACTIVE_CHANGED.value, render_result, change,
+        )
+    except Exception:  # pylint: disable=broad-exception-caught
+        report_lost_object_log(
+            LogAction.ACTIVE_CHANGE, before_object.get_public_id(), 'the log entry could not be built',
+            with_traceback=True,
+        )
+
+        return
+
+    write_object_log(logs_manager, LogAction.ACTIVE_CHANGE, log_data)

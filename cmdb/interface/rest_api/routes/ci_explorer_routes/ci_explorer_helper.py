@@ -18,12 +18,6 @@ Helper methods of the CI Explorer REST routes
 
 Holds the request schema of the label-field update route and the fetch-or-404 step it takes before
 writing.
-
-Until 2026-09-18 there was a second field route, ``PUT /ci_explorer/tooltip/<object_id>``, and most of
-this module belonged to it: its own schema, the version bump, the edit log and the UPDATE webhook that
-made a tooltip edit carry the four guarantees of an object edit. The route was removed because nothing
-called it, and its machinery went with it. ``load_ci_explorer_entity`` stayed - it is the shared
-fetch-or-404, and the label-field route still needs it
 """
 from logging import Logger, getLogger
 from typing import Any, Callable
@@ -39,10 +33,9 @@ def get_ci_explorer_label_schema() -> dict[str, Any]:
     """
     Builds the request schema of the ``/label_field/<public_id>`` route
 
-    Mirrors the tooltip schema for the CmdbType side, but the value means something else: it is the
-    NAME of one of the Type's own fields, whose value the CI Explorer then shows on every node of the
-    Type - never a label to display. The schema can only say "a string"; that the string names a
-    field the Type offers is checked in the route, against the Type it just loaded
+    The value is the NAME of one of the Type's own fields, whose value the CI Explorer then shows on
+    every node of the Type - never a label to display. The schema can only say "a string"; that the
+    string names a field the Type offers is checked in the route, against the Type it just loaded
     (``ci_explorer.label_field.label_field_error``). Null and the empty string both mean "no field
     nominated"
 
@@ -68,10 +61,8 @@ def load_ci_explorer_entity(
     """
     Loads the entity a CI Explorer field write targets
 
-    Shared by the ``/tooltip`` and ``/label_field`` routes: both have to answer 404 for an unknown id
-    and both need what the field held before, the tooltip route to record the change in the object's
-    history. The write itself stays in the route, because each entity has its own targeted
-    single-field update
+    Answers 404 for an unknown id and returns what the field held before the write. The write itself
+    stays in the route, because each entity has its own targeted single-field update
 
     Args:
         fetch (Callable[[int], dict | None]): Loads the target entity by public_id (e.g.

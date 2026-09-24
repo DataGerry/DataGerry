@@ -24,8 +24,7 @@ The two REST routes of the object search
   the raw JSON to the builder answers **500** for every GET search carrying an actual term
 
 Both routes build their pipeline with the request user and READ permission, so the ACL filter is in
-the aggregation before it reaches the database. Neither checks an ACL *right*, which is recorded in
-the discussion backlog rather than changed here.
+the aggregation before it reaches the database. Neither checks an ACL *right*.
 
 Request parameters are strict: a non-numeric `?limit=` / `?skip=` or an unrecognised `?resolve=` is a
 400, not a silently substituted default. Werkzeug's `request.args.get(..., type=int)` does the

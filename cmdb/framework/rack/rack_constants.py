@@ -23,10 +23,13 @@ class RackLimits:
     """
     Numeric bounds of a Rack
 
-    MIN_HEIGHT is the lowest U count a Rack may have. There is deliberately no maximum yet - a cap is
-    an open product decision, and adding one later only ever rejects more, never less
+    MIN_HEIGHT is the lowest U count a Rack may have, MAX_HEIGHT the highest. The cap leaves room for a
+    logical rack well beyond any physical one (those end around 58U); every write of a Rack is checked
+    against it, while a Rack already stored above it is read and rendered as it is. A mount needs no cap
+    of its own - it has to fit inside its Rack
     """
     MIN_HEIGHT: int = 1
+    MAX_HEIGHT: int = 200
 
 
 class RackValidationError(BaseStrEnum):
@@ -42,6 +45,7 @@ class RackValidationError(BaseStrEnum):
     MISSING_HEIGHT = 'A Rack requires a Height!'
     INVALID_HEIGHT = "The Height of a Rack must be a whole number, but was '{value}'!"
     NON_POSITIVE_HEIGHT = 'The Height of a Rack must be at least {minimum}, but was {value}!'
+    HEIGHT_ABOVE_MAXIMUM = 'The Height of a Rack can be at most {maximum}, but was {value}!'
 
 
 class RackOverviewKey(BaseStrEnum):
@@ -144,6 +148,7 @@ class RackMountError(BaseStrEnum):
     EXCEEDS_RACK_HEIGHT = 'Slot {start_slot} is above the Rack height of {rack_height}U!'
     BELOW_RACK_FLOOR = 'A mount of {height}U anchored at slot {start_slot} would reach down to slot ' \
                        '{bottom_slot}, below the bottom of the Rack!'
+    # {slots} is a range text such as 'U3-U5, U9' (rack_mount_helpers.format_slot_ranges)
     SLOTS_OCCUPIED = 'Slots {slots} in the {area} area are already occupied by mount(s) {mount_ids}!'
     INVALID_POSITION = 'The position must be a whole number of at least {minimum}, but was {value}!'
 

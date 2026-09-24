@@ -17,9 +17,9 @@
 Tokens, limits, response keys and refusal messages of the port name syntax and its preview
 
 The preview's RESPONSE keys live here rather than in the route package because the framework builds
-that document - step 12 creates ports from the same structure - and a builder naming its own keys with
-bare strings is how two readers end up disagreeing about them. The preview's REQUEST keys stay in the
-route layer, which is the only thing that reads a body
+that document - the bulk create builds ports from the same structure - and a builder naming its own
+keys with bare strings is how two readers end up disagreeing about them. The preview's REQUEST keys stay
+in the route layer, which is the only thing that reads a body
 """
 import re
 
@@ -30,7 +30,7 @@ class SyntaxToken(BaseStrEnum):
     """
     The tokens a port name syntax may contain
 
-    The concept names exactly these. NUMBER additionally accepts a zero-pad width written after a
+    The syntax knows exactly these. NUMBER additionally accepts a zero-pad width written after a
     colon - ``{n:02}`` - which is what makes a switch's ports sort as 01, 02 ... 10 rather than
     1, 10, 11 ... 2.
 
@@ -63,9 +63,7 @@ class PortNameSyntaxError(BaseStrEnum):
     front/rear port count are all real rules, but the preview reports them as **structured data**
     rather than prose - `duplicate_names` / `colliding_names` answer lists, which `build_name_preview`
     returns under `PortCollisionKey.DUPLICATES` / `EXISTING` so the frontend can highlight the
-    offending names rather than parse a sentence. Three message templates written for those rules
-    (`DUPLICATE_NAMES`, `COLLIDING_NAMES`, `UNEQUAL_PANEL_COUNTS`) were never emitted by anything and
-    were removed on 2026-09-14
+    offending names rather than parse a sentence
     """
     EMPTY_SYNTAX = 'A name syntax is required - it is what the port names are generated from!'
     UNKNOWN_TOKEN = "'{{{token}}}' is not a known syntax token. Allowed: {allowed}"
@@ -82,11 +80,11 @@ class PortDeviceKind(BaseStrEnum):
     """
     What is being created, which is the creation assistant's FIRST question
 
-    The concept is explicit that this choice **replaces any "port side" field**: nothing asks the user
+    This choice **replaces any "port side" field**: nothing asks the user
     which face a port is on, because that follows from the kind.
 
       - STANDARD    - n plain ports, all PortSide.SINGLE, no internal connections
-      - PATCH_PANEL - equal numbers of FRONT and REAR ports, paired in step 12 by an automatically
+      - PATCH_PANEL - equal numbers of FRONT and REAR ports, paired at creation by an automatically
         created INTERNAL connection. The pairing IS that connection and is never derived from the
         names
     """

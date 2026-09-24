@@ -148,9 +148,9 @@ def get_isms_risk_assessment_schema() -> dict:
     object_ref_types: list[str] = [ref_type.value for ref_type in ObjectReferenceType]
     person_ref_types: list[str] = [ref_type.value for ref_type in PersonReferenceType]
 
-    # Allowed values of the two remaining enum-typed fields, pinned the same way. Both were previously
-    # unconstrained ('type': string / integer only), so an API client could store a treatment option or
-    # a priority the frontend has no name for and the reports cannot group by
+    # Allowed values of the two remaining enum-typed fields, pinned the same way. A bare 'type' rule would
+    # let an API client store a treatment option or a priority the frontend has no name for and the
+    # reports cannot group by
     treatment_options: list[str] = [option.value for option in TreatmentOption]
     priorities: list[int] = [priority.value for priority in Priority]
 

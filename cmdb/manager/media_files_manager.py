@@ -34,7 +34,7 @@ Reads answer `None` only for a file that is genuinely absent; every other failur
 from logging import Logger, getLogger
 from typing import Any
 
-from gridfs.grid_file import GridOutCursor
+from gridfs.grid_file import GridOut, GridOutCursor
 from gridfs.errors import NoFile
 
 from cmdb.database import DatabaseGridFS, MongoDatabaseManager
@@ -130,63 +130,91 @@ class MediaFilesManager(BaseManager):
         return self.get_next_public_id(inc_id=True)
 
 
-    def get_file(self, metadata: dict, blob: bool = False) -> dict | bytes | None:
+    def get_file(self, metadata: dict) -> dict | None:
         """
-        Retrieves a media file by its metadata
+        Retrieves a media file's document by its metadata
 
         `None` means the file is genuinely ABSENT and nothing else: a storage failure is raised, so a
         caller that maps None onto a 404 cannot turn a database outage into "not found"
 
         Args:
             metadata (dict): Filter criteria for locating the file
-            blob (bool, optional): If True, returns the raw binary content instead of the document
 
         Raises:
-            MediaFileManagerGetError: If the lookup or the read failed
+            MediaFileManagerGetError: If the lookup failed
 
         Returns:
-            dict | bytes | None: The file's document, its raw content, or None when no such file exists
+            dict | None: The file's document, or None when no such file exists
+        """
+        grid_out: GridOut | None = self.open_file(metadata)
+
+        return grid_out._file if grid_out is not None else None
+
+
+    def open_file(self, metadata: dict) -> GridOut | None:
+        """
+        Opens a media file for reading, without reading its content
+
+        The returned `GridOut` reads the content chunk by chunk (`readchunk`), which is what lets the
+        download route stream a file of any size instead of holding all of it in memory. `None` means
+        the file is absent, as for `get_file`
+
+        Args:
+            metadata (dict): Filter criteria for locating the file
+
+        Raises:
+            MediaFileManagerGetError: If the lookup failed
+
+        Returns:
+            GridOut | None: The open file, or None when no such file exists
         """
         try:
-            result = self.fs.get_last_version(**metadata)
-
-            return result.read() if blob else result._file
+            return self.fs.get_last_version(**metadata)
         except NoFile:
             return None
         except Exception as err:
-            LOGGER.error("[get_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
+            LOGGER.error("[open_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
             raise MediaFileManagerGetError(str(err)) from err
 
 
-    def get_many_media_files(  # pylint: disable=unused-argument
-            self, metadata: dict, **params: dict,
+    def get_many_media_files(
+            self,
+            metadata: dict,
+            limit: int = 0,
+            skip: int = 0,
+            sort: list[tuple[str, int]] | None = None,
     ) -> GridFsResponse:
         """
-        Retrieves every media file matching the given metadata
+        Retrieves the media files matching the given metadata, one page of them when asked
 
-        **`params` is accepted and ignored.** The route's `limit` / `skip` / `sort` are not applied to
-        the GridFS query, so this always loads every matching file and reports `total` as the number
-        returned rather than a real count -, which also covers why
-        re-enabling it needs `GridFsResponse.total` to change
+        Paging and sorting are applied in the GridFS query itself, so only the page is read. ``limit`` 0
+        means every match - what the recursive folder delete and the unpaged list callers rely on - and
+        in that case ``total`` is simply the number read; a cut page is counted separately, with the
+        same filter, so ``total`` is always the number of matching files
 
         Args:
             metadata (dict): Filter criteria
-            **params (dict): Additional query parameters (sort, limit, skip) - currently ignored
+            limit (int): Maximum number of files to return; 0 for all. Defaults to 0
+            skip (int): Number of matching files to skip. Defaults to 0
+            sort (list[tuple[str, int]] | None): ``(key, direction)`` pairs; None keeps the storage
+                order. Defaults to None
 
         Raises:
             MediaFileManagerGetError: If retrieval fails
 
         Returns:
-            GridFsResponse: The matching MediaFiles and how many were returned
+            GridFsResponse: The page of MediaFiles and the total number of matching files
         """
         try:
-            results: list[dict[str, Any]] = []
+            iterator: GridOutCursor = self.fs.find(filter=metadata, skip=skip, limit=limit, sort=sort)
+            results: list[dict[str, Any]] = [MediaFile.to_json(MediaFile(**grid._file)) for grid in iterator]
 
-            iterator: GridOutCursor = self.fs.find(filter=metadata)
-            for grid in iterator:
-                results.append(MediaFile.to_json(MediaFile(**grid._file)))
+            if not limit and not skip:
+                return GridFsResponse(results, len(results))
 
-            return GridFsResponse(results, len(results))
+            total: int = self.dbm.count(f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}', self.db_name, metadata)
+
+            return GridFsResponse(results, total)
         except Exception as err:
             raise MediaFileManagerGetError(str(err)) from err
 

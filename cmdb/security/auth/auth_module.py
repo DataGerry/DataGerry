@@ -486,7 +486,7 @@ class AuthModule:
         The fallback half of ``login``. A provider that rejects the credentials, or that finds the user
         but cannot store it, does not end the sweep - the next provider gets its turn. Note this filters
         on the provider's CONFIG 'active' flag, while the primary attempt asks the provider instance
-        itself (see the discussion backlog on that asymmetry)
+        itself, so the two checks can disagree
 
         Args:
             user_name (str): Name (or, in cloud mode, email) of the user

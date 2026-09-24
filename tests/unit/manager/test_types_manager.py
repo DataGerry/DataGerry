@@ -20,12 +20,8 @@ The manager is never constructed (its __init__ would build a real DB connection)
 exercised on a MagicMock-typed ``self``, and schema dict keys are referenced through the model key
 enums per the no-magic-values rule.
 
-The multi-data-section propagation is split across two modules and so are its tests: what a type
-edit CHANGES (and what that does to one object in memory) is pure and lives in
-the MDS helper's own unit tests; what is pinned here is the manager's own half - which
-objects it reads, with which projection, in which batches, and that it YIELDS the changed ones so the
-caller can write one batch before the next is read. A propagation that collected everything first was
-one unbounded read and one unbounded bulk write per type.
+What a type edit changes in its objects is not the manager's business - the plan and the statements
+are pure (`types_mds_helper`, `objects_propagation_helper`) and have their own tests.
 """
 import datetime
 from types import SimpleNamespace
@@ -35,16 +31,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.models.type_model import CmdbType, FieldKey, FieldType, SectionType, SectionKey, TypeSchemaKey
-from cmdb.models.object_model import (
-    CmdbObject,
-    CmdbObjectKey,
-    CmdbObjectFieldKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
-)
+from cmdb.models.type_model import CmdbType, FieldKey, FieldType, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.manager.types_manager import MDS_OBJECT_PROJECTION, TypesManager
+from cmdb.manager.types_manager import TypesManager
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerDeleteError
 from cmdb.errors.manager.types_manager import (
@@ -54,46 +43,16 @@ from cmdb.errors.manager.types_manager import (
     TypesManagerDeleteError,
     TypesManagerInitError,
     TypesManagerIterationError,
-    TypesManagerUpdateMDSError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=protected-access
 
 MGR_PATH: str = 'cmdb.manager.types_manager'
 
-SECTION_ID: str = 'dg-ipam-interface'
-OTHER_SECTION_ID: str = 'dg-other-section'
 TYPE_ID: int = 42
 
 
-def _entry(name: str, value: Any = None, field_type: str = FieldType.TEXT.value) -> dict[str, Any]:
-    """Builds one stored MDS field entry ({name, value, type})."""
-    return {
-        CmdbObjectFieldKey.NAME.value: name,
-        CmdbObjectFieldKey.VALUE.value: value,
-        CmdbObjectFieldKey.TYPE.value: field_type,
-    }
-
-
-def _mds_section(section_id: str, rows: list[list[dict[str, Any]]]) -> dict[str, Any]:
-    """Builds one MDS section dict: rows nested under values[].data per the canonical shape."""
-    return {
-        CmdbObjectMdsKey.SECTION_ID.value: section_id,
-        CmdbObjectMdsKey.VALUES.value: [{CmdbObjectMdsRowKey.DATA.value: row} for row in rows],
-    }
-
-
-def _row_data(section: dict[str, Any], row_index: int) -> list[dict[str, Any]]:
-    """Returns the field-entry list of a given row of an MDS section."""
-    return section[CmdbObjectMdsKey.VALUES.value][row_index][CmdbObjectMdsRowKey.DATA.value]
-
-
-def _names(entries: list[dict[str, Any]]) -> list[str]:
-    """Returns the field names of a row's entry list, in order."""
-    return [entry[CmdbObjectFieldKey.NAME.value] for entry in entries]
-
-
-# ------------------------------------------------- the type reads ---------------------------------------------------- #
+# ------------------------------------------------- the type reads --------------------------------------------------- #
 
 def test_iterate_binds_the_rows_to_an_iteration_result() -> None:
     """The paged read hands its rows to IterationResult with the CmdbType class."""
@@ -232,300 +191,6 @@ def test_as_stored_type_dict_keeps_a_timestamp_through_the_bson_round_trip() -> 
     })
 
     assert stored['creation_time'] == created
-
-
-# ------------------------------------------------ the object reads --------------------------------------------------- #
-
-def test_get_objects_for_type_reads_by_type_id() -> None:
-    """The unnarrowed read asks for the type's objects through the base manager, not through dbm."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.return_value = []
-
-    TypesManager.get_objects_for_type(mgr, TYPE_ID)
-
-    call = mgr.get_many_from_other_collection.call_args
-    assert call.args[0] == CmdbObject.COLLECTION
-    assert call.kwargs[CmdbObjectKey.TYPE_ID.value] == TYPE_ID
-    assert call.kwargs['projection'] is None
-
-
-def test_get_objects_for_type_narrows_by_mds_section() -> None:
-    """The MDS narrowing is a dotted path on the section_id, so unaffected objects never load."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.return_value = []
-
-    TypesManager.get_objects_for_type(mgr, TYPE_ID, section_ids=[SECTION_ID])
-
-    mds_path = f'{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.{CmdbObjectMdsKey.SECTION_ID.value}'
-    assert mgr.get_many_from_other_collection.call_args.kwargs[mds_path] == {'$in': [SECTION_ID]}
-
-
-def test_get_objects_for_type_narrows_by_public_ids() -> None:
-    """What the batched propagation reads one chunk with."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.return_value = []
-
-    TypesManager.get_objects_for_type(mgr, TYPE_ID, public_ids=[1, 2])
-
-    assert mgr.get_many_from_other_collection.call_args.kwargs[
-        CmdbObjectKey.PUBLIC_ID.value
-    ] == {'$in': [1, 2]}
-
-
-def test_get_objects_for_type_forwards_the_projection() -> None:
-    """A projected read is what keeps a type's `fields` out of the propagation."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.return_value = []
-
-    TypesManager.get_objects_for_type(mgr, TYPE_ID, projection=MDS_OBJECT_PROJECTION)
-
-    assert mgr.get_many_from_other_collection.call_args.kwargs['projection'] is MDS_OBJECT_PROJECTION
-
-
-def test_get_objects_for_type_hydrates_each_document() -> None:
-    """The documents come back as CmdbObjects, projected or not."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.return_value = [{
-        CmdbObjectKey.PUBLIC_ID.value: 5,
-        CmdbObjectKey.TYPE_ID.value: TYPE_ID,
-        CmdbObjectKey.AUTHOR_ID.value: 1,
-        CmdbObjectKey.MULTI_DATA_SECTIONS.value: [],
-    }]
-
-    result = TypesManager.get_objects_for_type(mgr, TYPE_ID, projection=MDS_OBJECT_PROJECTION)
-
-    assert [obj.public_id for obj in result] == [5]
-
-
-def test_get_object_ids_for_type_reads_ids_only() -> None:
-    """The first half of the batched propagation: ids are small enough to hold for a whole type."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.return_value = [
-        {CmdbObjectKey.PUBLIC_ID.value: 3}, {CmdbObjectKey.PUBLIC_ID.value: 4},
-    ]
-
-    assert TypesManager.get_object_ids_for_type(mgr, TYPE_ID, section_ids=[SECTION_ID]) == [3, 4]
-
-    projection = mgr.get_many_from_other_collection.call_args.kwargs['projection']
-    assert projection == {CmdbObjectKey.PUBLIC_ID.value: 1, '_id': 0}
-
-
-def test_get_object_ids_for_type_drops_non_integer_ids() -> None:
-    """The ids go into an '$in' of ints, so a drifted value must not travel with them."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.return_value = [
-        {CmdbObjectKey.PUBLIC_ID.value: 3}, {CmdbObjectKey.PUBLIC_ID.value: None}, {},
-    ]
-
-    assert TypesManager.get_object_ids_for_type(mgr, TYPE_ID) == [3]
-
-
-def test_get_object_ids_for_type_wraps_a_failing_read() -> None:
-    """The manager's own error type, like every other read here."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.side_effect = BaseManagerGetError('boom')
-
-    with pytest.raises(TypesManagerGetError):
-        TypesManager.get_object_ids_for_type(mgr, TYPE_ID)
-
-
-# --------------------------------------------- handle_multi_data_sections ------------------------------------------- #
-# The pure decide-and-apply half lives in cmdb.manager.types_mds_helper and is tested there; what is
-# pinned here is the manager's own part: which objects it reads, with which projection, in which
-# batches, and that it yields the changed ones instead of collecting them
-
-
-def _mds_object(public_id: int, section_id: str, rows: list[list[dict[str, Any]]]) -> CmdbObject:
-    """A CmdbObject carrying one MDS section, built the way a projected read hands it over."""
-    return CmdbObject.from_data({
-        CmdbObjectKey.PUBLIC_ID.value: public_id,
-        CmdbObjectKey.TYPE_ID.value: TYPE_ID,
-        CmdbObjectKey.AUTHOR_ID.value: 1,
-        CmdbObjectKey.MULTI_DATA_SECTIONS.value: [_mds_section(section_id, rows)],
-    })
-
-
-def _old_type(section_fields: list[str], section_type: str = SectionType.MDS_SECTION.value) -> CmdbType:
-    """A stored CmdbType carrying one section with the given fields."""
-    return CmdbType.from_data({
-        TypeSchemaKey.PUBLIC_ID.value: TYPE_ID,
-        'name': 'a-type',
-        TypeSchemaKey.LABEL.value: 'A Type',
-        'author_id': 1,
-        'version': '1.0.0',
-        'active': True,
-        TypeSchemaKey.FIELDS.value: [
-            {FieldKey.NAME.value: name, FieldKey.TYPE.value: FieldType.TEXT.value}
-            for name in section_fields
-        ],
-        TypeSchemaKey.RENDER_META.value: {
-            'icon': 'fa-cube',
-            'externals': [],
-            'summary': {TypeSchemaKey.FIELDS.value: section_fields},
-            TypeSchemaKey.SECTIONS.value: [{
-                SectionKey.TYPE.value: section_type,
-                SectionKey.NAME.value: SECTION_ID,
-                SectionKey.LABEL.value: 'Section',
-                SectionKey.FIELDS.value: section_fields,
-            }],
-        },
-        'acl': {'activated': False, 'groups': {'includes': None}},
-    })
-
-
-def _updated_type_doc(
-        section_fields: list[str] | None,
-        field_types: dict[str, str] | None = None,
-) -> dict[str, Any]:
-    """
-    An updated-type document; `section_fields=None` means the MDS section itself was removed
-    """
-    all_fields: list[str] = section_fields or []
-    types: dict[str, str] = field_types or {}
-    sections: list[dict[str, Any]] = [] if section_fields is None else [{
-        SectionKey.TYPE.value: SectionType.MDS_SECTION.value,
-        SectionKey.NAME.value: SECTION_ID,
-        SectionKey.FIELDS.value: section_fields,
-    }]
-
-    return {
-        TypeSchemaKey.FIELDS.value: [
-            {FieldKey.NAME.value: name, FieldKey.TYPE.value: types.get(name, FieldType.TEXT.value)}
-            for name in all_fields
-        ],
-        TypeSchemaKey.RENDER_META.value: {TypeSchemaKey.SECTIONS.value: sections},
-    }
-
-
-def _propagating_manager(objects: list[CmdbObject], object_ids: list[int] | None = None) -> MagicMock:
-    """A MagicMock TypesManager whose two reads answer with the given objects."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_object_ids_for_type.return_value = (
-        object_ids if object_ids is not None else [obj.public_id for obj in objects]
-    )
-    mgr.get_objects_for_type.side_effect = lambda *_args, public_ids=None, **_kwargs: [
-        obj for obj in objects if public_ids is None or obj.public_id in public_ids
-    ]
-
-    return mgr
-
-
-def test_handle_multi_data_sections_yields_the_changed_objects() -> None:
-    """An added field reaches every row of the objects carrying the section."""
-    changed = _mds_object(1, SECTION_ID, [[_entry('a', 1)]])
-    mgr = _propagating_manager([changed])
-
-    batches = list(TypesManager.handle_multi_data_sections(
-        mgr, _old_type(['a']), _updated_type_doc(['a', 'b']),
-    ))
-
-    assert batches == [[changed]]
-    assert _names(_row_data(changed.multi_data_sections[0], 0)) == ['a', 'b']
-
-
-def test_handle_multi_data_sections_reads_only_the_affected_sections() -> None:
-    """The id read is narrowed to the sections the edit touches - other objects never load"""
-    mgr = _propagating_manager([])
-
-    list(TypesManager.handle_multi_data_sections(mgr, _old_type(['a']), _updated_type_doc(['a', 'b'])))
-
-    assert mgr.get_object_ids_for_type.call_args.kwargs['section_ids'] == [SECTION_ID]
-
-
-def test_handle_multi_data_sections_reads_only_the_projected_keys() -> None:
-    """A type's `fields` list - usually the bulk of an object - stays out of the read"""
-    mgr = _propagating_manager([_mds_object(1, SECTION_ID, [[_entry('a')]])])
-
-    list(TypesManager.handle_multi_data_sections(mgr, _old_type(['a']), _updated_type_doc(['a', 'b'])))
-
-    assert mgr.get_objects_for_type.call_args.kwargs['projection'] is MDS_OBJECT_PROJECTION
-
-
-def test_handle_multi_data_sections_batches_its_reads_and_yields(monkeypatch: pytest.MonkeyPatch) -> None:
-    """
-    The propagation is bounded: one batch is read, yielded and written before the next is read
-
-    That is what keeps a type with many objects from becoming one unbounded read and one unbounded
-    bulk write.
-    """
-    monkeypatch.setattr(f'{MGR_PATH}.MDS_PROPAGATION_BATCH_SIZE', 2)
-    objects = [_mds_object(public_id, SECTION_ID, [[_entry('a')]]) for public_id in (1, 2, 3)]
-    mgr = _propagating_manager(objects)
-
-    batches = list(TypesManager.handle_multi_data_sections(
-        mgr, _old_type(['a']), _updated_type_doc(['a', 'b']),
-    ))
-
-    assert [[obj.public_id for obj in batch] for batch in batches] == [[1, 2], [3]]
-    assert mgr.get_objects_for_type.call_count == 2
-
-
-def test_handle_multi_data_sections_yields_nothing_when_no_object_changed() -> None:
-    """An object that already carries the field is not written again"""
-    mgr = _propagating_manager([_mds_object(1, SECTION_ID, [[_entry('a'), _entry('b')]])])
-
-    assert list(TypesManager.handle_multi_data_sections(
-        mgr, _old_type(['a']), _updated_type_doc(['a', 'b']),
-    )) == []
-
-
-def test_handle_multi_data_sections_reads_nothing_for_an_unchanged_type() -> None:
-    """A pure metadata edit must not touch the object collection at all"""
-    mgr = _propagating_manager([])
-
-    assert list(TypesManager.handle_multi_data_sections(
-        mgr, _old_type(['a']), _updated_type_doc(['a']),
-    )) == []
-    mgr.get_object_ids_for_type.assert_not_called()
-
-
-def test_handle_multi_data_sections_drops_a_removed_section() -> None:
-    """
-    A section the edit no longer declares is removed from the objects
-
-    Skipping it leaves every object holding the rows of a section its type does not
-    have - invisible to every read and impossible to edit.
-    """
-    obj = _mds_object(1, SECTION_ID, [[_entry('a', 'kept value')]])
-    mgr = _propagating_manager([obj])
-
-    batches = list(TypesManager.handle_multi_data_sections(mgr, _old_type(['a']), _updated_type_doc(None)))
-
-    assert batches == [[obj]]
-    assert obj.multi_data_sections == []
-
-
-def test_handle_multi_data_sections_wraps_a_failing_read_as_mds_error() -> None:
-    """The propagation's own error type, so the route can report it separately from the type write"""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_object_ids_for_type.side_effect = TypesManagerGetError('boom')
-
-    with pytest.raises(TypesManagerUpdateMDSError):
-        list(TypesManager.handle_multi_data_sections(mgr, _old_type(['a']), _updated_type_doc(['a', 'b'])))
-
-
-def test_handle_multi_data_sections_wraps_an_unexpected_error_as_mds_error() -> None:
-    """Anything else surfaces the same way rather than escaping the manager"""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_object_ids_for_type.side_effect = RuntimeError('boom')
-
-    with pytest.raises(TypesManagerUpdateMDSError):
-        list(TypesManager.handle_multi_data_sections(mgr, _old_type(['a']), _updated_type_doc(['a', 'b'])))
-
-
-def test_handle_multi_data_sections_survives_a_payload_without_render_meta() -> None:
-    """
-    A malformed payload costs the propagation, not the data
-
-    A KeyError here is reported by the route as "the Type got updated but the MDS
-    updates failed" - a 400 for a type that was already written. And now that a missing section means
-    "removed", a payload describing no sections at all must not be read as "every section was
-    removed": that would drop the MDS rows of every object of the type.
-    """
-    mgr = _propagating_manager([])
-
-    assert list(TypesManager.handle_multi_data_sections(mgr, _old_type(['a']), {})) == []
-    mgr.get_object_ids_for_type.assert_not_called()
 
 
 # ------------------------------------------------- check_special_type_exists ---------------------------------------- #
@@ -735,15 +400,6 @@ def test_find_types_wraps_unexpected_error() -> None:
         TypesManager.find_types(mgr, {'public_id': 1})
 
 
-def test_get_objects_for_type_wraps_unexpected_error() -> None:
-    """A failure fetching objects of a type surfaces as TypesManagerGetError."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.side_effect = RuntimeError('boom')
-
-    with pytest.raises(TypesManagerGetError):
-        TypesManager.get_objects_for_type(mgr, 1)
-
-
 def test_get_types_by_wraps_unexpected_error() -> None:
     """A failure in get_types_by surfaces as TypesManagerGetError."""
     mgr = MagicMock(spec=TypesManager)
@@ -887,15 +543,6 @@ def test_get_all_types_wraps_unexpected_error() -> None:
 
     with pytest.raises(TypesManagerGetError):
         TypesManager.get_all_types(mgr)
-
-
-def test_get_objects_for_type_wraps_base_get_error() -> None:
-    """A BaseManagerGetError from the object fetch surfaces as TypesManagerGetError."""
-    mgr = MagicMock(spec=TypesManager)
-    mgr.get_many_from_other_collection.side_effect = BaseManagerGetError('boom')
-
-    with pytest.raises(TypesManagerGetError):
-        TypesManager.get_objects_for_type(mgr, 1)
 
 
 # ------------------------------------------------- get_existing_type_ids -------------------------------------------- #

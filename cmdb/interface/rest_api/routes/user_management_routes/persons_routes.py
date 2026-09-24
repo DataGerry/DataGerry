@@ -22,7 +22,7 @@ beyond the plain CRUD:
 **Membership is written on both sides.** The ``groups`` list of the payload is stored on the person AND
 mirrored into the ``group_members`` of each named CmdbPersonGroup, so the create and update routes make
 a second, reciprocal call after the person itself is persisted. The ids are checked first
-(``abort_on_unknown_references``): an unknown group id used to be stored and then mirrored into
+(``abort_on_unknown_references``): an unknown group id would be stored and then mirrored into
 nothing, leaving the two sides permanently disagreeing.
 
 **Deleting is one manager call.** ``PersonsManager.delete_with_follow_up`` clears the ISMS references,

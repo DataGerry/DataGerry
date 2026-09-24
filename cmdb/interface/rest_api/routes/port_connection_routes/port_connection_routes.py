@@ -19,18 +19,18 @@ Implementation of all API routes for handling CmdbPortConnections
 These routes are the only way a connection is written. Five invariants hold across them:
 
 1. **The connection rights alone govern the surface.** A connection spans two CmdbObjects, and unlike
-   the /ports routes these do NOT additionally check either endpoint object's ACL - decision Q13,
-   taken 2026-09-03, following the Rack-mount precedent for a row that joins two things. The
-   trade-off is recorded on `ConnectionRight` rather than hidden: a caller holding these rights can
-   cable together two objects they could not open individually.
+   the /ports routes these do NOT additionally check either endpoint object's ACL, following the
+   Rack-mount precedent for a row that joins two things. The trade-off is documented on
+   `ConnectionRight`: a caller holding these rights can cable together two objects they could not
+   open individually.
 2. **The endpoints and the connection type are immutable.** An update writes cable information only;
    a re-cable is a delete plus a create. Moving an endpoint would drop the row onto a port whose
    cardinality slot was never checked for it.
 3. **The identity and the audit fields are server-owned.** Neither write route's schema declares
    `public_id` or the three audit fields, and the validator purges what it does not declare, so a body
    carrying one never reaches the handler; `author_id` / `creation_time` / `last_edit_time` are stamped
-   from the request. The schema types the cable half - before it, a CSV-shaped number reached the
-   database as the value of a field the document schema declares a string - while `endpoints` and
+   from the request. The schema types the cable half - without it, a CSV-shaped number would reach
+   the database as the value of a field the document schema declares a string - while `endpoints` and
    `connection_type` are left untyped for the connection validator, whose messages name what is wrong.
 4. **The cardinality rules are the DATABASE's.** A port holds at most one cable and at most one
    internal connection, no pair repeats, and a cable CI belongs to one connection - all four held by
@@ -45,9 +45,9 @@ These routes are the only way a connection is written. Five invariants hold acro
    from the connection otherwise, so a client renders both storage modes with the same code and never
    reads a value that is null for half the connections. An INTERNAL connection answers `cable: null`.
 
-`§35`'s rule holds by construction: every route here touches exactly the connection it addresses, and
-the delete cascades are scoped to the ports actually being removed - resolving or deleting one
-connection never removes another.
+Resolving or deleting one connection never removes another, and that holds by construction: every
+route here touches exactly the connection it addresses, and the delete cascades are scoped to the
+ports actually being removed.
 
 The whole surface is gated behind the licensed IPAM feature (see init_rest_api), like /ports and
 /racks: `uses_ports` cannot be turned on without that licence either
@@ -307,9 +307,9 @@ def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) 
     """
     HTTP `GET`/`HEAD` route to retrieve every CmdbPortConnection of one CmdbObject's CmdbPorts
 
-    What an object view needs to show the cabling of a device in one request. Without it a client had
-    to read the object's ports and then ask per port, so a 48-port switch cost 49 round trips for a
-    question two indexed reads answer.
+    What an object view needs to show the cabling of a device in one request. Without it a client would
+    have to read the object's ports and then ask per port, so a 48-port switch would cost 49 round trips
+    for a question two indexed reads answer.
 
     An object with no ports, or with none of them connected, answers with an empty list - "nothing is
     cabled here" is a normal state. The OBJECT not existing is a 404, because that is a different
@@ -320,7 +320,7 @@ def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) 
 
     **On the ACL**: this route is keyed by an object, so the object's own READ permission is checked
     exactly as `/ports/object/<id>` checks it - the caller is asking what is attached to *that device*.
-    What decision Q13 governs is the PEER end: the returned connections may name ports of objects the
+    What the connection-rights rule governs is the PEER end: the returned connections may name ports of objects the
     caller cannot read, and their ids are not filtered out, because a connection is a fact about the
     cabling rather than about either device
 
@@ -439,8 +439,8 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
     except that `sort` defaults to the cable name instead of the public_id
 
     Guarded by the connection view right, like every read here: this is a question, not a change. The
-    candidates' own ACLs are not applied - Q13's rule for this surface, and the same trade-off the
-    Rack's assignable-objects picker documents
+    candidates' own ACLs are not applied - the connection-rights rule of this surface, and the same
+    trade-off the Rack's assignable-objects picker documents
 
     Args:
         params (CollectionParameters): Filtering, sorting and pagination parameters
@@ -635,9 +635,9 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
     HTTP `DELETE` route to resolve several CmdbPortConnections of one CmdbObject's ports at once
 
     The body is ``{'connection_ids': [...]}``, and the ids are CONNECTIONS, never ports - that is what
-    makes resolving **granular** (§34). A patch-panel pair carries a front connection, a rear
+    makes resolving **granular**. A patch-panel pair carries a front connection, a rear
     connection and an internal pairing; only an id per connection can express "the internal one, and
-    nothing else", so §35's rule that **resolving one connection never deletes another** is structural
+    nothing else", so the rule that **resolving one connection never deletes another** is structural
     here rather than something the code has to remember.
 
     Scoped to the object whose table the selection was made in: every id must have at least ONE
@@ -670,8 +670,8 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
             payload, BulkActionRequestKey.CONNECTION_IDS.value,
         )
 
-        # No object ACL, deliberately: a connection is governed by the connection rights alone
-        # (decision Q13), and it belongs to neither of the two devices it joins. The object here is
+        # No object ACL, deliberately: a connection is governed by the connection rights alone,
+        # and it belongs to neither of the two devices it joins. The object here is
         # the SCOPE of the selection, not its owner
         get_selected_connections_or_abort(
             port_connections_manager, ports_manager, object_id, connection_ids,

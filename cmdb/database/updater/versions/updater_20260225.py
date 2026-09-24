@@ -44,7 +44,7 @@ Operator notes:
   without ``data`` - would abort the entire migration with "The path ... must exist in the document in
   order to apply array updates", and abort it again on every subsequent boot. The rest of the codebase
   reads these structures defensively, so the shape is not guaranteed; malformed sections and rows are
-  now skipped instead of failing the run.
+  skipped instead of failing the run.
 * The multi-data-section writes are issued only for a type that declares a multi-data-section, which
   is the minority of types.
 

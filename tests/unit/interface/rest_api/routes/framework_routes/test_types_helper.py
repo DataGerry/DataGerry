@@ -41,6 +41,9 @@ from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
+from cmdb.errors.manager.types_manager import TypesManagerUpdateMDSError
 from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_reference_section_helper
@@ -376,12 +379,13 @@ def test_realign_runs_when_field_set_changed(old_names: list[str], new_names: li
     updated_type = _type_with_field_names(1, new_names)
 
     with patch(f'{PATH}.ManagerProvider.get_manager'), \
-         patch(f'{PATH}.realign_objects_to_type', return_value=set()) as mock_realign, \
+         patch(f'{PATH}.realign_objects_to_type') as mock_realign, \
          patch(f'{PATH}.clean_type_reports') as mock_reports:
         realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
 
     mock_realign.assert_called_once()
-    mock_reports.assert_called_once()
+    # The reports lose exactly the names the edit removed - read off the two type states
+    assert mock_reports.call_args.args[2] == set(old_names) - set(new_names)
 
 
 # ------------------------------------------------- apply_type_update_side_effects ----------------------------------- #
@@ -424,45 +428,44 @@ def test_apply_type_update_side_effects_runs_special_wiring_with_marker() -> Non
 
 # --------------------------------------------------- apply_type_changes_to_mds -------------------------------------- #
 
-def _mds_managers(batches: list[list[Any]]) -> tuple[MagicMock, MagicMock]:
-    """Builds the two managers the MDS propagation uses, with the propagation yielding the batches."""
+def test_apply_type_changes_to_mds_runs_the_plans_statements() -> None:
+    """The plan becomes statements and the objects manager runs them - no object is read for it"""
+    plan = MdsChangePlan(added_fields={'sec': ['b']})
     objects_manager = MagicMock(name='objects_manager')
-    types_manager = MagicMock(name='types_manager')
-    types_manager.handle_multi_data_sections.return_value = iter(batches)
+    old_type = SimpleNamespace(public_id=7)
 
-    def _provider(manager_type: ManagerType, _request_user: Any) -> MagicMock:
-        return objects_manager if manager_type == ManagerType.OBJECTS else types_manager
+    with patch(f'{PATH}.plan_mds_changes', return_value=plan), \
+         patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+        apply_type_changes_to_mds(MagicMock(), old_type, {})
 
-    return objects_manager, types_manager, _provider
+    objects_manager.apply_raw_updates.assert_called_once_with(build_mds_updates(7, plan))
 
 
-def test_apply_type_changes_to_mds_writes_every_batch() -> None:
+def test_apply_type_changes_to_mds_does_nothing_for_an_empty_plan() -> None:
+    """A metadata edit needs no manager and issues no statement"""
+    with patch(f'{PATH}.plan_mds_changes', return_value=MdsChangePlan()), \
+         patch(f'{PATH}.ManagerProvider.get_manager') as mock_get:
+        apply_type_changes_to_mds(MagicMock(), SimpleNamespace(public_id=7), {})
+
+    mock_get.assert_not_called()
+
+
+def test_apply_type_changes_to_mds_reports_a_failing_statement_as_its_own_error() -> None:
     """
-    Each batch is written before the next is read
+    The route answers a propagation failure with its own message, so the error keeps its identity
 
-    The propagation yields rather than collecting, which is what keeps a type with many objects from
-    becoming one unbounded read and one unbounded bulk write - so the caller has to loop.
+    The failing write is chained, not flattened into a string.
     """
-    first_batch = [MagicMock(name='object-1')]
-    second_batch = [MagicMock(name='object-2')]
-    objects_manager, _types_manager, provider = _mds_managers([first_batch, second_batch])
+    objects_manager = MagicMock(name='objects_manager')
+    cause = ObjectsManagerUpdateError('boom')
+    objects_manager.apply_raw_updates.side_effect = cause
 
-    with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=provider):
-        apply_type_changes_to_mds(MagicMock(), MagicMock(), {})
+    with patch(f'{PATH}.plan_mds_changes', return_value=MdsChangePlan(removed_sections=['sec'])), \
+         patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager):
+        with pytest.raises(TypesManagerUpdateMDSError) as exc_info:
+            apply_type_changes_to_mds(MagicMock(), SimpleNamespace(public_id=7), {})
 
-    assert [call.args[0] for call in objects_manager.bulk_update_multi_data_sections.call_args_list] == [
-        first_batch, second_batch,
-    ]
-
-
-def test_apply_type_changes_to_mds_writes_nothing_without_changes() -> None:
-    """A propagation that yields nothing performs no write at all"""
-    objects_manager, _types_manager, provider = _mds_managers([])
-
-    with patch(f'{PATH}.ManagerProvider.get_manager', side_effect=provider):
-        apply_type_changes_to_mds(MagicMock(), MagicMock(), {})
-
-    objects_manager.bulk_update_multi_data_sections.assert_not_called()
+    assert exc_info.value.__cause__ is cause
 
 
 # ------------------------------------------------------ verify_type_is_unique --------------------------------------- #

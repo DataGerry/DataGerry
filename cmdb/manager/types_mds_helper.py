@@ -26,30 +26,30 @@ only way an object stops carrying a section its type no longer declares.
 Two contracts hold this together:
 
 * an object's MDS ``section_id`` equals the type section's ``name``. That is what lets a plan be
-  keyed by name and looked up by section_id
-* an entry's ``type`` comes from the **updated** type's field list. Reading it from the old type
-  (which by definition does not contain a newly added field) is what silently wrote every new MDS
-  field as ``text``, whatever it was declared as
+  keyed by name and a statement be addressed by section_id
+* a new entry is built from the **updated** type's field definition - its declared ``type`` and its
+  default ``value`` - because the old type by definition does not contain a newly added field
 
-Everything here is pure: `plan_mds_changes` answers what has to change from the two type states, and
-`apply_plan` performs it on one object in memory and reports whether that object actually changed. The
-manager owns the reads and the batching, the caller owns the writes - which is why an object is only
-reported as changed when a value really moved, so an idempotent re-run writes nothing
+Everything here is pure. `plan_mds_changes` answers what has to change from the two type states, and
+`build_mds_updates` turns the plan into the server-side statements that perform it
+(`objects_propagation_helper`), which `ObjectsManager.apply_raw_updates` runs. No object is read: the
+statements add an entry only to rows lacking it and pull only what is named, so they neither overwrite
+a concurrent edit of an object nor change anything on a re-run.
 """
 from dataclasses import dataclass, field
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.models.object_model import (
-    CmdbObject,
-    CmdbObjectFieldKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
+from cmdb.manager.objects_propagation_helper import (
+    RawUpdate,
+    build_add_mds_field_update,
+    build_field_entry,
+    build_remove_mds_fields_update,
+    build_remove_mds_section_update,
 )
 from cmdb.models.type_model import (
     CmdbType,
     FieldKey,
-    FieldType,
     SectionKey,
     SectionType,
     TypeSchemaKey,
@@ -58,8 +58,9 @@ from cmdb.models.type_model import (
 
 __all__: list[str] = [
     'MdsChangePlan',
-    'apply_plan',
-    'build_field_type_map',
+    'build_field_definition_map',
+    'build_mds_updates',
+    'build_new_field_entry',
     'diff_field_names',
     'plan_mds_changes',
 ]
@@ -72,13 +73,14 @@ class MdsChangePlan:
     """
     What one CmdbType edit changes in its objects' multi-data sections
 
-    Keyed by the type section's ``name``, which is the objects' ``section_id``. `field_type_map` comes
-    from the UPDATED type, so a newly added field is written with the type it was declared with
+    Keyed by the type section's ``name``, which is the objects' ``section_id``. `field_definitions`
+    comes from the UPDATED type, so a newly added field is written with the type it was declared with
+    and starts from its declared default value
     """
     added_fields: dict[str, list[str]] = field(default_factory=dict)
     deleted_fields: dict[str, list[str]] = field(default_factory=dict)
     removed_sections: list[str] = field(default_factory=list)
-    field_type_map: dict[str, str] = field(default_factory=dict)
+    field_definitions: dict[str, dict[str, Any]] = field(default_factory=dict)
 
 
     @property
@@ -90,19 +92,6 @@ class MdsChangePlan:
             bool: True when no object of the type can be affected
         """
         return not (self.added_fields or self.deleted_fields or self.removed_sections)
-
-
-    @property
-    def affected_section_ids(self) -> list[str]:
-        """
-        The MDS section_ids an object must carry at least one of to be affected
-
-        Lets the caller skip every object that carries none of them - such an object can not change
-
-        Returns:
-            list[str]: The affected section_ids, sorted so the query is reproducible
-        """
-        return sorted(set(self.added_fields) | set(self.deleted_fields) | set(self.removed_sections))
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    the plan                                                          #
@@ -128,9 +117,9 @@ def diff_field_names(initial_fields: list[str], updated_fields: list[str]) -> tu
     return sorted(updated - initial), sorted(initial - updated)
 
 
-def build_field_type_map(fields: list[dict[str, Any]]) -> dict[str, str]:
+def build_field_definition_map(fields: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
     """
-    Maps each declared field name to its declared field type
+    Maps each declared field name to its field definition
 
     Built from the type the edit produced, because the entries being written describe its fields.
     An entry without a name is skipped rather than guessed at
@@ -139,21 +128,20 @@ def build_field_type_map(fields: list[dict[str, Any]]) -> dict[str, str]:
         fields (list[dict[str, Any]]): The ``fields`` list of a CmdbType document
 
     Returns:
-        dict[str, str]: field name -> field type
+        dict[str, dict[str, Any]]: field name -> field definition
     """
-    field_type_map: dict[str, str] = {}
+    field_definitions: dict[str, dict[str, Any]] = {}
 
     for type_field in fields:
-        field_name: Any = type_field.get(FieldKey.NAME.value)
+        field_name: Any = type_field.get(FieldKey.NAME.value) if isinstance(type_field, dict) else None
 
         if not isinstance(field_name, str):
-            LOGGER.warning("[build_field_type_map] Skipping a type field without a name: %r", type_field)
+            LOGGER.warning("[build_field_definition_map] Skipping a type field without a name: %r", type_field)
             continue
 
-        field_type_map[field_name] = type_field.get(FieldKey.TYPE.value, FieldType.TEXT.value)
+        field_definitions[field_name] = type_field
 
-    return field_type_map
-
+    return field_definitions
 
 def plan_mds_changes(old_type: CmdbType, updated_type: dict[str, Any]) -> MdsChangePlan:
     """
@@ -229,143 +217,60 @@ def plan_mds_changes(old_type: CmdbType, updated_type: dict[str, Any]) -> MdsCha
         added_fields=added_fields,
         deleted_fields=deleted_fields,
         removed_sections=removed_sections,
-        field_type_map=build_field_type_map(updated_type.get(TypeSchemaKey.FIELDS.value) or []),
+        field_definitions=build_field_definition_map(updated_type.get(TypeSchemaKey.FIELDS.value) or []),
     )
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             applying it to one object                                                #
+#                                           the statements that perform it                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def mds_rows(mds_section: dict[str, Any]) -> list[dict[str, Any]]:
+def build_new_field_entry(plan: MdsChangePlan, field_name: str) -> dict[str, Any]:
     """
-    The captured rows of one MDS section
+    Builds the entry a newly added MDS field gets in every existing row
+
+    The updated type's definition decides the entry's type and its value - the field's declared
+    default, or None when it declares none. A name the type does not declare as a field is written as
+    an empty ``text`` entry rather than dropped, so every row still ends up with one entry per name
+    the section lists
 
     Args:
-        mds_section (dict[str, Any]): An object's multi_data_sections entry
+        plan (MdsChangePlan): The plan the field belongs to
+        field_name (str): The name of the added field
 
     Returns:
-        list[dict[str, Any]]: The section's rows, empty when it has none
+        dict[str, Any]: The ``{name, value, type}`` entry
     """
-    return mds_section.get(CmdbObjectMdsKey.VALUES.value) or []
+    return build_field_entry(plan.field_definitions.get(field_name, {FieldKey.NAME.value: field_name}))
 
 
-def row_entries(row: dict[str, Any]) -> list[dict[str, Any]]:
+def build_mds_updates(type_id: int, plan: MdsChangePlan) -> list[RawUpdate]:
     """
-    The ``{name, value, type}`` entries of one MDS row
+    Turns a change plan into the server-side statements that apply it to every object of the type
+
+    Per section: one ``$push`` per added field (only into rows lacking it), one ``$pull`` for the
+    removed fields, and one ``$pull`` of the whole section when the type no longer declares it. The
+    order is deterministic - sections and field names sorted - so the same edit always issues the same
+    statements
 
     Args:
-        row (dict[str, Any]): One row of an MDS section
-
-    Returns:
-        list[dict[str, Any]]: The row's field entries, empty when it has none
-    """
-    return row.get(CmdbObjectMdsRowKey.DATA.value) or []
-
-
-def add_field_entries(
-        mds_section: dict[str, Any],
-        field_names: list[str],
-        field_type_map: dict[str, str]) -> bool:
-    """
-    Appends an entry per newly declared field to every row of an MDS section, in place
-
-    A new field is appended with a ``None`` value, so a row keeps exactly one entry per declared
-    field. An entry already present is left alone, which is what makes a re-run write nothing
-
-    Args:
-        mds_section (dict[str, Any]): The MDS section to extend
-        field_names (list[str]): The names of the fields to add
-        field_type_map (dict[str, str]): field name -> declared type, from the updated CmdbType
-
-    Returns:
-        bool: True when at least one entry was appended
-    """
-    changed: bool = False
-
-    for row in mds_rows(mds_section):
-        row.setdefault(CmdbObjectMdsRowKey.DATA.value, [])
-        present: set[Any] = {entry.get(CmdbObjectFieldKey.NAME.value) for entry in row_entries(row)}
-
-        for field_name in field_names:
-            if field_name in present:
-                continue
-
-            row[CmdbObjectMdsRowKey.DATA.value].append({
-                CmdbObjectFieldKey.NAME.value: field_name,
-                CmdbObjectFieldKey.VALUE.value: None,
-                CmdbObjectFieldKey.TYPE.value: field_type_map.get(field_name, FieldType.TEXT.value),
-            })
-            changed = True
-
-    return changed
-
-
-def remove_field_entries(mds_section: dict[str, Any], field_names: list[str]) -> bool:
-    """
-    Drops the entries of the named fields from every row of an MDS section, in place
-
-    Args:
-        mds_section (dict[str, Any]): The MDS section to strip
-        field_names (list[str]): The names of the fields the type no longer declares
-
-    Returns:
-        bool: True when at least one entry was dropped
-    """
-    dropped: set[str] = set(field_names)
-    changed: bool = False
-
-    for row in mds_rows(mds_section):
-        if CmdbObjectMdsRowKey.DATA.value not in row:
-            continue
-
-        kept: list[dict[str, Any]] = [
-            entry for entry in row_entries(row)
-            if entry.get(CmdbObjectFieldKey.NAME.value) not in dropped
-        ]
-
-        if len(kept) != len(row_entries(row)):
-            row[CmdbObjectMdsRowKey.DATA.value] = kept
-            changed = True
-
-    return changed
-
-
-def apply_plan(plan: MdsChangePlan, cmdb_object: CmdbObject) -> bool:
-    """
-    Applies a change plan to one CmdbObject in memory
-
-    Three things can happen per section: entries are appended for newly declared fields, entries of
-    fields the type dropped are removed, and a section the type no longer declares is removed from the
-    object altogether. The object is reported as changed only when a value really moved, so the caller
-    writes exactly the objects that need writing
-
-    Args:
+        type_id (int): public_id of the CmdbType whose objects are updated
         plan (MdsChangePlan): What the type edit changes
-        cmdb_object (CmdbObject): The object to update in place
 
     Returns:
-        bool: True when the object's multi_data_sections changed
+        list[RawUpdate]: The statements, empty for an empty plan
     """
-    removed: set[str] = set(plan.removed_sections)
-    kept_sections: list[dict[str, Any]] = []
-    changed: bool = False
+    updates: list[RawUpdate] = []
 
-    for mds_section in cmdb_object.multi_data_sections:
-        section_id: Any = mds_section.get(CmdbObjectMdsKey.SECTION_ID.value)
+    for section_id in sorted(plan.added_fields):
+        updates.extend(
+            build_add_mds_field_update(type_id, section_id, build_new_field_entry(plan, field_name))
+            for field_name in plan.added_fields[section_id]
+        )
 
-        if section_id in removed:
-            changed = True
-            continue
+    for section_id in sorted(plan.deleted_fields):
+        updates.append(build_remove_mds_fields_update(type_id, section_id, plan.deleted_fields[section_id]))
 
-        if add_field_entries(mds_section, plan.added_fields.get(section_id, []), plan.field_type_map):
-            changed = True
+    for section_id in sorted(plan.removed_sections):
+        updates.append(build_remove_mds_section_update(type_id, section_id))
 
-        if remove_field_entries(mds_section, plan.deleted_fields.get(section_id, [])):
-            changed = True
-
-        kept_sections.append(mds_section)
-
-    if changed:
-        cmdb_object.multi_data_sections = kept_sections
-
-    return changed
+    return updates

@@ -25,10 +25,9 @@ These routes are the only way a port <-> interface link is written. Five invaria
    relation stays N:M on the interface side, which is what a bonded interface reached over two
    physical ports needs.
 2. **They are guarded by the PORT rights, and by the port owner's ACL.** A link is an attribute of a
-   port rather than an entity managed on its own, and the design added no fifth right family for it.
-   Since the interface object IS the port's owner, that one ACL check now covers both ends - the
-   earlier note that the interface object's ACL was deliberately unchecked (the connection routes' Q13
-   shape) no longer applies, because there is no second object.
+   port rather than an entity managed on its own, so there is no fifth right family for it. Since
+   the interface object IS the port's owner, that one ACL check covers both ends - there is no second
+   object whose ACL could go unchecked.
 3. **The interface triple is immutable; only the relation type is editable.** The triple is the link's
    identity, so changing one of its keys is creating a different link.
 4. **Creating an already-dangling link is refused; an existing link going dangling is not.** The first

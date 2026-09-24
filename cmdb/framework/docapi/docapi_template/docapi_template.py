@@ -24,8 +24,7 @@ from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.cmdb_object import NoPublicIDError
 # -------------------------------------------------------------------------------------------------------------------- #
-# NOTE: this model extends TemplateManagementBase rather than CmdbDAO; migrating it onto CmdbDAO is
-#       tracked in the discussion backlog (a cross-model refactor), not done here.
+# NOTE: this model extends TemplateManagementBase rather than CmdbDAO.
 class DocapiTemplate(TemplateManagementBase):
     """
     Docapi Template

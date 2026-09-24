@@ -17,16 +17,19 @@
 Shared constants for the DocapiTemplate REST routes
 
 Names the ACL rights guarding the DocapiTemplate routes so the routes reference enum members
-instead of repeating the literal right strings, plus the media type and file extension the render
-route answers a rendered document with.
+instead of repeating the literal right strings, the media type and file extension the render
+route answers a rendered document with, and the document keys a searchfilter may match on.
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'RENDER_OBJECT_RIGHT',
     'RENDERED_DOCUMENT_MIMETYPE',
     'RENDERED_DOCUMENT_EXTENSION',
+    'SEARCHFILTER_KEYS',
+    'SEARCHFILTER_NESTED_KEYS',
     'DocapiTemplateRight',
 ]
 
@@ -35,14 +38,31 @@ __all__: list[str] = [
 RENDERED_DOCUMENT_MIMETYPE: str = 'application/pdf'
 RENDERED_DOCUMENT_EXTENSION: str = 'pdf'
 
+# The keys a `GET /docapi/template/by/<searchfilter>` filter may name. The filter reaches MongoDB as the
+# query document itself, so it is limited to equality matches on these keys - an operator key such as
+# `$where` or `$expr` would otherwise run server-side JavaScript. The template body keys (the HTML,
+# the style and the page layout) are not searchable
+SEARCHFILTER_KEYS: frozenset[str] = frozenset({
+    DocapiTemplateKey.PUBLIC_ID.value,
+    DocapiTemplateKey.NAME.value,
+    DocapiTemplateKey.LABEL.value,
+    DocapiTemplateKey.ACTIVE.value,
+    DocapiTemplateKey.AUTHOR_ID.value,
+    DocapiTemplateKey.TEMPLATE_TYPE.value,
+    DocapiTemplateKey.TEMPLATE_PARAMETERS.value,
+})
+
+# The one searchfilter key whose value may be an object rather than a scalar: the frontend's document
+# picker asks for `{"template_parameters": {"type": <type_id>}}`
+SEARCHFILTER_NESTED_KEYS: frozenset[str] = frozenset({DocapiTemplateKey.TEMPLATE_PARAMETERS.value})
+
 RENDER_OBJECT_RIGHT: str = 'base.framework.object.view'
 """
 The right guarding the render route - a CmdbObject right, not a DocapiTemplate one
 
 Rendering reads the target CmdbObject and puts its field values into the document, so the right that
 decides it belongs to the object domain. The consequence is deliberate but worth knowing: holding all
-four DocapiTemplate rights is not enough to render, and whether the route should demand a template
-right AS WELL is a filed decision
+four DocapiTemplate rights is not enough to render, and holding this right alone is
 """
 
 

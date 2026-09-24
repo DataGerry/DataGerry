@@ -16,17 +16,17 @@
 """
 Implementation of CollectionParameters - the pager of every list route
 
-The values are validated HERE rather than left to MongoDB. They used not to be, and every bad pager
-value therefore failed inside the aggregation and was reported by the route's
-``except …IterationError`` arm: ``?page=0`` answered *"Failed to retrieve Objects from the database!"*,
-blaming the database for a client's page number. A rejection raised from this module becomes an HTTP 400
-instead, because the ``parse_*_parameters`` decorators abort 400 on anything raised out of ``from_data``
+The values are validated HERE rather than left to MongoDB. Left to MongoDB, every bad pager value
+fails inside the aggregation and is reported by the route's ``except …IterationError`` arm: ``?page=0``
+would answer *"Failed to retrieve Objects from the database!"*, blaming the database for a client's page
+number. A rejection raised from this module becomes an HTTP 400 instead, because the
+``parse_*_parameters`` decorators abort 400 on anything raised out of ``from_data``
 
-Two rules behind the validation:
+Three rules behind the validation:
 
 * **A page below 1 is clamped, not refused.** A caller asking for page 0 is asking for the start of the
-  collection, and the frontend does send ``page: 0`` in one place. It previously produced a negative
-  ``$skip`` and a 400.
+  collection, and the frontend does send ``page: 0`` in one place. Passed through, it would produce a
+  negative ``$skip`` and a 400.
 * **A limit or order that has no meaning is refused.** ``limit`` may be ``0`` (unlimited) or positive;
   a negative page size is nonsense and must not be accepted and echoed back to the frontend. ``order``
   may only be ``1`` or ``-1``, the two values ``$sort`` accepts
@@ -36,13 +36,13 @@ Two rules behind the validation:
   called, because this is where the client's value enters
 
 Naming: what the query string calls ``filter`` is called ``criteria`` from the constructor inward, which
-is what ``get_builder_params`` already handed to ``BuilderParameters``. The wire keys are unchanged in
-both directions - ``?filter=`` on the way in and ``filter`` in the echoed ``parameters`` block - because
-they are frontend contract; only the constructor parameter is renamed, which also stops it shadowing the
-``filter`` builtin. The mapping happens in the constructor rather than in a ``from_data`` override, so
-the JSON parsing of ``filter`` can stay in ``APIParameters.from_data``, which has to see the value under
-its wire name. The attribute stays ``self.filter``: it is read and mutated at ~28 call sites across six
-modules, so renaming that too is recorded as a separate decision rather than folded in here
+is what ``get_builder_params`` hands to ``BuilderParameters``. The wire key is ``filter`` in both
+directions - ``?filter=`` on the way in and ``filter`` in the echoed ``parameters`` block - because it is
+frontend contract; only the constructor parameter is named ``criteria``, which also keeps it from
+shadowing the ``filter`` builtin. The mapping happens in the constructor rather than in a ``from_data``
+override, so the JSON parsing of ``filter`` can stay in ``APIParameters.from_data``, which has to see the
+value under its wire name. The attribute keeps the wire name, ``self.filter``, which call sites across
+several modules read and mutate
 """
 from typing import Any
 

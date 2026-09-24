@@ -31,6 +31,7 @@ from bson import json_util
 from flask import abort, request, Response
 from werkzeug.wrappers.response import Response as Resp
 from werkzeug.http import quote_header_value
+from gridfs.grid_file import GridOut
 
 from cmdb.interface.rest_api.responses.gridfs_response import GridFsResponse
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -44,6 +45,8 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants im
     MediaFileMetadataKey,
     MediaFileRequestKey,
     MediaFileRight,
+    DOWNLOAD_MIMETYPE,
+    UNPAGED_LIMIT,
 )
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
     build_updated_file_data,
@@ -55,6 +58,7 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     get_stored_file_or_abort,
     get_upload_from_request,
     recursive_delete_filter,
+    stream_grid_file,
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -82,7 +86,7 @@ media_file_blueprint = APIBlueprint('media_file_blueprint', __name__, url_prefix
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.VIEW.value)
-@media_file_blueprint.parse_collection_parameters()
+@media_file_blueprint.parse_collection_parameters(limit=UNPAGED_LIMIT)
 @handle_route_errors("while retrieving the FilesList")
 def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
     """
@@ -91,8 +95,10 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
     Requires the ``base.framework.object.view`` right. The optional ``metadata`` parameter narrows the
     listing to one folder; ``searchTerm`` searches filenames, reference types and mime types instead
 
-    Note that the paging parameters are NOT applied to the GridFS query yet, so every matching file is
-    loaded and ``total`` is the length of that list - a filed decision, not an oversight
+    Paging and sorting are applied in the GridFS query, so a page reads only its own files and
+    ``total`` is the number of matching files. **Without a ``limit`` the list is every match**, not the
+    usual first page: the attachment dialogs and the object's attachment badge ask for the whole list,
+    while the file explorer pages with ``limit=100`` and scrolls for the next page
 
     Args:
         params (CollectionParameters): Filter, sort and paging parameters
@@ -292,8 +298,9 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
     the lookup to one folder, as it does for the metadata read
 
     The filename is quoted in the Content-Disposition header rather than interpolated bare, so a name
-    carrying a quote or a semicolon can not break the header the browser parses. Note the whole file is
-    read into memory before it is sent - a filed decision, not an oversight
+    carrying a quote or a semicolon can not break the header the browser parses. **The content is
+    streamed** chunk by chunk (`stream_grid_file`), so a download costs one GridFS chunk of memory
+    whatever the file's size, and ``Content-Length`` is the stored length
 
     Args:
         filename (str): Name of the MediaFile to download
@@ -311,17 +318,18 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
 
     filter_metadata = generate_metadata_filter(MediaFileRequestKey.METADATA.value, request)
     filter_metadata.update({MediaFileKey.FILENAME.value: filename})
-    result = media_files_manager.get_file(metadata=filter_metadata, blob=True)
+    grid_out: GridOut | None = media_files_manager.open_file(metadata=filter_metadata)
 
-    if result is None:
-        # Without this the empty body went out as a 200 - the caller saved a 0-byte file
+    if grid_out is None:
+        # Without this the empty body would go out as a 200 and the caller would save a 0-byte file
         abort(404, f"The File with the name: {filename} was not found!")
 
     return Response(
-        result,
-        mimetype="application/octet-stream",
+        stream_grid_file(grid_out),
+        mimetype=DOWNLOAD_MIMETYPE,
         headers={
             "Content-Disposition": f'attachment; filename={quote_header_value(filename)}',
+            "Content-Length": str(grid_out.length),
         },
     )
 

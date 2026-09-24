@@ -26,6 +26,7 @@ from cmdb.utils import BaseStrEnum
 
 __all__: list[str] = [
     'MAX_DASHBOARD_GROUPS',
+    'OBJECT_LOG_LOST_MARKER',
     'SINGLE_OBJECT_VIEW_MODES',
     'SINGLE_OBJECT_VIEW_INVALID_MESSAGE',
     'ObjectViewMode',
@@ -33,6 +34,7 @@ __all__: list[str] = [
     'ObjectQueryParam',
     'ObjectGroupKey',
     'BulkDeleteKey',
+    'ObjectLogComment',
 ]
 
 # Maximum number of type groups returned for the dashboard chart by the group-by route. The chart shows
@@ -42,6 +44,20 @@ MAX_DASHBOARD_GROUPS: int = 5
 # Joins the per-scope messages of a rejected write when several required fields are left without a
 # value (one message for the top-level fields, one per multi-data section)
 REQUIRED_FIELD_ERROR_SEPARATOR: str = ' | '
+
+
+# The fixed text every lost change-log entry is logged under. A log entry is best-effort - the object
+# write never waits for it - so this marker is how an operator finds out that one went missing: alert on
+# it, and the line carries the action, the object id and the traceback
+OBJECT_LOG_LOST_MARKER: str = 'OBJECT_LOG_LOST'
+
+
+class ObjectLogComment(BaseStrEnum):
+    """The comment the backend writes on a CmdbObjectLog entry it creates itself"""
+    CREATED = 'Object created'
+    DELETED = 'Object was deleted'
+    ACTIVE_CHANGED = 'Active status has changed'
+    IMPORTED = 'Object was imported'
 
 
 class ObjectViewMode(BaseStrEnum):

@@ -1192,7 +1192,22 @@ class TestValidateMount:
 
         assert body['valid'] is False
         assert str(mount_id) in body['errors'][0]['message']
-        assert '[9, 10]' in body['errors'][0]['message']
+        assert 'U9-U10' in body['errors'][0]['message']
+
+    def test_a_full_height_collision_is_named_as_one_range(self, rest_api) -> None:
+        """
+        The message names the contested slots as a range, not one number per U
+
+        A full-depth mount over the whole rack collides with a front one of the same size; the reason
+        stays one short range however tall the two are.
+        """
+        _mount(rest_api, area=RackArea.FRONT.value, start_slot=RACK_HEIGHT, height=RACK_HEIGHT)
+
+        body = self._validate(rest_api, object_id=OTHER_OBJECT_ID,
+                              area=RackArea.FULL_DEPTH.value, start_slot=RACK_HEIGHT, height=RACK_HEIGHT).get_json()
+
+        assert body['valid'] is False
+        assert f'U1-U{RACK_HEIGHT}' in body['errors'][0]['message']
 
     def test_a_mount_above_the_rack_is_rejected(self, rest_api) -> None:
         """Same fit rules as the write"""

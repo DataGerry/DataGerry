@@ -20,12 +20,11 @@ Lets a route constrain a parameter with a regular expression:
 `@blueprint.route('/probe/<regex("[0-9]{4}"):year>')`. No route declares one today - it is
 registered for routes that need a pattern the built-in converters cannot express.
 
-Until 2026-09-14 it could not be used at all. Werkzeug builds a converter as
-`converter(url_map, *args, **kwargs)`, passing the arguments written in the rule, but `__init__`
-accepted `url_map` alone - so declaring any `<regex(...)>` parameter raised `TypeError: __init__()
-takes 2 positional arguments but 3 were given` while the URL map was being built. It also discarded
-the pattern instead of assigning `self.regex`, which is the attribute `BaseConverter` matches with,
-so even constructed it would have behaved as the default string converter
+Werkzeug builds a converter as `converter(url_map, *args, **kwargs)`, passing the arguments written
+in the rule, so `__init__` has to accept them - an `__init__` taking `url_map` alone makes every
+`<regex(...)>` parameter raise a `TypeError` while the URL map is being built. The pattern is assigned
+to `self.regex`, which is the attribute `BaseConverter` matches with; without it the converter would
+behave as the default string converter
 """
 from logging import Logger, getLogger
 from werkzeug.routing import BaseConverter

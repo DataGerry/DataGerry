@@ -21,9 +21,9 @@ changing anything:
 
 **A person's deletion is a cascade, and the whole cascade lives here.** ``delete_with_follow_up`` clears
 the ISMS references, removes the person from every CmdbPersonGroup that lists them and only then
-deletes the document. The group half used to be a second call made by the delete route, which meant any
-*other* caller deleting a person left them listed in every group; the route now makes one call and this
-manager is the single place that knows what deleting a person entails.
+deletes the document. The group half is not left to the delete route, so any *other* caller deleting a
+person removes them from every group too; the route makes one call and this manager is the single place
+that knows what deleting a person entails.
 
 **Membership is two-sided and neither side is derived.** A person lists their groups and each group
 lists its members, so a change has to be written to both. The methods here maintain the person side;

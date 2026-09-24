@@ -16,10 +16,9 @@
 """
 Functional smoke for the ``/date`` REST routes (DateSettings).
 
-Covers the default GET (no stored section), the POST/PUT update, the update->GET round-trip that
-previously crashed with a 500 because the stored '_id' could not be splatted back into
-DateSettingsDAO, the empty-body 400 (which was previously masked as a 500), and the tolerance of an
-'_id' carried in the request body.
+Covers the default GET (no stored section), the POST/PUT update, the update->GET round-trip (the
+stored '_id' must not be splatted back into DateSettingsDAO, or the read answers 500), the empty-body
+400 (not masked as a 500), and the tolerance of an '_id' carried in the request body.
 """
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -95,10 +94,10 @@ class TestUpdateDateSettings:
         assert body['timezone'] == TIMEZONE
 
     def test_body_with_id_is_tolerated(self, rest_api) -> None:
-        """A body carrying extra keys such as '_id' is accepted (regression: previously 500).
+        """A body carrying extra keys such as '_id' is accepted, not answered with a 500.
 
-        update_date_settings splats the raw request body into DateSettingsDAO; before build_date_settings
-        an extra key like '_id' (e.g. echoed back by the frontend) raised TypeError -> masked as 500.
+        build_date_settings keeps only the declared keys, so an extra key like '_id' (e.g. echoed back by
+        the frontend) is not splatted into DateSettingsDAO, where it would raise TypeError -> 500.
         """
         payload = _date_payload()
         payload['_id'] = DATE_SECTION
@@ -106,7 +105,7 @@ class TestUpdateDateSettings:
         assert rest_api.post('/date/', json=payload).status_code == HTTPStatus.OK
 
     def test_empty_body_returns_400(self, rest_api) -> None:
-        """An empty body is rejected with 400 (regression: previously masked as 500)."""
+        """An empty body is rejected with 400, not masked as a 500."""
         assert rest_api.post('/date/', json={}).status_code == HTTPStatus.BAD_REQUEST
 
 

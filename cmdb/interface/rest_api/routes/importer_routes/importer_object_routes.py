@@ -32,13 +32,13 @@ Two things about this surface are easy to get wrong:
   status code. A 4xx/5xx from this route means the request could not be processed at all
 * **The CREATE logs are best-effort.** The objects are committed before `_log_imported_objects` runs,
   so a failure there costs the audit entries and nothing else - the response still reports the objects
-  as imported, and the user is not told
+  as imported, and the user is not told. Each lost entry is logged under the ``OBJECT_LOG_LOST`` marker,
+  like every other object write
 
 The heavy lifting - parsing, mapping, per-object validation and insertion - lives in
 `cmdb.framework.importer`; the routes here resolve the format, authorise the target type, build the
 importer and map failures onto HTTP
 """
-import json
 import os
 import tempfile
 from typing import Any
@@ -49,7 +49,6 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.json_codec import default
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     ObjectsManager,
@@ -61,7 +60,6 @@ from cmdb.models.object_model import CmdbObject, CmdbObjectKey
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_constants import RenderObjectInfoKey
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
@@ -84,6 +82,12 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import enforce_special_type_license
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    build_object_log_data,
+    report_lost_object_log,
+    write_object_log,
+)
 from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import (
     generate_parsed_output,
     verify_import_access,
@@ -635,8 +639,8 @@ def _log_imported_objects(
 
     The objects are already persisted by the time this runs, so nothing here may fail the import: a
     read/render batch that blows up costs every log entry, a single failing insert costs only its own,
-    and either way the import still reports success. Nothing surfaces that to the user - the response
-    reports the objects as imported, because they are
+    and either way the import still reports success - the response reports the objects as imported,
+    because they are. Every lost entry is logged under ``OBJECT_LOG_LOST_MARKER``, one line per object
 
     Args:
         success_messages (list): The ImportSuccessMessage entries of the imported objects. They exist
@@ -654,9 +658,11 @@ def _log_imported_objects(
     try:
         rendered_by_id: dict[int, Any] = _render_imported_objects(public_ids, objects_manager, request_user)
     # A failed batch costs the logs, never the import - the objects are already committed
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        LOGGER.error("[import_objects] Failed to render %s imported Objects for logging: %s. Type: %s",
-                     len(public_ids), err, type(err))
+    except Exception:  # pylint: disable=broad-exception-caught
+        for public_id in public_ids:
+            report_lost_object_log(
+                LogAction.CREATE, public_id, 'the imported objects could not be rendered', with_traceback=True,
+            )
 
         return
 
@@ -664,22 +670,16 @@ def _log_imported_objects(
         render_result = rendered_by_id.get(public_id)
 
         if render_result is None:
-            LOGGER.error("[import_objects] Imported Object %s could not be rendered; no ObjectLog written",
-                         public_id)
+            report_lost_object_log(LogAction.CREATE, public_id, 'the imported object could not be rendered')
             continue
 
-        try:
-            logs_manager.insert_log(
-                action=LogAction.CREATE,
-                log_type=CmdbObjectLog.__name__,
-                object_id=public_id,
-                user_id=request_user.get_public_id(),
-                user_name=request_user.get_display_name(),
-                comment='Object was imported',
-                render_state=json.dumps(render_result, default=default).encode('UTF-8'),
-                version=render_result.object_information[RenderObjectInfoKey.VERSION.value],
-            )
-        # The objects are already committed, so any logging failure is best-effort: log it and move on
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            LOGGER.error("[import_objects] Failed to log imported Object %s: %s. Type: %s",
-                         public_id, err, type(err))
+        log_data: dict[str, Any] = build_object_log_data(
+            request_user,
+            public_id,
+            render_result.object_information[RenderObjectInfoKey.VERSION.value],
+            ObjectLogComment.IMPORTED.value,
+            render_result,
+        )
+
+        # The objects are already committed, so a failing entry costs only itself
+        write_object_log(logs_manager, LogAction.CREATE, log_data)

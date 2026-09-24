@@ -33,6 +33,7 @@ meaningful because a template's ``name`` is decided on CREATE and immutable afte
 """
 from logging import Logger, getLogger
 import json
+from typing import Any
 from bson import json_util
 from flask import abort, request
 from werkzeug.exceptions import HTTPException
@@ -61,6 +62,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docap
     RENDERED_DOCUMENT_EXTENSION,
     RENDERED_DOCUMENT_MIMETYPE,
     DocapiTemplateRight,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_helper import (
+    parse_template_searchfilter,
 )
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
@@ -206,13 +210,18 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
 
     Requires the ``base.docapi.template.view`` right and the licensed DOCUMENT_GENERATOR feature
 
+    The filter is an equality match on declared template keys (``SEARCHFILTER_KEYS``) and reaches the
+    database as the query document, so ``parse_template_searchfilter`` refuses every MongoDB operator
+    before the read - ``$where`` and ``$function`` would run JavaScript on the database server
+
     Args:
         searchfilter (str): Filter for the DocapiTemplates, as a JSON object in the URL
         request_user (CmdbUser): User requesting this data
 
     Raises:
         HTTPException: 403 when the user lacks the right or the feature is unlicensed; 400 when the
-            filter is not valid JSON or the read fails; 500 on an unexpected error
+            filter is not valid JSON, is not an object, names a key that is not searchable or an
+            operator, or when the read fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: All DocapiTemplates matching the searchfilter (minimal when requested)
@@ -220,10 +229,7 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
     try:
         docapi_manager: DocapiTemplatesManager = ManagerProvider.get_manager(ManagerType.DOCAPI_TEMPLATES,
                                                                              request_user)
-        try:
-            filterdict = json.loads(searchfilter)
-        except ValueError:
-            abort(400, f"The searchfilter is not valid JSON: {searchfilter}")
+        filterdict: dict[str, Any] = parse_template_searchfilter(searchfilter)
 
         minimal = request.args.get('minimal', 'false') in ['True', 'true']
 
@@ -340,11 +346,11 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
 
     Requires the ``base.framework.object.view`` right - an OBJECT right, because the document is built
     from the object's field values - and the licensed DOCUMENT_GENERATOR feature. The object is read
-    WITHOUT the object ACL, which is a filed decision rather than an oversight
+    WITHOUT the object ACL, deliberately
 
     The attachment is named by ``build_document_export_filename`` - the same helper the object and type
     exports use - so a rendered document carries its template, its object and the time it was taken
-    instead of the one shared ``output.pdf`` every render used to answer with
+    rather than one generic ``output.pdf`` shared by every render
 
     Args:
         public_id (int): public_id of DocapiTemplate which should be used
@@ -424,9 +430,9 @@ def update_template(request_user: CmdbUser) -> Response:
     The name is IMMUTABLE once the template exists: a payload carrying any other name than the stored
     one is refused, even when that name is free. The name is the template's stable handle - the frontend
     probes it for availability while a name is being typed (see ``get_template_by_name``) and only the
-    create route decides it. Because it can no longer move, the create route's uniqueness check plus the
-    unique index on ``name`` are the whole guarantee; nothing here can collide. Every other property is
-    freely editable, and the whole document is expected in the payload
+    create route decides it. Because it never moves once created, the create route's uniqueness check
+    plus the unique index on ``name`` are the whole guarantee; nothing here can collide. Every other
+    property is freely editable, and the whole document is expected in the payload
 
     Args:
         request_user (CmdbUser): User requesting this data
