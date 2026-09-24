@@ -19,10 +19,9 @@ Helper for the CmdbWebhook routes: validating the request parameters and emittin
 Two roles, both belonging to the caller/helper layer rather than to a manager:
 
 * ``parse_webhook_params`` normalises and validates what the create/update routes receive. The
-  parameters arrive as query args rather than as a validated JSON body (a decision tracked in the
-  backlog), so ``CmdbWebhook.SCHEMA`` never runs and this function is the ONLY validation a webhook
-  document gets. It is therefore where the required fields, the event-type list and the URL scheme
-  are checked.
+  parameters arrive as query args rather than as a validated JSON body, so ``CmdbWebhook.SCHEMA``
+  never runs and this function is the ONLY validation a webhook document gets. It is therefore where
+  the required fields, the event-type list and the URL scheme are checked.
 * ``send_webhook_event`` notifies the configured CmdbWebhooks and records a CmdbWebhookEvent per
   delivery. The orchestration spans two domains (reading the CmdbWebhooks and writing the events), so
   it cannot live inside a manager - a manager must not depend on another manager. Both managers are
@@ -36,8 +35,8 @@ Delivery rules worth knowing before changing anything here:
   only recorded successes could not answer the one question it exists for.
 * **Delivery does not block the write.** The webhooks are read on the request thread (one query) and
   the HTTP calls are handed to a small shared pool, because ``send_webhook_event`` is called inline
-  from the object create / update / delete flows in ``objects_helper``. Delivering synchronously made
-  every object save wait up to the request timeout for every active webhook.
+  from the object create / update / delete flows in ``objects_helper``. Delivering synchronously would
+  make every object save wait up to the request timeout for every active webhook.
 * **Any 2xx counts as delivered**, not only ``200``.
 """
 from logging import Logger, getLogger

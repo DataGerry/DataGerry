@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cmdb.framework.rack.rack_constants import RackLimits, RackValidationError
 from cmdb.framework.importer.helper.object_import_validator import (
     parse_import_bool,
     normalize_and_validate_object,
@@ -861,6 +862,19 @@ class TestRackValueRules:
 
         assert len(errors) == 1
         assert 'Height' in errors[0]
+
+    @pytest.mark.parametrize('height', [RackLimits.MAX_HEIGHT + 1, str(RackLimits.MAX_HEIGHT + 1)])
+    def test_a_height_above_the_cap_is_rejected(self, height) -> None:
+        """An import is held to the same maximum as a REST write - a CSV carries it as a string."""
+        errors = _normalize(self._rack_object(height=height), SpecialType.RACK, _ctx())
+
+        assert errors == [RackValidationError.HEIGHT_ABOVE_MAXIMUM.format(
+            maximum=RackLimits.MAX_HEIGHT, value=RackLimits.MAX_HEIGHT + 1,
+        )]
+
+    def test_the_cap_itself_is_importable(self) -> None:
+        """The maximum is a valid height."""
+        assert not _normalize(self._rack_object(height=RackLimits.MAX_HEIGHT), SpecialType.RACK, _ctx())
 
     def test_a_whitespace_only_name_is_rejected(self) -> None:
         """The generic required check treats '   ' as present, so the value rule catches it."""

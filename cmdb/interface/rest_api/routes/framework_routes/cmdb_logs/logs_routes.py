@@ -32,7 +32,7 @@ Two properties of the underlying collection shape these routes:
       (``object_id`` + ``log_time``, and ``log_type`` + ``action``) rather than on a scan
 
 Every list route accepts the standard collection parameters. NOTE that ``filter`` is currently parsed
-but NOT applied to the query (discussion-backlog item): the frontend's log-table search therefore has
+but NOT applied to the query: the frontend's log-table search therefore has
 no effect server-side.
 """
 from logging import Logger, getLogger
@@ -264,8 +264,8 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
         source_object_id = selected_log.get(LogKey.OBJECT_ID.value)
 
         # The collection is shared by log_type, so a document read by public_id alone is not
-        # guaranteed to be an object log. Without this the missing key raised a KeyError into the
-        # catch-all and answered 500 instead of naming the problem
+        # guaranteed to be an object log. Without this the missing key would raise a KeyError into the
+        # catch-all and answer 500 instead of naming the problem
         if source_object_id is None:
             abort(400, f"The Log with ID:{public_id} does not belong to an Object!")
 

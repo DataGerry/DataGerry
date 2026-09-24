@@ -219,12 +219,12 @@ def verify_subnet_write_access(
     **One check covers the whole batch, because an ACL lives on the CmdbType.** Every target of
     ``clear_supernet_ref`` is a SUBNET - ``load_assigned_subnets`` establishes that before anything
     is written - so "may this caller detach these subnets" is a single question about one type, not
-    a question per object. That is what lets the authorization gap close without giving up the
-    single atomic write or reopening the TOCTOU window that write was built to close
+    a question per object. That keeps the authorization check without giving up the single atomic
+    write or opening a TOCTOU window between the check and the write
 
     ``clear_supernet_ref`` writes the field directly instead of going through
     ``ObjectsManager.update_object``, so it also skips the ACL that route normally applies; this is
-    that ACL, moved to the one place a batch write can ask it. The other guarantees
+    that ACL, asked at the one place a batch write can ask it. The other guarantees
     ``update_object`` provides - version bump, change log, webhook - are deliberately not restored
     here: this is a system cascade rather than a user edit
 

@@ -26,8 +26,7 @@ existing table machinery works unchanged. The assignability rules are appended a
 stages behind the caller's own filter, so no `?filter=` can widen the result past them
 
 **No object ACL is applied**, which is the feature-wide rule: a rack route checks rack rights and never
-object rights. Whether a picker in particular should honour the object READ ACL is discussion-backlog
-item #122
+object rights - the picker included, although it lists objects
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -95,8 +94,8 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
     An object held by a DIFFERENT rack is offered, with `assigned_rack_id` / `assigned_rack_name` naming
     that rack: mounting it moves it. `?only_unmounted=true` narrows the list to the objects in no rack
 
-    Guarded by the Rack's view right: this is a question, not a change. No object ACL is applied - see
-    discussion-backlog item #122
+    Guarded by the Rack's view right: this is a question, not a change. No object ACL is applied (see
+    the module docstring)
 
     Args:
         params (CollectionParameters): Filtering, sorting and pagination parameters

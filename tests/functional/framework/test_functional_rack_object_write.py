@@ -33,7 +33,7 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField, RackSection
-from cmdb.framework.rack.rack_constants import ABORT_PREFIX
+from cmdb.framework.rack.rack_constants import ABORT_PREFIX, RackLimits
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -267,6 +267,84 @@ class TestCreateRackObject:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   UPDATE / PATCH                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestTheHeightCap:
+    """A Rack is at most RackLimits.MAX_HEIGHT U tall, on every write path"""
+
+    def test_the_cap_itself_is_accepted(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A rack of exactly the maximum is stored"""
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json=_rack_payload(OBJECT_ID_FOR_CREATE, height=RackLimits.MAX_HEIGHT),
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        assert _stored_height(database_manager, database_name, OBJECT_ID_FOR_CREATE) == RackLimits.MAX_HEIGHT
+
+    @pytest.mark.parametrize('height', [RackLimits.MAX_HEIGHT + 1, str(RackLimits.MAX_HEIGHT + 1), 10 ** 12],
+                             ids=repr)
+    def test_create_refuses_a_height_above_the_cap(self, rest_api, height: Any) -> None:
+        """Every spelling of a too-tall rack is a 400 naming the maximum"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_rack_payload(OBJECT_ID_FOR_CREATE, height=height))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert f'at most {RackLimits.MAX_HEIGHT}' in response.get_data(as_text=True)
+
+    def test_put_refuses_raising_the_height_above_the_cap(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The stored height is unchanged after the refusal"""
+        _insert_rack_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+
+        response = rest_api.put(
+            f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}',
+            json=_rack_payload(OBJECT_ID_FOR_UPDATE, height=RackLimits.MAX_HEIGHT + 1),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _stored_height(database_manager, database_name, OBJECT_ID_FOR_UPDATE) == VALID_HEIGHT
+
+    def test_patch_refuses_raising_the_height_above_the_cap(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The partial-update route shares the rule"""
+        _insert_rack_object(database_manager, database_name, OBJECT_ID_FOR_PATCH)
+
+        response = rest_api.patch(
+            f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}',
+            json={'fields': [{'name': RackField.HEIGHT.value, 'value': RackLimits.MAX_HEIGHT + 1}]},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _stored_height(database_manager, database_name, OBJECT_ID_FOR_PATCH) == VALID_HEIGHT
+
+    def test_a_rack_already_stored_above_the_cap_is_still_readable(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The cap is a write rule: a taller rack written before it existed reads as it is"""
+        _insert_rack_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).update_one(
+            {'public_id': OBJECT_ID_FOR_UPDATE, 'fields.name': RackField.HEIGHT.value},
+            {'$set': {'fields.$.value': RackLimits.MAX_HEIGHT + 50}},
+        )
+
+        response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}')
+
+        assert response.status_code == HTTPStatus.OK
+
+
 class TestUpdateRackObject:
     """PUT and PATCH run through the same enforcement as the insert"""
 

@@ -283,8 +283,8 @@ def handle_deleted_type_ids(relation_id: int,
     Compares the allowed parent and child CmdbTypes of the old vs. new relation; for every type
     that is no longer allowed, the corresponding CmdbObjectRelations are deleted.
 
-    A stored relation that carries no type list at all (an incomplete document from before the lists
-    became required) is read as an empty list, so the comparison reports nothing removed instead of
+    A stored relation that carries no type list at all (the lists are required on write, but older
+    stored data may lack them) is read as an empty list, so the comparison reports nothing removed instead of
     failing the whole update with a KeyError.
 
     Args:

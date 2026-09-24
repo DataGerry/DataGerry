@@ -23,9 +23,8 @@ a missing / non-dict / message-less body, and the 500 mapping when the client fa
 (``test_functional_document_generator_gating``).
 
 The not-configured suite at the bottom is the exception: it deliberately does NOT patch the client,
-because the whole point is what an installation with no ``[ChatGPT]`` section answers. That was the
-gap this route shipped with - every test mocked the client away, so the path every fresh on-premise
-install takes was the one path nothing exercised.
+because the whole point is what an installation with no ``[ChatGPT]`` section answers - the path every
+fresh on-premise install takes, which a mocked client never reaches.
 """
 from http import HTTPStatus
 from unittest.mock import MagicMock
@@ -101,7 +100,7 @@ class TestSendChatgptMessage:
         assert rest_api.post(ROUTE_URL, json={'foo': 'bar'}).status_code == HTTPStatus.BAD_REQUEST
 
     def test_no_json_body_returns_400(self, rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
-        """A request with no JSON body returns 400 (regression: previously a 500)."""
+        """A request with no JSON body returns 400, not a 500."""
         _patch_client(monkeypatch)
 
         assert rest_api.post(ROUTE_URL).status_code == HTTPStatus.BAD_REQUEST
@@ -139,7 +138,7 @@ class TestWhenChatgptIsNotConfigured:
         assert response.get_json()['message'] == CHATGPT_NOT_CONFIGURED_CONFIG_MESSAGE
 
     def test_the_message_names_the_section_and_the_entry(self, rest_api, monkeypatch) -> None:
-        """The point of the fix: the caller is told what to add, not what the route was doing."""
+        """The caller is told what to add, not what the route was doing."""
         monkeypatch.setattr(
             ChatGptClient,
             'resolve_api_key',
@@ -166,7 +165,7 @@ class TestWhenChatgptIsNotConfigured:
         assert 'CHATGPT_API_KEY' in response.get_json()['message']
 
     def test_the_unconfigured_reader_reaches_the_route_as_not_configured(self, rest_api, monkeypatch) -> None:
-        """End to end from the config reader: a SectionError no longer surfaces as a 500."""
+        """End to end from the config reader: a SectionError does not surface as a 500."""
         reader = MagicMock()
         reader.get_value.side_effect = SectionError("The section 'ChatGPT' does not exist!")
         monkeypatch.setattr(
@@ -180,7 +179,7 @@ class TestWhenChatgptIsNotConfigured:
         assert response.get_json()['message'] == CHATGPT_NOT_CONFIGURED_CONFIG_MESSAGE
 
     def test_a_real_failure_is_still_a_500(self, rest_api, monkeypatch) -> None:
-        """The new arm must not swallow anything else - an OpenAI outage stays an internal error."""
+        """The not-configured arm swallows nothing else - an OpenAI outage stays an internal error."""
         _patch_client(monkeypatch, side_effect=RuntimeError('OpenAI is down'))
 
         response = rest_api.post(ROUTE_URL, json={'message': USER_MESSAGE})

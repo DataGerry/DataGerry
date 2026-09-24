@@ -43,9 +43,9 @@ MDS) field additionally carries its per-row values under ``multi_data_sections[]
 Object-level propagation therefore always writes to ``fields`` and, for MDS sections, also to the
 MDS rows (see ``set_new_global_template_fields``).
 
-Schema dict keys are referenced through the CmdbObjectKey / CmdbObjectFieldKey /
-CmdbObjectMdsKey / CmdbObjectMdsRowKey / FieldKey enums instead of bare string literals; raw
-MongoDB operators ('$set', '$push', ...) stay as literals.
+The object-level updates are built by ``cmdb.manager.objects_propagation_helper`` - the same
+server-side statements a CmdbType edit uses - and run through ``ObjectsManager.apply_raw_updates``,
+so no object is loaded to propagate a template change.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -56,15 +56,18 @@ from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.reports_manager import ReportsManager
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.objects_propagation_helper import (
+    build_add_field_update,
+    build_add_mds_field_update,
+    build_field_entry,
+    build_remove_fields_update,
+    build_remove_mds_fields_update,
+    build_remove_mds_section_update,
+)
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeFieldSection, TypeMultiDataSection, SectionType, FieldKey
-from cmdb.models.object_model import (
-    CmdbObjectKey,
-    CmdbObjectFieldKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
-)
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateUsageKey
@@ -589,30 +592,20 @@ class SectionTemplatesManager(BaseManager):
 
         Used for every section kind - the flat ``fields`` array is the canonical field list the
         frontend reads, so MDS fields are recorded here too (their per-row values are seeded
-        separately by ``_add_mds_fields_to_objects``). One ``$push`` update per field, scoped to
-        objects whose ``fields`` array lacks that name, so no objects are materialised. The
-        seeded value is the field definition's default
+        separately by ``_add_mds_fields_to_objects``). One server-side ``$push`` per field, scoped to
+        objects whose ``fields`` array lacks that name, so no objects are materialised. The seeded
+        value is the field definition's default
 
         Args:
             type_id (int): public_id of the type whose objects should gain the fields
             new_fields (list[dict[str, Any]]): The added field definitions
         """
-        name_path: str = f"{CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.NAME.value}"
+        if not new_fields:
+            return
 
-        for field_def in new_fields:
-            entry: dict[str, Any] = {
-                CmdbObjectFieldKey.NAME.value: field_def[FieldKey.NAME],
-                CmdbObjectFieldKey.TYPE.value: field_def[FieldKey.TYPE],
-                CmdbObjectFieldKey.VALUE.value: field_def.get(FieldKey.VALUE, None),
-            }
-
-            self.objects_manager.update_many_raw(
-                filter_query={
-                    CmdbObjectKey.TYPE_ID.value: type_id,
-                    name_path: {"$ne": field_def[FieldKey.NAME]},
-                },
-                update={"$push": {CmdbObjectKey.FIELDS.value: entry}},
-            )
+        self.objects_manager.apply_raw_updates([
+            build_add_field_update(type_id, build_field_entry(field_def)) for field_def in new_fields
+        ])
 
 
     def _add_mds_fields_to_objects(
@@ -626,42 +619,22 @@ class SectionTemplatesManager(BaseManager):
 
         Only rows whose ``data`` lacks a field gain it (seeded with the field's default); rows
         and objects already carrying it are left untouched. Objects with the section but no rows
-        get nothing, matching the per-row storage model
-
-        One server-side ``$push`` per field (no objects loaded), scoped via positional array filters
-        to the matching section (``$[s]``) and only the rows whose ``data`` lacks the field name
-        (``$[v]``). Positional array filters are a MongoDB 3.6 feature
+        get nothing, matching the per-row storage model. One server-side ``$push`` per field (no
+        objects loaded) - see `objects_propagation_helper.build_add_mds_field_update`
 
         Args:
             type_id (int): public_id of the type whose objects should gain the fields
             new_fields (list[dict[str, Any]]): The added field definitions
             section_name (str): The MDS section_id to seed
         """
-        mds_path: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
-        section_id_key: str = CmdbObjectMdsKey.SECTION_ID.value
-        values_key: str = CmdbObjectMdsKey.VALUES.value
-        data_key: str = CmdbObjectMdsRowKey.DATA.value
-        name_key: str = CmdbObjectFieldKey.NAME.value
+        if not new_fields:
+            return
 
-        for field_def in new_fields:
-            field_name: str = field_def[FieldKey.NAME]
-            entry: dict[str, Any] = {
-                CmdbObjectFieldKey.NAME.value: field_name,
-                CmdbObjectFieldKey.TYPE.value: field_def[FieldKey.TYPE],
-                CmdbObjectFieldKey.VALUE.value: field_def.get(FieldKey.VALUE, None),
-            }
+        self.objects_manager.apply_raw_updates([
+            build_add_mds_field_update(type_id, section_name, build_field_entry(field_def))
+            for field_def in new_fields
+        ])
 
-            self.objects_manager.update_many_raw(
-                filter_query={
-                    CmdbObjectKey.TYPE_ID.value: type_id,
-                    f"{mds_path}.{section_id_key}": section_name,
-                },
-                update={"$push": {f"{mds_path}.$[s].{values_key}.$[v].{data_key}": entry}},
-                array_filters=[
-                    {f"s.{section_id_key}": section_name},
-                    {f"v.{data_key}.{name_key}": {"$ne": field_name}},
-                ],
-            )
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     CLEANUP                                                          #
@@ -710,10 +683,7 @@ class SectionTemplatesManager(BaseManager):
         if not section_field_names:
             return
 
-        self.objects_manager.update_many_pull(
-            {CmdbObjectKey.TYPE_ID.value: type_id},
-            {CmdbObjectKey.FIELDS.value: {CmdbObjectFieldKey.NAME.value: {"$in": section_field_names}}},
-        )
+        self.objects_manager.apply_raw_updates([build_remove_fields_update(type_id, section_field_names)])
 
 
     def cleanup_mds_fields(self, type_id: int, section_field_names: list[str], section_name: str) -> None:
@@ -721,8 +691,8 @@ class SectionTemplatesManager(BaseManager):
         Removes the named fields from every row of an MDS section on a type's objects
 
         A single server-side ``$pull`` (no objects loaded), scoped via a positional array filter to
-        the matching section (``$[s]``); it drops every ``data`` entry across all rows (``$[]``)
-        whose name is in ``section_field_names``. Positional array filters are a MongoDB 3.6 feature
+        the matching section; it drops every ``data`` entry across all rows whose name is in
+        ``section_field_names`` - see `objects_propagation_helper.build_remove_mds_fields_update`
 
         Args:
             type_id (int): public_id of the type whose objects should be cleaned
@@ -732,22 +702,9 @@ class SectionTemplatesManager(BaseManager):
         if not section_field_names:
             return
 
-        mds_path: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
-        section_id_key: str = CmdbObjectMdsKey.SECTION_ID.value
-        values_key: str = CmdbObjectMdsKey.VALUES.value
-        data_key: str = CmdbObjectMdsRowKey.DATA.value
-        name_key: str = CmdbObjectFieldKey.NAME.value
-
-        self.objects_manager.update_many_raw(
-            filter_query={
-                CmdbObjectKey.TYPE_ID.value: type_id,
-                f"{mds_path}.{section_id_key}": section_name,
-            },
-            update={"$pull": {
-                f"{mds_path}.$[s].{values_key}.$[].{data_key}": {name_key: {"$in": section_field_names}}
-            }},
-            array_filters=[{f"s.{section_id_key}": section_name}],
-        )
+        self.objects_manager.apply_raw_updates([
+            build_remove_mds_fields_update(type_id, section_name, section_field_names),
+        ])
 
 
     def delete_mds_section_from_objects(self, type_id: int, section_name: str) -> None:
@@ -761,10 +718,7 @@ class SectionTemplatesManager(BaseManager):
             type_id (int): public_id of the type whose objects should be cleaned
             section_name (str): The MDS section_id to remove
         """
-        self.objects_manager.update_many_pull(
-            {CmdbObjectKey.TYPE_ID.value: type_id},
-            {CmdbObjectKey.MULTI_DATA_SECTIONS.value: {CmdbObjectMdsKey.SECTION_ID.value: section_name}},
-        )
+        self.objects_manager.apply_raw_updates([build_remove_mds_section_update(type_id, section_name)])
 
 
     def cleanup_global_section_templates(self, template_name: str, delete_mode: bool = False) -> None:
@@ -960,10 +914,7 @@ class SectionTemplatesManager(BaseManager):
         """
         # --- 1. Remove flat fields from objects ---
         if section_field_names:
-            self.objects_manager.update_many_pull(
-                criteria={CmdbObjectKey.TYPE_ID.value: type_id},
-                update={CmdbObjectKey.FIELDS.value: {CmdbObjectFieldKey.NAME.value: {"$in": section_field_names}}},
-            )
+            self.cleanup_section_fields(type_id, section_field_names)
 
         # --- 2. Remove MDS section completely (if applicable) ---
         if section_type == SectionType.MDS_SECTION:

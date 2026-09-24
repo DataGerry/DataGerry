@@ -147,9 +147,7 @@ class LocationsManager(BaseManager):
         Insert a CmdbLocation into the database
 
         Takes a document, not a model: nothing writes a location through the model - the object
-        mirror and the POST route both assemble the document key by key (see ``LocationKey``), which
-        is why the CmdbLocation-or-dict union this used to accept was never exercised outside its
-        own test
+        mirror and the POST route both assemble the document key by key (see ``LocationKey``)
 
         Args:
             location (dict[str, Any]): The CmdbLocation document to store
@@ -188,8 +186,8 @@ class LocationsManager(BaseManager):
         The read behind the two list routes (the flat list and the eager tree). Answers documents
         rather than model instances - the same key set ``CmdbLocation.to_json`` produces, through
         ``to_location_document`` - because both routes only pass the result on as JSON: hydrating a
-        CmdbLocation per row and converting it straight back was two objects per location for a
-        response that is a document either way
+        CmdbLocation per row and converting it straight back would be two objects per location for
+        a response that is a document either way
 
         Args:
             builder_params (BuilderParameters): Filter, sort and pagination for the read
@@ -708,8 +706,7 @@ class LocationsManager(BaseManager):
         onto the deleted location's own parent (its grandparent). This keeps the location tree
         connected: the deleted node's subtree simply shifts up one level rather than being orphaned.
         The promotion is a separate write from the deletion and there is no transaction around the
-        pair (see the open discussion-backlog item), so a deletion that fails afterwards leaves the
-        children already promoted
+        pair, so a deletion that fails afterwards leaves the children already promoted
 
         The synthetic root (RootLocationDefault.PUBLIC_ID) is refused: it is the anchor every tree
         level is queried against, it is not backed by a CmdbObject, and its own ``parent`` sentinel

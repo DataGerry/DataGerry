@@ -31,7 +31,7 @@ the collection's. Every other method raises ``AccessDeniedError``.
 
 **The ACL is only applied when a user and a permission are passed.** Several internal callers pass
 neither on purpose (a cascade cleaning up after a delete, the CI Explorer's neighbour reads); a route
-that omits them is a bug, and the ones that do are recorded in the discussion backlog
+that omits them is a bug
 """
 from logging import Logger, getLogger
 import copy
@@ -39,7 +39,7 @@ import json
 from typing import Any
 
 from bson import json_util
-from pymongo import UpdateOne
+from pymongo.results import UpdateResult
 from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
@@ -72,6 +72,7 @@ from cmdb.manager.objects_reference_helper import (
     merge_mds_references,
 )
 from cmdb.manager.objects_summary_helper import compose_summary_line
+from cmdb.manager.objects_propagation_helper import RawUpdate
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -142,9 +143,7 @@ class ObjectsManager(BaseManager):
         Resolves an object's CmdbType and refuses the write when it may not be performed
 
         The three checks every write shares, in one place: the type has to exist, it has to be
-        active, and the user's ACL has to grant the permission. They were written out separately in
-        insert, update and delete, with three different error types for the missing type and three
-        copies of the deactivated-type message
+        active, and the user's ACL has to grant the permission
 
         Args:
             type_id (int): public_id of the object's CmdbType
@@ -223,31 +222,39 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerInsertError(err) from err
 
 
-    def bulk_update_multi_data_sections(self, updated_objects: list[CmdbObject]) -> None:
+    def apply_raw_updates(self, updates: list[RawUpdate]) -> int:
         """
-        Bulk updates the multi_data_sections field for a list of updated CmdbObjects.
+        Runs a list of server-side ``update_many`` statements against ``framework.objects``, in order
+
+        What carries a CmdbType's field changes into its objects (see `objects_propagation_helper`): each
+        statement is applied inside MongoDB, so no object is read and none is written back from memory.
+        No ACL is applied - the statements are a consequence of a type or section-template write the
+        caller already authorised, and they must reach every object of the type
 
         Args:
-            updated_objects (list[CmdbObject]): Objects that have modified multi_data_sections.
+            updates (list[RawUpdate]): The statements to run
 
         Raises:
-            ObjectsManagerUpdateError: If the bulk write fails.
+            ObjectsManagerUpdateError: If a statement fails; the ones before it have been applied, and
+                each is idempotent, so running the list again completes it
+
+        Returns:
+            int: How many documents the statements modified, summed
         """
+        modified: int = 0
+
         try:
-            if not updated_objects:
-                return
-
-            operations: list[UpdateOne] = [
-                UpdateOne(
-                    {"public_id": obj.public_id},
-                    {"$set": {"multi_data_sections": obj.multi_data_sections}}
+            for raw_update in updates:
+                result: UpdateResult = self.update_many_raw(
+                    filter_query=raw_update.filter_query,
+                    update=raw_update.update,
+                    array_filters=raw_update.array_filters,
                 )
-                for obj in updated_objects
-            ]
+                modified += result.modified_count
 
-            self.bulk_write(operations)
+            return modified
         except Exception as err:
-            LOGGER.error("[bulk_update_multi_data_sections] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[apply_raw_updates] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -581,8 +588,7 @@ class ObjectsManager(BaseManager):
 
         **The ACL is opt-in here, unlike `get_object` and `iterate_items` where it is a positional
         part of the read.** Passing `user` and `permission` narrows the result to the types the
-        caller's group may access; omitting them reads unscoped, which is what every caller did
-        before the parameters existed.
+        caller's group may access; omitting them reads unscoped.
 
         That default is deliberate rather than lazy: some readers MUST be unscoped. The IPAM
         validators check a candidate against every existing object, not only the visible ones,
@@ -998,8 +1004,8 @@ class ObjectsManager(BaseManager):
             permission (AccessControlPermission | None): The required permission for deletion
             object_type (CmdbType | None): The object's already-resolved CmdbType. When given, the
                 internal type lookup is skipped - lets bulk callers that already hold a type map
-                avoid one ``get_object_type`` query per object (no functional change: the same
-                type is used for the deactivated-check and the ACL verification)
+                avoid one ``get_object_type`` query per object (the same type is used for the
+                deactivated-check and the ACL verification)
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -1027,8 +1033,8 @@ class ObjectsManager(BaseManager):
         except AccessDeniedError as err:
             raise err
         except Exception as err:
-            # One arm, one log line: re-wrapping the named errors silently while everything
-            # else was logged, so the likely failures were the ones an operator could not see
+            # One arm, one log line: every failure is logged before it is re-wrapped, so the likely
+            # failures are as visible to an operator as the rest
             LOGGER.error("[delete_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerDeleteError(err) from err
 
@@ -1044,9 +1050,9 @@ class ObjectsManager(BaseManager):
 
         **Access is verified before anything is deleted.** A cascade running first would leave the
         permission check second - inside ``delete_object`` - so a delete the caller was not allowed
-        to make, or one whose type had been deactivated, answered 403 with the object's risk
-        assessments and their control-measure assignments already gone. The object survived; its
-        risk history did not.
+        to make, or one whose type had been deactivated, would answer 403 with the object's risk
+        assessments and their control-measure assignments already gone. The object would survive;
+        its risk history would not.
 
         The cost of the ordering is one extra read of the object: this method resolves its type to
         run the guard, and ``delete_object`` reads it again to delete it. A refused delete that

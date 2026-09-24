@@ -14,12 +14,12 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional tests for IPAM special-type TYPE feature-gating over HTTP (license feature P15, Step 6)
+Functional tests for IPAM special-type TYPE feature-gating over HTTP
 
 Creating, editing and deleting an IPAM special type (a CmdbType carrying a special_type marker:
 SUPERNET/SUBNET/VLAN) is blocked with HTTP 403 when IPAM is not licensed. The guard is embedded in
 the generic /types routes, so NON-special types stay fully usable - that is asserted too. When IPAM
-is licensed (or in cloud/local mode) the guard lets the write through (asserted as "no longer 403")
+is licensed (or in cloud/local mode) the guard lets the write through (asserted as "not 403")
 """
 from http import HTTPStatus
 from typing import Any
@@ -140,7 +140,7 @@ def test_delete_normal_type_allowed_without_license(rest_api) -> None:
 #                                          allowed when licensed                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_delete_special_type_allowed_when_licensed(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With IPAM licensed, deleting a special type passes the guard (no longer 403)"""
+    """With IPAM licensed, deleting a special type passes the guard (not 403)"""
     monkeypatch.setattr(
         LicenseService,
         'has_feature',
@@ -151,7 +151,7 @@ def test_delete_special_type_allowed_when_licensed(rest_api, monkeypatch: pytest
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                    uses_ports (Port Connectivity, step 1)                                            #
+#                                         uses_ports (Port Connectivity)                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_create_type_with_uses_ports_blocked_without_license(rest_api) -> None:
     """Declaring a new type as port-bearing is blocked with 403 when IPAM is not licensed"""
@@ -215,7 +215,7 @@ def test_an_omitted_uses_ports_is_stored_as_false(rest_api) -> None:
     """
     The Cerberus schema default backfills the key on write.
 
-    This is the mechanism that makes step 1 migration-free: a payload that never mentions the flag
+    This is the mechanism that makes the flag migration-free: a payload that never mentions the flag
     still produces a document carrying it, so a type gains the field the first time it is saved.
     """
     payload = _ports_type_payload(NEW_PORTS_TYPE_ID, uses_ports=False)

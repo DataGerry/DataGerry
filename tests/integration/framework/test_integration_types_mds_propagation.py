@@ -14,17 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Integration tests for the MDS propagation path of TypesManager against a real MongoDB
+Integration tests for the MDS propagation of a CmdbType edit against a real MongoDB
 
-What only a real database can show: that the narrowing and the projection actually work as queries.
-`get_objects_for_type(section_ids=...)` reads only the objects carrying an affected
-multi_data_section (an object with none of them can not change), the propagation reads only the keys
-it touches - a type's `fields` list never enters it - and it yields the changed objects batch by
-batch, so neither the documents in memory nor the caller's bulk write is sized by the whole type.
+What only a real database can show: that the server-side statements `build_mds_updates` produces do
+what the plan says. A field added to an MDS section lands in every row of that section that lacks it -
+with the type and the default value the updated type declares - a dropped field leaves every row, and
+a section the type no longer declares leaves the objects. Objects without the section, other sections
+and the flat `fields` list are not touched, and no object is read to do it.
 
-It also pins the section-removal rule: a section the edit no longer declares is removed from the
-objects, rather than being skipped and leaving every object carrying rows of a
-section its type did not have.
+Two properties follow from the statements being server-side and are pinned here because they are the
+reason the propagation is built this way: a second run modifies nothing, and an edit saved to an
+object between the type edit and the propagation survives it.
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -32,7 +32,8 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager.types_manager import TypesManager
+from cmdb.manager.objects_manager import ObjectsManager
+from cmdb.manager.types_mds_helper import build_mds_updates, plan_mds_changes
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -70,13 +71,19 @@ def _object_doc(public_id: int, mds: list[dict[str, Any]]) -> dict[str, Any]:
     }
 
 
-def _type_doc(section_fields: list[str] | None, field_types: dict[str, str] | None = None) -> dict[str, Any]:
+def _type_doc(
+        section_fields: list[str] | None,
+        field_types: dict[str, str] | None = None,
+        field_defaults: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
     """
     A CmdbType document declaring one MDS section named SECTION_A
 
     `section_fields=None` describes a type that no longer declares the section at all.
+    `field_defaults` gives a field a declared default ``value``.
     """
     types: dict[str, str] = field_types or {}
+    defaults: dict[str, Any] = field_defaults or {}
     sections: list[dict[str, Any]] = [] if section_fields is None else [{
         'type': 'multi-data-section', 'name': SECTION_A, 'label': 'A',
         'fields': section_fields,
@@ -89,7 +96,8 @@ def _type_doc(section_fields: list[str] | None, field_types: dict[str, str] | No
         'author_id': 1,
         'active': True,
         'fields': [
-            {'type': types.get(name, 'text'), 'name': name, 'label': name.upper()}
+            {'type': types.get(name, 'text'), 'name': name, 'label': name.upper(),
+             **({'value': defaults[name]} if name in defaults else {})}
             for name in (section_fields or [])
         ],
         'render_meta': {'icon': '', 'sections': sections, 'summary': {'fields': []}},
@@ -102,10 +110,10 @@ def _old_type(section_fields: list[str]) -> CmdbType:
     return CmdbType.from_data(_type_doc(section_fields))
 
 
-@pytest.fixture(name='types_manager')
-def fixture_types_manager(database_manager: MongoDatabaseManager) -> TypesManager:
-    """Provides a TypesManager wired to the test database."""
-    return TypesManager(database_manager)
+@pytest.fixture(name='objects_manager')
+def fixture_objects_manager(database_manager: MongoDatabaseManager) -> ObjectsManager:
+    """Provides an ObjectsManager wired to the test database."""
+    return ObjectsManager(database_manager)
 
 
 @pytest.fixture(autouse=True)
@@ -121,115 +129,158 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
     objects.delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
 
 
-class TestGetObjectsForTypeSectionNarrowing:
-    """get_objects_for_type(section_ids=...) loads only objects carrying an affected MDS section."""
+def _stored(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> dict[str, Any]:
+    """Reads one seeded object back as stored."""
+    return database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one({'public_id': public_id})
 
-    def test_narrows_to_single_section(self, types_manager: TypesManager) -> None:
-        """Only the object carrying sec-a is returned when narrowing to [sec-a]."""
-        result = types_manager.get_objects_for_type(TYPE_ID, section_ids=[SECTION_A])
 
-        assert {obj.public_id for obj in result} == {OBJECT_WITH_A}
+def _row_data(document: dict[str, Any], section_id: str = SECTION_A, row_index: int = 0) -> list[dict[str, Any]]:
+    """The data entries of one row of one MDS section of a stored object."""
+    section = next(mds for mds in document['multi_data_sections'] if mds['section_id'] == section_id)
 
-    def test_narrows_to_multiple_sections(self, types_manager: TypesManager) -> None:
-        """Objects carrying either sec-a or sec-b are returned; the MDS-less object is excluded."""
-        result = types_manager.get_objects_for_type(TYPE_ID, section_ids=[SECTION_A, SECTION_B])
+    return section['values'][row_index]['data']
 
-        assert {obj.public_id for obj in result} == {OBJECT_WITH_A, OBJECT_WITH_B}
 
-    def test_without_section_ids_returns_all(self, types_manager: TypesManager) -> None:
-        """With no narrowing every object of the type (including the MDS-less one) is loaded."""
-        result = types_manager.get_objects_for_type(TYPE_ID)
+def _propagate(
+        objects_manager: ObjectsManager,
+        old_fields: list[str],
+        updated_fields: list[str] | None,
+        **type_options: Any,
+) -> int:
+    """Plans the edit, runs its statements and answers how many documents they modified."""
+    plan = plan_mds_changes(_old_type(old_fields), _type_doc(updated_fields, **type_options))
 
-        assert set(ALL_OBJECT_IDS).issubset({obj.public_id for obj in result})
+    return objects_manager.apply_raw_updates(build_mds_updates(TYPE_ID, plan))
 
 
 class TestThePropagationAgainstARealDatabase:
-    """The narrowing, the projection, the batching and the two kinds of change."""
+    """What each kind of change does to the stored objects."""
 
-    @staticmethod
-    def _propagate(
-            types_manager: TypesManager,
-            old_fields: list[str],
-            updated_fields: list[str] | None,
-            field_types: dict[str, str] | None = None,
-    ) -> list[CmdbObject]:
-        """Runs the propagation and flattens its batches."""
-        batches = types_manager.handle_multi_data_sections(
-            _old_type(old_fields), _type_doc(updated_fields, field_types),
+    def test_adds_a_field_only_to_the_affected_object(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Adding 'b' to sec-a changes OBJECT_WITH_A only; sec-b and the MDS-less object stay as seeded."""
+        assert _propagate(objects_manager, ['a'], ['a', 'b']) == 1
+
+        assert [entry['name'] for entry in _row_data(_stored(database_manager, database_name, OBJECT_WITH_A))] \
+            == ['a', 'b']
+        assert _stored(database_manager, database_name, OBJECT_WITH_B)['multi_data_sections'] \
+            == [_mds_section(SECTION_B)]
+        assert _stored(database_manager, database_name, OBJECT_WITHOUT_MDS)['multi_data_sections'] == []
+
+    def test_the_flat_fields_list_is_not_touched(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The MDS statements address the rows only - the flat list is the realign's business."""
+        _propagate(objects_manager, ['a'], ['a', 'b'])
+
+        assert _stored(database_manager, database_name, OBJECT_WITH_A)['fields'] \
+            == [{'type': 'text', 'name': 'a', 'value': 'x'}]
+
+    def test_a_new_field_carries_its_declared_type(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The type comes from the UPDATED type - the stored one cannot contain a field just added."""
+        _propagate(objects_manager, ['a'], ['a', 'b'], field_types={'b': 'date'})
+
+        new_entry = _row_data(_stored(database_manager, database_name, OBJECT_WITH_A))[1]
+        assert new_entry == {'name': 'b', 'type': 'date', 'value': None}
+
+    def test_a_new_field_starts_from_its_declared_default(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A definition's `value` is what an existing row gets for the new field."""
+        _propagate(objects_manager, ['a'], ['a', 'b'], field_defaults={'b': 'preset'})
+
+        assert _row_data(_stored(database_manager, database_name, OBJECT_WITH_A))[1]['value'] == 'preset'
+
+    def test_every_row_gains_the_field_once(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Several rows each get one entry; a row already carrying the name is left alone."""
+        second_row: dict[str, Any] = {'multi_data_id': 2, 'data': [
+            {'name': 'a', 'value': 'y', 'type': 'text'}, {'name': 'b', 'value': 'kept', 'type': 'text'},
+        ]}
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).update_one(
+            {'public_id': OBJECT_WITH_A}, {'$push': {'multi_data_sections.0.values': second_row}},
         )
 
-        return [cmdb_object for batch in batches for cmdb_object in batch]
+        _propagate(objects_manager, ['a'], ['a', 'b'])
 
-    def test_adds_a_field_only_to_the_affected_object(self, types_manager: TypesManager) -> None:
-        """Adding 'b' to sec-a touches only OBJECT_WITH_A; the others are neither read nor changed."""
-        changed = self._propagate(types_manager, ['a'], ['a', 'b'])
+        stored = _stored(database_manager, database_name, OBJECT_WITH_A)
+        assert [entry['name'] for entry in _row_data(stored, row_index=0)] == ['a', 'b']
+        assert _row_data(stored, row_index=1) == second_row['data']
 
-        assert [obj.public_id for obj in changed] == [OBJECT_WITH_A]
-        row_data = changed[0].multi_data_sections[0]['values'][0]['data']
-        assert {entry['name'] for entry in row_data} == {'a', 'b'}
-
-    def test_a_new_field_carries_its_declared_type(self, types_manager: TypesManager) -> None:
-        """
-        The type comes from the UPDATED type
-
-        Reading it from the stored type - which cannot contain a field the edit just added - wrote
-        every new MDS field as 'text', whatever it was declared as.
-        """
-        changed = self._propagate(types_manager, ['a'], ['a', 'b'], {'b': 'date'})
-
-        row_data = changed[0].multi_data_sections[0]['values'][0]['data']
-        new_entry = next(entry for entry in row_data if entry['name'] == 'b')
-        assert new_entry['type'] == 'date'
-
-    def test_removes_a_field_from_the_affected_object(self, types_manager: TypesManager) -> None:
-        """The destructive half, which no test reached before: the entry goes from every row."""
-        changed = self._propagate(types_manager, ['a', 'b'], ['b'])
-
-        row_data = changed[0].multi_data_sections[0]['values'][0]['data']
-        assert [entry['name'] for entry in row_data] == []
-
-    def test_removes_a_section_the_type_no_longer_declares(self, types_manager: TypesManager) -> None:
-        """The rule: the object stops carrying rows of a section its type does not have."""
-        changed = self._propagate(types_manager, ['a'], None)
-
-        assert [obj.public_id for obj in changed] == [OBJECT_WITH_A]
-        assert changed[0].multi_data_sections == []
-
-    def test_an_unchanged_section_changes_nothing(self, types_manager: TypesManager) -> None:
-        """A pure metadata edit reads no object at all"""
-        assert self._propagate(types_manager, ['a'], ['a']) == []
-
-    def test_the_propagation_reads_only_the_projected_keys(self, types_manager: TypesManager) -> None:
-        """
-        A type's `fields` list - usually the bulk of an object document - never enters the read
-
-        The projection is a real query here, so this is the tier that can prove it.
-        """
-        changed = self._propagate(types_manager, ['a'], ['a', 'b'])
-
-        assert changed[0].fields == []
-        assert changed[0].public_id == OBJECT_WITH_A
-
-    def test_the_batches_cover_every_affected_object(
-            self, types_manager: TypesManager, monkeypatch: pytest.MonkeyPatch,
+    def test_a_section_without_rows_gains_nothing(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """With a batch size of one, each affected object arrives in its own batch"""
-        monkeypatch.setattr('cmdb.manager.types_manager.MDS_PROPAGATION_BATCH_SIZE', 1)
+        """A row only exists once a user captured one, so an empty section stays empty."""
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).update_one(
+            {'public_id': OBJECT_WITH_A}, {'$set': {'multi_data_sections.0.values': []}},
+        )
 
-        batches = list(types_manager.handle_multi_data_sections(
-            _old_type(['a']), _type_doc(None),
-        ))
+        assert _propagate(objects_manager, ['a'], ['a', 'b']) == 0
 
-        assert [[obj.public_id for obj in batch] for batch in batches] == [[OBJECT_WITH_A]]
+    def test_removes_a_field_from_the_affected_object(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The destructive half: the entry goes from every row of the section."""
+        assert _propagate(objects_manager, ['a', 'b'], ['b']) == 1
+
+        assert _row_data(_stored(database_manager, database_name, OBJECT_WITH_A)) == []
+
+    def test_removes_a_section_the_type_no_longer_declares(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The rule: the object stops carrying rows of a section its type does not have."""
+        assert _propagate(objects_manager, ['a'], None) == 1
+
+        assert _stored(database_manager, database_name, OBJECT_WITH_A)['multi_data_sections'] == []
+        assert _stored(database_manager, database_name, OBJECT_WITH_B)['multi_data_sections'] \
+            == [_mds_section(SECTION_B)]
+
+    def test_an_unchanged_section_issues_no_statement(self, objects_manager: ObjectsManager) -> None:
+        """A pure metadata edit has an empty plan, so nothing runs at all."""
+        plan = plan_mds_changes(_old_type(['a']), _type_doc(['a']))
+
+        assert build_mds_updates(TYPE_ID, plan) == []
+        assert objects_manager.apply_raw_updates([]) == 0
 
 
-class TestGetObjectIdsForType:
-    """The id read the batching is built on."""
+class TestTheStatementsAreServerSide:
+    """The two properties that come from not reading the objects."""
 
-    def test_reports_the_ids_of_the_affected_objects(self, types_manager: TypesManager) -> None:
-        """Narrowed by section, so an object carrying none of them is not even counted"""
-        assert types_manager.get_object_ids_for_type(TYPE_ID, section_ids=[SECTION_A]) == [OBJECT_WITH_A]
+    @pytest.mark.parametrize('old_fields, updated_fields', [
+        (['a'], ['a', 'b']),
+        (['a', 'b'], ['b']),
+        (['a'], None),
+    ], ids=['add', 'remove-field', 'remove-section'])
+    def test_a_second_run_modifies_nothing(
+            self, objects_manager: ObjectsManager, old_fields: list[str], updated_fields: list[str] | None,
+    ) -> None:
+        """Every statement is idempotent, so re-running an edit is safe."""
+        _propagate(objects_manager, old_fields, updated_fields)
 
-    def test_reports_every_object_without_narrowing(self, types_manager: TypesManager) -> None:
-        """The unnarrowed read still answers with the whole type"""
-        assert set(types_manager.get_object_ids_for_type(TYPE_ID)) == set(ALL_OBJECT_IDS)
+        assert _propagate(objects_manager, old_fields, updated_fields) == 0
+
+    def test_an_edit_saved_before_the_propagation_survives_it(
+            self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        A user's row edit that lands after the type edit is planned is kept
+
+        The statements add and remove single entries in place, so they never write back a copy of the
+        object that could be older than the object itself.
+        """
+        plan = plan_mds_changes(_old_type(['a']), _type_doc(['a', 'b']))
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).update_one(
+            {'public_id': OBJECT_WITH_A},
+            {'$set': {'multi_data_sections.0.values.0.data.0.value': 'edited meanwhile'}},
+        )
+
+        objects_manager.apply_raw_updates(build_mds_updates(TYPE_ID, plan))
+
+        assert _row_data(_stored(database_manager, database_name, OBJECT_WITH_A)) == [
+            {'name': 'a', 'value': 'edited meanwhile', 'type': 'text'},
+            {'name': 'b', 'value': None, 'type': 'text'},
+        ]

@@ -36,7 +36,7 @@ The work an entry goes through, and where it lives:
 
 Both managers the steps need are resolved ONCE per request by the route and passed down, in the same
 order everywhere: `types_manager` then `section_templates_manager`, preceded by `request_user` where
-a route helper needs it. (`apply_type_update_side_effects` still resolves the managers it needs
+a route helper needs it. (`apply_type_update_side_effects` resolves the managers it needs
 through the ManagerProvider itself - it belongs to the normal Type routes and is shared as-is.)
 
 The user ids in an upload belong to the system the type was exported from, so authorship is always

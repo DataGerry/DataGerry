@@ -24,10 +24,10 @@ rest of the ISMS relies on:
 ``{'$date': <epoch millis>}`` - the shape every DataGerry response uses for a datetime and therefore
 the shape the frontend sends back - and are normalised into ``datetime`` objects on the way in, by
 ``from_data`` here and by ``GenericManager`` on the raw-dict write paths. Storing the wrapper itself
-(as this model did until 2026-09-07, migrated by ``updater_20260907``) leaves a sub-document where a
-date belongs, which MongoDB cannot sort, range-filter or ``$dateToString`` - the reports could only
-ever project such a value, never query it. The wire format is unchanged either way, because
-``cmdb.database.json_codec.default`` serialises a datetime back into the same wrapper.
+would leave a sub-document where a date belongs, which MongoDB cannot sort, range-filter or
+``$dateToString`` - the reports could only ever project such a value, never query it. The wire format
+is the wrapper either way, because ``cmdb.database.json_codec.default`` serialises a datetime back into
+the same wrapper.
 
 **Its key set is closed.** ``RiskAssessmentKey`` names every persisted key, and ``from_data`` /
 ``to_json`` are a lossless round-trip over exactly that set - which the read routes depend on, since
@@ -98,8 +98,8 @@ class IsmsRiskAssessment(CmdbDAO):
         },
         # Both person-reference halves of the assessor / owner pair are indexed like the responsible
         # and auditor pairs below: deleting one CmdbPerson runs a filtered update over every one of
-        # them (see PersonsManager.remove_person_from_risk_assessments), and the two that were missing
-        # turned that cascade into a collection scan
+        # them (see PersonsManager.remove_person_from_risk_assessments), and a missing index turns that
+        # cascade into a collection scan
         {
             'keys': [(RiskAssessmentKey.RISK_ASSESSOR_ID.value, CmdbDAO.DAO_ASCENDING)],
             'name': RiskAssessmentKey.RISK_ASSESSOR_ID.value,
@@ -262,8 +262,8 @@ class IsmsRiskAssessment(CmdbDAO):
         Reads a document coming out of MongoDB as well as a validated request payload, so the four
         date fields are normalised first: a payload carries them as ``{'$date': ...}`` wrappers or
         timestamp strings, a stored document as real dates. A date that cannot be read is refused
-        instead of guessed - the previous implementation parsed strings with ``fuzzy=True``, which
-        turns 'implementation planned for Q3' into a date built from today
+        instead of guessed - a fuzzy parse would turn 'implementation planned for Q3' into a date
+        built from today
 
         Args:
             data (dict): Data with which the IsmsRiskAssessment should be initialised

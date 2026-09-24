@@ -32,14 +32,12 @@ so an edit of any other field can not be overwritten by it.
 
 ``/label_field`` is deliberately not called ``/type_label``: that name reads as "set a display
 label", which is what the value is NOT: it names one of the Type's own fields, and the graph shows
-that field's value per object. The route had no caller anywhere (the type builder sends the whole
-Type through ``PUT /types/<id>``), so it was renamed rather than left misleading.
+that field's value per object.
 
-**There is deliberately no second field route beside this one.** A ``PUT /ci_explorer/tooltip/<id>``
-wrote ``ci_explorer_tooltip`` on a CmdbObject with all four guarantees of an object edit, and nothing
-ever called it: no frontend caller, no UI to set a tooltip and none to render one. The OBJECT FIELD
-stays - it is on the model, an object create sends it, and the graph carries it inside
-``linked_object`` - so a tooltip is still writable the ordinary way, through ``PUT /objects/<id>``
+**There is deliberately no field route for the object tooltip.** Nothing sets or renders a tooltip
+through the CI Explorer. The ``ci_explorer_tooltip`` OBJECT FIELD is on the model, an object create
+sends it, and the graph carries it inside ``linked_object`` - so a tooltip is writable the ordinary
+way, through ``PUT /objects/<id>``
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -282,7 +280,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         with_ipam_relations: bool = parse_bool_arg(
             request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS), default=False,
         )
-        # Q40: an unlicensed instance gets an empty source, not a 403 - the graph is a shared read
+        # An unlicensed instance gets an empty source, not a 403 - the graph is a shared read
         # surface and a refusal would break a request that is valid for every other source
         with_port_connections: bool = parse_bool_arg(
             request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS), default=False,

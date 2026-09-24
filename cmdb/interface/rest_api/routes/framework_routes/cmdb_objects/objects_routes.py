@@ -161,9 +161,9 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
     select-option sync, the CREATE webhook, the cloud item count and the create log run best-effort
 
     The body is validated against ``CmdbObject.SCHEMA`` like the update route's, so a malformed
-    payload is a clean 400 here instead of an error from deeper in the pipeline. ``author_id`` was
-    already mandatory - ``CmdbObject.REQUIRED_INIT_KEYS`` demands it - so the schema only moves where
-    that is reported
+    payload is a clean 400 here instead of an error from deeper in the pipeline. ``author_id`` is
+    mandatory either way - ``CmdbObject.REQUIRED_INIT_KEYS`` demands it - so the schema only decides
+    where that is reported
 
     Args:
         data (CmdbObject.SCHEMA): The validated payload of the new CmdbObject
@@ -746,7 +746,7 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
     When the 'objectIDs' query parameter is set, every listed CmdbObject is updated with the
     same payload; otherwise only the path-supplied 'public_id' is updated. Refuses any change
     of an object's special_type. IPAM invariants (subnet / vlan / interface row validation)
-    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are no longer
+    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are not
     blocked when they would push child rows outside the new range; those children surface as
     is_valid=False in the IPAM overviews instead. Computes a major / minor / patch version
     bump from the field-level diff and records an edit log per updated CmdbObject

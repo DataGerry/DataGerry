@@ -31,13 +31,15 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.models.type_model import SectionType, FieldKey
-from cmdb.models.object_model import (
-    CmdbObjectKey,
-    CmdbObjectFieldKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
-)
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
+from cmdb.manager.objects_propagation_helper import (
+    build_add_field_update,
+    build_add_mds_field_update,
+    build_remove_fields_update,
+    build_remove_mds_fields_update,
+    build_remove_mds_section_update,
+)
 from cmdb.manager.section_templates_manager import SectionTemplatesManager, types_using_template_criteria
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.errors.manager.section_templates_manager import (
@@ -197,117 +199,97 @@ def test_set_new_global_template_fields_mds_section_seeds_both_flat_and_rows() -
 #                                           _add_flat_fields_to_objects                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_add_flat_fields_to_objects_pushes_each_missing_field_with_its_default() -> None:
-    """One $push per field, scoped to objects lacking it, seeding the definition's default value"""
+    """One statement per field, scoped to objects lacking it, seeding the definition's default value"""
     mock_self = MagicMock()
 
     SectionTemplatesManager._add_flat_fields_to_objects(
         mock_self, TYPE_ID, [_field_def('ip', value='ipv4'), _field_def('host')],
     )
 
-    name_path = f"{CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.NAME.value}"
-    assert mock_self.objects_manager.update_many_raw.call_count == 2
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_add_field_update(TYPE_ID, {'name': 'ip', 'type': 'text', 'value': 'ipv4'}),
+        build_add_field_update(TYPE_ID, {'name': 'host', 'type': 'text', 'value': None}),
+    ])
 
-    first = mock_self.objects_manager.update_many_raw.call_args_list[0].kwargs
-    assert first['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, name_path: {"$ne": 'ip'}}
-    assert first['update'] == {"$push": {CmdbObjectKey.FIELDS: {
-        CmdbObjectFieldKey.NAME: 'ip',
-        CmdbObjectFieldKey.TYPE: 'text',
-        CmdbObjectFieldKey.VALUE: 'ipv4',
-    }}}
 
-    second = mock_self.objects_manager.update_many_raw.call_args_list[1].kwargs
-    assert second['update']["$push"][CmdbObjectKey.FIELDS][CmdbObjectFieldKey.VALUE] is None
+def test_add_flat_fields_to_objects_is_a_noop_for_empty_fields() -> None:
+    """No statement is issued when there are no fields to add"""
+    mock_self = MagicMock()
+
+    SectionTemplatesManager._add_flat_fields_to_objects(mock_self, TYPE_ID, [])
+
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            _add_mds_fields_to_objects                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
-_MDS: str = CmdbObjectKey.MULTI_DATA_SECTIONS.value
-_VALUES: str = CmdbObjectMdsKey.VALUES.value
-_DATA: str = CmdbObjectMdsRowKey.DATA.value
-_SECTION_ID: str = CmdbObjectMdsKey.SECTION_ID.value
-_NAME: str = CmdbObjectFieldKey.NAME.value
-
-
 def test_add_mds_fields_to_objects_pushes_each_missing_field_via_array_filters() -> None:
-    """Each new field is $pushed into the matching section's rows that lack it, server-side"""
+    """Each new field is pushed into the matching section's rows that lack it, server-side"""
     mock_self = MagicMock()
 
     SectionTemplatesManager._add_mds_fields_to_objects(
         mock_self, TYPE_ID, [_field_def('ip-type', field_type='select', value='ipv4')], SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_raw.assert_called_once()
-    call = mock_self.objects_manager.update_many_raw.call_args.kwargs
-    assert call['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, f'{_MDS}.{_SECTION_ID}': SECTION_NAME}
-    assert call['update'] == {'$push': {f'{_MDS}.$[s].{_VALUES}.$[v].{_DATA}': {
-        CmdbObjectFieldKey.NAME: 'ip-type',
-        CmdbObjectFieldKey.TYPE: 'select',
-        CmdbObjectFieldKey.VALUE: 'ipv4',
-    }}}
-    # Section is targeted via $[s]; only rows whose data lacks the name are targeted via $[v]
-    assert call['array_filters'] == [
-        {f's.{_SECTION_ID}': SECTION_NAME},
-        {f'v.{_DATA}.{_NAME}': {'$ne': 'ip-type'}},
-    ]
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_add_mds_field_update(TYPE_ID, SECTION_NAME, {'name': 'ip-type', 'type': 'select', 'value': 'ipv4'}),
+    ])
 
 
 def test_add_mds_fields_to_objects_is_a_noop_for_empty_fields() -> None:
-    """No update is issued when there are no fields to add"""
+    """No statement is issued when there are no fields to add"""
     mock_self = MagicMock()
 
     SectionTemplatesManager._add_mds_fields_to_objects(mock_self, TYPE_ID, [], SECTION_NAME)
 
-    mock_self.objects_manager.update_many_raw.assert_not_called()
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                cleanup_mds_fields                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_cleanup_mds_fields_pulls_named_fields_via_array_filter() -> None:
-    """Named fields are $pulled from every row of the matching section server-side"""
+    """Named fields are pulled from every row of the matching section server-side"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_mds_fields(mock_self, TYPE_ID, ['drop'], SECTION_NAME)
 
-    mock_self.objects_manager.update_many_raw.assert_called_once()
-    call = mock_self.objects_manager.update_many_raw.call_args.kwargs
-    assert call['filter_query'] == {CmdbObjectKey.TYPE_ID: TYPE_ID, f'{_MDS}.{_SECTION_ID}': SECTION_NAME}
-    assert call['update'] == {'$pull': {f'{_MDS}.$[s].{_VALUES}.$[].{_DATA}': {_NAME: {'$in': ['drop']}}}}
-    assert call['array_filters'] == [{f's.{_SECTION_ID}': SECTION_NAME}]
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_remove_mds_fields_update(TYPE_ID, SECTION_NAME, ['drop']),
+    ])
 
 
 def test_cleanup_mds_fields_is_a_noop_for_empty_list() -> None:
-    """An empty field list issues no update"""
+    """An empty field list issues no statement"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_mds_fields(mock_self, TYPE_ID, [], SECTION_NAME)
 
-    mock_self.objects_manager.update_many_raw.assert_not_called()
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               cleanup_section_fields                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_cleanup_section_fields_is_a_noop_for_empty_list() -> None:
-    """No field names means no pull query is issued"""
+    """No field names means no statement is issued"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_section_fields(mock_self, TYPE_ID, [])
 
-    mock_self.objects_manager.update_many_pull.assert_not_called()
+    mock_self.objects_manager.apply_raw_updates.assert_not_called()
 
 
 def test_cleanup_section_fields_pulls_named_fields_by_type() -> None:
-    """A single $pull removes every named flat field from the type's objects"""
+    """A single pull removes every named flat field from the type's objects"""
     mock_self = MagicMock()
 
     SectionTemplatesManager.cleanup_section_fields(mock_self, TYPE_ID, ['a', 'b'])
 
-    mock_self.objects_manager.update_many_pull.assert_called_once_with(
-        {CmdbObjectKey.TYPE_ID: TYPE_ID},
-        {CmdbObjectKey.FIELDS: {CmdbObjectFieldKey.NAME: {"$in": ['a', 'b']}}},
-    )
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_remove_fields_update(TYPE_ID, ['a', 'b']),
+    ])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -319,10 +301,9 @@ def test_delete_mds_section_from_objects_pulls_the_whole_section() -> None:
 
     SectionTemplatesManager.delete_mds_section_from_objects(mock_self, TYPE_ID, SECTION_NAME)
 
-    mock_self.objects_manager.update_many_pull.assert_called_once_with(
-        {CmdbObjectKey.TYPE_ID: TYPE_ID},
-        {CmdbObjectKey.MULTI_DATA_SECTIONS: {CmdbObjectMdsKey.SECTION_ID: SECTION_NAME}},
-    )
+    mock_self.objects_manager.apply_raw_updates.assert_called_once_with([
+        build_remove_mds_section_update(TYPE_ID, SECTION_NAME),
+    ])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -549,10 +530,7 @@ def test_delete_global_section_from_objects_regular_pulls_flat_only() -> None:
         mock_self, TYPE_ID, ['a', 'b'], SectionType.SECTION, SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_pull.assert_called_once_with(
-        criteria={CmdbObjectKey.TYPE_ID: TYPE_ID},
-        update={CmdbObjectKey.FIELDS: {CmdbObjectFieldKey.NAME: {"$in": ['a', 'b']}}},
-    )
+    mock_self.cleanup_section_fields.assert_called_once_with(TYPE_ID, ['a', 'b'])
     mock_self.delete_mds_section_from_objects.assert_not_called()
 
 
@@ -564,7 +542,7 @@ def test_delete_global_section_from_objects_mds_pulls_flat_and_drops_section() -
         mock_self, TYPE_ID, ['a'], SectionType.MDS_SECTION, SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_pull.assert_called_once()
+    mock_self.cleanup_section_fields.assert_called_once_with(TYPE_ID, ['a'])
     mock_self.delete_mds_section_from_objects.assert_called_once_with(TYPE_ID, SECTION_NAME)
 
 
@@ -576,7 +554,7 @@ def test_delete_global_section_from_objects_skips_flat_pull_without_field_names(
         mock_self, TYPE_ID, [], SectionType.MDS_SECTION, SECTION_NAME,
     )
 
-    mock_self.objects_manager.update_many_pull.assert_not_called()
+    mock_self.cleanup_section_fields.assert_not_called()
     mock_self.delete_mds_section_from_objects.assert_called_once_with(TYPE_ID, SECTION_NAME)
 
 

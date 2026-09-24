@@ -34,7 +34,8 @@ serves. The routes stay thin: they validate the request, resolve managers and de
 * **Side effects** - ``handle_notify_webhooks``, ``handle_create_object_log`` and
   ``emit_object_*_events`` are **best-effort**: each catches and logs its own failures so a webhook or
   logging problem never rolls back a stored object. The trade-off is that a successful write can leave
-  no audit entry, with nothing surfaced to the caller -
+  no audit entry, with nothing surfaced to the caller; a lost change-log entry is logged under the
+  ``OBJECT_LOG_LOST`` marker so an operator can alert on it
 * **Re-alignment** - ``realign_objects_to_type`` and ``clean_type_reports`` repair stored objects after
   their CmdbType changed
 
@@ -49,12 +50,17 @@ from logging import Logger, getLogger
 from typing import Any
 
 from bson import json_util
-from pymongo import UpdateOne
 from flask import abort, current_app
 
 from cmdb.database.json_codec import default, object_hook
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.objects_propagation_helper import (
+    RawUpdate,
+    build_add_field_update,
+    build_field_entry,
+    build_remove_undeclared_fields_update,
+)
 from cmdb.manager import (
     LogsManager,
     LocationsManager,
@@ -125,6 +131,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     extract_object_location_parent, validate_object_location_change, sync_object_location,
 )
 from cmdb.security.license.license_constants import LicenseFeature
+
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -1209,78 +1217,39 @@ def guard_object_delete(
 def realign_objects_to_type(
         objects_manager: ObjectsManager,
         type_instance: CmdbType,
-    ) -> set[str]:
+    ) -> None:
     """
     Re-aligns every CmdbObject of a CmdbType with that type's current field definition
 
-    Drops fields the object carries but the type no longer declares, and adds fields the type now
-    declares but the object is missing (seeded with the type's default value under ``value`` or
-    None). At most one ``$pull`` and one ``$addToSet`` per affected object are applied in a single
-    bulk write. Returns the field names removed from at least one object so the caller can clean
-    the type's reports once afterwards
+    Drops every ``fields`` entry the type does not declare - whether the edit just removed it or the
+    object never should have carried it - and adds each declared field an object is missing, seeded
+    with the field's default value (``value`` on the definition) or None. Both run as server-side
+    statements (`objects_propagation_helper`), so no object is read: one ``$pull`` for the undeclared
+    names, and one ``$push`` per declared field matching only the objects that lack it. Each is
+    idempotent, so a second run modifies nothing
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         type_instance (CmdbType): The CmdbType whose objects should be re-aligned
 
     Raises:
-        HTTPException: 500 when the bulk write of the re-aligned objects fails
-
-    Returns:
-        set[str]: The field names dropped from at least one object of the type
+        HTTPException: 500 when a statement fails
     """
     type_fields: list[dict[str, Any]] = type_instance.fields
-    type_fields_by_name: dict[str, dict[str, Any]] = {t_field["name"]: t_field for t_field in type_fields}
-    type_field_names: set[str] = set(type_fields_by_name)
+    declared_names: list[str] = sorted(type_field[FieldKey.NAME] for type_field in type_fields)
 
-    objects_by_type: list[CmdbObject] = objects_manager.get_objects_by(type_id=type_instance.public_id)
+    updates: list[RawUpdate] = [
+        build_remove_undeclared_fields_update(type_instance.public_id, declared_names),
+        *(build_add_field_update(type_instance.public_id, build_field_entry(type_field)) for type_field in type_fields),
+    ]
 
-    # One $pull (stale fields) and one $addToSet (missing fields) per affected object, applied in a
-    # single bulk write instead of a write per object/field. Removed names accumulate for the caller
-    object_ops: list[UpdateOne] = []
-    removed_field_names: set[str] = set()
-
-    for obj in objects_by_type:
-        obj_field_names: set[str] = {field["name"] for field in obj.get_all_fields()}
-
-        # Fields the object carries but the type no longer declares
-        stale_field_names: set[str] = obj_field_names - type_field_names
-        # Fields the type now declares but the object is missing
-        missing_field_names: set[str] = type_field_names - obj_field_names
-
-        if stale_field_names:
-            object_ops.append(UpdateOne(
-                {'public_id': obj.public_id},
-                {'$pull': {'fields': {'name': {'$in': list(stale_field_names)}}}}
-            ))
-            removed_field_names |= stale_field_names
-
-        if missing_field_names:
-            # A field entry is a name+type+value triple; new fields start from the type's default
-            # value (stored under 'value' on the field definition) or None
-            new_field_entries: list[dict[str, Any]] = [
-                {
-                    "name": name,
-                    "type": type_fields_by_name[name]["type"],
-                    "value": type_fields_by_name[name].get("value"),
-                }
-                for name in missing_field_names
-            ]
-            object_ops.append(UpdateOne(
-                {'public_id': obj.public_id},
-                {'$addToSet': {'fields': {'$each': new_field_entries}}}
-            ))
-
-    if object_ops:
-        try:
-            objects_manager.bulk_write(object_ops)
-        except Exception as error:
-            LOGGER.error(
-                "[realign_objects_to_type] Clean objects Exception: %s, Type: %s", error, type(error)
-            )
-            abort(500, "An internal server error occured while cleaning objects!")
-
-    return removed_field_names
+    try:
+        objects_manager.apply_raw_updates(updates)
+    except ObjectsManagerUpdateError as error:
+        LOGGER.error(
+            "[realign_objects_to_type] Clean objects Exception: %s, Type: %s", error, type(error)
+        )
+        abort(500, "An internal server error occured while cleaning objects!")
 
 
 def clean_type_reports(

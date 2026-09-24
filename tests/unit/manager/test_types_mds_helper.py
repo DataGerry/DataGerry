@@ -17,43 +17,33 @@
 Unit tests for cmdb.manager.types_mds_helper
 
 Pure tests: no Mongo, no manager. Two questions are asked of this module - what a CmdbType edit
-changes in its objects' multi-data sections (`plan_mds_changes`) and what that does to one object
-(`apply_plan`) - and three of the answers are easy to get wrong:
+changes in its objects' multi-data sections (`plan_mds_changes`), and which server-side statements
+perform that (`build_mds_updates`) - and three of the answers are easy to get wrong:
 
-  - **a new field's type came from the OLD type**, which by definition does not contain it, so every
-    newly added MDS field was written as `text` whatever it was declared as. The plan now carries a
-    field-type map built from the UPDATED type, and the test below declares a `date` for that reason
-  - **a removed section was skipped**, so every object kept the rows of a section its type no longer
-    declared - invisible to every read and impossible to edit. It is now dropped from the object
-  - **an entry was written with enum members as its keys**, so one row held two shapes; `.value` is
-    what a stored document carries
+  - **a new field's type must come from the UPDATED type**, which is the only one that contains it -
+    so the test below declares a `date` for the new field, and a declared default for its value
+  - **a removed section is removed from the objects**; skipping it would leave every object carrying
+    rows of a section its type no longer declares - invisible to every read and impossible to edit
+  - **an entry carries `.value` keys**, the shape a stored document has, never enum members
 
-The canonical MDS shape nests rows under `section['values'][*]['data']`, each row a list of
-`{name, value, type}` entries, and the tests operate on that level rather than on a `data` key placed
-directly on the section.
+What the statements do to a real collection is pinned in the integration tier; here it is what they ARE.
 """
 from typing import Any
 
-import pytest
-
+from cmdb.manager.objects_propagation_helper import (
+    build_add_mds_field_update,
+    build_remove_mds_fields_update,
+    build_remove_mds_section_update,
+)
 from cmdb.manager.types_mds_helper import (
     MdsChangePlan,
-    add_field_entries,
-    apply_plan,
-    build_field_type_map,
+    build_field_definition_map,
+    build_mds_updates,
+    build_new_field_entry,
     diff_field_names,
-    mds_rows,
     plan_mds_changes,
-    remove_field_entries,
-    row_entries,
 )
-from cmdb.models.object_model import (
-    CmdbObject,
-    CmdbObjectFieldKey,
-    CmdbObjectKey,
-    CmdbObjectMdsKey,
-    CmdbObjectMdsRowKey,
-)
+from cmdb.models.object_model import CmdbObjectFieldKey
 from cmdb.models.type_model import CmdbType, FieldKey, FieldType, SectionKey, SectionType, TypeSchemaKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -69,41 +59,6 @@ def _entry(name: str, value: Any = None, field_type: str = FieldType.TEXT.value)
         CmdbObjectFieldKey.VALUE.value: value,
         CmdbObjectFieldKey.TYPE.value: field_type,
     }
-
-
-def _section(section_id: str, rows: list[list[dict[str, Any]]]) -> dict[str, Any]:
-    """One MDS section with its rows nested under values[].data."""
-    return {
-        CmdbObjectMdsKey.SECTION_ID.value: section_id,
-        CmdbObjectMdsKey.VALUES.value: [{CmdbObjectMdsRowKey.DATA.value: row} for row in rows],
-    }
-
-
-def _object(sections: list[dict[str, Any]]) -> CmdbObject:
-    """A CmdbObject carrying the given MDS sections."""
-    return CmdbObject.from_data({
-        CmdbObjectKey.PUBLIC_ID.value: 1,
-        CmdbObjectKey.TYPE_ID.value: TYPE_ID,
-        CmdbObjectKey.AUTHOR_ID.value: 1,
-        CmdbObjectKey.MULTI_DATA_SECTIONS.value: sections,
-    })
-
-
-def _names(section: dict[str, Any], row_index: int = 0) -> list[str]:
-    """The field names of one row, in order."""
-    return [
-        entry[CmdbObjectFieldKey.NAME.value]
-        for entry in section[CmdbObjectMdsKey.VALUES.value][row_index][CmdbObjectMdsRowKey.DATA.value]
-    ]
-
-
-def _entry_by_name(section: dict[str, Any], name: str, row_index: int = 0) -> dict[str, Any]:
-    """One entry of one row, by field name."""
-    return next(
-        entry
-        for entry in section[CmdbObjectMdsKey.VALUES.value][row_index][CmdbObjectMdsRowKey.DATA.value]
-        if entry[CmdbObjectFieldKey.NAME.value] == name
-    )
 
 
 def _old_type(section_fields: list[str], section_type: str = SectionType.MDS_SECTION.value) -> CmdbType:
@@ -138,9 +93,11 @@ def _updated_doc(
         section_fields: list[str] | None,
         field_types: dict[str, str] | None = None,
         section_type: str = SectionType.MDS_SECTION.value,
+        field_defaults: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """An updated-type document; `section_fields=None` removes the section."""
     types: dict[str, str] = field_types or {}
+    defaults: dict[str, Any] = field_defaults or {}
     sections: list[dict[str, Any]] = [] if section_fields is None else [{
         SectionKey.TYPE.value: section_type,
         SectionKey.NAME.value: SECTION_ID,
@@ -149,7 +106,11 @@ def _updated_doc(
 
     return {
         TypeSchemaKey.FIELDS.value: [
-            {FieldKey.NAME.value: name, FieldKey.TYPE.value: types.get(name, FieldType.TEXT.value)}
+            {
+                FieldKey.NAME.value: name,
+                FieldKey.TYPE.value: types.get(name, FieldType.TEXT.value),
+                **({FieldKey.VALUE.value: defaults[name]} if name in defaults else {}),
+            }
             for name in (section_fields or [])
         ],
         TypeSchemaKey.RENDER_META.value: {TypeSchemaKey.SECTIONS.value: sections},
@@ -182,27 +143,24 @@ class TestDiffFieldNames:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               build_field_type_map                                                   #
+#                                             build_field_definition_map                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestBuildFieldTypeMap:
-    """The declared type of each field, which is what a new entry is written with."""
+class TestBuildFieldDefinitionMap:
+    """The declaration of each field, which is what a new entry is built from."""
 
-    def test_maps_name_to_type(self) -> None:
-        """Straight from the type's own field list"""
-        fields = [
-            {FieldKey.NAME.value: 'a', FieldKey.TYPE.value: FieldType.TEXT.value},
-            {FieldKey.NAME.value: 'b', FieldKey.TYPE.value: FieldType.DATE.value},
-        ]
+    def test_maps_name_to_definition(self) -> None:
+        """Straight from the type's own field list, the whole definition"""
+        date_field: dict[str, Any] = {FieldKey.NAME.value: 'b', FieldKey.TYPE.value: FieldType.DATE.value}
 
-        assert build_field_type_map(fields) == {'a': FieldType.TEXT.value, 'b': FieldType.DATE.value}
-
-    def test_a_field_without_a_type_falls_back_to_text(self) -> None:
-        """A drifted declaration still yields a usable entry"""
-        assert build_field_type_map([{FieldKey.NAME.value: 'a'}]) == {'a': FieldType.TEXT.value}
+        assert build_field_definition_map([date_field]) == {'b': date_field}
 
     def test_a_field_without_a_name_is_skipped(self) -> None:
         """There is nothing to key it by, and guessing would write an entry nothing reads"""
-        assert build_field_type_map([{FieldKey.TYPE.value: FieldType.TEXT.value}]) == {}
+        assert build_field_definition_map([{FieldKey.TYPE.value: FieldType.TEXT.value}]) == {}
+
+    def test_a_field_that_is_not_a_mapping_is_skipped(self) -> None:
+        """A drifted field list does not fail the propagation"""
+        assert build_field_definition_map(['not-a-field']) == {}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -226,18 +184,18 @@ class TestPlanMdsChanges:
         assert plan.deleted_fields == {SECTION_ID: ['b']}
         assert plan.added_fields == {}
 
-    def test_the_field_type_comes_from_the_updated_type(self) -> None:
+    def test_the_field_definitions_come_from_the_updated_type(self) -> None:
         """
-        The bug this pins
+        Only the updated type can describe a newly added field
 
-        Building the map from the OLD type cannot cover a newly added field - so the
-        fallback was the normal path and every new MDS field was stored as `text`.
+        A map built from the stored type would lack it, and the new entry would fall back to an
+        empty `text` entry whatever the field was declared as.
         """
         plan = plan_mds_changes(
             _old_type(['a']), _updated_doc(['a', 'b'], {'b': FieldType.DATE.value}),
         )
 
-        assert plan.field_type_map['b'] == FieldType.DATE.value
+        assert plan.field_definitions['b'][FieldKey.TYPE.value] == FieldType.DATE.value
 
     def test_a_removed_section_is_planned_for_removal(self) -> None:
         """Skipping it leaves the objects carrying it forever"""
@@ -301,182 +259,90 @@ class TestPlanMdsChanges:
         assert plan_mds_changes(_old_type(['a']), _updated_doc(['a'])).is_empty
 
 
-class TestThePlansQuestions:
-    """The two questions the manager asks a plan before it reads anything."""
+def test_an_empty_plan_is_empty() -> None:
+    """Nothing to do means no statement at all"""
+    assert MdsChangePlan().is_empty
 
-    def test_affected_section_ids_covers_all_three_kinds_of_change(self) -> None:
-        """An object carrying none of them cannot change, so it is never read"""
-        plan = MdsChangePlan(
-            added_fields={'a': ['x']},
-            deleted_fields={'b': ['y']},
-            removed_sections=['c'],
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               build_new_field_entry                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBuildNewFieldEntry:
+    """The entry every existing row gets for a newly added field."""
+
+    def test_carries_the_declared_type_and_default(self) -> None:
+        """The definition decides both, so a new row entry matches what a new object would hold"""
+        plan = plan_mds_changes(
+            _old_type(['a']),
+            _updated_doc(['a', 'b'], {'b': FieldType.DATE.value}, field_defaults={'b': '2026-01-01'}),
         )
 
-        assert plan.affected_section_ids == ['a', 'b', 'c']
+        assert build_new_field_entry(plan, 'b') == _entry('b', '2026-01-01', FieldType.DATE.value)
 
-    def test_an_empty_plan_is_empty(self) -> None:
-        """Nothing to do means no read and no write at all"""
-        assert MdsChangePlan().is_empty
+    def test_without_a_default_the_value_is_none(self) -> None:
+        """A field that declares no default starts empty"""
+        plan = plan_mds_changes(_old_type(['a']), _updated_doc(['a', 'b']))
 
+        assert build_new_field_entry(plan, 'b') == _entry('b')
 
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                            the row-level transformations                                             #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestAddFieldEntries:
-    """A newly declared field gets an entry in every row."""
+    def test_an_undeclared_name_is_an_empty_text_entry(self) -> None:
+        """A section may list a name the field list lacks; the row still gets one entry for it"""
+        assert build_new_field_entry(MdsChangePlan(), 'ghost') == _entry('ghost')
 
-    def test_appends_to_every_row_with_the_declared_type(self) -> None:
-        """value None, so the row keeps exactly one entry per declared field"""
-        section = _section(SECTION_ID, [[_entry('a', 1)], [_entry('a', 2)]])
+    def test_the_entry_carries_plain_string_keys(self) -> None:
+        """The shape a stored document has - enum members as keys would give one row two shapes"""
+        entry = build_new_field_entry(MdsChangePlan(), 'x')
 
-        assert add_field_entries(section, ['b'], {'b': FieldType.DATE.value}) is True
-        assert _names(section, 0) == ['a', 'b']
-        assert _names(section, 1) == ['a', 'b']
-        assert _entry_by_name(section, 'b') == {
-            CmdbObjectFieldKey.NAME.value: 'b',
-            CmdbObjectFieldKey.VALUE.value: None,
-            CmdbObjectFieldKey.TYPE.value: FieldType.DATE.value,
+        assert all(type(key) is str for key in entry)  # pylint: disable=unidiomatic-typecheck
+        assert set(entry) == {
+            CmdbObjectFieldKey.NAME.value, CmdbObjectFieldKey.VALUE.value, CmdbObjectFieldKey.TYPE.value,
         }
 
-    def test_the_entry_keys_are_plain_strings(self) -> None:
-        """
-        Writing them as enum MEMBERS lets one row hold two shapes
-
-        It survives BSON because the enums subclass `str`, but `str()` on such a member yields
-        'FieldType.TEXT' - the trap this repo has hit before.
-        """
-        section = _section(SECTION_ID, [[]])
-
-        add_field_entries(section, ['b'], {})
-
-        entry = row_entries(mds_rows(section)[0])[0]
-        assert all(isinstance(key, str) and type(key) is str for key in entry)
-        assert type(entry[CmdbObjectFieldKey.TYPE.value]) is str
-
-    def test_an_unmapped_field_falls_back_to_text(self) -> None:
-        """A field the updated type does not declare at all still yields a usable entry"""
-        section = _section(SECTION_ID, [[]])
-
-        add_field_entries(section, ['b'], {})
-
-        assert _entry_by_name(section, 'b')[CmdbObjectFieldKey.TYPE.value] == FieldType.TEXT.value
-
-    def test_an_entry_already_present_is_left_alone(self) -> None:
-        """Idempotent, and it reports no change - so a re-run writes nothing"""
-        section = _section(SECTION_ID, [[_entry('b', 'kept')]])
-
-        assert add_field_entries(section, ['b'], {'b': FieldType.TEXT.value}) is False
-        assert _entry_by_name(section, 'b')[CmdbObjectFieldKey.VALUE.value] == 'kept'
-
-    def test_a_row_without_data_gains_the_key(self) -> None:
-        """A drifted row is filled rather than skipped"""
-        section = {
-            CmdbObjectMdsKey.SECTION_ID.value: SECTION_ID,
-            CmdbObjectMdsKey.VALUES.value: [{}],
-        }
-
-        assert add_field_entries(section, ['b'], {}) is True
-        assert _names(section) == ['b']
-
-    def test_a_section_without_rows_is_a_no_op(self) -> None:
-        """Nothing captured yet, nothing to extend"""
-        assert add_field_entries(_section(SECTION_ID, []), ['b'], {}) is False
-
-
-class TestRemoveFieldEntries:
-    """A field the type dropped goes from every row."""
-
-    def test_removes_from_every_row(self) -> None:
-        """The other rows' values are untouched"""
-        section = _section(SECTION_ID, [[_entry('a', 1), _entry('b', 2)], [_entry('a', 3), _entry('b', 4)]])
-
-        assert remove_field_entries(section, ['b']) is True
-        assert _names(section, 0) == ['a']
-        assert _names(section, 1) == ['a']
-
-    def test_reports_no_change_when_the_field_is_not_in_the_rows(self) -> None:
-        """So an object whose rows never carried it is not rewritten"""
-        section = _section(SECTION_ID, [[_entry('a', 1)]])
-
-        assert remove_field_entries(section, ['b']) is False
-
-    def test_a_row_without_data_is_skipped(self) -> None:
-        """One of the arms no test reached before"""
-        section = {
-            CmdbObjectMdsKey.SECTION_ID.value: SECTION_ID,
-            CmdbObjectMdsKey.VALUES.value: [{}, {CmdbObjectMdsRowKey.DATA.value: [_entry('b')]}],
-        }
-
-        assert remove_field_entries(section, ['b']) is True
-        assert row_entries(mds_rows(section)[1]) == []
-
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                    apply_plan                                                        #
+#                                                 build_mds_updates                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestApplyPlan:
-    """One object, in memory, and whether it really changed."""
+class TestBuildMdsUpdates:
+    """The statements a plan becomes - one per added field, one per section losing fields or going."""
 
-    def test_applies_the_plan_to_the_matching_section(self) -> None:
-        """Sections are matched by the objects' section_id"""
-        cmdb_object = _object([_section(SECTION_ID, [[_entry('a')]]), _section(OTHER_SECTION_ID, [[_entry('a')]])])
-        plan = MdsChangePlan(added_fields={SECTION_ID: ['b']}, field_type_map={'b': FieldType.DATE.value})
+    def test_an_added_field_is_one_push_per_field(self) -> None:
+        """Each new field is pushed into the rows of its section, carrying its declared entry"""
+        plan = plan_mds_changes(_old_type(['a']), _updated_doc(['a', 'b', 'c']))
 
-        assert apply_plan(plan, cmdb_object) is True
-        assert _names(cmdb_object.multi_data_sections[0]) == ['a', 'b']
-        assert _names(cmdb_object.multi_data_sections[1]) == ['a']
+        assert build_mds_updates(TYPE_ID, plan) == [
+            build_add_mds_field_update(TYPE_ID, SECTION_ID, _entry('b')),
+            build_add_mds_field_update(TYPE_ID, SECTION_ID, _entry('c')),
+        ]
 
-    def test_drops_a_removed_section_from_the_object(self) -> None:
-        """
-        The decision: a removed section is removed, not kept silently
+    def test_removed_fields_are_one_pull_per_section(self) -> None:
+        """All the fields a section lost go in a single statement"""
+        plan = plan_mds_changes(_old_type(['a', 'b', 'c']), _updated_doc(['a']))
 
-        The object stops carrying rows of a section its type does not declare.
-        """
-        cmdb_object = _object([_section(SECTION_ID, [[_entry('a', 'value')]]),
-                               _section(OTHER_SECTION_ID, [[_entry('a')]])])
-        plan = MdsChangePlan(removed_sections=[SECTION_ID])
+        assert build_mds_updates(TYPE_ID, plan) == [build_remove_mds_fields_update(TYPE_ID, SECTION_ID, ['b', 'c'])]
 
-        assert apply_plan(plan, cmdb_object) is True
-        assert [section[CmdbObjectMdsKey.SECTION_ID.value]
-                for section in cmdb_object.multi_data_sections] == [OTHER_SECTION_ID]
+    def test_a_removed_section_is_one_pull_of_the_section(self) -> None:
+        """The whole section goes, with all of its rows"""
+        plan = plan_mds_changes(_old_type(['a']), _updated_doc(None))
 
-    def test_a_removal_and_a_field_change_apply_together(self) -> None:
-        """One edit can remove one section and change another"""
-        cmdb_object = _object([_section(SECTION_ID, [[_entry('a')]]),
-                               _section(OTHER_SECTION_ID, [[_entry('a'), _entry('gone')]])])
+        assert build_mds_updates(TYPE_ID, plan) == [build_remove_mds_section_update(TYPE_ID, SECTION_ID)]
+
+    def test_an_empty_plan_issues_nothing(self) -> None:
+        """A metadata edit writes no object"""
+        assert build_mds_updates(TYPE_ID, MdsChangePlan()) == []
+
+    def test_the_order_is_deterministic(self) -> None:
+        """Adds, then field removals, then section removals - each by sorted section id"""
         plan = MdsChangePlan(
-            deleted_fields={OTHER_SECTION_ID: ['gone']},
-            removed_sections=[SECTION_ID],
+            added_fields={'z': ['n'], 'a': ['m']},
+            deleted_fields={'y': ['p'], 'b': ['q']},
+            removed_sections=['x', 'c'],
         )
 
-        assert apply_plan(plan, cmdb_object) is True
-        assert len(cmdb_object.multi_data_sections) == 1
-        assert _names(cmdb_object.multi_data_sections[0]) == ['a']
-
-    def test_reports_no_change_for_an_object_the_plan_does_not_touch(self) -> None:
-        """Its sections are not in the plan, so it is never written"""
-        cmdb_object = _object([_section(OTHER_SECTION_ID, [[_entry('a')]])])
-        plan = MdsChangePlan(added_fields={SECTION_ID: ['b']})
-
-        assert apply_plan(plan, cmdb_object) is False
-        assert _names(cmdb_object.multi_data_sections[0]) == ['a']
-
-    def test_reports_no_change_when_the_field_is_already_there(self) -> None:
-        """Re-running a propagation writes nothing"""
-        cmdb_object = _object([_section(SECTION_ID, [[_entry('a'), _entry('b')]])])
-        plan = MdsChangePlan(added_fields={SECTION_ID: ['b']}, field_type_map={'b': FieldType.TEXT.value})
-
-        assert apply_plan(plan, cmdb_object) is False
-
-    def test_an_object_without_multi_data_sections_is_a_no_op(self) -> None:
-        """Most objects of a type with an MDS section carry none of its rows yet"""
-        cmdb_object = _object([])
-
-        assert apply_plan(MdsChangePlan(removed_sections=[SECTION_ID]), cmdb_object) is False
-
-
-@pytest.mark.parametrize('accessor, expected', [(mds_rows, []), (row_entries, [])],
-                         ids=['rows', 'entries'])
-def test_the_shape_accessors_answer_empty_for_a_missing_key(accessor: Any, expected: list) -> None:
-    """The MDS shape is read in one place, and a drifted document reads as empty rather than raising"""
-    assert accessor({}) == expected
+        assert build_mds_updates(TYPE_ID, plan) == [
+            build_add_mds_field_update(TYPE_ID, 'a', _entry('m')),
+            build_add_mds_field_update(TYPE_ID, 'z', _entry('n')),
+            build_remove_mds_fields_update(TYPE_ID, 'b', ['q']),
+            build_remove_mds_fields_update(TYPE_ID, 'y', ['p']),
+            build_remove_mds_section_update(TYPE_ID, 'c'),
+            build_remove_mds_section_update(TYPE_ID, 'x'),
+        ]

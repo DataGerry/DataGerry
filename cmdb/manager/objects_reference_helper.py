@@ -21,10 +21,9 @@ matches in the database, while a reference inside a multi-data-section row does 
 come back from a broader query and have to be filtered in memory, row by row. `references()` therefore
 runs both and merges them, which is what these functions do.
 
-**Everything here is pure, and deliberately so** - the same division `types_mds_helper` draws: the
-manager owns the reads (the ref-field names per type, the two queries) and passes their results in, so
-deciding whether a row references an object, and merging the two result sets, can be read and tested
-without a database.
+**Everything here is pure, and deliberately so**: the manager owns the reads (the ref-field names per
+type, the two queries) and passes their results in, so deciding whether a row references an object, and
+merging the two result sets, can be read and tested without a database.
 """
 from logging import Logger, getLogger
 from typing import Any

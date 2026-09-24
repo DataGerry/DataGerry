@@ -44,7 +44,7 @@ from typing import Any
 
 from cmdb.models.object_model.cmdb_object_helpers import extract_field_value
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind
-from cmdb.models.rack_model.rack_mount_helpers import occupied_slots_of
+from cmdb.models.rack_model.rack_mount_helpers import occupied_slot_count
 from cmdb.models.special_type_model.rack_constants import RackField
 
 from cmdb.framework.rack.rack_constants import RackOverviewKey
@@ -263,7 +263,7 @@ def build_occupants_legend(mounts: list[dict[str, Any]]) -> list[dict[str, Any]]
             continue
 
         counts[kind] = counts.get(kind, 0) + 1
-        slots[kind] = slots.get(kind, 0) + len(occupied_slots_of(mount))
+        slots[kind] = slots.get(kind, 0) + occupied_slot_count(mount)
 
     return [
         {

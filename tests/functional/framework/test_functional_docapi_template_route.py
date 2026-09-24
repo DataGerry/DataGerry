@@ -63,9 +63,11 @@ TPL_ID_FOR_GET: int = 80001
 TPL_ID_FOR_UPDATE: int = 80002
 TPL_ID_FOR_DELETE: int = 80003
 MISSING_TPL_ID: int = 80900
+TPL_ID_FOR_PICKER: int = 80005
+PICKER_TYPE_ID: int = 80950
 MISSING_OBJECT_ID: int = 80901
 
-ALL_TPL_IDS: list[int] = [TPL_ID_FOR_GET, TPL_ID_FOR_UPDATE, TPL_ID_FOR_DELETE]
+ALL_TPL_IDS: list[int] = [TPL_ID_FOR_GET, TPL_ID_FOR_UPDATE, TPL_ID_FOR_DELETE, TPL_ID_FOR_PICKER]
 CREATE_TEMPLATE_NAME: str = 'tpl-functional-create'
 UPDATED_TEMPLATE_DATA: str = '<p>updated</p>'
 
@@ -323,7 +325,7 @@ class TestErrorMapping:
         assert rest_api.get(LIST_URL).status_code == HTTPStatus.BAD_REQUEST
 
     def test_searchfilter_get_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A DocapiTemplatesManagerGetError on the searchfilter route surfaces as 404."""
+        """A DocapiTemplatesManagerGetError on the searchfilter route surfaces as 400."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_templates_by',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
@@ -331,14 +333,14 @@ class TestErrorMapping:
         assert rest_api.get(f'{CRUD_URL}/by/{search}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_get_single_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A DocapiTemplatesManagerGetError on get-single surfaces as 404."""
+        """A DocapiTemplatesManagerGetError on get-single surfaces as 400."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_template',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
         assert rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_get_by_name_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A DocapiTemplatesManagerGetError on the name route surfaces as 404."""
+        """A DocapiTemplatesManagerGetError on the name route surfaces as 400."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_template_by_name',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
@@ -465,11 +467,60 @@ class TestUnusedNameIsOk:
 
 
 class TestSearchfilterGuard:
-    """The searchfilter travels in the URL, so it has to be checked."""
+    """
+    The searchfilter travels in the URL and reaches MongoDB as the query document, so it is checked
+
+    Only an equality match on a declared template key gets through. `$where` and `$expr` + `$function`
+    run JavaScript on the database server, so a refused filter must also never reach the read.
+    """
 
     def test_malformed_searchfilter_returns_400(self, rest_api) -> None:
-        """A filter that is not JSON is a client error - a JSONDecodeError -> 500 before."""
+        """A filter that is not JSON is a client error, not a JSONDecodeError surfacing as a 500."""
         assert rest_api.get(f'{CRUD_URL}/by/not-json').status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('search', [
+        {'$where': 'sleep(1000) || true'},
+        {'$expr': {'$function': {'body': 'function() { return true }', 'args': [], 'lang': 'js'}}},
+        {'template_parameters': {'$where': 'true'}},
+        {'name': {'$regex': '.*'}},
+        {'template_data': 'x'},
+        {'limit': 1},
+    ], ids=['where', 'function', 'nested-where', 'regex', 'undeclared-key', 'manager-parameter'])
+    @pytest.mark.parametrize('minimal', ['false', 'true'])
+    def test_a_filter_that_is_not_an_equality_match_is_refused_before_the_read(
+        self, rest_api, monkeypatch, search: dict[str, Any], minimal: str,
+    ) -> None:
+        """Both read paths answer 400 and the manager is never asked."""
+        calls: list[dict[str, Any]] = []
+
+        def _spy(_self, **requirements: Any) -> list[Any]:
+            calls.append(requirements)
+            return []
+
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_templates_by', _spy)
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_minimal_templates_by', _spy)
+
+        response = rest_api.get(f"{CRUD_URL}/by/{quote(json.dumps(search), safe='')}?minimal={minimal}")
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert not calls
+
+    def test_the_frontend_picker_filter_finds_its_template(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """`{"template_parameters": {"type": <id>}}` with minimal=true - the object view's document picker."""
+        payload: dict[str, Any] = _template_payload(TPL_ID_FOR_PICKER)
+        payload['template_parameters'] = {'type': PICKER_TYPE_ID}
+        database_manager.get_collection(DocapiTemplate.COLLECTION, database_name).insert_one(payload)
+        try:
+            search = quote(json.dumps({'template_parameters': {'type': PICKER_TYPE_ID}}))
+            response = rest_api.get(f'{CRUD_URL}/by/{search}?minimal=true')
+
+            assert response.status_code == HTTPStatus.OK
+            assert [row['public_id'] for row in response.get_json()] == [TPL_ID_FOR_PICKER]
+        finally:
+            database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
+                .delete_one({'public_id': TPL_ID_FOR_PICKER})
 
 
 class TestHttpExceptionPassThrough:

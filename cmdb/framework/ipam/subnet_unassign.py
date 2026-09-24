@@ -596,7 +596,7 @@ def _resolve_unassign_mode(raw_mode: Any) -> str:
     """
     Normalizes the request 'mode' value to an IpamUnassignMode, defaulting to REFERENCE
 
-    A missing / empty mode falls back to REFERENCE (clear the subnet ref - the original behaviour),
+    A missing / empty mode falls back to REFERENCE (clear the subnet ref),
     a recognised value is returned as-is, and any other value aborts HTTP 400
 
     Args:

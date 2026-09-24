@@ -152,7 +152,7 @@ class TestInit:
         'base.isms.import.add',
     ])
     def test_new_rights_are_registered(self, right_name: str) -> None:
-        """The Report / IPAM / Location / ISMS-import rights created for the permissions sweep resolve."""
+        """The Report / IPAM / Location / ISMS-import rights resolve."""
         manager = RightsManager()
 
         assert manager.get_right(right_name) is not None
@@ -215,7 +215,7 @@ class TestIterateRights:
         assert len(result.results) == TOTAL_FIXTURE_RIGHTS
 
     def test_out_of_range_skip_returns_empty_page_without_error(self, manager: RightsManager) -> None:
-        """A skip beyond the end yields an empty page (regression: used to raise IndexError -> 500)"""
+        """A skip beyond the end yields an empty page, not an IndexError surfacing as a 500"""
         result = manager.iterate_rights(limit=PAGE_LIMIT, skip=OUT_OF_RANGE_SKIP, sort='name', order=ORDER_ASC)
 
         assert result.results == []
@@ -242,7 +242,7 @@ class TestIterateRights:
 
     @pytest.mark.parametrize('search', [None, '', '   '])
     def test_a_blank_search_returns_every_right(self, manager: RightsManager, search) -> None:
-        """An unsearched listing is exactly what it was before the parameter existed"""
+        """An unsearched listing is the full, unfiltered list"""
         result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search=search)
 
         assert result.total == TOTAL_FIXTURE_RIGHTS

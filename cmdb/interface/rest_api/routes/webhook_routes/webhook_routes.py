@@ -73,9 +73,9 @@ def create_webhook(params: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Requires the ``base.framework.webhook.add`` right. The public_id is server-owned: it is reserved
     from the collection counter, so a payload can not choose it. The parameters arrive as query args
-    rather than as a validated JSON body (see the request-schema decision in the backlog), so
-    ``CmdbWebhook.SCHEMA`` never runs and ``parse_webhook_params`` is the whole of the validation -
-    it is what refuses a webhook with no URL, an unusable scheme or an unknown event type
+    rather than as a validated JSON body, so ``CmdbWebhook.SCHEMA`` never runs and
+    ``parse_webhook_params`` is the whole of the validation - it is what refuses a webhook with no URL,
+    an unusable scheme or an unknown event type
 
     Args:
         params (dict): CmdbWebhook parameters, incl. the ``event_types`` list
@@ -211,7 +211,7 @@ def update_webhook(public_id: int, params: dict[str, Any], request_user: CmdbUse
 
     The response is serialised from the instance that was just written rather than read back: a
     CmdbWebhook has no server-computed field, and ``update_item`` stores exactly
-    ``CmdbWebhook.to_json(instance)``, so the two are the same document and the extra read was pure
+    ``CmdbWebhook.to_json(instance)``, so the two are the same document and a read-back would be pure
     latency
 
     Args:
@@ -266,8 +266,8 @@ def delete_webhook(public_id: int, request_user: CmdbUser) -> Response:
     Requires the ``base.framework.webhook.delete`` right. The CmdbWebhookEvents already produced by
     this webhook are left in place: they are a delivery log, not children of the definition
 
-    Registered WITHOUT a trailing slash, like the other ``/<public_id>`` routes here. It used to carry
-    one, which made the frontend's slash-less call take a 308 redirect first
+    Registered WITHOUT a trailing slash, like the other ``/<public_id>`` routes here. The frontend calls
+    it slash-less, so a trailing slash would cost that call a 308 redirect first
 
     Args:
         public_id (int): public_id of the CmdbWebhook which should be deleted

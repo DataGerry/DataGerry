@@ -132,8 +132,7 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
 
     Requires the ``base.framework.webhook.view`` right
 
-    Two things about this route are unlike the other list routes and are tracked as decisions rather
-    than settled here:
+    Two things about this route are unlike the other list routes:
 
     - the frontend's log table sends ``?filter=`` as a **list of aggregation stages**
       (``$addFields`` + ``$match``, built in ``webhook-log-viewer.component.ts``), not as a plain
@@ -192,8 +191,8 @@ def delete_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
     Requires the ``base.framework.webhook.delete`` right. Deleting a delivery prunes the log only; the
     CmdbWebhook that produced it is untouched
 
-    Registered WITHOUT a trailing slash, like the GET route above it. It used to carry one, which made
-    the frontend's slash-less DELETE (``webhookLog.service.ts``) take a 308 redirect first
+    Registered WITHOUT a trailing slash, like the GET route above it. A trailing slash would make the
+    frontend's slash-less DELETE (``webhookLog.service.ts``) take a 308 redirect first
 
     Args:
         public_id (int): public_id of the CmdbWebhookEvent which should be deleted

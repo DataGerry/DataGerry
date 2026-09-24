@@ -17,7 +17,7 @@
 Functional coverage for the /import/object routes
 
 Covers the metadata GETs (importers / importer config / parsers / parser config, both trailing-slash
-and no-slash variants, and the bad-type -> 404 after the IndexError->KeyError fix), the /parse
+and no-slash variants, and the bad-type -> 404), the /parse
 endpoint (real CSV round-trip + the missing-file / missing-format / unknown-format guards, all 400),
 and the full /import/object POST (no-file -> 400, no-config -> 400, unknown type -> 404, a deactivated
 target type -> 403, a happy-path CSV import into an active type, and the overwrite path: a CSV row
@@ -61,7 +61,7 @@ CSV_BODY: bytes = b'dg-name\nhost-1\n'
 UPPERCASE_BOOL_CSV_BODY: bytes = b'dg-name,dg-active\nhost-1,TRUE\n'
 # A header-only file: what a freshly downloaded import template looks like before it is filled in
 HEADER_ONLY_CSV_BODY: bytes = b'dg-name\n'
-# The JSON counterpart of an empty file - answered the same way since the two formats were aligned
+# The JSON counterpart of an empty file - answered the same way as a header-only CSV
 EMPTY_JSON_BODY: bytes = b'[]'
 
 ADMIN_PUBLIC_ID: int = 1  # the user the rest_api fixture authenticates as
@@ -123,11 +123,11 @@ class TestImporterMetadata:
         assert 'manually_mapping' in response.get_json()
 
     def test_get_importer_config_unknown_type_returns_404(self, rest_api) -> None:
-        """An unknown importer type returns 404 (was 500 before the IndexError->KeyError fix)."""
+        """An unknown importer type returns 404, not a 500."""
         assert rest_api.get(f'{BASE_URL}/importer/config/nope/').status_code == HTTPStatus.NOT_FOUND
 
     def test_parser_list_route_removed(self, rest_api) -> None:
-        """The unused GET /parser/ list route was removed -> 404."""
+        """There is no GET /parser/ list route -> 404."""
         assert rest_api.get(f'{BASE_URL}/parser/').status_code == HTTPStatus.NOT_FOUND
 
     def test_get_parser_config(self, rest_api) -> None:
@@ -135,7 +135,7 @@ class TestImporterMetadata:
         assert rest_api.get(f'{BASE_URL}/parser/default/csv/').status_code == HTTPStatus.OK
 
     def test_get_parser_config_unknown_type_returns_404(self, rest_api) -> None:
-        """An unknown parser type returns 404 (was 500 before the IndexError->KeyError fix)."""
+        """An unknown parser type returns 404, not a 500."""
         assert rest_api.get(f'{BASE_URL}/parser/default/nope/').status_code == HTTPStatus.NOT_FOUND
 
 
@@ -158,9 +158,8 @@ class TestParseObjects:
         """
         The parse preview shows the caller what their file will import as.
 
-        A spreadsheet writes TRUE, which must not come back as the string 'TRUE' while a
-        lowercase 'true' came back as a real boolean - so the preview showed two types for one
-        logical column.
+        A spreadsheet writes TRUE, which must come back as a real boolean like a lowercase 'true'
+        does, not as the string 'TRUE' - otherwise the preview shows two types for one logical column.
         """
         form = {
             'file': (BytesIO(UPPERCASE_BOOL_CSV_BODY), 'import.csv'),
@@ -174,7 +173,7 @@ class TestParseObjects:
         assert response.get_json()['entries'] == [{'0': 'host-1', '1': True}]
 
     def test_parse_missing_file_returns_400(self, rest_api) -> None:
-        """A parse request with no file is a client error -> 400 (was wrongly 500)."""
+        """A parse request with no file is a client error -> 400, not a 500."""
         form = {'file_format': 'csv', 'parser_config': json.dumps({})}
 
         response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
@@ -182,7 +181,7 @@ class TestParseObjects:
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_parse_missing_file_format_returns_400(self, rest_api) -> None:
-        """A parse request with no file_format is a client error -> 400 (was wrongly 500)."""
+        """A parse request with no file_format is a client error -> 400, not a 500."""
         form = {'file': (BytesIO(CSV_BODY), 'import.csv'), 'parser_config': json.dumps({})}
 
         response = rest_api.post(f'{BASE_URL}/parse/', data=form, content_type='multipart/form-data')
@@ -209,7 +208,7 @@ class TestParseObjects:
         assert 'configuration' not in message
 
     def test_parse_empty_json_list_names_the_real_reason(self, rest_api) -> None:
-        """An empty JSON list is answered exactly like a header-only CSV (the formats are aligned)."""
+        """An empty JSON list is answered exactly like a header-only CSV."""
         form = {
             'file': (BytesIO(EMPTY_JSON_BODY), 'empty.json'),
             'file_format': 'json',
@@ -223,11 +222,11 @@ class TestParseObjects:
 
     def test_parse_unknown_format_returns_400(self, rest_api) -> None:
         """
-        A parse request whose format has no parser is a client error -> 400 (was wrongly 500)
+        A parse request whose format has no parser is a client error -> 400, not a 500
 
         The message has to name the format and the supported set: /parse/ resolves the format the
-        same way /import/ does, so the caller is no longer told to check a parser configuration that
-        was never the problem.
+        same way /import/ does, so the caller is not told to check a parser configuration that is not
+        the problem.
         """
         form = {
             'file': (BytesIO(CSV_BODY), 'import.csv'),
@@ -273,9 +272,9 @@ class TestImportObjects:
         """
         End to end: the spelling a spreadsheet writes reaches MongoDB as a bool, not as text.
 
-        A caster accepting only 'True' / 'true' leaves a file exported from Excel storing the
+        A caster accepting only 'True' / 'true' would leave a file exported from Excel storing the
         string 'TRUE' in `active` - truthy in Python, but not the boolean the field is declared as,
-        and not equal to the `true` a file written by hand produced for the same column.
+        and not equal to the `true` a file written by hand produces for the same column.
         """
         form = {
             'file': (BytesIO(UPPERCASE_BOOL_CSV_BODY), 'import.csv'),
@@ -331,7 +330,7 @@ class TestImportObjects:
     def test_import_of_a_header_only_file_returns_400_not_500(self, rest_api) -> None:
         """An empty file is the caller's doing, so it must not surface as a server error.
 
-        Before this was named separately, the parser's no-content error was wrapped into an
+        The parser's no-content error is answered as a 400 of its own rather than wrapped into an
         ImportRuntimeError and answered with 500 'Failed to import Objects!'.
         """
         form = {
@@ -347,7 +346,7 @@ class TestImportObjects:
         assert 'no data rows' in response.get_json()['message']
 
     def test_import_of_an_empty_json_list_returns_400_not_500(self, rest_api) -> None:
-        """JSON no longer imports nothing quietly: an empty file is refused like an empty CSV."""
+        """JSON does not import nothing quietly: an empty file is refused like an empty CSV."""
         form = {
             'file': (BytesIO(EMPTY_JSON_BODY), 'empty.json'),
             'file_format': 'json',
@@ -637,7 +636,7 @@ class TestChoiceFieldOptions:
     def test_a_valid_radio_value_is_accepted(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """An option the Type actually defines must import - reading the wrong key rejected them all."""
+        """An option the Type actually defines must import - the options are read from the field itself."""
         response = rest_api.post(
             f'{BASE_URL}/', data=self._form(b'dg-name,tier,env\nhost-1,gold,prod\n'),
             content_type='multipart/form-data',
@@ -655,7 +654,7 @@ class TestChoiceFieldOptions:
         assert values['tier'] == 'gold'
 
     def test_an_unknown_radio_value_is_still_rejected(self, rest_api) -> None:
-        """The rule itself is unchanged: a value outside the options is not allowed."""
+        """A value outside the options is not allowed."""
         response = rest_api.post(
             f'{BASE_URL}/', data=self._form(b'dg-name,tier,env\nhost-1,gold,staging\n'),
             content_type='multipart/form-data',

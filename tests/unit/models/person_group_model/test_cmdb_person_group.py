@@ -16,13 +16,12 @@
 """
 Unit tests for cmdb.models.person_group_model
 
-Pure tests: no Mongo, no Flask. The rules shared with the other two membership models are pinned once
-by the shared membership-model tests; what is pinned here belongs to the group
-alone:
+Pure tests: no Mongo, no Flask. The rules shared with the other two membership models are not repeated
+here; what is pinned here belongs to the group alone:
 
   - the ``group_members`` index and the registry membership that gets it built
-  - the ``group_members: null`` document, which is the value that makes the
-    update route read ``set(None)`` and answer 500 - the model can no longer produce it
+  - the ``group_members: null`` document, which is the value that would make the update route read
+    ``set(None)`` and answer 500 - the model cannot produce it
   - ``email`` being required-but-empty here while it is optional on a person: the one place the two
     schemas differ, and easy to "harmonise" by accident
   - PersonReferenceType, the enum every polymorphic ISMS reference is stored beside
@@ -95,11 +94,11 @@ class TestTheNullMembershipCannotComeBack:
 
     def test_a_payload_without_group_members_stores_an_empty_list(self) -> None:
         """
-        This is how the null got in: the key was simply absent from the payload
+        The key may simply be absent from the payload
 
-        The route validates a body that omits group_members (the key is not required), the model used
-        to turn that into null, and the NEXT update of the same group read set(None) and raised
-        inside the route's try block - reported as a 500 saying nothing.
+        The route validates a body that omits group_members (the key is not required). A model turning
+        that into null would make the NEXT update of the same group read set(None) and raise inside the
+        route's try block - reported as a 500 saying nothing.
         """
         payload: dict[str, Any] = {
             PersonGroupKey.PUBLIC_ID.value: PUBLIC_ID,
@@ -112,7 +111,7 @@ class TestTheNullMembershipCannotComeBack:
 
     def test_a_legacy_null_membership_is_read_as_an_empty_list(self) -> None:
         """
-        Reading a document written before the fix must not reproduce the null
+        Reading a stored document carrying the null must not reproduce it
 
         updater_20260909 converges the stored documents, but a read has to be safe on its own: the
         migration and the model are two independent guarantees, not one.

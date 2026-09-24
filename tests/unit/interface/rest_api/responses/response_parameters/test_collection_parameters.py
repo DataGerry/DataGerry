@@ -22,11 +22,11 @@ why it has a module of its own.
 Two things these tests exist to pin:
 
 * **Every value arrives as a STRING.** Flask's query parser hands over ``'10'``, and a non-empty string
-  is always truthy - which is exactly why the old ``int((page or 1) or page < 1)`` let ``'0'`` through
-  as page 0 and produced a negative ``$skip``. Where a test passes a string it is deliberate.
-* **A bad pager value must be rejected HERE.** Left to MongoDB it surfaced through the route's
-  ``except …IterationError`` arm, so the caller was told the database failed. A ``ValueError`` raised
-  from this layer is turned into an HTTP 400 by the ``parse_*_parameters`` decorators instead.
+  is always truthy - so a truthiness default such as ``page or 1`` lets ``'0'`` through as page 0 and
+  produces a negative ``$skip``. Where a test passes a string it is deliberate.
+* **A bad pager value must be rejected HERE.** Left to MongoDB it would surface through the route's
+  ``except …IterationError`` arm, telling the caller the database failed. A ``ValueError`` raised from
+  this layer is turned into an HTTP 400 by the ``parse_*_parameters`` decorators instead.
 """
 import pytest
 
@@ -52,9 +52,9 @@ class TestPageCoercion:
     @pytest.mark.parametrize('page', ['0', '-1', '-42', 0, -1], ids=str)
     def test_a_page_below_one_is_clamped(self, page) -> None:
         """
-        Regression: '0' is a truthy string, so the old expression yielded page 0 and skip -limit
+        '0' is a truthy string, so a truthiness default would yield page 0 and skip -limit
 
-        Verified over HTTP before the fix: ?page=0 answered 400 "Failed to retrieve Objects from the
+        Left to the aggregation, ?page=0 would answer 400 "Failed to retrieve Objects from the
         database!". A caller asking for page 0 is asking for the start of the collection.
         """
         params = CollectionParameters(QUERY_STRING, limit='10', page=page)
@@ -108,9 +108,9 @@ class TestLimitCoercion:
     @pytest.mark.parametrize('limit', ['-1', '-5', -5], ids=str)
     def test_a_negative_limit_raises(self, limit) -> None:
         """
-        Regression: a negative page size must not be accepted and echoed back to the frontend
+        A negative page size must not be accepted and echoed back to the frontend
 
-        Verified over HTTP before the fix: ?limit=-5 answered 200 with pager.page_size -5.
+        Accepted, ?limit=-5 would answer 200 with pager.page_size -5.
         """
         with pytest.raises(ValueError):
             CollectionParameters(QUERY_STRING, limit=limit)
@@ -147,9 +147,9 @@ class TestOrderCoercion:
     @pytest.mark.parametrize('order', ['0', '2', '99', '-2'])
     def test_any_other_order_raises(self, order: str) -> None:
         """
-        Regression: ?order=99 must not fail inside $sort and be reported as a database error
+        ?order=99 must not fail inside $sort and be reported as a database error
 
-        Verified over HTTP before the fix: 400 "Failed to retrieve Objects from the database!".
+        Left to $sort it would answer 400 "Failed to retrieve Objects from the database!".
         """
         with pytest.raises(ValueError):
             CollectionParameters(QUERY_STRING, order=order)
@@ -178,7 +178,7 @@ class TestFilterIsMappedToCriteria:
         """
         `filter=` is accepted as a keyword and lands on self.filter
 
-        The constructor parameter was renamed to `criteria` so it stops shadowing the `filter`
+        The constructor parameter is named `criteria` so it does not shadow the `filter`
         builtin, and the mapping happens here rather than in a from_data override - which is what lets
         the JSON parsing stay in APIParameters.from_data.
         """

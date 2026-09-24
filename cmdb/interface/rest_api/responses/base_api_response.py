@@ -34,16 +34,15 @@ way:
 | `LoginResponse` | the token exchange | 200 | user + token (no envelope keys, by design) |
 
 Every payload passes through `cmdb.database.json_codec.default`, which is what turns a `datetime`
-into the `{'$date': millis}` wire format the frontend expects (see the date-format record) and an
-`ObjectId` into a string. The envelope's own `time` field is the one deliberate exception: it is an
-ISO-8601 string, because the Angular `APIResponse` type declares it as one.
+into the `{'$date': millis}` wire format the frontend expects and an `ObjectId` into a string. The
+envelope's own `time` field is the one deliberate exception: it is an ISO-8601 string, because the
+Angular `APIResponse` type declares it as one.
 
 **The bodyless (HEAD) case.** `body=False` means "answer without a payload", which is what a HEAD
 request wants; routes get that flag from `routes_helper.request_wants_body()`. Nothing is serialized
 in that case - the response carries the status, the mime type and the headers only. Werkzeug would
 strip the body of a HEAD response anyway, but it strips it *after* the payload has been built, so
-until 2026-09-09 (when the flag was inert - `body or True` could never be False) a HEAD on a large
-collection paid the full serialization for nothing.
+honouring the flag here is what spares a HEAD on a large collection the full serialization.
 
 Response keys and header names come from `response_constants.py`; they are a frontend contract
 """
@@ -136,7 +135,7 @@ class BaseAPIResponse(ABC):
         Answers with the exported payload, or without a payload when the caller asked for none
 
         The one place the `body` flag is honoured: a bodyless response never builds the payload and
-        never serializes it. Lifted here from the three Get* classes, which each held their own copy
+        never serializes it. Shared by every concrete response, the three Get* classes among them
 
         Args:
             *args (Any): Positional arguments forwarded to `export`
@@ -211,7 +210,7 @@ class BaseAPIResponse(ABC):
         """
         Trims result document(s) down to a client-requested `?projection=`
 
-        Shared by the three Get* responses, which asked the same question in three different spellings.
+        Shared by the three Get* responses.
         A falsy projection returns the data untouched, so a caller can pass whatever it holds
 
         Args:

@@ -33,15 +33,14 @@ Two things to know before changing this file:
 * **``connected`` reports the truth.** An unreachable database answers **200** with
   ``connected: false``; raising out of ``dbm.status()`` would make it the
   500 below, so the one route whose job is to report connectivity could not report the negative case.
-  The 500 is now reserved for the route genuinely failing.
+  The 500 is reserved for the route genuinely failing.
   **This route is unauthenticated and that answer is deliberate**: a caller learns "the API is up, the
-  database is not" where it previously learned only "something is wrong". Telling an anonymous caller
-  that much is the entire purpose of a health probe, and the 500 already disclosed that the instance
-  was unhealthy - so this is a recorded decision, not an oversight.
+  database is not". Telling an anonymous caller that much is the entire purpose of a health probe, and
+  a 500 would disclose that the instance is unhealthy anyway - so this is a decision, not an oversight.
 * **The database manager is resolved per request**, inside the view, like every other route module.
-  Binding it at module level inside ``with current_app.app_context()`` would mean importing
-  this module needed a live app, the captured manager outlived the app it came from, and a test had to
-  patch module state to reach it. Do not reintroduce that.
+  Binding it at module level inside ``with current_app.app_context()`` would make importing this
+  module need a live app, let the captured manager outlive the app it came from, and force a test to
+  patch module state to reach it.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -78,7 +77,7 @@ def connection_test_frontend() -> Response:
     route failing rather than the condition it exists to report
 
     Raises:
-        HTTPException: 500 when the database status probe fails - i.e. when the database is unreachable
+        HTTPException: 500 when the route itself fails; an unreachable database is ``connected: false``
 
     Returns:
         DefaultResponse: Dict with infos about DataGerry (title, version and database status)

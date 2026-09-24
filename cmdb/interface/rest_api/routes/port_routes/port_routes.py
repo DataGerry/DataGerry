@@ -552,7 +552,7 @@ def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
         )
         far_object_id: Any = (far_port or {}).get(PortKey.OBJECT_ID.value)
 
-        # A cable onto another port of this same object is real, but reveals no node (Q39)
+        # A cable onto another port of this same object is real, but reveals no node
         if far_object_id is None or far_object_id == port.get(PortKey.OBJECT_ID.value):
             return DefaultResponse(empty_expansion(port)).make_response()
 

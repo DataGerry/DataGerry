@@ -199,7 +199,7 @@ class TestInitSettings:
         assert isinstance(module.settings.get_provider_settings(LDAP_PROVIDER_NAME), dict)
 
     def test_a_second_module_over_the_same_section_still_works(self) -> None:
-        """Re-normalising an already topped-up section does not break (the old malformed entry did)."""
+        """Re-normalising an already topped-up section does not break (a malformed entry would)."""
         settings = _settings([_stub_entry(LOCAL_PROVIDER_NAME)])
 
         AuthModule(dict(settings), MagicMock(), MagicMock())

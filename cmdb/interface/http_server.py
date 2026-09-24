@@ -59,12 +59,12 @@ class HTTPServer(BaseApplication):
         defaults (`worker_class = 'sync'`, `preload_app = False` so workers each construct
         their own app instance post-fork, `daemon = True`, `timeout = 120`, the
         `logconfig_dict` captured from `get_logging_conf()`, and the `post_fork` hook that
-        resets the MongoDB connection in each worker — see `gunicorn_config.post_fork` and
-        the audit notes for the fork story). When `cmdb.__MODE__` is `DEBUG` or `TESTING`,
-        flips `reload` and `check_config` on. SSL handling is conditional on
-        `options['ssl']` (string-typed because it comes from the config file); when enabled,
-        `certfile` / `keyfile` are validated to exist and the keys are kept on the options
-        dict, otherwise they are popped so gunicorn doesn't try to bind TLS
+        resets the MongoDB connection in each worker — see `gunicorn_config.post_fork`).
+        When `cmdb.__MODE__` is `DEBUG` or `TESTING`, flips `reload` and `check_config` on.
+        SSL handling is conditional on `options['ssl']` (string-typed because it comes from
+        the config file); when enabled, `certfile` / `keyfile` are validated to exist and the
+        keys are kept on the options dict, otherwise they are popped so gunicorn doesn't try
+        to bind TLS
 
         Args:
             app: WSGI application gunicorn workers will serve — in production the

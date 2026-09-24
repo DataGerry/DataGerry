@@ -78,8 +78,8 @@ class IsmsRisk(CmdbDAO):
         },
         # The three reference lists are multikey indexes, and each one answers the delete guard of the
         # entity it points at: delete_isms_item_if_unused_by_risk looks up this collection by the
-        # field before letting a ProtectionGoal / Threat / Vulnerability go. protection_goals was
-        # missing until 2026-09-07, so that one guard scanned every risk on every delete
+        # field before letting a ProtectionGoal / Threat / Vulnerability go. Without the index that
+        # guard scans every risk on every delete
         {
             'keys': [(RiskKey.PROTECTION_GOALS.value, CmdbDAO.DAO_ASCENDING)],
             'name': RiskKey.PROTECTION_GOALS.value,

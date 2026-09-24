@@ -33,6 +33,7 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException, NotFound
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import OBJECT_LOG_LOST_MARKER
 from cmdb.framework.rendering.render_constants import RenderObjectInfoKey
 from cmdb.interface.rest_api.routes.importer_routes import importer_object_routes as routes
 from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes import (
@@ -50,6 +51,8 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes impor
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.importer_routes.importer_object_routes'
+# Where an imported object's log entry is encoded and written - shared with every object write path
+LOG_HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper'
 
 
 def _unwrap(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -201,7 +204,7 @@ def test_log_imported_objects_writes_one_log_per_object() -> None:
     messages = [MagicMock(public_id=1), MagicMock(public_id=2)]
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1), 2: _rendered(2, '2.0.0')}), \
-         patch(f'{ROUTE_PATH}.json.dumps', return_value='{}'):
+         patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
         _log_imported_objects(messages, MagicMock(), logs_manager, MagicMock())
 
     assert logs_manager.insert_log.call_count == 2
@@ -217,16 +220,17 @@ def test_log_imported_objects_does_nothing_without_imports() -> None:
     objects_manager.find_objects.assert_not_called()
 
 
-def test_log_imported_objects_skips_an_object_it_could_not_render() -> None:
-    """A missing render costs that object its log entry, not the others"""
+def test_log_imported_objects_skips_an_object_it_could_not_render(caplog: pytest.LogCaptureFixture) -> None:
+    """A missing render costs that object its log entry, not the others - and the loss is reported"""
     logs_manager = MagicMock()
     messages = [MagicMock(public_id=1), MagicMock(public_id=2)]
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={2: _rendered(2)}), \
-         patch(f'{ROUTE_PATH}.json.dumps', return_value='{}'):
+         patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
         _log_imported_objects(messages, MagicMock(), logs_manager, MagicMock())
 
     assert logs_manager.insert_log.call_count == 1
+    assert f'{OBJECT_LOG_LOST_MARKER} action=CREATE object_id=1' in caplog.text
 
 
 def test_log_imported_objects_survives_a_failing_render_batch() -> None:
@@ -234,9 +238,17 @@ def test_log_imported_objects_survives_a_failing_render_batch() -> None:
     logs_manager = MagicMock()
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', side_effect=RuntimeError('render blew up')):
-        _log_imported_objects([MagicMock(public_id=1)], MagicMock(), logs_manager, MagicMock())
+        _log_imported_objects([MagicMock(public_id=1), MagicMock(public_id=2)], MagicMock(), logs_manager, MagicMock())
 
     logs_manager.insert_log.assert_not_called()
+
+
+def test_a_failing_render_batch_reports_every_lost_entry(caplog: pytest.LogCaptureFixture) -> None:
+    """One marker line per object, so the count of lost entries is the count of lines"""
+    with patch(f'{ROUTE_PATH}._render_imported_objects', side_effect=RuntimeError('render blew up')):
+        _log_imported_objects([MagicMock(public_id=1), MagicMock(public_id=2)], MagicMock(), MagicMock(), MagicMock())
+
+    assert caplog.text.count(OBJECT_LOG_LOST_MARKER) == 2
 
 
 def test_log_imported_objects_survives_a_failing_insert() -> None:
@@ -246,10 +258,21 @@ def test_log_imported_objects_survives_a_failing_insert() -> None:
     messages = [MagicMock(public_id=1), MagicMock(public_id=2)]
 
     with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1), 2: _rendered(2)}), \
-         patch(f'{ROUTE_PATH}.json.dumps', return_value='{}'):
+         patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
         _log_imported_objects(messages, MagicMock(), logs_manager, MagicMock())
 
     assert logs_manager.insert_log.call_count == 2
+
+
+def test_an_imported_objects_entry_is_labelled_as_imported() -> None:
+    """The comment tells an import apart from a create through the form"""
+    logs_manager = MagicMock()
+
+    with patch(f'{ROUTE_PATH}._render_imported_objects', return_value={1: _rendered(1)}), \
+         patch(f'{LOG_HELPER_PATH}.json.dumps', return_value='{}'):
+        _log_imported_objects([MagicMock(public_id=1)], MagicMock(), logs_manager, MagicMock())
+
+    assert logs_manager.insert_log.call_args.kwargs['comment'] == 'Object was imported'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

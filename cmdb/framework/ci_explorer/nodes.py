@@ -17,8 +17,7 @@
 Node payload composers for the CI Explorer
 
 One ``compose_node`` builder used everywhere - root, relation-linked, location-grafted -
-so the wire shape stays consistent across branches (the route previously had three
-copies with subtly different defensive dict access; see B3 in the refactor audit). Title
+so the wire shape stays consistent across branches. Title
 resolution and type_info shaping are factored into their own helpers so unit tests can
 exercise them without constructing a full object
 """
@@ -63,10 +62,9 @@ def build_type_info(type_doc: dict[str, Any]) -> dict[str, Any]:
     Builds the ``type_info`` block emitted next to every CI Explorer node
 
     Single source of truth for this nested dict so the response stays identical across
-    root / relation / location branches and a CmdbType missing ``render_meta`` no longer
-    crashes the route (the previous bare ``['render_meta'].get('icon')`` raised KeyError,
-    swallowed into a 500 by the catch-all). All five keys are always present; values
-    fall through to None when the type omits them
+    root / relation / location branches. A CmdbType missing ``render_meta`` yields a None
+    icon rather than a KeyError the catch-all would turn into a 500. All five keys are always
+    present; values fall through to None when the type omits them
 
     Args:
         type_doc (dict[str, Any]): The CmdbType document

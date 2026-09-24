@@ -60,11 +60,9 @@ class BaseCmdbApp(Flask):
             paired with `cloud_mode` it selects the "cloud build running against a local
             dev environment" branch in `security_manager` / `holder.py`
         asymmetric_key (dict[str, bytes]): RSA keypair used only when `cloud_mode` *and*
-            `local_mode` are both True (see `security/key/holder.py`). Hardcoded literal —
-            see the security audit notes for this file
+            `local_mode` are both True (see `security/key/holder.py`). Hardcoded literal
         symmetric_key (bytes): AES key used only when `cloud_mode` *and* `local_mode` are
-            both True (see `manager/security_manager.py`). Hardcoded literal — see the
-            security audit notes for this file
+            both True (see `manager/security_manager.py`). Hardcoded literal
     """
     def __init__(
         self,
@@ -96,7 +94,7 @@ class BaseCmdbApp(Flask):
         self.local_mode: bool = __LOCAL_MODE__
 
         # Dev-only RSA keypair: only consulted by `holder.py` when cloud_mode AND
-        # local_mode are both True. Hardcoded literal — flagged in the audit notes
+        # local_mode are both True. Hardcoded literal
         self.asymmetric_key: dict[str, bytes] = {
             'private': (
                 b"-----BEGIN RSA PRIVATE KEY-----\n"
@@ -141,7 +139,7 @@ class BaseCmdbApp(Flask):
         }
 
         # Dev-only AES key: only consulted by `security_manager.get_symmetric_key` when
-        # cloud_mode AND local_mode are both True. Hardcoded literal — flagged in the audit
+        # cloud_mode AND local_mode are both True. Hardcoded literal
         self.symmetric_key = (
             b'\x11\xeb\x8d*C\x95\xdd\xec0\xca7\x9ds\x92\xe9\x9b\x1e|i\x92i\x1c\x90\x8aw\xcd\x9aT\xbf\x1b)\x83'
         )

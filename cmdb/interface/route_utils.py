@@ -80,9 +80,8 @@ def get_cached_user_manager() -> CachedUserManager:
     mode, which the login path (`validate_with_service_portal`) cannot supply: nobody is authenticated
     yet. That is why `ManagerType` carries no entry for it
 
-    Called from the login path, the /setup routes and the OpenCelium routes, all of which had this
-    one-liner written out; it is here so that a change of mind about how the cache is reached is one
-    edit rather than eighteen
+    Called from the login path, the /setup routes and the OpenCelium routes; keeping it in one place
+    makes a change to how the cache is reached one edit rather than one per caller
 
     Returns:
         CachedUserManager: A manager bound to this process' database handle and the cache database
@@ -199,7 +198,7 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
     message; written here, a route says what it was doing and stops repeating how to fail
 
     The message is a TEMPLATE formatted with the route's own keyword arguments, so the per-route text
-    survives the move: ``"while retrieving the Subnet with ID: {public_id}"`` reads the handler's
+    stays per route: ``"while retrieving the Subnet with ID: {public_id}"`` reads the handler's
     ``public_id``. A placeholder the route does not take is left as it is rather than raising - a
     broken error message must not replace the error
 
@@ -300,9 +299,8 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
     - Forwards any remaining positional/keyword arguments (e.g. a `request_user` injected by an
       inner decorator) unchanged
 
-    Used only by the DataGerry assistant route. It lived on the former `RootBlueprint` as a
-    classmethod; it is a plain request decorator like the others here, so it belongs with them rather
-    than on a blueprint type
+    Used only by the DataGerry assistant route. It is a plain request decorator like the others here,
+    so it lives with them rather than on a blueprint type
 
     Args:
         **optional: Placeholder for optional keyword arguments (currently unused)
@@ -314,8 +312,8 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
         @functools.wraps(func)
         def _decorate(*args: Any, **kwargs: Any) -> Any:
             # `to_dict` cannot raise: Werkzeug has already parsed the query string by the time a view
-            # runs, and it tolerates duplicate keys and embedded null bytes. The try/except that used
-            # to wrap this - and its documented 400 - could therefore never fire
+            # runs, and it tolerates duplicate keys and embedded null bytes. A try/except around this
+            # - and a 400 for it - could therefore never fire
             location_args = request.args.to_dict()
 
             return func(location_args, *args, **kwargs)
@@ -782,7 +780,7 @@ def _validate_bearer(auth_info: str) -> str | None:
 
         # The claims are what every decorator of the route is about to ask for; handing them to the
         # request cache here means the token is decoded ONCE per request instead of once per
-        # decorator (measured: 4 decodes and 12 key reads for a single GET before this)
+        # decorator
         cache = _request_cache(_DECODED_TOKEN_CACHE_KEY)
 
         if cache is not None:
@@ -966,8 +964,8 @@ def _sync_api_cached_user(
 
     if user_exists_in_cache:
         # A cached entry whose password is the current HMAC only lacked this api_key (frontend-first
-        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a legacy plaintext
-        # password from before the hashing fix), so drop it and fall through to recreate it correctly.
+        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a plaintext password
+        # rather than its HMAC), so drop it and fall through to recreate it correctly.
         if _cached_password_is_current(cached_user_manager, security_manager, email, password):
             cached_user_manager.update_cached_user_api_key(email, target_db, x_api_key)
             return
@@ -1003,7 +1001,7 @@ def _cached_password_is_current(
     Reports whether the cached user's stored password is the current HMAC of the login password
 
     Used to distinguish a still-valid cached entry (only missing an api_key) from a stale one that must
-    be rewritten - e.g. a legacy entry stored with a plaintext password before the hashing fix.
+    be rewritten - e.g. an entry still holding a plaintext password rather than its HMAC.
 
     Args:
         cached_user_manager (CachedUserManager): The cached-user store
@@ -1178,7 +1176,7 @@ def validate_subscription_user(
     Validates user credentials against the DataGerry service portal
 
     Posts the credentials (and optionally the API key) to the portal's auth endpoint and returns the
-    portal's user payload on success. The endpoint switched to ``/datagerry/auth/subscription`` when an
+    portal's user payload on success. The endpoint switches to ``/datagerry/auth/subscription`` when an
     ``x_api_key`` is supplied
 
     Args:

@@ -252,7 +252,7 @@ class CmdbMultiRender:
 
         # --- Build type information dictionary ---
         # A CURATED selection, not a dump of the CmdbType: a flag added to the model does not appear
-        # here on its own, which is why `uses_ports` was absent until it was added deliberately
+        # here on its own, it has to be added deliberately
         type_info: dict[str, Any] = {
             RenderTypeInfoKey.TYPE_ID.value: type_instance.public_id,
             RenderTypeInfoKey.TYPE_NAME.value: type_instance.name,
@@ -405,7 +405,7 @@ class CmdbMultiRender:
 
         try:
             # Copy each summary field definition (get_summary() returns live cached field dicts) and fill
-            # its value from the object - the render no longer mutates the cached fields in place
+            # its value from the object, so the render never mutates the cached fields in place
             summary_list = []
             for item in type_instance.get_summary().fields:
                 entry = dict(item)
@@ -667,7 +667,7 @@ class CmdbMultiRender:
                     instance = CmdbObject.from_data(self.objects_manager.get_object(reference_id))
 
                 # Share this render's caches with the nested render so it does not rebuild them from
-                # scratch (this is what turns the previous per-node N+1 into a single shared cache)
+                # scratch - one shared cache instead of a fresh set of queries per nested node
                 render = CmdbMultiRender(
                     [instance], self.render_user, True,
                     shared_objects_cache=self.objects_cache,
@@ -852,9 +852,9 @@ class CmdbMultiRender:
 
         # A DATE field whose stored value is a string is turned into a real date for the response.
         # This is the ONE place a date is read out of USER data rather than out of a machine-written
-        # timestamp, which is why an unreadable value is LEFT AS IT IS rather than guessed: it used to
-        # be `parse(..., fuzzy=True)`, so a field holding 'ask Bob' rendered as a date assembled from
-        # today - invented on read, never stored, and carried into every export and report. Refusing
+        # timestamp, which is why an unreadable value is LEFT AS IT IS rather than guessed: fuzzy
+        # parsing would render a field holding 'ask Bob' as a date assembled from today - invented on
+        # read, never stored, and carried into every export and report. Refusing
         # outright is not an option either: the render is crash-tolerant by construction, and one bad
         # cell must not take a whole object's view down
         if t_field[FieldKey.TYPE] == FieldType.DATE and isinstance(t_field[FieldKey.VALUE], str) \
@@ -963,8 +963,8 @@ class CmdbMultiRender:
         `TypeFieldSection`, and the frontend's section factory draws such a section as a field
         section, so the render follows the same policy instead of dropping the section: anything
         carrying a `fields` list is merged as a plain section. What cannot be merged is reported -
-        the previous `elif` chain ended with no branch at all, so a section the render did not
-        recognise contributed no fields, with no log and no marker
+        an `elif` chain ending with no branch at all would let a section the render does not
+        recognise contribute no fields, with no log and no marker
 
         Args:
             section (TypeSection): The section whose kind none of the known classes covers

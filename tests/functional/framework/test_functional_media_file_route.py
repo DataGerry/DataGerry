@@ -32,6 +32,7 @@ from io import BytesIO
 from http import HTTPStatus
 
 import pytest
+from werkzeug.datastructures import FileStorage
 from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
@@ -226,6 +227,91 @@ class TestDownload:
 
         assert response.status_code == HTTPStatus.OK
         assert response.data == b'content'
+
+    def test_the_download_is_streamed_with_its_length(self, rest_api) -> None:
+        """The body is sent chunk by chunk rather than read into memory first, and says how long it is"""
+        _upload(rest_api, 'dg-func-stream.txt')
+        metadata = json.dumps({'author_id': AUTHOR_ID})
+
+        response = rest_api.get(f'{BASE_URL}/download/dg-func-stream.txt?metadata={metadata}', buffered=False)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.is_streamed
+        assert response.headers['Content-Length'] == str(len(b'content'))
+        assert b''.join(response.response) == b'content'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                paging over HTTP                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+PAGED_PARENT: int = 990101
+PAGED_FILE_COUNT: int = 105
+EXPLORER_PAGE_SIZE: int = 100
+
+
+@pytest.fixture(name='paged_folder')
+def fixture_paged_folder(database_manager: MongoDatabaseManager) -> str:
+    """
+    Stores PAGED_FILE_COUNT files in one folder - one more page than the explorer's page size
+
+    Seeded through the manager rather than a hundred uploads; the reads under test go through the route.
+    Returns the folder's metadata filter as the query parameter.
+    """
+    manager = MediaFilesManager(database_manager)
+
+    for index in range(PAGED_FILE_COUNT):
+        manager.insert_file(
+            FileStorage(stream=BytesIO(b'x'), filename=f'dg-paged-{index:03}.txt', content_type='text/plain'),
+            {'author_id': AUTHOR_ID, 'parent': PAGED_PARENT, 'folder': False},
+        )
+
+    return json.dumps({'parent': PAGED_PARENT, 'folder': False})
+
+
+class TestPagingOverHttp:
+    """The file explorer pages with limit=100 and scrolls for the next page"""
+
+    def _page(self, rest_api, metadata: str, page: int) -> dict:
+        """One explorer page, sorted by name as the explorer asks."""
+        response = rest_api.get(
+            f'{BASE_URL}/?metadata={metadata}&page={page}&limit={EXPLORER_PAGE_SIZE}&sort=filename&order=1',
+        )
+        assert response.status_code == HTTPStatus.OK
+
+        return response.get_json()
+
+    def test_the_second_page_holds_only_the_rest(self, rest_api, paged_folder: str) -> None:
+        """The total and the page count describe the folder, and page 2 is the remainder"""
+        second = self._page(rest_api, paged_folder, 2)
+
+        assert len(second['results']) == PAGED_FILE_COUNT - EXPLORER_PAGE_SIZE
+        assert second['total'] == PAGED_FILE_COUNT
+        assert second['pager']['total_pages'] == 2
+
+    def test_scrolling_through_the_pages_shows_every_file_once(self, rest_api, paged_folder: str) -> None:
+        """
+        Page 1 plus page 2 is the folder, each file exactly once
+
+        The explorer appends the next page to what it shows. While the route ignored the limit, every page
+        was the whole folder, so scrolling repeated every file.
+        """
+        seen = [row['public_id'] for page in (1, 2) for row in self._page(rest_api, paged_folder, page)['results']]
+
+        assert len(seen) == PAGED_FILE_COUNT
+        assert len(set(seen)) == PAGED_FILE_COUNT
+
+    def test_the_explorers_sort_is_applied(self, rest_api, paged_folder: str) -> None:
+        """Names come back in order"""
+        names = [row['filename'] for row in self._page(rest_api, paged_folder, 1)['results']]
+
+        assert names == sorted(names)
+
+    def test_a_request_without_a_limit_returns_the_whole_folder(self, rest_api, paged_folder: str) -> None:
+        """What the attachment dialogs and the attachment badge rely on"""
+        response = rest_api.get(f'{BASE_URL}/?metadata={paged_folder}')
+
+        assert len(response.get_json()['results']) == PAGED_FILE_COUNT
+        assert response.get_json()['total'] == PAGED_FILE_COUNT
 
 
 class TestUpdate:
@@ -521,8 +607,8 @@ class TestRouteErrorMapping:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_download_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """A failure while reading the bytes is a 500."""
-        monkeypatch.setattr(MediaFilesManager, 'get_file', _raiser(RuntimeError('boom')))
+        """A failure while opening the file is a 500."""
+        monkeypatch.setattr(MediaFilesManager, 'open_file', _raiser(RuntimeError('boom')))
 
         response = rest_api.get(f'{BASE_URL}/download/{MISSING_NAME}?metadata={AUTHOR_METADATA}')
 

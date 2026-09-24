@@ -323,7 +323,10 @@ def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
     each of those matters.
 
     Gated per route rather than per blueprint, because the rest of this blueprint is not a licensed
-    surface: `dg-virtual-tpl-ports` belongs to Port Connectivity, which is gated behind IPAM
+    surface: `dg-virtual-tpl-ports` belongs to Port Connectivity, which is gated behind IPAM. For the
+    same reason it is ``ApiLevel.LOCKED`` where its siblings are ``ADMIN``: a stored section template is
+    schema the cloud API may manage, while this route serves a feature, and feature surfaces are
+    frontend only
 
     Args:
         request_user (CmdbUser): CmdbUser requesting this data
@@ -360,7 +363,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
     The name is required and immutable: it is the key consuming types reference the template by, so the
     propagation is keyed on it. Requiring it is what makes the propagation unconditional - a payload
-    without a name used to be accepted, written, and then propagated to nobody, reporting success
+    without a name would be accepted, written, and then propagated to nobody, reporting success
 
     The immutability rules live in ``guard_section_template_update``; the write and the propagation are
     two steps, so a propagation failure is reported as a partial application (the template is already
@@ -450,8 +453,8 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
     Deletes a CmdbSectionTemplate by its public_id
 
     Requires the ``base.framework.sectionTemplate.delete`` right. Registered WITHOUT a trailing slash,
-    which is the form the frontend calls and the one its sibling read route uses - the slash-only
-    registration answered every delete with a 308 first
+    which is the form the frontend calls and the one its sibling read route uses - a slash-only
+    registration would answer every delete with a 308 first
 
     A predefined template is refused. For a global one the section is cleaned out of every consuming
     type and their objects BEFORE the document goes, because the cleanup is keyed on the template that

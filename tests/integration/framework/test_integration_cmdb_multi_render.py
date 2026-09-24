@@ -19,7 +19,7 @@ Integration tests for CmdbMultiRender - the core object render
 Renders a real object (with a text field, a reference field and a date field) against a real MongoDB,
 pinning the render output that the whole application depends on: object/type information, merged field
 values, date coercion, the expanded reference (object_id + referenced type), the summary line, and the
-get_mds_reference / get_user_name helpers (incl. the fix that get_mds_reference always returns a dict).
+get_mds_reference / get_user_name helpers (incl. that get_mds_reference always returns a dict).
 """
 import logging
 from datetime import datetime
@@ -234,10 +234,9 @@ class TestRenderResult:
                                                               database_manager, database_name, caplog) -> None:
         """get_mds_reference for a ref with no nested summary line resolves with line=None, no log.
 
-        Regression for the DEBUG-log spam: line_requires_fields' regex raised on a None line, which
-        was caught and logged ("Could not fill summary line") for every such reference. Option A: no
-        crash, no log, line stays None, and the reference still resolves (summaries clearing is the
-        deferred Option B, so summaries stay a list here).
+        A None line must not reach line_requires_fields' regex: a raise there would be caught and
+        logged ("Could not fill summary line") for every such reference. No crash, no log, line stays
+        None, and the reference still resolves (summaries are not cleared, so they stay a list here).
         """
         render = _render_main(full_access_user, database_manager, database_name)
 
@@ -247,7 +246,7 @@ class TestRenderResult:
         assert reference['object_id'] == REF_OBJ_ID
         assert reference['line'] is None
         assert isinstance(reference['summaries'], list)
-        # The None-line no longer trips line_requires_fields' regex, so nothing is logged
+        # The None-line does not trip line_requires_fields' regex, so nothing is logged
         assert 'Could not fill summary line' not in caplog.text
 
     def test_render_without_ref_render_does_not_crash(self, full_access_user,
@@ -357,10 +356,11 @@ class TestReferenceSection:
 
     def test_ref_section_field_survives_when_no_object_is_referenced(self, full_access_user,
                                                                      database_manager, database_name) -> None:
-        """Regression: a null-reference ref-section still emits its field so the frontend shows the section.
+        """A null-reference ref-section still emits its field so the frontend shows the section.
 
         The ref target type is loaded only via the ref-section scan here (no referenced object pulls it
-        into the cache), so before the fix __merge_fields_value dropped the field and the section vanished.
+        into the cache); a __merge_fields_value relying on that cache would drop the field and the
+        section would vanish.
         """
         doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .find_one({'public_id': REFSEC_OBJ_ID_NULL})

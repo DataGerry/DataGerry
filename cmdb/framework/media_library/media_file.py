@@ -51,8 +51,7 @@ class MediaFile(BaseMediaFile):
 
     # A file's identity is (filename, metadata.parent): the library is a tree, so the same name in two
     # different folders is legal and only a clash INSIDE one folder is not - which is exactly what the
-    # upload and update routes check before renaming to 'copy_(n)_<name>'. Until 2026-09-16 this
-    # declared a unique index over 'name', a key no GridFS document carries, and nothing ever built it
+    # upload and update routes check before renaming to 'copy_(n)_<name>'
     INDEX_KEYS: list[dict[str, Any]] = [
         {
             'keys': [

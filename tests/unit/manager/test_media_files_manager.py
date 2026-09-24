@@ -110,83 +110,110 @@ def test_get_new_media_file_id_increments_the_counter() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       get_file                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_get_file_returns_the_document() -> None:
-    """Without the blob flag the stored file document comes back"""
+def test_open_file_returns_the_open_file() -> None:
+    """The GridOut itself comes back, unread - reading is the caller's, chunk by chunk"""
     mock_self = _manager()
-    mock_self.fs.get_last_version.return_value = _stored_file()
+    grid_out = _stored_file()
+    mock_self.fs.get_last_version.return_value = grid_out
 
-    assert MediaFilesManager.get_file(mock_self, {'filename': 'logo.png'}) is FILE_DOCUMENT
-
-
-def test_get_file_returns_the_blob_when_asked() -> None:
-    """With the blob flag the raw content comes back instead"""
-    mock_self = _manager()
-    mock_self.fs.get_last_version.return_value = _stored_file(b'png-bytes')
-
-    assert MediaFilesManager.get_file(mock_self, {'filename': 'logo.png'}, blob=True) == b'png-bytes'
+    assert MediaFilesManager.open_file(mock_self, {'filename': 'logo.png'}) is grid_out
+    grid_out.read.assert_not_called()
 
 
-def test_get_file_returns_none_for_an_absent_file() -> None:
+def test_open_file_returns_none_for_an_absent_file() -> None:
     """A file that does not exist is None - the routes turn that into a 404"""
     mock_self = _manager()
     mock_self.fs.get_last_version.side_effect = NoFile('nope')
 
-    assert MediaFilesManager.get_file(mock_self, {'filename': 'gone.png'}) is None
+    assert MediaFilesManager.open_file(mock_self, {'filename': 'gone.png'}) is None
 
 
-def test_get_file_raises_for_a_storage_failure() -> None:
+def test_open_file_raises_for_a_storage_failure() -> None:
     """
-    Regression: a failure must not be swallowed into None
+    A failure must not be swallowed into None
 
-    A database outage then reached the client as "file not found", logged at DEBUG only. Only NoFile
-    may answer None; anything else has to reach the route's 500.
+    Only NoFile may answer None; anything else has to reach the route's 500, or a database outage would
+    reach the client as "file not found".
     """
     mock_self = _manager()
     mock_self.fs.get_last_version.side_effect = RuntimeError('gridfs down')
 
     with pytest.raises(MediaFileManagerGetError):
-        MediaFilesManager.get_file(mock_self, {'filename': 'logo.png'})
+        MediaFilesManager.open_file(mock_self, {'filename': 'logo.png'})
 
 
-def test_get_file_raises_when_reading_the_blob_fails() -> None:
-    """A file that is found but cannot be read is a storage failure, not a missing file"""
+def test_get_file_returns_the_document() -> None:
+    """The stored file document of the opened file comes back"""
     mock_self = _manager()
-    grid_out = _stored_file()
-    grid_out.read.side_effect = RuntimeError('corrupt chunk')
-    mock_self.fs.get_last_version.return_value = grid_out
+    mock_self.open_file.return_value = _stored_file()
 
-    with pytest.raises(MediaFileManagerGetError):
-        MediaFilesManager.get_file(mock_self, {'filename': 'logo.png'}, blob=True)
+    assert MediaFilesManager.get_file(mock_self, {'filename': 'logo.png'}) is FILE_DOCUMENT
+    mock_self.open_file.assert_called_once_with({'filename': 'logo.png'})
+
+
+def test_get_file_returns_none_for_an_absent_file() -> None:
+    """An absent file stays None"""
+    mock_self = _manager()
+    mock_self.open_file.return_value = None
+
+    assert MediaFilesManager.get_file(mock_self, {'filename': 'gone.png'}) is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                get_many_media_files                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_get_many_media_files_returns_every_match() -> None:
-    """Each GridFS result becomes a serialised MediaFile, with the count of what was returned"""
-    mock_self = _manager()
+def _grid_row() -> MagicMock:
+    """One GridFS result as `fs.find` yields it."""
     grid = MagicMock()
     grid._file = {
         'public_id': PUBLIC_ID, 'filename': 'logo.png', 'metadata': {},
         'chunkSize': 261120, 'uploadDate': 'ORIGINAL', 'length': 12,
     }
-    mock_self.fs.find.return_value = [grid]
+
+    return grid
+
+
+def test_get_many_media_files_returns_every_match_without_a_limit() -> None:
+    """Each GridFS result becomes a serialised MediaFile; an unpaged read counts what it read"""
+    mock_self = _manager()
+    mock_self.fs.find.return_value = [_grid_row()]
 
     response = MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0})
 
-    mock_self.fs.find.assert_called_once_with(filter={'metadata.parent': 0})
+    mock_self.fs.find.assert_called_once_with(filter={'metadata.parent': 0}, skip=0, limit=0, sort=None)
+    mock_self.dbm.count.assert_not_called()
     assert response.count == 1
+    assert response.total == 1
     assert response.result[0][MediaFileKey.PUBLIC_ID.value] == PUBLIC_ID
 
 
-def test_get_many_media_files_ignores_the_paging_params() -> None:
-    """Documented gap: limit / skip / sort never reach the GridFS query"""
+def test_get_many_media_files_applies_the_paging_in_the_query() -> None:
+    """limit / skip / sort reach GridFS, so only the page is read"""
     mock_self = _manager()
     mock_self.fs.find.return_value = []
+    sort = [('filename', -1)]
 
-    MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0}, limit=10, skip=5)
+    MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0}, limit=10, skip=5, sort=sort)
 
-    assert mock_self.fs.find.call_args.kwargs == {'filter': {'metadata.parent': 0}}
+    assert mock_self.fs.find.call_args.kwargs == {
+        'filter': {'metadata.parent': 0}, 'skip': 5, 'limit': 10, 'sort': sort,
+    }
+
+
+def test_a_page_reports_the_total_of_every_match() -> None:
+    """The total is counted on the file documents with the same filter, not taken from the page"""
+    mock_self = _manager()
+    mock_self.db_name = 'db'
+    mock_self.fs.find.return_value = [_grid_row()]
+    mock_self.dbm.count.return_value = 150
+
+    response = MediaFilesManager.get_many_media_files(mock_self, {'metadata.parent': 0}, limit=1)
+
+    mock_self.dbm.count.assert_called_once_with(
+        f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}', 'db', {'metadata.parent': 0},
+    )
+    assert response.count == 1
+    assert response.total == 150
 
 
 def test_get_many_media_files_wraps_a_failure() -> None:
