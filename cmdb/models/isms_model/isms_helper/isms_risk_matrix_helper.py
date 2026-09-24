@@ -33,10 +33,10 @@ reordering.
 scales.** ``calculate_risk_matrix`` is called by all six impact and likelihood write routes (insert,
 update, delete of either). It deliberately has NO minimum-configuration guard:
 
-  - it used to require at least one IsmsRiskClass, which is not an input to the calculation at all -
+  - it must not require at least one IsmsRiskClass, which is not an input to the calculation at all -
     and since no risk-class route recalculates, configuring risk classes *last* left the matrix
     permanently empty while the config wizard reported that step complete
-  - it used to require a non-empty scale, which left a **stale** grid behind when one was emptied:
+  - it must not require a non-empty scale, which would leave a **stale** grid behind when one is emptied:
     cells naming a deleted level. Those cells can never match again - a re-added level gets a new
     public_id - so keeping them preserved nothing and hid the real state
 

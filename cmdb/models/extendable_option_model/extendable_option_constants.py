@@ -21,7 +21,7 @@ database updaters build option documents, the REST routes read request bodies wi
 and the model itself names its indexes from here. Two separate copies of this enum existed before
 (the seed package's ``predefined_data_constants`` module and the routes' own
 ``extendable_options_constants``) - the note in the former asked for
-exactly this move, and that module was deleted on 2026-09-11 once the last of its enums had followed.
+exactly this move, and that module is gone now that the last of its enums has followed.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -39,7 +39,7 @@ class ExtendableOptionKey(BaseStrEnum):
 # Shared with updater_20260902, which builds it on databases that predate the declaration
 OPTION_TYPE_VALUE_INDEX_NAME: str = 'option_type-value'
 
-# Name of the non-unique 'option_type' index this collection carried until 2026-09-02. Kept as a
+# Name of the superseded non-unique 'option_type' index this collection carried. Kept as a
 # constant because updater_20260902 has to drop it by name on existing databases: the compound index
 # above has option_type as its prefix, so it already serves every query the old one served
 LEGACY_OPTION_TYPE_INDEX_NAME: str = 'option_type'

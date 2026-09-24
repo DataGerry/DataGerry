@@ -30,7 +30,7 @@ Two of the rules exist because of what happens *after* the write:
   once stored - so a blank one can never be repaired, only deleted
 
 The third is about what the document holds: the model takes ``**kwargs``, so any extra request
-parameter used to become a stored key the schema does not declare - and ``to_json`` drops it on read,
+parameter would become a stored key the schema does not declare - and ``to_json`` drops it on read,
 making it invisible to every reader while surviving each later edit.
 """
 from http import HTTPStatus
@@ -103,7 +103,7 @@ def _stored(templates, public_id: int) -> dict[str, Any]:
 #                                            ONLY THE WRITE KEYS ARE STORED                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestOnlyTheWriteKeysAreStored:
-    """The model takes **kwargs, so an extra parameter used to become a document key."""
+    """The model takes **kwargs, so an extra parameter would otherwise become a document key."""
 
     def test_an_unknown_parameter_is_not_stored(self, rest_api, templates) -> None:
         """It was invisible on read and survived every later edit"""

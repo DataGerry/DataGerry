@@ -135,7 +135,7 @@ def _decode_date(wrapper: dict[str, Any]) -> datetime.datetime | None:
         return None
 
     # A timestamp without a zone is UTC: that is what the driver stores and what 'default' writes.
-    # Reading it as the host's local time is what used to shift every round-tripped date
+    # Reading it as the host's local time shifts every round-tripped date
     if decoded.tzinfo is None:
         return decoded.replace(tzinfo=datetime.timezone.utc)
 

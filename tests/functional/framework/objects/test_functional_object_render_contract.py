@@ -17,7 +17,7 @@
 A rendered object field entry is a name + value + type triple, whatever the object holds
 
 The render fills every field the TYPE declares, so an object that carries no entry for one still
-answers it. What it used to answer was the type's field definition unchanged - and a type field with
+answers it. Answering with the type's field definition unchanged is the trap - a type field with
 no configured default has no ``value`` key at all, so the entry reached the client without one:
 `undefined` rather than null, for every field the object has no value for.
 
@@ -94,7 +94,7 @@ def _rendered_fields(rest_api, object_id: int) -> list[dict[str, Any]]:
 
 
 def test_every_rendered_entry_carries_a_value_key(rest_api, partial_object_id: int) -> None:
-    """The regression: three of the four entries used to arrive with no 'value' key at all"""
+    """The regression: three of the four entries must not arrive with no 'value' key at all"""
     entries = _rendered_fields(rest_api, partial_object_id)
 
     assert entries

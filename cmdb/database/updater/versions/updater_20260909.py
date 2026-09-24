@@ -16,7 +16,7 @@
 """
 Database update 20260909: no CmdbPerson or CmdbPersonGroup key holds null any more
 
-Both models used to write null for every optional key that the payload did not carry: a person's
+Both models write null for every optional key the payload does not carry: a person's
 ``phone_number`` / ``email`` / ``groups``, a group's ``email`` / ``group_members``. Their own Cerberus
 schemas type those keys ``string`` and ``list``, so the document the API handed out could not be sent
 back unchanged - a GET followed by an unmodified PUT was answered ``400 Invalid data provided!``. On the

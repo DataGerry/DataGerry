@@ -34,8 +34,8 @@ goes straight to ``update_many_raw`` rather than through ``ObjectsManager.update
 what makes the whole batch a single atomic write with no TOCTOU window - and what costs it the four
 guarantees ``update_object`` carries. The ACL is restored by ``verify_subnet_write_access``, asked
 once before the write because an ACL lives on the CmdbType and every target is a SUBNET. History,
-version bump and webhook are not restored; ``workflows/ipam.md`` records why, and what would have to
-be given up to restore them
+version bump and webhook are not restored: a batch write cannot pay for them per document, and the
+membership move is a system cascade rather than a user edit
 """
 from typing import Any
 
@@ -226,7 +226,7 @@ def verify_subnet_write_access(
     ``ObjectsManager.update_object``, so it also skips the ACL that route normally applies; this is
     that ACL, moved to the one place a batch write can ask it. The other guarantees
     ``update_object`` provides - version bump, change log, webhook - are deliberately not restored
-    here (see the ``workflows/ipam.md`` rule on system cascades vs. direct writes)
+    here: this is a system cascade rather than a user edit
 
     Args:
         types_manager (TypesManager): db interface for CmdbTypes

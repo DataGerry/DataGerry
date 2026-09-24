@@ -22,10 +22,10 @@ CmdbUserSetting holds one CmdbUser's settings for a single resource - one docume
 This module is the single source of the document's Cerberus validation schema, consumed as
 CmdbUserSetting.SCHEMA by the POST and the PUT/PATCH route.
 
-**``setting_type`` is constrained to the three UserSettingType values** (added 2026-09-09). It was
-typed as a plain string, so any string was accepted on write while the read resolved it to a
-UserSettingType member - one stored value outside the enum therefore made the whole settings list of
-that user unreadable. The allowed list is what closes that at the door.
+**``setting_type`` is constrained to the three UserSettingType values.** Typed as a plain string it
+accepts anything on write while the read resolves it to a UserSettingType member - one stored value
+outside the enum then makes that user's whole settings list unreadable. The allowed list closes it at
+the door.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #

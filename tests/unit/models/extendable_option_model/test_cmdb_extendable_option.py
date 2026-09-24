@@ -17,7 +17,7 @@
 Unit tests for cmdb.models.extendable_option_model.cmdb_extendable_option
 
 One CmdbExtendableOption is one entry of one dropdown. The model had **no test module of its own**
-until 2026-09-10: what ran of it did so through the functional route tests, which is why its three
+on its own: what runs of it otherwise does so through the functional route tests, which is why its three
 hand-rolled `except` arms were the file's only uncovered statements.
 
 Those three methods are gone - the model now declares `KEYS` and shares `CmdbDAO.from_data` /
@@ -209,7 +209,7 @@ class TestFromData:
 
     @pytest.mark.parametrize('missing', [ExtendableOptionKey.VALUE.value, ExtendableOptionKey.OPTION_TYPE.value])
     def test_a_document_missing_a_required_key_is_refused(self, missing: str) -> None:
-        """It used to become an instance holding None, which the list route answered as 'value': null"""
+        """It must not become an instance holding None, which the list route answers as 'value': null"""
         document = _document()
         del document[missing]
 

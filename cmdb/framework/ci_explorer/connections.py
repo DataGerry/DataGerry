@@ -44,11 +44,11 @@ from dataclasses import dataclass
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.framework.port.cable_hops import collect_cable_hops
 from cmdb.framework.port.connection_cable_view import attach_cable_views
 from cmdb.manager import ExtendableOptionsManager, ObjectsManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.models.port_connection_model.port_connection_constants import ConnectionType, PortConnectionKey
 from cmdb.models.port_model import PortKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -116,73 +116,6 @@ def index_ports_by_id(ports: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
         port[PortKey.PUBLIC_ID.value]: port
         for port in ports if isinstance(port.get(PortKey.PUBLIC_ID.value), int)
     }
-
-
-def other_endpoint(connection: dict[str, Any], port_id: int) -> int | None:
-    """
-    Returns the endpoint of a connection that is not the given port
-
-    ``endpoints`` is stored sorted, so a fixed position means nothing: the question can only ever be
-    asked as membership. A self-connection (both endpoints equal) answers None, since it leads nowhere
-
-    Args:
-        connection (dict[str, Any]): The CmdbPortConnection document
-        port_id (int): The endpoint the edge is seen from
-
-    Returns:
-        int | None: The far endpoint, or None when the connection does not name exactly one other port
-    """
-    endpoints: list[Any] = connection.get(PortConnectionKey.ENDPOINTS.value) or []
-    far_endpoints: list[int] = [
-        endpoint for endpoint in endpoints if isinstance(endpoint, int) and endpoint != port_id
-    ]
-
-    return far_endpoints[0] if len(far_endpoints) == 1 else None
-
-
-def collect_cable_hops(
-        connections: list[dict[str, Any]],
-        focal_port_ids: set[int]) -> list[tuple[dict[str, Any], int]]:
-    """
-    Pairs every cable of the focal object with the port at its far end
-
-    Only CABLE connections are read. An INTERNAL pairing joins two ports of one object and would be a
-    self-loop, and so would a cable whose far end is another port of the focal object (Q39) - both are
-    skipped here rather than filtered out afterwards, so neither reaches the far-side read.
-
-    One connection yields one entry, which is what makes two objects cabled together twice two edges
-    rather than one (Q36)
-
-    Args:
-        connections (list[dict[str, Any]]): The connections of the focal object's ports
-        focal_port_ids (set[int]): public_ids of the focal object's own ports
-
-    Returns:
-        list[tuple[dict[str, Any], int]]: Each cable with the port public_id at its far end
-    """
-    hops: list[tuple[dict[str, Any], int]] = []
-
-    for connection in connections:
-        if connection.get(PortConnectionKey.CONNECTION_TYPE.value) != ConnectionType.CABLE.value:
-            continue
-
-        near_port_id: int | None = next(
-            (endpoint for endpoint in connection.get(PortConnectionKey.ENDPOINTS.value) or []
-             if endpoint in focal_port_ids),
-            None,
-        )
-
-        if near_port_id is None:
-            continue
-
-        far_port_id: int | None = other_endpoint(connection, near_port_id)
-
-        if far_port_id is None or far_port_id in focal_port_ids:
-            continue
-
-        hops.append((connection, far_port_id))
-
-    return hops
 
 
 def load_far_port_owners(

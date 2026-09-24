@@ -16,12 +16,12 @@
 """
 The `?search=` of an ordinary list route
 
-Every table in the product has a search box, and until 2026-09-17 each one implemented it in the
+Every table in the product has a search box, and each one would otherwise implement it in the
 browser: `$addFields` stages casting the columns it wanted to search with `$toString` /
 `$dateToString`, then a `$match` with an `$or` of `$regex` conditions, posted as `?filter=`. Eighteen
 screens, each hard-coding **which columns are searchable** and **how each is stringified** - the date
-format alone differed between them, so the same text matched different things depending on which
-table you were looking at (`notes/FRONTEND_TO_BACKEND.md` **F4**).
+format alone differs between them, so the same text matches different things depending on which table
+you are looking at.
 
 This module is the one implementation. A route declares which of its fields are searchable and passes
 the term; everything else - the conversion, the escaping, the cleanup - is the same everywhere.

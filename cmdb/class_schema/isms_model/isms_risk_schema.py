@@ -23,7 +23,7 @@ This module is the single source of the document's Cerberus validation schema, c
 IsmsRisk.SCHEMA. Two things it deliberately does or does not express:
 
   - ``risk_type`` is pinned to the RiskType values here, which makes validation - not the route - the
-    place an unknown type is refused. The insert and update routes used to re-check it with
+    place an unknown type is refused, rather than the insert and update routes re-checking it with
     ``RiskType.is_valid`` after this schema had already passed anything
   - which fields a given risk_type actually uses (threats / vulnerabilities / consequences) is NOT
     expressed: it is a cross-field rule, checked by the frontend and by the CSV importer's
@@ -31,7 +31,7 @@ IsmsRisk.SCHEMA. Two things it deliberately does or does not express:
 
 The three text fields are ``nullable``, because that is what the model produces: an unset identifier,
 consequences or description round-trips as null, and the frontend patches that null straight back into
-the form it later saves - which this schema used to answer with 'null value not allowed'
+the form it later saves, so this schema must not answer it with 'null value not allowed'
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #

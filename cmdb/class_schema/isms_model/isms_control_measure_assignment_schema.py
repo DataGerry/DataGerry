@@ -27,8 +27,8 @@ from typing import Any
 
 # The three shapes a date arrives in: the Mongo extended-JSON wrapper {'$date': ...} the frontend
 # sends, a timestamp string from an API client, and a real datetime (an already-normalised payload).
-# All three are normalised to a datetime before the document is stored - a date field used to be
-# declared as a plain 'dict', which is what let the wrapper itself be persisted
+# All three are normalised to a datetime before the document is stored - declared as a plain 'dict',
+# a date field lets the wrapper itself be persisted
 _DATE_TYPES: list[str] = ['dict', 'string', 'datetime']
 # pylint: disable=R0801
 def get_isms_control_measure_assignment_schema() -> dict[str, Any]:

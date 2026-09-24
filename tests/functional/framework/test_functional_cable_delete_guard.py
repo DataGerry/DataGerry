@@ -28,7 +28,7 @@ Three things only a functional test can show here:
      which each route calls for itself; a unit test of the guard cannot tell whether a route calls it
   2. the bulk delete is refused as a WHOLE - one blocked cable in the selection means nothing is
      deleted, which is only visible by asking for the other targets afterwards
-  3. the bulk delete runs the Port cascade. It used to be wired into the single delete's
+  3. the bulk delete runs the Port cascade too - wired into the single delete's
      `delete_one_cascade` only, so bulk-deleting a switch left its CmdbPorts (and their connections)
      behind, pointing at an object that no longer existed
 
@@ -353,7 +353,7 @@ class TestCableCiDeleteRefusal:
 
     def test_the_bulk_delete_takes_the_ports_of_its_targets_with_it(self, rest_api) -> None:
         """
-        The Port cascade runs in the bulk loop too - it used to be wired into the single delete only
+        The Port cascade runs in the bulk loop too, not in the single delete only
 
         A port lives outside its owner's document, so nothing else would ever remove it: a bulk-deleted
         switch left its ports (and their connections) behind, referencing an object that no longer

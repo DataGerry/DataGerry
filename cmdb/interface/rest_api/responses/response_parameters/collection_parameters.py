@@ -28,7 +28,7 @@ Two rules behind the validation:
   collection, and the frontend does send ``page: 0`` in one place. It previously produced a negative
   ``$skip`` and a 400.
 * **A limit or order that has no meaning is refused.** ``limit`` may be ``0`` (unlimited) or positive;
-  a negative page size is nonsense and used to be accepted and echoed back to the frontend. ``order``
+  a negative page size is nonsense and must not be accepted and echoed back to the frontend. ``order``
   may only be ``1`` or ``-1``, the two values ``$sort`` accepts
 * **The filter is checked against an allow-list.** A list-shaped ``filter`` is spliced into the
   aggregation verbatim by everything downstream, so this constructor is the last point at which it is
@@ -117,7 +117,7 @@ def _coerce_page(page: Any) -> int:
     Coerces the ``page`` query value to an int, clamping anything below the first page
 
     A caller asking for page 0 or a negative page is asking for the start of the collection, so the
-    value is clamped rather than refused - it used to produce a negative ``$skip``
+    value is clamped rather than refused, because it would otherwise produce a negative ``$skip``
 
     Args:
         page (Any): The raw ``page`` value, a string when it came from the query parser

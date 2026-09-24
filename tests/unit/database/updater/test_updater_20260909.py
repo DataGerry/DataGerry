@@ -21,7 +21,7 @@ migration's re-run safety, the set of collections and keys it touches, and start
 orchestration + error wrapping.
 
 The end-to-end behaviour against a real MongoDB - including the double run and the data it must not
-touch - is covered by tests/integration/database/test_integration_updater_20260909.py, and the metadata
+touch - is covered by its own integration test, and the metadata
 contract by the shared parametrized test in test_version_updaters
 """
 from typing import Any
@@ -75,7 +75,7 @@ class TestScope:
     """Which collections and keys the migration covers."""
 
     def test_covers_both_membership_collections(self) -> None:
-        """The two collections whose models used to write null."""
+        """The two collections whose models write null without this migration."""
         assert set(NULLABLE_KEYS_BY_COLLECTION) == {PERSON_COLLECTION, PERSON_GROUP_COLLECTION}
 
     def test_the_collection_names_match_the_models(self) -> None:

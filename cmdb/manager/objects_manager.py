@@ -587,7 +587,7 @@ class ObjectsManager(BaseManager):
         That default is deliberate rather than lazy: some readers MUST be unscoped. The IPAM
         validators check a candidate against every existing object, not only the visible ones,
         because the invariant they enforce is global - an ACL-filtered check would report an
-        overlapping CIDR as valid and the write would then accept it (see `workflows/ipam.md`).
+        overlapping CIDR as valid and the write would then accept it.
         A reader that presents data to a user should pass both; a reader that enforces an invariant
         must not.
 

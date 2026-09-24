@@ -140,7 +140,7 @@ class TestRegex:
         assert Builder.regex_(FIELD, SEARCH_TERM)[FIELD]['$options'] == 'ims'
 
     def test_default_options_exclude_the_extended_flag(self) -> None:
-        """Regression: the default used to be 'imsx', and 'x' makes the engine ignore unescaped
+        """Regression: a default of 'imsx' lets 'x' make the engine ignore unescaped
         whitespace in the pattern - so a search for 'Data Center' silently matched nothing."""
         assert 'x' not in Builder.regex_(FIELD, SEARCH_TERM)[FIELD]['$options']
 

@@ -195,7 +195,7 @@ class TestDeleteSubscription:
         """
         A failing drop is a server error (500)
 
-        Regression: it used to be reported as 400 'database does not exist', because delete_database
+        Regression: it must not be reported as 400 'database does not exist', which delete_database
         collapsed every failure - a connection failure included - into DatabaseNotFoundError
         """
         flask_app.database_manager.drop_database.side_effect = DatabaseConnectionError('down')
@@ -299,7 +299,7 @@ class TestDeleteCachedUser:
         """
         A KeyError from the manager is a 500, not a 400 (regression)
 
-        The 'email' lookup and the manager calls used to share one try/except KeyError, so a KeyError
+        The 'email' lookup and the manager calls must not share one try/except KeyError, or a KeyError
         raised inside the manager was answered with "'email' key not provided in the request payload!"
         """
         cached_user_manager.delete_cached_user.side_effect = KeyError('subscriptions')

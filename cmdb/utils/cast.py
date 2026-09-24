@@ -156,8 +156,8 @@ def auto_cast(val: Any) -> Any:
     A string no caster claims is returned **as itself**, not as a copy or a reconstruction - so no
     value can be altered by passing through here. **A non-string is returned unchanged**: the
     callers hand over text, and a value that already has a type has nothing to gain from a caster
-    that can only guess. That is deliberate rather than incidental - `int()` used to claim a real
-    `float` and truncate it (`3.5` came back as `3`), and `str()` used to turn a real `None` into
+    that can only guess. That is deliberate rather than incidental - `int()` claims a real `float`
+    and truncates it (`3.5` comes back as `3`), and `str()` turns a real `None` into
     the text `'None'`
 
     Note what is *not* here any more: an untyped source has no way to spell "absent". `'null'` and

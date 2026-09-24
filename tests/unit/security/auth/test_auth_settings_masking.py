@@ -1,7 +1,7 @@
 """
 Unit tests for cmdb.security.auth.auth_settings_masking
 
-The `auth` section holds one credential - the LDAP bind password - and it used to be served in
+The `auth` section holds one credential - the LDAP bind password - and it must never be served in
 cleartext by every read. Masking it is only half a rule: the update route takes the WHOLE section, so
 a client that reads, edits one field and posts the object back would write the mask as the new
 password. These tests pin both halves and the boundary between them:
@@ -136,7 +136,7 @@ class TestMaskAuthSettings:
     """The whole section."""
 
     def test_it_masks_the_bind_password(self) -> None:
-        """What `GET /auth/settings` used to serve in cleartext."""
+        """What `GET /auth/settings` must never serve in cleartext."""
         assert _password(mask_auth_settings(_settings())) == MASKED_SECRET
 
     def test_the_sections_own_keys_are_carried_through(self) -> None:

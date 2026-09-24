@@ -24,9 +24,9 @@ Pure tests: no Mongo, no Flask. The model is a flat ten-key document with the IS
   - ``is_applicable`` is normalised to a boolean, because the Statement of Applicability has two
     answers and the schema still accepts a null on write
   - each failure converts into the model's own error type. Those three ``except`` arms were the whole
-    coverage gap of this file before 2026-09-07; they now live once on ``CmdbDAO``, and this model
+    coverage gap this file could carry; they live once on ``CmdbDAO``, and this model
     declares ``KEYS`` plus its two error types instead of carrying its own copy of the triple
-    (tests/unit/models/test_cmdb_dao_shared_document.py owns the shared machinery)
+    (the shared machinery has its own tests)
   - the signature is keyword-only, which it has to be: ``CmdbDAO.__new__`` looks for ``public_id`` in
     ``**kwargs`` and runs before ``__init__``, so a positional call has never been able to work. It
     still raises ``RequiredInitKeyNotFoundError: A required InitKey is missing: public_id!`` - what the

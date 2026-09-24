@@ -1140,7 +1140,7 @@ class TestGuardUsesPortsChange:
             guard_uses_ports_change(MagicMock(), _uses_ports_type(True), _uses_ports_type(False))
 
 
-# ------------------------------------------- the identifier guards (G1) --------------------------------------------- #
+# ----------------------------------------------- the identifier guards ---------------------------------------------- #
 # A field's `name` and a multi-data-section's `name` ARE their identity - every CmdbObject keys its
 # stored values and rows by them, and nothing sits underneath. A rename is therefore indistinguishable
 # from one removal plus one addition, which is exactly the shape these refuse.
@@ -1347,7 +1347,7 @@ def test_normalize_type_acl_reads_every_empty_spelling_as_the_default(acl: Any) 
     """
     null, {}, a null groups and a null includes all mean "no ACL"
 
-    A null `groups` used to raise inside `GroupACL.from_data`, which on the update route surfaced as a
+    A null `groups` must not raise inside `GroupACL.from_data`, which on the update route surfaces as a
     500; the model tolerates it now, so completing the payload here cannot turn a create into one.
     """
     payload: dict[str, Any] = {'acl': acl}

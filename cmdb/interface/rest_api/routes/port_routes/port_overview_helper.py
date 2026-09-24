@@ -46,6 +46,7 @@ from cmdb.models.port_connection_model.port_connection_constants import (
 )
 from cmdb.security.acl.permission import AccessControlPermission
 
+from cmdb.framework.port.cable_hops import other_endpoint
 from cmdb.framework.port.name_syntax_constants import PortDeviceKind
 
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
@@ -92,25 +93,6 @@ def index_connections_by_kind(
     return by_port
 
 
-def peer_port_id(connection: dict[str, Any] | None, port_id: int) -> int | None:
-    """
-    Reports the port at the other end of a connection
-
-    Args:
-        connection (dict[str, Any] | None): The connection, or None when the port has none
-        port_id (int): The port being looked at
-
-    Returns:
-        int | None: The other endpoint, or None when the connection does not hold this port
-    """
-    endpoints: list[int] = (connection or {}).get(PortConnectionKey.ENDPOINTS.value) or []
-
-    if port_id not in endpoints:
-        return None
-
-    return next((endpoint for endpoint in endpoints if endpoint != port_id), None)
-
-
 def collect_peer_port_ids(ports: list[dict[str, Any]], cable_by_port: dict[int, dict[str, Any]]) -> list[int]:
     """
     Collects the ports at the far end of the object's cables
@@ -130,7 +112,7 @@ def collect_peer_port_ids(ports: list[dict[str, Any]], cable_by_port: dict[int, 
 
     for port in ports:
         port_id = port.get(PortKey.PUBLIC_ID.value)
-        peer = peer_port_id(cable_by_port.get(port_id), port_id)
+        peer = other_endpoint(cable_by_port.get(port_id), port_id)
 
         if peer is not None and peer not in own_ids:
             peer_ids[peer] = None
@@ -263,10 +245,10 @@ def build_port_entry(
             cable_connection.get(PortConnectionKey.PUBLIC_ID.value) if cable_connection else None
         ),
         PortOverviewEntryKey.CONNECTED_PORT.value: peers.connected_port(
-            peer_port_id(cable_connection, port_id),
+            other_endpoint(cable_connection, port_id),
         ),
         PortOverviewEntryKey.CONNECTED_OBJECT.value: peers.connected_object(
-            peer_port_id(cable_connection, port_id),
+            other_endpoint(cable_connection, port_id),
         ),
         PortOverviewEntryKey.INTERFACE_LINKS.value: port.get(PORT_INTERFACE_LINKS_KEY) or [],
     }
@@ -323,7 +305,7 @@ def build_panel_rows(
             continue
 
         port_id = port.get(PortKey.PUBLIC_ID.value)
-        rear: dict[str, Any] | None = ports_by_id.get(peer_port_id(internal_by_port.get(port_id), port_id))
+        rear: dict[str, Any] | None = ports_by_id.get(other_endpoint(internal_by_port.get(port_id), port_id))
 
         if rear is not None:
             claimed_rear_ids.add(rear.get(PortKey.PUBLIC_ID.value))

@@ -110,7 +110,7 @@ class TestUnmapFlowchartConnectorNames:
         assert unmap_flowchart_connector_names(flowcharts) is flowcharts
 
     def test_a_flowchart_without_the_key_is_left_alone(self) -> None:
-        """It used to be subscripted unguarded - a KeyError, i.e. a 500 for the whole log view"""
+        """Subscripted unguarded it is a KeyError, i.e. a 500 for the whole log view"""
         flowcharts = [{'label': 'step 1'}]
 
         unmap_flowchart_connector_names(flowcharts)
@@ -268,7 +268,7 @@ class TestRequiredStrParam:
 #                                                 the manager factory                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestBuildConnectionLogManager:
-    """The construction the six routes used to repeat."""
+    """The construction all six routes share."""
 
     def test_it_scopes_the_manager_to_the_users_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """

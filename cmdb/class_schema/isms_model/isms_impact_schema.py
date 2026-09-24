@@ -51,7 +51,7 @@ def get_isms_impact_schema() -> dict[str, Any]:
         # Numeric weight of this impact level used in risk calculation. The minimum matches the
         # likelihood scale's, which is the other axis of the same matrix, and the frontend's
         # nonZeroValidator on both forms: a zero-weight level would flatten every risk that uses it.
-        # This schema allowed 0.0 until 2026-09-07, alone among the four layers that have an opinion
+        # All four layers with an opinion refuse 0.0; this one may not be the exception
         ImpactKey.CALCULATION_BASIS.value: {
             'type': 'float',
             'min': 1e-9,

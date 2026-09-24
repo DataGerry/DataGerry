@@ -330,7 +330,7 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         Maps the user's LDAP groups onto a DataGerry group_id, first match wins
 
         A configured mapping matches a group either by its FULL DN - what the settings UI asks for - or by
-        the bare CN of its first RDN, which is what the provider used to compare against. Both are
+        the bare CN of its first RDN, which is the weaker thing to compare against. Both are
         accepted so an installation configured either way keeps working. A mapping entry that cannot be
         resolved to a usable group_id is skipped rather than failing the login
 
@@ -461,7 +461,7 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         try:
             self.users_manager.update_user(stored_user.public_id, stored_user)
         except UsersManagerUpdateError as err:
-            # NOT reported as "unknown user": that is what used to send a failed group update on to
+            # NOT reported as "unknown user": that would send a failed group update on to
             # provision a second CmdbUser for a user that already exists
             raise AuthenticationError(LdapAuthMessage.GROUP_UPDATE_FAILED.format(detail=err)) from err
 

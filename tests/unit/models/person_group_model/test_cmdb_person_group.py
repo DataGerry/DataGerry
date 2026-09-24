@@ -17,11 +17,11 @@
 Unit tests for cmdb.models.person_group_model
 
 Pure tests: no Mongo, no Flask. The rules shared with the other two membership models are pinned once
-in tests/unit/models/test_membership_models_are_null_free.py; what is pinned here belongs to the group
+by the shared membership-model tests; what is pinned here belongs to the group
 alone:
 
   - the ``group_members`` index and the registry membership that gets it built
-  - the ``group_members: null`` document that used to be reachable, which is the value that made the
+  - the ``group_members: null`` document, which is the value that makes the
     update route read ``set(None)`` and answer 500 - the model can no longer produce it
   - ``email`` being required-but-empty here while it is optional on a person: the one place the two
     schemas differ, and easy to "harmonise" by accident

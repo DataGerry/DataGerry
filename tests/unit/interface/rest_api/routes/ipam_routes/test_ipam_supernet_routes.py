@@ -260,7 +260,7 @@ def test_export_route_body_parses_as_valid_csv(
 
     # Patch the data source + the family resolver (IPv4) so the real build runs and emits real bytes.
     # The real builder also resolves the caller's ACL read scope, which reaches ManagerProvider deep in
-    # the framework - patched at ITS OWN path rather than through the route module, where it used to be
+    # the framework - patched at ITS OWN path rather than through the route module
     # patched by accident (patching an attribute of the shared class silences it everywhere)
     with patch('cmdb.framework.ipam.subnet_export.load_assigned_subnet_rows', return_value=rows), \
          patch('cmdb.framework.ipam.subnet_export.resolve_supernet_family', return_value=IpAddressFamily.IPV4), \
@@ -376,7 +376,7 @@ def test_unassign_route_forwards_the_request_user(flask_app: Flask) -> None:
     """
     The user reaches the detacher, which is what makes the write ACL-checked
 
-    Before 2026-09-16 the route deliberately did not forward it (tier 2 T132): the detach is a raw
+    A route that does not forward it treats the detach as a raw
     `update_many_raw`, so nothing asked whether the caller may update SUBNET objects at all. It is a
     keyword argument, so a positional-only assertion would not have caught its absence.
     """

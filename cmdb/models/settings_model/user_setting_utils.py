@@ -17,7 +17,7 @@
 Reading a stored CmdbUserSetting document, defensively
 
 The read path of the settings collection has one property the write path does not: it sees **every**
-document a user has, including ones this version of DataGerry did not write. Until 2026-09-09 a single
+document a user has, including ones this version of DataGerry did not write. A single
 unreadable document therefore cost the user their whole settings list - `get_user_settings` built a
 model per document and one bad `setting_type` failed the entire read with a 400, for every other
 setting too. The frontend syncs those settings on login and only logs the failure, so the visible
@@ -125,7 +125,7 @@ def normalize_user_setting_document(document: dict[str, Any]) -> dict[str, Any] 
     The read-side counterpart of the model: same four keys, same normalisation (a missing payload list
     becomes an empty one), and no model instance built for a payload that is handed straight back.
     A document that cannot be read is reported and skipped by the caller rather than failing the whole
-    list - see the module docstring for what that used to cost
+    list - see the module docstring for what that would cost
 
     Args:
         document (dict[str, Any]): A stored CmdbUserSetting document

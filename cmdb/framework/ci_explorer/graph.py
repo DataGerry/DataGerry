@@ -26,7 +26,7 @@ Three rules govern what comes out:
 
 **The focal object must exist.** It is loaded first, whatever the flags say, and a missing one is a
 ``CiExplorerTargetNotFoundError`` the route turns into a 404. Returning an empty graph instead - which
-is what this did until 2026-09-08 - makes a typo'd id indistinguishable from an isolated CI, and does
+would make a typo'd id indistinguishable from an isolated CI, and does
 so with a 200.
 
 **Nothing else is fatal, but nothing is silent either.** A neighbour whose CmdbType or enrichment is
@@ -403,7 +403,7 @@ def resolve_composable(
     Resolves the three things a node needs, or reports why it cannot be composed
 
     The public_id is read with ``.get`` on purpose: the enrichment pass already tolerates a document
-    without one, and the compose passes used to dereference it with ``[]`` - so a single malformed
+    without one, and the compose passes must not dereference it with ``[]`` - a single malformed
     neighbour took the whole request down with a 500 one step after being deliberately skipped.
 
     Args:

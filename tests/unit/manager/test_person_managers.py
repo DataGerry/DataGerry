@@ -25,7 +25,7 @@ What is pinned here:
 
   - **the delete cascade is complete and ordered.** Clearing the ISMS references and removing the
     entity from the counterpart collection both happen BEFORE the document is deleted. The counterpart
-    step used to be a second call made by the delete route, so a person deleted through any other path
+    step belongs here rather than in the delete route, where a person deleted through any other path
     stayed listed in every group
   - the cascade's failure surfaces as the manager's own delete error, rather than as whatever pymongo
     raised
@@ -157,7 +157,7 @@ class TestDeleteCascade:
 
     def test_removes_the_entity_from_the_counterpart_collection(self, side: _Side) -> None:
         """
-        The half that used to live in the delete route
+        The half that belongs to the manager rather than the delete route
 
         Any caller other than that route - a bulk delete, an importer, a future route - left the
         deleted entity listed on every counterpart document.

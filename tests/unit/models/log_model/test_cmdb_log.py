@@ -137,7 +137,7 @@ class TestTheFallback:
         The case the old `(KeyError, ValueError)` tuple missed
 
         A dict lookup with an unhashable key raises TypeError, not KeyError - so a hand-edited or
-        half-migrated row carrying a list where a name belongs used to escape the factory and surface
+        half-migrated row carrying a list where a name belongs would escape the factory and surface
         as a 500 on the log list instead of reading as an ordinary object log.
         """
         assert isinstance(CmdbLog(**_log_data(log_type=unhashable)), CmdbObjectLog)
@@ -160,7 +160,7 @@ class TestTheInstance:
         """
         Positional construction cannot work here, and the refusal now comes from the right place
 
-        `__new__` used to forward its positional arguments into the class LOOKUP, which declares none,
+        `__new__` must not forward its positional arguments into the class LOOKUP, which declares none,
         so a positional call raised `TypeError: __get_log_class() takes 1 positional argument` before
         any log class was reached. It now reaches CmdbDAO.__new__, which validates REQUIRED_INIT_KEYS
         against the KEYWORD arguments alone and names the key that is missing - the answer a caller can

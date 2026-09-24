@@ -34,13 +34,12 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cmdb.framework.port.cable_hops import collect_cable_hops, other_endpoint
 from cmdb.framework.ci_explorer.connections import (
     ConnectionSourceManagers,
-    collect_cable_hops,
     collect_connection_neighbours,
     index_ports_by_id,
     load_far_port_owners,
-    other_endpoint,
 )
 from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 from cmdb.models.port_model.port_constants import PortSide

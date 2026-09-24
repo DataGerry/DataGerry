@@ -2,7 +2,7 @@
 Unit tests for cmdb.security.key.secret_resolver
 
 The one place that answers "where does this secret come from". The ladder it implements - app value
-in cloud+local, Base64 environment variable in hosted cloud, settings section on-premise - used to be
+in cloud+local, Base64 environment variable in hosted cloud, settings section on-premise - it is easy to
 written out three times, once in `SecurityManager` and twice byte-for-byte in `KeyHolder`, which is
 how the same missing-environment-variable bug came to exist in both copies.
 
@@ -10,7 +10,7 @@ Two properties matter beyond "it picks the right branch":
 
 * **the source that does not apply is never evaluated** - both are callables precisely so the
   on-premise settings read does not happen when the environment already holds the answer
-* **a malformed Base64 value is refused the same way an absent one is** - it used to raise
+* **a malformed Base64 value is refused the same way an absent one is** - decoding it unguarded raises
   `binascii.Error` out of a login request as an unexplained 500
 """
 import base64
@@ -81,7 +81,7 @@ class TestDecodeEnvSecret:
 
     def test_a_malformed_value_is_refused_as_a_value_error(self, monkeypatch: pytest.MonkeyPatch) -> None:
         """
-        It used to raise binascii.Error out of a login request - an unexplained 500
+        A binascii.Error out of a login request is an unexplained 500
 
         The absent case was handled precisely and the malformed one was not, although both are the
         same mistake seen from different angles.

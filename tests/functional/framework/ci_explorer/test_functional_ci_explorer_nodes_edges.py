@@ -375,11 +375,11 @@ class TestCiExplorerNodesEdgesContract:
 
 
 class TestAMissingTargetIsA404:
-    """The contract change of 2026-09-08: a graph of nothing is not an empty graph."""
+    """The contract: a graph of nothing is not an empty graph."""
 
     def test_an_unknown_target_id_is_refused(self, rest_api) -> None:
         """
-        It used to answer 200 with empty buckets, so a typo'd id looked like an isolated CI
+        Answering 200 with empty buckets makes a typo'd id look like an isolated CI
 
         Every other read route in the API answers 404 for a public_id that resolves to nothing, and
         the CI Explorer view can now tell the two cases apart.

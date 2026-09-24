@@ -1,7 +1,7 @@
 """
 Functional tests for the Service-Portal setup / teardown routes (/setup)
 
-**This file used to prove the three DELETE routes are mounted. Since 2026-09-16 it proves the
+**This file proves the
 opposite for an on-premise process, because that is the fix.**
 
 The routes exist for the DataGerry Service Portal to tear down a tenant: drop its database, evict it
@@ -20,7 +20,7 @@ registration is the whole guard** - which is what these tests pin. The test suit
 the routes must be absent from the URL map entirely.
 
 The handlers' own behaviour - the error mapping, the payload branches of `delete_cached_user` - is
-covered without the app in `tests/unit/interface/rest_api/routes/setup_routes/test_setup_routes.py`,
+covered by the setup routes' own unit tests,
 so nothing was lost by this file changing its subject.
 """
 from http import HTTPStatus

@@ -184,8 +184,8 @@ class TestGetMapperRelation:
     """The catch-all relation document."""
 
     def test_document_shape(self) -> None:
-        """Every field of the 2026-02-26 CmdbRelation shape is written, with the frozen name."""
-        # The keys/values are spelled out on purpose: a migration writes the 2026-02-26 wire shape, so
+        """Every field of the CmdbRelation shape this migration targets is written, with the frozen name."""
+        # The keys/values are spelled out on purpose: a migration writes the wire shape it targets, so
         # this assertion has to fail if one of the module's frozen constants is ever re-pointed
         assert get_mapper_relation([TYPE_A_ID, TYPE_B_ID]) == {
             RELATION_NAME_FIELD: MAPPER_RELATION_NAME,
