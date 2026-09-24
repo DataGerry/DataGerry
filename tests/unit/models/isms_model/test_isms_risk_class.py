@@ -17,7 +17,7 @@
 Unit tests for IsmsRiskClass
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO (whose shared machinery has its own tests), so what is
 pinned here is what remains this model's own:
 
   - **the key set IS the wire format.** ``RiskClassKey`` drives both directions now, so a key added to
@@ -97,7 +97,7 @@ class TestConstruction:
 
         `CmdbDAO.__new__` validates the init keys against the KEYWORD arguments and runs first, so a
         positional call never reaches `__init__` at all - it fails on a public_id it cannot see. The
-        signature used to advertise a positional call that could never have worked.
+        a signature advertising a positional call here could never have worked.
         """
         with pytest.raises(RequiredInitKeyNotFoundError):
             IsmsRiskClass(PUBLIC_ID, NAME, COLOR)  # pylint: disable=too-many-function-args

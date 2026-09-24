@@ -308,7 +308,7 @@ class MongoDBQueryBuilder:
         Builds one child of a condition group - either a nested group or a leaf rule
 
         Separated from `__build_ruleset` so a missing key is reported against the node that actually
-        lacks it: reading the leaf keys inside the group's own try block used to surface every
+        lacks it: reading the leaf keys inside the group's own try block surfaces every
         KeyError as "Unknown condition operator", pointing at the wrong part of the tree
 
         Args:

@@ -461,7 +461,7 @@ class SectionTemplatesManager(BaseManager):
 
         # No swap back into render_meta.sections is needed: get_section returns the entry ITSELF,
         # so the label and field-list assignments above have already changed the layout. The loop
-        # that used to reassign sections[i] = section put the same object back where it already was
+        # reassigning sections[i] = section would put the same object back where it already was
 
         # Refresh the section's field definitions on the type (drop old + deleted, add new)
         a_type.fields = [
@@ -792,7 +792,7 @@ class SectionTemplatesManager(BaseManager):
         """
         for a_type in self.get_types_using_template(template_name):
             # The types come from a query ON global_template_ids, so the name is always in the list -
-            # the membership check this line used to carry could not be false
+            # a membership check on this line could not be false
             a_type.global_template_ids.remove(template_name)
 
             type_template_section: TypeFieldSection | TypeMultiDataSection | None = a_type.get_section(template_name)

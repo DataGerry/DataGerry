@@ -564,7 +564,7 @@ class TestGetCmdbLocationParent:
         """
         A dangling parent reference answers 200 with None, like an object with no location at all
 
-        It used to abort 404, which gave the one outcome "there is no parent" two encodings and
+        Aborting 404 would give the one outcome "there is no parent" two encodings and
         reported a data-integrity problem as if the object did not exist.
         """
         del patched_provider
@@ -1125,7 +1125,7 @@ class TestMoveCmdbLocations:
         """
         The whole batch is validated in ONE call up front, then each target is moved
 
-        The pre-flight used to call the single-object validator once per object; it is now the batched
+        The pre-flight calls the batched validator rather than the single-object one per object - the
         ``validate_object_location_moves``, called once with every id, so the shared reads happen once.
         """
         del patched_provider

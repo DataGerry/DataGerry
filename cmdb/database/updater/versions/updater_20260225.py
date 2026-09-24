@@ -56,7 +56,7 @@ are no longer declared (already-pulled entries stay pulled), and the backfill on
 untyped entry (an already-typed one no longer matches). A second run reports zero modified documents.
 
 Every literal this module writes or queries is a **local, frozen constant**: a migration is a
-historical record of the 2026-02-25 schema, so it must keep reading and writing those names even if
+historical record of the schema it migrates, so it must keep reading and writing those names even if
 the live models rename them later. That is why nothing here is imported from the model classes or
 their key enums - see the constants block below.
 

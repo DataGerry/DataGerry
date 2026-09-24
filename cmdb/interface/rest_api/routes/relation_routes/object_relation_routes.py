@@ -35,7 +35,7 @@ Two invariants the write routes enforce, both of them server-side only:
       and clears `last_edit_time` (a relation that has never been edited has no edit time); an update
       preserves the stored creation time, records the editing user as `author_id` (the field doubles as
       "who last touched this" - a CmdbObjectRelation has no separate editor field) and stamps
-      `last_edit_time`. Until 2026-09-08 the create route left `last_edit_time` to the body, so a
+      `last_edit_time`. Left to the body by the create route, a
       client could claim - and backdate - an edit that never happened, and the `{'$date': ...}` wrapper
       it sent was stored as a sub-document MongoDB cannot sort or range-filter
 
@@ -563,7 +563,7 @@ def _parse_tab_page_params() -> tuple[int, int, str, int]:
     Reads and validates the pagination parameters of the relation-tab instances route
 
     Every parameter is optional. An out-of-range `limit` or an `order` that is not a MongoDB sort
-    direction is refused instead of being clamped: `limit=0` used to mean "no limit" and could dump a
+    direction is refused instead of being clamped: `limit=0` would mean "no limit" and could dump a
     whole tab in one response, and an unknown direction would otherwise silently sort ascending
 
     Raises:

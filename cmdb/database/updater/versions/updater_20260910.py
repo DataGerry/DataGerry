@@ -27,7 +27,7 @@ sub-document as a date, and the relation-tab route accepts an arbitrary ``?sort=
 tab by ``last_edit_time`` ordered by BSON type instead of by time; and the two timestamps of one
 collection had two different types, so any code reading them had to handle both.
 
-Since 2026-09-08 the create route clears ``last_edit_time`` and both keys are declared in
+The create route clears ``last_edit_time`` and both keys are declared in
 ``CmdbObjectRelation.DATE_FIELDS``, so every write path normalises them. This migration converts what
 is already stored.
 

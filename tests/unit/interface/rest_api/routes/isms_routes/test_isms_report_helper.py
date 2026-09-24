@@ -224,7 +224,7 @@ class TestBuildReportFilterStages:
 
     ``CollectionParameters`` types it ``dict | list[dict]``, and the rest of the backend reads it that
     way: ``BaseQueryBuilder.__init_query`` treats a dict as one ``$match`` and a list as stages to
-    splice in, and ``objects_routes`` branches on both. The report routes used to wrap the value
+    splice in, and ``objects_routes`` branches on both. The report routes must not wrap the value
     unconditionally, so a list produced ``{"$match": [...]}`` - which MongoDB rejects, making a
     documented filter shape answer 500.
     """
@@ -236,7 +236,7 @@ class TestBuildReportFilterStages:
         ]
 
     def test_a_list_is_spliced_in_as_stages(self) -> None:
-        """The shape that used to 500: the caller already sent pipeline stages."""
+        """The shape most at risk of a 500: the caller already sent pipeline stages."""
         stages = [{'$match': {'priority': 3}}, {'$sort': {'risk_title': 1}}]
 
         assert build_report_filter_stages(stages) == stages

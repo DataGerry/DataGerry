@@ -539,7 +539,7 @@ class TestObjectIdsValidation:
 
     @pytest.mark.parametrize('raw_id', ['abc', '0', '-1', '1.5'], ids=['text', 'zero', 'negative', 'float'])
     def test_bulk_update_rejects_an_unusable_id(self, rest_api, raw_id: str) -> None:
-        """`int()` on a junk id used to raise into the catch-all and answer 500 (regression)."""
+        """`int()` on a junk id must not raise into the catch-all and answer 500."""
         response = rest_api.put(
             f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}?objectIDs={raw_id}',
             json=object_payload(OBJECT_ID_FOR_UPDATE, UPDATED_VALUE),

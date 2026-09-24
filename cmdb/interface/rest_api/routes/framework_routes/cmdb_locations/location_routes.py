@@ -543,7 +543,7 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response
     Requires the ``base.framework.location.view`` right
 
     "There is no parent" is a successful answer, not a 404: the route returns 200 with ``null`` both
-    when the object has no location at all and when its location's parent node is missing. It used to
+    when the object has no location at all and when its location's parent node is missing. It must not
     404 for the second case only, so the same outcome had two encodings - and a dangling ``parent``
     reference (a data-integrity problem) was reported to the caller as if the object did not exist
 
@@ -677,7 +677,7 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 
         # Reject an invalid new parent (missing / not selectable-as-parent / cycle) before writing
         validate_object_location_change(object_id, parent, locations_manager)
-        # ... and the Rack rules, which this route used to skip entirely
+        # ... and the Rack rules, which this route may not skip
         guard_rack_location_change(request_user, object_id, parent, locations_manager)
 
         location_update_params[LocationKey.NAME.value] = resolve_location_name(

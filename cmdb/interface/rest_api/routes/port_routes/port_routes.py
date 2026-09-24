@@ -81,6 +81,15 @@ from cmdb.interface.rest_api.responses import (
 )
 
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import with_interface_links
+from cmdb.interface.rest_api.routes.port_routes.port_cabling_constants import PORT_CABLING_SUBJECT
+from cmdb.interface.rest_api.routes.port_routes.port_cabling_helper import (
+    CablingManagers,
+    build_cabling_view,
+    build_port_expansion,
+    empty_expansion,
+    read_cabling_ring,
+    read_port_cable,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import PORT_OVERVIEW_SUBJECT
 from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
     build_port_overview,
@@ -407,6 +416,159 @@ def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
     except PortsManagerGetError as err:
         LOGGER.error("[get_cmdb_ports_overview] PortsManagerGetError: %s", err, exc_info=True)
         abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
+
+
+@port_blueprint.route('/object/<int:object_id>/cabling', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while retrieving " + PORT_CABLING_SUBJECT + " of CmdbObject ID: {object_id}")
+def get_cmdb_object_cabling(object_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for one ring of the cabling view
+
+    The focal CmdbObject, every object a cable of its reaches, and the cables between them. **Every
+    node carries all of its ports** - the focal one and the neighbours alike - each as the row shape
+    `GET /ports/object/<object_id>/overview` answers with, so a patch panel renders as front/rear
+    pairs here too and a free port sits next to a cabled one.
+
+    **There is no depth parameter.** Following the cabling outwards is the client asking for the next
+    object: a neighbour's port row names the object at ITS far end, so "expand this port" is this same
+    route on that id. One ring per call, like the CI Explorer.
+
+    `edges` carries one entry per cable, naming the two PORTS it joins and the resolved cable block -
+    redundant with the nodes' rows, and answered anyway because it is what the canvas draws and it
+    pairs the two ends of a cable once so the client does not have to match them up.
+
+    A neighbour the requesting user may not read is a node carrying its id and `restricted: true` and
+    nothing else: the cable that reaches it stays visible, what sits at the far end does not
+
+    Args:
+        object_id (int): public_id of the CmdbObject the view opens on
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the object's ACL denies it; 404 when the object does not exist;
+                       400 when the ports could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: `{focal_object_id, nodes, edges}`
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+        owner: dict[str, Any] = get_accessible_owner_or_abort(
+            objects_manager, object_id, request_user, AccessControlPermission.READ,
+        )
+
+        managers = CablingManagers(
+            ports=ManagerProvider.get_manager(ManagerType.PORTS, request_user),
+            connections=ManagerProvider.get_manager(ManagerType.PORT_CONNECTIONS, request_user),
+            objects=objects_manager,
+            types=ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            interface_links=ManagerProvider.get_manager(ManagerType.PORT_INTERFACE_LINKS, request_user),
+            extendable_options=ManagerProvider.get_manager(ManagerType.EXTENDABLE_OPTIONS, request_user),
+        )
+
+        ring = read_cabling_ring(object_id, owner, managers, request_user)
+
+        return DefaultResponse(build_cabling_view(object_id, ring, managers)).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_object_cabling] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_object_cabling] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to retrieve the Ports of CmdbObject ID: {object_id} from the database!')
+
+
+@port_blueprint.route('/<int:public_id>/cabling', methods=['GET', 'HEAD'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
+@handle_route_errors("while following the cabling of the Port with ID: {public_id}")
+def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP `GET`/`HEAD` route for what following ONE port outwards reveals
+
+    The expansion half of the Cabling View, next to `GET /ports/object/<object_id>/cabling`, which
+    answers the initial ring. The two are separate routes because they answer different questions: the
+    initial call reveals every object the focal one is cabled to, while this reveals **exactly one** -
+    the object at the far end of this port. Expanding through the object route instead would drag that
+    object's whole neighbourhood onto the canvas, which for a 48-port switch is 48 nodes nobody asked
+    for.
+
+    The envelope is the same - `{focal_object_id, nodes, edges}` - so a client merges both answers
+    with one function. It carries one node and one edge, and `focal_object_id` is the object this port
+    belongs to: the expansion's origin, which is the node already on the canvas that the edge attaches
+    to.
+
+    The revealed node carries **all** of its ports, each row naming the object at its own far end, so
+    the next port is expandable in turn.
+
+    A port that leads nowhere a graph can draw - a free one, or one cabled to another port of its own
+    object - answers **200 with nothing in it** rather than a refusal: the port exists and the question
+    was fair
+
+    Args:
+        public_id (int): public_id of the CmdbPort being followed
+        request_user (CmdbUser): CmdbUser requesting this data
+
+    Raises:
+        HTTPException: 403 when the port's owner ACL denies it; 404 when the port or its owner does
+                       not exist; 400 when the cabling could not be read; 500 on an unexpected error
+
+    Returns:
+        DefaultResponse: `{focal_object_id, nodes, edges}`, with one node and one edge or with neither
+    """
+    try:
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+        ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+
+        port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
+
+        # The port inherits no ACL from its owner, so the owner is what decides whether this port may
+        # be read at all - the same check every other port route makes
+        get_accessible_owner_or_abort(
+            objects_manager, port.get(PortKey.OBJECT_ID.value), request_user, AccessControlPermission.READ,
+        )
+
+        managers = CablingManagers(
+            ports=ports_manager,
+            connections=ManagerProvider.get_manager(ManagerType.PORT_CONNECTIONS, request_user),
+            objects=objects_manager,
+            types=ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            interface_links=ManagerProvider.get_manager(ManagerType.PORT_INTERFACE_LINKS, request_user),
+            extendable_options=ManagerProvider.get_manager(ManagerType.EXTENDABLE_OPTIONS, request_user),
+        )
+
+        cable: tuple[dict[str, Any], int] | None = read_port_cable(port, managers)
+
+        if cable is None:
+            return DefaultResponse(empty_expansion(port)).make_response()
+
+        connection, far_port_id = cable
+        far_port: dict[str, Any] | None = next(
+            iter(ports_manager.get_ports_by_ids([far_port_id])), None,
+        )
+        far_object_id: Any = (far_port or {}).get(PortKey.OBJECT_ID.value)
+
+        # A cable onto another port of this same object is real, but reveals no node (Q39)
+        if far_object_id is None or far_object_id == port.get(PortKey.OBJECT_ID.value):
+            return DefaultResponse(empty_expansion(port)).make_response()
+
+        # Nothing is passed as the focal object: the ring's own ACL-scoped read is what decides
+        # whether this one may be described, and a denied one becomes a restricted node
+        ring = read_cabling_ring(far_object_id, {}, managers, request_user, with_neighbours=False)
+
+        return DefaultResponse(build_port_expansion(
+            port, connection, far_port_id, far_object_id, ring, managers,
+        )).make_response()
+    except AccessDeniedError as err:
+        LOGGER.error("[get_cmdb_port_cabling] AccessDeniedError: %s", err, exc_info=True)
+        abort(403, str(err))
+    except PortsManagerGetError as err:
+        LOGGER.error("[get_cmdb_port_cabling] PortsManagerGetError: %s", err, exc_info=True)
+        abort(400, f'Failed to follow the cabling of the Port with ID: {public_id}!')
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -273,7 +273,7 @@ class TestGetReferenceAttachmentOrAbort:
             assert get_reference_attachment_or_abort() == {'reference': True}
 
     def test_missing_parameter_aborts_400(self) -> None:
-        """It used to be a TypeError from json.loads(None) on the way to a 500."""
+        """A TypeError from json.loads(None) here is a 500."""
         with app.test_request_context('/'):
             with pytest.raises(HTTPException) as exc_info:
                 get_reference_attachment_or_abort()
@@ -396,7 +396,7 @@ class TestValidateUploadMetadata:
             validate_upload_metadata({})
 
     def test_an_undeclared_key_aborts_400(self) -> None:
-        """It used to reach the manager and fail the write with a database-flavoured message."""
+        """It must not reach the manager and fail the write with a database-flavoured message."""
         with app.test_request_context():
             with pytest.raises(HTTPException) as exc_info:
                 validate_upload_metadata({'public_id': 5})

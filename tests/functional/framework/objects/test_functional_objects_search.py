@@ -16,8 +16,8 @@
 """
 Functional tests for ``?search=`` on the object listing and the reference listing
 
-The free-text search the Angular app used to assemble as a nine-stage aggregation and post through
-``?filter=`` (`notes/FRONTEND_TO_BACKEND.md` **F1**). What matters here is what it matches - a term
+The free-text search the Angular app would otherwise assemble as a nine-stage aggregation and post
+through ``?filter=``. What matters here is what it matches - a term
 has to find an object by its own field value **and** by the field values of the objects it references,
 which is the whole reason the query needed a join - and what it does not do: it is a literal, it drops
 no fields from the documents it returns, and the total counts what it returned.

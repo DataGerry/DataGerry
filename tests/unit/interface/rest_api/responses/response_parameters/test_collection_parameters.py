@@ -108,7 +108,7 @@ class TestLimitCoercion:
     @pytest.mark.parametrize('limit', ['-1', '-5', -5], ids=str)
     def test_a_negative_limit_raises(self, limit) -> None:
         """
-        Regression: a negative page size used to be accepted and echoed back to the frontend
+        Regression: a negative page size must not be accepted and echoed back to the frontend
 
         Verified over HTTP before the fix: ?limit=-5 answered 200 with pager.page_size -5.
         """
@@ -147,7 +147,7 @@ class TestOrderCoercion:
     @pytest.mark.parametrize('order', ['0', '2', '99', '-2'])
     def test_any_other_order_raises(self, order: str) -> None:
         """
-        Regression: ?order=99 used to fail inside $sort and be reported as a database error
+        Regression: ?order=99 must not fail inside $sort and be reported as a database error
 
         Verified over HTTP before the fix: 400 "Failed to retrieve Objects from the database!".
         """

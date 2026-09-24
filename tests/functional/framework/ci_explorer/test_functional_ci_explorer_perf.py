@@ -16,7 +16,7 @@
 """
 Post-refactor perf sanity check for /ci_explorer/items
 
-**This file was named `perf_check.py` until 2026-09-14 and pytest therefore never collected it** -
+**The name matters: pytest collects `test_*.py` only** -
 `python_files` defaults to `test_*.py` / `*_test.py`, so the test below had never run since it was
 written. It passes against the current route; the rename is the whole fix. Keep the `test_` prefix
 on any file that is meant to run.

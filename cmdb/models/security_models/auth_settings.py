@@ -18,7 +18,7 @@ Implementation of CmdbAuthSettings, the in-memory form of the stored `auth` sett
 
 The section decides how every login works: which providers are installed and configured, whether
 external (LDAP) authentication is allowed at all, and how long an issued token stays valid. It
-reaches this class from two directions and both used to splat a raw dict into the constructor:
+reaches this class from two directions, and neither may splat a raw dict into the constructor:
 
 * `AuthModule.__init_settings` reads the stored document, and
 * `PUT|POST /rest/auth/settings` reads a client payload
@@ -299,7 +299,7 @@ class CmdbAuthSettings:
         """
         Returns the stored configuration of one provider, or None when it has no entry
 
-        Both failure modes used to be exceptions: an unknown provider raised `StopIteration` from a
+        Neither failure mode may be an exception: an unknown provider raises `StopIteration` from a
         bare `next(...)` (the one caller compensated by catching it), and an entry missing
         `class_name` raised `KeyError` - which nothing caught, and which is exactly the malformed
         shape a historical `AuthModule` bug wrote into this list

@@ -94,9 +94,9 @@ def test_the_body_flag_reflects_the_request_method(method: str, expected_body: b
     """
     The GetMultiResponse body flag is True for everything BUT a HEAD request
 
-    It used to be asserted the other way round: this helper derived the flag as
+    Asserted the other way round it would read: this helper derives the flag as
     `request.method == HTTP_HEAD_METHOD`, so a plain GET asked for a bodyless answer - harmless only
-    because the flag was inert. Corrected 2026-09-09, and the rule now comes from
+    which an inert flag would hide. The rule comes from
     `routes_helper.request_wants_body`.
     """
     manager = _manager_returning([])

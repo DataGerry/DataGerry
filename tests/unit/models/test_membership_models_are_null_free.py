@@ -17,7 +17,7 @@
 Unit tests for the rule the three membership models share: a stored document is never null
 
 Pure tests: no Mongo, no Flask. CmdbPerson, CmdbPersonGroup and CmdbObjectGroup each write a document
-whose optional keys used to be null whenever the payload did not carry them - and each of their
+whose optional keys are easily left null whenever the payload does not carry them - and each of their
 Cerberus schemas types those keys ``string`` / ``list``. The result was a document the API produced and
 then refused: a GET followed by an unmodified PUT was answered ``400 Invalid data provided!``, and on
 the person-group side a stored ``group_members: null`` made the update route read ``set(None)`` and
@@ -30,7 +30,7 @@ module. ``updater_20260909`` converged the documents written before the fix
 Three things are checked per model:
 
   - a minimal document - only the required keys - survives the round trip through the model AND its own
-    schema, which is the exact GET-then-PUT sequence that used to 400
+    schema, which is the exact GET-then-PUT sequence a stored null breaks
   - an explicit null in any optional key becomes the empty value, since a client may legitimately say
     "no value" and the schemas accept it
   - ``to_json`` emits exactly the key enum, so a key cannot be persisted outside the contract
@@ -139,7 +139,7 @@ def test_a_minimal_document_holds_no_null(membership: _Membership) -> None:
 @pytest.mark.parametrize('membership', MEMBERSHIP_MODELS, ids=MODEL_IDS)
 def test_a_stored_document_passes_its_own_schema(membership: _Membership) -> None:
     """
-    GET then an unmodified PUT: the exact sequence that used to be answered 400
+    GET then an unmodified PUT: the exact sequence a stored null answers 400 to
 
     The client reads a document and sends it back untouched, which every DataGerry write route
     expects (there is no partial update), so what the model writes has to satisfy what the schema

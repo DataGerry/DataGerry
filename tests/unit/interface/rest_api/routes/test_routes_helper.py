@@ -21,7 +21,7 @@ here from the importer + media-library route utils) plus fetch_only_active_objec
 readers (extract_public_ids for a URL segment, normalize_public_id_list for a JSON body) and
 append_criteria_to_filter, exercised inside a minimal Flask request context (no REST API booted).
 
-append_criteria_to_filter came here on 2026-09-09 from cmdb/framework/rack/assignable_objects.py, when
+append_criteria_to_filter lives here rather than in the rack package because
 the port-connection picker became its second caller: it is route-layer plumbing (a parsed ``?filter=``
 turned into pipeline stages) and knows nothing about either domain. Its tests moved with it, which is
 why they read in terms of a generic criteria dict rather than of the rack's rules.
@@ -302,7 +302,7 @@ def test_as_pipeline_criteria_copies_the_pipeline_it_was_given() -> None:
     """
     The caller's own object is echoed back as `parameters.filter`
 
-    The routes used to append their stages to it in place, so the response claimed the client had sent
+    A route appending its stages to it in place makes the response claim the client had sent
     the server's injected `active` stage.
     """
     stages = [{'$match': {'a': 1}}]

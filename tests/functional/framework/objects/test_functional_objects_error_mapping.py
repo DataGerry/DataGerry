@@ -514,7 +514,7 @@ class TestWriteAndDeleteErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}').status_code == HTTPStatus.NOT_FOUND
 
     def test_delete_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
-        """An ACL denial on the delete is a 403 - it used to fall through to a 500 (regression)."""
+        """An ACL denial on the delete is a 403, not a 500 fallen through to."""
         monkeypatch.setattr(ObjectsManager, 'delete_with_follow_up', _raiser(AccessDeniedError('nope')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}').status_code == HTTPStatus.FORBIDDEN
@@ -536,7 +536,7 @@ class TestWriteAndDeleteErrorMapping:
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_many_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
-        """An ACL denial on the bulk delete is a 403 - it used to be a 500 (regression)."""
+        """An ACL denial on the bulk delete is a 403, not a 500."""
         monkeypatch.setattr(ObjectsManager, 'delete_object', _raiser(AccessDeniedError('nope')))
 
         assert rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_UPDATE}').status_code \

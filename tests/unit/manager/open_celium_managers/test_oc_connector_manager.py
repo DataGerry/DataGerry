@@ -23,7 +23,7 @@ the endpoint + payload, the parsed 2xx body, and the per-operation OC error on a
 autouse app context defaults cloud_mode/local_mode to False), so no OC master password env is
 required. No HTTP, no Mongo.
 
-Since 2026-09-10 the HOSTED-cloud constructor is covered too - `TestTheMasterPasswordGuard` pushes its
+The HOSTED-cloud constructor is covered too - `TestTheMasterPasswordGuard` pushes its
 own app context, because that guard is the one piece of logic in the file and had never been executed:
 it decides whether a hosted installation can serve connectors at all.
 """
@@ -151,7 +151,7 @@ class TestGetMasterPwStatus:
         """
         The master-password route hands this to the frontend, which reads more than valid/invalid
 
-        It used to be `check_master_pw(pw, raw=True)` - one name for two shapes, so a caller had to
+        `check_master_pw(pw, raw=True)` would be one name for two shapes, so a caller would have to
         know which of them it had asked for.
         """
         connector_manager.oc_connector.oc_get.return_value = _response(OK_STATUS, {'status': 'set'})

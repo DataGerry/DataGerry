@@ -43,6 +43,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import (
     PortOverviewOptionKey,
     PortOverviewRowKey,
 )
+from cmdb.framework.port.cable_hops import other_endpoint
 from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
     PeerEnds,
     build_option_view,
@@ -52,7 +53,6 @@ from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
     build_standard_rows,
     collect_peer_port_ids,
     index_connections_by_kind,
-    peer_port_id,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -126,19 +126,19 @@ def test_the_peer_of_a_connection_is_its_other_endpoint() -> None:
     """Seen from one of its ports"""
     connection = _connection(CABLE_CONNECTION_ID, [FRONT_ID, PEER_ID], ConnectionType.CABLE)
 
-    assert peer_port_id(connection, FRONT_ID) == PEER_ID
-    assert peer_port_id(connection, PEER_ID) == FRONT_ID
+    assert other_endpoint(connection, FRONT_ID) == PEER_ID
+    assert other_endpoint(connection, PEER_ID) == FRONT_ID
 
 
 @pytest.mark.parametrize('connection', [None, {}])
 def test_a_port_without_a_connection_has_no_peer(connection: Any) -> None:
     """The common state of a free port"""
-    assert peer_port_id(connection, FRONT_ID) is None
+    assert other_endpoint(connection, FRONT_ID) is None
 
 
 def test_a_connection_the_port_is_not_part_of_names_nothing() -> None:
     """Reading a peer out of someone else's connection would invent one"""
-    assert peer_port_id(_connection(CABLE_CONNECTION_ID, [PEER_ID, REAR_ID], ConnectionType.CABLE), FRONT_ID) is None
+    assert other_endpoint(_connection(CABLE_CONNECTION_ID, [PEER_ID, REAR_ID], ConnectionType.CABLE), FRONT_ID) is None
 
 
 def test_peers_on_the_object_itself_are_not_collected() -> None:

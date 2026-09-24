@@ -149,7 +149,7 @@ class TestIsHexColor:
     @pytest.mark.parametrize('value', ['#4CAF50\n', '#4CAF50\r\n', '#4CAF50 ', '#4CAF50\t'])
     def test_rejects_trailing_whitespace(self, value: str) -> None:
         """
-        A trailing newline used to pass.
+        A trailing newline must not pass.
 
         The pattern was anchored with '$', which in Python also matches immediately before a final
         newline, so a color with a trailing newline validated and was stored. It is anchored with
@@ -422,7 +422,7 @@ class TestProcessBar:
 
     def test_negative_progress_is_clamped(self, capsys: pytest.CaptureFixture) -> None:
         """
-        The lower bound used to be missing.
+        The lower bound must be checked too.
 
         Only the top was clamped, so a negative progress produced a negative block count and a bar
         65 chars wide reading '-30%'. The bar is 50 chars at every input now.

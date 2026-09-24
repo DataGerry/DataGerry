@@ -27,9 +27,9 @@ are deliberately left out of `__all__`: `boolify` and `numberify` are `auto_cast
 rather than an API of their own, and `cmdb.utils.logger` is process bootstrap that callers import by
 module path.
 
-`cmdb.utils.wraps` used to sit beside it, holding a `@deprecated` decorator that was applied to
+`cmdb.utils.wraps` is deliberately gone. It held a `@deprecated` decorator that was applied to
 nothing in the whole repository - the only `@deprecated` uses were the examples inside its own
-docstring. Removed 2026-09-14
+docstring.
 """
 from .base_str_enum import BaseStrEnum
 from .cast import auto_cast

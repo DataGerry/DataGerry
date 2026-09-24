@@ -24,18 +24,18 @@ properties are worth knowing before changing anything here:
 `SearchBarTag` and `SearchFormType` mirrors the strings the search bar hardcodes, so narrowing either
 rejects a payload the UI still sends.
 
-**A parameter that cannot be read is refused, not dropped.** `from_request` used to log a malformed
-entry and continue, returning a shorter list the caller could not tell from a complete one - and a
-lost *filter* parameter makes a search return MORE objects than the user asked to see, with a 200 and
-nothing to notice. It now raises `SearchParamError`, which the search route answers as a 400 naming
-the parameter.
+**A parameter that cannot be read is refused, not dropped.** Logging a malformed entry and
+continuing would return a shorter list the caller could not tell from a complete one - and a lost
+*filter* parameter makes a search return MORE objects than the user asked to see, with a 200 and
+nothing to notice. `from_request` raises `SearchParamError` instead, which the search route answers as
+a 400 naming the parameter.
 
 **`disjunction` decides how several TYPE parameters combine** - OR when true (they are collected into
 one `$or`), AND when false (each becomes its own `$match`). It defaults to **True**, which is what
 every request the frontend sends relies on: the search bar never sets the key on a type tag, and its
 OR mode is expressed by appending a separate DISJUNCTION marker parameter that nothing reads. The
-constructor used to default it to False while `from_request` defaulted it to True, so the same absent
-key meant opposite things depending on which one built the parameter
+constructor and `from_request` default it the same way, so the same absent key cannot mean opposite
+things depending on which one built the parameter
 """
 from logging import Logger, getLogger
 from typing import Any

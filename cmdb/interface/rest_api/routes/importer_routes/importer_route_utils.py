@@ -83,9 +83,9 @@ def verify_import_access(user: CmdbUser, _type: CmdbType, types_manager: TypesMa
     on it. A type with an active ACL that does not grant the group all three is treated as protected.
 
     The rule is `build_permitted_types_criteria`, the same one every types listing applies, rather
-    than a query written here. It used to be written here - a fourth hand-rolled copy of the ACL
+    than a query written here, which would be a fourth hand-rolled copy of the ACL
     rule, and one that read an `acl` carrying no `activated` key differently from the model
-    (tier 2 **T208**). Asking the shared builder for all three permissions at once is what
+    rule. Asking the shared builder for all three permissions at once is what
     `?acl=READ,CREATE,UPDATE` does, because `$all` is a conjunction
 
     Args:

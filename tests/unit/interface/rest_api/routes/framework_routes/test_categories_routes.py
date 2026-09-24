@@ -333,9 +333,9 @@ class TestGetCmdbCategory:
         """
         The found document is handed to GetSingleResponse, asking for a body on a GET
 
-        This assertion used to expect ``body=False`` for a GET: the 28 read routes derived the flag as
+        Expecting ``body=False`` for a GET would be the inversion: the 28 read routes derive the flag as
         ``request.method == 'HEAD'``, which is the answer inverted (the flag means "send a body"), and
-        the inversion was invisible because the flag itself was inert. Corrected 2026-09-09.
+        an inert flag makes such an inversion invisible.
         """
         del patched_manager_provider
         mgr.get_category.return_value = SAMPLE_CATEGORY_DICT

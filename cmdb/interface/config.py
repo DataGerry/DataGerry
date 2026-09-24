@@ -23,8 +23,8 @@ it to `app.config.from_object`, which copies the upper-case class attributes ont
 The three subclasses differ only in the `DEBUG` and `TESTING` flags. Nothing here names a mount
 point: the two apps are mounted at different prefixes by `DispatcherMiddleware`, so `APPLICATION_ROOT`
 cannot be a shared value and each factory sets its own (the SPA host keeps Flask's default `/`; the
-REST app sets `/rest/`). It used to live on `Config`, which meant the SPA host - mounted at `/` - was
-configured with the API's mount
+REST app sets `/rest/`). On `Config` it would be shared, which would configure the SPA host - mounted
+at `/` - with the API's mount
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -42,9 +42,9 @@ def config_name_for_mode(mode: str) -> str:
     """
     Maps a `cmdb.__MODE__` value onto its `app_config` key
 
-    Lives here so both app factories select their config the same way. They used to spell the
-    mapping out separately, and they disagreed: the SPA host had no `TESTING` branch, which is why
-    `TestingConfig` was reachable from the REST app but dead from `create_app`
+    Lives here so both app factories select their config the same way. Spelled out separately they
+    drift: a SPA host without a `TESTING` branch leaves `TestingConfig` reachable from the REST app
+    and dead from `create_app`
 
     Args:
         mode (str): The process-wide mode, i.e. `cmdb.__MODE__`

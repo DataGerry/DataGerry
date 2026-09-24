@@ -30,12 +30,12 @@ Saved profiles are deliberately GLOBAL - they carry no owner, so a profile saved
 preset every user sees. The field route writes a single key of a CmdbType through a targeted update,
 so an edit of any other field can not be overwritten by it.
 
-``/label_field`` was called ``/type_label`` until 2026-09-18. The old name read as "set a display
+``/label_field`` is deliberately not called ``/type_label``: that name reads as "set a display
 label", which is what the value is NOT: it names one of the Type's own fields, and the graph shows
 that field's value per object. The route had no caller anywhere (the type builder sends the whole
 Type through ``PUT /types/<id>``), so it was renamed rather than left misleading.
 
-**There was a second field route, ``PUT /ci_explorer/tooltip/<object_id>``, removed 2026-09-18.** It
+**There is deliberately no second field route beside this one.** A ``PUT /ci_explorer/tooltip/<id>``
 wrote ``ci_explorer_tooltip`` on a CmdbObject with all four guarantees of an object edit, and nothing
 ever called it: no frontend caller, no UI to set a tooltip and none to render one. The OBJECT FIELD
 stays - it is on the model, an object create sends it, and the graph carries it inside

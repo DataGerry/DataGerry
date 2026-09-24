@@ -70,8 +70,8 @@ def _require(value: Any, message: str) -> None:
     """
     Refuses a missing argument before any HTTP call is made
 
-    Four reads used to open with their own copy of this guard. **Absence is what is refused, not
-    falsiness**: a connector id of 0 used to be reported as "not provided", because the id was read
+    Four reads would otherwise open with their own copy of this guard. **Absence is what is refused,
+    not falsiness**: a connector id of 0 must not be reported as "not provided", which reading the id
     for truthiness - and whether an id exists is OpenCelium's answer, not this proxy's
 
     Args:
