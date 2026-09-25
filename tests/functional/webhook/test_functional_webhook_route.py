@@ -22,9 +22,9 @@ mappings, and the public_id pinning on update. Params arrive as query args (pars
 
 Also covered: the write-route VALIDATION, which is the whole guard a webhook document gets
 because ``CmdbWebhook.SCHEMA`` is never applied - a missing name or url, a non-http(s) or host-less
-url, and an event_types that is not a non-empty list of known WebhookEventType values are all 400 now
-(without it each is a 200 that stores an unusable webhook). Plus the DELETE route without its
-odd trailing slash, and the per-route error tails that no test reached.
+url, and an event_types that is not a non-empty list of known WebhookEventType values are all 400
+(without it each is a 200 that stores an unusable webhook). Plus the DELETE route without a
+trailing slash, and the per-route error tails.
 """
 from http import HTTPStatus
 from typing import Any
@@ -194,10 +194,10 @@ class TestDeleteWebhook:
                                            database_manager: MongoDatabaseManager,
                                            database_name: str) -> None:
         """
-        The slash-less form is served directly, not via a redirect (regression)
+        The slash-less form is served directly, not via a redirect
 
         Registering the route as ``/<public_id>/`` while its GET/PUT siblings carry no slash
-        so the frontend's slash-less DELETE (webhook.service.ts) took a 308 first.
+        would make the frontend's slash-less DELETE (webhook.service.ts) take a 308 first.
         """
         _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_DELETE)
 
@@ -270,7 +270,8 @@ class TestCreateValidation:
     parse_webhook_params is the only validation a CmdbWebhook document gets
 
     The routes read query args, so ``CmdbWebhook.SCHEMA`` - which marks name, url and event_types
-    required - never runs. Every case below was a 200 that stored an unusable webhook.
+    required - never runs. Without that validation, every case below is a 200 that stores an unusable
+    webhook.
     """
 
     def test_missing_name_returns_400(self, rest_api) -> None:
@@ -310,11 +311,11 @@ class TestCreateValidation:
                              ids=['int', 'bare-string', 'empty-list', 'dict', 'unknown', 'one-unknown'])
     def test_event_types_that_are_not_a_known_list_return_400(self, rest_api, event_types: str) -> None:
         """
-        literal_eval alone accepted any literal
+        literal_eval alone accepts any literal
 
-        An int or a dict was stored as-is and an unknown name was stored verbatim; either way the
-        webhook could never match the manager's ``{'event_types': operation}`` filter, so it looked
-        active in the UI and silently never fired.
+        An int or a dict stored as-is, or an unknown name stored verbatim, could never match the
+        manager's ``{'event_types': operation}`` filter, so the webhook would look active in the UI and
+        silently never fire.
         """
         query = _webhook_query(name='Bad types', event_types=event_types)
 
@@ -402,9 +403,9 @@ class TestUpdateResponseShape:
                                                   database_manager: MongoDatabaseManager,
                                                   database_name: str) -> None:
         """
-        Dropping the read-back must not change the payload
+        The response is built without a read-back and still matches the stored document
 
-        The response is now CmdbWebhook.to_json(instance); update_item stores exactly that, so the
+        The response is CmdbWebhook.to_json(instance); update_item stores exactly that, so the
         body and the stored document have to agree key for key.
         """
         _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_UPDATE)
@@ -423,8 +424,8 @@ class TestFrontendContract:
     """
     Replays the exact request shapes ``app/src/app/toolbox/webhook/services/webhook.service.ts`` builds
 
-    The write routes carry validation and the DELETE route sits off its
-    trailing slash, so what the frontend actually sends is pinned here rather than reasoned about. The
+    The write routes carry validation and the DELETE route has no
+    trailing slash, so what the frontend actually sends is replayed here rather than reasoned about. The
     Angular form (``webhook-form.component.ts``) validates more strictly than the backend does - its
     url pattern demands a dotted host - so every payload it can produce has to be accepted.
     """
@@ -508,6 +509,6 @@ class TestFrontendContract:
         The backend guard must not be stricter than the FE's url pattern
 
         ``webhook-form.component.ts`` allows ^https?://<dotted-host>(/...)?$ - all of which must pass
-        the scheme + host check added by this sweep.
+        the backend's scheme + host check.
         """
         assert rest_api.post(f'{ROUTE_URL}/?{self._frontend_params(url=url)}').status_code == HTTPStatus.OK

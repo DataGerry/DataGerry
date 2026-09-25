@@ -60,7 +60,7 @@ from cmdb.errors.manager.object_groups_manager import (
     ObjectGroupsManagerDeleteError,
     ObjectGroupsManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -238,9 +238,9 @@ def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user:
         # Pin the public_id from the URL so the body cannot overwrite or drop it
         data[ObjectGroupKey.PUBLIC_ID.value] = public_id
 
-        object_groups_manager.update_item(public_id, CmdbObjectGroup.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(object_groups_manager, public_id, CmdbObjectGroup, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except ObjectGroupsManagerGetError as err:
         LOGGER.error("[update_cmdb_object_group] ObjectGroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ObjectGroup with ID: {public_id} from the database!")

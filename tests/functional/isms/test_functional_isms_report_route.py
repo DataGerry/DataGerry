@@ -340,8 +340,8 @@ class TestIsmsReports:
         The SOA rows are raw documents, not model instances
 
         ``IsmsControlMeasure.from_data`` never runs over them, so the route normalises the answer
-        itself - otherwise a document written before the insert route started normalising renders as an
-        empty cell in the report while a stored False renders as "No".
+        itself - otherwise a legacy document holding a null renders as an empty cell in the report
+        while a stored False renders as "No".
         """
         measures = database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)
         measures.insert_one({'public_id': SOA_LEGACY_NULL_CM_ID, 'title': 'SOA legacy CM',
@@ -461,7 +461,7 @@ class TestIsmsReports:
     def test_risk_assessments_without_search_returns_both(self, rest_api,
                                                           database_manager: MongoDatabaseManager,
                                                           database_name: str) -> None:
-        """Without a search term both seeded assessments are returned (no filtering regression)."""
+        """Without a search term both seeded assessments are returned (nothing is filtered out)."""
         risk_ids, ra_ids = _seed_search_assessments(database_manager, database_name)
         try:
             titles = [row['risk_title'] for row in
@@ -561,8 +561,8 @@ class TestReportFilterShapes:
 
     ``CollectionParameters`` types ``?filter=`` as ``dict | list[dict]`` and the rest of the backend
     reads it that way, so the report routes must not wrap it unconditionally in ``{"$match": ...}`` -
-    so a list produced ``{"$match": [...]}``, which MongoDB rejects. A documented filter shape answered
-    500 until 2026-09-07.
+    a list would produce ``{"$match": [...]}``, which MongoDB rejects, and a documented filter shape
+    would answer 500.
     """
 
     @pytest.mark.parametrize('report', ['risk_treatment_plan', 'risk_assessments'])

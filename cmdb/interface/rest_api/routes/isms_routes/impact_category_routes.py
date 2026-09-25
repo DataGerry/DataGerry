@@ -54,7 +54,7 @@ from cmdb.errors.manager.impact_category_manager import (
     ImpactCategoryManagerDeleteError,
     ImpactCategoryManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -203,9 +203,9 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
 
         pin_public_id(data, public_id)
 
-        impact_category_manager.update_item(public_id, IsmsImpactCategory.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(impact_category_manager, public_id, IsmsImpactCategory, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except ImpactCategoryManagerGetError as err:
         LOGGER.error("[update_isms_impact_category] ImpactCategoryManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ImpactCategory with ID: {public_id} from the database!")

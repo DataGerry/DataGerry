@@ -19,9 +19,8 @@ Unit tests for cmdb.database.updater.versions.updater_20260824
 Covers the orphan lookup's query shape, the two cleanup passes (the claimed one delegating to the
 shared global-template removal, the orphan one adding the report cleanup the per-type removal does not
 do), the template-document deletion's already-gone branch and the orchestration in start_update. The
-end-to-end behaviour against a real MongoDB is covered by
-tests/integration/database/test_integration_updater_20260824.py, and the metadata contract by the
-shared parametrized test in test_version_updaters
+end-to-end behaviour against a real MongoDB is covered by the integration tier, and the metadata
+contract by the shared parametrized updater test
 """
 from unittest.mock import MagicMock, patch
 

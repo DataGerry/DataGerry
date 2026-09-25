@@ -17,14 +17,14 @@
 Unit tests for cmdb.interface.rest_api.routes.setup_routes.setup_routes
 
 Each handler is unwrapped past its decorator chain (route / verify_api_access) and driven inside a
-Flask test_request_context; the cached-user manager is patched at the route module path (`get_cached_user_manager`) and the database
-drop goes through the app's MagicMock database_manager, so no MongoDB is involved
+Flask test_request_context; the cached-user manager is patched at the route module path
+(`get_cached_user_manager`) and the database drop goes through the app's MagicMock database_manager,
+so no MongoDB is involved
 
 Pinned here: the error mapping of all three routes (a missing database only produces a 400, a failed
 drop a 500), delete_cached_user's payload branches - in particular that a LIST of emails deletes
-multiple cached users (previously broken by an isinstance(..., list[str]) check that raised
-TypeError -> 500) - and that an HTTPException raised by a collaborator keeps its own status instead
-of being flattened into a 500
+multiple cached users (an isinstance(..., list[str]) check would raise TypeError -> 500) - and that
+an HTTPException raised by a collaborator keeps its own status instead of being flattened into a 500
 """
 from typing import Any, Callable, Iterator
 from unittest.mock import MagicMock, patch
@@ -124,8 +124,8 @@ class TestTheCloudModeBackstop:
         Blueprint-wide is the point
 
         Registered on the blueprint, so EVERY route it carries is covered - including one added later,
-        which a per-handler check would rely on someone remembering. A per-route guard that was relied
-        on, and was inert in one mode, is what published this surface in the first place.
+        which a per-handler check would rely on someone remembering. A per-route guard that is inert in
+        one mode publishes this whole surface.
 
         The blueprint is mounted on a throwaway app here precisely because the real one does not mount
         it outside cloud mode.
@@ -232,7 +232,7 @@ class TestDeleteCachedUser:
         assert response.status_code == OK_STATUS
 
     def test_list_of_emails_deletes_multiple(self, flask_app: Flask, cached_user_manager: MagicMock) -> None:
-        """A list 'email' deletes multiple cached users (regression: was a TypeError -> 500)."""
+        """A list 'email' deletes multiple cached users rather than failing with a TypeError -> 500."""
         emails = ['a@x.io', 'b@x.io']
 
         with flask_app.test_request_context(CACHE_USER_ROUTE, method=DELETE_METHOD, json={'email': emails}):
@@ -297,10 +297,10 @@ class TestDeleteCachedUser:
         cached_user_manager: MagicMock,
     ) -> None:
         """
-        A KeyError from the manager is a 500, not a 400 (regression)
+        A KeyError from the manager is a 500, not a 400
 
         The 'email' lookup and the manager calls must not share one try/except KeyError, or a KeyError
-        raised inside the manager was answered with "'email' key not provided in the request payload!"
+        raised inside the manager is answered with "'email' key not provided in the request payload!"
         """
         cached_user_manager.delete_cached_user.side_effect = KeyError('subscriptions')
 

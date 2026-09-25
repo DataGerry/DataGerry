@@ -18,8 +18,8 @@ Unit tests for the section rules of cmdb.class_schema.type_model.cmdb_type_schem
 
 A section's kind decides how the whole stack treats it: which class builds it, whether its fields are
 multi-data fields, whether a client draws a table or a form. The schema is the only place a write can
-be stopped before that kind is stored, and it used to accept any string at all - while the type
-IMPORT refused an unknown one. These tests pin the two doors to the same answer.
+be stopped before that kind is stored, and the type IMPORT refuses an unknown one as well. These tests
+pin the two doors to the same answer.
 """
 import pytest
 from cerberus import Validator

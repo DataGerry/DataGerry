@@ -654,9 +654,12 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def bulk_write(self, collection: str, db_name: str, operations: list[Any]) -> None:
+    def bulk_write(self, collection: str, db_name: str, operations: list[Any]) -> int:
         """
         Performs a bulk write operation on the specified collection.
+
+        The operations are sent unordered in batches of ``BULK_WRITE_BATCH_SIZE``; each operation is
+        atomic on its own document, the batch as a whole is not
 
         Args:
             collection (str): Name of the database collection.
@@ -665,11 +668,18 @@ class MongoDatabaseManager:
 
         Raises:
             DocumentInsertError: If bulk write fails.
+
+        Returns:
+            int: How many documents the operations modified, summed over the batches
         """
+        modified: int = 0
+
         try:
             for i in range(0, len(operations), BULK_WRITE_BATCH_SIZE):
                 batch = operations[i:i + BULK_WRITE_BATCH_SIZE]
-                self.get_collection(collection, db_name).bulk_write(batch, ordered=False)
+                modified += self.get_collection(collection, db_name).bulk_write(batch, ordered=False).modified_count
+
+            return modified
         except Exception as err:
             raise DocumentInsertError(f"Failed bulk write in collection '{collection}': {err}") from err
 

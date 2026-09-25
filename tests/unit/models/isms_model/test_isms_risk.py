@@ -253,14 +253,14 @@ class TestKeywordOnlyInit:
 
     def test_the_keyword_call_populates_every_attribute(self) -> None:
         """The optional fields keep their documented defaults."""
-        risk = IsmsRisk(public_id = PUBLIC_ID, name = NAME, risk_type = RiskType.EVENT.value)
+        risk = IsmsRisk(public_id = PUBLIC_ID, name = NAME, risk_type = RiskType.EVENT.value, category_id = CATEGORY_ID)
 
         assert risk.get_public_id() == PUBLIC_ID
         assert risk.name == NAME
         assert risk.protection_goals == []
         assert risk.threats == []
         assert risk.vulnerabilities == []
-        assert risk.category_id is None
+        assert risk.category_id == CATEGORY_ID
         assert risk.identifier is None
         assert risk.consequences is None
         assert risk.description is None
@@ -272,7 +272,7 @@ class TestErrorArms:
     def test_init_error_on_an_unusable_public_id(self) -> None:
         """CmdbDAO.__init__ casts public_id with int(), which a None cannot survive."""
         with pytest.raises(IsmsRiskInitError):
-            IsmsRisk(public_id = None, name = NAME, risk_type = RiskType.THREAT.value)
+            IsmsRisk(public_id = None, name = NAME, risk_type = RiskType.THREAT.value, category_id = CATEGORY_ID)
 
     def test_init_from_data_error_on_an_empty_document(self) -> None:
         """An empty dict has no public_id, so the inner InitError is rewrapped."""

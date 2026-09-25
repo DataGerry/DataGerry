@@ -22,7 +22,7 @@ here is the shape of that block, that the two batched reads really are batched, 
 which no longer resolves is reported rather than repaired.
 
 The two managers are MagicMocks - the queries they receive are asserted, not executed; the same rules
-run against a real MongoDB in tests/integration/framework/test_integration_port_connections.py
+run against a real MongoDB in the integration tier
 """
 from typing import Any
 
@@ -315,7 +315,7 @@ class TestBuildCableView:
 
     def test_a_deleted_cable_ci_is_reported_and_the_link_survives(self) -> None:
         """
-        The soft reference of step 10: reported, never cascaded
+        A soft reference: reported, never cascaded
 
         Deleting an inventoried cable does not delete the link - the two ports are still patched
         together - so the block keeps the id, says it did not resolve, and holds no values.

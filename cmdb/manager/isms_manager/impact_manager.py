@@ -47,7 +47,7 @@ class ImpactManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> None:
+    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> dict[str, Any]:
         """
         Updates an IsmsImpact and propagates the new calculation_basis to every affected
         IsmsRiskAssessment.
@@ -59,8 +59,12 @@ class ImpactManager(GenericManager):
         Args:
             public_id (int): The public_id of the Impact to update
             new_data (dict[str, Any]): The new data for the Impact
+
+        Returns:
+            dict[str, Any]: The Impact document as stored
         """
-        self.update_item(public_id, IsmsImpact.from_data(new_data))
+        impact: IsmsImpact = IsmsImpact.from_data(new_data)
+        self.update_item(public_id, impact)
 
         # Find IsmsRiskAssessments where this Impact is used
         affected_risk_assessments: list[dict[str, Any]] = self.dbm.find(
@@ -89,6 +93,8 @@ class ImpactManager(GenericManager):
 
         if updates:
             self.dbm.bulk_write(IsmsRiskAssessment.COLLECTION, self.db_name, updates)
+
+        return IsmsImpact.to_json(impact)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

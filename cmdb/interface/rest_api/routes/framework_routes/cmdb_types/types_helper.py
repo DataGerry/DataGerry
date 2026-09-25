@@ -747,9 +747,10 @@ def build_location_usage_payload(request_user: CmdbUser, target_type: CmdbType) 
     Builds the shared "is this Type's location placement in use" pre-check payload
 
     Resolves the CmdbObjects of the given CmdbType that currently store a location value and packs
-    them into the {in_use, count, object_public_ids} shape returned by the location-field-usage and
-    selectable-as-parent-usage GET routes. Both routes answer the same underlying question - are any
-    objects of this type placed in the location tree - so they share this builder
+    them into the {in_use, count, object_public_ids} shape returned by the location-field-usage GET
+    route. That one answer pre-checks both location guards on update - removing the location field and
+    turning 'selectable_as_parent' off - because both ask whether any object of the type is placed in
+    the location tree
 
     Args:
         request_user (CmdbUser): User performing the request

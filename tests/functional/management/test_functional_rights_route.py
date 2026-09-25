@@ -129,7 +129,7 @@ class TestGetSingleRight:
         assert response.get_json()['result']['name'] == KNOWN_RIGHT_NAME
 
     def test_missing_right_returns_404(self, rest_api) -> None:
-        """A missing right name returns 404 (regression: previously surfaced as 500)."""
+        """A missing right name returns 404."""
         response = rest_api.get(f'{ROUTE_URL}/{MISSING_RIGHT_NAME}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -162,7 +162,7 @@ class TestGetLevels:
 
         The catalogue is derived from the enum (`Levels.as_name_map`), so the order is the enum's.
         A hand-written dict whose order happens to match is not enough; a member inserted
-        between two others now appears where it was declared instead of where someone remembered to
+        between two others appears where it was declared instead of where someone remembered to
         type it.
         """
         response = rest_api.get(f'{ROUTE_URL}/levels')

@@ -93,14 +93,13 @@ class CmdbObject(CmdbDAO):
     DATE_FIELDS: tuple[str, ...] = tuple(date_key.value for date_key in OBJECT_DATE_KEYS)
 
     # The keys a stored document must carry to be readable, and only those: without a type or an owner
-    # an object describes nothing, and both were already mandatory - the previous from_data read them
-    # with data['key'] and int(), so a document missing one raised there instead.
+    # an object describes nothing.
     #
-    # Everything else this list used to name (creation_time, active, version) is optional in the schema
-    # and defaulted in normalize_document. Declaring them required while defaulting them anyway is what
-    # let a document without a creation time be answered with 'now'; declaring MORE keys required would
-    # make documents unreadable that this model has always read, on the collection where that costs the
-    # most - the object list of a whole database
+    # Every other key (creation_time, active, version, ...) is optional in the schema and defaulted in
+    # normalize_document. Declaring one required while defaulting it anyway would let a document without
+    # a creation time be answered with 'now'; declaring MORE keys required would make documents
+    # unreadable that this model has always read, on the collection where that costs the most - the
+    # object list of a whole database
     REQUIRED_INIT_KEYS: list[str] = [
         CmdbObjectKey.TYPE_ID.value,
         CmdbObjectKey.AUTHOR_ID.value,
@@ -226,8 +225,8 @@ class CmdbObject(CmdbDAO):
         Called when the '/' operator is used between two CmdbObjects. Entries are compared whole, so a
         field whose value changed appears in both lists - once as it was and once as it is.
 
-        No caller uses it today; it is kept because it is public model API and its behaviour is now
-        pinned by tests, so a future differ can rely on it
+        The object version bump (``cmdb.framework.object_edit.compute_object_version``) reads its diff
+        from here, so the entries it returns are also what the change log records as ``changes``
 
         Args:
             other (CmdbObject): The CmdbObject to compare with this one

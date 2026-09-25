@@ -142,7 +142,6 @@ def attach_member_location(
 
 def detach_member_location(
         member_id: int,
-        request_user: CmdbUser,
         objects_manager: ObjectsManager,
         locations_manager: LocationsManager) -> None:
     """
@@ -158,12 +157,9 @@ def detach_member_location(
 
     Args:
         member_id (int): public_id of the CmdbObject leaving the rack
-        request_user (CmdbUser): The user performing the operation
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
     """
-    del request_user
-
     try:
         existing: dict[str, Any] | None = locations_manager.get_location_for_object(member_id)
 
@@ -232,7 +228,6 @@ def attach_all_member_locations(
 
 def detach_all_member_locations(
         rack_id: int,
-        request_user: CmdbUser,
         objects_manager: ObjectsManager,
         locations_manager: LocationsManager,
         rack_mounts_manager: RackMountsManager) -> int:
@@ -244,7 +239,6 @@ def detach_all_member_locations(
 
     Args:
         rack_id (int): public_id of the Rack CmdbObject
-        request_user (CmdbUser): The user performing the operation
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
@@ -255,7 +249,7 @@ def detach_all_member_locations(
     member_ids: list[int] = get_member_object_ids(rack_mounts_manager, rack_id)
 
     for member_id in member_ids:
-        detach_member_location(member_id, request_user, objects_manager, locations_manager)
+        detach_member_location(member_id, objects_manager, locations_manager)
 
     return len(member_ids)
 
@@ -301,7 +295,7 @@ def handle_mount_created(
 
     if not rack_node:
         if moved_from_rack:
-            detach_member_location(member_id, request_user, objects_manager, locations_manager)
+            detach_member_location(member_id, objects_manager, locations_manager)
 
         return
 
@@ -313,7 +307,6 @@ def handle_mount_created(
 
 def handle_mount_removed(
         member_id: Any,
-        request_user: CmdbUser,
         objects_manager: ObjectsManager,
         locations_manager: LocationsManager) -> None:
     """
@@ -327,14 +320,13 @@ def handle_mount_removed(
 
     Args:
         member_id (Any): public_id of the CmdbObject removed from the rack; anything else is an occupant
-        request_user (CmdbUser): The user performing the removal
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
     """
     if not is_object_id(member_id):
         return
 
-    detach_member_location(member_id, request_user, objects_manager, locations_manager)
+    detach_member_location(member_id, objects_manager, locations_manager)
 
 
 def reconcile_member_locations(
@@ -372,6 +364,4 @@ def reconcile_member_locations(
             request_user, objects_manager, locations_manager, rack_mounts_manager,
         )
 
-    return detach_all_member_locations(
-        rack_id, request_user, objects_manager, locations_manager, rack_mounts_manager,
-    )
+    return detach_all_member_locations(rack_id, objects_manager, locations_manager, rack_mounts_manager)

@@ -27,8 +27,10 @@ cleanup paths select the groups they maintain by mode (``objects_helper`` pulls 
 the STATIC ones, ``types_helper`` pulls a deleted type out of the DYNAMIC ones), so a group stored with
 any third value is reachable by neither and keeps dead ids for the rest of its life
 
-``assigned_ids`` is required and must not be empty - a group of nothing has no meaning here - so it is
-the one list key that is not nullable
+``assigned_ids`` is required and not nullable, but it **may be empty**. A group loses its members
+without anyone editing it - deleting a CmdbObject pulls it out of every STATIC group, deleting a
+CmdbType out of every DYNAMIC one - and an empty group has to stay savable: it keeps its name, its
+categories and the IsmsRiskAssessments that assess it, which read the group only by id and name
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -64,7 +66,6 @@ def get_cmdb_object_group_schema() -> dict[str, Any]:
         ObjectGroupKey.ASSIGNED_IDS.value: {  # STATIC: member CmdbObject ids; DYNAMIC: CmdbType ids
             'type': 'list',
             'required': True,
-            'empty': False,
         },
         ObjectGroupKey.CATEGORIES.value: {  # public_ids of the OBJECT_GROUP CmdbExtendableOptions
             'type': 'list',

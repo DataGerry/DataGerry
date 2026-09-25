@@ -46,6 +46,7 @@ from cmdb.errors.manager.impact_manager import (
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/impacts'
@@ -477,3 +478,35 @@ class TestErrorMapping:
                                 json=_impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_OTHER))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /isms/impacts/<id> answers the Impact as stored, on both of its write paths."""
+
+    def test_an_omitted_description_comes_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Unchanged basis - the plain update: a description left out is answered as the model stores it."""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+
+        result, stored = put_and_read_back(
+            rest_api, f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}',
+            _impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_DEFAULT, 'Renamed'),
+        )
+
+        assert result == stored
+        assert 'description' in result
+
+    def test_a_changed_basis_answers_the_stored_document_too(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Changed basis - the write that also rewrites the risk assessments answers the same way."""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+
+        result, stored = put_and_read_back(
+            rest_api, f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}',
+            _impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_OTHER, 'Renamed'),
+        )
+
+        assert result == stored
+        assert result['calculation_basis'] == BASIS_OTHER

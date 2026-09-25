@@ -366,16 +366,18 @@ def test_unassign_subnets_clears_the_reference_with_a_real_write(
 # -------------------------------------------------------------------------------------------------------------------- #
 READER_GROUP_ID: int = 4242    # granted READ only -> may not detach
 EDITOR_GROUP_ID: int = 4243    # granted READ + UPDATE -> may detach
+ACL_USER_ID: int = 77           # credited as editor of the detach
 
 ACL_SUBNET_ID: int = 9627      # detached by the permitted-path test, so no other test depends on it
 ACL_SUBNET_RANGE: str = '10.4.0.0/16'
 
 
 class _AclUser:
-    """A stand-in CmdbUser - the ACL decision reads nothing but `group_id`."""
+    """A stand-in CmdbUser - the ACL decision reads `group_id`, the edit stamp reads `public_id`."""
 
     def __init__(self, group_id: int) -> None:
         self.group_id: int = group_id
+        self.public_id: int = ACL_USER_ID
 
 
 @pytest.fixture(name='acl_on_subnet_type')

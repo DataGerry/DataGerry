@@ -38,6 +38,7 @@ from cmdb.errors.manager.threat_manager import (
     ThreatManagerDeleteError,
     ThreatManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/threats'
@@ -117,7 +118,7 @@ class TestPostThreat:
         """
         The identity is server-owned on create: a payload id is purged, not honoured
 
-        It used to be stored as given, which also left the collection counter pointing below it.
+        Storing it as given would also leave the collection counter pointing below it.
         """
         forged_id: int = 98599
         database_manager.get_collection(IsmsThreat.COLLECTION, database_name)\
@@ -406,3 +407,20 @@ class TestErrorMapping:
         monkeypatch.setattr(ThreatManager, 'get_used_threat_ids', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/delete/1,2').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /isms/threats/<id> answers the Threat as stored, not the request body."""
+
+    def test_omitted_optional_keys_come_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """source / identifier / description left out are answered as the model stores them."""
+        _insert_threat(database_manager, database_name, THREAT_ID_FOR_UPDATE)
+
+        result, stored = put_and_read_back(
+            rest_api, f'{ROUTE_URL}/{THREAT_ID_FOR_UPDATE}', _threat_payload(THREAT_ID_FOR_UPDATE, 'Renamed'),
+        )
+
+        assert result == stored
+        assert {'source', 'identifier', 'description'} <= set(result)

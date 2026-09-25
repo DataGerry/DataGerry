@@ -227,18 +227,18 @@ def _start_app() -> None:
     LOGGER.info('Process manager started: %s', app_status)
 
 
-def _stop_app(signum: int, frame: FrameType | None) -> None:
+def _stop_app(_signum: int, _frame: FrameType | None) -> None:
     """
     Asks ProcessManager to tear down every running CmdbProcess
 
     Installed as the SIGTERM handler by _start_app, so the OS-signalled shutdown path runs
-    through this function before the interpreter exits. The signum / frame parameters are
-    required by Python's signal-handler contract (signal.signal calls the handler with
-    these two positional arguments) but are unused here because the action is unconditional
+    through this function before the interpreter exits. The two parameters are required by
+    Python's signal-handler contract (signal.signal calls the handler with them, positionally)
+    and are unused because the action is unconditional - hence the leading underscores
 
     Args:
-        signum (int): The signal number that triggered the handler (always SIGTERM here)
-        frame (FrameType | None): The interrupted stack frame, or None when not available
+        _signum (int): The signal number that triggered the handler (always SIGTERM here)
+        _frame (FrameType | None): The interrupted stack frame, or None when not available
     """
     app_manager.stop_app()
 

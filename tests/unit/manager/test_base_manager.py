@@ -578,6 +578,18 @@ def test_count_documents_defaults_to_no_limit() -> None:
     mgr.dbm.count.assert_called_once_with(COLLECTION, DB_NAME, {'relation_id': 5}, None)
 
 
+def test_bulk_write_answers_the_database_layers_modified_count() -> None:
+    """The count reaches the caller, which is how a batch write learns whether every statement landed."""
+    mgr = _mock_manager()
+    mgr.dbm.bulk_write.return_value = 2
+    operations = [MagicMock(), MagicMock()]
+
+    result = BaseManager.bulk_write(mgr, operations)
+
+    assert result == 2
+    mgr.dbm.bulk_write.assert_called_once_with(COLLECTION, DB_NAME, operations)
+
+
 def test_delete_many_raw_delegates_with_filter_query() -> None:
     """delete_many_raw forwards the raw filter as filter_query and returns the delete result"""
     mgr = _mock_manager()

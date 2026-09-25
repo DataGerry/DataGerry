@@ -1,13 +1,12 @@
 """
 Functional tests for the ACL rights guarding the IPAM routes
 
-Until 2026-09-16 not one of the nineteen IPAM routes carried a `.protect`. They gated on a valid token
-plus the blueprint-level `LicenseFeature.IPAM` gate - which answers "is this installation entitled",
-not "may this user" - so any authenticated account could read the whole address plan, export it, and
-detach subnets and IPs.
+The blueprint-level `LicenseFeature.IPAM` gate answers "is this installation entitled", not "may this
+user" - without a `.protect` on each of the nineteen IPAM routes, any authenticated account could read
+the whole address plan, export it, and detach subnets and IPs.
 
-`IpamRight.VIEW` now guards every read and `IpamRight.EDIT` the two unassign writes, mirroring the Rack
-View feature, which is the same shape built later and was wired that way from the start.
+`IpamRight.VIEW` guards every read and `IpamRight.EDIT` the two unassign writes, mirroring the Rack
+View feature, which has the same shape.
 
 **These tests exist because the rest of the IPAM suite cannot catch a regression here**: it drives the
 routes with the full-access user, so removing a `.protect` would leave it entirely green. Each route is
@@ -151,8 +150,8 @@ def test_the_full_access_user_is_not_refused(rest_api, method: str, route: str) 
     only means something next to this one. These may answer 400/404/500 on the empty fixture database -
     what matters is that the refusal is not an authorisation one.
 
-    This is also the test that would have caught the licence gate masking everything: before the
-    `ipam_licensed` fixture was added, all fifteen of these failed with 403.
+    This is also the test that catches the licence gate masking everything: without the
+    `ipam_licensed` fixture, all fifteen of these fail with 403.
     """
     response = _call(rest_api, method, route)
 
@@ -165,9 +164,6 @@ class TestTheMapping:
     def test_every_ipam_route_is_protected(self) -> None:
         """
         Counted at the source, so a route added without a right fails here
-
-        The gap this closes was measured the same way: `grep -c '.protect(' ipam_routes/` returned 0
-        across all five files.
         """
         from pathlib import Path
 

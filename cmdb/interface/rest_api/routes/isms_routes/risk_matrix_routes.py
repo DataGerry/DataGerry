@@ -44,7 +44,7 @@ from cmdb.errors.manager.risk_matrix_manager import (
     RiskMatrixManagerGetError,
     RiskMatrixManagerUpdateError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -127,9 +127,9 @@ def update_isms_risk_matrix(public_id: int, data: dict[str, Any], request_user: 
 
         pin_public_id(data, public_id)
 
-        risk_matrix_manager.update_item(public_id, IsmsRiskMatrix.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(risk_matrix_manager, public_id, IsmsRiskMatrix, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except RiskMatrixManagerGetError as err:
         LOGGER.error("[update_isms_risk_matrix] RiskMatrixManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskMatrix with ID: {public_id} from the database!")

@@ -357,7 +357,7 @@ def test_normalize_report_params_missing_required_maps_to_400(missing_key: str) 
 
 
 def test_normalize_report_params_ignores_a_missing_predefined() -> None:
-    """'predefined' is no longer a request parameter, so its absence is not an error."""
+    """'predefined' is not a request parameter, so its absence is not an error."""
     params = _valid_params()
     del params['predefined']
 

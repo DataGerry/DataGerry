@@ -20,9 +20,6 @@ Pure tests with stub callables: load_ci_explorer_entity aborts 404 for an unknow
 reports the entity plus the field's previous value. flask.abort raises a werkzeug HTTPException, so
 the status codes are asserted without a Flask app context, and the request schema is checked against a
 real Cerberus Validator.
-
-The tooltip half of this module - its schema, the version bump, the edit log and the webhook - went
-with the ``/ci_explorer/tooltip`` route on 2026-09-18, which nothing ever called
 """
 from http import HTTPStatus
 from typing import Any
@@ -48,9 +45,8 @@ class TestLoadCiExplorerEntity:
     """
     load_ci_explorer_entity resolves the entity a field write targets
 
-    It was shared by the two field routes; since the tooltip route was removed only the label field
-    uses it, but the entity and the field it reads are still both parameters - it answers 404 for
-    whatever it is pointed at.
+    Only the label field route uses it, but the entity and the field it reads are both parameters - it
+    answers 404 for whatever it is pointed at.
     """
 
     def test_missing_entity_aborts_404(self) -> None:

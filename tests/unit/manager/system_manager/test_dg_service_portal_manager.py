@@ -56,7 +56,7 @@ ACCESS_TOKEN: str = 'access-token'
 
 def _manager(base_url: str = BASE_URL, token: str = ACCESS_TOKEN) -> DgServicePortalManager:
     """Builds a manager instance without touching the environment, with the endpoint/token pre-set."""
-    # The hosted-cloud question is one predicate now (`is_hosted_cloud`), not two app flags read inline
+    # The hosted-cloud question is one predicate (`is_hosted_cloud`), not two app flags read inline
     with patch(f'{PATH}.is_hosted_cloud', return_value=False):
         manager = DgServicePortalManager()
 
@@ -357,7 +357,7 @@ class TestConnectorEntityFullPath:
             assert _manager().check_connector_in_sub(7, 'a@b.c', 'db') is False
 
     def test_check_connector_in_sub_invalid_response_returns_false(self) -> None:
-        """A failed lookup returns False instead of raising (regression guard for the []-vs-False fix)."""
+        """A failed lookup returns False - not an empty list, and it does not raise."""
         with patch(f'{PATH}.get', return_value=_response(500, '')):
             assert _manager().check_connector_in_sub(7, 'a@b.c', 'db') is False
 
@@ -387,10 +387,10 @@ class TestConnectionAndSchedulerDelegation:
         """
         get_*_ids pass their list URL plus email/db to _get_entity_ids
 
-        Only two of the three entity kinds have this listing method: `get_connection_ids` was removed
-        on 2026-09-14 as the unused third of the triple. The connector and scheduler halves are each
-        read by a route helper (`oc_connector_helper` / `oc_scheduler_helper`); the connection half is
-        only ever asked the membership question, through `check_connection_in_sub`.
+        Only two of the three entity kinds have this listing method; there is no `get_connection_ids`.
+        The connector and scheduler halves are each read by a route helper (`oc_connector_helper` /
+        `oc_scheduler_helper`); the connection half is only ever asked the membership question, through
+        `check_connection_in_sub`.
         """
         manager = _manager()
         with patch.object(manager, '_get_entity_ids', return_value=[1]) as mocked:

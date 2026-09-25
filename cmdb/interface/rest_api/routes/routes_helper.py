@@ -231,6 +231,37 @@ def pin_public_id(data: dict[str, Any], public_id: int) -> dict[str, Any]:
     return data
 
 
+def update_item_from_payload(
+        manager: Any,
+        public_id: int,
+        model_class: type[Any],
+        data: dict[str, Any],
+    ) -> dict[str, Any]:
+    """
+    Builds the model an update writes, writes it, and answers the document that was stored
+
+    ``GenericManager.update_item`` stores ``model_class.to_json(model)`` wholesale, so the model the
+    write is built from IS the stored document: answering with its serialisation costs no extra query
+    and cannot disagree with the next read. Answering with the request body instead reports a payload
+    that left out an optional key - or sent it as ``null`` - as if it had been stored that way, while the
+    model stored its empty value
+
+    Args:
+        manager (Any): The GenericManager of the model's collection
+        public_id (int): public_id of the document to update, taken from the URL
+        model_class (type[Any]): The model class the document is built with
+        data (dict[str, Any]): The validated, identity-pinned request body
+
+    Returns:
+        dict[str, Any]: The document as stored, for the update response
+    """
+    model: Any = model_class.from_data(data)
+
+    manager.update_item(public_id, model)
+
+    return model_class.to_json(model)
+
+
 def extract_public_ids(public_ids: str) -> list[int]:
     """
     Parses a comma-separated public_id path segment into a list of integers

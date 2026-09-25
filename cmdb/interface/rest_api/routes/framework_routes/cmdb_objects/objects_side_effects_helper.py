@@ -67,6 +67,7 @@ from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.object_log_constants import ObjectLogKey
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.framework.object_edit import ObjectWrite, ObjectWriteCallback
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     delete_location_with_reparenting,
 )
@@ -543,6 +544,36 @@ def emit_object_update_events(
         request_user, logs_manager, LogAction.EDIT, after_object, update_comment,
         version=updated_object.get_version(), changes=changes,
     )
+
+
+def build_object_write_emitter(request_user: CmdbUser, comment: str) -> ObjectWriteCallback:
+    """
+    Builds the callback a framework write hands each stored CmdbObject edit to
+
+    A feature that writes objects outside the REST update pipeline (the IPAM unassign writes) cannot
+    import this layer, so its orchestrator takes a callback instead. This one emits what the REST
+    update emits for an edit: the UPDATE webhook and the EDIT change-log entry, both best-effort
+    through ``emit_object_update_events``. The LogsManager is resolved on the first write the callback
+    is handed and reused for the rest, so a request refused before anything is written resolves none
+
+    Args:
+        request_user (CmdbUser): The CmdbUser credited with the edits
+        comment (str): The comment stored on every change-log entry
+
+    Returns:
+        ObjectWriteCallback: Emits the events of one ``ObjectWrite``
+    """
+    resolved: list[LogsManager] = []
+
+    def emit(write: ObjectWrite) -> None:
+        if not resolved:
+            resolved.append(ManagerProvider.get_manager(ManagerType.LOGS, request_user))
+
+        emit_object_update_events(
+            request_user, resolved[0], write.before, write.after, write.after, write.changes, comment,
+        )
+
+    return emit
 
 
 def emit_object_state_change_events(

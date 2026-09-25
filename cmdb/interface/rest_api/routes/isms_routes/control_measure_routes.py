@@ -36,7 +36,12 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     bulk_delete_reporting_in_use,
 )
-from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids, request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import (
+    extract_public_ids,
+    request_wants_body,
+    pin_public_id,
+    update_item_from_payload,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -205,9 +210,9 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
 
         pin_public_id(data, public_id)
 
-        control_measure_manager.update_item(public_id, IsmsControlMeasure.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(control_measure_manager, public_id, IsmsControlMeasure, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except ControlMeasureManagerGetError as err:
         LOGGER.error("[update_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ControlMeasure with ID: {public_id} from the database!")

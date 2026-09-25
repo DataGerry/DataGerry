@@ -16,9 +16,9 @@
 """
 Unit tests for the delete guard of cmdb.interface.rest_api.routes.port_routes.port_object_hooks
 
-The cascade half of the module (what a deleted object's ports take with them) is covered by
-tests/unit/framework/port/test_cascade.py; this module covers the half that runs BEFORE anything is
-deleted: the refusal of a Cable CI a CmdbPortConnection still uses.
+The cascade half of the module (what a deleted object's ports take with them) is covered by the
+port cascade tests; this module covers the half that runs BEFORE anything is deleted: the refusal of
+a Cable CI a CmdbPortConnection still uses.
 
 What is pinned here: a selection is filtered to CABLE-typed targets first, so an ordinary delete never
 reaches the connection lookup (and needs no PortConnections manager at all), an installation without a

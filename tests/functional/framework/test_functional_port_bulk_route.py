@@ -26,8 +26,8 @@ nothing else can:
 * **a batch with collisions is refused before a single row is written**, rather than failing on the
   twelfth port and leaving a half-built device behind
 
-The rollback itself is exercised in tests/integration/, where a failure can be forced mid-batch against
-a real database
+The rollback itself is exercised in the integration tier, where a failure can be forced mid-batch
+against a real database
 """
 from http import HTTPStatus
 from typing import Any
@@ -282,19 +282,19 @@ class TestStandardBulkCreate:
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTheDeviceReadsBackInItsOwnOrder:
     """
-    Backlog #201 — the regression nobody had pinned
+    A bulk-created device lists its ports in the order the preview showed
 
-    The preview listed the ports in the right order and the writer wrote them in that order; the READ
-    was what lost it. With no `port_number` stored, `get_ports_of_object` sorted every port of the
-    batch equal and fell back to the name as a STRING.
+    The preview lists the ports in order and the writer writes them in that order, so the READ is what
+    has to keep it. Without a stored `port_number`, `get_ports_of_object` would sort every port of the
+    batch equal and fall back to the name as a STRING.
     """
 
     def test_the_ports_list_numerically_not_lexicographically(self, rest_api, ports) -> None:
         """
         The failing case, at the size it actually shows up
 
-        Below ten ports the string order and the numeric order agree, which is why a small fixture
-        would have passed against the bug.
+        Below ten ports the string order and the numeric order agree, so a small fixture could not
+        tell them apart.
         """
         del ports
         _bulk(rest_api, count=12)
@@ -325,10 +325,10 @@ class TestTheDeviceReadsBackInItsOwnOrder:
 
     def test_the_bulk_and_the_single_create_agree(self, rest_api, ports) -> None:
         """
-        The inconsistency that made this a bug rather than a missing feature
+        A hand-made port and a bulk-made one sort into one sequence
 
-        `POST /ports/` has always accepted `port_number`, so a hand-made port sorted correctly while a
-        bulk-made one did not - on the same object, in the same panel.
+        `POST /ports/` accepts `port_number`, so a bulk-made port has to carry one too or the two would
+        sort differently - on the same object, in the same panel.
         """
         del ports
         _bulk(rest_api, count=2)
@@ -456,7 +456,7 @@ class TestCollisionsAreRefused:
         Not 'create the ones that fit'
 
         Letting the batch start and fail on the twelfth would leave a half-built device behind for no
-        benefit, since the preview knew before the first write.
+        benefit, since the preview knows before the first write.
         """
         _seed_port(ports, 'Gi0/2')
 

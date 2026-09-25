@@ -21,10 +21,9 @@ a missing id, the delete + 404-after-delete, the delete-missing 404, and the man
 status mapping. CmdbObjectRelationLogs have no public create route (they are written internally), so
 the docs are seeded directly via the collection.
 
-Since 2026-08-27 also: the DELETE route's own read-failure arm (it reads the log before removing it),
-the unmapped-error -> 500 tail of all three routes, and the HTTPException pass-through the list route
-was missing - none of which is reachable without patching a manager method, which is why the four
-statements-per-route tails had stayed uncovered.
+Also covered: the DELETE route's own read-failure arm (it reads the log before removing it), the
+unmapped-error -> 500 tail of all three routes, and the HTTPException pass-through of the list
+route - none of which is reachable without patching a manager method.
 """
 from http import HTTPStatus
 from typing import Any

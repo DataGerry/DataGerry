@@ -52,7 +52,7 @@ from cmdb.errors.manager.impact_manager import (
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -237,14 +237,14 @@ def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbU
 
         # If the calculation_basis changed, also update IsmsRiskAssessments
         if basis_changed:
-            impact_manager.update_with_follow_up(public_id, data)
+            stored: dict[str, Any] = impact_manager.update_with_follow_up(public_id, data)
         else:
-            impact_manager.update_item(public_id, IsmsImpact.from_data(data))
+            stored = update_item_from_payload(impact_manager, public_id, IsmsImpact, data)
 
         # Calculate the RiskMatrix
         calculate_risk_matrix(request_user)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except ImpactManagerGetError as err:
         LOGGER.error("[update_isms_impact] ImpactManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Impact with ID: {public_id} from the database!")

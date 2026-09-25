@@ -14,19 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Post-refactor perf sanity check for /ci_explorer/items
+Perf sanity check for /ci_explorer/items
 
 **The name matters: pytest collects `test_*.py` only** -
-`python_files` defaults to `test_*.py` / `*_test.py`, so the test below had never run since it was
-written. It passes against the current route; the rename is the whole fix. Keep the `test_` prefix
-on any file that is meant to run.
+`python_files` defaults to `test_*.py` / `*_test.py`, so keep the `test_` prefix on any file that is
+meant to run.
 
 Seeds a moderately sized fixture (N linked objects, each with a ref-typed field) and
-times five invocations of the route. Reports the median wall-clock so the post-refactor
-numbers can be eyeballed against expectations - this is a sanity test, not a benchmark
-suite. The big perf win (batched ref-field flattening) is structural: each ref field
-previously triggered its own get_summary_line round trip; now one bulk lookup serves
-the whole batch
+times five invocations of the route. Reports the median wall-clock so the numbers can be
+eyeballed against expectations - this is a sanity test, not a benchmark suite. The perf
+property (batched ref-field flattening) is structural: one bulk lookup serves the whole
+batch rather than a get_summary_line round trip per ref field
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -178,9 +176,9 @@ def setup_perf_fixture(request, connector: MongoConnector, database_name):
 def test_perf_post_refactor_route_handles_30_linked_objects_under_one_second(rest_api):
     """
     Sanity test: with 30 linked Neighbour objects each carrying a ref field, the route
-    completes in well under a second. Pre-refactor, the per-call get_summary_line N+1
-    pattern issued ~30 round trips for this dataset; the batched lookup collapses that
-    to a single $in. We just pin a generous upper bound here so the test is stable
+    completes in well under a second. A per-call get_summary_line N+1 pattern would
+    issue ~30 round trips for this dataset; the batched lookup collapses that to a
+    single $in. We just pin a generous upper bound here so the test is stable
     """
     timings: list[float] = []
 

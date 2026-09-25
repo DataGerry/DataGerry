@@ -51,7 +51,7 @@ from typing import Any
 
 from cmdb.class_schema.isms_model.isms_risk_schema import get_isms_risk_schema
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.models.isms_model.isms_risk_constants import RiskKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey, RISK_REQUIRED_DOCUMENT_KEYS
 
 from cmdb.errors.models.isms_risk import (
     IsmsRiskInitError,
@@ -107,6 +107,7 @@ class IsmsRisk(CmdbDAO):
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
     KEYS = RiskKey
+    REQUIRED_INIT_KEYS: list[str] = RISK_REQUIRED_DOCUMENT_KEYS
     INIT_FROM_DATA_ERROR = IsmsRiskInitFromDataError
     TO_JSON_ERROR = IsmsRiskToJsonError
 

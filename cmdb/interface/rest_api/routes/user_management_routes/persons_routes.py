@@ -66,7 +66,7 @@ from cmdb.errors.manager.persons_manager import (
     PersonsManagerDeleteError,
     PersonsManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -252,11 +252,11 @@ def update_cmdb_person(public_id: int, data: dict[str, Any], request_user: CmdbU
         data[PersonKey.PUBLIC_ID.value] = public_id
 
         # Persist the Person first, then sync the reciprocal group membership only on success
-        persons_manager.update_item(public_id, CmdbPerson.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(persons_manager, public_id, CmdbPerson, data)
 
         person_groups_manager.update_person_in_groups(public_id, groups_to_add, groups_to_remove)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except PersonsManagerGetError as err:
         LOGGER.error("[update_cmdb_person] PersonsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Person with ID: {public_id} from the database!")

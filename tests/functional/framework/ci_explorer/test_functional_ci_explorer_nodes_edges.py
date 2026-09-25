@@ -16,11 +16,11 @@
 """
 Golden-master functional tests for GET /ci_explorer/items
 
-These tests pin the observable contract of the current route before the refactor:
-top-level response keys per target_type, node/edge counts, edge directions, titles,
-location-flip semantics, item_limit clipping and types_filter behaviour. They are
-intentionally shape-focused (not byte-identical) so the refactor can normalise
-internal inconsistencies without false-positive failures
+These tests pin the observable contract of the route: top-level response keys per
+target_type, node/edge counts, edge directions, titles, location-flip semantics,
+item_limit clipping and types_filter behaviour. They are intentionally shape-focused
+(not byte-identical) so the implementation can normalise internal inconsistencies
+without false-positive failures
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -257,7 +257,7 @@ def setup_ci_explorer_fixture(request, connector: MongoConnector, database_name)
 #                                       Smoke tests for /ci_explorer/items                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestCiExplorerNodesEdgesContract:
-    """Pins the observable contract of the current route before the refactor."""
+    """Pins the observable contract of the route."""
 
     def test_both_with_root_returns_root_plus_parent_and_child_neighbourhoods(self, rest_api):
         """target_type=BOTH&with_root=true returns root_node + populated parent and child sides"""
@@ -382,7 +382,7 @@ class TestAMissingTargetIsA404:
         Answering 200 with empty buckets makes a typo'd id look like an isolated CI
 
         Every other read route in the API answers 404 for a public_id that resolves to nothing, and
-        the CI Explorer view can now tell the two cases apart.
+        the CI Explorer view can tell the two cases apart.
         """
         response = rest_api.get(f'{ROUTE_URL}?target_id=987654&target_type=BOTH&with_root=true')
 
@@ -391,10 +391,10 @@ class TestAMissingTargetIsA404:
 
     def test_an_unknown_target_is_refused_without_the_root_block_too(self, rest_api) -> None:
         """
-        The existence read no longer depends on the flags
+        The existence read does not depend on the flags
 
-        Before, the target was loaded only for with_root / with_ipam_relations, so a neighbours-only
-        request could not have noticed the object was gone.
+        Were the target loaded only for with_root / with_ipam_relations, a neighbours-only request
+        could not notice the object was gone.
         """
         response = rest_api.get(f'{ROUTE_URL}?target_id=987654&target_type=CHILD')
 
@@ -404,7 +404,7 @@ class TestAMissingTargetIsA404:
         """
         The case the 404 must not swallow: an isolated CI is a valid, empty graph
 
-        This is the distinction the whole change exists to make, so both halves are pinned together.
+        This is the distinction the 404 exists to make, so both halves are asserted together.
         """
         response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_LOC_CHILD}&target_type=BOTH&with_root=true')
 
@@ -435,7 +435,7 @@ class TestTheCapIsStable:
 
     def test_the_capped_neighbours_are_the_lowest_public_ids(self, rest_api) -> None:
         """
-        Which subset survives is now a stated rule rather than whatever Mongo returned first
+        Which subset survives is a stated rule rather than whatever Mongo returns first
 
         Ascending public_id means the oldest neighbours win, which is at least explicable to a user.
         """

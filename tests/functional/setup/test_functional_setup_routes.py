@@ -1,27 +1,25 @@
 """
 Functional tests for the Service-Portal setup / teardown routes (/setup)
 
-**This file proves the
-opposite for an on-premise process, because that is the fix.**
+**This file proves the routes are absent from an on-premise process, because that absence is the
+guard.**
 
 The routes exist for the DataGerry Service Portal to tear down a tenant: drop its database, evict it
 from the shared user cache. None of them carries `@insert_request_user` or `.protect` - their only
 decorator is `verify_api_access`, which returns immediately when the process is not in cloud mode. So
-while the blueprint was registered unconditionally, an on-premise installation published
+a blueprint registered unconditionally would publish, on an on-premise installation,
 
     DELETE /rest/setup/subscriptions?database=<name>
 
-with **no credentials of any kind**, and the name went straight to `drop_database` with nothing
-checking that it belonged to a subscription. Verified against the running app before the fix: the
-request reached the handler and was refused only because the database did not exist.
+with **no credentials of any kind**, and the name would go straight to `drop_database` with nothing
+checking that it belonged to a subscription.
 
-`init_rest_api` now registers the blueprint only when `cmdb.__CLOUD_MODE__` is set, and **the
-registration is the whole guard** - which is what these tests pin. The test suite runs on-premise, so
-the routes must be absent from the URL map entirely.
+`init_rest_api` registers the blueprint only when `cmdb.__CLOUD_MODE__` is set, and **the
+registration is the whole guard** - which is what these tests check. The test suite runs on-premise,
+so the routes must be absent from the URL map entirely.
 
 The handlers' own behaviour - the error mapping, the payload branches of `delete_cached_user` - is
-covered by the setup routes' own unit tests,
-so nothing was lost by this file changing its subject.
+covered by the setup routes' own unit tests.
 """
 from http import HTTPStatus
 
@@ -58,7 +56,7 @@ class TestTheSetupSurfaceIsAbsentOnPremise:
 
     def test_an_unauthenticated_teardown_is_not_reachable(self, rest_api) -> None:
         """
-        The finding this fix closes
+        An unauthenticated teardown cannot reach the handler
 
         **The Authorization header has to be cleared explicitly.** `rest_api.open` is not enough:
         the test client sets `environ_base['HTTP_AUTHORIZATION']` at construction, so every request

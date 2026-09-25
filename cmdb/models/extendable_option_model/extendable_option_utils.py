@@ -25,7 +25,7 @@ Two callers share these coercions, which is why they live outside the model:
   option list at once. It normalises instead of building a model, and a document it cannot read is
   **skipped and reported** rather than failing the request: an option list is what fills a dropdown,
   so one drifted document must not cost a form every other value it offers (the same rule the
-  settings list learned on 2026-09-09, see ``user_setting_utils``).
+  settings list follows, see ``user_setting_utils``).
 
 Which values are accepted here is deliberately wider than what the REST API stores. The Cerberus
 schema owns the write contract - a non-empty value, an ``option_type`` that names a defined

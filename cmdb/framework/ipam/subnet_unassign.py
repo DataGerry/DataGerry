@@ -24,10 +24,14 @@ flow, which clears 'dg-supernet-ref' on the SUBNET CmdbObject rather than deleti
 detached IP becomes 'free' on the next subnet-overview load because the overview index
 filters rows by their subnet reference
 
-Per-owner write semantics: one ``objects_manager.update_object`` per affected owner. That
-preserves ACL checks (the caller must have UPDATE permission on each owner's CmdbType),
-per-object versioning bumps and post-update hooks. The trade-off is N round-trips instead
-of one bulk write, which is acceptable for a UI-driven multi-select that's bounded in size
+Per-owner write semantics: one ``objects_manager.update_object`` per affected owner, which applies
+the ACL (the caller must have UPDATE permission on each owner's CmdbType). ``update_object`` itself
+writes nothing else, so the rest of what an object edit records is built here: the version bump and
+edit stamp travel in the same write, and every written owner is handed to the orchestrator's
+``on_write`` callback, which the route turns into the change-log entry and the UPDATE webhook. The
+write is a targeted ``$set`` of ``multi_data_sections`` plus the version and stamp - an edit of any
+other part of the owner saved concurrently survives it. The trade-off is N round-trips instead of one
+bulk write, which is acceptable for a UI-driven multi-select that's bounded in size
 
 Validate-all-or-nothing: if any requested IP is not currently assigned to this subnet, the
 orchestrator aborts HTTP 400 with the offending IPs and no write happens. Mirrors the
@@ -57,6 +61,13 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.ipam.cidr import Network, parse_cidr, parse_ip, ip_in_network
 from cmdb.framework.ipam.references import resolve_special_type_id
+from cmdb.framework.object_edit import (
+    ObjectWriteCallback,
+    PlannedEdit,
+    build_edit_stamp,
+    hand_over_object_writes,
+    plan_object_edit,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -511,6 +522,32 @@ _OWNER_MUTATORS = {
 }
 
 
+def build_owner_update(
+    new_doc: dict[str, Any],
+    new_version: str,
+    edit_stamp: dict[str, Any],
+) -> dict[str, Any]:
+    """
+    Builds the top-level keys an unassign writes onto one owner
+
+    Only what the unassign changes: the owner's ``multi_data_sections``, its bumped version and the
+    edit stamp. Written as a partial update, so the rest of the stored owner is left as it is
+
+    Args:
+        new_doc (dict[str, Any]): The owner with the unassign applied (from the mode's mutator)
+        new_version (str): The version the unassign bumps the owner to
+        edit_stamp (dict[str, Any]): ``last_edit_time`` / ``editor_id`` (see ``build_edit_stamp``)
+
+    Returns:
+        dict[str, Any]: The keys to ``$set`` on the stored owner
+    """
+    return {
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value: new_doc.get(CmdbObjectKey.MULTI_DATA_SECTIONS, []),
+        CmdbObjectKey.VERSION.value: new_version,
+        **edit_stamp,
+    }
+
+
 def apply_unassign_to_owners(
     objects_manager: ObjectsManager,
     owner_docs: list[dict[str, Any]],
@@ -518,45 +555,61 @@ def apply_unassign_to_owners(
     target_ips: set[str],
     request_user: CmdbUser,
     mode: str,
+    on_write: ObjectWriteCallback | None = None,
 ) -> int:
     """
     Applies the chosen unassign ``mode`` to each owner's matching rows and returns the affected count
 
     Iterates the candidate owners, builds the post-mutation doc with the mode's per-owner mutator
     (REFERENCE -> ``clear_subnet_ref_in_owner``, ROW -> ``delete_subnet_rows_in_owner``), and only
-    calls ``objects_manager.update_object`` for owners that actually changed (so an owner that
-    referenced this subnet only at non-target IPs is skipped and incurs no write). Each
-    ``update_object`` goes through the standard ACL / version / hook path, so a user without UPDATE
-    permission on the owner's CmdbType fails fast. Note the per-owner writes are sequential and not
-    wrapped in a cross-owner transaction
+    writes owners that actually changed (so an owner that referenced this subnet only at non-target
+    IPs is skipped and incurs no write). Each write is a partial ``update_object`` carrying the new
+    ``multi_data_sections``, the version bump and the edit stamp; ``update_object`` applies the ACL,
+    so a user without UPDATE permission on an owner's CmdbType fails on that owner.
+
+    **The per-owner writes are sequential and not wrapped in a cross-owner transaction**, so a
+    failure part-way leaves the owners before it written. Those owners are still handed to
+    ``on_write`` - from a ``finally`` - so the edits that did happen get their change log and webhook
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         owner_docs (list[dict[str, Any]]): Candidate owners (typically from ``load_interface_owners``)
         subnet_id (int): public_id of the subnet whose interface rows are unassigned
         target_ips (set[str]): Canonical IP strings flagged for unassigning
-        request_user (CmdbUser): User making the request; forwarded to update_object for ACL
+        request_user (CmdbUser): User making the request; forwarded to update_object for ACL and
+            stamped as editor
         mode (str): An IpamUnassignMode value selecting the per-owner mutation
+        on_write (ObjectWriteCallback | None): Receives every written owner after the writes. None
+            skips the read-back
 
     Returns:
         int: Total number of dg-ipam-interface rows affected across all touched owners
     """
     mutate = _OWNER_MUTATORS[mode]
     total_affected: int = 0
+    edit_stamp: dict[str, Any] = build_edit_stamp(request_user)
+    written: dict[int, PlannedEdit] = {}
 
-    for owner in owner_docs:
-        new_doc, affected = mutate(owner, subnet_id, target_ips)
+    try:
+        for owner in owner_docs:
+            new_doc, affected = mutate(owner, subnet_id, target_ips)
 
-        if not affected:
-            continue
+            if not affected:
+                continue
 
-        objects_manager.update_object(
-            owner[CmdbObjectKey.PUBLIC_ID],
-            new_doc,
-            request_user,
-            AccessControlPermission.UPDATE,
-        )
-        total_affected += len(affected)
+            plan: PlannedEdit = plan_object_edit(owner, new_doc)
+
+            objects_manager.update_object(
+                owner[CmdbObjectKey.PUBLIC_ID],
+                build_owner_update(new_doc, plan.version, edit_stamp),
+                request_user,
+                AccessControlPermission.UPDATE,
+                partial=True,
+            )
+            written[owner[CmdbObjectKey.PUBLIC_ID]] = plan
+            total_affected += len(affected)
+    finally:
+        hand_over_object_writes(objects_manager, written, on_write)
 
     return total_affected
 
@@ -567,6 +620,7 @@ def clear_subnet_ref_in_owners(
     subnet_id: int,
     target_ips: set[str],
     request_user: CmdbUser,
+    on_write: ObjectWriteCallback | None = None,
 ) -> int:
     """
     Clears the subnet ref on each owner's matching rows (the REFERENCE mode of unassign)
@@ -580,12 +634,14 @@ def clear_subnet_ref_in_owners(
         subnet_id (int): public_id of the subnet whose interface rows should have their ref cleared
         target_ips (set[str]): Canonical IP strings flagged for clearing
         request_user (CmdbUser): User making the request; forwarded to update_object for ACL
+        on_write (ObjectWriteCallback | None): Receives every written owner. Defaults to None
 
     Returns:
         int: Total number of dg-ipam-interface rows whose subnet ref was cleared
     """
     return apply_unassign_to_owners(
         objects_manager, owner_docs, subnet_id, target_ips, request_user, IpamUnassignMode.REFERENCE,
+        on_write,
     )
 
 
@@ -625,6 +681,7 @@ def unassign_ips_from_subnet(
     raw_ips: Any,
     request_user: CmdbUser,
     raw_mode: Any = None,
+    on_write: ObjectWriteCallback | None = None,
 ) -> dict[str, Any]:
     """
     Validates the payload and unassigns the matching dg-ipam-interface rows in the chosen mode
@@ -642,8 +699,9 @@ def unassign_ips_from_subnet(
          no write happens
       6. Otherwise apply the mode via ``apply_unassign_to_owners``: REFERENCE flips each matching
          row's ``dg-interface-subnet`` value to None (the row, IP and MAC are kept); ROW deletes
-         the whole matching row. Each owner is written via ``objects_manager.update_object`` so
-         ACL / versioning / hooks all run. The mode applies to every IP, not per row
+         the whole matching row. Each owner is written via a partial ``update_object`` (the
+         ACL) carrying its version bump and edit stamp, and handed to ``on_write`` afterwards. The
+         mode applies to every IP, not per row
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -652,6 +710,8 @@ def unassign_ips_from_subnet(
         raw_ips (Any): The raw value read off the JSON body for the 'ips' key
         request_user (CmdbUser): User making the request; forwarded to update_object for ACL
         raw_mode (Any): The raw value read off the JSON body for the 'mode' key (default REFERENCE)
+        on_write (ObjectWriteCallback | None): Receives every written owner after the writes - the
+            route writes its change log and webhook from it. None skips the read-back
 
     Returns:
         dict[str, Any]: {'ips': [str, ...], 'mode': str, 'unassigned_count': int} where 'ips'
@@ -675,7 +735,7 @@ def unassign_ips_from_subnet(
         )
 
     unassigned_count: int = apply_unassign_to_owners(
-        objects_manager, owner_docs, subnet_public_id, set(ips), request_user, mode,
+        objects_manager, owner_docs, subnet_public_id, set(ips), request_user, mode, on_write,
     )
 
     return {

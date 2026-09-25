@@ -187,8 +187,8 @@ class CmdbType(CmdbDAO):
         """
         try:
             # The audit timestamps are coerced strictly: a value that cannot be read is refused
-            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
-            # 'sometime in March' into a date built from today's day number
+            # rather than guessed - a fuzzy parse would turn a note like 'sometime in March' into a
+            # date built from today's day number
             unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
             if unusable_dates:

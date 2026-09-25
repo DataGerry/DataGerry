@@ -29,6 +29,7 @@ why they read in terms of a generic criteria dict rather than of the rack's rule
 import json
 from io import BytesIO
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from typing import Any
 
 import pytest
@@ -45,6 +46,7 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     fetch_only_active_objects,
     extract_public_ids,
     normalize_public_id_list,
+    update_item_from_payload,
 )
 # An empty list is the contract for "no stages" in several helpers here, so these assert the exact
 # value rather than falsiness - a None slipping through would break the caller that splices the result
@@ -402,3 +404,53 @@ def test_pin_public_id_mutates_in_place_and_returns_the_same_dict() -> None:
     data: dict = {'name': 'x'}
 
     assert pin_public_id(data, 7) is data
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               update_item_from_payload                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class _Model:
+    """A stand-in model: from_data fills an omitted optional key, to_json serialises what it holds."""
+
+    def __init__(self, document: dict) -> None:
+        self.document = {'description': '', **document}
+
+    @classmethod
+    def from_data(cls, document: dict) -> '_Model':
+        """Builds the model without touching the caller's dict."""
+        return cls(dict(document))
+
+    @classmethod
+    def to_json(cls, model: '_Model') -> dict:
+        """The document the manager stores."""
+        return dict(model.document)
+
+
+def test_update_item_from_payload_writes_the_model_it_built() -> None:
+    """The manager receives the model instance, so it stores that model's to_json wholesale"""
+    manager = MagicMock()
+
+    update_item_from_payload(manager, 7, _Model, {'public_id': 7, 'name': 'n'})
+
+    public_id, written = manager.update_item.call_args.args
+    assert public_id == 7
+    assert isinstance(written, _Model)
+
+
+def test_update_item_from_payload_answers_the_stored_document_not_the_payload() -> None:
+    """A key the payload left out comes back as the model stored it"""
+    payload = {'public_id': 7, 'name': 'n'}
+
+    stored = update_item_from_payload(MagicMock(), 7, _Model, payload)
+
+    assert stored == {'public_id': 7, 'name': 'n', 'description': ''}
+    assert 'description' not in payload
+
+
+def test_update_item_from_payload_answers_nothing_when_the_write_fails() -> None:
+    """A failed write raises before a response is built - the caller maps the manager's error"""
+    manager = MagicMock()
+    manager.update_item.side_effect = RuntimeError('write failed')
+
+    with pytest.raises(RuntimeError):
+        update_item_from_payload(manager, 7, _Model, {'public_id': 7})

@@ -663,6 +663,8 @@ class TestLocationNameDerivation:
             assert response.status_code == HTTPStatus.ACCEPTED
             stored = rest_api.get(f'{ROUTE_URL}/{DERIVE_PUT_LOCATION_ID}').get_json()
             assert stored['name'] == SUMMARY_NAME
+            # The response is the stored node, so it reports the derived name - not the '' that was sent
+            assert response.get_json()['result'] == stored
         finally:
             _drop_locations_by_ids(database_manager, database_name, [DERIVE_PUT_LOCATION_ID])
             _drop_objects(database_manager, database_name, [DERIVE_PUT_OBJECT_ID])
@@ -691,6 +693,8 @@ class TestPutLocation:
             # The follow-up GET uses DefaultResponse - the body is the bare location dict
             follow_up = rest_api.get(f'{ROUTE_URL}/{LOCATION_ID_FOR_UPDATE}')
             assert follow_up.get_json()['name'] == UPDATED_NAME
+            # ... and the update answered that same stored node, not the request body
+            assert response.get_json()['result'] == follow_up.get_json()
         finally:
             _drop_locations_by_ids(database_manager, database_name, [LOCATION_ID_FOR_UPDATE])
 

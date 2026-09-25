@@ -196,9 +196,8 @@ class TestGetControlMeasureAssignment:
         The other half of the reference split: a RiskAssessment pointing at one CmdbObject
 
         A RiskAssessment references EITHER a single object or an object group, and the two are
-        collected into different id sets and resolved by different managers. Only the group half was
-        exercised, so the object half - the one that reads a summary line rather than a group name -
-        had never run.
+        collected into different id sets and resolved by different managers. This covers the object
+        half - the one that reads a summary line rather than a group name.
         """
         _insert_cma(database_manager, database_name, CMA_ID_FOR_OBJECT_ENRICH,
                     risk_assessment_id=OBJECT_RISK_ASSESSMENT_ID)
@@ -240,8 +239,8 @@ class TestPutControlMeasureAssignment:
         """
         The URL owns the identity
 
-        Before the identity was pinned, the body's public_id was `$set` onto the document: the update
-        answered 202 and the row moved to the client's id, leaving the URL's id pointing at nothing.
+        A body public_id `$set` onto the document would answer 202 and move the row to the client's id,
+        leaving the URL's id pointing at nothing.
         """
         _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
         payload = _cma_payload(CMA_ID_FOR_UPDATE)
@@ -259,9 +258,9 @@ class TestPutControlMeasureAssignment:
                                                         database_manager: MongoDatabaseManager,
                                                         database_name: str) -> None:
         """
-        The identity is optional in a request body, and omitting it used to be a 500
+        The identity is optional in a request body, and omitting it is not a 500
 
-        `public_id` is not part of the request schema at all now, so a consumer that treats it as
+        `public_id` is not part of the request schema at all, so a consumer that treats it as
         server-owned - the correct assumption - gets a normal update instead of an unexplained 500.
         """
         _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)

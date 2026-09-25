@@ -21,16 +21,23 @@ implementation (collection ``isms.controlMeasureAssignment``).
 
 Its two date fields follow the same rule as the assessment's four (see IsmsRiskAssessment): they
 arrive as the Mongo extended-JSON wrapper ``{'$date': <epoch millis>}`` and are stored as real BSON
-dates, normalised by ``from_data`` here and by ``GenericManager`` on the raw-dict write paths. Older
-databases stored the wrapper itself and are migrated by ``updater_20260907``
+dates, normalised by ``normalize_document`` here and by ``GenericManager`` on the raw-dict write paths.
+Older databases stored the wrapper itself and are migrated by ``updater_20260907``.
+
+The model reads and writes through the shared ``CmdbDAO.from_data`` / ``to_json``: ``KEYS`` is its key
+enum, and ``REQUIRED_INIT_KEYS`` refuses a document without the measure and assessment ids it links
 """
-from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime
 
 from cmdb.utils import coerce_document_dates
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import (
+    CONTROL_MEASURE_ASSIGNMENT_DATE_FIELDS,
+    CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS,
+    ControlMeasureAssignmentKey,
+)
 from cmdb.models.isms_model.priority_enum import Priority
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 
@@ -45,8 +52,6 @@ from cmdb.errors.models.isms_control_measure_assignment import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         IsmsControlMeasureAssignment - CLASS                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -59,25 +64,28 @@ class IsmsControlMeasureAssignment(CmdbDAO):
     COLLECTION = "isms.controlMeasureAssignment"
 
     INDEX_KEYS: list[dict[str, Any]] = [
-        {'keys': [('control_measure_id', CmdbDAO.DAO_ASCENDING)], 'name': 'control_measure_id', 'unique': False},
-        {'keys': [('risk_assessment_id', CmdbDAO.DAO_ASCENDING)], 'name': 'risk_assessment_id', 'unique': False},
         {
-            'keys': [('responsible_for_implementation_id_ref_type', CmdbDAO.DAO_ASCENDING)],
-            'name': 'responsible_for_implementation_id_ref_type',
-            'unique': False
-        },
-        {
-            'keys': [('responsible_for_implementation_id', CmdbDAO.DAO_ASCENDING)],
-            'name': 'responsible_for_implementation_id',
-            'unique': False
+            'keys': [(key.value, CmdbDAO.DAO_ASCENDING)],
+            'name': key.value,
+            'unique': False,
         }
+        for key in (
+            ControlMeasureAssignmentKey.CONTROL_MEASURE_ID,
+            ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID,
+            ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE,
+            ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID,
+        )
     ]
 
     SCHEMA: dict[str, Any] = get_isms_control_measure_assignment_schema()
 
-    # The date-typed fields every write path normalises into real BSON dates. Spelled out here rather
-    # than taken from a key enum: this model's remaining literals are consolidated in its own sweep
-    DATE_FIELDS: tuple[str, ...] = ('planned_implementation_date', 'finished_implementation_date')
+    DATE_FIELDS: tuple[str, ...] = CONTROL_MEASURE_ASSIGNMENT_DATE_FIELDS
+
+    # The shared from_data / to_json; REQUIRED_INIT_KEYS refuses a document that links nothing
+    KEYS = ControlMeasureAssignmentKey
+    REQUIRED_INIT_KEYS: list[str] = CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS
+    INIT_FROM_DATA_ERROR = IsmsControlMeasureAssignmentInitFromDataError
+    TO_JSON_ERROR = IsmsControlMeasureAssignmentToJsonError
 
 
     #pylint: disable=R0913, R0917
@@ -126,73 +134,22 @@ class IsmsControlMeasureAssignment(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict[str, Any]) -> "IsmsControlMeasureAssignment":
+    def normalize_document(cls, data: dict[str, Any]) -> None:
         """
-        Initialises a IsmsControlMeasureAssignment from a dict
+        Normalises the two date fields of a raw document IN PLACE before the shared from_data reads it
 
-        Reads a stored document as well as a validated request payload, normalising the two date
-        fields in place first: a payload carries them as ``{'$date': ...}`` wrappers or timestamp
-        strings, a stored document as real dates. A date that cannot be read is refused instead of
-        guessed - the previous implementation parsed strings with ``fuzzy=True``, which turns a note
-        like 'planned for Q3' into a date built from today
+        A payload carries them as ``{'$date': ...}`` wrappers or timestamp strings, a stored document as
+        real dates. A date that cannot be read is refused instead of guessed: a fuzzy parse would turn a
+        note like 'planned for Q3' into a date built from today
 
         Args:
-            data (dict): Data with which the IsmsControlMeasureAssignment should be initialised
+            data (dict[str, Any]): The document or validated payload, edited in place
 
         Raises:
-            IsmsControlMeasureAssignmentInitFromDataError: If the initialisation with the given data
-                fails, including a date field whose value is not a readable timestamp
-
-        Returns:
-            IsmsControlMeasureAssignment: IsmsControlMeasureAssignment with the given data
+            ValueError: If a present date field is not a readable timestamp; the shared from_data
+                reports it as IsmsControlMeasureAssignmentInitFromDataError
         """
-        try:
-            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
+        unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if unusable_dates:
-                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
-
-            return cls(
-                public_id = data.get('public_id'),
-                control_measure_id = data.get('control_measure_id'),
-                risk_assessment_id = data.get('risk_assessment_id'),
-                planned_implementation_date = data.get('planned_implementation_date'),
-                implementation_status = data.get('implementation_status'),
-                finished_implementation_date = data.get('finished_implementation_date'),
-                priority = data.get('priority'),
-                responsible_for_implementation_id_ref_type = data.get('responsible_for_implementation_id_ref_type'),
-                responsible_for_implementation_id = data.get('responsible_for_implementation_id'),
-            )
-        except Exception as err:
-            raise IsmsControlMeasureAssignmentInitFromDataError(err) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "IsmsControlMeasureAssignment") -> dict[str, Any]:
-        """
-        Converts a IsmsControlMeasureAssignment into a json compatible dict
-
-        Args:
-            instance (IsmsControlMeasureAssignment): The IsmsControlMeasureAssignment which should be converted
-
-        Raises:
-            IsmsControlMeasureAssignmentToJsonError: If the IsmsControlMeasureAssignment could not be converted
-                                                      to a json compatible dict
-
-        Returns:
-            dict: Json compatible dict of the IsmsControlMeasureAssignment values
-        """
-        try:
-            return {
-                'public_id': instance.get_public_id(),
-                'control_measure_id': instance.control_measure_id,
-                'risk_assessment_id': instance.risk_assessment_id,
-                'planned_implementation_date': instance.planned_implementation_date,
-                'implementation_status': instance.implementation_status,
-                'finished_implementation_date': instance.finished_implementation_date,
-                'priority': instance.priority,
-                'responsible_for_implementation_id_ref_type': instance.responsible_for_implementation_id_ref_type,
-                'responsible_for_implementation_id': instance.responsible_for_implementation_id,
-            }
-        except Exception as err:
-            raise IsmsControlMeasureAssignmentToJsonError(err) from err
+        if unusable_dates:
+            raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")

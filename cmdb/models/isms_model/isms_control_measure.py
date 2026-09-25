@@ -45,7 +45,10 @@ from typing import Any
 
 from cmdb.class_schema.isms_model.isms_control_measure_schema import get_isms_control_measure_schema
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
+from cmdb.models.isms_model.isms_control_measure_constants import (
+    ControlMeasureKey,
+    CONTROL_MEASURE_REQUIRED_DOCUMENT_KEYS,
+)
 
 from cmdb.errors.models.isms_control_measure import (
     IsmsControlMeasureInitError,
@@ -78,6 +81,7 @@ class IsmsControlMeasure(CmdbDAO):
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither;
     # the is_applicable rule below travels as the normalize_document hook
     KEYS = ControlMeasureKey
+    REQUIRED_INIT_KEYS: list[str] = CONTROL_MEASURE_REQUIRED_DOCUMENT_KEYS
     INIT_FROM_DATA_ERROR = IsmsControlMeasureInitFromDataError
     TO_JSON_ERROR = IsmsControlMeasureToJsonError
 

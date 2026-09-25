@@ -45,6 +45,7 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import BadRequest, HTTPException, NotFound
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
 from cmdb.models.special_type_model.ipam_constants import (
     IpamPagination,
     IpamSearch,
@@ -307,7 +308,7 @@ def test_children_route_passes_builder_aborts_through(flask_app: Flask) -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                           get_invalid_subnets_overview                                                #
+#                                           get_invalid_subnets_overview                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_invalid_route_forwards_page_page_size_and_search(flask_app: Flask) -> None:
     """The invalid-only route forwards public_id plus the page / page_size / search subset"""
@@ -390,6 +391,23 @@ def test_unassign_route_forwards_the_request_user(flask_app: Flask) -> None:
         bare(public_id=SUPERNET_PUBLIC_ID, request_user=request_user)
 
     assert mock_unassign.call_args.kwargs['request_user'] is request_user
+
+
+def test_unassign_route_hands_the_detacher_an_emitter_with_its_log_comment(flask_app: Flask) -> None:
+    """Every detached SUBNET gets its log and webhook through the emitter, under the detach comment"""
+    bare = _unwrap(unassign_subnets_route)
+    request_user = MagicMock()
+    emitter = MagicMock()
+
+    with patch(f'{ROUTE_PATH}.unassign_subnets_from_supernet', return_value={}) as mock_unassign, \
+         patch(f'{ROUTE_PATH}.build_object_write_emitter', return_value=emitter) as build_mock, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context(f'/overview/{SUPERNET_PUBLIC_ID}/subnets/unassign', method='POST',
+                                        json={IpamUnassignKey.SUBNET_IDS: [SUBNET_PUBLIC_ID]}):
+        bare(public_id=SUPERNET_PUBLIC_ID, request_user=request_user)
+
+    build_mock.assert_called_once_with(request_user, ObjectLogComment.SUBNET_UNASSIGNED_FROM_SUPERNET.value)
+    assert mock_unassign.call_args.kwargs['on_write'] is emitter
 
 
 def test_unassign_route_forwards_none_when_subnet_ids_key_absent(flask_app: Flask) -> None:

@@ -148,9 +148,7 @@ def handle_object_deleted(
         if locations_manager is None:
             locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
-        detach_all_member_locations(
-            object_id, request_user, objects_manager, locations_manager, rack_mounts_manager,
-        )
+        detach_all_member_locations(object_id, objects_manager, locations_manager, rack_mounts_manager)
 
     delete_rack_memberships(types_manager, rack_mounts_manager, deleted_object)
 

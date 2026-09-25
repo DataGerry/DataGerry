@@ -25,13 +25,13 @@ multiple SUBNETs at once
 Three things here deliberately differ from the sibling SUBNET routes; none of them is an
 oversight, and each is tracked so the asymmetry stays visible:
 
-* **The unassign write is a single raw Mongo update, not a per-object write.**
-  ``supernet_membership.clear_supernet_ref`` issues one ``update_many_raw`` whose document filter
-  and array filter both re-assert the current supernet reference, which closes the TOCTOU window
-  between validation and write and keeps the whole batch in one write. The cost is that it does
-  **not** go through ``ObjectsManager.update_object``: no object-level ACL check, no entry in the
-  objects' change history, no version bump and no webhook - unlike the SUBNET unassign route,
-  which writes each owner individually and gets all four.
+* **The unassign write is one bulk write, not a per-object ``update_object``.**
+  ``supernet_membership.clear_supernet_ref`` sends one single-document statement per SUBNET, together,
+  each re-asserting the current supernet reference - which closes the TOCTOU window between
+  validation and write, and keeps the batch to one round trip. Each statement carries the version bump
+  and edit stamp, and the route writes the change log and webhook of every SUBNET it detached, so the
+  detach records what any object edit records. The ACL is one check for the whole batch, because an
+  ACL lives on the CmdbType and every target is a SUBNET; the SUBNET routes check per owner instead.
 * **The subnets CSV export is uncapped.** Its SUBNET counterpart refuses an export above
   ``IpamSubnetIpsExport.MAX_EXPORT_ROWS``; ``IpamExport`` defines no such limit, so a supernet with
   very many subnets builds the whole file in memory.
@@ -72,6 +72,10 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import IpamRight
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    build_object_write_emitter,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -300,17 +304,16 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
     children of detached SUBNETs are left attached - they keep their own dg-supernet-ref and
     will surface as new top-level rows on the next overview load
 
-    **How the write happens matters here.** The whole batch is applied as ONE raw
-    ``update_many_raw`` whose filters re-assert the current supernet reference, so a SUBNET that a
-    concurrent writer reassigned in between is skipped rather than clobbered. That write does not go
-    through ``ObjectsManager.update_object``, so three of the four guarantees that method provides
-    are absent: the detach leaves **no history entry, no version bump and no webhook** (the sibling
-    SUBNET unassign route, which writes per owner, does all four).
+    **How the write happens matters here.** The whole batch is ONE unordered bulk write of
+    single-document statements whose filters re-assert the current supernet reference, so a SUBNET
+    that a concurrent writer reassigned in between is skipped rather than clobbered. Every detached
+    SUBNET gets what an object edit gets: a version bump and edit stamp in the same statement, and an
+    EDIT change-log entry plus an UPDATE webhook afterwards - both best-effort, so a lost one is logged
+    under ``OBJECT_LOG_LOST`` and does not fail the request. A skipped SUBNET gets neither.
 
-    The fourth - the ACL - is applied: ``request_user`` is forwarded and
-    ``verify_subnet_write_access`` asks once, before the write, whether the caller's group may
-    update SUBNET objects. One question answers it for the whole batch because an ACL lives on the
-    CmdbType and every target here is a SUBNET. The remaining three are not applied.
+    The ACL is asked once, before the write: ``verify_subnet_write_access`` checks whether the
+    caller's group may update SUBNET objects. One question answers it for the whole batch because an
+    ACL lives on the CmdbType and every target here is a SUBNET.
 
     Body:
         subnet_ids (list[int]): public_ids of SUBNETs to detach; must be a non-empty list,
@@ -343,6 +346,7 @@ def unassign_subnets_route(public_id: int, request_user: CmdbUser) -> Response:
         public_id,
         payload.get(IpamUnassignKey.SUBNET_IDS),
         request_user=request_user,
+        on_write=build_object_write_emitter(request_user, ObjectLogComment.SUBNET_UNASSIGNED_FROM_SUPERNET.value),
     )
 
     return DefaultResponse(result).make_response()

@@ -18,8 +18,8 @@ Functional smoke for the ``/person_groups`` REST routes
 
 Covers the route-layer concerns on top of the PersonGroupsManager integration suite: HTTP status
 codes, schema validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400
-mapping, and the reciprocal member sync on update (including the remove-a-member regression that
-must not crash with 'CmdbPersonGroup not subscriptable'). The routes are ISMS-license gated, so the
+mapping, and the reciprocal member sync on update (including removing a member, which must not
+crash with 'CmdbPersonGroup not subscriptable'). The routes are ISMS-license gated, so the
 license check is stubbed.
 """
 from http import HTTPStatus
@@ -39,6 +39,7 @@ from cmdb.errors.manager.person_groups_manager import (
     PersonGroupsManagerDeleteError,
     PersonGroupsManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/person_groups'
@@ -417,7 +418,7 @@ class TestTheDocumentTheApiHandsOutCanBeSentBack:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """
-        The 500 itself, reproduced from a document written before the fix
+        A legacy document with a null membership updates instead of answering 500
 
         updater_20260909 converges these, but a database mid-upgrade - or one restored from an older
         dump - can still hand the route a null, so the route reads it defensively.
@@ -470,7 +471,7 @@ class TestDeleteCleansThePersonSide:
     def test_deleting_a_group_removes_it_from_every_person(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The manager owns the whole cascade now, so the route's single call has to be enough."""
+        """The manager owns the whole cascade, so the route's single call has to be enough."""
         _insert_group(database_manager, database_name, GROUP_ID_FOR_DELETE, group_members=[PERSON_ID_A])
         _insert_person(database_manager, database_name, PERSON_ID_A, groups=[GROUP_ID_FOR_DELETE])
         _insert_person(database_manager, database_name, PERSON_ID_B, groups=[GROUP_ID_FOR_DELETE, 12345])
@@ -481,3 +482,20 @@ class TestDeleteCleansThePersonSide:
 
         assert _person_groups(database_manager, database_name, PERSON_ID_A) == []
         assert _person_groups(database_manager, database_name, PERSON_ID_B) == [12345]
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /person_groups/<id> answers the PersonGroup as stored, not the request body."""
+
+    def test_an_omitted_member_list_comes_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """group_members left out of the body is stored as [] - and answered as []."""
+        _insert_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+        payload = _group_payload(GROUP_ID_FOR_UPDATE)
+        payload.pop('group_members')
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}', payload)
+
+        assert result == stored
+        assert result['group_members'] == []

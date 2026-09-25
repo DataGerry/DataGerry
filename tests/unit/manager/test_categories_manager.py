@@ -17,8 +17,10 @@
 Unit tests for cmdb.manager.categories_manager.CategoriesManager
 
 Pure tests: no Mongo. Only the methods that carry their own behavior beyond the GenericManager
-forwarders are exercised here - ``tree``, ``iterate``, ``get_categories_by`` and
-``remove_category_as_parent``. The one-line delegations (``insert_category``, ``get_category``,
+forwarders are exercised here - ``tree``, ``iterate``, ``get_categories_by``,
+``remove_category_as_parent``, ``remove_type_from_categories``, ``validate_parent_assignment`` (with
+the ``_get_ancestor_ids`` failure path), ``get_category_type_ids`` and ``get_assigned_type_ids``. The
+one-line delegations (``insert_category``, ``get_category``,
 ``update_category``, ``delete_category``) are intentionally out of scope; they are covered
 transitively by the GenericManager unit suite and the integration tests.
 """
@@ -257,9 +259,8 @@ class TestRemoveTypeFromCategories:
 class TestValidateParentAssignment:
     """``validate_parent_assignment`` guards the parent reference using ``_get_ancestor_ids``.
 
-    The ancestor resolution itself ($graphLookup) is covered against real MongoDB in
-    tests/integration/framework/test_integration_categories_crud.py; here ``_get_ancestor_ids``
-    is mocked so only the branching logic is exercised."""
+    The ancestor resolution itself ($graphLookup) is covered against real MongoDB by the integration
+    tier; here ``_get_ancestor_ids`` is mocked so only the branching logic is exercised."""
 
     def test_none_parent_is_always_valid(self) -> None:
         """Detaching / root assignment (parent None) passes without any lookup."""

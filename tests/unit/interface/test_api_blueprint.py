@@ -321,6 +321,14 @@ class TestValidate:
                 wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
 
+    def test_a_refused_body_is_told_which_field_failed_and_why(self) -> None:
+        """The 400 names the failing field and the rule, instead of a message that names nothing."""
+        wrapped = APIBlueprint.validate(self.SCHEMA)(_route)
+        with _app().test_request_context(json={'name': 123}):
+            with pytest.raises(HTTPException) as exc_info:
+                wrapped()
+        assert exc_info.value.description == 'Invalid data provided: name: must be of string type'
+
     def test_validator_exception_aborts_400(self) -> None:
         """An exception raised inside the validator aborts 400 (Validator built at decoration time)."""
         with patch(f'{MODULE_PATH}.Validator') as validator_cls:
@@ -330,6 +338,17 @@ class TestValidate:
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_a_validator_failure_does_not_echo_the_schema(self) -> None:
+        """The schema is internal: a crash inside the validator answers a fixed message naming nothing."""
+        with patch(f'{MODULE_PATH}.Validator') as validator_cls:
+            validator_cls.return_value.validate.side_effect = ValueError('boom')
+            wrapped = APIBlueprint.validate(self.SCHEMA)(_route)
+            with _app().test_request_context(json={'name': 'x'}):
+                with pytest.raises(HTTPException) as exc_info:
+                    wrapped()
+        assert exc_info.value.description == 'The request body could not be validated!'
+        assert 'name' not in exc_info.value.description
 
 
 # =============================================== parse_parameters =================================================== #

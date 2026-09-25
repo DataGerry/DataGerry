@@ -44,7 +44,7 @@ class LikelihoodManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> None:
+    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> dict[str, Any]:
         """
         Updates an IsmsLikelihood and propagates the new calculation_basis to the likelihood_value
         of every IsmsRiskAssessment referencing it.
@@ -55,8 +55,12 @@ class LikelihoodManager(GenericManager):
         Args:
             public_id (int): public_id of the IsmsLikelihood which is changed
             new_data (dict[str, Any]): new data for the Likelihood
+
+        Returns:
+            dict[str, Any]: The Likelihood document as stored
         """
-        self.update_item(public_id, IsmsLikelihood.from_data(new_data))
+        likelihood: IsmsLikelihood = IsmsLikelihood.from_data(new_data)
+        self.update_item(public_id, likelihood)
 
         criteria = {
             '$or': [
@@ -85,6 +89,8 @@ class LikelihoodManager(GenericManager):
         ]
 
         self.dbm.update_many(IsmsRiskAssessment.COLLECTION, self.db_name, criteria, update_data, plain=True)
+
+        return IsmsLikelihood.to_json(likelihood)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

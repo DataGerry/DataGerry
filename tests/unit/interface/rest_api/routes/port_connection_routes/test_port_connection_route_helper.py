@@ -19,7 +19,7 @@ Unit tests for the CmdbPortConnection route guards
 Pure tests: the managers are mocks and every helper is called inside a Flask request context, because
 they abort.
 
-Since 2026-09-09 the unassigned-cable picker's three helpers are here too: which cables to hide (and
+The unassigned-cable picker's three helpers are here too: which cables to hide (and
 why the edited connection's own cable is not one of them), the picker's default sort key, and the
 batched CmdbType-label read of one page.
 

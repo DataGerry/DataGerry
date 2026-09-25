@@ -21,10 +21,10 @@ The base of every aggregation builder in the manager layer - `SearchPipelineBuil
 every paged read. It owns the stage list itself: appending to it, replacing it, clearing it and
 reporting its length.
 
-`__len__` and `clear` had no coverage and no obvious caller, which made them look like dead code in
-the one-line gap batch. They are not: `Builder` declares `__len__` **abstract**, so removing it makes
-every concrete builder uninstantiable, and `BaseQueryBuilder.clear` delegates here. Both are pinned
-below so the next caller-grep does not reach the same wrong conclusion.
+`__len__` and `clear` have no obvious caller, which makes them look like dead code. They are not:
+`Builder` declares `__len__` **abstract**, so removing it makes every concrete builder
+uninstantiable, and `BaseQueryBuilder.clear` delegates here. Both are tested below so a caller-grep
+does not lead to their removal.
 """
 import pytest
 
@@ -32,8 +32,7 @@ from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
 from cmdb.manager.query_builder.builder import Builder
 # pylint: disable=use-implicit-booleaness-not-comparison
 # `== []` rather than `not ...`: these assert the pipeline is an empty LIST, which is what the
-# builders hand to pymongo - `not x` would also pass for None, the value that used to leak out of
-# a shared mutable default.
+# builders hand to pymongo - `not x` would also pass for None.
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MATCH_STAGE: dict = {'$match': {'active': True}}

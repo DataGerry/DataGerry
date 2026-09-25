@@ -83,6 +83,23 @@ class TestBaseAuthProviderConfig:
         assert config.unexpected == 'value'
 
 
+class TestLdapConstruction:
+    """What the LDAP configuration accepts beyond its declared keys"""
+
+    def test_an_undeclared_stored_key_is_accepted_and_dropped(self) -> None:
+        """A settings document with an extra key still loads; the key is not set as an attribute."""
+        values = {**LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES, 'retired_option': True}
+
+        config = LdapAuthenticationProviderConfig(**values)
+
+        assert not hasattr(config, 'retired_option')
+
+    def test_positional_arguments_beyond_the_declared_ones_are_refused(self) -> None:
+        """Nothing absorbs a stray positional value any more, so a mis-ordered call fails loudly."""
+        with pytest.raises(TypeError):
+            LdapAuthenticationProviderConfig(True, 2, {}, {}, {}, {}, 'stray')  # pylint: disable=too-many-function-args
+
+
 class TestLdapGroupMapping:
     """Resolving an LDAP group DN to the DataGerry group a user lands in."""
 

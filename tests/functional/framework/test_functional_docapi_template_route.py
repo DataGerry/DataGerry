@@ -18,9 +18,8 @@ Functional smoke for the ``/docapi/template`` (and ``/docs/template``) REST rout
 
 The document-generator feature is license-gated, so each test enables it by stubbing
 ``LicenseService.has_feature``. Covers the create round-trip, the list envelope, the 404s on a
-missing id (get / update / delete), and the render 404 when the template is missing (regression:
-this used to surface as a 500 because get_template crashed on a missing id and the route's
-guard was unreachable).
+missing id (get / update / delete), and the render 404 when the template is missing (get_template
+must not crash on a missing id, or the route's guard is unreachable and the caller sees a 500).
 
 Also pinned: a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and the
 update response is a JSON document rather than a model repr. The PDF render pipeline itself has its
@@ -280,7 +279,7 @@ class TestRender:
     """GET /docapi/template/<id>/render/<object_id>."""
 
     def test_render_missing_template_returns_404(self, rest_api) -> None:
-        """Rendering a missing template returns 404 (regression: previously a 500)."""
+        """Rendering a missing template returns 404."""
         response = rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}/render/{MISSING_OBJECT_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -437,7 +436,7 @@ class TestNameIsImmutable:
                                                       database_manager: MongoDatabaseManager,
                                                       database_name: str) -> None:
         """
-        The response carries the template as a document (regression)
+        The response carries the template as a document
 
         Handing out the model instance itself only serialises by falling back to bson's default
         encoder.

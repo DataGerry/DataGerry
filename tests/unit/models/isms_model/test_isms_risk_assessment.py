@@ -41,6 +41,7 @@ from cmdb.models.isms_model import IsmsRiskAssessment
 from cmdb.models.isms_model.isms_risk_assessment_constants import (
     CONTROL_MEASURE_ASSIGNMENTS_KEY,
     RISK_ASSESSMENT_DATE_KEYS,
+    RISK_ASSESSMENT_REQUIRED_DOCUMENT_KEYS,
     RiskAssessmentKey,
 )
 from cmdb.models.isms_model.priority_enum import Priority
@@ -367,3 +368,45 @@ class TestErrorHandling:
 
         with pytest.raises(IsmsRiskAssessmentToJsonError):
             IsmsRiskAssessment.to_json(_NotAnAssessment())
+
+
+class TestSharedDocumentMachinery:
+    """The model reads and writes through CmdbDAO's shared from_data / to_json, over its key enum."""
+
+    def test_it_declares_its_key_enum_and_writes_neither_method_itself(self) -> None:
+        """The pair is inherited, so the key enum is the one place the document shape is stated."""
+        assert IsmsRiskAssessment.KEYS is RiskAssessmentKey
+        assert 'from_data' not in vars(IsmsRiskAssessment)
+        assert 'to_json' not in vars(IsmsRiskAssessment)
+
+    @pytest.mark.parametrize('missing', RISK_ASSESSMENT_REQUIRED_DOCUMENT_KEYS)
+    def test_a_document_without_its_identity_is_refused(self, missing: str) -> None:
+        """An assessment that names no risk or no assessed object is not an assessment of anything."""
+        data = _assessment_data()
+        data.pop(missing)
+
+        with pytest.raises(IsmsRiskAssessmentInitFromDataError, match=missing):
+            IsmsRiskAssessment.from_data(data)
+
+    def test_a_document_holding_only_its_identity_still_loads(self) -> None:
+        """
+        The read is kept to the identity on purpose
+
+        The schema requires all 26 keys on a write, but a list route reads every row through the model:
+        requiring them on a read would let one incomplete row fail the whole page.
+        """
+        minimal = {
+            RiskAssessmentKey.PUBLIC_ID.value: RISK_ASSESSMENT_ID,
+            RiskAssessmentKey.RISK_ID.value: RISK_ID,
+            RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: 'OBJECT',
+            RiskAssessmentKey.OBJECT_ID.value: OBJECT_ID,
+        }
+
+        loaded = IsmsRiskAssessment.from_data(minimal)
+
+        assert (loaded.risk_id, loaded.object_id, loaded.priority) == (RISK_ID, OBJECT_ID, None)
+
+    def test_to_json_refuses_an_instance_of_another_model(self) -> None:
+        """The shared to_json type-checks its instance, so a foreign model cannot serialise as this one."""
+        with pytest.raises(IsmsRiskAssessmentToJsonError):
+            IsmsRiskAssessment.to_json(object())

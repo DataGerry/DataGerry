@@ -17,8 +17,8 @@
 Unit tests for TypeIterationParameters and GroupDeletionParameters
 
 The two remaining parameter classes. ``TypeIterationParameters`` adds the type listing's ``active``
-flag on top of the collection pager and no longer repeats the pager's JSON parsing - these tests pin
-that it still converts ``active`` and that everything else is genuinely inherited.
+flag on top of the collection pager and repeats none of the pager's JSON parsing - these tests pin
+that it converts ``active`` and that everything else is genuinely inherited.
 
 ``GroupDeletionParameters`` is not a pager at all: it carries the group-delete arguments and inherits
 APIParameters only for the query-string plumbing.
@@ -76,7 +76,7 @@ class TestTypeIterationParametersInheritsThePager:
     """Everything except `active` is inherited - the class repeats no parsing of its own."""
 
     def test_parses_the_filter_and_projection_json(self) -> None:
-        """The JSON parsing now happens once, in APIParameters.from_data."""
+        """The JSON parsing happens once, in APIParameters.from_data."""
         params = TypeIterationParameters.from_data(
             QUERY_STRING,
             **{ParameterKey.FILTER.value: '{"a": 1}', ParameterKey.PROJECTION.value: '{"b": 1}'},
@@ -137,7 +137,7 @@ class TestTypeIterationParametersToDict:
 
 
 class TestTypeIterationParametersCategoryFilters:
-    """`category` and `uncategorized` replace the $lookup pipelines the frontend used to post."""
+    """`category` and `uncategorized` filter by category without a client-posted $lookup pipeline."""
 
     def test_defaults_to_no_category_restriction(self) -> None:
         """An ordinary listing asks for neither, and neither is set."""
@@ -206,7 +206,7 @@ class TestTypeIterationParametersAclFilter:
     """`acl` names the permissions a listed type must grant, replacing the READ default."""
 
     def test_defaults_to_read(self) -> None:
-        """An ordinary listing asks the question it always asked."""
+        """An ordinary listing asks for READ."""
         params = TypeIterationParameters.from_data(QUERY_STRING)
 
         assert params.acl == [AccessControlPermission.READ]
@@ -318,7 +318,7 @@ class TestGroupDeletionParameters:
         assert params.group_id == 3
 
     def test_to_dict_emits_the_action_group_id_and_optional(self) -> None:
-        """This method had no test; it is the serializer of the delete parameters."""
+        """It is the serializer of the delete parameters."""
         params = GroupDeletionParameters(
             QUERY_STRING, action=GroupDeleteMode.MOVE, group_id='7', view='native',
         )

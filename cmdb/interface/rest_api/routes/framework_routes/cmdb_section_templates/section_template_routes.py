@@ -311,9 +311,6 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.IPAM)
 def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
-    # request_user is not read here but must be in the signature: insert_request_user injects it and
-    # requires_feature reads it out of kwargs to resolve the active license
-    # pylint: disable=unused-argument
     """
     HTTP `GET`/`HEAD` route to retrieve the VIRTUAL section templates
 
@@ -329,7 +326,8 @@ def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
     frontend only
 
     Args:
-        request_user (CmdbUser): CmdbUser requesting this data
+        request_user (CmdbUser): CmdbUser requesting this data; not read here -
+            `requires_feature` reads it from the injected kwargs to resolve the active license
 
     Raises:
         HTTPException: 403 when the user lacks the right or the IPAM license; 500 on an unexpected
