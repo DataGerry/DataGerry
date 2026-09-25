@@ -110,7 +110,7 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import
     load_ci_explorer_entity,
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -464,9 +464,11 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
         # Pin the identity to the URL: a payload public_id can never rewrite the document's id
         data[CmdbObjectKey.PUBLIC_ID] = public_id
 
-        ci_explorer_profile_manager.update_item(public_id, CmdbCiExplorerProfile.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(
+            ci_explorer_profile_manager, public_id, CmdbCiExplorerProfile, data,
+        )
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except CiExplorerProfileManagerGetError as err:
         LOGGER.error("[update_cmdb_ci_explorer_profile] CiExplorerProfileManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the CiExplorer Profile with ID: {public_id} from the database!")

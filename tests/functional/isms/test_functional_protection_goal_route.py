@@ -18,7 +18,7 @@ Functional smoke for the ``/isms/protection_goals`` REST routes
 
 Covers CRUD, the predefined guards (predefined goals cannot be created / edited / deleted), the
 name-uniqueness rules (duplicate insert / colliding update rejected, but an update that keeps the
-goal's own name is allowed - the audit-item-12 regression), the delete-when-used 400, and the
+goal's own name is allowed), the delete-when-used 400, and the
 manager-error -> 400 mapping. The routes are ISMS-license gated, so the check is stubbed.
 """
 from http import HTTPStatus
@@ -161,7 +161,7 @@ class TestPutProtectionGoal:
 
     def test_update_keeping_own_name_succeeds(self, rest_api,
                                              database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Updating a goal while keeping its own name is allowed (audit item 12 regression)."""
+        """Updating a goal while keeping its own name is allowed."""
         _insert_goal(database_manager, database_name, PG_ID_FOR_UPDATE, name=EXISTING_NAME)
 
         response = rest_api.put(f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}',

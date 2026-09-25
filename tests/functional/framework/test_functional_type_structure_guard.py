@@ -16,21 +16,19 @@
 """
 A CmdbType's sections and summary line may only show fields the Type declares
 
-The reproduction of the "copy a type creates broken type" report, turned into regression tests. A
-Type declares every field once in its flat ``fields`` list; its sections and its
+A Type declares every field once in its flat ``fields`` list; its sections and its
 ``render_meta.summary`` carry only the NAMES. A payload that rewrites the field identifiers without
-rewriting the section reference lists used to be stored as sent, and produced a Type that:
+rewriting the section reference lists is refused, because stored as sent it would produce a Type that:
 
-  * rendered **none** of its fields - every section pointed at names that no longer existed
-  * still held those fields, so adding one under the intended name was refused as a duplicate
+  * renders **none** of its fields - every section points at names that no longer exist
+  * still holds those fields, so adding one under the intended name is refused as a duplicate
 
 The summary line breaks the same way from the other side: a name that resolves to nothing is skipped
 by the renderer, so the entry vanishes from the one line every list, picker and reference identifies
 an Object by, and the Object reads as if it simply had no value there.
 
-Both write routes are covered because both write the whole document. The type import already
-enforced the same rules (``validate_type_structure``); these close the gap for the routes the UI
-uses.
+Both write routes are covered because both write the whole document. The type import enforces the
+same rules (``validate_type_structure``), so the routes the UI uses and the import agree.
 """
 import uuid
 from http import HTTPStatus
@@ -105,7 +103,7 @@ class TestCreateRefusesAnInconsistentType:
     """The shape a copied Type with renamed identifiers arrives in."""
 
     def test_a_section_naming_an_undeclared_field_is_refused(self, rest_api) -> None:
-        """The reported bug - this answered 201 and stored an unusable Type"""
+        """A 201 here would store an unusable Type"""
         response = rest_api.post(
             ROUTE_URL, json=_payload([_field(FIELD_A)], [_section(SECTION_A, ['text-old'])]),
         )

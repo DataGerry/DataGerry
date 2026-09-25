@@ -22,12 +22,11 @@ is patched out at the OcBaseManager module path. Each read test stubs oc_get wit
 asserts the endpoint, the parsed 2xx body, and OcLicenseGetError on a non-2xx response. No HTTP, no
 Mongo.
 
-**The month-boundary tests pin the timezone, not the implementation.** Computing the
-expected value with the same expression the code uses (`datetime(2026, 3, 1).timestamp() * 1000`),
-which cannot fail whatever the code does with the clock. They now run under a FIXED `TZ` and assert
-absolute millisecond constants, so the two properties - the
-window is the HOST's local month, and it ends a whole second before the month does - are visible and
-will fail loudly the day that decision is taken.
+**The month-boundary tests pin the timezone, not the implementation.** An expected value computed
+with the same expression the code uses (`datetime(2026, 3, 1).timestamp() * 1000`) cannot fail
+whatever the code does with the clock, so these tests run under a pinned `TZ` and assert absolute
+millisecond constants. The two properties - the window is the HOST's local month, and it ends a whole
+second before the month does - are visible and will fail loudly the day that decision is taken.
 """
 import json
 import os
@@ -306,7 +305,7 @@ class TestGetCurrentMonthBoundaries:
         The last 999 ms of the month fall outside the window
 
         The end is computed as "the 1st of next month minus one second", in millisecond units - so
-        anything OpenCelium recorded in that final second is not counted. The other half of #225.
+        anything OpenCelium recorded in that final second is not counted.
         """
         with patch(f'{MODULE_PATH}.datetime', _frozen_datetime(datetime(2026, 3, 15))):
             _, end = get_current_month_boundaries()

@@ -88,7 +88,7 @@ def test_build_type_info_emits_full_shape_from_complete_type_doc() -> None:
 
 
 def test_build_type_info_handles_missing_render_meta_without_keyerror() -> None:
-    """B3 fix: a type doc without render_meta no longer raises; icon falls through to None"""
+    """A type doc without render_meta does not raise; icon falls through to None"""
     type_doc = _type_doc()
     del type_doc['render_meta']
 

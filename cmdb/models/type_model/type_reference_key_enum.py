@@ -29,10 +29,9 @@ class TypeReferenceKey(BaseStrEnum):
     human-readable exporter (which builds its own line from TYPE_LABEL, OBJECT_ID and SUMMARIES), and
     the search-result matcher (which looks for hits inside SUMMARIES).
 
-    Owned by the model layer because `TypeReference` produces the payload; before 2026-09-10 every
-    consumer described the same seven keys with literals or constants of its own. Use these members
-    instead of bare string literals so a typo becomes an AttributeError instead of a silently missing
-    key in a rendered object.
+    Owned by the model layer because `TypeReference` produces the payload, so every consumer shares
+    one description of the seven keys. Use these members instead of bare string literals so a typo
+    becomes an AttributeError instead of a silently missing key in a rendered object.
 
     All SEVEN keys are always present: the payload comes from `TypeReference.to_json`, and the single
     place that fills it during a render is `CmdbMultiRender.__merge_references` - which answers

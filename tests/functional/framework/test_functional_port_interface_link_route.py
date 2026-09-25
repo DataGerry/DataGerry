@@ -102,8 +102,8 @@ def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
     """
     Licenses IPAM so the gated link surface is reachable
 
-    Port Connectivity is gated behind LicenseFeature.IPAM by decision D6. That the gate really blocks
-    the surface is asserted in tests/functional/license/.
+    Port Connectivity is gated behind LicenseFeature.IPAM. That the gate really blocks the surface is
+    asserted by the license tests.
     """
     monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
 
@@ -1082,7 +1082,7 @@ class TestAssignableInterfaces:
         """
         The host carries two perfectly good interface rows and none of them may appear
 
-        Offering one would promise the 400 the create route now answers with.
+        Offering one would promise the 400 the create route answers with.
         """
         object_ids = {row[AssignableInterfaceKey.INTERFACE_OBJECT_ID.value]
                       for row in self._rows(rest_api)}

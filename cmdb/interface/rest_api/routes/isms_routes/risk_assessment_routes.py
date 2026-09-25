@@ -65,7 +65,7 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -630,9 +630,9 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
         # The URL owns the identity: a body public_id would otherwise be $set onto the document
         pin_public_id(data, public_id)
 
-        risk_assessment_manager.update_item(public_id, IsmsRiskAssessment.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(risk_assessment_manager, public_id, IsmsRiskAssessment, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except RiskAssessmentManagerGetError as err:
         LOGGER.error("[update_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskAssessment with ID: {public_id} from the database!")

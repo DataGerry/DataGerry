@@ -160,7 +160,7 @@ def validate_subnet_route(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @ipam_validation_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
 @handle_route_errors("while validating the supernet candidate")
-def validate_supernet_route(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def validate_supernet_route(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route that pre-validates a supernet candidate without writing anything
 

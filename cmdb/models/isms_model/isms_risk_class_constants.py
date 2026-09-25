@@ -36,6 +36,7 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'RISK_CLASS_REQUIRED_DOCUMENT_KEYS',
     'RiskClassKey',
 ]
 
@@ -49,3 +50,10 @@ class RiskClassKey(BaseStrEnum):
     COLOR = 'color'
     SORT = 'sort'
     DESCRIPTION = 'description'
+
+
+# The keys without which a risk class means nothing: its label and the colour the matrix paints it in
+RISK_CLASS_REQUIRED_DOCUMENT_KEYS: list[str] = [
+    RiskClassKey.NAME.value,
+    RiskClassKey.COLOR.value,
+]

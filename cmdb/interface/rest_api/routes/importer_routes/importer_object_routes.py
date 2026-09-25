@@ -124,7 +124,7 @@ importer_object_blueprint = APIBlueprint('importer_object', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def get_object_importer(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def get_object_importer(request_user: CmdbUser) -> Response:
     """
     Retrieve a list of available object importers with their metadata
 
@@ -159,7 +159,7 @@ def get_object_importer(request_user: CmdbUser) -> Response:  # pylint: disable=
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def get_default_object_importer_config(  # pylint: disable=unused-argument
+def get_default_object_importer_config(
         importer_type: str,
         request_user: CmdbUser) -> Response:
     """
@@ -193,7 +193,7 @@ def get_default_object_importer_config(  # pylint: disable=unused-argument
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def get_default_object_parser_config(  # pylint: disable=unused-argument
+def get_default_object_parser_config(
         parser_type: str,
         request_user: CmdbUser) -> Response:
     """
@@ -227,7 +227,7 @@ def get_default_object_parser_config(  # pylint: disable=unused-argument
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def parse_objects(request_user: CmdbUser) -> Response:
     """
     Parse uploaded object data using the specified parser configuration
 

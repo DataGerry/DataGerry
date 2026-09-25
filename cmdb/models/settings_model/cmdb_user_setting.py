@@ -32,7 +32,7 @@ see `UserSettingType`.
 **Reading is deliberately more forgiving than writing.** The write path goes through this model and
 through the schema, which allows exactly the three scope values. The read path does not build models
 at all: `user_setting_utils.normalize_user_setting_document` answers the same four keys and reports a
-document it cannot read, so one unreadable record no longer costs the user their whole settings list
+document it cannot read, so one unreadable record does not cost the user their whole settings list
 """
 from typing import Any
 

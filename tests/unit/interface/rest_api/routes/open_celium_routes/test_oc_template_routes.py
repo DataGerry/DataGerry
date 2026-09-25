@@ -300,8 +300,8 @@ class TestCreateRejectsAMalformedBody:
         """
         `request.json` answers a malformed body with a 400, and the route re-raises it
 
-        Every other route's re-raise arm was removed with this sweep: `handle_oc_errors` does the
-        same thing one level out, and nothing else in those bodies can raise an HTTPException.
+        No other route has a re-raise arm: `handle_oc_errors` does the same thing one level out, and
+        nothing else in those bodies can raise an HTTPException.
         """
         del patched_manager, template_manager
 

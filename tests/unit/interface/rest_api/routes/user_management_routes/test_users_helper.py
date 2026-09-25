@@ -116,8 +116,7 @@ class TestParseRegistrationTime:
         """
         A ``$date`` carrying a float is read as milliseconds like an int is.
 
-        This used to be returned unchanged, because the coercion lived here and only handled ints.
-        It now goes through the shared ``coerce_mongo_datetime``, which reads every shape the API
+        It goes through the shared ``coerce_mongo_datetime``, which reads every shape the API
         round-trip produces - a JSON client is free to send the millis as a float.
         """
         result = parse_registration_time({'$date': float(EPOCH_MS)})
@@ -126,7 +125,7 @@ class TestParseRegistrationTime:
 
     def test_bson_date_boolean_is_unchanged(self) -> None:
         """
-        A ``$date`` that cannot be a timestamp is still passed through untouched.
+        A ``$date`` that cannot be a timestamp is passed through untouched.
 
         bool is an int subclass in Python, so before the shared caster's guard this read as one
         millisecond past the epoch instead of being refused.

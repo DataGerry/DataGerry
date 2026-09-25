@@ -102,7 +102,7 @@ def get_datagerry_information(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @system_blueprint.protect(auth=True, right=SYSTEM_VIEW_RIGHT)
-def get_config_information(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def get_config_information(request_user: CmdbUser) -> Response:
     """
     Returns the loaded system configuration file: its path and every section it defines
 

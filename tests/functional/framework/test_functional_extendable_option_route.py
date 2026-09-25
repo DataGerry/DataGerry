@@ -46,6 +46,7 @@ from cmdb.errors.manager.extendable_options_manager import (
     ExtendableOptionsManagerDeleteError,
     ExtendableOptionsManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/extendable_options'
@@ -608,3 +609,23 @@ class TestErrorMapping:
 
         assert rest_api.delete(f'{ROUTE_URL}/{OPTION_ID_FOR_DELETE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /extendable_options/<id> answers the option as stored."""
+
+    def test_the_response_is_the_stored_option_with_its_public_id(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The frontend's option manager only accepts an update whose result carries a public_id
+
+        ``extendable-option-manager.component.ts`` skips its success path otherwise, so the id is part
+        of the contract, not just of the document.
+        """
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', _payload(UPDATED_VALUE))
+
+        assert result == stored
+        assert result['public_id'] == OPTION_ID_FOR_UPDATE

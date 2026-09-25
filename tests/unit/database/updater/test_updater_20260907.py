@@ -22,8 +22,8 @@ unreadable value from being nulled), the set of collections and fields it touche
 start_update's orchestration + error wrapping.
 
 The end-to-end behaviour against a real MongoDB - including the double run and the data it must not
-destroy - is covered by tests/integration/database/test_integration_updater_20260907.py, and the
-metadata contract by the shared parametrized test in test_version_updaters
+destroy - is covered by the integration tier, and the metadata contract by the shared parametrized
+updater test
 """
 from unittest.mock import MagicMock, patch
 
@@ -82,7 +82,7 @@ class TestSelection:
         """
         A converted field is a date and no longer matches, which is what makes a re-run a no-op.
 
-        Matching on the inner '$date' key instead would have kept matching after the conversion.
+        Matching on the inner '$date' key instead would keep matching after the conversion.
         """
         assert build_wrapped_date_filter(FIELD) == {FIELD: {'$type': 'object'}}
 

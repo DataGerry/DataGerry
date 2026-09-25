@@ -41,6 +41,7 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import HTTPException, NotFound
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.special_type_model.ipam_constants import IpAddressFamily, IpamPagination, IpamSearch
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
@@ -238,7 +239,23 @@ def test_unassign_ips_route_forwards_mode_to_unassigner(flask_app: Flask) -> Non
                                         json={'ips': ['10.0.0.1'], 'mode': 'row'}):
         bare(public_id=SUBNET_PUBLIC_ID, request_user=MagicMock())
 
-    assert mock_unassign.call_args.kwargs == {'raw_mode': 'row'}
+    assert mock_unassign.call_args.kwargs['raw_mode'] == 'row'
+
+
+def test_unassign_ips_route_hands_the_unassigner_an_emitter_with_its_log_comment(flask_app: Flask) -> None:
+    """Every written owner gets its log and webhook through the emitter, under the IP-unassign comment"""
+    bare = _unwrap(unassign_ips_route)
+    request_user = MagicMock()
+    emitter = MagicMock()
+
+    with patch(f'{ROUTE_PATH}.unassign_ips_from_subnet', return_value={}) as mock_unassign, \
+         patch(f'{ROUTE_PATH}.build_object_write_emitter', return_value=emitter) as build_mock, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context('/overview/5/unassign', method='POST', json={'ips': ['10.0.0.1']}):
+        bare(public_id=SUBNET_PUBLIC_ID, request_user=request_user)
+
+    build_mock.assert_called_once_with(request_user, ObjectLogComment.IPS_UNASSIGNED_FROM_SUBNET.value)
+    assert mock_unassign.call_args.kwargs['on_write'] is emitter
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

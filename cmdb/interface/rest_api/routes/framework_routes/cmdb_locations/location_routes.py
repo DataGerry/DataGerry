@@ -657,7 +657,7 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
             move or the write fails; 500 on an unexpected error
 
     Returns:
-        Response: Echo of the submitted payload after the update (UpdateSingleResponse)
+        Response: The CmdbLocation node as stored after the update (UpdateSingleResponse)
     """
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
@@ -696,7 +696,9 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
             request_user, object_id, parent, objects_manager, types_manager, locations_manager,
         )
 
-        return UpdateSingleResponse(data).make_response()
+        # The write is a partial $set whose name is resolved server-side, so the stored node is read back
+        # rather than echoing the request: that read is the only thing that knows the full document
+        return UpdateSingleResponse(locations_manager.get_location_for_object(object_id)).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_location_for_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the linked Object from the database!")

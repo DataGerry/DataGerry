@@ -24,7 +24,8 @@ Blueprint ``types_blueprint`` is mounted at ``/rest/types`` (see ``init_rest_api
     GET    /<public_id>                             get_cmdb_type
     GET    /count_objects/<public_id>               count_objects_of_cmdb_type
     GET    /location_field_usage/<public_id>        get_location_field_usage_of_cmdb_type
-    GET    /selectable_as_parent_usage/<public_id>  get_selectable_as_parent_usage_of_cmdb_type
+    GET    /referenced_section_usage/<public_id>    get_referenced_section_usage_of_cmdb_type
+    GET    /uses_ports_usage/<public_id>            get_uses_ports_usage_of_cmdb_type
     PUT    /<public_id>                             update_cmdb_type
     PATCH  /<public_id>                             update_cmdb_type
     DELETE /<public_id>                             delete_cmdb_type
@@ -126,9 +127,8 @@ LOGGER: Logger = getLogger(__name__)
 
 types_blueprint = APIBlueprint('types', __name__)
 
-# What each pre-check route is determining, interpolated into the shared failure messages
+# What each pre-check route is determining, interpolated into its failure messages
 LOCATION_FIELD_USAGE_SUBJECT: str = 'location-field usage'
-SELECTABLE_AS_PARENT_USAGE_SUBJECT: str = 'selectable-as-parent usage'
 REFERENCED_SECTION_USAGE_SUBJECT: str = 'reference-section usage'
 USES_PORTS_USAGE_SUBJECT: str = 'port usage'
 
@@ -445,20 +445,25 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
         abort(400, f"Failed to count Objects for Type with ID: {public_id}!")
 
 
-@handle_route_errors("while determining {subject} for Type with ID: {public_id}")
-def build_type_usage_response(public_id: int, request_user: CmdbUser, route_name: str, subject: str) -> Response:
+@types_blueprint.route('/location_field_usage/<int:public_id>', methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
+@handle_route_errors(f"while determining {LOCATION_FIELD_USAGE_SUBJECT} for Type with ID: {{public_id}}")
+def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Answers a "is this Type's location placement still in use" pre-check route
+    Returns the public_ids of CmdbObjects that have a value (integer > 0) in the
+    location-typed field of the given CmdbType
 
-    Both pre-check routes below ask the same underlying question - are any CmdbObjects of this Type
-    placed in the location tree - and answer it with the same payload, so they share this body and
-    only pass their own name (for the logs) and the subject of their failure messages
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. It answers the pre-check of
+    **both** location guards on update, because both ask whether any object of the Type is placed in
+    the location tree: removing the location field (guard_location_field_removal - the frontend's
+    ``type.service.ts`` calls this route for it) and turning 'selectable_as_parent' off
+    (guard_selectable_as_parent_change)
 
     Args:
         public_id (int): public_id of the CmdbType to inspect
         request_user (CmdbUser): CmdbUser requesting this data
-        route_name (str): Name of the calling route, used as the log prefix
-        subject (str): What the caller was determining, used in the failure messages
 
     Raises:
         HTTPException: 404 when no Type with that public_id exists; 400 when the Type or its
@@ -473,75 +478,12 @@ def build_type_usage_response(public_id: int, request_user: CmdbUser, route_name
 
         return DefaultResponse(build_location_usage_payload(request_user, target_type)).make_response()
     except ObjectsManagerGetError as err:
-        LOGGER.error("[%s] ObjectsManagerGetError: %s", route_name, err, exc_info=True)
-        abort(400, f"Failed to determine {subject} for Type with ID: {public_id}!")
+        LOGGER.error("[get_location_field_usage_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to determine {LOCATION_FIELD_USAGE_SUBJECT} for Type with ID: {public_id}!")
     except TypesManagerGetError as err:
-        LOGGER.error("[%s] TypesManagerGetError: %s", route_name, err, exc_info=True)
+        LOGGER.error("[get_location_field_usage_of_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
 
-
-@types_blueprint.route('/location_field_usage/<int:public_id>', methods=['GET'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
-@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
-def get_location_field_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    Returns the public_ids of CmdbObjects that have a value (integer > 0) in the
-    location-typed field of the given CmdbType
-
-    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. The frontend
-    (``type.service.ts``) calls this to decide whether the location field may be removed from the
-    CmdbType; the same check is enforced server-side on update by guard_location_field_removal
-
-    Args:
-        public_id (int): public_id of the CmdbType to inspect
-        request_user (CmdbUser): CmdbUser requesting this data
-
-    Raises:
-        HTTPException: 404 when no Type with that public_id exists; 400 when the Type or its
-            CmdbObjects could not be read; 500 on an unexpected error
-
-    Returns:
-        DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
-    """
-    return build_type_usage_response(
-        public_id, request_user, 'get_location_field_usage_of_cmdb_type', LOCATION_FIELD_USAGE_SUBJECT,
-    )
-
-
-@types_blueprint.route('/selectable_as_parent_usage/<int:public_id>', methods=['GET'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
-@types_blueprint.protect(auth=True, right=TypeRight.VIEW.value)
-def get_selectable_as_parent_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
-    """
-    Returns whether the given CmdbType still has placed CmdbObjects, blocking a selectable-as-parent
-    change to false
-
-    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. A CmdbType may only stop
-    being selectable as a parent once no CmdbObject of it is placed in the location tree (holds a
-    location value > 0); the same check is enforced server-side on update by
-    guard_selectable_as_parent_change
-
-    Note:
-        This route has **no frontend caller** - the type builder toggles 'selectable_as_parent'
-        locally and only learns of the block from the 400 the update route returns. Whether the
-        frontend should pre-check here or the route should be retired is a pending decision
-
-    Args:
-        public_id (int): public_id of the CmdbType to inspect
-        request_user (CmdbUser): CmdbUser requesting this data
-
-    Raises:
-        HTTPException: 404 when no Type with that public_id exists; 400 when the Type or its
-            CmdbObjects could not be read; 500 on an unexpected error
-
-    Returns:
-        DefaultResponse: { in_use: bool, count: int, object_public_ids: list[int] }
-    """
-    return build_type_usage_response(
-        public_id, request_user, 'get_selectable_as_parent_usage_of_cmdb_type', SELECTABLE_AS_PARENT_USAGE_SUBJECT,
-    )
 
 @types_blueprint.route('/referenced_section_usage/<int:public_id>', methods=['GET'])
 @insert_request_user

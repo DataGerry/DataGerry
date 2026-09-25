@@ -533,6 +533,19 @@ class TestInsertManyAndBulk:
 
         collection.bulk_write.assert_called_once()
 
+    def test_bulk_write_answers_the_modified_count_summed_over_batches(
+        self, mgr: MongoDatabaseManager, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Each batch's modified_count is added up, so a caller can tell whether every statement landed."""
+        monkeypatch.setattr('cmdb.database.mongo_database_manager.BULK_WRITE_BATCH_SIZE', 2)
+        collection = _stub_collection(mgr)
+        collection.bulk_write.side_effect = [MagicMock(modified_count=2), MagicMock(modified_count=1)]
+
+        modified = mgr.bulk_write(COLL, DB, [MagicMock(), MagicMock(), MagicMock()])
+
+        assert modified == 3
+        assert collection.bulk_write.call_count == 2
+
     def test_bulk_write_error(self, mgr: MongoDatabaseManager) -> None:
         """A bulk-write failure surfaces as DocumentInsertError."""
         _stub_collection(mgr).bulk_write.side_effect = RuntimeError('boom')

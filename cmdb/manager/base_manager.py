@@ -769,7 +769,7 @@ class BaseManager:
             raise BaseManagerUpdateError(str(err)) from err
 
 
-    def bulk_write(self, operations: list[Any]) -> None:
+    def bulk_write(self, operations: list[Any]) -> int:
         """
         Performs a bulk write on the current manager's collection.
 
@@ -778,9 +778,12 @@ class BaseManager:
 
         Raises:
             BaseManagerUpdateError: If the bulk write fails.
+
+        Returns:
+            int: How many documents the operations modified
         """
         try:
-            self.dbm.bulk_write(self.collection, self.db_name, operations)
+            return self.dbm.bulk_write(self.collection, self.db_name, operations)
         except DocumentInsertError as err:
             raise BaseManagerUpdateError(f"Bulk write failed in collection '{self.collection}': {err}") from err
 

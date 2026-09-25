@@ -21,8 +21,8 @@ Shared constants of the rights domain
 name segment by segment asking whether the group holds the '*' right of each parent.
 
 The level catalogue `GET /rest/rights/levels` serves does NOT live here: it is
-``Levels.as_name_map()``, built by the enum that owns the members. A hand-written copy used to sit
-beside this constant, kept in step with the enum by nothing but a unit test.
+``Levels.as_name_map()``, built by the enum that owns the members, so it cannot fall out of step with
+them.
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 

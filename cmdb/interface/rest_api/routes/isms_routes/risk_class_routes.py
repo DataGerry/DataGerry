@@ -57,7 +57,7 @@ from cmdb.errors.manager.risk_class_manager import (
     RiskClassManagerDeleteError,
     RiskClassManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -205,9 +205,9 @@ def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: C
 
         pin_public_id(data, public_id)
 
-        risk_class_manager.update_item(public_id, IsmsRiskClass.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(risk_class_manager, public_id, IsmsRiskClass, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except RiskClassManagerGetError as err:
         LOGGER.error("[update_isms_risk_class] RiskClassManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the RiskClass with ID: {public_id} from the database!")

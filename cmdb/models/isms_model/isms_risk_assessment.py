@@ -23,25 +23,27 @@ rest of the ISMS relies on:
 **Its four date fields are real BSON dates.** They arrive as the Mongo extended-JSON wrapper
 ``{'$date': <epoch millis>}`` - the shape every DataGerry response uses for a datetime and therefore
 the shape the frontend sends back - and are normalised into ``datetime`` objects on the way in, by
-``from_data`` here and by ``GenericManager`` on the raw-dict write paths. Storing the wrapper itself
+``normalize_document`` here and by ``GenericManager`` on the raw-dict write paths. Storing the wrapper itself
 would leave a sub-document where a date belongs, which MongoDB cannot sort, range-filter or
 ``$dateToString`` - the reports could only ever project such a value, never query it. The wire format
 is the wrapper either way, because ``cmdb.database.json_codec.default`` serialises a datetime back into
 the same wrapper.
 
-**Its key set is closed.** ``RiskAssessmentKey`` names every persisted key, and ``from_data`` /
-``to_json`` are a lossless round-trip over exactly that set - which the read routes depend on, since
-they answer with ``to_json(from_data(document))``. A key stored outside the set would therefore be
-invisible in every response while still occupying the document, so no write path may persist one:
-``control_measure_assignments`` travels in the same payload but belongs to its own collection and is
-popped by each write route before the assessment is stored.
+**Its key set is closed.** ``RiskAssessmentKey`` names every persisted key, and the shared
+``CmdbDAO.from_data`` / ``to_json`` it declares as ``KEYS`` are a lossless round-trip over exactly that
+set - which the read routes depend on, since they answer with ``to_json(from_data(document))``.
+``REQUIRED_INIT_KEYS`` refuses a document that names no risk or no assessed object, and nothing more:
+a list route reads every row through the model, so a stricter read would let one incomplete row fail
+the whole page. A key stored outside the set would be invisible in every response while still
+occupying the document, so no write path may persist one: ``control_measure_assignments`` travels in
+the same payload but belongs to its own collection and is popped by each write route before the
+assessment is stored.
 
 **Its enum-typed fields hold the enum's raw value, not a member.** The values are pinned by the
 Cerberus schema (``allowed`` lists built from the enums), so validation - not the model - is what
 refuses an unknown reference type, treatment option or priority. The attributes are annotated as the
 primitives they actually hold; the docstrings name the enum that defines the allowed values
 """
-from logging import Logger, getLogger
 from typing import Any
 from datetime import datetime
 
@@ -51,6 +53,7 @@ from cmdb.class_schema.isms_model.isms_risk_assessment_schema import get_isms_ri
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.isms_model.isms_risk_assessment_constants import (
     RISK_ASSESSMENT_DATE_KEYS,
+    RISK_ASSESSMENT_REQUIRED_DOCUMENT_KEYS,
     RiskAssessmentKey,
 )
 
@@ -60,8 +63,6 @@ from cmdb.errors.models.isms_risk_assessment import (
     IsmsRiskAssessmentToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              IsmsRiskAssessment - CLASS                                              #
@@ -146,6 +147,12 @@ class IsmsRiskAssessment(CmdbDAO):
 
     # The date-typed fields every write path normalises into real BSON dates
     DATE_FIELDS: tuple[str, ...] = tuple(date_key.value for date_key in RISK_ASSESSMENT_DATE_KEYS)
+
+    # The shared from_data / to_json; REQUIRED_INIT_KEYS refuses a document without its identity
+    KEYS = RiskAssessmentKey
+    REQUIRED_INIT_KEYS: list[str] = RISK_ASSESSMENT_REQUIRED_DOCUMENT_KEYS
+    INIT_FROM_DATA_ERROR = IsmsRiskAssessmentInitFromDataError
+    TO_JSON_ERROR = IsmsRiskAssessmentToJsonError
 
 
     #pylint: disable=R0913, R0914
@@ -255,118 +262,23 @@ class IsmsRiskAssessment(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict[str, Any]) -> "IsmsRiskAssessment":
+    def normalize_document(cls, data: dict[str, Any]) -> None:
         """
-        Initialises a IsmsRiskAssessment from a dict
+        Normalises the four date fields of a raw document IN PLACE before the shared from_data reads it
 
-        Reads a document coming out of MongoDB as well as a validated request payload, so the four
-        date fields are normalised first: a payload carries them as ``{'$date': ...}`` wrappers or
-        timestamp strings, a stored document as real dates. A date that cannot be read is refused
-        instead of guessed - a fuzzy parse would turn 'implementation planned for Q3' into a date
-        built from today
+        Reads a document coming out of MongoDB as well as a validated request payload: a payload carries
+        the dates as ``{'$date': ...}`` wrappers or timestamp strings, a stored document as real dates. A
+        date that cannot be read is refused instead of guessed - a fuzzy parse would turn
+        'implementation planned for Q3' into a date built from today
 
         Args:
-            data (dict): Data with which the IsmsRiskAssessment should be initialised
+            data (dict[str, Any]): The document or validated payload, edited in place
 
         Raises:
-            IsmsRiskAssessmentInitFromDataError: If the initialisation with the given data fails,
-                including a date field whose value is not a readable timestamp
-
-        Returns:
-            IsmsRiskAssessment: IsmsRiskAssessment with the given data
+            ValueError: If a present date field is not a readable timestamp; the shared from_data
+                reports it as IsmsRiskAssessmentInitFromDataError
         """
-        try:
-            unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
+        unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
-            if unusable_dates:
-                raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")
-
-            return cls(
-                public_id = data.get(RiskAssessmentKey.PUBLIC_ID.value),
-                risk_id = data.get(RiskAssessmentKey.RISK_ID.value),
-                object_id_ref_type = data.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value),
-                object_id = data.get(RiskAssessmentKey.OBJECT_ID.value),
-                risk_calculation_before = data.get(RiskAssessmentKey.RISK_CALCULATION_BEFORE.value),
-                risk_assessor_id = data.get(RiskAssessmentKey.RISK_ASSESSOR_ID.value),
-                risk_owner_id_ref_type = data.get(RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE.value),
-                risk_owner_id = data.get(RiskAssessmentKey.RISK_OWNER_ID.value),
-                interviewed_persons = data.get(RiskAssessmentKey.INTERVIEWED_PERSONS.value),
-                risk_assessment_date = data.get(RiskAssessmentKey.RISK_ASSESSMENT_DATE.value),
-                additional_info = data.get(RiskAssessmentKey.ADDITIONAL_INFO.value),
-                risk_treatment_option = data.get(RiskAssessmentKey.RISK_TREATMENT_OPTION.value),
-                responsible_persons_id_ref_type = data.get(
-                                                    RiskAssessmentKey.RESPONSIBLE_PERSONS_ID_REF_TYPE.value
-                                                  ),
-                responsible_persons_id = data.get(RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value),
-                risk_treatment_description = data.get(RiskAssessmentKey.RISK_TREATMENT_DESCRIPTION.value),
-                planned_implementation_date = data.get(RiskAssessmentKey.PLANNED_IMPLEMENTATION_DATE.value),
-                implementation_status = data.get(RiskAssessmentKey.IMPLEMENTATION_STATUS.value),
-                finished_implementation_date = data.get(RiskAssessmentKey.FINISHED_IMPLEMENTATION_DATE.value),
-                required_resources = data.get(RiskAssessmentKey.REQUIRED_RESOURCES.value),
-                costs_for_implementation = data.get(RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value),
-                costs_for_implementation_currency = data.get(
-                                                        RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION_CURRENCY.value
-                                                    ),
-                priority = data.get(RiskAssessmentKey.PRIORITY.value),
-                risk_calculation_after = data.get(RiskAssessmentKey.RISK_CALCULATION_AFTER.value),
-                audit_done_date = data.get(RiskAssessmentKey.AUDIT_DONE_DATE.value),
-                auditor_id_ref_type = data.get(RiskAssessmentKey.AUDITOR_ID_REF_TYPE.value),
-                auditor_id = data.get(RiskAssessmentKey.AUDITOR_ID.value),
-                audit_result = data.get(RiskAssessmentKey.AUDIT_RESULT.value),
-            )
-        except Exception as err:
-            raise IsmsRiskAssessmentInitFromDataError(err) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "IsmsRiskAssessment") -> dict[str, Any]:
-        """
-        Converts a IsmsRiskAssessment into a storable, serialisable dict
-
-        Emits exactly the keys of ``RiskAssessmentKey``, which makes it the inverse of ``from_data``
-        over the closed key set. The date values stay ``datetime`` objects: that is what MongoDB
-        stores, and the response encoder (``cmdb.database.json_codec.default``) turns them into
-        the ``{'$date': <epoch millis>}`` wrapper the frontend expects
-
-        Args:
-            instance (IsmsRiskAssessment): The IsmsRiskAssessment which should be converted
-
-        Raises:
-            IsmsRiskAssessmentToJsonError: If the IsmsRiskAssessment could not be converted
-
-        Returns:
-            dict: Dict of the IsmsRiskAssessment values, keyed by RiskAssessmentKey
-        """
-        try:
-            return {
-                RiskAssessmentKey.PUBLIC_ID.value: instance.get_public_id(),
-                RiskAssessmentKey.RISK_ID.value: instance.risk_id,
-                RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: instance.object_id_ref_type,
-                RiskAssessmentKey.OBJECT_ID.value: instance.object_id,
-                RiskAssessmentKey.RISK_CALCULATION_BEFORE.value: instance.risk_calculation_before,
-                RiskAssessmentKey.RISK_ASSESSOR_ID.value: instance.risk_assessor_id,
-                RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE.value: instance.risk_owner_id_ref_type,
-                RiskAssessmentKey.RISK_OWNER_ID.value: instance.risk_owner_id,
-                RiskAssessmentKey.INTERVIEWED_PERSONS.value: instance.interviewed_persons,
-                RiskAssessmentKey.RISK_ASSESSMENT_DATE.value: instance.risk_assessment_date,
-                RiskAssessmentKey.ADDITIONAL_INFO.value: instance.additional_info,
-                RiskAssessmentKey.RISK_TREATMENT_OPTION.value: instance.risk_treatment_option,
-                RiskAssessmentKey.RESPONSIBLE_PERSONS_ID_REF_TYPE.value: instance.responsible_persons_id_ref_type,
-                RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value: instance.responsible_persons_id,
-                RiskAssessmentKey.RISK_TREATMENT_DESCRIPTION.value: instance.risk_treatment_description,
-                RiskAssessmentKey.PLANNED_IMPLEMENTATION_DATE.value: instance.planned_implementation_date,
-                RiskAssessmentKey.IMPLEMENTATION_STATUS.value: instance.implementation_status,
-                RiskAssessmentKey.FINISHED_IMPLEMENTATION_DATE.value: instance.finished_implementation_date,
-                RiskAssessmentKey.REQUIRED_RESOURCES.value: instance.required_resources,
-                RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value: instance.costs_for_implementation,
-                RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION_CURRENCY.value:
-                    instance.costs_for_implementation_currency,
-                RiskAssessmentKey.PRIORITY.value: instance.priority,
-                RiskAssessmentKey.RISK_CALCULATION_AFTER.value: instance.risk_calculation_after,
-                RiskAssessmentKey.AUDIT_DONE_DATE.value: instance.audit_done_date,
-                RiskAssessmentKey.AUDITOR_ID_REF_TYPE.value: instance.auditor_id_ref_type,
-                RiskAssessmentKey.AUDITOR_ID.value: instance.auditor_id,
-                RiskAssessmentKey.AUDIT_RESULT.value: instance.audit_result,
-            }
-        except Exception as err:
-            raise IsmsRiskAssessmentToJsonError(err) from err
+        if unusable_dates:
+            raise ValueError(f"Unreadable date value(s) for: {unusable_dates}")

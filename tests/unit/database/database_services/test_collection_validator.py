@@ -402,8 +402,8 @@ def test_seed_predefined_extendable_options_covers_every_feature(
     """
     Both feature sources reach the collection, not just the first.
 
-    The seeder grew a second source when Port Connectivity landed; a future third one being added to
-    the import but not to the list would otherwise be silently dropped on every fresh install.
+    The seeder reads two sources; a third one added to the import but not to the list would be
+    silently dropped on every fresh install.
     """
     validator._seed_predefined_extendable_options()
 
@@ -560,16 +560,16 @@ class TestTheSeedersRunOnEveryPass:
     """
     'The collection exists' must not stand for 'it has been seeded', because the two are not the same
 
-    A boot that created a collection and then failed while seeding it left the collection behind. On
-    the next start the create branch was skipped, so the seeding never happened again - a database
-    permanently without its root location, its protection goals or its admin group, and a boot that
-    reported success.
+    A boot that creates a collection and then fails while seeding it leaves the collection behind. If
+    the create branch decided the seeding, the next start would skip it and the seeding would never
+    happen again - a database permanently without its root location, its protection goals or its admin
+    group, and a boot that reports success.
     """
 
     def test_an_existing_collection_is_still_seeded(
         self, validator: CollectionValidator, monkeypatch: pytest.MonkeyPatch, dbm: MagicMock,
     ) -> None:
-        """The create branch is no longer what decides whether the predefined data is written."""
+        """The create branch is not what decides whether the predefined data is written."""
         monkeypatch.setattr(cv_module, 'FRAMEWORK_CLASSES', [CmdbLocation])
         validator.get_all_db_collections = MagicMock(return_value=[CmdbLocation.COLLECTION])
         validator.init_predefined_templates = MagicMock()
@@ -717,8 +717,8 @@ class TestTheCacheDatabase:
         """
         Without this a new index on CmdbCachedUser reaches a fresh installation only
 
-        Every upgraded one kept the index set of the day its cache database was created, and the
-        collection-registry guard counts CmdbCachedUser as registered, so nothing pointed at it.
+        Every upgraded one would keep the index set of the day its cache database was created, and the
+        collection-registry guard counts CmdbCachedUser as registered, so nothing else would flag it.
         """
         dbm.check_database_exists.return_value = True
         dbm.get_index_info.return_value = {}
@@ -776,8 +776,8 @@ class TestTheMediaLibraryIndexes:
         """
         `MediaFile.COLLECTION` is the GridFS BUCKET name; the documents live in `<bucket>.files`
 
-        Registering the class in `__COLLECTIONS__` - the obvious fix for the index never being built -
-        would have created an empty collection under the bucket name and indexed that instead.
+        Registering the class in `__COLLECTIONS__` would create an empty collection under the bucket
+        name and index that instead.
         """
         dbm.get_index_info.return_value = {}
 
@@ -845,7 +845,7 @@ class TestTheCollectionListing:
         """
         Both init steps ask the same question of the same database
 
-        In cloud mode that was two extra round trips per tenant on every start.
+        Asking it twice would cost redundant round trips per tenant on every start in cloud mode.
         """
         validator.get_all_db_collections = MagicMock(return_value=[])
         validator.init_database = MagicMock()
@@ -883,7 +883,7 @@ class TestTheRootLocation:
         """
         A 'create' flag would select between two identical upserts
 
-        It now selects only whether the public_id counter is initialised as well.
+        It selects only whether the public_id counter is initialised as well.
         """
         with patch(f'{MODULE}.get_root_location_data', return_value={'public_id': 1}):
             validator.set_root_location('coll', DB_NAME, create=False)
@@ -897,9 +897,10 @@ class TestTheRootLocation:
         self, validator: CollectionValidator, dbm: MagicMock,
     ) -> None:
         """
-        It took a db_name and then wrote to self.db_name on both paths
+        The write goes to the db_name it is given, not to self.db_name
 
-        Harmless while the only caller passes its own database, and wrong the moment one does not.
+        Writing to self.db_name is harmless while the only caller passes its own database, and wrong the
+        moment one does not.
         """
         with patch(f'{MODULE}.get_root_location_data', return_value={'public_id': 1}):
             validator.set_root_location('coll', 'another-db')
@@ -916,7 +917,7 @@ class TestTheRemainingErrorArms:
         """
         CollectionInitError is what validate_collections then reports on
 
-        The wrapper now carries the original exception rather than a string of it, so a caller
+        The wrapper carries the original exception rather than a string of it, so a caller
         inspecting it still sees the pymongo error underneath.
         """
         monkeypatch.setattr(cv_module, 'USER_MANAGEMENT_COLLECTION', [CmdbUserGroup])

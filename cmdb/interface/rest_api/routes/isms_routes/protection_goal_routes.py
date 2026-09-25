@@ -51,7 +51,7 @@ from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerIterationError,
     ProtectionGoalManagerRiskUsageError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -231,9 +231,9 @@ def update_isms_protection_goal(public_id: int, data: dict[str, Any], request_us
 
         pin_public_id(data, public_id)
 
-        protection_goal_manager.update_item(public_id, IsmsProtectionGoal.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(protection_goal_manager, public_id, IsmsProtectionGoal, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except ProtectionGoalManagerGetError as err:
         LOGGER.error("[update_isms_protection_goal] ProtectionGoalManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ProtectionGoal with ID: {public_id} from the database!")

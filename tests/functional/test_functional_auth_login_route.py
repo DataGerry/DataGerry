@@ -14,11 +14,11 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Functional tests for the ``/auth`` routes after the post_login decomposition.
+Functional tests for the ``/auth`` routes.
 
-Validates that the login WORKFLOW is unchanged: the non-cloud (AuthModule) flow end-to-end with the
+Validates the login WORKFLOW: the non-cloud (AuthModule) flow end-to-end with the
 seeded admin/admin, the cloud (ServicePortal) flow's subscription matrix and error mapping (helpers
-monkeypatched), the settings/providers reads, and update_auth_settings (incl. the B1 fix: a bad
+monkeypatched), the settings/providers reads, and update_auth_settings (incl. a bad
 payload -> 400 not 500). Cloud tests flip the app into cloud+local mode so token signing uses the dev
 keys instead of the (unset) cloud env keys.
 """
@@ -121,7 +121,7 @@ class TestLocalLogin:
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_login_no_user_returned_returns_401(self, rest_api, monkeypatch) -> None:
-        """When the provider returns no user, the flow responds 401 (abort now propagates)."""
+        """When the provider returns no user, the flow responds 401 (the abort propagates)."""
         monkeypatch.setattr(AuthModule, 'login', lambda *_a, **_k: None)
 
         assert rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'}).status_code \
@@ -355,7 +355,7 @@ class TestAuthSettingsAndProviders:
     # ---------------------------------------------------------------------------------------------- #
 
     def test_get_auth_settings_masks_the_bind_password(self, rest_api) -> None:
-        """Until 2026-09-16 `GET /auth/settings` served the LDAP bind credential in cleartext."""
+        """`GET /auth/settings` never serves the LDAP bind credential in cleartext."""
         body = rest_api.get(SETTINGS_URL).get_json()
         ldap = next(entry for entry in body['providers'] if entry['class_name'] == LDAP_PROVIDER)
 
@@ -431,7 +431,7 @@ class TestAuthSettingsAndProviders:
         assert rest_api.post(SETTINGS_URL, json={}).status_code == HTTPStatus.BAD_REQUEST
 
     def test_update_auth_settings_init_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A payload that fails CmdbAuthSettings validation is a client error -> 400 (B1 regression)."""
+        """A payload that fails CmdbAuthSettings validation is a client error -> 400."""
         monkeypatch.setattr(auth_routes.CmdbAuthSettings, 'from_data', _raiser(AuthSettingsInitError('boom')))
 
         assert rest_api.post(SETTINGS_URL, json={'providers': []}).status_code == HTTPStatus.BAD_REQUEST

@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Dev-only generator for DataGerry's license crypto material (license feature part P0)
+Dev-only generator for DataGerry's license crypto material
 
 This script mints the key material the license feature is built on:
   * a 4096-bit RSA keypair (the license generator/portal encrypts entitlements with the
@@ -47,7 +47,7 @@ from Crypto.PublicKey import RSA
 
 # RSA modulus size in bits; 4096 (512-byte blocks). Must match EXPECTED_RSA_KEY_SIZE_BITS in the
 # license-constants/generator tests and the size of the shipped LICENSE_PUBLIC_KEY_PEM. DataGerry
-# ships its own keys, so this is no longer tied to OpenCelium's 2048; the wire format (PKCS#1
+# ships its own keys, so this is not tied to OpenCelium's 2048; the wire format (PKCS#1
 # type-1 block walk) is size-agnostic because both sides derive the block size from the modulus
 RSA_KEY_SIZE_BITS: int = 4096
 

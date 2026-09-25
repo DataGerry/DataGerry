@@ -17,9 +17,9 @@
 Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes
 
 Each handler is unwrapped past its decorator chain and driven inside a Flask test_request_context;
-ManagerProvider is patched at the route module path. No Mongo. These pin the route glue around the
-audit fixes: the missing-object 404s (state / references), the orphaned-type skip in the group
-route, and the per-target id used in the bulk-update not-found message
+ManagerProvider is patched at the route module path. No Mongo. These cover the route glue: the
+missing-object 404s (state / references), the orphaned-type skip in the group route, the per-target
+id used in the not-found messages, the delete get-error mapping and the post-insert config-item sync
 """
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -84,7 +84,7 @@ def fixture_patched_manager_provider(mgr: MagicMock) -> Any:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                          get_cmdb_object_state (bug #1)                                              #
+#                                                get_cmdb_object_state                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetCmdbObjectState:
     """A missing object yields 404 - the null check runs before CmdbObject.from_data."""
@@ -106,7 +106,7 @@ class TestGetCmdbObjectState:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                        get_cmdb_object_references (bug #1)                                           #
+#                                              get_cmdb_object_references                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetCmdbObjectReferences:
     """A missing referenced object yields 404 before from_data is called."""
@@ -130,7 +130,7 @@ class TestGetCmdbObjectReferences:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                   group_cmdb_objects_by_type_id (bug #3)                                             #
+#                                            group_cmdb_objects_by_type_id                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGroupObjectsByTypeId:
     """Groups whose Type no longer exists are skipped instead of crashing on a None type."""
@@ -156,7 +156,7 @@ class TestGroupObjectsByTypeId:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                       update_cmdb_object message (bug #5)                                            #
+#                                              update_cmdb_object message                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestUpdateCmdbObjectNotFoundMessage:
     """The bulk-update not-found abort references the per-target id, not the path public_id."""
@@ -182,7 +182,7 @@ class TestUpdateCmdbObjectNotFoundMessage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                   get_cmdb_object_mds_references message (B3)                                        #
+#                                        get_cmdb_object_mds_references message                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestMdsReferencesMissingIdMessage:
     """A missing id in the objectIDs list yields a 404 naming that id, not the path public_id."""
@@ -206,7 +206,7 @@ class TestMdsReferencesMissingIdMessage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                     delete_cmdb_object get-error mapping (B5)                                        #
+#                                         delete_cmdb_object get-error mapping                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteCmdbObjectGetErrorMapping:
     """A get failure resolving the delete target maps to 400, aligned with the sibling delete routes."""
@@ -214,7 +214,7 @@ class TestDeleteCmdbObjectGetErrorMapping:
     def test_get_error_returns_400(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """ObjectsManagerGetError while fetching the target aborts 400 (previously 500)."""
+        """ObjectsManagerGetError while fetching the target aborts 400."""
         del patched_manager_provider
         mgr.get_object.side_effect = ObjectsManagerGetError("boom")
 
@@ -226,7 +226,7 @@ class TestDeleteCmdbObjectGetErrorMapping:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                              insert_cmdb_object config-item sync (off-by-one regression)                             #
+#                                         insert_cmdb_object config-item sync                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestInsertCmdbObjectSyncsPostInsertCount:
     """In cloud mode the synced config-item count includes the just-created object (no off-by-one)."""
@@ -237,10 +237,10 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
         """
         The portal is never handed the pre-insert limit-check count
 
-        The original bug forwarded the count taken by guard_config_item_limit BEFORE the insert, so the
-        portal was told one object too few. The sync now takes the total from the aggregation it runs
-        for the per-type breakdown, strictly after the insert, and the route forwards no count at all -
-        which makes that off-by-one structurally impossible on this path.
+        Forwarding the count taken by guard_config_item_limit BEFORE the insert would tell the portal one
+        object too few. The sync takes the total from the aggregation it runs for the per-type breakdown,
+        strictly after the insert, and the route forwards no count at all - which makes that off-by-one
+        structurally impossible on this path.
         """
         del patched_manager_provider
         flask_app.cloud_mode = True
@@ -255,7 +255,7 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
         built_object = ({'type_id': 1, 'fields': []}, MagicMock())
 
         with flask_app.test_request_context('/', method='POST', json={'type_id': 1, 'fields': []}):
-            # The insert pipeline lives in objects_helper now, so its collaborators are patched there
+            # The insert pipeline lives in objects_helper, so its collaborators are patched there
             with patch(f'{HELPER_PATH}.build_new_object_data', return_value=built_object), \
                  patch(f'{HELPER_PATH}.guard_object_write_license'), \
                  patch(f'{HELPER_PATH}.enforce_object_write_invariants', return_value=None), \
@@ -266,7 +266,7 @@ class TestInsertCmdbObjectSyncsPostInsertCount:
                  patch(f'{HELPER_PATH}.handle_sync_config_item_count') as sync:
                 cmdb_object.from_data.return_value = SimpleNamespace(has_fields_of_type=lambda field_type: False)
 
-                # The route is @validate-decorated now, so it takes the validated body
+                # The route is @validate-decorated, so it takes the validated body
                 _unwrap(insert_cmdb_object)(
                     data={'type_id': 1, 'author_id': 1, 'fields': []}, request_user=request_user,
                 )

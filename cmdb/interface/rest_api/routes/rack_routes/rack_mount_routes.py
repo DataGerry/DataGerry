@@ -581,7 +581,6 @@ def delete_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         # had a node, so the hook refuses the id rather than the route testing the kind here
         handle_mount_removed(
             mount.get(RackMountKey.OBJECT_ID.value),
-            request_user,
             objects_manager,
             ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user),
         )

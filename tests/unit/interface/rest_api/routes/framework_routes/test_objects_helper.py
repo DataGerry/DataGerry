@@ -46,7 +46,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     guard_object_delete_license,
     to_normalized_cmdb_object,
     build_new_object_data,
-    compute_object_version,
     apply_object_update,
     sync_select_field_options,
     collect_unknown_select_values,
@@ -494,37 +493,6 @@ class TestBuildNewObjectData:
             new_data, _ = build_new_object_data(manager, {'type_id': 5, 'active': False, 'fields': []})
 
         assert new_data['active'] is False
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                               compute_object_version                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestComputeObjectVersion:
-    """compute_object_version picks the version bump from the field-level diff size."""
-
-    @pytest.mark.parametrize('field_count,changed_count,expected_attr', [
-        (3, 1, 'VERSIONING_PATCH'),   # a single changed field is a patch
-        (3, 3, 'VERSIONING_MAJOR'),   # all fields changed is a major
-        (4, 3, 'VERSIONING_MINOR'),   # more than half (but not all) is a minor
-        (4, 2, 'VERSIONING_PATCH'),   # not >half, not all, not one -> patch
-    ])
-    def test_bump_selection(self, field_count: int, changed_count: int, expected_attr: str) -> None:
-        """The correct VERSIONING_* constant is passed to update_version for each diff size."""
-        base_fields = [{'name': f'f{i}', 'value': i} for i in range(field_count)]
-        current = _make_object(base_fields)
-
-        updated_fields = [dict(field) for field in base_fields]
-        for i in range(changed_count):
-            updated_fields[i] = {'name': f'f{i}', 'value': 1000 + i}
-        updated = _make_object(updated_fields)
-
-        updated.update_version = MagicMock(return_value='bumped')
-
-        new_version, changes = compute_object_version(current, updated)
-
-        assert new_version == 'bumped'
-        assert len(changes['new']) == changed_count
-        updated.update_version.assert_called_once_with(getattr(CmdbObject, expected_attr))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

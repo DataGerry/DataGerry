@@ -33,6 +33,8 @@ from cmdb.interface.route_utils import (
     user_has_right,
 )
 from cmdb.models.user_model import CmdbUser
+from cmdb.interface.blueprints.api_blueprint_constants import VALIDATION_FAILED_MESSAGE
+from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 
 from cmdb.errors.security import TokenKeyMaterialError, TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -186,7 +188,9 @@ class APIBlueprint(Blueprint):
         Raises:
             400 Bad Request:
                 - If the incoming request body is not valid JSON
-                - If the data does not conform to the provided schema
+                - If the data does not conform to the provided schema: the message names each failing
+                  field and why (see ``schema_error_format.describe_schema_errors``)
+                - If the validator itself fails: a fixed message, the schema is never echoed
         """
         validator = Validator(schema, purge_unknown=True)
 
@@ -199,11 +203,13 @@ class APIBlueprint(Blueprint):
                     validation_result = validator.validate(data)
                 except Exception as err:
                     LOGGER.error("[validate] Exception %s. Type: %s", err, type(err), exc_info=True)
-                    abort(400, f"Schema '{schema}' validation failed")
+                    # The schema is internal, so the answer names nothing; the traceback is logged above
+                    abort(400, f"{VALIDATION_FAILED_MESSAGE}!")
 
                 if not validation_result:
                     LOGGER.error("[VALIDATION] Error: %s", validator.errors or "No validation errors found!")
-                    abort(400, "Invalid data provided!")
+                    # The reason goes back to the caller: a 400 that names nothing cannot be fixed
+                    abort(400, describe_schema_errors(validator.errors))
 
                 return f(data=validator.document, *args, **kwargs)
 

@@ -21,9 +21,8 @@ The three functions the two listing routes call before they query: ``build_type_
 ``?uncategorized=`` resolved against the CategoriesManager) and ``prepare_builder_parameters``, which
 composes them into the BuilderParameters.
 
-Split out of ``test_types_helper`` on 2026-09-17, when that module went past pylint's 1,500-line cap.
 They are one subject: what a **read** hands to the query. Everything about a type **write** - the
-guards, the side effects, the ACL normalisation - stayed behind.
+guards, the side effects, the ACL normalisation - is tested in ``test_types_helper``.
 """
 from types import SimpleNamespace
 from typing import Any

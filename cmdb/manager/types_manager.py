@@ -221,7 +221,7 @@ class TypesManager(BaseManager):
           ACL is stored on, so the same rule is one ``$nor`` over this collection - no extra query
         * ``iterate_query`` runs a second aggregation for the total and builds it from the criteria
           alone, so a rule that lives only in the pipeline would filter the rows and leave the count
-          beside them unfiltered (the bug **T211** records for the object listing)
+          beside them unfiltered
 
         Args:
             builder_params (BuilderParameters): Filter for which CmdbTypes should be retrieved

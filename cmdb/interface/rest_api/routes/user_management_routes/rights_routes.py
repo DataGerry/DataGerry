@@ -112,10 +112,6 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
         Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD will result in an empty body
     """
-    # `request_user` is never read here: the catalogue is the same for every caller who may see it.
-    # It is in the signature because `insert_request_user` injects it, and that decorator is what
-    # authenticates the route - `.protect` above is what authorizes it
-    # pylint: disable=unused-argument
     body: bool = request_wants_body()
 
     if params.optional['view'] == 'tree':
@@ -233,10 +229,6 @@ def get_right(name: str, request_user: CmdbUser) -> Response:
         Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD will result in an empty body
     """
-    # `request_user` is never read here: the catalogue is the same for every caller who may see it.
-    # It is in the signature because `insert_request_user` injects it, and that decorator is what
-    # authenticates the route - `.protect` above is what authorizes it
-    # pylint: disable=unused-argument
     try:
         right: BaseRight | None = rights_manager.get_right(name)
 
@@ -270,8 +262,4 @@ def get_levels(request_user: CmdbUser) -> Response:
         Guarded by `base.user-management.group.view` - the catalogue serves the group screens.
         Calling the route over HTTP HEAD method will result in an empty body
     """
-    # `request_user` is never read here: the catalogue is the same for every caller who may see it.
-    # It is in the signature because `insert_request_user` injects it, and that decorator is what
-    # authenticates the route - `.protect` above is what authorizes it
-    # pylint: disable=unused-argument
     return GetSingleResponse(Levels.as_name_map(), body=request_wants_body()).make_response()

@@ -25,7 +25,8 @@ group alone:
     types_helper the DYNAMIC ones), so it keeps deleted ids forever. The schema rule is the only thing
     standing between a typo and that state
   - the two indexes the cleanup paths need, and the framework registry that gets them built
-  - ``assigned_ids`` being required and non-empty, which is what makes a group always mean something
+  - ``assigned_ids`` being required and non-nullable but allowed to be empty, which is what keeps a group
+    whose members were all deleted savable
   - the option type that ties ``categories`` to the CmdbExtendableOption list, not to CmdbCategories
 """
 from typing import Any
@@ -167,16 +168,29 @@ class TestSchema:
         """A key renamed in the enum cannot leave the schema validating the old spelling."""
         assert set(get_cmdb_object_group_schema()) == {key.value for key in ObjectGroupKey}
 
-    def test_an_empty_assigned_ids_list_is_refused(self) -> None:
-        """
-        A group of nothing has no meaning, so emptying one is a deletion rather than an update
+    def test_an_empty_assigned_ids_list_is_valid(self) -> None:
+        """A group whose members were all deleted is the document the cascades leave - it must validate."""
+        validator = Validator(get_cmdb_object_group_schema())
 
-        Pinned because it is the only list key here that is NOT nullable, and the asymmetry is
-        deliberate.
+        assert validator.validate(_payload(assigned_ids=[])), validator.errors
+
+    def test_a_missing_assigned_ids_is_refused(self) -> None:
+        """Empty is legal, absent is not: the key stays required."""
+        payload = _payload()
+        payload.pop(ObjectGroupKey.ASSIGNED_IDS.value)
+        validator = Validator(get_cmdb_object_group_schema())
+
+        assert not validator.validate(payload)
+
+    def test_a_null_assigned_ids_is_refused(self) -> None:
+        """
+        The only list key here that is NOT nullable, and the asymmetry with categories is deliberate
+
+        A null would be read as "no members" by nothing - the empty list is how that is said.
         """
         validator = Validator(get_cmdb_object_group_schema())
 
-        assert not validator.validate(_payload(assigned_ids=[]))
+        assert not validator.validate(_payload(assigned_ids=None))
 
     def test_categories_accept_null(self) -> None:
         """The one nullable key: a group filed under nothing may say so."""

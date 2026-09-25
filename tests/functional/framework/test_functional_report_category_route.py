@@ -516,3 +516,19 @@ class TestFrontendRequestShape:
             assert response.status_code != HTTPStatus.PERMANENT_REDIRECT
         finally:
             categories.delete_one({'public_id': CATEGORY_ID_FOR_DELETE})
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /report_categories/<id> answers the category as stored."""
+
+    def test_the_response_is_the_stored_category(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The dict write is normalised in place before it is stored, so the response already matches."""
+        _categories(database_manager, database_name).insert_one(_category_doc(CATEGORY_ID_FOR_UPDATE, 'Original'))
+
+        response = rest_api.put(f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}', json={'name': 'Renamed'})
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        # The single read answers the bare document (DefaultResponse), the update wraps it in 'result'
+        assert response.get_json()['result'] == rest_api.get(f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}').get_json()

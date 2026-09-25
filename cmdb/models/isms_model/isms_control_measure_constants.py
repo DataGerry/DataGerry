@@ -16,11 +16,10 @@
 """
 Document keys of an IsmsControlMeasure
 
-The keys of the ``isms.controlMeasure`` documents, named once. They were previously spelled out as
-bare literals in five independent places - the model's ``from_data`` and ``to_json``, the Cerberus
-schema, and both halves of the CSV importer (its header set and the candidate row it builds) - 48
-occurrences for ten keys, so a renamed or mistyped key showed up as a silently missing value rather
-than as an error.
+The keys of the ``isms.controlMeasure`` documents, named once. The model's ``from_data`` and
+``to_json``, the Cerberus schema, and both halves of the CSV importer (its header set and the candidate
+row it builds) all read them from here, so a renamed or mistyped key fails as an error instead of
+showing up as a silently missing value.
 
 Members are the raw MongoDB keys; use ``.value`` wherever a key is needed as a dict key, a Mongo
 filter key or a projection key, so what reaches the database is a plain string
@@ -29,6 +28,7 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'CONTROL_MEASURE_REQUIRED_DOCUMENT_KEYS',
     'ControlMeasureKey',
     'CONTROL_MEASURE_IMPORT_KEYS',
 ]
@@ -55,3 +55,10 @@ class ControlMeasureKey(BaseStrEnum):
 CONTROL_MEASURE_IMPORT_KEYS: tuple[str, ...] = tuple(
     key.value for key in ControlMeasureKey if key is not ControlMeasureKey.PUBLIC_ID
 )
+
+
+# Every key the schema requires except 'is_applicable', whose absence means False (see the model)
+CONTROL_MEASURE_REQUIRED_DOCUMENT_KEYS: list[str] = [
+    key.value for key in ControlMeasureKey
+    if key not in (ControlMeasureKey.PUBLIC_ID, ControlMeasureKey.IS_APPLICABLE)
+]

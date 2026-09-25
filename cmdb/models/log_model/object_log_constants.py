@@ -28,8 +28,14 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'OBJECT_LOG_LOST_MARKER',
     'ObjectLogKey',
 ]
+
+# The fixed text every lost change-log entry is logged under. A log entry is best-effort - the object
+# write never waits for it - so this marker is how an operator finds out that one went missing: alert on
+# it, and the line carries the action, the object id and the traceback
+OBJECT_LOG_LOST_MARKER: str = 'OBJECT_LOG_LOST'
 
 
 class ObjectLogKey(BaseStrEnum):

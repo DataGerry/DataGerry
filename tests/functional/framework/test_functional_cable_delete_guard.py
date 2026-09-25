@@ -28,12 +28,12 @@ Three things only a functional test can show here:
      which each route calls for itself; a unit test of the guard cannot tell whether a route calls it
   2. the bulk delete is refused as a WHOLE - one blocked cable in the selection means nothing is
      deleted, which is only visible by asking for the other targets afterwards
-  3. the bulk delete runs the Port cascade too - wired into the single delete's
-     `delete_one_cascade` only, so bulk-deleting a switch left its CmdbPorts (and their connections)
-     behind, pointing at an object that no longer existed
+  3. the bulk delete runs the Port cascade too - were it wired into the single delete's
+     `delete_one_cascade` only, bulk-deleting a switch would leave its CmdbPorts (and their
+     connections) behind, pointing at an object that no longer exists
 
-The whole surface is gated behind LicenseFeature.IPAM (decision D6), which is why the license fixture
-is autouse here
+The whole surface is gated behind LicenseFeature.IPAM, which is why the license fixture is autouse
+here
 """
 from http import HTTPStatus
 from typing import Any
@@ -86,7 +86,7 @@ ALL_PORT_IDS: list[int] = [FRONT_PORT_ID, SERVER_PORT_ID, SWITCH_PORT_ID]
 
 @pytest.fixture(autouse=True)
 def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
-    """Licenses IPAM so the gated Cable + Port Connectivity surface is reachable (decision D6)."""
+    """Licenses IPAM so the gated Cable + Port Connectivity surface is reachable."""
     monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
 
 
@@ -355,9 +355,9 @@ class TestCableCiDeleteRefusal:
         """
         The Port cascade runs in the bulk loop too, not in the single delete only
 
-        A port lives outside its owner's document, so nothing else would ever remove it: a bulk-deleted
-        switch left its ports (and their connections) behind, referencing an object that no longer
-        exists.
+        A port lives outside its owner's document, so nothing else would ever remove it: without the
+        cascade a bulk-deleted switch would leave its ports (and their connections) behind,
+        referencing an object that no longer exists.
         """
         _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID], cable_ci_id=CABLE_CI_ID)
 

@@ -38,7 +38,12 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     RISK_BULK_DELETED_RA_KEY,
     RISK_BULK_DELETED_CMA_KEY,
 )
-from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids, request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import (
+    extract_public_ids,
+    request_wants_body,
+    pin_public_id,
+    update_item_from_payload,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -209,9 +214,9 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         pin_public_id(data, public_id)
 
-        risk_manager.update_item(public_id, IsmsRisk.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(risk_manager, public_id, IsmsRisk, data)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except RiskManagerGetError as err:
         LOGGER.error("[update_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Risk with ID: {public_id} from the database!")

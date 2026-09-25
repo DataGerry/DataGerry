@@ -28,6 +28,8 @@ pinned here is what remains this model's own:
     missing-key error before the constructor is ever reached
   - **a risk class round-trips through its own schema**, including one carrying only the two required
     fields - the state the config wizard creates before an admin fills in the rest
+  - **the read is as strict as the write**: a document missing the name or the colour is refused by
+    ``from_data`` instead of loading as None
 """
 from typing import Any
 
@@ -39,7 +41,11 @@ from cmdb.models.isms_model.isms_risk_class import IsmsRiskClass
 from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey
 from cmdb.class_schema.isms_model.isms_risk_class_schema import get_isms_risk_class_schema
 from cmdb.errors.cmdb_object import RequiredInitKeyNotFoundError
-from cmdb.errors.models.isms_risk_class import IsmsRiskClassInitError, IsmsRiskClassToJsonError
+from cmdb.errors.models.isms_risk_class import (
+    IsmsRiskClassInitError,
+    IsmsRiskClassInitFromDataError,
+    IsmsRiskClassToJsonError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 4
@@ -135,24 +141,18 @@ class TestTheDocumentRoundTrip:
 
         assert (risk_class.sort, risk_class.description) == (None, None)
 
-    def test_a_document_missing_a_required_key_loads_as_none(self) -> None:
+    @pytest.mark.parametrize('missing', [RiskClassKey.NAME.value, RiskClassKey.COLOR.value])
+    def test_a_document_missing_a_required_key_is_refused(self, missing: str) -> None:
         """
-        Current behaviour, pinned as it is: a document with no colour loads with `color: None`
+        The read is as strict as the write: the schema requires a name and a colour, and so does from_data
 
-        The shared `from_data` refuses a document missing a REQUIRED_INIT_KEY, and this model declares
-        none - unlike IsmsImpact and IsmsLikelihood, which list their required keys for exactly this
-        reason. The Cerberus schema says `color` is required and non-empty, so what loads here cannot
-        be written back: the read is laxer than the write. Open question rather than a decision (see
-        the sweep notes); this test will fail the moment REQUIRED_INIT_KEYS is declared, which is the
-        point.
+        A document without either would load as None and serialise into a document the schema rejects.
         """
         broken = _document()
-        broken.pop(RiskClassKey.COLOR.value)
+        broken.pop(missing)
 
-        loaded = IsmsRiskClass.from_data(broken)
-
-        assert loaded.color is None
-        assert Validator(get_isms_risk_class_schema()).validate(IsmsRiskClass.to_json(loaded)) is False
+        with pytest.raises(IsmsRiskClassInitFromDataError, match=missing):
+            IsmsRiskClass.from_data(broken)
 
     def test_serialising_something_that_is_not_a_risk_class_is_refused(self) -> None:
         """

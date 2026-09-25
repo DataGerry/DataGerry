@@ -17,7 +17,7 @@
 Functional smoke for the ``/isms/risks`` REST routes
 
 Covers CRUD, the risk_type / required-field validation (invalid type and incomplete data -> 400 -
-the type is now refused by IsmsRisk.SCHEMA itself rather than by a re-check inside the routes),
+the type is refused by IsmsRisk.SCHEMA itself rather than by a re-check inside the routes),
 the manager-error -> 400 mapping, and the DELETE cascade that removes the Risk's RiskAssessments and
 their ControlMeasureAssignments. The routes are ISMS-license gated, so the check is stubbed.
 """
@@ -109,9 +109,10 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
 
 
 def _insert_risk(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
-    """Inserts a minimal IsmsRisk doc directly via the collection."""
+    """Inserts a minimal IsmsRisk doc - with every key a stored risk must carry - via the collection."""
     database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
-        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [1]})
+        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [1],
+                     'category_id': CATEGORY_ID})
 
 
 class TestRiskWithUnsetTextFieldsCanBeSaved:
@@ -119,8 +120,8 @@ class TestRiskWithUnsetTextFieldsCanBeSaved:
     A risk whose identifier / consequences / description were never set must survive a round trip
 
     The ISMS CSV importer stores None for a blank cell, ``to_json`` emits that null, and the frontend
-    patches it straight back into the form it later saves - which the schema used to answer with
-    'null value not allowed', so an imported risk could not be edited at all.
+    patches it straight back into the form it later saves - a schema answering that with
+    'null value not allowed' would leave an imported risk impossible to edit.
     """
 
     def test_a_stored_null_is_answered_as_null_and_accepted_back(

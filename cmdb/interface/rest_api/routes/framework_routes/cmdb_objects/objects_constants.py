@@ -22,6 +22,7 @@ the model (``CmdbObjectKey`` in ``cmdb.models.object_model``); what lives here i
 REST surface: query parameters, response keys and the routes' own limits
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.models.log_model.object_log_constants import OBJECT_LOG_LOST_MARKER
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -46,10 +47,6 @@ MAX_DASHBOARD_GROUPS: int = 5
 REQUIRED_FIELD_ERROR_SEPARATOR: str = ' | '
 
 
-# The fixed text every lost change-log entry is logged under. A log entry is best-effort - the object
-# write never waits for it - so this marker is how an operator finds out that one went missing: alert on
-# it, and the line carries the action, the object id and the traceback
-OBJECT_LOG_LOST_MARKER: str = 'OBJECT_LOG_LOST'
 
 
 class ObjectLogComment(BaseStrEnum):
@@ -58,6 +55,8 @@ class ObjectLogComment(BaseStrEnum):
     DELETED = 'Object was deleted'
     ACTIVE_CHANGED = 'Active status has changed'
     IMPORTED = 'Object was imported'
+    SUBNET_UNASSIGNED_FROM_SUPERNET = 'Subnet unassigned from its supernet'
+    IPS_UNASSIGNED_FROM_SUBNET = 'Interface unassigned from a subnet'
 
 
 class ObjectViewMode(BaseStrEnum):

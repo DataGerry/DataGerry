@@ -272,7 +272,7 @@ class TestCorrespondingLog:
         assert LOG_ID_EDIT_A not in returned_ids
 
     def test_missing_source_log_returns_404(self, rest_api) -> None:
-        """Bug-fix guard: a missing source log yields 404, not a 500 from a None lookup."""
+        """A missing source log yields 404, not a 500 from a None lookup."""
         assert rest_api.get(
             f'{ROUTE_URL}/{MISSING_LOG_ID}/corresponding'
         ).status_code == HTTPStatus.NOT_FOUND
@@ -296,7 +296,7 @@ class TestDelete:
         assert _logs(database_manager, database_name).find_one({'public_id': LOG_ID_FOR_DELETE}) is None
 
     def test_delete_missing_returns_404(self, rest_api) -> None:
-        """Bug-fix guard: deleting an unknown log yields 404 instead of a success-shaped response."""
+        """Deleting an unknown log yields 404 instead of a success-shaped response."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.NOT_FOUND
 
 
@@ -392,7 +392,7 @@ class TestCorrespondingLogWithoutObject:
         _logs(database_manager, database_name).delete_one({'public_id': self.NON_OBJECT_LOG_ID})
 
     def test_returns_400_instead_of_500(self, rest_api) -> None:
-        """The missing key used to raise a KeyError into the catch-all and answer 500 (regression)."""
+        """The missing object_id is a 400, not a KeyError into the catch-all answering 500."""
         response = rest_api.get(f'{ROUTE_URL}/{self.NON_OBJECT_LOG_ID}/corresponding')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
@@ -438,7 +438,7 @@ class TestErrorMapping:
 
     @pytest.mark.parametrize('url', LIST_URLS, ids=['exists', 'notexists', 'deleted', 'by-object'])
     def test_list_passes_an_http_exception_through(self, rest_api, monkeypatch, url: str) -> None:
-        """An HTTPException raised inside a list handler keeps its own status (regression)."""
+        """An HTTPException raised inside a list handler keeps its own status."""
         monkeypatch.setattr(LogsManager, 'iterate', _abort_418)
 
         assert rest_api.get(url).status_code == HTTPStatus.IM_A_TEAPOT

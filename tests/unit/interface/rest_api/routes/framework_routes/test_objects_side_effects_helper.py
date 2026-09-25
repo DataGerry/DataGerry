@@ -34,6 +34,7 @@ from werkzeug.exceptions import BadRequest, HTTPException
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import OBJECT_LOG_LOST_MARKER
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     build_object_log_data,
+    build_object_write_emitter,
     log_object_change,
     report_lost_object_log,
     write_object_log,
@@ -52,6 +53,7 @@ from cmdb.models.object_model import CmdbObject
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.object_edit import ObjectWrite
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper'
@@ -726,3 +728,71 @@ class TestEmitObjectStateChangeEventsErrorArm:
         logs_manager.insert_log.assert_not_called()
         assert f'{OBJECT_LOG_LOST_MARKER} action=ACTIVE_CHANGE object_id=5: the log entry could not be built' \
             in caplog.text
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             build_object_write_emitter                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+EMITTER_COMMENT: str = 'Subnet unassigned from its supernet'
+
+
+def _object_write() -> ObjectWrite:
+    """A stored edit: version 1.0.0 before, 1.0.1 after."""
+    before = _make_object([{'name': 'ref', 'value': 7}])
+    after = _make_object([{'name': 'ref', 'value': None}])
+    after.version = '1.0.1'
+
+    return ObjectWrite(before, after, {'old': [{'name': 'ref', 'value': 7}], 'new': [{'name': 'ref', 'value': None}]})
+
+
+class TestBuildObjectWriteEmitter:
+    """The callback a framework write hands its stored edits to."""
+
+    def test_building_the_emitter_resolves_no_manager(self) -> None:
+        """A request refused before anything is written must not pay for a LogsManager."""
+        with patch(f'{HELPER_PATH}.ManagerProvider') as provider:
+            build_object_write_emitter(MagicMock(), EMITTER_COMMENT)
+
+        provider.get_manager.assert_not_called()
+
+    def test_each_write_emits_the_update_events_with_the_comment(self) -> None:
+        """before / after / diff reach the webhook + edit log exactly as the REST update sends them."""
+        request_user = MagicMock()
+        write = _object_write()
+
+        with patch(f'{HELPER_PATH}.ManagerProvider') as provider, \
+             patch(f'{HELPER_PATH}.emit_object_update_events') as emit:
+            build_object_write_emitter(request_user, EMITTER_COMMENT)(write)
+
+        emit.assert_called_once_with(
+            request_user, provider.get_manager.return_value, write.before, write.after, write.after, write.changes,
+            EMITTER_COMMENT,
+        )
+
+    def test_the_logs_manager_is_resolved_once_for_every_write(self) -> None:
+        """A batch of N writes resolves one LogsManager, not N."""
+        with patch(f'{HELPER_PATH}.ManagerProvider') as provider, \
+             patch(f'{HELPER_PATH}.emit_object_update_events') as emit:
+            emitter = build_object_write_emitter(MagicMock(), EMITTER_COMMENT)
+            emitter(_object_write())
+            emitter(_object_write())
+
+        provider.get_manager.assert_called_once()
+        assert emit.call_count == 2
+
+    def test_the_log_records_the_version_the_write_stored(self) -> None:
+        """Unpatched below the helper: the entry carries the AFTER version and the edit comment."""
+        logs_manager = MagicMock()
+        rendered = _rendered(version='1.0.0')
+
+        with patch(f'{HELPER_PATH}.ManagerProvider') as provider, \
+             patch(f'{HELPER_PATH}.send_webhook_event'), \
+             patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            provider.get_manager.return_value = logs_manager
+            build_object_write_emitter(MagicMock(), EMITTER_COMMENT)(_object_write())
+
+        kwargs = logs_manager.insert_log.call_args.kwargs
+        assert kwargs['action'] == LogAction.EDIT
+        assert kwargs['version'] == '1.0.1'
+        assert kwargs['comment'] == EMITTER_COMMENT

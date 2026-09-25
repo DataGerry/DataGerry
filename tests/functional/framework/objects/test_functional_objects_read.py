@@ -560,7 +560,7 @@ class TestObjectIdsValidation:
 
     @pytest.mark.parametrize('raw_ids', ['abc', '1,abc', '0'], ids=['text', 'mixed', 'zero'])
     def test_mds_references_rejects_an_unusable_id(self, rest_api, raw_ids: str) -> None:
-        """A junk id in the comma-joined list used to be dropped silently."""
+        """A junk id in the comma-joined list is refused rather than dropped silently."""
         response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}/mds_references?objectIDs={raw_ids}')
 
         assert response.status_code == HTTPStatus.BAD_REQUEST

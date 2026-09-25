@@ -38,6 +38,7 @@ from cmdb.errors.manager.persons_manager import (
     PersonsManagerDeleteError,
     PersonsManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/persons'
@@ -493,3 +494,31 @@ class TestDeleteCleansTheGroupSide:
 
         assert _group_members(database_manager, database_name, GROUP_ID_A) == []
         assert _group_members(database_manager, database_name, GROUP_ID_B) == [12345]
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /persons/<id> answers the Person as stored, not the request body."""
+
+    def test_omitted_optional_keys_come_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """phone_number / email / groups left out of the body are stored empty - and answered empty."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_UPDATE)
+        payload = {'display_name': 'Renamed', 'first_name': 'First', 'last_name': 'Last'}
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}', payload)
+
+        assert result == stored
+        assert (result['phone_number'], result['email'], result['groups']) == ('', '', [])
+
+    def test_null_optional_keys_come_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A key sent as null is stored as its empty value, and the response says so."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_UPDATE)
+        payload = {**_person_payload(PERSON_ID_FOR_UPDATE), 'phone_number': None, 'groups': None}
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}', payload)
+
+        assert result == stored
+        assert (result['phone_number'], result['groups']) == ('', [])

@@ -100,8 +100,8 @@ class CmdbObjectGroup(CmdbDAO):
         Fills the list keys of a raw document with their empty values, in place
 
         The hook the shared from_data runs first, and the one a route calls before inserting a
-        validated payload as-is. ``assigned_ids`` is covered as a safety net only: the schema
-        requires it to be a non-empty list, so a payload reaching here without one was never valid
+        validated payload as-is. Only ``categories`` is filled: ``assigned_ids`` is required (an empty
+        list is valid), so a document without the key is refused by from_data rather than read as empty
 
         Args:
             data (dict[str, Any]): The document or validated payload, edited in place
@@ -128,7 +128,7 @@ class CmdbObjectGroup(CmdbDAO):
             group_type (ObjectGroupMode): STATIC (for specific CmdbObjects) OR DYNAMIC (for CmdbTypes)
             name (str): name of the CmdbObjectGroup
             assigned_ids (list[int]): assigned public_ids of CmdbObjects or CmdbTypes, depending on
-                                      group_type. Required and never empty
+                                      group_type. Required; empty once every member is gone
             categories (list[int], optional): public_ids of the assigned CmdbExtendableOptions of
                                               option type OBJECT_GROUP. None becomes []
 

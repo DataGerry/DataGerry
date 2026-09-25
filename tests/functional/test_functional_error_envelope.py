@@ -14,24 +14,21 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Every REST failure answers the JSON envelope, and a transient DB error says so (tier 2 T135 / T185)
+Every REST failure answers the JSON envelope, and a transient DB error says so
 
-Two defects, both verified against the running app before they were fixed, and both kept here as
-requests rather than as unit calls - what made each one real was what a client received.
+Both rules are checked here as requests rather than as unit calls - what matters is what a client
+receives.
 
-**415 answered `text/html`.** The API registered nine status codes by hand and anything else fell
-through to Flask's HTML page. `abort()` appears 1300+ times in `cmdb/` and never with 415, which is
-exactly why nobody found it: Werkzeug raises it while parsing the request, before any route runs, so
-no census of the route layer could see it. One handler registered for the `HTTPException` class
-closes the family.
+**415 answers JSON, not `text/html`.** Werkzeug raises 415 while parsing the request, before any
+route runs, so no `abort()` in the route layer produces it and no census of the route layer can see
+it. One handler registered for the `HTTPException` class covers every status, instead of a
+hand-picked list with Flask's HTML page as the fallthrough.
 
-**A database lock timeout answered `500 internal server error`.** `route_utils.handle_db_errors` maps
-`DocumentLockTimeoutError` to 423 and `DocumentNetworkError` to 503 - but it is the *outermost*
-decorator, so it only ever sees what escapes the handler, and the handler ended in
-`except Exception: abort(500, …)`. Two layers re-wrapped the error before that: the manager turned it
-into `ObjectsManagerInsertError` (→ 400) and the route's own catch-all claimed whatever was left. So
-a retryable condition was reported as an internal server error, and the 423 branch had never once
-executed in production.
+**A database lock timeout answers 423, not `500 internal server error`.**
+`route_utils.handle_db_errors` maps `DocumentLockTimeoutError` to 423 and `DocumentNetworkError` to
+503 - but it is the *outermost* decorator, so it only sees what escapes the handler. The error must
+therefore survive the manager and the route's own `except Exception: abort(500, …)` catch-all
+unwrapped; re-wrapped on the way, a retryable condition would be reported as an internal server error.
 """
 from http import HTTPStatus
 from unittest.mock import MagicMock, patch
@@ -53,7 +50,7 @@ class TestEveryFailureIsJson:
 
     def test_an_unsupported_media_type_answers_json(self, rest_api) -> None:
         """
-        The defect, as a request
+        The rule, as a request
 
         Werkzeug refuses the body before the route is reached, so this is a status the route layer
         cannot be audited for.
@@ -92,9 +89,8 @@ class TestATransientDatabaseErrorIsReportedAsTransient:
     423 / 503 rather than 500 - the difference between "retry" and "something is broken"
 
     The decorated route is rebuilt here rather than called through the client, because provoking a
-    real Mongo lock timeout is not something a test can do reliably. What is exercised is the part
-    that was broken: whether the error survives the route body long enough for the decorator to map
-    it.
+    real Mongo lock timeout is not something a test can do reliably. What is exercised is whether the
+    error survives the route body long enough for the decorator to map it.
     """
 
     @staticmethod
@@ -114,7 +110,7 @@ class TestATransientDatabaseErrorIsReportedAsTransient:
         (DocumentNetworkError('network error'), HTTPStatus.SERVICE_UNAVAILABLE),
     ], ids=['lock timeout -> 423', 'network error -> 503'])
     def test_it_reaches_the_status_the_decorator_maps_it_to(self, rest_api, error, expected) -> None:
-        """Both were 500 before: the route's own `except Exception` got there first."""
+        """The route's own `except Exception` must not claim them first and answer 500."""
         with patch(f'{ROUTES_MODULE}.apply_object_insert', side_effect=error), \
              patch(f'{ROUTES_MODULE}.ManagerProvider.get_manager', return_value=MagicMock()), \
              rest_api.application.test_request_context('/objects/', method='POST', json={}):
@@ -140,10 +136,9 @@ class TestATransientDatabaseErrorIsReportedAsTransient:
 
     def test_a_423_answers_the_json_envelope_over_the_wire(self, rest_api) -> None:
         """
-        The two halves of this pass, joined
+        The two halves, joined
 
-        423 is now reachable *and* it is JSON. Before, it was neither: unreachable through the route,
-        and HTML if anything had ever raised it.
+        423 is reachable through the route *and* it is answered as JSON.
         """
         from cmdb.interface.rest_api.responses.error_handlers import http_exception
         from werkzeug.exceptions import Locked

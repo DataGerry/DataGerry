@@ -95,6 +95,7 @@ from cmdb.framework.ipam.enforcement import (
     format_errors_for_abort,
 )
 from cmdb.framework.object_invariants import enforce_object_write_invariants
+from cmdb.framework.object_edit import compute_object_version
 from cmdb.framework.object_required_fields import (
     build_missing_required_errors,
     collect_missing_required_values,
@@ -930,39 +931,6 @@ def apply_object_insert(
 
     return new_object_id
 
-
-def compute_object_version(current_object: CmdbObject, updated_object: CmdbObject) -> tuple[str, dict[str, Any]]:
-    """
-    Derives the field-level diff and applies the resulting semantic version bump
-
-    The bump is chosen from how many fields changed relative to the total field count: a single
-    changed field is a PATCH, all fields a MAJOR, more than half a MINOR, and anything else a PATCH.
-    ``updated_object`` is mutated in place with the new version, which is what makes the edit log's
-    ``get_version()`` read agree with the version written into the document. Returning the string
-    alone would leave the log recording every edit one bump behind
-
-    Args:
-        current_object (CmdbObject): The stored object before the update
-        updated_object (CmdbObject): The candidate object after the update
-
-    Returns:
-        tuple[str, dict[str, Any]]: The new version string and the diff (as returned by ``/``)
-    """
-    changes: dict[str, Any] = current_object / updated_object
-
-    changed_count: int = len(changes['new'])
-    field_count: int = len(updated_object.fields)
-
-    if changed_count == 1:
-        version_type = updated_object.VERSIONING_PATCH
-    elif changed_count == field_count:
-        version_type = updated_object.VERSIONING_MAJOR
-    elif changed_count > (field_count / 2):
-        version_type = updated_object.VERSIONING_MINOR
-    else:
-        version_type = updated_object.VERSIONING_PATCH
-
-    return updated_object.update_version(version_type), changes
 
 # Cohesive single-object update orchestration (fetch -> guard -> validate -> persist -> side effects);
 # the local count is inherent to the sequence, so the too-many-locals check is scoped off here

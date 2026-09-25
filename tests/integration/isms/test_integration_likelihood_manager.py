@@ -138,11 +138,13 @@ class TestUpdateWithFollowUp:
             'risk_calculation_after': {'likelihood_id': OTHER_LIKELIHOOD_ID, 'likelihood_value': OTHER_BASIS},
         })
 
-        likelihood_manager.update_with_follow_up(LIKELIHOOD_ID, _likelihood_doc(LIKELIHOOD_ID, NEW_BASIS))
+        answered = likelihood_manager.update_with_follow_up(LIKELIHOOD_ID, _likelihood_doc(LIKELIHOOD_ID, NEW_BASIS))
 
         stored = database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)\
-            .find_one({'public_id': LIKELIHOOD_ID})
+            .find_one({'public_id': LIKELIHOOD_ID}, {'_id': 0})
         assert stored['calculation_basis'] == NEW_BASIS
+        # What the manager answers is the document it stored - the update route hands it to the client
+        assert answered == stored
 
         risk_assessment = _risk_assessment(database_manager, database_name)
         # before matrix referenced the updated likelihood -> value rewritten

@@ -75,7 +75,7 @@ class LdapAuthenticationProviderConfig(BaseAuthProviderConfig):
         connection_config: dict = None,
         search: dict = None,
         groups: dict = None,
-        *args, **kwargs):
+        **kwargs):
         """
         Initialize an LDAP Authentication Provider Configuration instance
 
@@ -86,7 +86,9 @@ class LdapAuthenticationProviderConfig(BaseAuthProviderConfig):
             connection_config (dict, optional): Configuration for the LDAP connection (bind user, password, version)
             search (dict, optional): Search parameters for finding users
             groups (dict, optional): Group mapping settings
-
+            **kwargs: Stored keys this configuration does not declare. Accepted, so a settings
+                document carrying an extra key still loads, and dropped - unlike the local provider's
+                configuration, which hands them to the base class to be set as attributes
         """
         active = active or False
         self.default_group = int(default_group or LdapAuthenticationProviderConfig.

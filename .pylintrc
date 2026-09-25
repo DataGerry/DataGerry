@@ -139,7 +139,12 @@ dummy-variables-rgx=_+$|(_[a-zA-Z0-9_]*[a-zA-Z0-9]+?$)|dummy|^ignored_|^unused_
 
 # Argument names that match this expression will be ignored. Default to name
 # with leading underscore.
-ignored-argument-names=_.*|^ignored_|^unused_
+# `request_user` is injected BY KEYWORD by `@insert_request_user`, the decorator that authenticates a
+# route, so a handler that never reads the user still has to accept it under exactly that name - it
+# cannot be renamed to `_request_user` and the decorator cannot be dropped. Exempting the name here
+# replaces a per-route suppression. tests/unit/test_request_user_exemption.py keeps it honest: an unread
+# `request_user` is only legal on a function that decorator wraps.
+ignored-argument-names=_.*|^ignored_|^unused_|^request_user$
 
 # Tells whether we should check for unused import in __init__ files.
 init-import=no

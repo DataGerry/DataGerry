@@ -116,7 +116,7 @@ class TestInsertedMetadata:
         assert set(inserted['metadata']) == {key.value for key in MediaFileMetadataKey}
 
     def test_an_undeclared_key_is_not_stored(self, media_files_manager: MediaFilesManager) -> None:
-        """An undeclared key used to raise a TypeError that failed the insert."""
+        """An undeclared key is dropped rather than failing the insert."""
         inserted = media_files_manager.insert_file(
             _upload(FILE_NAME_A), {'author_id': AUTHOR_ID, 'bogus': 'value'},
         )
