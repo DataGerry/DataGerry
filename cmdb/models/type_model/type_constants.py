@@ -70,3 +70,9 @@ class NestedSummaryKey(BaseStrEnum):
     FIELDS = 'fields'
     LINE = 'line'
     PREFIX = 'prefix'
+
+
+# What an entry of a reference field's ``summaries`` list means when it leaves `prefix` out. The type write
+# schema fills the same value in, so an entry read without the key renders as if it had been written
+# through the type route
+NESTED_SUMMARY_PREFIX_DEFAULT: bool = True

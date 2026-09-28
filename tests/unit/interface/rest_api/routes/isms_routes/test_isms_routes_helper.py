@@ -41,6 +41,8 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
 ID_A: int = 11
 ID_B: int = 12
 ID_C: int = 13
+# The id a bool would alias in Python: True == 1
+TRUE_ALIASED_ID: int = 1
 MISSING_ID: int = 99
 
 
@@ -158,6 +160,29 @@ class TestUpdateMultipleItems:
 
         by_id = {entry['public_id']: entry['status'] for entry in results}
         assert by_id == {ID_A: 'failed', ID_B: 'success'}
+
+    def test_a_bool_public_id_is_refused_although_it_equals_an_existing_id(self) -> None:
+        """True == 1, but MongoDB would not match it - so it is refused instead of reported as success"""
+        manager = _existence_manager([TRUE_ALIASED_ID])
+
+        results = update_multiple_items(manager, MagicMock(), [{'public_id': True}], "RiskClass", "tag")
+
+        assert results == [{'public_id': True, 'status': 'failed', 'message': 'Invalid public_id'}]
+        manager.update_item.assert_not_called()
+        manager.find_all.assert_not_called()
+
+    @pytest.mark.parametrize('public_id', [str(ID_A), float(ID_A), [ID_A]])
+    def test_a_public_id_that_is_not_an_integer_is_refused(self, public_id: object) -> None:
+        """Only an integer can address a stored document; anything else fails that item alone"""
+        manager = _existence_manager([ID_A, ID_B])
+
+        results = update_multiple_items(
+            manager, MagicMock(), [{'public_id': public_id}, {'public_id': ID_B}], "RiskClass", "tag"
+        )
+
+        assert [entry['status'] for entry in results] == ['failed', 'success']
+        assert results[0]['message'] == 'Invalid public_id'
+        manager.find_all.assert_called_once_with(criteria={'public_id': {'$in': [ID_B]}})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

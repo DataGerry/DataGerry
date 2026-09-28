@@ -38,6 +38,8 @@ from cmdb.errors.manager.risk_manager import (
     RiskManagerDeleteError,
     RiskManagerIterationError,
 )
+
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risks'
@@ -232,6 +234,16 @@ class TestPutRisk:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_risk(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored risk in place"""
+        _insert_risk(database_manager, database_name, RISK_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', _risk_payload(MISSING_RISK_ID),
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name), RISK_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent risk returns 404."""

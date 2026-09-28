@@ -63,7 +63,8 @@ class GroupsManager(GenericManager):
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the ``dbm`` should connect. Only used in cloud mode
+            database (str): Name of the database to which the ``dbm`` should connect. Used whenever it is
+                given, in every mode - pass one only in cloud mode (``ManagerProvider`` does)
 
         Raises:
             GroupsManagerInitError: If the manager (or the right-tree cache) could not be initialised

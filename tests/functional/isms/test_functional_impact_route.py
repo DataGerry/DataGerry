@@ -46,7 +46,7 @@ from cmdb.errors.manager.impact_manager import (
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
 )
-from tests.utils.update_response import put_and_read_back
+from tests.utils.update_response import put_and_read_back, assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/impacts'
@@ -297,6 +297,16 @@ class TestPutImpact:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_impact(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored impact in place"""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}', _impact_payload(MISSING_IMPACT_ID),
+            database_manager.get_collection(IsmsImpact.COLLECTION, database_name), IMPACT_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent impact returns 404."""

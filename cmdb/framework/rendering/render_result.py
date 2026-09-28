@@ -40,6 +40,9 @@ class RenderResult:
         summary_line (str): A single-line summary representation
         externals (list): External references related to the object
         multi_data_sections (list): Sections containing multiple data entries
+        render_problems (list[dict[str, Any]]): Where this render answered less than the stored data
+            holds, one ``RenderProblemKey`` entry per loss. Empty for a complete render, which is the
+            only way a caller can tell the two apart - a degraded render answers the same shape
     """
 
     def __init__(self) -> None:
@@ -52,6 +55,7 @@ class RenderResult:
         self.summary_line: str = ''
         self.externals: list = []
         self.multi_data_sections: list = []
+        self.render_problems: list[dict[str, Any]] = []
 
 
     def to_json(self) -> dict[str, Any]:
@@ -84,6 +88,7 @@ class RenderResult:
             f"  summaries={len(self.summaries)} items,\n"
             f"  summary_line='{self.summary_line}',\n"
             f"  externals={len(self.externals)} items,\n"
-            f"  multi_data_sections={len(self.multi_data_sections)} items\n"
+            f"  multi_data_sections={len(self.multi_data_sections)} items,\n"
+            f"  render_problems={len(self.render_problems)} items\n"
             f")"
         )

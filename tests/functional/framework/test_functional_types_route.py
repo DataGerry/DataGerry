@@ -23,6 +23,7 @@ the PUT round-trip, and the DELETE 200 + follow-up 404. The CRUD behavior itself
 is asserted at the manager layer; these tests only verify the route wraps it
 correctly
 """
+import json
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
@@ -1034,6 +1035,67 @@ class TestListingFilterEcho:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_GET)
 
         assert TYPE_ID_FOR_GET not in listed
+
+
+class TestTheClientsActiveConditionWins:
+    """
+    A client that filters on ``active`` itself gets what it asked for, whatever ``?active=`` says
+
+    ``?active=`` defaults to true, so before this rule a filter asking for inactive types had its
+    condition replaced (dict criteria) or contradicted (a pipeline) by the flag: the opposite, or nothing,
+    with a 200. The flag now applies only to criteria that say nothing about ``active``
+    """
+
+    ACTIVE_TYPE_ID: int = 93961
+    INACTIVE_TYPE_ID: int = 93962
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One active and one inactive type."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        ids = [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]
+        types.delete_many({'public_id': {'$in': ids}})
+        for public_id, active in ((self.ACTIVE_TYPE_ID, True), (self.INACTIVE_TYPE_ID, False)):
+            doc = _type_doc(public_id, f'active-condition-{public_id}')
+            doc['name'] = f'active-condition-{public_id}'
+            doc['active'] = active
+            types.insert_one(doc)
+        yield
+        types.delete_many({'public_id': {'$in': ids}})
+
+    def _listed(self, rest_api, query: str) -> list[int]:
+        """The seeded types a listing answers, in id order."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&{query}')
+        assert response.status_code == HTTPStatus.OK
+
+        seeded = {self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID}
+        return sorted(t['public_id'] for t in response.get_json()['results'] if t['public_id'] in seeded)
+
+    def _inactive_dict(self) -> str:
+        """A dict filter asking for inactive types among the two seeded ones."""
+        return json.dumps({'active': False, 'public_id': {'$in': [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]}})
+
+    def _inactive_pipeline(self) -> str:
+        """The same question as a pipeline."""
+        return json.dumps([{'$match': {'active': False,
+                                       'public_id': {'$in': [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]}}}])
+
+    @pytest.mark.parametrize('flag', ['', 'active=true&', 'active=false&'], ids=['no flag', 'flag on', 'flag off'])
+    def test_a_dict_filter_for_inactive_types_gets_them(self, rest_api, flag: str) -> None:
+        """Not the active type (the flag replacing the key), and not nothing"""
+        assert self._listed(rest_api, f'{flag}filter={self._inactive_dict()}') == [self.INACTIVE_TYPE_ID]
+
+    @pytest.mark.parametrize('flag', ['', 'active=true&', 'active=false&'], ids=['no flag', 'flag on', 'flag off'])
+    def test_a_pipeline_filter_for_inactive_types_gets_them(self, rest_api, flag: str) -> None:
+        """Not an empty list (the flag's appended $match contradicting the client's)"""
+        assert self._listed(rest_api, f'{flag}filter={self._inactive_pipeline()}') == [self.INACTIVE_TYPE_ID]
+
+    def test_without_an_active_condition_the_flag_still_restricts(self, rest_api) -> None:
+        """A filter on other fields is combined with the flag as before"""
+        other = json.dumps({'public_id': {'$in': [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]}})
+
+        assert self._listed(rest_api, f'active=true&filter={other}') == [self.ACTIVE_TYPE_ID]
+        assert self._listed(rest_api, f'active=false&filter={other}') == [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]
 
 
 class TestListingCategoryFilters:

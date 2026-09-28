@@ -29,6 +29,11 @@ from http import HTTPStatus
 from typing import Any
 
 import pytest
+
+from cmdb.database import MongoDatabaseManager
+from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
+from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model import CmdbType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TYPE_URL: str = '/types/'
@@ -46,8 +51,8 @@ def _field(name: str, label: str, field_type: str = 'text', **extra: Any) -> dic
 
 
 @pytest.fixture(name='type_id')
-def fixture_type_id(rest_api) -> int:
-    """A Type whose fields cover the three cases: supplied, unsupplied, and carrying a default."""
+def fixture_type_id(rest_api, database_manager: MongoDatabaseManager, database_name: str):
+    """A Type whose fields cover the three cases: supplied, unsupplied, and carrying a default; removed after."""
     fields = [
         _field(SUPPLIED_FIELD, 'Hostname'),
         _field('text-serial', 'Serial'),
@@ -69,20 +74,32 @@ def fixture_type_id(rest_api) -> int:
         },
     })
     assert created.status_code in (HTTPStatus.OK, HTTPStatus.CREATED), created.get_data(as_text=True)
+    created_type_id: int = created.get_json()['result_id']
 
-    return created.get_json()['result_id']
+    yield created_type_id
+
+    database_manager.get_collection(CmdbType.COLLECTION, database_name).delete_one({'public_id': created_type_id})
 
 
 @pytest.fixture(name='partial_object_id')
-def fixture_partial_object_id(rest_api, type_id: int) -> int:
-    """An object created with a value for ONE of the Type's four fields."""
+def fixture_partial_object_id(rest_api, type_id: int, database_manager: MongoDatabaseManager, database_name: str):
+    """
+    An object created with a value for ONE of the Type's four fields, removed afterwards with its logs
+
+    The route assigns the id from the object counter, so a leftover would sit on whatever id comes next
+    and collide with a later suite that seeds that id itself
+    """
     created = rest_api.post(OBJECT_URL, json={
         'type_id': type_id, 'version': '1.0.0', 'author_id': 1, 'active': True,
         'fields': [{'name': SUPPLIED_FIELD, 'value': SUPPLIED_VALUE}],
     })
     body = created.get_json()
+    object_id: int = body['result_id'] if isinstance(body, dict) and 'result_id' in body else body
 
-    return body['result_id'] if isinstance(body, dict) and 'result_id' in body else body
+    yield object_id
+
+    database_manager.get_collection(CmdbObject.COLLECTION, database_name).delete_one({'public_id': object_id})
+    database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name).delete_many({'object_id': object_id})
 
 
 def _rendered_fields(rest_api, object_id: int) -> list[dict[str, Any]]:

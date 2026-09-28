@@ -43,7 +43,6 @@ from flask import abort, request
 from cmdb.database import MongoDBQueryBuilder
 from cmdb.manager import ReportsManager
 
-from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
@@ -68,6 +67,7 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     REPORT_WRITE_KEYS,
     ReportKey,
 )
+from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -590,7 +590,7 @@ def build_report_update_payload(
         dict[str, Any]: The full document to persist
     """
     payload: dict[str, Any] = build_report_payload(reports_manager, params)
-    payload[CmdbObjectKey.PUBLIC_ID] = public_id
+    pin_public_id(payload, public_id)
     payload[ReportKey.PREDEFINED] = current_report.get(ReportKey.PREDEFINED, False)
 
     return payload

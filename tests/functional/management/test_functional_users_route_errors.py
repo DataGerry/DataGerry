@@ -64,6 +64,13 @@ def _payload(public_id: int = USER_ID, first_name: str = 'Original') -> dict[str
     }
 
 
+def _update_payload(public_id: int = USER_ID, first_name: str = 'Original') -> dict[str, Any]:
+    """The same user as a PUT body: no password, which only changes through PATCH /users/<id>/password."""
+    payload = _payload(public_id, first_name)
+    payload.pop('password')
+    return payload
+
+
 @pytest.fixture(autouse=True)
 def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any test users seeded by a test, before and after each test."""
@@ -118,7 +125,7 @@ class TestRouteFixes:
     ) -> None:
         """A body public_id different from the URL cannot rewrite the document's identity."""
         _seed(database_manager, database_name, USER_ID)
-        payload = _payload(public_id=OTHER_USER_ID, first_name='Renamed')  # forged id in the body
+        payload = _update_payload(public_id=OTHER_USER_ID, first_name='Renamed')  # forged id in the body
 
         response = rest_api.put(f'{ROUTE_URL}/{USER_ID}', json=payload)  # URL says USER_ID
 
@@ -131,7 +138,7 @@ class TestRouteFixes:
     ) -> None:
         """A PUT carrying a registration_time ISO string is coerced and accepted (no 500)."""
         _seed(database_manager, database_name, USER_ID)
-        payload = _payload()
+        payload = _update_payload()
         # BSON $date wrapper - the shape the schema (registration_time: dict) accepts
         payload['registration_time'] = {'$date': '2024-01-02T03:04:05Z'}
 
@@ -226,18 +233,18 @@ class TestErrorMapping:
         _seed(database_manager, database_name, USER_ID)
         monkeypatch.setattr(UsersManager, 'update_user', _raiser(UsersManagerUpdateError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/{USER_ID}', json=_payload()).status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.put(f'{ROUTE_URL}/{USER_ID}', json=_update_payload()).status_code == HTTPStatus.BAD_REQUEST
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """A PUT on a missing user returns 404."""
-        assert rest_api.put(f'{ROUTE_URL}/{MISSING_USER_ID}', json=_payload(MISSING_USER_ID)).status_code \
+        assert rest_api.put(f'{ROUTE_URL}/{MISSING_USER_ID}', json=_update_payload(MISSING_USER_ID)).status_code \
             == HTTPStatus.NOT_FOUND
 
     def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error while loading the user on update surfaces as 500."""
         _patch_target_get_user(monkeypatch, USER_ID, exc=RuntimeError('boom'))
 
-        assert rest_api.put(f'{ROUTE_URL}/{USER_ID}', json=_payload()).status_code \
+        assert rest_api.put(f'{ROUTE_URL}/{USER_ID}', json=_update_payload()).status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_password_update_error_returns_400(

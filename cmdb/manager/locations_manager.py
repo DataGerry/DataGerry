@@ -183,11 +183,10 @@ class LocationsManager(BaseManager):
         """
         Retrieves the matching CmdbLocations as canonical documents, with the total match count
 
-        The read behind the two list routes (the flat list and the eager tree). Answers documents
-        rather than model instances - the same key set ``CmdbLocation.to_json`` produces, through
-        ``to_location_document`` - because both routes only pass the result on as JSON: hydrating a
-        CmdbLocation per row and converting it straight back would be two objects per location for
-        a response that is a document either way
+        The read behind the flat list route. Answers documents rather than model instances - the
+        same key set ``CmdbLocation.to_json`` produces, through ``to_location_document`` - because the
+        route only passes the result on as JSON: hydrating a CmdbLocation per row and converting it
+        straight back would be two objects per location for a response that is a document either way
 
         Args:
             builder_params (BuilderParameters): Filter, sort and pagination for the read

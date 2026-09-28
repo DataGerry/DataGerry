@@ -93,6 +93,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     REFERENCED_TYPE_DELETE_MESSAGE,
     TypeUserDataKey,
     TypeOverviewKey,
+    MATCH_STAGE_KEY,
 )
 from cmdb.security.license.license_constants import LicenseFeature
 
@@ -431,6 +432,34 @@ def special_type_is_unchanged(old_st: str | None, new_st: str | None) -> bool:
     return old_st == new_st
 
 
+def criteria_constrain_active(client_criteria: dict[str, Any] | list[dict[str, Any]]) -> bool:
+    """
+    Answers whether the client's own criteria already filter on the ``active`` field
+
+    A dict criteria does when it carries the key at its top level; a list criteria (a pipeline) does
+    when any of its ``$match`` stages carries it at the stage's top level. A condition nested deeper -
+    inside an ``$and`` / ``$or``, or a later stage the client built - is not looked for: the rule is
+    about the plain statements a caller writes, not a query parser
+
+    Args:
+        client_criteria (dict[str, Any] | list[dict[str, Any]]): The criteria as the client sent it
+
+    Returns:
+        bool: True when the client states its own ``active`` condition
+    """
+    active_key: str = TypeSchemaKey.ACTIVE.value
+
+    if isinstance(client_criteria, list):
+        return any(
+            isinstance(stage, dict)
+            and isinstance(stage.get(MATCH_STAGE_KEY), dict)
+            and active_key in stage[MATCH_STAGE_KEY]
+            for stage in client_criteria
+        )
+
+    return isinstance(client_criteria, dict) and active_key in client_criteria
+
+
 def build_type_criteria(
         client_criteria: dict[str, Any] | list[dict[str, Any]],
         active: bool) -> dict[str, Any] | list[dict[str, Any]]:
@@ -442,9 +471,15 @@ def build_type_criteria(
     frontend contract - merging in place would make the server's injected stage look like something
     the client had sent.
 
-    A dict criteria is merged key-wise, a list criteria gets one appended ``$match``, and an empty
-    dict stays a dict rather than becoming a two-stage pipeline with an empty ``$match`` in it.
-    A falsy ``active`` restricts nothing and the criteria is handed back unchanged
+    **The client's own ``active`` condition wins.** ``?active=`` defaults to true, so a caller that
+    filters on ``active`` itself - ``{"active": false}`` to list inactive types - would otherwise have
+    its condition replaced (dict) or contradicted (list) by the flag and get the opposite, or nothing,
+    with a 200. When the criteria already constrain ``active`` (`criteria_constrain_active`) they are
+    handed back unchanged; the flag applies only to criteria that say nothing about it.
+
+    Otherwise a dict criteria is merged key-wise, a list criteria gets one appended ``$match``, and an
+    empty dict stays a dict rather than becoming a two-stage pipeline with an empty ``$match`` in it. A
+    falsy ``active`` restricts nothing and the criteria is handed back unchanged
 
     Args:
         client_criteria (dict[str, Any] | list[dict[str, Any]]): The criteria as the client sent it
@@ -453,7 +488,7 @@ def build_type_criteria(
     Returns:
         dict[str, Any] | list[dict[str, Any]]: The criteria to query with
     """
-    if not active:
+    if not active or criteria_constrain_active(client_criteria):
         return client_criteria
 
     if isinstance(client_criteria, list):

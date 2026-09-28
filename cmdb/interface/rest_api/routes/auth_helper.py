@@ -46,6 +46,7 @@ from cmdb.interface.route_utils import (
     set_admin_user,
     retrieve_user,
     check_user_in_service_portal,
+    refuse_inactive_user,
 )
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
 
@@ -116,7 +117,8 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
     Authenticates the user against the ServicePortal, resolves which subscription/database to log into
     (auto for a single subscription, the selected one when provided, or the list of options when the
     user has several and none was chosen), initialises the target database on first use, retrieves the
-    user and returns a login token. Behaviour is unchanged from the original inline cloud branch.
+    user and returns a login token. A user this tenant stored as deactivated gets no token, even though
+    the ServicePortal accepted the credentials - the flag is the tenant's own decision about the account
 
     Args:
         request_user_name (str): The submitted user name (lower-cased for the ServicePortal lookup)
@@ -182,6 +184,9 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
             LOGGER.error("[cloud_login] Could not retrieve User from database!")
             abort(401, "Invalid user or password. Could not login!")
 
+        # The portal accepted the credentials; this tenant's own flag still decides
+        refuse_inactive_user(user)
+
         # Remove the user password
         user.password = ""
 
@@ -226,7 +231,8 @@ def local_login(request_user_name: str, request_password: str) -> Response:
 
     Builds the AuthModule from the stored auth settings and delegates the credential check to it, then
     returns a login token. Failed credentials (a provider ``AuthenticationError``) and the no-user path
-    map to 401; a provider that is not active / not found maps to 400. The AuthModule construction is
+    map to 401; a provider that is not active / not found maps to 400. A user that authenticated but
+    whose account is deactivated is refused with 401 before any token is issued. The AuthModule construction is
     intentionally outside the try, so a construction error propagates to the route's outer handler
     rather than being mapped to a login error.
 
@@ -251,6 +257,10 @@ def local_login(request_user_name: str, request_password: str) -> Response:
         user_instance: CmdbUser | None = auth_module.login(request_user_name, request_password)
 
         if user_instance:
+            # Checked here, after `login` returned, rather than inside it: a refusal raised within
+            # `login` would be caught and handed to the fallback sweep over every other provider
+            refuse_inactive_user(user_instance)
+
             token, token_issued_at, token_expire = generate_token_with_params(user_instance,
                                                                               current_app.database_manager)
 

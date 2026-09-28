@@ -37,7 +37,11 @@ from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
-from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, NestedSummaryKey
+from cmdb.models.type_model.type_constants import (
+    DEFAULT_PORT_SECTION_INDEX,
+    NESTED_SUMMARY_PREFIX_DEFAULT,
+    NestedSummaryKey,
+)
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.errors.models.cmdb_type import (
@@ -370,6 +374,34 @@ def test_nested_prefix_and_line_default_without_a_match() -> None:
 
     assert cmdb_type.has_nested_prefix([_nested(999)]) is False
     assert cmdb_type.get_nested_summary_line([_nested(999)]) is None
+
+
+def test_the_first_entry_addressing_this_type_is_the_one_read() -> None:
+    """The shared lookup: other types' entries are skipped, and a second entry for this type is ignored"""
+    cmdb_type = _type()
+    first = _nested(PUBLIC_ID, **{NestedSummaryKey.LINE.value: 'first'})
+    entries = [_nested(999), first, _nested(PUBLIC_ID, **{NestedSummaryKey.LINE.value: 'second'})]
+
+    # pylint: disable-next=protected-access
+    assert cmdb_type._nested_summary_for(entries) is first
+    # pylint: disable-next=protected-access
+    assert cmdb_type._nested_summary_for([_nested(999)]) is None
+
+
+def test_an_entry_without_prefix_answers_the_schema_default() -> None:
+    """Stored by the type import or written directly, it renders as the type route would have stored it"""
+    assert _type().has_nested_prefix([_nested(PUBLIC_ID)]) is NESTED_SUMMARY_PREFIX_DEFAULT
+
+
+def test_an_entry_without_a_line_has_no_line() -> None:
+    """A missing key is 'no line configured', not an error"""
+    assert _type().get_nested_summary_line([_nested(PUBLIC_ID)]) is None
+
+
+@pytest.mark.parametrize('entry_extra', [{}, {NestedSummaryKey.FIELDS.value: None}], ids=['missing', 'null'])
+def test_an_entry_without_fields_lists_none(entry_extra: dict[str, Any]) -> None:
+    """So the renderer falls back to the type's own summary fields, as for an empty list"""
+    assert _type().get_nested_summary_fields([_nested(PUBLIC_ID, **entry_extra)]) == []
 
 
 def test_get_summary_resolves_the_configured_fields() -> None:

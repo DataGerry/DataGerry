@@ -16,15 +16,17 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.user_management_routes.users_helper
 
-Pure tests of the two extracted route helpers: ``parse_registration_time`` / ``apply_registration_time``
-(BSON ``$date`` and ISO-string coercion, passthrough of unrecognised shapes) and ``prepare_cloud_user``
+Pure tests of the extracted route helpers: ``parse_registration_time`` / ``apply_registration_time``
+(BSON ``$date`` and ISO-string coercion, passthrough of unrecognised shapes), ``prepare_cloud_user``
 (the cloud-mode-only create preparation - non-cloud no-op, email presence + uniqueness guards, the
-manager-get error mapping, and the local users-file mirror). No app or DB is booted; the manager and
-request user are lightweight stubs and the local users file is patched with mock_open.
+manager-get error mapping, and the local users-file mirror), and the update's field guard -
+``holds_right`` and ``guard_user_update`` over every field class, for a self-edit and for a holder of
+the edit right. No app or DB is booted; the manager and request user are lightweight stubs and the
+local users file is patched with mock_open.
 """
 from datetime import datetime, timezone
 from typing import Any
-from unittest.mock import mock_open, patch
+from unittest.mock import MagicMock, mock_open, patch
 
 import pytest
 from werkzeug.exceptions import HTTPException
@@ -32,9 +34,19 @@ from werkzeug.exceptions import HTTPException
 from cmdb.interface.rest_api.routes.user_management_routes import users_helper
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     apply_registration_time,
+    guard_user_update,
+    holds_right,
     parse_registration_time,
     prepare_cloud_user,
 )
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    ADMINISTRATIVE_FIELDS,
+    PROFILE_FIELDS,
+    ROUTE_HANDLED_FIELDS,
+    SERVER_OWNED_FIELDS,
+    UserAccessRight,
+)
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.errors.manager.users_manager import UsersManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -248,3 +260,173 @@ class TestPrepareCloudUser:
                 )
 
         assert exc.value.code == 400
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         holds_right + guard_user_update                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+STORED_DIGEST: str = 'stored-digest'
+STORED_DATABASE: str = 'tenant-a'
+STORED_LIMIT: int = 50
+STORED_GROUP_ID: int = 2
+OTHER_GROUP_ID: int = 1
+
+# A value different from the stored one, per guarded field - what an attacker would send
+CHANGED_VALUES: dict[CmdbUserKey, Any] = {
+    CmdbUserKey.GROUP_ID: OTHER_GROUP_ID,
+    CmdbUserKey.ACTIVE: False,
+    CmdbUserKey.AUTHENTICATOR: 'LdapAuthenticationProvider',
+    CmdbUserKey.API_LEVEL: 3,
+    CmdbUserKey.USER_NAME: 'someone-else',
+    CmdbUserKey.DATABASE: 'tenant-b',
+    CmdbUserKey.CONFIG_ITEMS_LIMIT: 999_999,
+}
+
+
+def _stored_user() -> CmdbUser:
+    """The user as stored: a local account in the default group of one tenant."""
+    return CmdbUser(public_id=7, user_name='alice', active=True, group_id=STORED_GROUP_ID,
+                    database=STORED_DATABASE, config_items_limit=STORED_LIMIT, password=STORED_DIGEST,
+                    email='alice@example.com')
+
+
+def _as_sent_back() -> dict[str, Any]:
+    """What a client sends after reading the user: the public document, without the digest."""
+    document: dict[str, Any] = CmdbUser.to_public_json(_stored_user())
+    document.pop(CmdbUserKey.PUBLIC_ID.value)
+    document.pop(CmdbUserKey.REGISTRATION_TIME.value)
+
+    return document
+
+
+def _refusal(data: dict[str, Any], may_administer: bool) -> HTTPException:
+    """Runs the guard expecting a refusal and answers it."""
+    with pytest.raises(HTTPException) as refused:
+        guard_user_update(_stored_user(), data, may_administer=may_administer)
+
+    return refused.value
+
+
+class TestHoldsRight:
+    """The right check the update route uses to tell a self-edit from an administrator"""
+
+    def test_a_missing_group_holds_nothing(self) -> None:
+        """No group, no right - never a pass by default"""
+        groups_manager = MagicMock()
+        groups_manager.get_group.return_value = None
+
+        assert holds_right(_stored_user(), UserAccessRight.EDIT.value, groups_manager) is False
+
+    @pytest.mark.parametrize('direct, extended, expected', [
+        (True, False, True),
+        (False, True, True),
+        (False, False, False),
+    ])
+    def test_a_direct_or_an_extended_right_counts(self, direct: bool, extended: bool, expected: bool) -> None:
+        """The same two checks protect runs: the right itself, or a broader right covering it"""
+        groups_manager = MagicMock()
+        groups_manager.get_group.return_value.has_right.return_value = direct
+        groups_manager.get_group.return_value.has_extended_right.return_value = extended
+
+        assert holds_right(_stored_user(), UserAccessRight.EDIT.value, groups_manager) is expected
+        groups_manager.get_group.assert_called_once_with(STORED_GROUP_ID)
+
+
+class TestFieldClasses:
+    """Every user field is placed in exactly one class, so a new field cannot slip through unguarded"""
+
+    CLASSES: tuple[frozenset[CmdbUserKey], ...] = (
+        PROFILE_FIELDS, ADMINISTRATIVE_FIELDS, SERVER_OWNED_FIELDS, ROUTE_HANDLED_FIELDS,
+    )
+
+    def test_the_classes_cover_every_user_key(self) -> None:
+        """A CmdbUserKey in none of the classes fails here"""
+        assert frozenset().union(*self.CLASSES) == frozenset(CmdbUserKey)
+
+    def test_no_field_is_in_two_classes(self) -> None:
+        """The classes are disjoint - a field has one rule, not two"""
+        assert sum(len(fields) for fields in self.CLASSES) == len(CmdbUserKey)
+
+    def test_every_guarded_field_has_a_changed_value_under_test(self) -> None:
+        """The refusal tests below cover every compared field, not a sample"""
+        assert set(CHANGED_VALUES) == (ADMINISTRATIVE_FIELDS | SERVER_OWNED_FIELDS) - {CmdbUserKey.PASSWORD}
+
+
+class TestGuardUserUpdate:
+    """Which fields a self-edit and an administrator may change on PUT /users/<id>"""
+
+    @pytest.mark.parametrize('may_administer', [False, True])
+    def test_the_user_sent_back_unchanged_passes(self, may_administer: bool) -> None:
+        """What both frontend screens send - the read document, edited profile fields only - is accepted"""
+        data = _as_sent_back()
+        data[CmdbUserKey.FIRST_NAME.value] = 'Alicia'
+
+        guard_user_update(_stored_user(), data, may_administer=may_administer)
+
+        assert data[CmdbUserKey.FIRST_NAME.value] == 'Alicia'
+
+    @pytest.mark.parametrize('field', sorted(ADMINISTRATIVE_FIELDS))
+    def test_a_self_edit_may_not_change_an_administrative_field(self, field: CmdbUserKey) -> None:
+        """group_id, active, authenticator, api_level and user_name need the edit right"""
+        data = {**_as_sent_back(), field.value: CHANGED_VALUES[field]}
+
+        refused = _refusal(data, may_administer=False)
+
+        assert refused.code == 400
+        assert field.value in refused.description
+
+    @pytest.mark.parametrize('field', sorted(ADMINISTRATIVE_FIELDS))
+    def test_an_administrator_may_change_an_administrative_field(self, field: CmdbUserKey) -> None:
+        """Holding the edit right lifts exactly this class"""
+        data = {**_as_sent_back(), field.value: CHANGED_VALUES[field]}
+
+        guard_user_update(_stored_user(), data, may_administer=True)
+
+        assert data[field.value] == CHANGED_VALUES[field]
+
+    @pytest.mark.parametrize('may_administer', [False, True])
+    @pytest.mark.parametrize('field', [CmdbUserKey.DATABASE, CmdbUserKey.CONFIG_ITEMS_LIMIT])
+    def test_nobody_changes_a_server_owned_field(self, field: CmdbUserKey, may_administer: bool) -> None:
+        """The tenant database and the ConfigItem limit are refused for an administrator too"""
+        data = {**_as_sent_back(), field.value: CHANGED_VALUES[field]}
+
+        refused = _refusal(data, may_administer=may_administer)
+
+        assert refused.code == 400
+        assert field.value in refused.description
+
+    @pytest.mark.parametrize('may_administer', [False, True])
+    def test_a_password_in_the_body_is_refused(self, may_administer: bool) -> None:
+        """A password changes through its own route, which hashes it - never raw through this one"""
+        data = {**_as_sent_back(), CmdbUserKey.PASSWORD.value: 'plaintext'}
+
+        assert _refusal(data, may_administer=may_administer).code == 400
+
+    @pytest.mark.parametrize('sent', [{}, {CmdbUserKey.PASSWORD.value: None}])
+    def test_the_stored_digest_is_kept(self, sent: dict[str, Any]) -> None:
+        """No password, or a null one, keeps the stored digest rather than wiping it"""
+        data = {**_as_sent_back(), **sent}
+
+        guard_user_update(_stored_user(), data, may_administer=True)
+
+        assert data[CmdbUserKey.PASSWORD.value] == STORED_DIGEST
+
+    def test_a_self_edit_that_leaves_fields_out_keeps_the_stored_values(self) -> None:
+        """An absent guarded key is copied from the stored user, so it is not reset to its default"""
+        data: dict[str, Any] = {CmdbUserKey.USER_NAME.value: 'alice', CmdbUserKey.ACTIVE.value: True}
+
+        guard_user_update(_stored_user(), data, may_administer=False)
+
+        assert data[CmdbUserKey.GROUP_ID.value] == STORED_GROUP_ID
+        assert data[CmdbUserKey.DATABASE.value] == STORED_DATABASE
+        assert data[CmdbUserKey.CONFIG_ITEMS_LIMIT.value] == STORED_LIMIT
+        assert data[CmdbUserKey.PASSWORD.value] == STORED_DIGEST
+
+    @pytest.mark.parametrize('field', sorted(PROFILE_FIELDS))
+    def test_a_self_edit_may_change_a_profile_field(self, field: CmdbUserKey) -> None:
+        """Names, email and image are the user's own"""
+        data = {**_as_sent_back(), field.value: 'changed'}
+
+        guard_user_update(_stored_user(), data, may_administer=False)
+
+        assert data[field.value] == 'changed'

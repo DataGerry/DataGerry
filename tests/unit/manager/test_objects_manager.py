@@ -451,16 +451,16 @@ def test_update_object_raises_when_type_missing() -> None:
     """
     A missing CmdbType surfaces as ObjectsManagerUpdateError, not an AttributeError
 
-    The three checks (type exists, type active, ACL) moved into _guard_writable_type, so the update
+    The three checks (type exists, type active, ACL) live in guard_writable_type, so the update
     passes it the error type it wants raised - which is what this asserts.
     """
     mock_self = MagicMock()
-    mock_self._guard_writable_type.side_effect = ObjectsManagerUpdateError('gone')
+    mock_self.guard_writable_type.side_effect = ObjectsManagerUpdateError('gone')
 
     with pytest.raises(ObjectsManagerUpdateError):
         ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []})
 
-    assert mock_self._guard_writable_type.call_args.args[3] is ObjectsManagerUpdateError
+    assert mock_self.guard_writable_type.call_args.args[3] is ObjectsManagerUpdateError
 
 
 def test_update_object_partial_writes_only_the_given_keys() -> None:
@@ -471,7 +471,7 @@ def test_update_object_partial_writes_only_the_given_keys() -> None:
     with patch(f'{PATH}.verify_access'):
         ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'ci_explorer_tooltip': 'hint'}, partial=True)
 
-    assert mock_self._guard_writable_type.call_args.args[0] == OWNER_TYPE_ID
+    assert mock_self.guard_writable_type.call_args.args[0] == OWNER_TYPE_ID
     mock_self.update.assert_called_once_with({'public_id': OWNER_OBJECT_ID}, {'ci_explorer_tooltip': 'hint'})
 
 
@@ -554,7 +554,7 @@ def test_delete_object_raises_when_type_missing() -> None:
     """A present object whose type is gone surfaces as ObjectsManagerDeleteError, not AttributeError"""
     mock_self = MagicMock()
     mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
-    mock_self._guard_writable_type.side_effect = ObjectsManagerDeleteError('gone')
+    mock_self.guard_writable_type.side_effect = ObjectsManagerDeleteError('gone')
 
     with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
         with pytest.raises(ObjectsManagerDeleteError):
@@ -756,7 +756,7 @@ def test_delete_object_wraps_get_type_error_as_delete_error() -> None:
     """An ObjectsManagerGetError while resolving the type surfaces as ObjectsManagerDeleteError."""
     mock_self = MagicMock()
     mock_self.get_one.return_value = {'public_id': 1, 'type_id': 5}
-    mock_self._guard_writable_type.side_effect = ObjectsManagerGetError('boom')
+    mock_self.guard_writable_type.side_effect = ObjectsManagerGetError('boom')
 
     with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=5)):
         with pytest.raises(ObjectsManagerDeleteError):
@@ -824,7 +824,7 @@ class TestGuardWritableType:
         mock_self.get_object_type.return_value = object_type
 
         with patch(f'{PATH}.verify_access'):
-            resolved = ObjectsManager._guard_writable_type(  # pylint: disable=protected-access
+            resolved = ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, None, None, ObjectsManagerDeleteError, 'removed',
             )
 
@@ -841,7 +841,7 @@ class TestGuardWritableType:
         object_type = MagicMock(active=True)
 
         with patch(f'{PATH}.verify_access'):
-            ObjectsManager._guard_writable_type(  # pylint: disable=protected-access
+            ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, None, None, ObjectsManagerDeleteError, 'removed', object_type,
             )
 
@@ -857,7 +857,7 @@ class TestGuardWritableType:
         mock_self.get_object_type.return_value = None
 
         with pytest.raises(ObjectsManagerInsertError):
-            ObjectsManager._guard_writable_type(  # pylint: disable=protected-access
+            ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, None, None, ObjectsManagerInsertError, 'created',
             )
 
@@ -867,7 +867,7 @@ class TestGuardWritableType:
         mock_self.get_object_type.return_value = MagicMock(active=False, name='Server')
 
         with pytest.raises(AccessDeniedError) as caught:
-            ObjectsManager._guard_writable_type(  # pylint: disable=protected-access
+            ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, None, None, ObjectsManagerUpdateError, 'updated',
             )
 
@@ -881,7 +881,7 @@ class TestGuardWritableType:
         user = MagicMock()
 
         with patch(f'{PATH}.verify_access') as verify:
-            ObjectsManager._guard_writable_type(  # pylint: disable=protected-access
+            ObjectsManager.guard_writable_type(
                 mock_self, OWNER_TYPE_ID, user, AccessControlPermission.DELETE,
                 ObjectsManagerDeleteError, 'removed',
             )
@@ -901,7 +901,7 @@ class TestDeleteWithFollowUpChecksAccessFirst:
         """Nothing is deleted when the guard refuses - not the cascade, not the object."""
         mock_self = MagicMock()
         mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
-        mock_self._guard_writable_type.side_effect = AccessDeniedError('denied')
+        mock_self.guard_writable_type.side_effect = AccessDeniedError('denied')
 
         with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
             with pytest.raises(AccessDeniedError):
@@ -916,7 +916,7 @@ class TestDeleteWithFollowUpChecksAccessFirst:
         mock_self = MagicMock()
         mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
         order: list[str] = []
-        mock_self._guard_writable_type.side_effect = lambda *_a, **_k: order.append('guard')
+        mock_self.guard_writable_type.side_effect = lambda *_a, **_k: order.append('guard')
         mock_self.delete_object_from_risk_assessment_cascade.side_effect = lambda *_: order.append('cascade')
         mock_self.delete_object.side_effect = lambda *_a, **_k: order.append('delete') or True
 
@@ -943,7 +943,7 @@ class TestDeleteWithFollowUpChecksAccessFirst:
         mock_self = MagicMock()
         mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
         object_type = MagicMock(active=True)
-        mock_self._guard_writable_type.return_value = object_type
+        mock_self.guard_writable_type.return_value = object_type
 
         with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
             ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID)
@@ -1048,7 +1048,7 @@ class TestAccessDeniedTravelsUnwrapped:
     def test_insert_re_raises_a_denial(self) -> None:
         """The guard refuses, and the insert must not turn that into an insert error."""
         mock_self = MagicMock()
-        mock_self._guard_writable_type.side_effect = AccessDeniedError('denied')
+        mock_self.guard_writable_type.side_effect = AccessDeniedError('denied')
 
         with pytest.raises(AccessDeniedError):
             ObjectsManager.insert_object(
@@ -1080,7 +1080,7 @@ class TestAccessDeniedTravelsUnwrapped:
     def test_update_re_raises_a_denial(self) -> None:
         """Same on the update path."""
         mock_self = MagicMock()
-        mock_self._guard_writable_type.side_effect = AccessDeniedError('denied')
+        mock_self.guard_writable_type.side_effect = AccessDeniedError('denied')
 
         with pytest.raises(AccessDeniedError):
             ObjectsManager.update_object(mock_self, OWNER_OBJECT_ID, {'type_id': OWNER_TYPE_ID, 'fields': []})

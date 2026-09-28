@@ -20,23 +20,19 @@ from functools import wraps
 from logging import Logger, getLogger
 from typing import Any, Callable
 from cerberus import Validator #type: ignore
-from flask import Blueprint, abort, request, current_app
-from werkzeug.exceptions import HTTPException
-
-from cmdb.manager import UsersManager
+from flask import Blueprint, abort, request
 
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.route_utils import (
-    decode_request_token,
-    parse_authorization_header,
-    token_user_claim,
-    user_has_right,
-)
+from cmdb.interface.route_utils import user_has_right
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.blueprints.api_blueprint_constants import VALIDATION_FAILED_MESSAGE
+from cmdb.interface.blueprints.api_blueprint_constants import (
+    PROTECT_WITHOUT_REQUEST_USER_MESSAGE,
+    REQUEST_USER_KWARG,
+    RIGHT_CHECK_FAILED_MESSAGE,
+    VALIDATION_FAILED_MESSAGE,
+)
 from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 
-from cmdb.errors.security import TokenKeyMaterialError, TokenValidationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -89,81 +85,73 @@ class APIBlueprint(Blueprint):
 
 
     @staticmethod
-    def protect(auth: bool = True, right: str | None = None, excepted: dict | None = None) -> Callable:
+    def _user_is_excepted(excepted: dict | None, request_user: CmdbUser, route_kwargs: dict, right: str) -> bool:
         """
-        Decorator enforcing authentication and right-based authorization on a Flask route
-
-        Enforcement only runs when both `auth` is True and a `right` is given. The user is resolved either
-        from an injected `request_user` (cloud `x-api-key` requests) or from the request's Authorization
-        token. If the user lacks `right`, an optional `excepted` carve-out is consulted (see
-        `_user_matches_excepted`) before access is denied.
+        Whether a user without the right still passes through the route's `excepted` carve-out
 
         Args:
-            auth (bool): Whether to enforce protection (combined with `right`). Defaults to True
+            excepted (dict | None): The route's carve-out, or None when it has none
+            request_user (CmdbUser): The authenticated user of the request
+            route_kwargs (dict): Keyword arguments passed to the decorated route (holds the route parameters)
+            right (str): The required right, used only for the abort message
+
+        Returns:
+            bool: True if the route has a carve-out and the user matches it
+        """
+        if not excepted:
+            return False
+
+        user_dict: dict[str, Any] = CmdbUser.to_public_json(request_user)
+
+        return APIBlueprint._user_matches_excepted(excepted, user_dict, route_kwargs, right)
+
+
+    @staticmethod
+    def protect(auth: bool = True, right: str | None = None, excepted: dict | None = None) -> Callable:
+        """
+        Decorator refusing a route to a caller who lacks the route's right
+
+        **A right gate, not an authentication step.** Authentication is `insert_request_user`'s job:
+        it sits above this decorator on every route that carries it (a census test fails otherwise),
+        resolves the user once and hands it in as ``request_user``, which is the user checked here -
+        the token and the user are not read a second time. If the user lacks `right`, an optional
+        `excepted` carve-out is consulted (see `_user_matches_excepted`) before access is denied.
+
+        Enforcement runs when `right` is given. `auth` is vestigial: every route passes `auth=True`,
+        and without a right the decorator checks nothing - a route without a right is authenticated
+        by `insert_request_user` alone
+
+        Args:
+            auth (bool): Kept for the call sites; the check runs only when it is True. Defaults to True
             right (str | None): The required right. If None, the decorator performs no enforcement
             excepted (dict | None): Optional mapping of user-attribute key -> route-parameter name that
                                     grants access even without `right` when the values match
 
         Returns:
-            Callable: A decorator that wraps the route with the auth/right check
+            Callable: A decorator that wraps the route with the right check
 
         Raises:
-            401 Unauthorized: If the Authorization header is missing or the token is invalid
             403 Forbidden: If the user lacks the required right and matches no excepted rule
+            500 Internal Server Error: If the route has no `insert_request_user` above this decorator,
+                or the user's group could not be read - a failed check is not a missing right
         """
         def _protect(f):
             @wraps(f)
             def _decorate(*args, **kwargs):
-                # The cloud/non-cloud + excepted-carve-out branches are inherently nested here
-                if auth and right:  # pylint: disable=too-many-nested-blocks
-                    request_user = None
+                if auth and right:
+                    request_user: CmdbUser | None = kwargs.get(REQUEST_USER_KWARG)
 
-                    if current_app.cloud_mode and "x-api-key" in request.headers:
-                        request_user = kwargs['request_user']
+                    if request_user is None:
+                        LOGGER.error("[protect] %s carries no insert_request_user above protect", f.__name__)
+                        abort(500, PROTECT_WITHOUT_REQUEST_USER_MESSAGE)
 
-                    if not user_has_right(right, request_user):
-                        if excepted:
-                            if request_user:
-                                user_dict = CmdbUser.to_public_json(request_user)
+                    try:
+                        has_right: bool = user_has_right(right, request_user)
+                    except Exception as err:
+                        LOGGER.error("[protect] Right check for '%s' failed: %s", right, err, exc_info=True)
+                        abort(500, RIGHT_CHECK_FAILED_MESSAGE)
 
-                                if APIBlueprint._user_matches_excepted(excepted, user_dict, kwargs, right):
-                                    return f(*args, **kwargs)
-                            else:
-                                auth_header = request.headers.get('Authorization')
-
-                                if not auth_header:
-                                    abort(401, "No Authorization header provided!")
-
-                                token = parse_authorization_header(auth_header)
-
-                                try:
-                                    decrypted_token = decode_request_token(token)
-                                except TokenKeyMaterialError as err:
-                                    LOGGER.error("[protect] TokenKeyMaterialError: %s", err, exc_info=True)
-                                    abort(500,
-                                          "The token could not be verified because of a server-side key problem!")
-                                except TokenValidationError:
-                                    abort(401, "Invalid Token")
-
-                                try:
-                                    user_claim = token_user_claim(decrypted_token)
-                                    user_id = user_claim['public_id']
-
-                                    if current_app.cloud_mode:
-                                        database = user_claim['database']
-                                        users_manager = UsersManager(current_app.database_manager, database)
-                                    else:
-                                        users_manager = UsersManager(current_app.database_manager)
-
-                                    user_dict: dict = CmdbUser.to_public_json(users_manager.get_user(user_id))
-
-                                    if APIBlueprint._user_matches_excepted(excepted, user_dict, kwargs, right):
-                                        return f(*args, **kwargs)
-                                except HTTPException as http_err:
-                                    raise http_err
-                                except Exception:
-                                    abort(403, "Could not retrieve user!")
-
+                    if not has_right and not APIBlueprint._user_is_excepted(excepted, request_user, kwargs, right):
                         abort(403, f'User has not the required right {right}')
 
                 return f(*args, **kwargs)

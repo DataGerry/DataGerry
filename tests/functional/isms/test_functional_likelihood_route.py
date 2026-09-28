@@ -40,7 +40,7 @@ from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerDeleteError,
     LikelihoodManagerIterationError,
 )
-from tests.utils.update_response import put_and_read_back
+from tests.utils.update_response import put_and_read_back, assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/likelihoods'
@@ -241,6 +241,16 @@ class TestPutLikelihood:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         follow_up = rest_api.get(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}')
         assert follow_up.get_json()['result']['name'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_likelihood(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored likelihood in place"""
+        _insert_likelihood(database_manager, database_name, LIKELIHOOD_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_UPDATE}', _likelihood_payload(MISSING_LIKELIHOOD_ID),
+            database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name), LIKELIHOOD_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent likelihood returns 404."""

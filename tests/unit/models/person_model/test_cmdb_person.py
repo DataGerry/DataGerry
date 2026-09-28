@@ -18,10 +18,10 @@ Unit tests for cmdb.models.person_model
 
 Pure tests: no Mongo, no Flask. The rules CmdbPerson shares with the other two membership models -
 that a stored document holds no null, that to_json is exactly the key enum, that a required key is
-refused - are pinned once in tests/unit/models/test_membership_models_are_null_free.py. What is pinned
-here is what belongs to the person alone:
+refused - are pinned once in the shared membership-model test module. What is pinned here is what
+belongs to the person alone:
 
-  - the ``groups`` index, which the group-deletion cascade needs and which this model did not declare:
+  - the ``groups`` index, which the group-deletion cascade needs:
     ``delete_group_from_persons`` filters on ``{'groups': group_id}``, and its twin index on the other
     side of the pair (``group_members``) had existed all along
   - the collection reaching CollectionValidator through the user-management registry, without which no

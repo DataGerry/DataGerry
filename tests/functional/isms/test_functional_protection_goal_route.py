@@ -38,6 +38,8 @@ from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerDeleteError,
     ProtectionGoalManagerIterationError,
 )
+
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/protection_goals'
@@ -168,6 +170,16 @@ class TestPutProtectionGoal:
                                 json=_pg_payload(PG_ID_FOR_UPDATE, name=EXISTING_NAME))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_a_body_public_id_can_not_move_the_protection_goal(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored protection goal in place"""
+        _insert_goal(database_manager, database_name, PG_ID_FOR_UPDATE, name=EXISTING_NAME)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}', _pg_payload(MISSING_PG_ID, name=EXISTING_NAME),
+            database_manager.get_collection(IsmsProtectionGoal.COLLECTION, database_name), PG_ID_FOR_UPDATE,
+        )
 
     def test_update_to_other_goals_name_returns_400(self, rest_api,
                                                    database_manager: MongoDatabaseManager,

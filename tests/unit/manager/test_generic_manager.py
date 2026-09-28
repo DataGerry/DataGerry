@@ -389,7 +389,7 @@ def test_normalize_dates_raises_on_an_unreadable_date() -> None:
 
 def test_insert_item_normalizes_a_raw_document_s_dates() -> None:
     """
-    The write path that takes a dict is the one that used to store the wrapper.
+    The write path that takes a dict is where a raw `{'$date': …}` wrapper would otherwise be stored.
 
     Both ISMS insert routes hand the validated payload straight to insert_item, so this is where the
     shape has to be settled.

@@ -45,7 +45,12 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField, RackSection
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.security.license.license_constants import LicenseFeature
+
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# A mount id no test creates - what a forged body names
+FORGED_MOUNT_ID: int = 987_654
 
 
 @pytest.fixture(autouse=True)
@@ -458,6 +463,15 @@ class TestUpdateMount:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert response.get_json()['result']['start_slot'] == 20
+
+    def test_a_body_public_id_can_not_move_the_mount(self, rest_api, database_manager, database_name) -> None:
+        """The URL addresses the mount; a body naming another public_id leaves it in place"""
+        mount_id = _mount_id(_mount(rest_api, area=RackArea.FRONT.value, start_slot=10, height=3))
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{RACK_ID}/mounts/{mount_id}', {'public_id': FORGED_MOUNT_ID, 'start_slot': 20},
+            database_manager.get_collection(CmdbRackMount.COLLECTION, database_name), mount_id, method='patch',
+        )
 
     def test_a_mount_keeping_its_own_slots_is_allowed(self, rest_api) -> None:
         """

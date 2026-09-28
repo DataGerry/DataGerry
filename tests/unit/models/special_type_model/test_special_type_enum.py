@@ -102,8 +102,8 @@ def test_is_ipam_type_rejects_the_non_ipam_members(member: SpecialType) -> None:
     """
     RACK and CABLE are SpecialTypes that IPAM does not own
 
-    This is what keeps the IPAM overviews, the wiring and the importer from picking them up - those
-    guards used to treat the mere presence of a 'special_type' marker as proof of IPAM.
+    This is what keeps the IPAM overviews, the wiring and the importer from picking them up - the mere
+    presence of a 'special_type' marker is not proof of IPAM.
     """
     assert SpecialType.is_ipam_type(member) is False
     assert SpecialType.is_ipam_type(member.value) is False

@@ -44,7 +44,7 @@ from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse,
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WebhookRight
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import parse_webhook_params
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.webhooks_manager import (
@@ -229,9 +229,7 @@ def update_webhook(public_id: int, params: dict[str, Any], request_user: CmdbUse
     """
     try:
         webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
-
-        # Pin the identity to the URL so a mismatched body cannot rewrite the Webhook's public_id
-        params['public_id'] = public_id
+        pin_public_id(params, public_id)
         parse_webhook_params(params)
 
         if not webhooks_manager.get_item(public_id):

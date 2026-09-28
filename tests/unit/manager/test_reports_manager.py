@@ -17,7 +17,7 @@
 Unit tests for cmdb.manager.reports_manager.ReportsManager
 
 Only strip_removed_fields_from_reports carries logic of its own - the rest of the class is the
-inherited GenericManager CRUD surface, covered by tests/unit/manager/test_generic_manager.py.
+inherited GenericManager CRUD surface, covered by the GenericManager unit tests.
 
 Pure tests: no Mongo. The method is invoked unbound with a MagicMock standing in for the manager, so
 bulk_write is stubbed and only the report rewriting is exercised.

@@ -38,7 +38,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey
+from cmdb.models.object_group_model import CmdbObjectGroup
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
@@ -60,7 +60,7 @@ from cmdb.errors.manager.object_groups_manager import (
     ObjectGroupsManagerDeleteError,
     ObjectGroupsManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -234,9 +234,7 @@ def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user:
 
         if not to_update_object_group:
             abort(404, f"The ObjectGroup with ID:{public_id} was not found!")
-
-        # Pin the public_id from the URL so the body cannot overwrite or drop it
-        data[ObjectGroupKey.PUBLIC_ID.value] = public_id
+        pin_public_id(data, public_id)
 
         stored: dict[str, Any] = update_item_from_payload(object_groups_manager, public_id, CmdbObjectGroup, data)
 

@@ -32,7 +32,6 @@ from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsRiskClass, IsmsRiskMatrix
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_RISK_CLASSES
 from cmdb.errors.manager.risk_class_manager import (
     RiskClassManagerInsertError,
     RiskClassManagerGetError,
@@ -40,6 +39,8 @@ from cmdb.errors.manager.risk_class_manager import (
     RiskClassManagerDeleteError,
     RiskClassManagerIterationError,
 )
+
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risk_classes'
@@ -51,6 +52,8 @@ RC_ID_FOR_DELETE: int = 97903
 RC_ID_FOR_BULK: int = 97904
 RC_ID_FOR_MATRIX: int = 97905
 MISSING_RC_ID: int = 97999
+# The id a bool aliases in Python (True == 1)
+TRUE_ALIASED_RC_ID: int = 1
 
 # A block of ids used to fill the collection up to the MAX_ISMS_RISK_CLASSES limit
 LIMIT_RC_IDS: list[int] = [97911, 97912, 97913, 97914, 97915, 97916, 97917, 97918, 97919, 97920]
@@ -163,6 +166,16 @@ class TestPutRiskClass:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{RC_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
 
+    def test_a_body_public_id_can_not_move_the_risk_class(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored risk class in place"""
+        _insert_risk_class(database_manager, database_name, RC_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{RC_ID_FOR_UPDATE}', _risk_class_payload(MISSING_RC_ID),
+            database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name), RC_ID_FOR_UPDATE,
+        )
+
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent risk class returns 404."""
         assert rest_api.put(f'{ROUTE_URL}/{MISSING_RC_ID}',
@@ -191,6 +204,27 @@ class TestUpdateMultipleRiskClasses:
         assert statuses[RC_ID_FOR_BULK] == 'success'
         assert statuses[MISSING_RC_ID] == 'failed'
         assert statuses[None] == 'failed'
+
+    def test_a_bool_public_id_is_refused_and_writes_nothing(self, rest_api,
+                                                            database_manager: MongoDatabaseManager,
+                                                            database_name: str) -> None:
+        """True equals the stored id 1 in Python but not in MongoDB - refused, not a silent no-op success"""
+        collection = database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name)
+        created_here: bool = collection.find_one({'public_id': TRUE_ALIASED_RC_ID}) is None
+        if created_here:
+            _insert_risk_class(database_manager, database_name, TRUE_ALIASED_RC_ID)
+        before = collection.find_one({'public_id': TRUE_ALIASED_RC_ID}, {'_id': 0})
+
+        try:
+            payload = [{**_risk_class_payload(TRUE_ALIASED_RC_ID, 'Renamed'), 'public_id': True}]
+            response = rest_api.put(f'{ROUTE_URL}/multiple', json=payload)
+
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+            assert response.get_json() == [{'public_id': True, 'status': 'failed', 'message': 'Invalid public_id'}]
+            assert collection.find_one({'public_id': TRUE_ALIASED_RC_ID}, {'_id': 0}) == before
+        finally:
+            if created_here:
+                collection.delete_one({'public_id': TRUE_ALIASED_RC_ID})
 
 
 class TestDeleteRiskClass:

@@ -16,9 +16,9 @@
 """
 This module contains the implementation of LocationNode
 
-A LocationNode is the in-memory tree representation of a single CmdbLocation. The
-``/locations/tree`` route builds a forest of these nodes (see ``build_location_forest`` in the
-CmdbLocation route helpers) and serializes it back to nested, JSON-compatible dicts.
+A LocationNode is the in-memory tree representation of a single CmdbLocation. The tree search
+and tree path routes build a forest of these nodes (see ``build_location_forest`` in the
+CmdbLocation route helpers) and serialize it back to nested, JSON-compatible dicts.
 """
 from typing import Any
 

@@ -418,10 +418,10 @@ def get_cable_usage_of_object(object_id: int, request_user: CmdbUser) -> Respons
         abort(400, f'Failed to determine the Port connection usage of the Cable with ID: {object_id}!')
 
 @port_connection_blueprint.route('/cables/unassigned/', methods=['GET', 'HEAD'])
-@port_connection_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
+@port_connection_blueprint.parse_collection_parameters()
 @handle_route_errors("while listing the assignable Cables")
 def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """

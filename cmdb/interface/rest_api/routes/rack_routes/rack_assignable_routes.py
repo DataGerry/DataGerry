@@ -76,10 +76,10 @@ rack_assignable_blueprint = APIBlueprint('rack_assignable', __name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @rack_assignable_blueprint.route('/<int:rack_id>/assignable_objects/', methods=['GET', 'HEAD'])
-@rack_assignable_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_assignable_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@rack_assignable_blueprint.parse_collection_parameters()
 @handle_route_errors("while listing the objects assignable to the Rack")
 def get_assignable_objects(params: CollectionParameters, rack_id: int, request_user: CmdbUser) -> Response:
     """

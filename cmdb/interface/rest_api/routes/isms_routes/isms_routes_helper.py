@@ -65,6 +65,19 @@ def get_item_or_404(
     return item
 
 
+def _is_item_public_id(value: Any) -> bool:
+    """
+    Answers whether a bulk item's public_id can address a stored document
+
+    Args:
+        value (Any): The item's ``public_id`` as sent
+
+    Returns:
+        bool: True for an integer that is not a bool
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def update_multiple_items(
         manager: GenericManager,
         model: Type[CmdbDAO],
@@ -77,6 +90,10 @@ def update_multiple_items(
     Shared by the ISMS ``PUT``/``PATCH`` ``/multiple`` bulk-update routes. The set of existing
     public_ids is resolved in a single batched query rather than one existence read per item, then
     each item is updated on its own so a single failure does not abort the rest.
+
+    Each item is addressed by its own ``public_id``, which must be an integer. A bool is refused too:
+    ``True == 1`` in Python, so it would pass the existence check against id 1, while MongoDB does not
+    match a boolean against the stored integer and the update would write nothing yet report success.
 
     Args:
         manager (GenericManager): Manager whose items are updated
@@ -97,7 +114,7 @@ def update_multiple_items(
     # Resolve which requested ids exist in one batched query instead of a per-item existence read
     requested_ids: list[int] = [
         item["public_id"] for item in data
-        if isinstance(item, dict) and item.get("public_id") is not None
+        if isinstance(item, dict) and _is_item_public_id(item.get("public_id"))
     ]
     existing_ids: set[int] = {
         doc["public_id"] for doc in manager.find_all(criteria={"public_id": {"$in": requested_ids}})
@@ -110,6 +127,10 @@ def update_multiple_items(
 
         if public_id is None:
             results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
+            continue
+
+        if not _is_item_public_id(public_id):
+            results.append({"public_id": public_id, "status": "failed", "message": "Invalid public_id"})
             continue
 
         if public_id not in existing_ids:

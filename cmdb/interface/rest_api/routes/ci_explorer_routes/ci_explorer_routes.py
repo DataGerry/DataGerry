@@ -110,7 +110,7 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import
     load_ci_explorer_entity,
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -174,8 +174,8 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 @ci_explorer_blueprint.route('/profile', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@ci_explorer_blueprint.parse_collection_parameters()
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.VIEW.value)
+@ci_explorer_blueprint.parse_collection_parameters()
 @handle_route_errors("while retrieving CiExplorer Profiles")
 def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -460,9 +460,7 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
 
         if not to_update_explorer_profile:
             abort(404, f"The CiExplorer Profile with ID:{public_id} was not found!")
-
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[CmdbObjectKey.PUBLIC_ID] = public_id
+        pin_public_id(data, public_id)
 
         stored: dict[str, Any] = update_item_from_payload(
             ci_explorer_profile_manager, public_id, CmdbCiExplorerProfile, data,

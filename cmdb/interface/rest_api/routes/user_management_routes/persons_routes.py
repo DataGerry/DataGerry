@@ -66,7 +66,7 @@ from cmdb.errors.manager.persons_manager import (
     PersonsManagerDeleteError,
     PersonsManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -247,9 +247,7 @@ def update_cmdb_person(public_id: int, data: dict[str, Any], request_user: CmdbU
 
         # Refuse a membership naming a group that does not exist, before anything is written
         abort_on_unknown_references(person_groups_manager, groups_to_add, 'PersonGroup')
-
-        # Pin the public_id to the URL so a forged body public_id cannot rewrite the document identity
-        data[PersonKey.PUBLIC_ID.value] = public_id
+        pin_public_id(data, public_id)
 
         # Persist the Person first, then sync the reciprocal group membership only on success
         stored: dict[str, Any] = update_item_from_payload(persons_manager, public_id, CmdbPerson, data)

@@ -105,7 +105,7 @@ class CmdbUser(CmdbDAO):
         password: str | None = None,
         database: str = DEFAULT_DATABASE,
         api_level: int = DEFAULT_API_LEVEL,
-        config_items_limit: int = DEFAULT_CONFIG_ITEMS_LIMIT,
+        config_items_limit: int | None = DEFAULT_CONFIG_ITEMS_LIMIT,
         image: str | None = None,
         first_name: str | None = None,
         last_name: str | None = None,
@@ -130,18 +130,21 @@ class CmdbUser(CmdbDAO):
                 DEFAULT_DATABASE. Stored as given - a falsy value is NOT replaced here; in cloud mode
                 ManagerProvider refuses it rather than let it fall through to another tenant
             api_level (int, optional): API access level of the CmdbUser. Defaults to DEFAULT_API_LEVEL
-            config_items_limit (int, optional): Limit of configuration items. Defaults to
-                DEFAULT_CONFIG_ITEMS_LIMIT
+            config_items_limit (int | None, optional): How many CmdbObjects the user's tenant may hold
+                in cloud mode. Defaults to DEFAULT_CONFIG_ITEMS_LIMIT; None means "not configured" and
+                gets the same default. Any other value is kept as given - 0 is a real limit of zero
             image (str, optional): URL or path to the CmdbUser's profile image. Defaults to None
             first_name (str, optional): First name of the CmdbUser. Defaults to None
             last_name (str, optional): Last name of the CmdbUser. Defaults to None
             email (str, optional): Email address of the CmdbUser. Defaults to None
             authenticator (str, optional): Authentication method for the CmdbUser. Defaults to a default authenticator
 
-        Two arguments are normalised rather than stored verbatim, both deliberately:
+        Three arguments are normalised rather than stored verbatim, all deliberately:
 
         * a falsy `group_id` or `authenticator` falls back to its default, so a document that omits
           the field and one that carries None behave the same
+        * a None `config_items_limit` falls back to its default for the same reason - but only None:
+          0 is falsy and is still a limit, so it is compared against, never replaced
         * an empty `first_name` / `last_name` is stored as None, so `get_display_name` does not have
           to distinguish '' from a missing name
 
@@ -156,7 +159,9 @@ class CmdbUser(CmdbDAO):
             self.registration_time: datetime = registration_time or datetime.now(timezone.utc)
             self.database: str = database
             self.api_level: int = api_level
-            self.config_items_limit: int = config_items_limit
+            self.config_items_limit: int = (
+                DEFAULT_CONFIG_ITEMS_LIMIT if config_items_limit is None else config_items_limit
+            )
             self.email: str | None = email
             self.password: str | None = password
             self.image: str | None = image
@@ -332,18 +337,15 @@ class CmdbUser(CmdbDAO):
         """
         Checks if the configuration item limit for the user has been reached
 
-        Two behaviours here are deliberate as far as the current callers are concerned: a falsy limit
-        - which includes an explicit 0 - is treated as 'unset' and REPLACED with the default, and
-        that replacement is written back onto the instance, so this predicate mutates the CmdbUser
-        it is asked about
+        The one rule both object-creating paths (the object route and the object importer) ask: a
+        new CmdbObject is refused once the stored count has reached the limit. The limit is compared
+        as it is - a limit of 0 refuses every new object, and a missing limit was already replaced by
+        the default when the CmdbUser was built. Read-only: the CmdbUser is not changed
 
         Args:
-            objects_count (int): Amount of current CmdbObjects
+            objects_count (int): Amount of CmdbObjects currently stored
 
         Returns:
             bool: True if the user has reached or exceeded their config item limit, False otherwise
         """
-        if not self.config_items_limit:
-            self.config_items_limit = DEFAULT_CONFIG_ITEMS_LIMIT
-
         return objects_count >= self.config_items_limit

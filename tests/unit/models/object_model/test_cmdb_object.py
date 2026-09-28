@@ -300,9 +300,9 @@ class TestTheDocumentContract:
 
     def test_the_type_and_author_ids_are_coerced_to_integers(self) -> None:
         """
-        A document storing them as strings still reads, as it did before the migration
+        A document storing them as strings still reads
 
-        int() in the constructor is what keeps that true now that from_data no longer coerces.
+        from_data does not coerce, so int() in the constructor is what keeps that true.
         """
         instance = CmdbObject.from_data(_document(type_id='7', author_id='9'))
 

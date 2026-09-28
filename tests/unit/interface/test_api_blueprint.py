@@ -16,13 +16,11 @@
 """
 Unit tests for cmdb.interface.blueprints.api_blueprint
 
-APIBlueprint provides the decorator layer every REST route is built on: ``protect`` (auth/right
-enforcement + the ``excepted`` self-access carve-out), ``validate`` (Cerberus schema validation),
-and the ``parse_*`` query/body parameter decorators. Each test applies the decorator to a stub route
-and drives it inside a BaseCmdbApp ``test_request_context`` with the collaborators
-(``user_has_right`` / ``decode_request_token`` / ``UsersManager`` / ``CmdbUser`` /
-``parse_authorization_header``)
-patched at the module path - no Mongo, no tokens. The ``cloud_mode`` flag on the app selects the branch.
+APIBlueprint provides the decorator layer every REST route is built on: ``protect`` (the right check
+on the user ``insert_request_user`` injected, + the ``excepted`` self-access carve-out), ``validate``
+(Cerberus schema validation), and the ``parse_*`` query/body parameter decorators. Each test applies
+the decorator to a stub route and drives it inside a BaseCmdbApp ``test_request_context`` with the
+collaborators (``user_has_right`` / ``CmdbUser``) patched at the module path - no Mongo, no tokens.
 """
 # pylint: disable=protected-access  # these tests intentionally exercise the module-private helper
 # pylint: disable=unused-argument  # stub routes accept whatever the decorator under test forwards
@@ -35,8 +33,12 @@ from flask import Blueprint
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.blueprints.api_blueprint import APIBlueprint
+from cmdb.interface.blueprints.api_blueprint_constants import (
+    PROTECT_WITHOUT_REQUEST_USER_MESSAGE,
+    RIGHT_CHECK_FAILED_MESSAGE,
+)
 from cmdb.interface.cmdb_app import BaseCmdbApp
-from cmdb.errors.security import TokenKeyMaterialError, TokenValidationError
+from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.blueprints.api_blueprint'
@@ -44,11 +46,6 @@ MODULE_PATH: str = 'cmdb.interface.blueprints.api_blueprint'
 RIGHT: str = 'base.framework.object.view'
 ROUTE_RESULT: str = 'ROUTE_CALLED'
 SELF_ACCESS_EXCEPTED: dict[str, str] = {'public_id': 'public_id'}
-
-DECODED_TOKEN: dict[str, Any] = {
-    'DATAGERRY': {'value': {'user': {'public_id': 42, 'database': 'cloud_db'}}}
-}
-
 
 def _app(cloud_mode: bool = False) -> BaseCmdbApp:
     """Builds a BaseCmdbApp with a stub database_manager and the given cloud flag."""
@@ -102,14 +99,16 @@ class TestProtectNoEnforcement:
 
 
 class TestProtectRightCheck:
-    """The core right check with no ``excepted`` carve-out."""
+    """The right check runs on the user ``insert_request_user`` handed in - nothing is read twice."""
 
     def test_user_with_right_runs_route(self) -> None:
-        """A user holding the right runs the route."""
+        """A user holding the right runs the route, and it is THAT user whose right is asked"""
+        request_user = MagicMock()
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=True):
+        with patch(f'{MODULE_PATH}.user_has_right', return_value=True) as mocked_right:
             with _app().test_request_context():
-                assert wrapped() == ROUTE_RESULT
+                assert wrapped(request_user=request_user) == ROUTE_RESULT
+        mocked_right.assert_called_once_with(RIGHT, request_user)
 
     def test_user_without_right_aborts_403(self) -> None:
         """A user lacking the right and no excepted rule aborts 403."""
@@ -117,149 +116,76 @@ class TestProtectRightCheck:
         with patch(f'{MODULE_PATH}.user_has_right', return_value=False):
             with _app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
-                    wrapped()
+                    wrapped(request_user=MagicMock())
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
 
+    @pytest.mark.parametrize('cloud_mode', [False, True], ids=['on-premise', 'cloud'])
+    def test_the_token_is_never_read(self, cloud_mode: bool) -> None:
+        """The same path in both modes: no header parsing, no token decoding, no user read"""
+        wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
+        with patch(f'{MODULE_PATH}.user_has_right', return_value=True), \
+             patch('cmdb.interface.route_utils.parse_authorization_header') as parse, \
+             patch('cmdb.interface.route_utils.decode_request_token') as decode:
+            with _app(cloud_mode=cloud_mode).test_request_context(headers={'Authorization': 'Bearer t'}):
+                assert wrapped(request_user=MagicMock()) == ROUTE_RESULT
+        parse.assert_not_called()
+        decode.assert_not_called()
 
-class TestProtectCloudExcepted:
-    """Cloud ``x-api-key`` requests resolve the user from the injected ``request_user`` kwarg."""
-
-    def test_request_user_resolved_from_kwargs_and_matches_excepted(self) -> None:
-        """A cloud x-api-key user acting on their own record passes via the excepted carve-out."""
-        request_user = MagicMock()
-        wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_public_json.return_value = {'public_id': 5}
-            with _app(cloud_mode=True).test_request_context(headers={'x-api-key': 'k'}):
-                assert wrapped(request_user=request_user, public_id=5) == ROUTE_RESULT
-
-    def test_request_user_no_excepted_match_aborts_403(self) -> None:
-        """A cloud user whose attribute does not match the route parameter is denied 403."""
-        request_user = MagicMock()
-        wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_public_json.return_value = {'public_id': 5}
-            with _app(cloud_mode=True).test_request_context(headers={'x-api-key': 'k'}):
-                with pytest.raises(HTTPException) as exc_info:
-                    wrapped(request_user=request_user, public_id=999)
-        assert exc_info.value.code == HTTPStatus.FORBIDDEN
-
-
-class TestProtectTokenExcepted:
-    """The non-cloud (token) branch of the ``excepted`` carve-out."""
-
-    def _wrapped(self):
-        """A route protected with the self-access carve-out."""
-        return APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
-
-    def test_missing_authorization_header_aborts_401(self) -> None:
-        """No Authorization header in the token branch aborts 401 (B2 guard)."""
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False):
+    def test_a_route_without_insert_request_user_is_a_500(self) -> None:
+        """A wiring fault on the route, not the caller's fault - and no right is ever granted without a user"""
+        wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
+        with patch(f'{MODULE_PATH}.user_has_right') as mocked_right:
             with _app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
-                    self._wrapped()(public_id=1)
-        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
-
-    def test_invalid_token_aborts_401(self) -> None:
-        """A token that fails validation aborts 401."""
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', side_effect=TokenValidationError('bad')):
-            with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
-                with pytest.raises(HTTPException) as exc_info:
-                    self._wrapped()(public_id=1)
-        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
-
-    def test_key_material_failure_aborts_500(self) -> None:
-        """
-        The carve-out path reports a key problem as a server fault
-
-        Everywhere else in the stack does too - a 401 here would log the user out over an
-        installation problem.
-        """
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', side_effect=TokenKeyMaterialError('no key')):
-            with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
-                with pytest.raises(HTTPException) as exc_info:
-                    self._wrapped()(public_id=1)
+                    wrapped()
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == PROTECT_WITHOUT_REQUEST_USER_MESSAGE
+        mocked_right.assert_not_called()
 
-    def test_token_user_matches_excepted_runs_route(self) -> None:
-        """A token-resolved user acting on their own record passes the carve-out (non-cloud branch)."""
-        users_manager = MagicMock()
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', return_value=DECODED_TOKEN), \
-             patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager) as um_cls, \
-             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_public_json.return_value = {'public_id': 42}
-            with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
-                assert self._wrapped()(public_id=42) == ROUTE_RESULT
-        # non-cloud path builds the manager with only the db manager (no database argument)
-        um_cls.assert_called_once()
-        assert len(um_cls.call_args.args) == 1
-
-    def test_cloud_bearer_rebuilds_manager_with_database(self) -> None:
-        """cloud_mode without x-api-key still hits the token branch and scopes the manager to the token DB."""
-        users_manager = MagicMock()
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', return_value=DECODED_TOKEN), \
-             patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager) as um_cls, \
-             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_public_json.return_value = {'public_id': 42}
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': 'Bearer tok'}):
-                assert self._wrapped()(public_id=42) == ROUTE_RESULT
-        # cloud branch passes the token's database as the second positional argument
-        assert um_cls.call_args.args[1] == 'cloud_db'
-
-    def test_token_user_no_match_aborts_403(self) -> None:
-        """A token-resolved user whose id does not match the route parameter is denied 403."""
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', return_value=DECODED_TOKEN), \
-             patch(f'{MODULE_PATH}.UsersManager'), \
-             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_public_json.return_value = {'public_id': 42}
-            with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
+    def test_a_failed_right_check_is_a_500_not_a_403(self) -> None:
+        """A group that could not be READ is an outage, not a missing right"""
+        wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
+        with patch(f'{MODULE_PATH}.user_has_right', side_effect=GroupsManagerGetError('db down')):
+            with _app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
-                    self._wrapped()(public_id=999)
+                    wrapped(request_user=MagicMock())
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == RIGHT_CHECK_FAILED_MESSAGE
+
+
+class TestProtectExcepted:
+    """The ``excepted`` carve-out reads the injected user, on-premise and in cloud mode alike."""
+
+    @pytest.mark.parametrize('cloud_mode', [False, True], ids=['on-premise', 'cloud'])
+    def test_a_user_acting_on_their_own_record_passes(self, cloud_mode: bool) -> None:
+        """No right, but the user attribute equals the route parameter"""
+        wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
+        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
+             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
+            cmdb_user.to_public_json.return_value = {'public_id': 5}
+            with _app(cloud_mode=cloud_mode).test_request_context():
+                assert wrapped(request_user=MagicMock(), public_id=5) == ROUTE_RESULT
+
+    def test_a_user_acting_on_another_record_is_403(self) -> None:
+        """The attribute does not match the route parameter"""
+        wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
+        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
+             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
+            cmdb_user.to_public_json.return_value = {'public_id': 5}
+            with _app().test_request_context():
+                with pytest.raises(HTTPException) as exc_info:
+                    wrapped(request_user=MagicMock(), public_id=999)
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
 
-    def test_carveout_httpexception_is_reraised_not_masked(self) -> None:
-        """An HTTPException from the matcher (missing route param) is re-raised, not swallowed as a lookup failure."""
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', return_value=DECODED_TOKEN), \
-             patch(f'{MODULE_PATH}.UsersManager'), \
-             patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
-            cmdb_user.to_public_json.return_value = {'public_id': 42}
-            with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
-                with pytest.raises(HTTPException) as exc_info:
-                    self._wrapped()()  # no public_id kwarg -> matcher aborts inside the try
-        assert exc_info.value.code == HTTPStatus.FORBIDDEN
-        # the matcher's message survives (proves the re-raise), it is not masked as "Could not retrieve user!"
-        assert 'required right' in str(exc_info.value.description)
+    def test_a_user_holding_the_right_never_reaches_the_carve_out(self) -> None:
+        """The carve-out is asked only when the right is missing"""
+        wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
+        with patch(f'{MODULE_PATH}.user_has_right', return_value=True), \
+             patch.object(APIBlueprint, '_user_matches_excepted') as matches:
+            with _app().test_request_context():
+                assert wrapped(request_user=MagicMock(), public_id=999) == ROUTE_RESULT
+        matches.assert_not_called()
 
-    def test_user_lookup_failure_aborts_403(self) -> None:
-        """Any failure resolving the user aborts 403 'Could not retrieve user!'."""
-        users_manager = MagicMock()
-        users_manager.get_user.side_effect = RuntimeError('boom')
-        with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', return_value=DECODED_TOKEN), \
-             patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
-            with _app().test_request_context(headers={'Authorization': 'Bearer tok'}):
-                with pytest.raises(HTTPException) as exc_info:
-                    self._wrapped()(public_id=1)
-        assert exc_info.value.code == HTTPStatus.FORBIDDEN
-        assert 'Could not retrieve user' in str(exc_info.value.description)
-
-
-# ============================================== _user_matches_excepted ============================================== #
 
 class TestUserMatchesExcepted:
     """The extracted (D1) carve-out matcher, tested in isolation."""

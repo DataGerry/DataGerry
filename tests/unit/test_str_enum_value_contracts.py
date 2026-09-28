@@ -24,7 +24,7 @@ and nothing else fails loudly when that happens - this module does.
 
 Each enum's full name -> value map is pinned here. Comparing the whole map (not just individual
 values) also catches an added, removed or renamed member. The is_valid mechanics are deliberately
-NOT retested - they are inherited behaviour covered once in tests/unit/utils/test_base_str_enum.py.
+NOT retested - they are inherited behaviour covered once by the BaseStrEnum tests.
 
 Pure tests: no Mongo, no Flask, no fixtures
 """

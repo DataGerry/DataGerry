@@ -22,14 +22,19 @@ type's sections, resolves references and builds the summary line.
 
 Three things about this module decide how a change here behaves:
 
-* **Rendering degrades, it does not fail.** Almost every step is wrapped in
-  `except Exception: LOGGER.debug(...)` and continues with whatever it has - a reference that cannot be
-  expanded, a summary that cannot be built or a ref-section field that cannot be read costs that piece
-  of the result and nothing more. The trade-off is that a partial render is indistinguishable from a
-  complete one: nothing marks the RenderResult and the only trace is a DEBUG line.
-* **References recurse, bounded by `level`.** `result(level=3)` is the default depth; each nested
-  expansion decrements it and `level == 0` stops the recursion. A reference cycle therefore terminates
-  by depth rather than by cycle detection
+* **Rendering degrades, it does not fail - and says so.** A step that cannot be completed costs that
+  piece of the result and nothing more: a reference that cannot be built, a reference section that
+  cannot be resolved or a field that cannot be merged. Every such loss goes through ONE reporter,
+  `RenderProblemLog.report` (`self.problems`), which does two things: it appends a `RenderProblemKey`
+  entry to the object's `RenderResult.render_problems`, so a caller can tell a partial render from a
+  complete one, and it logs a WARNING once per render rather than once per object. An empty
+  `render_problems` means the render is complete. The cases a render handles by design are not
+  problems and stay at DEBUG - see `RenderProblemCode`. A render nested inside a reference section
+  hands its own problems up to the object it was rendered for, since what it lost is missing from
+  that object's section
+* **References recurse, bounded by `level`.** `result(level=DEFAULT_RENDER_LEVEL)` is the default
+  depth; each nested expansion decrements it and `level == 0` stops the recursion. A reference cycle
+  therefore terminates by depth rather than by cycle detection
 * **The caches are shared on purpose.** `shared_objects_cache` / `shared_types_cache` /
   `shared_users_cache` are extended IN PLACE, so a nested render reuses what the outer one already
   loaded and each referenced document is fetched once across the whole recursion. The cached dicts are
@@ -57,7 +62,7 @@ the search matcher read are the same whichever render path filled them. The one 
 is a LOCATION field, whose expansion is a placeholder (`_build_location_reference`,
 `RenderedLocationReferenceKey`) because nothing resolves a location here
 """
-from logging import Logger, getLogger
+from logging import ERROR, Logger, getLogger
 from typing import Any
 from copy import deepcopy
 
@@ -88,6 +93,9 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.utils import coerce_mongo_datetime
 from cmdb.framework.rendering.render_constants import (
     ANONYMOUS_NAME,
+    DEFAULT_RENDER_LEVEL,
+    EXTERNAL_LINK_OBJECT_ID_FIELD,
+    RenderProblemCode,
     RenderedFieldKey,
     RenderedLocationReferenceKey,
     RenderedReferenceSectionKey,
@@ -95,6 +103,8 @@ from cmdb.framework.rendering.render_constants import (
     RenderTypeInfoKey,
 )
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.rendering.render_problem_log import RenderProblemLog
+from cmdb.framework.rendering.reference_prefetch import ReferencePrefetch
 
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError, CmdbTypeReferenceLineFillError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -117,6 +127,7 @@ class CmdbMultiRender:
         shared_objects_cache: dict[int, CmdbObject] | None = None,
         shared_types_cache: dict[int, CmdbType] | None = None,
         shared_users_cache: dict[int, CmdbUser] | None = None,
+        shared_reported_problems: set[tuple[Any, ...]] | None = None,
     ) -> None:
         """
         Initializes CmdbMultiRender
@@ -133,6 +144,8 @@ class CmdbMultiRender:
             shared_objects_cache (dict[int, CmdbObject] | None): Reused/extended object cache
             shared_types_cache (dict[int, CmdbType] | None): Reused/extended type cache
             shared_users_cache (dict[int, CmdbUser] | None): Reused/extended user cache
+            shared_reported_problems (set[tuple[Any, ...]] | None): The problems already LOGGED by an
+                outer render, so a nested one does not log them again
         """
         self.to_render_objects: list[CmdbObject] = to_render_objects
         self.render_user: CmdbUser = render_user
@@ -149,27 +162,31 @@ class CmdbMultiRender:
         self.types_cache: dict[int, CmdbType] = shared_types_cache if shared_types_cache is not None else {}
         self.users_cache: dict[int, CmdbUser] = shared_users_cache if shared_users_cache is not None else {}
 
-        # Which (type_id, section) pairs already had their broken reference reported. A list render
-        # walks many objects through the same type, so without this a single broken ref-section would
-        # emit one warning per object per request
-        self.reported_reference_problems: set[tuple[str, int, str]] = set()
+        # What each object's render lost, and which problems were already logged. The constructor
+        # already reports into it - the referenced objects are loaded here
+        self.problems: RenderProblemLog = RenderProblemLog(LOGGER, shared_reported_problems)
 
         self.objects_cache.update(self.get_all_linked_objects())
         self.types_cache.update(self.get_all_linked_types())
         self.users_cache.update(self.get_all_linked_users())
 
 
-    def result(self, level: int = 3, single_object: bool = False) -> list[RenderResult] | RenderResult | None:
+    def result(
+        self,
+        level: int = DEFAULT_RENDER_LEVEL,
+        single_object: bool = False,
+    ) -> list[RenderResult] | RenderResult | None:
         """
         Renders every object in ``to_render_objects`` into a RenderResult
 
         Objects whose type is missing from the cache are skipped. Each result bundles the object and
         type information, the merged (and, when ``ref_render`` is set, reference-resolved) fields, the
         type sections, the summaries/summary line, the external links and the multi-data-sections. The
-        per-result values are deep-copied so the shared type/object caches are never mutated by callers
+        per-result values are deep-copied so the shared type/object caches are never mutated by callers.
+        Whatever the render of an object lost is listed in its ``render_problems``
 
         Args:
-            level (int): Reference-resolution depth for nested references. Defaults to 3
+            level (int): Reference-resolution depth for nested references. Defaults to DEFAULT_RENDER_LEVEL
             single_object (bool): When True return the first RenderResult instead of a list
 
         Returns:
@@ -185,17 +202,19 @@ class CmdbMultiRender:
                 LOGGER.error("[render] Type for Object with type_id:%s not found!", obj.get_type_id())
                 continue
 
-            result = RenderResult()
-            # object/type information build fresh dicts of immutable values; fields are freshly copied
-            # during merge (copy-on-write off the cache), so none of these need an extra deep copy
-            result.object_information = self.__generate_object_information(obj)
-            result.type_information = self.__generate_type_information(obj_type)
-            result.fields = self.__set_fields(obj, obj_type, level)
-            # sections/externals/mds still serialise structures that share lists with the cache/object
-            result.sections = deepcopy(self.__get_type_sections(obj_type))
-            result = self.__set_summaries(result, obj, obj_type)
-            result.externals = deepcopy(self.__set_externals(obj, obj_type))
-            result.multi_data_sections = deepcopy(obj.multi_data_sections)
+            with self.problems.rendering(obj.public_id):
+                result = RenderResult()
+                # object/type information build fresh dicts of immutable values; fields are freshly copied
+                # during merge (copy-on-write off the cache), so none of these need an extra deep copy
+                result.object_information = self.__generate_object_information(obj)
+                result.type_information = self.__generate_type_information(obj_type)
+                result.fields = self.__set_fields(obj, obj_type, level)
+                # sections/externals/mds still serialise structures that share lists with the cache/object
+                result.sections = deepcopy(self.__get_type_sections(obj_type))
+                result = self.__set_summaries(result, obj, obj_type)
+                result.externals = deepcopy(self.__set_externals(obj, obj_type))
+                result.multi_data_sections = deepcopy(obj.multi_data_sections)
+                result.render_problems = self.problems.problems_for(obj.public_id)
 
             render_results.append(result)
 
@@ -298,7 +317,13 @@ class CmdbMultiRender:
                 section.to_json(section) for section in type_instance.render_meta.sections
             ]
         except Exception as err:
-            LOGGER.error("[__get_type_sections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
+            self.problems.report(
+                RenderProblemCode.SECTIONS_UNREADABLE,
+                "[__get_type_sections] The sections of Type ID:%s could not be serialised, rendering none: %s. "
+                "Type: %s",
+                type_instance.public_id, err, type(err).__name__,
+                log_key=(type_instance.public_id,), log_level=ERROR,
+            )
             sections = []
 
         return sections
@@ -333,7 +358,8 @@ class CmdbMultiRender:
         Build the resolved external links for the render result
 
         For each external link defined on the type, collect the required field values from the object,
-        fill the link href and serialise it. Links whose required values are missing are skipped
+        fill the link href and serialise it. Links whose required values are missing are skipped - by
+        design, a link cannot point anywhere without them - and a link that fails to fill is reported
 
         Args:
             object_instance (CmdbObject): The object providing the field values
@@ -347,12 +373,9 @@ class CmdbMultiRender:
 
         externals: list[dict[str, Any]] = []
 
-        for ext_link in type_instance.get_externals():
-            ext = type_instance.get_external(ext_link.name)
-            if not ext:
-                LOGGER.debug("[__set_externals] ExternalLink for %s not found!", ext_link.name)
-                continue
-
+        # The links are walked as they are, not looked up again by name: a lookup by name answers the
+        # FIRST link carrying it, so two links sharing a name would render the first one twice
+        for ext in type_instance.get_externals():
             try:
                 field_values = self._collect_field_values(ext, object_instance)
                 if field_values is None:
@@ -363,10 +386,12 @@ class CmdbMultiRender:
                 externals.append({**TypeExternalLink.to_json(ext), 'href': ext.filled_href(field_values)})
 
             except Exception as err:
-                LOGGER.debug(
-                    "[__set_externals] Exception: %s . Type: %s",
-                    err,
-                    type(err).__name__
+                self.problems.report(
+                    RenderProblemCode.EXTERNAL_LINK_FAILED,
+                    "[__set_externals] External link '%s' of Type ID:%s could not be filled, leaving it out: %s. "
+                    "Type: %s",
+                    ext.name, type_instance.public_id, err, type(err).__name__,
+                    external_link=ext.name, log_key=(type_instance.public_id,),
                 )
 
         return externals
@@ -548,61 +573,21 @@ class CmdbMultiRender:
 
     def get_all_linked_objects(self) -> dict[int, CmdbObject]:
         """
-        Collect all referenced objects (ref + ref-section-field) and return as lookup.
+        Collect every object the render will reference and return them as a lookup
+
+        The rendered objects' own references plus the reference-section chains behind them, one query
+        per hop - see ``ReferencePrefetch``. A load that fails is reported on every object that
+        references anything, and the render continues without the expansions
 
         Returns:
-            dict[int, CmdbObject]: Lookup of object_id -> CmdbObject
+            dict[int, CmdbObject]: Lookup of object_id -> CmdbObject (empty without ref_render)
         """
         if not self.ref_render:
             return {}
 
-        reference_ids: set[int] = set()
-        # Fallback lookup for legacy fields missing a 'type' key: fetch each object's type at most
-        # once (keyed by type_id) instead of re-querying it per untyped field (avoids an N+1)
-        fallback_types: dict[int, CmdbType | None] = {}
-
-        # Collect referenced object IDs
-        for obj in self.to_render_objects:
-            for field in obj.fields:
-                field_type = field.get(FieldKey.TYPE)
-
-                if not field_type:
-                    LOGGER.debug(
-                        "Field-Type in Object: %s not found for field name: %s !",
-                        obj.public_id,
-                        field.get(FieldKey.NAME)
-                    )
-                    type_id = obj.get_type_id()
-                    if type_id not in fallback_types:
-                        fallback_types[type_id] = self.types_manager.get_type_instance(type_id)
-                    type_instance: CmdbType | None = fallback_types[type_id]
-
-                    if not type_instance:
-                        LOGGER.debug("Type of Object: %s not found!", obj.public_id)
-                        continue
-
-                    target_field = type_instance.get_field(field[FieldKey.NAME])
-
-                    field_type = target_field[FieldKey.TYPE]
-
-
-                if field_type in (FieldType.REFERENCE, FieldType.REF_SECTION) and field.get(FieldKey.VALUE):
-                    reference_ids.add(int(field[FieldKey.VALUE]))
-
-        # Only fetch the referenced objects not already cached (a nested render reuses the outer cache)
-        reference_ids -= set(self.objects_cache)
-
-        if not reference_ids:
-            return {}
-
-        # Fetch objects in bulk
-        try:
-            objects_data: dict[int, CmdbObject] = self.objects_manager.get_objects_lookup(list(reference_ids))
-
-            return objects_data
-        except Exception as err:
-            LOGGER.error("Error fetching referenced objects: %s", err, exc_info=True)
-            return {}
+        return ReferencePrefetch(
+            self.objects_manager, self.types_manager, self.objects_cache, self.problems,
+        ).load(self.to_render_objects)
 
 
     def _collect_field_values(
@@ -610,8 +595,23 @@ class CmdbMultiRender:
         ext: TypeExternalLink,
         obj: CmdbObject
     ) -> list[Any] | None:
-        """Extract and validate field values required for an external link."""
+        """
+        Extracts the values an external link's placeholders are filled with
 
+        A value the object does not have - an empty one, or a field it does not carry at all - means
+        the link cannot point anywhere, so the link is skipped. That is by design and not a problem:
+        it is what every object looks like until the field is filled in
+
+        Args:
+            ext (TypeExternalLink): The link whose placeholder fields are read
+            obj (CmdbObject): The object providing the values
+
+        Raises:
+            ValueError: When the link has placeholders but names no fields to fill them from
+
+        Returns:
+            list[Any] | None: The values in placeholder order, or None when one of them is missing
+        """
         if not ext.link_requires_fields():
             return []
 
@@ -621,7 +621,10 @@ class CmdbMultiRender:
         values: list[Any] = []
 
         for field_name in ext.fields:
-            value = obj.public_id if field_name == "object_id" else obj.get_value(field_name)
+            if field_name == EXTERNAL_LINK_OBJECT_ID_FIELD:
+                value: Any = obj.public_id
+            else:
+                value = (self._stored_field(obj, field_name) or {}).get(FieldKey.VALUE)
 
             if value in (None, ''):
                 LOGGER.debug(
@@ -673,8 +676,13 @@ class CmdbMultiRender:
                     shared_objects_cache=self.objects_cache,
                     shared_types_cache=self.types_cache,
                     shared_users_cache=self.users_cache,
+                    shared_reported_problems=self.problems.reported,
                 )
-                fields = render.result(level)[0].fields
+                nested_result: RenderResult = render.result(level)[0]
+                # What the nested render lost is missing from THIS object's section, so it is this
+                # object's problem too
+                self.problems.record(nested_result.render_problems)
+                fields = nested_result.fields
                 res = next(
                     (x for x in fields if x[FieldKey.NAME] == ref_section_field.get(FieldKey.NAME, '')), None
                 )
@@ -690,7 +698,15 @@ class CmdbMultiRender:
                         else:
                             ref_section_fields.append(merged_field_content)
             except Exception as err:
-                LOGGER.debug("[__merge_reference_section_fields] Exception: %s. Type: %s", err, type(err).__name__)
+                self.problems.report(
+                    RenderProblemCode.NESTED_REFERENCE_SECTION_FAILED,
+                    "[__merge_reference_section_fields] Nested reference section '%s' to Object ID:%s could not be "
+                    "rendered, leaving its fields out: %s. Type: %s",
+                    ref_section_field.get(FieldKey.NAME), ref_section_field.get(FieldKey.VALUE),
+                    err, type(err).__name__,
+                    field=ref_section_field.get(FieldKey.NAME),
+                    log_key=(ref_section_field.get(FieldKey.VALUE),),
+                )
 
         return ref_section_fields
 
@@ -801,17 +817,28 @@ class CmdbMultiRender:
                     # summary fields included, since they were only dropped because the line was
                     # going to carry the information - and report it: a line that no longer fits its
                     # type's summary fields is a configuration problem someone has to see
-                    LOGGER.warning(
+                    self.problems.report(
+                        RenderProblemCode.REFERENCE_LINE_UNFILLED,
                         "[__merge_references] Summary line of Type ID:%s does not fit Object ID:%s, "
                         "answering the reference without it: %s",
                         ref_type.get_public_id(), reference.object_id, err,
+                        field=current_field.get(FieldKey.NAME), log_key=(ref_type.get_public_id(),),
                     )
                     reference.line = ''
                     reference.summaries = summaries
 
             return TypeReference.to_json(reference)
         except Exception as err:
-            LOGGER.debug("[__merge_references] Exception: %s. Type: %s", err, type(err).__name__)
+            # What is answered here is a half-built reference - an icon and a label with no line and no
+            # summaries - on every object referencing this type, so it is a configuration problem
+            # someone has to see, not a detail
+            self.problems.report(
+                RenderProblemCode.REFERENCE_INCOMPLETE,
+                "[__merge_references] Reference field '%s' to Object ID:%s could not be rendered, answering "
+                "it without its line and summaries: %s. Type: %s",
+                current_field.get(FieldKey.NAME), current_field.get(FieldKey.VALUE), err, type(err).__name__,
+                field=current_field.get(FieldKey.NAME), log_key=(current_field.get(FieldKey.VALUE),),
+            )
             return TypeReference.to_json(reference)
 
 
@@ -1000,8 +1027,16 @@ class CmdbMultiRender:
         Merge the field values of a plain field or multi-data section
 
         Each field is merged with the object's value; reference/location fields not already expanded
-        by the merge get their reference expansion filled here. A field that fails to merge degrades
-        to a null value rather than aborting the section
+        by the merge get their reference expansion filled here. Two things degrade instead of aborting
+        the section, and both are reported:
+
+        * a name the section lists but the type does not declare is LEFT OUT - there is no field
+          definition to answer, and a row without a name and a type is one no consumer can read
+        * a field that fails to merge answers its STORED value, unexpanded. A null would read as
+          "this object holds nothing here", which is a different - and false - statement
+
+        A reference or location field the object does not carry is not expanded at all: it has
+        nothing to point at, and the merge has already given it its null value
 
         Args:
             section (TypeFieldSection | TypeMultiDataSection): The section whose fields are merged
@@ -1014,25 +1049,92 @@ class CmdbMultiRender:
         fields: list[dict[str, Any]] = []
 
         for sf_name in section.fields:
-            field: dict[str, Any] = {}
             try:
-                field = type_instance.get_field(sf_name)
-                field = self.__merge_field_content_section(field, object_instance)
+                type_field: dict[str, Any] = type_instance.get_field(sf_name)
+            except CmdbTypeFieldNotFoundError:
+                self.problems.report(
+                    RenderProblemCode.FIELD_NOT_ON_TYPE,
+                    "[_merge_plain_section_fields] Section '%s' of Type ID:%s names field '%s', which the type "
+                    "does not declare; leaving it out",
+                    section.name, type_instance.public_id, sf_name,
+                    section=section.name, field=sf_name, log_key=(type_instance.public_id,),
+                )
+                continue
+
+            try:
+                field: dict[str, Any] = self.__merge_field_content_section(type_field, object_instance)
 
                 # Only when the merge above did not expand it. Testing `'summaries' not in field`
                 # instead is ALWAYS true - summaries live inside the `reference` payload, never at
                 # field level - which would replace the merged field (and its reference) on every
                 # reference/location field of a plain section
                 if field[FieldKey.TYPE] in (FieldType.REFERENCE, FieldType.LOCATION) and \
-                   RenderedFieldKey.REFERENCE.value not in field:
+                   RenderedFieldKey.REFERENCE.value not in field and \
+                   self._stored_field(object_instance, sf_name) is not None:
                     field = self._expand_reference_field(field[FieldKey.NAME], object_instance, type_instance)
             except Exception as err:
-                LOGGER.debug("[_merge_plain_section_fields] field '%s' merge failed: %s", sf_name, err)
-                field[FieldKey.VALUE] = None
+                self.problems.report(
+                    RenderProblemCode.FIELD_MERGE_FAILED,
+                    "[_merge_plain_section_fields] Field '%s' of Object ID:%s could not be merged, answering its "
+                    "stored value unexpanded: %s. Type: %s",
+                    sf_name, object_instance.public_id, err, type(err).__name__,
+                    section=section.name, field=sf_name, log_key=(type_instance.public_id,),
+                )
+                field = self._fallback_field(type_field, object_instance)
 
             fields.append(field)
 
         return fields
+
+
+    @staticmethod
+    def _stored_field(object_instance: CmdbObject, field_name: str) -> dict[str, Any] | None:
+        """
+        Finds the object's stored entry for a field, tolerating malformed entries
+
+        Unlike ``CmdbObject.get_value`` this never raises: it is read on the paths that handle a field
+        which already failed, where a second failure would take the whole section down
+
+        Args:
+            object_instance (CmdbObject): The object whose stored fields are searched
+            field_name (str): The name of the field
+
+        Returns:
+            dict[str, Any] | None: The stored entry, or None when the object does not carry the field
+        """
+        return next(
+            (
+                entry for entry in object_instance.fields
+                if isinstance(entry, dict) and entry.get(FieldKey.NAME) == field_name
+            ),
+            None,
+        )
+
+
+    def _fallback_field(self, type_field: dict[str, Any], object_instance: CmdbObject) -> dict[str, Any]:
+        """
+        Builds the entry answered for a field whose merge failed: the definition plus the stored value
+
+        Built from a COPY of the type's field: the definition is the live dict of the cached type, and
+        writing the value into it would change that field for every other object in the render
+
+        Args:
+            type_field (dict[str, Any]): The type's field definition (the cached dict, left untouched)
+            object_instance (CmdbObject): The object whose stored value is answered
+
+        Returns:
+            dict[str, Any]: A name + value + type entry carrying the stored value, or the type's own
+                proposal when the object does not carry the field
+        """
+        fallback: dict[str, Any] = dict(type_field)
+        stored: dict[str, Any] | None = self._stored_field(object_instance, type_field.get(FieldKey.NAME))
+
+        if stored is None:
+            fallback.setdefault(FieldKey.VALUE.value, None)
+        else:
+            fallback[FieldKey.VALUE.value] = stored.get(FieldKey.VALUE)
+
+        return fallback
 
 
     def _expand_reference_field(
@@ -1080,7 +1182,7 @@ class CmdbMultiRender:
         *reason_args: Any,
     ) -> None:
         """
-        Logs, once per render, that a reference section could not be resolved
+        Reports that a reference section could not be resolved
 
         These three situations - the referenced Type gone, its section gone, or the section no longer
         carrying any of the referenced fields - all end with the frontend drawing nothing where a
@@ -1088,30 +1190,23 @@ class CmdbMultiRender:
         hold data written without that guard, so the render says so instead of quietly dropping the
         block.
 
-        Deduplicated per reference: a list render walks many objects through the same type
-        definition, and one broken reference must not produce one line per object
+        Keyed on the reference itself, not just the section: one section repointed at a different
+        target is a different problem and is logged on its own
 
         Args:
             section (TypeReferenceSection): The reference section that could not be resolved
             reason (str): A %-style message describing what is missing
             *reason_args (Any): Arguments for the reason template
         """
-        # Keyed on the reference itself, not just the section: one section repointed at a different
-        # target is a different problem and has to be reported on its own
-        problem_key: tuple[str, int, str] = (
-            section.name,
-            getattr(section.reference, 'type_id', 0),
-            getattr(section.reference, 'section_name', ''),
-        )
-
-        if problem_key in self.reported_reference_problems:
-            return
-
-        self.reported_reference_problems.add(problem_key)
-
-        LOGGER.warning(
+        self.problems.report(
+            RenderProblemCode.REFERENCE_SECTION_UNRESOLVED,
             "[_merge_reference_section] Reference section '%s' shows nothing: " + reason,
             section.name, *reason_args,
+            section=section.name,
+            log_key=(
+                getattr(section.reference, 'type_id', 0),
+                getattr(section.reference, 'section_name', ''),
+            ),
         )
 
 
@@ -1146,10 +1241,12 @@ class CmdbMultiRender:
             ref_field_name: str = f'{section.name}-field'
             # copy: get_field returns the live cached dict (see __merge_field_content_section)
             ref_field: dict[str, Any] = dict(type_instance.get_field(ref_field_name))
-        except CmdbTypeFieldNotFoundError as err:
-            LOGGER.debug("[_merge_reference_section] CmdbTypeFieldNotFoundError: %s", err)
+        except CmdbTypeFieldNotFoundError:
+            self._report_reference_problem(section, "its type declares no field '%s'", f'{section.name}-field')
             return None
 
+        # An object that does not carry the section's field references nothing yet - the same answer
+        # as an empty one, and not a problem: the section renders the referenced type's fields empty
         try:
             reference_id: int = object_instance.get_value(ref_field_name)
             ref_field[FieldKey.VALUE] = reference_id
@@ -1175,7 +1272,10 @@ class CmdbMultiRender:
                 RenderedReferenceSectionKey.FIELDS.value: [],
             }
         except Exception as err:
-            LOGGER.debug("[_merge_reference_section] reference section build failed: %s", err)
+            self._report_reference_problem(
+                section, "Type ID:%s could not be read: %s. Type: %s",
+                getattr(section.reference, 'type_id', None), err, type(err).__name__,
+            )
             return None
 
         if not ref_section:
@@ -1210,8 +1310,14 @@ class CmdbMultiRender:
                             {RenderedReferenceSectionKey.FIELDS.value: []},
                         )[RenderedReferenceSectionKey.FIELDS] = ref_section_fields
             except Exception as err:
-                LOGGER.debug("[_merge_reference_section] ref-section field '%s' skipped: %s",
-                             ref_section_field_name, err)
+                self.problems.report(
+                    RenderProblemCode.REFERENCE_SECTION_FIELD_SKIPPED,
+                    "[_merge_reference_section] Field '%s' of reference section '%s' could not be read, leaving "
+                    "it out: %s. Type: %s",
+                    ref_section_field_name, section.name, err, type(err).__name__,
+                    section=section.name, field=ref_section_field_name,
+                    log_key=(section.reference.type_id,),
+                )
                 continue
             ref_field[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS].append(ref_section_field)
 

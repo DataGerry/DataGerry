@@ -200,3 +200,8 @@ class TypeUserDataKey(BaseStrEnum):
     AUTHOR_IMAGE = 'author_image'
     LAST_EDITOR = 'last_editor'
     LAST_EDITOR_IMAGE = 'last_editor_image'
+
+
+# The stage a client's list criteria constrain a field in - read by `build_type_criteria` to tell
+# whether the client already filters on `active` itself
+MATCH_STAGE_KEY: str = '$match'

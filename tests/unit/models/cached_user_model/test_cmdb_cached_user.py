@@ -209,9 +209,9 @@ class TestUnreadableTimestampsAreRefused:
     """
     A timestamp that cannot be read is refused, not guessed
 
-    Until 2026-09-21 these were parsed with `fuzzy=True`, which reads a note like 'sometime in March'
-    as a date assembled from today's day number - the document would then carry a date nobody wrote,
-    and nothing would ever say so.
+    Parsing with `fuzzy=True` would read a note like 'sometime in March' as a date assembled from
+    today's day number - the document would then carry a date nobody wrote, and nothing would ever say
+    so.
     """
 
     def test_an_unreadable_timestamp_raises(self) -> None:

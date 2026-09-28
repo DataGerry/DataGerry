@@ -115,6 +115,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
 )
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
+from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     emit_object_update_events,
     handle_create_object_log,
@@ -755,7 +756,11 @@ def guard_config_item_limit(request_user: CmdbUser, objects_manager: ObjectsMana
     """
     Refuses a new CmdbObject when the user's subscription has no ConfigItem budget left
 
-    A no-op outside cloud mode, where no such limit exists
+    A no-op outside cloud mode, where no such limit exists. The count and the insert that follows it
+    are two separate operations, so requests creating objects at the same moment can each pass the
+    check and together go past the limit - by at most the number of requests in flight. That overshoot
+    is accepted: the limit is a subscription budget, not an integrity constraint, and closing the
+    window would need an atomic reservation on every create
 
     Args:
         request_user (CmdbUser): The CmdbUser the limit is checked for
@@ -999,8 +1004,8 @@ def apply_object_update(  # pylint: disable=too-many-locals
         objects_manager, current_object_instance.get_type_id(), type_cache,
     )
 
+    pin_public_id(new_data, obj_id)
     new_data.update({
-        CmdbObjectKey.PUBLIC_ID.value: obj_id,
         CmdbObjectKey.CREATION_TIME.value: current_object_instance.creation_time,
         CmdbObjectKey.AUTHOR_ID.value: current_object_instance.author_id,
         CmdbObjectKey.ACTIVE.value: (

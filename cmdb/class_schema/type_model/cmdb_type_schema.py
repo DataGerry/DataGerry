@@ -40,6 +40,7 @@ def get_cmdb_type_schema() -> dict[str, Any]:
     # would close the cycle (see the class_schema convention)
     # pylint: disable=import-outside-toplevel
     from cmdb.models.type_model.section_type_enum import SectionType
+    from cmdb.models.type_model.type_constants import NESTED_SUMMARY_PREFIX_DEFAULT
 
     return {
         'public_id': {  # public_id of the CmdbType
@@ -205,6 +206,7 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                                 "fields": {  # List of field names
                                     'type': 'list',
                                     'empty': True,
+                                    'default': [],
                                 },
                                 "icon": {
                                     'type': 'string',  # Free Font Awesome example: 'fa fa-cube'
@@ -213,7 +215,7 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                                 "prefix": {
                                     'type': 'boolean',
                                     'required': False,
-                                    'default': True
+                                    'default': NESTED_SUMMARY_PREFIX_DEFAULT
                                 }
                             }
                         }

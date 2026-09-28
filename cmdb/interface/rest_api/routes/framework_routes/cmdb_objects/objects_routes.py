@@ -64,7 +64,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
-from cmdb.models.object_model import CmdbObject, CmdbObjectKey
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, ObjectWriteVerb
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
@@ -104,6 +104,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     MAX_DASHBOARD_GROUPS,
+    GROUPABLE_OBJECT_FIELDS,
+    OBJECT_GROUP_FIELD_REFUSED_MESSAGE,
     SINGLE_OBJECT_VIEW_MODES,
     SINGLE_OBJECT_VIEW_INVALID_MESSAGE,
     ObjectViewMode,
@@ -280,10 +282,10 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @objects_blueprint.route('/', methods=['GET', 'HEAD'])
-@objects_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.parse_collection_parameters(view='native')
 @handle_route_errors("while retrieving Objects from the database")
 def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -451,15 +453,24 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
     Groups CmdbObjects by the given field name and returns at most the first five groups
 
     Each group is enriched with the corresponding CmdbType's label and ci_explorer_color so the
-    dashboard chart can render it directly. Honors the active-only filter when enabled
+    dashboard chart can render it directly. Honors the active-only filter when enabled. Every group id
+    is resolved as a CmdbType, so ``type_id`` is the only field that can answer - any other name is
+    refused (`GROUPABLE_OBJECT_FIELDS`) rather than grouped and then silently dropped
 
     Args:
-        value (str): The CmdbObject field name to group by (typically 'type_id')
+        value (str): The CmdbObject field name to group by; only 'type_id'
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 when ``value`` is not a groupable field
 
     Returns:
         DefaultResponse: List of group dicts (cap 5) with 'label', 'type_color' and counts
     """
+    # Checked before the try: its catch-all arm would turn this refusal into a 500
+    if value not in GROUPABLE_OBJECT_FIELDS:
+        abort(400, OBJECT_GROUP_FIELD_REFUSED_MESSAGE.format(field=value))
+
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -617,10 +628,10 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
 
 
 @objects_blueprint.route('/references/<int:public_id>', methods=['GET', 'HEAD'])
-@objects_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.parse_collection_parameters(view='native')
 def get_cmdb_object_references(public_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Retrieves references for a given CmdbObject based on specified criteria
@@ -983,13 +994,22 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to remove a single CmdbObject from the database
 
-    Refuses the delete when the object is a SUPERNET / SUBNET still referenced by other IPAM
-    objects (subnets, vlans or interface rows), or when its location is the parent of other
-    locations. References from non-IPAM CmdbObjects are removed automatically after the delete
+    Authorizes first, then deletes: the object's type must exist and be active and its ACL must grant
+    the caller DELETE (`ObjectsManager.guard_writable_type`) before anything is touched, because the
+    steps that follow - the location node, the rack and port state, the risk assessments - are not
+    undone when a later check refuses. Refuses the delete when the object is a SUPERNET / SUBNET still
+    referenced by other IPAM objects (subnets, vlans or interface rows). The object's location is
+    removed and its child locations promoted onto its parent. References from non-IPAM CmdbObjects are
+    removed automatically after the delete
 
     Args:
         public_id (int): public_id of the CmdbObject to delete
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 403 when the type is deactivated or its ACL denies DELETE (nothing is changed);
+            404 when the object does not exist; 400 when an IPAM or cable guard refuses; 500 when the
+            object's type is missing or a write fails
 
     Returns:
         DefaultResponse: True after a successful delete
@@ -1006,6 +1026,12 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 
         if not to_delete_object_type:
             abort(500, f"Type of Object with ID:{public_id} not found in database!")
+
+        # Authorized before any side effect: every step below changes data a later refusal would not restore
+        objects_manager.guard_writable_type(
+            to_delete_object.get_type_id(), request_user, AccessControlPermission.DELETE,
+            ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, to_delete_object_type,
+        )
 
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
@@ -1052,15 +1078,21 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
     """
     HTTP `DELETE` route to bulk-delete CmdbObjects by a comma-separated id list
 
-    Each located target has its CmdbLocation deleted and that location's direct children promoted
-    onto its parent (their grandparent), keeping the location tree connected. The IPAM delete guard
-    is evaluated atomically up front: if any one target would orphan IPAM references, no delete
-    happens. After deleting, removes references to the deleted objects, drops them from static
-    object groups, emits a webhook + log per object, and syncs the cloud-mode item count
+    Each located target has its CmdbLocation deleted and that location's direct children promoted onto its parent
+    (their grandparent), keeping the location tree connected. Every guard is evaluated atomically up front, for
+    every target: if any one target's type is missing, its type is deactivated or its ACL denies DELETE, or it would
+    orphan IPAM references, no delete happens - not even the risk-assessment cascade, which runs for the whole
+    selection before the per-object loop. After deleting, removes references to the deleted objects, drops them from
+    static object groups, emits a webhook + log per object, and syncs the cloud-mode item count
 
     Args:
         public_ids (str): Comma-separated CmdbObject public_ids to delete
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 403 when any target's type is deactivated or its ACL denies DELETE (nothing is
+            changed); 404 when a target's type is missing; 400 when an id is malformed or an IPAM or cable
+            guard refuses; 500 when a write fails
 
     Returns:
         DefaultResponse: {'successfully': [public_id, ...]} for every CmdbObject that was deleted
@@ -1094,16 +1126,25 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
         type_map: dict[int, CmdbType] = types_manager.get_types_lookup(object_type_ids)
 
-        # Atomic guards, evaluated for EVERY target before anything is deleted: a missing type or an
-        # object that would orphan IPAM references refuses the whole selection. Checking the type inside
-        # the delete loop below would abort mid-way and leave the earlier targets already deleted
+        # Atomic guards, evaluated for EVERY target before anything is deleted: a missing type, a target
+        # the caller may not delete (deactivated type, or an ACL without DELETE) or an object that would
+        # orphan IPAM references refuses the whole selection. Checking inside the delete loop below would
+        # abort mid-way - after the risk-assessment cascade and the earlier targets' deletes
         for to_check in to_delete_objects:
-            if type_map.get(to_check.get(CmdbObjectKey.TYPE_ID.value)) is None:
+            check_type_id: int | None = to_check.get(CmdbObjectKey.TYPE_ID.value)
+            check_type: CmdbType | None = type_map.get(check_type_id)
+
+            if check_type is None:
                 abort(
                     404,
                     f"Type of Object with ID:{to_check.get(CmdbObjectKey.PUBLIC_ID.value)} "
                     'not found in database!'
                 )
+
+            objects_manager.guard_writable_type(
+                check_type_id, request_user, AccessControlPermission.DELETE,
+                ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, check_type,
+            )
 
         # The shared delete guard, asked ONCE for the whole selection: the per-target IPAM checks plus
         # the Cable CI check, which costs a single query for all targets together
