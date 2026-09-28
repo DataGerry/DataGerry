@@ -21,8 +21,8 @@ its database collaborators (insert / get_many / aggregate / update / delete_*) s
 the manager's own behavior is exercised - payload coercion, the ``$graphLookup`` pipeline shape,
 the update match key, the empty-data guard, the canonical document + name ordering of the
 tree-facing reads, the root-deletion and parentless-promotion refusals, and the error-wrapping into
-the LocationsManager error hierarchy. The ``$graphLookup`` query itself is pinned against real MongoDB in
-tests/integration/framework/test_integration_locations_crud.py.
+the LocationsManager error hierarchy. The ``$graphLookup`` query itself runs against real MongoDB in
+the integration tier.
 """
 # pylint: disable=protected-access
 from typing import Any

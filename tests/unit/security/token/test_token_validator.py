@@ -237,8 +237,8 @@ class TestValidateClaims:
         """
         A non-numeric expiration is an invalid token, not a server error
 
-        joserfc answers these with InvalidClaimError / MissingClaimError - both JoseErrors - which is
-        the correction to the audit's assumption that a wrong-typed claim escaped the JoseError arm.
+        joserfc answers these with InvalidClaimError / MissingClaimError - both JoseErrors - so a
+        wrong-typed claim is caught by the JoseError arm.
         """
         with pytest.raises(TokenValidationError):
             validator.validate_claims(_claims(exp=exp))

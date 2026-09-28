@@ -16,9 +16,9 @@
 """
 Implementation of the `UsersManager`, the service layer over the `management.users` collection
 
-Every authenticated request passes through this manager: `route_utils.user_has_right` resolves the
-token's user here before it can resolve their group and rights, so a read that fails here fails the
-whole request. Beyond user CRUD it owns two cross-cutting jobs:
+Every authenticated request passes through this manager: `route_utils.insert_request_user` resolves the
+token's user here, and the route's right check (`route_utils.user_has_right`) then reads that user's
+group, so a read that fails here fails the whole request. Beyond user CRUD it owns two cross-cutting jobs:
 
 * **Member redistribution when a UserGroup is deleted** (`handle_users_on_group_delete`). The group
   route deletes the group itself; this manager decides what happens to the members first, and it

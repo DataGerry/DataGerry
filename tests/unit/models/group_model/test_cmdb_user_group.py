@@ -20,12 +20,12 @@ Pure: no Mongo, no Flask. A CmdbUserGroup is where authorisation actually gets d
 `route_utils.user_has_right` asks `has_right` and then `has_extended_right` for the right named on
 the route - so the two membership checks and the two serialisers are what this pins.
 
-Three regressions are pinned by name:
+Three rules get their own tests:
 
 * `has_extended_right` must not recurse forever on a name carrying no dot (`rsplit` returns such a
-  name unchanged), which meant a RecursionError instead of a denial
-* `to_json` built its rights list outside its own try block, so a failure there escaped raw instead
-  of as CmdbUserGroupToJsonError
+  name unchanged) - that would be a RecursionError instead of a denial
+* `to_json` builds its rights list inside its own try block, so a failure there surfaces as
+  CmdbUserGroupToJsonError, not raw
 * the two serialisation modes are asymmetric on purpose: `insert_mode=True` writes right NAMES (the
   stored form) and False writes full dicts (the API form), and `from_data` resolves names back into
   instances - so the round trip is what guards against drift between them

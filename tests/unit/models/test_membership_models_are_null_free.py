@@ -25,7 +25,7 @@ answer 500.
 
 The rule is asserted once here, over all three models, because it is one rule and three copies of it
 would let the models drift apart again. What is specific to a model is pinned in that model's own
-module. ``updater_20260909`` converged the documents written before the fix
+module. ``updater_20260909`` converges stored documents that still carry a null.
 
 Three things are checked per model:
 

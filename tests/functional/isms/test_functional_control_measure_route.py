@@ -42,6 +42,8 @@ from cmdb.errors.manager.control_measure_manager import (
     ControlMeasureManagerDeleteError,
     ControlMeasureManagerIterationError,
 )
+
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/control_measures'
@@ -189,6 +191,16 @@ class TestPutControlMeasure:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{CM_ID_FOR_UPDATE}').get_json()['result']['title'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_control_measure(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored control measure in place"""
+        _insert_control_measure(database_manager, database_name, CM_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{CM_ID_FOR_UPDATE}', _control_measure_payload(MISSING_CM_ID),
+            database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name), CM_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent control measure returns 404."""

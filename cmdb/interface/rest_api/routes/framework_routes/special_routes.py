@@ -88,9 +88,9 @@ def show_datagerry_assistant(request_user: CmdbUser) -> Response:
 
 
 @special_blueprint.route('/profiles', methods=['POST'])
+@insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @parse_assistant_parameters()
-@insert_request_user
 @handle_route_errors("while creating initial Profiles")
 def create_initial_profiles(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """

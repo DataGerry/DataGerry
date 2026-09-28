@@ -16,7 +16,8 @@
 """
 Named values of the APIBlueprint request decorators
 
-The texts and limits of the 400 a schema-validated route answers when its body is refused
+The texts and limits of the 400 a schema-validated route answers when its body is refused, and the
+names and texts of the right check `protect` runs
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -34,3 +35,12 @@ MAX_REPORTED_SCHEMA_ERRORS: int = 5
 # How one field's path and its reason are joined, and how the reported errors are joined to each other
 FIELD_ERROR_SEPARATOR: str = ': '
 ERRORS_SEPARATOR: str = '; '
+
+# The keyword argument `insert_request_user` injects the authenticated CmdbUser under, which `protect` checks
+REQUEST_USER_KWARG: str = 'request_user'
+
+# A route whose `protect` has no `insert_request_user` above it: a wiring fault, not the caller's
+PROTECT_WITHOUT_REQUEST_USER_MESSAGE: str = 'The route could not identify the request user!'
+
+# The user's group could not be read, so the right could not be checked - distinct from a missing right
+RIGHT_CHECK_FAILED_MESSAGE: str = 'The rights of the request user could not be checked!'

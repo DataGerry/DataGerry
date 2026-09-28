@@ -64,7 +64,7 @@ from cmdb.interface.route_utils import handle_route_errors, insert_request_user,
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses.response_parameters import ParameterKey
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, request_wants_body, pin_public_id
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     build_referenced_section_usage_payload,
     guard_referenced_section_removal,
@@ -654,8 +654,7 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[TypeSchemaKey.PUBLIC_ID] = public_id
+        pin_public_id(data, public_id)
         new_type: CmdbType = CmdbType.from_data(data)
 
         if not special_type_is_unchanged(old_type.special_type, data.get(TypeSchemaKey.SPECIAL_TYPE)):

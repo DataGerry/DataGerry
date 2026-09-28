@@ -17,9 +17,9 @@
 Functional smoke for the ``/locations`` REST routes
 
 End-to-end coverage that the LocationsManager integration suite cannot give: HTTP status
-codes and the JSON envelopes for the CmdbLocation routes - POST create, GET-list, the
-``/tree`` forest view, GET-single + 404, the object-scoped ``/<id>/object`` + ``/parent`` +
-``/children`` lookups, the PUT update round-trip, and DELETE + follow-up 404. CRUD
+codes and the JSON envelopes for the CmdbLocation routes - POST create, GET-list, GET-single +
+404, the object-scoped ``/<id>/object`` + ``/parent`` + ``/children`` lookups, the PUT update
+round-trip, and DELETE + follow-up 404. CRUD
 correctness itself is asserted at the manager layer; these tests only verify the routes wrap
 it correctly.
 
@@ -348,7 +348,7 @@ class TestGetLocation:
 
 
 class TestGetLocationTreeAndRelations:
-    """The /tree forest view and the object-scoped parent/children lookups."""
+    """The retired /tree forest view and the object-scoped parent/children lookups."""
 
     @pytest.fixture(autouse=True)
     def _seed_parent_and_child(self, database_manager: MongoDatabaseManager, database_name: str):
@@ -362,47 +362,15 @@ class TestGetLocationTreeAndRelations:
         yield
         _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID, CHILD_LOCATION_ID])
 
-    def test_tree_view_returns_200_with_results(self, rest_api) -> None:
-        """GET /locations/tree returns 200 and a non-empty forest."""
-        response = rest_api.get(f'{ROUTE_URL}/tree')
-
-        assert response.status_code == HTTPStatus.OK
-        assert response.get_json()['results']
-
-    def test_tree_nodes_carry_the_tree_node_keys_only(self, rest_api) -> None:
+    def test_the_retired_eager_tree_route_is_gone(self, rest_api) -> None:
         """
-        The forest answers LocationNode's key set, which is NARROWER than the flat list's
+        The whole forest in one response is not served; the lazy tree routes read it level by level
 
-        A tree node drops ``type_id`` and ``type_label`` (LocationNode never reads them) and adds
-        ``children`` for a node that has any - a leaf omits the key entirely. Recorded here because
-        the eager tree and the flat list are two different frontend contracts over one document, and
-        the read that feeds both now answers the canonical eight either way.
+        A location exists, so a 404 here is the missing route and not an empty collection.
         """
         response = rest_api.get(f'{ROUTE_URL}/tree')
 
-        root_node = next(
-            node for node in response.get_json()['results'] if node['public_id'] == ROOT_LOCATION_ID
-        )
-
-        assert set(root_node) == {
-            LocationKey.PUBLIC_ID.value,
-            LocationKey.NAME.value,
-            LocationKey.PARENT.value,
-            LocationKey.OBJECT_ID.value,
-            LocationKey.TYPE_ICON.value,
-            LocationKey.TYPE_SELECTABLE.value,
-            'children',
-        }
-        assert set(root_node['children'][0]) == set(root_node) - {'children'}
-
-    def test_tree_view_nests_child_under_its_root(self, rest_api) -> None:
-        """The seeded child appears nested under its root node in the forest, not at the top level."""
-        response = rest_api.get(f'{ROUTE_URL}/tree')
-
-        roots = response.get_json()['results']
-        root_node = next(node for node in roots if node['public_id'] == ROOT_LOCATION_ID)
-        child_ids = [child['public_id'] for child in root_node.get('children', [])]
-        assert CHILD_LOCATION_ID in child_ids
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
     def test_parent_lookup_returns_root_location(self, rest_api) -> None:
         """GET /locations/<child_object_id>/parent returns the parent (root) location."""

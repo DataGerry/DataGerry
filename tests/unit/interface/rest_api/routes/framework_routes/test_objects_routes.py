@@ -19,7 +19,9 @@ Unit tests for cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.obje
 Each handler is unwrapped past its decorator chain and driven inside a Flask test_request_context;
 ManagerProvider is patched at the route module path. No Mongo. These cover the route glue: the
 missing-object 404s (state / references), the orphaned-type skip in the group route, the per-target
-id used in the not-found messages, the delete get-error mapping and the post-insert config-item sync
+id used in the not-found messages, the delete get-error mapping, the post-insert config-item sync, the
+two delete routes authorizing every target before their first side effect, and the group route's
+field whitelist
 """
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -45,7 +47,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes
     delete_cmdb_object,
     delete_many_cmdb_objects,
 )
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.models.object_model import ObjectWriteVerb
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerDeleteError
+from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes'
@@ -447,3 +452,74 @@ class TestBulkDeleteSyncsCloudCount:
         assert response.get_json()['successfully'] == [1]
         sync.assert_called_once()
         assert sync.call_args.args[1] == 4  # the POST-delete total, read after the loop
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   the delete routes authorize before side effects                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+DENIED_TARGET_ID: int = 2
+
+
+class TestDeleteAuthorizesFirst:
+    """A refused delete answers 403 before the location, rack, port or risk-assessment state is touched"""
+
+    def test_the_single_delete_asks_the_guard_before_the_location_cleanup(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """The guard's refusal is a 403, and neither the delete guards nor the location step ran"""
+        del patched_manager_provider
+        mgr.get_object.return_value = SimpleNamespace(get_type_id=lambda: 1)
+        mgr.get_object_type.return_value = SimpleNamespace()
+        mgr.guard_writable_type.side_effect = AccessDeniedError('denied')
+
+        with flask_app.test_request_context('/', method='DELETE'):
+            with patch(f'{ROUTE_PATH}.guard_object_delete') as delete_guard, \
+                 patch(f'{ROUTE_PATH}.handle_delete_object_location') as location_step:
+                with pytest.raises(HTTPException) as exc_info:
+                    _unwrap(delete_cmdb_object)(public_id=1, request_user=SimpleNamespace(public_id=1))
+
+        assert exc_info.value.code == 403
+        delete_guard.assert_not_called()
+        location_step.assert_not_called()
+        mgr.delete_with_follow_up.assert_not_called()
+        type_id, _user, permission, error_class, verb, _type = mgr.guard_writable_type.call_args.args
+        assert (type_id, permission, error_class, verb) == \
+            (1, AccessControlPermission.DELETE, ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value)
+
+    def test_the_bulk_delete_asks_the_guard_for_every_target_before_the_cascade(
+        self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
+    ) -> None:
+        """One refused target stops the whole selection before the risk-assessment cascade"""
+        del patched_manager_provider
+        mgr.find.return_value = [_stored_object_doc(), {**_stored_object_doc(), 'public_id': DENIED_TARGET_ID}]
+        mgr.get_types_lookup.return_value = {1: SimpleNamespace()}
+        mgr.guard_writable_type.side_effect = [None, AccessDeniedError('denied')]
+
+        with flask_app.test_request_context('/', method='DELETE'):
+            with patch(f'{ROUTE_PATH}.guard_objects_delete') as delete_guard, \
+                 patch(f'{ROUTE_PATH}.handle_delete_object_location') as location_step:
+                with pytest.raises(HTTPException) as exc_info:
+                    _unwrap(delete_many_cmdb_objects)(
+                        public_ids=f'1,{DENIED_TARGET_ID}', request_user=SimpleNamespace(public_id=1),
+                    )
+
+        assert exc_info.value.code == 403
+        assert mgr.guard_writable_type.call_count == 2
+        delete_guard.assert_not_called()
+        mgr.delete_objects_from_risk_assessment_cascade.assert_not_called()
+        location_step.assert_not_called()
+        mgr.delete_object.assert_not_called()
+
+
+class TestGroupByWhitelist:
+    """Only type_id can be grouped by; the refusal comes before any manager is resolved"""
+
+    def test_a_field_other_than_type_id_is_a_400(self, flask_app: Flask) -> None:
+        """No manager is needed to refuse it, so the catch-all arm cannot turn it into a 500"""
+        with flask_app.test_request_context('/group/author_id'):
+            with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager') as get_manager:
+                with pytest.raises(HTTPException) as exc_info:
+                    _unwrap(group_cmdb_objects_by_type_id)(value='author_id', request_user=SimpleNamespace())
+
+        assert exc_info.value.code == 400
+        get_manager.assert_not_called()

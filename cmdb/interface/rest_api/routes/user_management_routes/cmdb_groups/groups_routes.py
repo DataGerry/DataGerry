@@ -37,7 +37,6 @@ from cmdb.manager import (
 from cmdb.framework.results import IterationResult
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import (
@@ -80,7 +79,11 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_he
     resolve_move_target,
     ensure_admin_group_keeps_master_right,
 )
-from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import (
+    build_searchable_builder_params,
+    request_wants_body,
+    pin_public_id,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -276,9 +279,7 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 
         # The administrator group may never lose the master right (it would lock everyone out)
         ensure_admin_group_keeps_master_right(public_id, data)
-
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[CmdbObjectKey.PUBLIC_ID] = public_id
+        pin_public_id(data, public_id)
 
         group_dict: dict[str, Any] = groups_manager.hydrate_group(data)
 

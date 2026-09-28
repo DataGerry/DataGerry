@@ -18,7 +18,7 @@ Unit tests for cmdb.models.location_model.location_node.LocationNode
 
 Pure tests: no Mongo, no Flask. Exercise ``__init__`` (field population + the
 ``LocationNodeInitError`` raised on a malformed dict) and the tree-assembly logic that the
-``/locations/tree`` route delegates to - ``get_children`` (parent-index build + recursion),
+tree search and tree path routes delegate to - ``get_children`` (parent-index build + recursion),
 the cycle guard that protects against malformed parent chains, and ``to_json`` (nested
 serialization, children key only emitted when present). The one-line accessors
 (``get_public_id``, ``__repr__``) are out of scope as trivial.

@@ -60,7 +60,7 @@ from cmdb.errors.manager.extendable_options_manager import (
     ExtendableOptionsManagerDeleteError,
     ExtendableOptionsManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -264,9 +264,7 @@ def update_cmdb_extendable_option(public_id: int, data: dict[str, Any], request_
                                data.get(ExtendableOptionKey.OPTION_TYPE),
                                exclude_id=public_id):
             abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
-
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[ExtendableOptionKey.PUBLIC_ID] = public_id
+        pin_public_id(data, public_id)
 
         stored: dict[str, Any] = update_item_from_payload(
             extendable_options_manager, public_id, CmdbExtendableOption, data,

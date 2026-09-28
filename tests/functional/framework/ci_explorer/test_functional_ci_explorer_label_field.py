@@ -18,12 +18,12 @@ Functional coverage of ``PUT /ci_explorer/label_field/<public_id>`` and the rule
 
 ``CmdbType.ci_explorer_label`` holds the NAME of one of the Type's own fields; the CI Explorer reads
 that field off every object of the Type and draws its value on the node. This suite pins the whole
-loop the frontend will use: nominate a field, see it on the rendered nodes, clear it, and be refused
-when the nomination names something the Type does not offer.
+loop the graph editor's label modal drives: nominate a field, see it on the rendered nodes, clear it,
+and be refused when the nomination names something the Type does not offer.
 
 The two write paths are covered together on purpose - ``PUT /types/<id>`` (what the type builder
-sends today) and this route (what the CI Explorer will send) have to agree on the same rule, or a
-nomination refused in one place could be smuggled in through the other.
+sends) and this route (what the graph editor sends) have to agree on the same rule, or a nomination
+refused in one place could be smuggled in through the other.
 """
 from http import HTTPStatus
 from typing import Any
@@ -46,6 +46,9 @@ TYPE_NAME: str = 'label-field-type'
 PLAIN_FIELD: str = 'hostname'
 SECOND_FIELD: str = 'serial'
 MDS_FIELD: str = 'port-name'
+UNASSIGNED_FIELD: str = 'asset-tag'
+
+TOOLTIP_URL: str = '/ci_explorer/tooltip'
 
 HOSTNAME_VALUE: str = 'db-01'
 SERIAL_VALUE: str = 'SN-4711'
@@ -130,7 +133,7 @@ def _stored_nomination(rest_api, type_id: int) -> Any:
 #                                            PUT /ci_explorer/label_field                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTheCiExplorerRoute:
-    """What the frontend will call when it lets a user pick the field from the graph."""
+    """What the graph editor's label modal calls when a user picks the field from the graph."""
 
     def test_a_field_of_the_type_is_nominated(self, rest_api, label_field_type: int) -> None:
         """The stored value is the FIELD NAME, and the answer repeats it"""
@@ -182,6 +185,34 @@ class TestTheCiExplorerRoute:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert 'multi-data-section' in response.get_json()['message']
 
+    def test_the_refusal_names_what_the_type_offers(self, rest_api, label_field_type: int) -> None:
+        """A client that sent something unusable is told the names it could have sent"""
+        message: str = _nominate(rest_api, label_field_type, 'Switch').get_json()['message']
+
+        assert f'{PLAIN_FIELD}, {SECOND_FIELD}' in message
+        assert MDS_FIELD not in message
+
+    def test_a_declared_field_in_no_section_is_accepted(self, rest_api, label_field_type: int,
+                                                        database_manager: MongoDatabaseManager,
+                                                        database_name: str) -> None:
+        """
+        The rule is "declared and not multi-data-section", not "shown in a section"
+
+        Such a field still resolves on every object, so the backend accepts it. The graph editor's
+        picker only offers fields placed in an ordinary section - stricter, so nothing unusable can
+        come from the UI - and the answer's `selectable_fields` lists it for any client that asks.
+        """
+        database_manager.get_collection(CmdbType.COLLECTION, database_name).update_one(
+            {'public_id': label_field_type},
+            {'$push': {'fields': {'type': 'text', 'name': UNASSIGNED_FIELD, 'label': 'Asset tag'}}},
+        )
+
+        response = _nominate(rest_api, label_field_type, UNASSIGNED_FIELD)
+
+        assert response.status_code == HTTPStatus.OK
+        assert UNASSIGNED_FIELD in response.get_json()['selectable_fields']
+        assert _stored_nomination(rest_api, label_field_type) == UNASSIGNED_FIELD
+
     def test_an_unknown_type_is_404(self, rest_api, label_field_type: int) -> None:
         """The lookup answers before the rule does"""
         response = rest_api.put(
@@ -201,6 +232,13 @@ class TestTheCiExplorerRoute:
         assert after['fields'] == before['fields']
         assert after['render_meta'] == before['render_meta']
         assert after['version'] == before['version']
+
+    @pytest.mark.parametrize('method', ['put', 'patch'])
+    def test_there_is_no_tooltip_route_beside_it(self, rest_api, method: str) -> None:
+        """The label field is the one presentation write; a tooltip is written through PUT /objects/<id>"""
+        response = getattr(rest_api, method)(f'{TOOLTIP_URL}/{OBJECT_ID}', json={'ci_explorer_tooltip': 'x'})
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

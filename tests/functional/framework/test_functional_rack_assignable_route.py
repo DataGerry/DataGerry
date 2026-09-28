@@ -484,11 +484,17 @@ class TestCollectionParameters:
 
     def test_an_unparsable_filter_is_a_400(self, rest_api) -> None:
         """The parameter parsing refuses garbage before any read happens"""
+        response = rest_api.get(f'{ROUTE_URL}/{RACK_ID}/assignable_objects/?filter=notjson')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_an_unauthenticated_caller_is_refused_before_the_parameters_are_read(self, rest_api) -> None:
+        """Authentication runs first: a stranger gets 401, not the parser's error message"""
         response = rest_api.get(
             f'{ROUTE_URL}/{RACK_ID}/assignable_objects/?filter=notjson', unauthorized=True,
         )
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  refusals                                                            #

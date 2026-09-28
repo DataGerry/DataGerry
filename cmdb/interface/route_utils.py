@@ -31,6 +31,7 @@ from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     UsersManager,
     GroupsManager,
@@ -67,6 +68,18 @@ LOGGER: Logger = getLogger(__name__)
 
 DEFAULT_MIME_TYPE = 'application/json'
 
+# The refusal every authentication path answers for a CmdbUser whose `active` flag is false. Only ever
+# shown to a caller who has proven the password or holds a valid token, so it reveals nothing new
+USER_DEACTIVATED_MESSAGE: str = 'This user account is deactivated!'
+
+AUTHORIZATION_HEADER: str = 'Authorization'
+
+# Prefix of an `Authorization` header carrying HTTP Basic credentials (e.g. "Basic dXNlcjpwYXNz")
+BASIC_AUTH_HEADER_PREFIX: str = f'{AuthMethod.BASIC.value} '
+
+# The cloud API-key header a subscription's external automation sends next to its Basic credentials
+API_KEY_HEADER: str = 'x-api-key'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_cached_user_manager() -> CachedUserManager:
@@ -89,72 +102,38 @@ def get_cached_user_manager() -> CachedUserManager:
     return CachedUserManager(current_app.database_manager)
 
 
-def user_has_right(required_right: str, request_user: CmdbUser | None = None) -> bool:
+def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
     """
-    Determine whether a user has the specified access right
+    Determine whether a user holds the specified access right
 
-    This function checks whether the user has the given `required_right` either via:
-    - A provided `CmdbUser` object (typically used in cloud API contexts), or
-    - A token extracted from the request's Authorization header in non-cloud or Open Source mode
+    The user is the one `insert_request_user` resolved for the request - `APIBlueprint.protect` runs
+    below it and hands it in, so nothing here reads the token or the user again. The right is held
+    directly or through an extended (wildcard) right of the user's group. A user whose group no longer
+    exists authenticates but holds no right
 
-    The function supports both basic and extended rights and includes handling for token validation
-    and user/group resolution based on application mode (cloud or local).
+    A failure to READ the group is not answered here: it propagates, so a database outage is reported
+    as one instead of as a missing right
 
     Args:
         required_right (str): The permission/right to verify
-        request_user (CmdbUser | None): The user object (if already available). If not provided,
-                                           the user will be determined via the Authorization token
-
-    Returns:
-        bool: True if the user has the required right (or extended right), False otherwise
+        request_user (CmdbUser): The authenticated user of the request
 
     Raises:
-        Exception: If the token is missing or invalid (401 Unauthorized)
+        BaseManagerInitError | GroupsManagerGetError: When the user's group could not be read, or a
+            cloud user carries no database to read it from
+
+    Returns:
+        bool: True if the user's group holds the right or an extended right of it, False otherwise
     """
-    # Check right for cloud api routes
-    if request_user:
-        return validate_right_cloud_api(required_right, request_user)
+    # The provider binds the user's tenant database in cloud mode only - a manager given a database
+    # uses it in every mode, and an on-premise user carries the model's default name
+    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+    group = groups_manager.get_group(request_user.group_id)
 
-    # OpenSource check for rights
-    with current_app.app_context():
-        users_manager = UsersManager(current_app.database_manager)
-        groups_manager = GroupsManager(current_app.database_manager)
-
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        abort(401, "No Authorization header provided!")
-
-    token = parse_authorization_header(auth_header)
-
-    try:
-        decrypted_token = decode_request_token(token)
-    except TokenKeyMaterialError as err:
-        LOGGER.error("[user_has_right] TokenKeyMaterialError: %s", err, exc_info=True)
-        abort(500, "The token could not be verified because of a server-side key problem!")
-    except TokenValidationError as err:
-        LOGGER.debug("[user_has_right] Error: %s", err)
-        abort(401, "Invalid token!")
-
-    try:
-        user_claim = token_user_claim(decrypted_token)
-        user_id = user_claim['public_id']
-
-        if current_app.cloud_mode:
-            database = user_claim['database']
-            users_manager = UsersManager(current_app.database_manager, database)
-            groups_manager = GroupsManager(current_app.database_manager, database)
-
-        user = users_manager.get_user(user_id)
-        group = groups_manager.get_group(user.group_id)
-        right_status = group.has_right(required_right)
-
-        if not right_status:
-            right_status = group.has_extended_right(required_right)
-
-        return right_status
-
-    except Exception:
+    if group is None:
         return False
+
+    return group.has_right(required_right) or group.has_extended_right(required_right)
 
 
 def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -296,8 +275,11 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
     Returns a decorator that:
     - Extracts query parameters from the current request (via `request.args.to_dict()`)
     - Injects them as the FIRST positional argument of the decorated function
-    - Forwards any remaining positional/keyword arguments (e.g. a `request_user` injected by an
-      inner decorator) unchanged
+    - Forwards any remaining positional/keyword arguments (e.g. the `request_user` the
+      authentication decorators above it injected) unchanged
+
+    Like every parser it sits BELOW the authentication decorators, so it reads the request of a
+    caller who has already been identified
 
     Used only by the DataGerry assistant route. It is a plain request decorator like the others here,
     so it lives with them rather than on a blueprint type
@@ -323,6 +305,54 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
     return _parse
 
 
+def request_uses_basic_auth() -> bool:
+    """
+    Whether the current request authenticates with HTTP Basic credentials
+
+    The scheme is matched case-insensitively: `parse_authorization_header` lowercases it before
+    accepting it, so a lowercase "basic " header authenticates too
+
+    Returns:
+        bool: True if the `Authorization` header carries the Basic scheme
+    """
+    auth_header: str | None = request.headers.get(AUTHORIZATION_HEADER)
+
+    return bool(auth_header) and auth_header.lower().startswith(BASIC_AUTH_HEADER_PREFIX.lower())
+
+
+def request_authenticates_by_api_key() -> bool:
+    """
+    Whether `verify_api_access`, not `insert_request_user`, authenticates the current request
+
+    In cloud mode an `x-api-key` request with HTTP Basic credentials is checked against the Service
+    Portal by `verify_api_access`, which also resolves and injects the request user. The key alone
+    decides nothing: with a Bearer token the request is resolved from the token like any other
+
+    Returns:
+        bool: True for a cloud-mode request carrying an `x-api-key` header and Basic credentials
+    """
+    return bool(current_app.cloud_mode) and API_KEY_HEADER in request.headers and request_uses_basic_auth()
+
+
+def refuse_inactive_user(user: CmdbUser) -> None:
+    """
+    Refuses a CmdbUser whose account is deactivated
+
+    The one spelling of the rule, shared by the login and by every request: a user stored with
+    `active: false` gets no token and cannot use one issued before. It runs only after the caller has
+    authenticated - the password verified or the token decoded - so a caller without either never
+    learns whether the account exists or is deactivated
+
+    Args:
+        user (CmdbUser): The authenticated user
+
+    Raises:
+        HTTPException: 401 when the account is deactivated
+    """
+    if not user.active:
+        abort(401, USER_DEACTIVATED_MESSAGE)
+
+
 def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     Decorator that injects the authenticated user into a route handler as `request_user`
@@ -331,8 +361,15 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     retrieves the user based on the token contents, and adds the `request_user` keyword argument
     to the wrapped function. It supports both cloud and non-cloud modes
 
-    In cloud mode, requests with an `x-api-key` header are assumed to have already been authenticated
-    via a different mechanism and are passed through without further token validation
+    In cloud mode, an `x-api-key` request with HTTP Basic credentials is authenticated by
+    `verify_api_access` instead, which injects the request user, so it is passed through without token
+    validation (see `request_authenticates_by_api_key`). An `x-api-key` next to a Bearer token is
+    resolved from the token like any other request
+
+    Once the user is resolved, a deactivated account is refused, and then the licence gates are
+    enforced (`license_guard.enforce_request_licenses`): the feature of a gated blueprint and, for
+    HTTP Basic credentials, the REST API feature. Running them here - after authentication - is what
+    keeps the licence state from a caller without valid credentials
 
     Args:
         func (Callable): The route function to decorate
@@ -342,17 +379,18 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
     Raises:
         werkzeug.exceptions.HTTPException: Returns a 401 Unauthorized error if token validation fails
-                                           or the user cannot be resolved.
+                                           or the user cannot be resolved, and a 403 when a feature
+                                           the request needs is not licensed.
     """
     @functools.wraps(func)
     def get_request_user(*args: Any, **kwargs: Any) -> Any:
         with current_app.app_context():
             users_manager: UsersManager = UsersManager(current_app.database_manager)
-        try:
-            # If the request comes from API then the request_user will be set in verify_api_access - method
-            if current_app.cloud_mode and "x-api-key" in request.headers:
-                return func(*args, **kwargs)
+        # Outside the try below: an error raised by the route is the route's, not a token failure
+        if request_authenticates_by_api_key():
+            return func(*args, **kwargs)
 
+        try:
             auth_header = request.headers.get('Authorization')
             if not auth_header:
                 abort(401, "No Authorization header provided!")
@@ -386,11 +424,22 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
                 kwargs.update({'request_user': user})
             else:
                 abort(401, "Invalid user!")
+        except HTTPException as http_err:
+            raise http_err
         except ValueError:
             abort(401)
         except Exception as err:
             LOGGER.error("[insert_request_user] User Exception: %s, Type: %s", err, type(err))
             abort(401)
+
+        # Read on every request, so a deactivation takes effect on the token's next use
+        refuse_inactive_user(kwargs['request_user'])
+
+        # Only an authenticated caller learns whether a feature is licensed. Deferred: the routes
+        # package imports this module, so a module-level import of the guard is a cycle
+        # pylint: disable-next=import-outside-toplevel
+        from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_request_licenses
+        enforce_request_licenses(kwargs['request_user'], request_uses_basic_auth())
 
         return func(*args, **kwargs)
 
@@ -435,10 +484,12 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
                         set_admin_user(user_instance, user_instance['subscriptions'][0])
                         user_model = retrieve_user(user_instance, user_instance['subscriptions'][0]['database'])
 
-                        if user_model:
-                            kwargs.update({'request_user': user_model})
-                        else:
+                        if not user_model:
                             abort(403, "User not found!")
+
+                        # The portal accepted the credentials; this tenant's own flag still decides
+                        refuse_inactive_user(user_model)
+                        kwargs.update({'request_user': user_model})
 
                     if not __check_api_level(user_instance, required_api_level):
                         abort(403, "No permission for this action!")
@@ -461,7 +512,7 @@ def __get_x_api_key() -> str | None:
     Returns:
         str | None: The value of the 'x-api-key' header if present, otherwise None
     """
-    x_api_key: str | None = request.headers.get('x-api-key')
+    x_api_key: str | None = request.headers.get(API_KEY_HEADER)
 
     return x_api_key
 
@@ -799,38 +850,6 @@ def _validate_bearer(auth_info: str) -> str | None:
 
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #
 
-def validate_right_cloud_api(required_right: str, request_user: CmdbUser) -> bool:
-    """
-    Validate whether the user has the required rights in a cloud-based API
-
-    This function checks if the given user has the necessary permissions within their group.
-    It first verifies if the user has the direct right and then checks for extended rights
-
-    Args:
-        required_right (str): The permission right to be validated
-        request_user (CmdbUser): The user whose rights need to be validated
-
-    Returns:
-        bool: 
-            - `True` if the user has the required right or an extended right
-            - `False` if the user lacks the required permissions or an error occurs
-    """
-    with current_app.app_context():
-        groups_manager = GroupsManager(current_app.database_manager, request_user.database)
-
-    try:
-        group = groups_manager.get_group(request_user.group_id)
-        right_status = group.has_right(required_right)
-
-        if not right_status:
-            right_status = group.has_extended_right(required_right)
-
-        return right_status
-    except Exception as err:
-        LOGGER.debug("[validate_right_cloud_api] Exception: %s, Type: %s", err, type(err))
-        return False
-
-
 def check_user_in_service_portal(
     email: str,
     password: str,
@@ -1092,7 +1111,9 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
     Ensures an admin user exists for a subscription's database (cloud mode)
 
     Creates the admin user in the subscription's database when it is missing; otherwise updates the
-    existing user's database, api_level and config_items_limit from the subscription
+    existing user's database, api_level and config_items_limit from the subscription. Both numbers
+    are converted with int() once, before either branch, so a created and an updated user store the
+    same type - a string limit on the user would make every later limit check fail with a TypeError
 
     Args:
         user_data (dict[str, Any]): The portal user data (email, user_name, password)
@@ -1100,13 +1121,16 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
 
     Raises:
         UsersManagerGetError: If reading the existing user fails
-        UsersManagerInsertError: If creating/updating the admin user fails
+        UsersManagerInsertError: If creating/updating the admin user fails, including a subscription
+            whose api_level or config_item_limit is not a number
     """
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, subscription['database'])
         scm = SecurityManager(current_app.database_manager, subscription['database'])
 
     try:
+        api_level: int = int(subscription['api_level'])
+        config_items_limit: int = int(subscription['config_item_limit'])
         admin_user_from_db = None
 
         try:
@@ -1121,8 +1145,8 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
                 email = user_data['email'],
                 database = subscription['database'],
                 active = True,
-                api_level = int(subscription['api_level']),
-                config_items_limit = int(subscription['config_item_limit']),
+                api_level = api_level,
+                config_items_limit = config_items_limit,
                 group_id = 1,
                 registration_time = datetime.now(timezone.utc),
                 password = scm.generate_hmac(user_data['password']),
@@ -1130,9 +1154,9 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
 
             users_manager.insert_user(admin_user)
         else: # Update the database, api-level and config_items_limit of user
-            admin_user_from_db.api_level = subscription['api_level']
+            admin_user_from_db.api_level = api_level
             admin_user_from_db.database = subscription['database']
-            admin_user_from_db.config_items_limit = subscription['config_item_limit']
+            admin_user_from_db.config_items_limit = config_items_limit
 
             users_manager.update_user(admin_user_from_db.get_public_id(), admin_user_from_db)
 

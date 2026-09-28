@@ -98,7 +98,7 @@ def _stored(**overrides: Any) -> dict[str, Any]:
 
 
 class TestTimestampsBecomeRealDates:
-    """The defect this sweep was scheduled for, pinned from the model's side."""
+    """Every stored timestamp shape reads back as a real datetime, pinned from the model's side."""
 
     @pytest.mark.parametrize('shape, value', [
         ('wrapper', {'$date': STAMP_MILLIS}),

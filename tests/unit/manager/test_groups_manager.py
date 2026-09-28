@@ -19,8 +19,7 @@ Unit tests for cmdb.manager.groups_manager.GroupsManager
 Pure tests: no Mongo. The override methods (``insert_group``, ``get_group``, ``update_group``,
 ``delete_group``) and the rights-cache init are exercised against a MagicMock standing in for the
 manager instance. The one-line delegation ``iterate`` is intentionally outside the scope - it is
-covered transitively by the GenericManager unit suite and the integration tests in
-tests/integration/management
+covered transitively by the GenericManager unit suite and the management integration tests
 """
 # pylint: disable=protected-access
 from typing import Any

@@ -16,7 +16,8 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.cmdb_license.license_guard
 
-Pure tests of the requires_feature decorator and the request_has_feature helper. A minimal Flask
+Pure tests of the requires_feature decorator, the blueprint gate, the after-authentication enforcement
+and the request_has_feature helper. A minimal Flask
 app supplies the request/app context so current_app, flask.g and abort work without booting the REST
 API, and ManagerProvider.get_manager is patched to hand back a stub LicenseService. Each branch is
 exercised in isolation: cloud/local pass-through, feature present/absent, the missing-request_user
@@ -28,19 +29,22 @@ from http import HTTPStatus
 from typing import Any, Callable
 
 import pytest
-from flask import Blueprint, Flask
+from flask import Blueprint, Flask, g
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.cmdb_license import license_guard
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
-    BASIC_AUTH_HEADER_PREFIX,
     abort_if_feature_locked,
-    enforce_rest_api_license,
+    GATED_FEATURE_ATTR,
+    LICENSE_REQUIRED_FEATURES_ATTR,
+    enforce_request_licenses,
     feature_locked,
     gate_blueprint,
     request_has_feature,
+    require_feature_for_request,
     requires_feature,
 )
+from cmdb.interface.route_utils import AUTHORIZATION_HEADER, BASIC_AUTH_HEADER_PREFIX
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -51,10 +55,8 @@ GATED_ROUTE: str = '/gated'
 VIEW_RESULT: str = 'view-ran'
 
 # Fixtures for the REST-API (Basic-auth) lock tests
-AUTHORIZATION_HEADER: str = 'Authorization'
 BASIC_AUTH_HEADER: str = BASIC_AUTH_HEADER_PREFIX + base64.b64encode(b'user:pass').decode('utf-8')
 BEARER_AUTH_HEADER: str = 'Bearer some.jwt.token'
-OPTIONS_METHOD: str = 'OPTIONS'
 
 
 class _StubLicenseService:
@@ -247,8 +249,14 @@ def test_cache_does_not_leak_across_requests(
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          gate_blueprint (whole-blueprint lock)                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _build_gated_client(cloud_mode: bool = False, local_mode: bool = False):
-    """Builds a test client for an app whose single-route blueprint is gated by gate_blueprint"""
+def _build_gated_client(cloud_mode: bool = False, local_mode: bool = False, authenticate: bool = True):
+    """
+    Builds a test client for an app whose single-route blueprint is gated by gate_blueprint
+
+    With `authenticate` the view stands in for a route under `insert_request_user`: it runs
+    `enforce_request_licenses` first, as that decorator does once the caller is known. Without it the
+    view never enforces - what a route missing the decorator would do
+    """
     application = Flask(__name__)
     application.cloud_mode = cloud_mode
     application.local_mode = local_mode
@@ -257,6 +265,9 @@ def _build_gated_client(cloud_mode: bool = False, local_mode: bool = False):
 
     @blueprint.route(GATED_ROUTE)
     def _view() -> str:
+        if authenticate:
+            enforce_request_licenses(REQUEST_USER_SENTINEL, False)
+
         return VIEW_RESULT
 
     # Must gate BEFORE registering (Flask runs the blueprint's deferred setup at registration time)
@@ -289,6 +300,32 @@ def test_gate_blueprint_allows_route_when_licensed(
     assert response.get_data(as_text=True) == VIEW_RESULT
 
 
+def test_the_gate_hook_itself_never_refuses(
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """
+    The hook only records the feature - it runs before any route decorator, so it must not answer
+
+    The view here never enforces, so an unlicensed request reaching it proves the hook let it through
+    and never consulted the licence: a refusal is left to the route, after authentication
+    """
+    stub = install_service(set())
+    client = _build_gated_client(authenticate=False)
+
+    assert client.get(GATED_ROUTE).status_code == HTTPStatus.OK
+    assert stub.call_count == 0
+
+
+def test_the_gate_hook_names_its_feature() -> None:
+    """The hook carries its feature, which is how a census finds the gated blueprints"""
+    blueprint = Blueprint('named_bp', __name__)
+    gate_blueprint(blueprint, GATED_FEATURE)
+
+    (hook,) = blueprint.before_request_funcs[None]
+
+    assert getattr(hook, GATED_FEATURE_ATTR) == GATED_FEATURE
+
+
 def test_gate_blueprint_passes_through_in_local_mode(
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
@@ -319,16 +356,45 @@ def test_gate_blueprint_does_not_block_options_preflight(
 
     The browser sends an unauthenticated OPTIONS before a real cross-origin request and requires a
     2xx on it. Gating the preflight (403) would fail the browser check before the real request is
-    sent. The gate must skip OPTIONS so Flask's automatic preflight handling answers it; this pins
-    that behaviour directly on gate_blueprint, independently of the REST API's flask-cors setup.
+    sent. Flask answers the preflight itself without running the view, so the enforcement - which
+    lives in the route - never runs; this pins that directly on gate_blueprint, independently of the
+    REST API's flask-cors setup.
     """
     stub = install_service(set())
     client = _build_gated_client()
 
     response = client.options(GATED_ROUTE)
 
-    assert response.status_code != HTTPStatus.FORBIDDEN
     assert response.status_code == HTTPStatus.OK
+    assert stub.call_count == 0
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          require_feature_for_request                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_a_required_feature_is_recorded_once(app: Flask) -> None:
+    """Recording the same feature twice keeps one entry, so it is checked once"""
+    with app.test_request_context():
+        require_feature_for_request(GATED_FEATURE)
+        require_feature_for_request(GATED_FEATURE)
+        require_feature_for_request(LicenseFeature.ISMS)
+
+        assert getattr(g, LICENSE_REQUIRED_FEATURES_ATTR) == [GATED_FEATURE, LicenseFeature.ISMS]
+
+
+def test_required_features_do_not_leak_across_requests(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """A feature one request recorded is not required of the next"""
+    stub = install_service(set())
+
+    with app.test_request_context():
+        require_feature_for_request(GATED_FEATURE)
+
+    with app.test_request_context():
+        enforce_request_licenses(REQUEST_USER_SENTINEL, False)  # must not raise
+
     assert stub.call_count == 0
 
 
@@ -411,101 +477,139 @@ def test_abort_if_feature_locked_is_noop_when_licensed(
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                          enforce_rest_api_license (Basic-auth lock)                                  #
+#                                          enforce_request_licenses                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
+def test_nothing_required_means_nothing_checked(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """An ungated route with a Bearer caller never consults the licence"""
+    stub = install_service(set())
+
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BEARER_AUTH_HEADER}):
+        enforce_request_licenses(REQUEST_USER_SENTINEL, False)  # must not raise
+
+    assert stub.call_count == 0
+
+
+def test_a_recorded_feature_is_enforced(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """The feature a gated blueprint recorded is refused with 403 naming it"""
+    install_service(set())
+
+    with app.test_request_context():
+        require_feature_for_request(LicenseFeature.ISMS)
+
+        with pytest.raises(HTTPException) as exc_info:
+            enforce_request_licenses(REQUEST_USER_SENTINEL, False)
+
+    assert exc_info.value.code == HTTPStatus.FORBIDDEN
+    assert exc_info.value.description == 'The ISMS feature requires a valid license!'
+
+
+def test_a_licensed_recorded_feature_passes(
+    app: Flask,
+    install_service: Callable[[set[str]], _StubLicenseService],
+) -> None:
+    """A licensed feature is let through"""
+    install_service({LicenseFeature.ISMS.value})
+
+    with app.test_request_context():
+        require_feature_for_request(LicenseFeature.ISMS)
+        enforce_request_licenses(REQUEST_USER_SENTINEL, False)  # must not raise
+
+
+def test_the_request_user_reaches_the_licence_lookup(
+    app: Flask,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The authenticated user is what the LicenseService is resolved for"""
+    seen: list[Any] = []
+
+    def _get_manager(_manager_type: Any, request_user: Any) -> _StubLicenseService:
+        seen.append(request_user)
+        return _StubLicenseService({LicenseFeature.ISMS.value})
+
+    monkeypatch.setattr(license_guard.ManagerProvider, 'get_manager', _get_manager)
+
+    with app.test_request_context():
+        require_feature_for_request(LicenseFeature.ISMS)
+        enforce_request_licenses(REQUEST_USER_SENTINEL, False)
+
+    assert seen == [REQUEST_USER_SENTINEL]
+
+
 def test_rest_lock_blocks_basic_auth_when_unlicensed(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """On-premise, a Basic-auth request is blocked with 403 when REST_API is not licensed"""
+    """On-premise, a Basic-auth caller is refused with 403 when REST_API is not licensed"""
     install_service(set())
 
     with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
         with pytest.raises(HTTPException) as exc_info:
-            enforce_rest_api_license()
+            enforce_request_licenses(REQUEST_USER_SENTINEL, True)
 
     assert exc_info.value.code == HTTPStatus.FORBIDDEN
+    assert exc_info.value.description == 'The REST API feature requires a valid license!'
 
 
 def test_rest_lock_allows_basic_auth_when_licensed(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """On-premise, a Basic-auth request passes when REST_API is licensed"""
+    """On-premise, a Basic-auth caller passes when REST_API is licensed"""
     install_service({LicenseFeature.REST_API.value})
 
     with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
-        enforce_rest_api_license()  # must not raise
+        enforce_request_licenses(REQUEST_USER_SENTINEL, True)  # must not raise
 
 
-def test_rest_lock_blocks_lowercase_basic_scheme_when_unlicensed(
+def test_the_rest_api_is_checked_before_the_blueprint_feature(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """A lowercase 'basic ' scheme still authenticates upstream, so it must be gated too"""
+    """A Basic caller on an unlicensed gated route is told about the channel first"""
     install_service(set())
-    lowercase_basic_header: str = BASIC_AUTH_HEADER.lower()
 
-    with app.test_request_context(headers={AUTHORIZATION_HEADER: lowercase_basic_header}):
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
+        require_feature_for_request(LicenseFeature.ISMS)
+
         with pytest.raises(HTTPException) as exc_info:
-            enforce_rest_api_license()
+            enforce_request_licenses(REQUEST_USER_SENTINEL, True)
 
-    assert exc_info.value.code == HTTPStatus.FORBIDDEN
+    assert exc_info.value.description == 'The REST API feature requires a valid license!'
 
 
-def test_rest_lock_allows_bearer_even_when_unlicensed(
+def test_a_basic_caller_still_needs_the_blueprint_feature(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """A Bearer (JWT) request is never gated - the UI keeps working when REST_API is unlicensed"""
-    stub = install_service(set())
+    """REST_API licensed does not unlock the gated blueprint's own feature"""
+    install_service({LicenseFeature.REST_API.value})
 
-    with app.test_request_context(headers={AUTHORIZATION_HEADER: BEARER_AUTH_HEADER}):
-        enforce_rest_api_license()  # must not raise
+    with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
+        require_feature_for_request(LicenseFeature.ISMS)
 
-    # The license is never consulted for a non-Basic request
-    assert stub.call_count == 0
+        with pytest.raises(HTTPException) as exc_info:
+            enforce_request_licenses(REQUEST_USER_SENTINEL, True)
 
-
-def test_rest_lock_allows_request_without_authorization_header(
-    app: Flask,
-    install_service: Callable[[set[str]], _StubLicenseService],
-) -> None:
-    """A request without an Authorization header (e.g. POST /auth/login) is never gated"""
-    stub = install_service(set())
-
-    with app.test_request_context():
-        enforce_rest_api_license()  # must not raise
-
-    assert stub.call_count == 0
-
-
-def test_rest_lock_does_not_block_options_preflight(
-    app: Flask,
-    install_service: Callable[[set[str]], _StubLicenseService],
-) -> None:
-    """An OPTIONS preflight carrying a Basic header is never gated and never consults the license"""
-    stub = install_service(set())
-
-    with app.test_request_context(
-        method=OPTIONS_METHOD,
-        headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER},
-    ):
-        enforce_rest_api_license()  # must not raise
-
-    assert stub.call_count == 0
+    assert exc_info.value.description == 'The ISMS feature requires a valid license!'
 
 
 def test_rest_lock_passes_through_in_cloud_mode(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """In cloud mode a Basic-auth request is never gated and the license is never consulted"""
+    """In cloud mode nothing is refused and the license is never consulted"""
     app.cloud_mode = True
     stub = install_service(set())
 
     with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
-        enforce_rest_api_license()  # must not raise
+        require_feature_for_request(LicenseFeature.ISMS)
+        enforce_request_licenses(REQUEST_USER_SENTINEL, True)  # must not raise
 
     assert stub.call_count == 0
 
@@ -514,11 +618,12 @@ def test_rest_lock_passes_through_in_local_mode(
     app: Flask,
     install_service: Callable[[set[str]], _StubLicenseService],
 ) -> None:
-    """In local mode a Basic-auth request is never gated and the license is never consulted"""
+    """In local mode nothing is refused and the license is never consulted"""
     app.local_mode = True
     stub = install_service(set())
 
     with app.test_request_context(headers={AUTHORIZATION_HEADER: BASIC_AUTH_HEADER}):
-        enforce_rest_api_license()  # must not raise
+        require_feature_for_request(LicenseFeature.ISMS)
+        enforce_request_licenses(REQUEST_USER_SENTINEL, True)  # must not raise
 
     assert stub.call_count == 0

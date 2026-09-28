@@ -37,7 +37,11 @@ from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.importer.importers.base_importer import BaseImporter
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
-from cmdb.framework.importer.importer_constants import UNEXPECTED_OBJECT_IMPORT_ERROR
+from cmdb.framework.importer.importer_constants import (
+    UNEXPECTED_OBJECT_IMPORT_ERROR,
+    OBJECT_INSERTED_COUNT_DELTA,
+    OBJECT_DELETED_COUNT_DELTA,
+)
 from cmdb.framework.importer.helper.object_import_validator import (
     normalize_and_validate_object,
     build_import_type_context,
@@ -95,6 +99,10 @@ class ObjectImporter(BaseImporter):
         # importer is built and assigns it here, so the import does not read it a second time;
         # `resolve_target_type` falls back to reading it for any other caller
         self.target_type: CmdbType | None = None
+        # How many CmdbObjects are stored, counted once when the ConfigItem limit is first checked
+        # (cloud mode) and then kept current by this import's own deletes and inserts - see
+        # `_stored_object_count`. None until that first check
+        self._object_count: int | None = None
 
         super().__init__(file=file, file_type=file_type, config=config)
 
@@ -502,6 +510,7 @@ class ObjectImporter(BaseImporter):
         if existing:
             #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
             self.objects_manager.delete_with_follow_up(public_id, self.request_user)
+            self._track_object_count_change(OBJECT_DELETED_COUNT_DELTA)
         elif not public_id:
             # New object without an id -> assign a fresh public_id
             public_id = self.objects_manager.get_new_object_public_id()
@@ -511,6 +520,7 @@ class ObjectImporter(BaseImporter):
             raise ObjectsManagerInsertError("Config item limit reached!")
 
         self.objects_manager.insert_object(current_import_object)
+        self._track_object_count_change(OBJECT_INSERTED_COUNT_DELTA)
 
         return public_id
 
@@ -537,7 +547,11 @@ class ObjectImporter(BaseImporter):
 
     def check_config_item_limit_reached(self, request_user: CmdbUser) -> bool:
         """
-        Checks if the ConfigItem Limit of the User has been reached
+        Checks if the ConfigItem limit of the user has been reached
+
+        Asks the same rule the object route asks (`CmdbUser.is_config_item_limit_reached`), so an
+        import and a single create refuse at the same count. The count comes from
+        `_stored_object_count`, which reads the database once per import rather than once per object
 
         Args:
             request_user (CmdbUser): User requesting this operation
@@ -545,6 +559,36 @@ class ObjectImporter(BaseImporter):
         Returns:
             bool: True if the limit has been reached, else False
         """
-        objects_count: int = self.objects_manager.count_documents()
+        return request_user.is_config_item_limit_reached(self._stored_object_count())
 
-        return objects_count >= request_user.config_items_limit
+
+    def _stored_object_count(self) -> int:
+        """
+        Answers how many CmdbObjects are stored, reading the database only the first time
+
+        Later calls answer the first count as adjusted by `_track_object_count_change` for every
+        delete and insert this import made. Writes by other requests during the import are not seen,
+        which is the same window the object route has between its count and its insert
+
+        Returns:
+            int: The number of stored CmdbObjects
+        """
+        if self._object_count is None:
+            self._object_count = self.objects_manager.count_documents()
+
+        return self._object_count
+
+
+    def _track_object_count_change(self, delta: int) -> None:
+        """
+        Keeps the counted number of stored CmdbObjects in step with a write this import made
+
+        Does nothing until something has counted - a later first count reads the database, which
+        already includes the write
+
+        Args:
+            delta (int): OBJECT_INSERTED_COUNT_DELTA after an insert, OBJECT_DELETED_COUNT_DELTA
+                after a delete
+        """
+        if self._object_count is not None:
+            self._object_count += delta

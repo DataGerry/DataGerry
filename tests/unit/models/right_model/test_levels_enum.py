@@ -18,9 +18,8 @@ Unit tests for cmdb.models.right_model.levels_enum
 
 Pure: no Mongo, no Flask. `Levels.as_name_map` is the catalogue `GET /rest/rights/levels` serves, so
 these tests are about a WIRE format: which names appear, which numbers they carry and in which order.
-The mapping used to be a hand-written dict in the constants module, and the tests that kept it in
-step with the enum are what these replace - a derivation cannot drift, but it can still be reordered
-or reshaped by a change to the enum itself.
+The mapping is derived from the enum, so it cannot drift from it, but it can still be reordered or
+reshaped by a change to the enum itself.
 
 The ordering is load-bearing twice over: `BaseRight`'s MIN_LEVEL / MAX_LEVEL bounds compare members
 (pinned in `test_base_right.py`), and the JSON object preserves insertion order for the catalogue.

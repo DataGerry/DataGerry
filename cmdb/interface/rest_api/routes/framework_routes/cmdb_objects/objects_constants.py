@@ -23,6 +23,7 @@ REST surface: query parameters, response keys and the routes' own limits
 """
 from cmdb.utils import BaseStrEnum
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_LOST_MARKER
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -41,6 +42,11 @@ __all__: list[str] = [
 # Maximum number of type groups returned for the dashboard chart by the group-by route. The chart shows
 # the biggest groups only, so the route stops collecting once it has this many
 MAX_DASHBOARD_GROUPS: int = 5
+
+# The CmdbObject fields `GET /objects/group/<value>` may group by. Every group id is resolved as a CmdbType,
+# so no other field could answer
+GROUPABLE_OBJECT_FIELDS: frozenset[str] = frozenset({CmdbObjectKey.TYPE_ID.value})
+OBJECT_GROUP_FIELD_REFUSED_MESSAGE: str = "Objects can only be grouped by 'type_id', not by '{field}'!"
 
 # Joins the per-scope messages of a rejected write when several required fields are left without a
 # value (one message for the top-level fields, one per multi-data section)

@@ -24,8 +24,8 @@ cascade and the mapping of every BaseManager failure onto this manager's error f
 
 The group-delete redistribution gets the most attention here, because a mistake in it is silent: a
 user left pointing at a deleted group still authenticates but is refused every right (see
-``route_utils.user_has_right``, which resolves their group to None). The same paths are pinned
-against real MongoDB in tests/integration/management/test_integration_users_manager_extra.py.
+``route_utils.user_has_right``, which resolves their group to None). The same paths also run
+against real MongoDB in the integration tier.
 """
 # pylint: disable=protected-access
 from typing import Any

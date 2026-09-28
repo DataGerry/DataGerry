@@ -44,7 +44,6 @@ from cmdb.manager import CategoriesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
-from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
@@ -71,7 +70,7 @@ from cmdb.errors.manager.categories_manager import (
     CategoriesManagerIterationError,
     CategoriesManagerTreeInitError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -321,9 +320,7 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> 
 
         if not to_update_category:
             abort(404, f"The Category with ID:{public_id} was not found!")
-
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[CmdbObjectKey.PUBLIC_ID] = public_id
+        pin_public_id(data, public_id)
 
         rejection: str | None = categories_manager.validate_parent_assignment(
             public_id, data.get(CategoryKey.PARENT),

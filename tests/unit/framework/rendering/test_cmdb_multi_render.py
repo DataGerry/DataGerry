@@ -23,6 +23,7 @@ object linking, the reference merges and the decomposed field/section merge help
 """
 from datetime import datetime
 from types import SimpleNamespace
+from typing import Any
 import logging
 from unittest.mock import Mock, patch
 
@@ -33,6 +34,9 @@ from cmdb.framework.rendering import cmdb_multi_render as mr_module
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_constants import (
     ANONYMOUS_NAME,
+    DEFAULT_RENDER_LEVEL,
+    RenderProblemCode,
+    RenderProblemKey,
     RenderedFieldKey,
     RenderedLocationReferenceKey,
     RenderedReferenceSectionKey,
@@ -45,6 +49,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model.type_reference import TypeReference
+from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError
 from tests.utils.ipam_doc_builders import make_type_doc
@@ -67,6 +72,9 @@ EXT_NAME: str = 'ext'
 # Declared by the TYPE but carried by no object - what a field added to a type looks like until the
 # existing objects are saved again
 MISSING_ON_OBJECT_FIELD: str = 'added-after-the-objects'
+
+# Listed by a section, declared by no type: what a stored type written without the structure guard holds
+GHOST_FIELD: str = 'ghost'
 
 MAIN_NAME_VALUE: str = 'Main'
 REF_NAME_VALUE: str = 'RefTarget'
@@ -794,6 +802,56 @@ class TestMergeReferences:
 
         assert self._merge(render, {'value': REF_OBJ_ID})['object_id'] == 0
 
+    def _merge_entry(self, managers, caplog, entry: dict[str, Any]) -> dict[str, Any]:
+        """Renders the reference with one nested-summary entry for the referenced type; no WARNING allowed."""
+        render = _render(managers, [], objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REF_TYPE_ID: _ref_type()})
+
+        with caplog.at_level('WARNING'):
+            reference = self._merge(render, {'name': REF_FIELD, 'value': REF_OBJ_ID, 'summaries': [entry]})
+
+        assert caplog.text == ''
+        assert reference['type_id'] == REF_TYPE_ID
+
+        return reference
+
+    def test_an_entry_without_prefix_renders_with_the_schema_default(self, managers, caplog) -> None:
+        """What the type import stores as sent renders as the type route would have stored it"""
+        reference = self._merge_entry(managers, caplog, {'type_id': REF_TYPE_ID, 'line': 'Device {}',
+                                                         'fields': [NAME_FIELD]})
+
+        assert reference['prefix'] is True
+        assert reference['line'] == f'Device {REF_NAME_VALUE}'
+
+    def test_an_entry_without_fields_renders_its_line(self, managers, caplog) -> None:
+        """No `fields` is an empty list: a static line is shown as it is"""
+        reference = self._merge_entry(managers, caplog, {'type_id': REF_TYPE_ID, 'line': 'See the rack plan',
+                                                         'prefix': False})
+
+        assert reference['line'] == 'See the rack plan'
+        assert reference['summaries'] == []
+
+    def test_an_entry_without_a_line_renders_its_summary_fields(self, managers, caplog) -> None:
+        """No `line` is no line: the entry's summary fields are what the reference shows"""
+        reference = self._merge_entry(managers, caplog, {'type_id': REF_TYPE_ID, 'fields': [NAME_FIELD],
+                                                         'prefix': False})
+
+        assert reference['line'] is None
+        assert [summary['value'] for summary in reference['summaries']] == [REF_NAME_VALUE]
+
+    def test_a_reference_that_cannot_be_built_is_reported(self, managers, caplog, monkeypatch) -> None:
+        """The degraded answer is logged at WARNING, naming the field and the referenced object"""
+        render = _render(managers, [], objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={REF_TYPE_ID: _ref_type()})
+        monkeypatch.setattr(CmdbType, 'has_nested_prefix', Mock(side_effect=KeyError('prefix')))
+
+        with caplog.at_level('WARNING'):
+            reference = self._merge(render, {'name': REF_FIELD, 'value': REF_OBJ_ID})
+
+        assert reference['summaries'] == []
+        assert REF_FIELD in caplog.text
+        assert str(REF_OBJ_ID) in caplog.text
+
 
 class TestMergeFieldsValue:
     """__merge_fields_value and its section helpers build the merged field list."""
@@ -1268,18 +1326,23 @@ class TestExternalsEdgeCases:
 class TestMergeErrorBranches:
     """Field/section merges degrade gracefully when a definition cannot be resolved."""
 
-    def test_plain_section_field_merge_error_nulls_value(self, managers) -> None:
-        """A section field the type cannot resolve degrades to a null value."""
+    def test_a_section_field_the_type_does_not_declare_is_left_out(self, managers) -> None:
+        """
+        A name the section lists but the type does not declare answers no entry at all
+
+        There is no definition to answer it with, and an entry holding only a value - no name, no
+        type - is one no consumer can read
+        """
         bad_type = CmdbType.from_data(make_type_doc(
             MAIN_TYPE_ID, 'bad-type',
             fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}],
-            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': ['ghost']}],
+            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [GHOST_FIELD, NAME_FIELD]}],
         ))
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: bad_type})
 
         fields = render._CmdbMultiRender__merge_fields_value(_obj(MAIN_OBJ_ID, MAIN_TYPE_ID, []), bad_type, 3)
 
-        assert fields[0]['value'] is None
+        assert [field['name'] for field in fields] == [NAME_FIELD]
 
     def test_orphan_reference_section_field_skipped(self, managers) -> None:
         """A ref-section whose implicit '<name>-field' is undefined is skipped."""
@@ -1362,6 +1425,25 @@ class TestMergeReferencesSummaryLine:
 
         assert reference['line'] == 'Static'
         assert reference['summaries'] == []
+
+    def test_no_line_keeps_the_summaries_the_frontend_shows(self, managers) -> None:
+        """
+        Without a nested summary line the summaries stay filled - they ARE what the reference shows
+
+        The frontend's reference components render `summaries` exactly when `line` is empty, so a
+        reference without a line that answered `summaries: []` would render as a bare icon and label.
+        The summaries are the referenced type's default summary fields, with the object's values
+        """
+        ref_type = self._mock_ref_type()
+        ref_type.get_nested_summary_line.return_value = None
+        ref_type.get_nested_summary_fields.return_value = []
+        ref_type.get_summary.return_value = Mock(fields=[{'name': NAME_FIELD, 'type': FieldType.TEXT}])
+        render = self._render_with_mock_type(managers, ref_type)
+
+        reference = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID})
+
+        assert reference['line'] is None
+        assert reference['summaries'] == [{'value': REF_NAME_VALUE, 'type': FieldType.TEXT}]
 
     def test_the_expansion_serialises_a_type_reference(self, managers) -> None:
         """
@@ -1673,3 +1755,498 @@ class TestUnknownSectionType:
         assert fields == []
         assert self.UNKNOWN_KIND in caplog.text
 
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 render problems                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+# A field every type below declares with a proposal, so a fallback answering the type's own value shows
+TYPE_DEFAULT_VALUE: str = 'the-type-proposal'
+# A stored field the object's type has since dropped
+DROPPED_FIELD: str = 'dropped-from-the-type'
+SECOND_EXT_HREF: str = 'http://y/{}'
+PLAIN_OBJ_ID: int = 713
+
+
+def _render_one(render: CmdbMultiRender) -> RenderResult:
+    """Renders the single object of `render` and answers its RenderResult."""
+    results: list[RenderResult] = render.result()
+
+    assert len(results) == 1
+
+    return results[0]
+
+
+def _problem(
+    code: RenderProblemCode,
+    section: str | None = None,
+    field: str | None = None,
+    external_link: str | None = None,
+) -> dict[str, Any]:
+    """One render-problem entry as a RenderResult carries it."""
+    return {
+        RenderProblemKey.CODE.value: code.value,
+        RenderProblemKey.SECTION.value: section,
+        RenderProblemKey.FIELD.value: field,
+        RenderProblemKey.EXTERNAL_LINK.value: external_link,
+    }
+
+
+def _codes(problems: list[dict[str, Any]]) -> list[str]:
+    """The codes of a list of render-problem entries."""
+    return [problem[RenderProblemKey.CODE.value] for problem in problems]
+
+
+def _ghost_type() -> CmdbType:
+    """A main-shaped type whose section lists a field the type does not declare."""
+    return CmdbType.from_data(make_type_doc(
+        MAIN_TYPE_ID, 'ghost-type',
+        fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}],
+        sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD, GHOST_FIELD]}],
+    ))
+
+
+def _defaulted_type() -> CmdbType:
+    """A type with one text field carrying a proposal of its own."""
+    return CmdbType.from_data(make_type_doc(
+        MAIN_TYPE_ID, 'defaulted-type',
+        fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name', 'value': TYPE_DEFAULT_VALUE}],
+        sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]}],
+    ))
+
+
+def _undefaulted_type() -> CmdbType:
+    """A type with one text field and no proposal of its own."""
+    return CmdbType.from_data(make_type_doc(
+        MAIN_TYPE_ID, 'undefaulted-type',
+        fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}],
+        sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]}],
+    ))
+
+
+def _only_name_obj(public_id: int = MAIN_OBJ_ID) -> CmdbObject:
+    """A main-type object that carries its name and nothing else."""
+    return _obj(public_id, MAIN_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': MAIN_NAME_VALUE}])
+
+
+class TestACompleteRender:
+    """A render that lost nothing says so."""
+
+    def test_a_complete_render_carries_no_problems(self, managers) -> None:
+        """Every reference resolves, every field merges: the list is empty"""
+        render = _render(managers, [_main_obj()], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={MAIN_TYPE_ID: _main_type(), REF_TYPE_ID: _ref_type()})
+
+        assert _render_one(render).render_problems == []
+
+    def test_the_problems_are_part_of_the_serialised_result(self, managers) -> None:
+        """The attribute is on the wire, next to the rest of the render"""
+        render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _ghost_type()})
+
+        serialised: dict[str, Any] = _render_one(render).to_json()
+
+        assert serialised['render_problems'] == [_problem(RenderProblemCode.FIELD_NOT_ON_TYPE, 'main', GHOST_FIELD)]
+
+    def test_a_field_the_object_does_not_carry_is_no_problem(self, managers) -> None:
+        """
+        A reference or location field the object never stored is answered null, and that is complete
+
+        It is what every object saved before its type gained the field looks like, so reporting it
+        would flag every such object as degraded
+        """
+        render = _render(managers, [_only_name_obj()], ref_render=True,
+                         types_cache={MAIN_TYPE_ID: _main_type(), REF_TYPE_ID: _ref_type()})
+
+        result = _render_one(render)
+
+        assert _field(result.fields, REF_FIELD)['value'] is None
+        assert _field(result.fields, LOC_FIELD)['value'] is None
+        assert result.render_problems == []
+
+
+class TestAFieldTheTypeDoesNotDeclare:
+    """A section naming an undeclared field: the entry is left out, and the render says so."""
+
+    def test_it_is_reported_on_the_result(self, managers) -> None:
+        """The loss names its section and its field"""
+        render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _ghost_type()})
+
+        result = _render_one(render)
+
+        assert [field['name'] for field in result.fields] == [NAME_FIELD]
+        assert result.render_problems == [_problem(RenderProblemCode.FIELD_NOT_ON_TYPE, 'main', GHOST_FIELD)]
+
+    def test_every_object_is_flagged_but_the_problem_is_logged_once(self, managers, caplog) -> None:
+        """One broken definition walked by two objects: two flags, one log line"""
+        render = _render(managers, [_only_name_obj(), _only_name_obj(PLAIN_OBJ_ID)],
+                         types_cache={MAIN_TYPE_ID: _ghost_type()})
+
+        with caplog.at_level(logging.WARNING):
+            results = render.result()
+
+        assert all(_codes(result.render_problems) == [RenderProblemCode.FIELD_NOT_ON_TYPE] for result in results)
+        assert caplog.text.count(GHOST_FIELD) == 1
+
+
+class TestAFieldThatFailsToMerge:
+    """The merge of one field fails: its stored value is answered, and the cache is left alone."""
+
+    def test_the_stored_value_is_answered(self, managers, monkeypatch) -> None:
+        """A null would claim the object holds nothing there - it holds the stored value"""
+        render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _defaulted_type()})
+        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+                            Mock(side_effect=RuntimeError('merge failed')))
+
+        result = _render_one(render)
+
+        assert _field(result.fields, NAME_FIELD)['value'] == MAIN_NAME_VALUE
+        assert result.render_problems == [_problem(RenderProblemCode.FIELD_MERGE_FAILED, 'main', NAME_FIELD)]
+
+    def test_the_answered_entry_is_a_full_triple(self, managers, monkeypatch) -> None:
+        """The fallback carries the definition's name and type, not just a value"""
+        render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _defaulted_type()})
+        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+                            Mock(side_effect=RuntimeError('merge failed')))
+
+        entry: dict[str, Any] = _render_one(render).fields[0]
+
+        assert (entry['name'], entry['type']) == (NAME_FIELD, FieldType.TEXT)
+
+    @pytest.mark.parametrize('build_type', [_defaulted_type, _undefaulted_type], ids=['with-proposal', 'without'])
+    def test_a_malformed_stored_row_leaves_the_cached_type_untouched(self, managers, build_type) -> None:
+        """
+        The fallback is built from a copy: the definition is the cached type's live dict
+
+        A stored row without a name makes the merge raise before it has copied anything. Writing the
+        fallback value into the definition itself would change that field - its proposal included -
+        for every later object of the render. A field WITHOUT a proposal is the case that shows it: the
+        fallback adds a `value` key the definition never had
+        """
+        cached_type: CmdbType = build_type()
+        definition_before: dict[str, Any] = dict(cached_type.get_field(NAME_FIELD))
+        malformed = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [{'type': FieldType.TEXT, 'value': MAIN_NAME_VALUE}])
+        render = _render(managers, [malformed], types_cache={MAIN_TYPE_ID: cached_type})
+
+        result = _render_one(render)
+
+        assert cached_type.get_field(NAME_FIELD) == definition_before
+        assert _codes(result.render_problems) == [RenderProblemCode.FIELD_MERGE_FAILED]
+
+    def test_a_field_the_object_does_not_carry_answers_the_types_proposal(self, managers, monkeypatch) -> None:
+        """No stored value to answer: the fallback keeps what the type proposes"""
+        render = _render(managers, [_obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [])], types_cache={MAIN_TYPE_ID: _defaulted_type()})
+        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+                            Mock(side_effect=RuntimeError('merge failed')))
+
+        assert _render_one(render).fields[0]['value'] == TYPE_DEFAULT_VALUE
+
+    def test_it_is_logged_at_warning(self, managers, monkeypatch, caplog) -> None:
+        """The operator sees which field of which object"""
+        render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _defaulted_type()})
+        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+                            Mock(side_effect=RuntimeError('merge failed')))
+
+        with caplog.at_level(logging.WARNING):
+            render.result()
+
+        assert NAME_FIELD in caplog.text
+        assert str(MAIN_OBJ_ID) in caplog.text
+
+
+class TestAStoredFieldItsTypeDropped:
+    """A legacy untyped row naming a field the type no longer declares."""
+
+    @staticmethod
+    def _dropped_obj() -> CmdbObject:
+        """An object whose untyped row names a dropped field, next to a live reference."""
+        return _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [
+            {'name': DROPPED_FIELD, 'value': REF_OBJ_ID},
+            {'type': FieldType.REFERENCE, 'name': REF_FIELD, 'value': REF_OBJ_ID},
+        ])
+
+    def test_the_render_is_built(self, managers) -> None:
+        """The reference collection skips the row instead of failing the constructor"""
+        managers.types.get_type_instance.return_value = _main_type()
+        managers.objects.get_objects_lookup.return_value = {REF_OBJ_ID: _ref_obj()}
+
+        render = _render(managers, [self._dropped_obj()], ref_render=True, types_cache={MAIN_TYPE_ID: _main_type()})
+
+        assert REF_OBJ_ID in render.objects_cache
+
+    def test_it_is_logged_but_not_flagged(self, managers, caplog) -> None:
+        """The dropped value was never going to be drawn, so the render lost nothing"""
+        managers.types.get_type_instance.return_value = _main_type()
+
+        with caplog.at_level(logging.WARNING):
+            render = _render(managers, [self._dropped_obj()], ref_render=True,
+                             types_cache={MAIN_TYPE_ID: _main_type()})
+
+        assert DROPPED_FIELD in caplog.text
+        assert _render_one(render).render_problems == []
+
+
+class TestReferencesThatCannotBeLoaded:
+    """The bulk load of the referenced objects fails."""
+
+    def test_only_the_objects_that_reference_something_are_flagged(self, managers) -> None:
+        """An object with no reference lost nothing to the failed load"""
+        managers.objects.get_objects_lookup.side_effect = RuntimeError('database gone')
+        render = _render(managers, [_main_obj(), _only_name_obj(PLAIN_OBJ_ID)], ref_render=True,
+                         types_cache={MAIN_TYPE_ID: _main_type(), REF_TYPE_ID: _ref_type()})
+
+        referencing, plain = render.result()
+
+        assert RenderProblemCode.REFERENCES_UNAVAILABLE.value in _codes(referencing.render_problems)
+        assert plain.render_problems == []
+
+    def test_it_is_logged_once_at_error(self, managers, caplog) -> None:
+        """An infrastructure failure, logged with its traceback"""
+        managers.objects.get_objects_lookup.side_effect = RuntimeError('database gone')
+
+        with caplog.at_level(logging.WARNING):
+            _render(managers, [_main_obj()], ref_render=True, types_cache={MAIN_TYPE_ID: _main_type()})
+
+        errors = [record for record in caplog.records if record.levelno == logging.ERROR]
+        assert len(errors) == 1
+        assert errors[0].exc_info
+
+
+class TestSectionsThatCannotBeSerialised:
+    """The type's sections fail to serialise."""
+
+    def test_the_object_is_flagged(self, managers, monkeypatch) -> None:
+        """An object with no sections at all is the most visible loss there is"""
+        main_type = _main_type()
+        render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: main_type})
+        # each section class serialises itself, so the failure is planted on the class the type uses
+        monkeypatch.setattr(type(main_type.render_meta.sections[0]), 'to_json', Mock(side_effect=RuntimeError('boom')))
+
+        result = _render_one(render)
+
+        assert result.sections == []
+        assert _codes(result.render_problems) == [RenderProblemCode.SECTIONS_UNREADABLE]
+
+
+class TestExternalLinks:
+    """An external link that fails, and two links sharing a name."""
+
+    def test_a_link_that_fails_to_fill_is_flagged_by_name(self, managers, monkeypatch) -> None:
+        """The entry names the link: it is the only thing telling two failed links apart"""
+        render = _render(managers, [_main_obj()], types_cache={MAIN_TYPE_ID: _main_type()})
+        monkeypatch.setattr(TypeExternalLink, 'filled_href', Mock(side_effect=RuntimeError('bad href')))
+
+        result = _render_one(render)
+
+        assert result.externals == []
+        assert _problem(RenderProblemCode.EXTERNAL_LINK_FAILED, external_link=EXT_NAME) in result.render_problems
+
+    def test_a_link_whose_field_the_object_does_not_carry_is_skipped_quietly(self, managers) -> None:
+        """
+        A field the object never stored is a missing value, the by-design skip - not a failed link
+
+        Reading it with a lookup that raises for an absent field turned every object saved before its
+        type gained the link's field into a reported problem
+        """
+        render = _render(managers, [_obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [])], types_cache={MAIN_TYPE_ID: _main_type()})
+
+        result = _render_one(render)
+
+        assert result.externals == []
+        assert result.render_problems == []
+
+    def test_two_links_sharing_a_name_each_render_their_own_href(self, managers) -> None:
+        """
+        The links are walked as they are
+
+        Looking each one up again by its name answered the FIRST link carrying it, so the second link
+        rendered as a copy of the first
+        """
+        main_type = _main_type()
+        main_type.render_meta.externals.append(TypeExternalLink.from_data(
+            {'name': EXT_NAME, 'href': SECOND_EXT_HREF, 'label': 'Ext 2', 'fields': [NAME_FIELD]}
+        ))
+        render = _render(managers, [_main_obj()], types_cache={MAIN_TYPE_ID: main_type})
+
+        hrefs = [link['href'] for link in _render_one(render).externals]
+
+        assert hrefs == [f'http://x/{MAIN_NAME_VALUE}', f'http://y/{MAIN_NAME_VALUE}']
+
+
+class TestReferencesThatCannotBeBuilt:
+    """A reference expansion or its line fails."""
+
+    def test_an_unbuildable_reference_is_flagged_on_its_field(self, managers) -> None:
+        """The field whose reference lost its line and summaries is named"""
+        render = _render(managers, [_main_obj()], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
+                         types_cache={MAIN_TYPE_ID: _main_type(), REF_TYPE_ID: _ref_type()})
+        broken_type = Mock()
+        broken_type.get_public_id.side_effect = RuntimeError('type is broken')
+        render.types_cache[REF_TYPE_ID] = broken_type
+
+        result = _render_one(render)
+
+        assert _problem(RenderProblemCode.REFERENCE_INCOMPLETE, field=REF_FIELD) in result.render_problems
+
+    def test_an_unfillable_line_is_flagged(self, managers) -> None:
+        """The reference is answered without its line, and the object says so"""
+        render = TestRenderDegradation._render_with_summary_line(managers, 'Name {} in {}')
+
+        with render.problems.rendering(MAIN_OBJ_ID):
+            render._CmdbMultiRender__merge_references({'name': REF_FIELD, 'value': REF_OBJ_ID, 'summaries': [{}]})
+
+        assert render.problems.problems_for(MAIN_OBJ_ID) == [
+            _problem(RenderProblemCode.REFERENCE_LINE_UNFILLED, field=REF_FIELD)
+        ]
+
+    def test_a_reference_answered_on_its_own_is_only_logged(self, managers, caplog) -> None:
+        """The MDS lookup renders no object, so there is nothing to flag - the log still says it"""
+        render = _render(managers, [], objects_cache={REF_OBJ_ID: _ref_obj()}, types_cache={})
+        broken_type = Mock()
+        broken_type.get_public_id.side_effect = RuntimeError('type is broken')
+        render.types_cache[REF_TYPE_ID] = broken_type
+
+        with caplog.at_level(logging.WARNING):
+            render.get_mds_reference(REF_OBJ_ID)
+
+        assert not render.problems.problems_by_object
+        assert str(REF_OBJ_ID) in caplog.text
+
+
+class TestReferenceSectionProblems:
+    """Every way a reference section can come up short is flagged on the object."""
+
+    @staticmethod
+    def _section(ref_type: CmdbType):
+        """The reference section of a refsec type."""
+        return next(section for section in ref_type.render_meta.sections if section.name == REFSEC_NAME)
+
+    def _merge(self, render, refsec_type: CmdbType, refsec_obj: CmdbObject | None = None) -> list[dict[str, Any]]:
+        """Merges the refsec type's reference section while rendering the refsec object; answers its problems."""
+        refsec_obj = refsec_obj or _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [])
+
+        with render.problems.rendering(REFSEC_OBJ_ID):
+            render._merge_reference_section(self._section(refsec_type), refsec_obj, refsec_type, 1)
+
+        return render.problems.problems_for(REFSEC_OBJ_ID)
+
+    def test_a_missing_referenced_type(self, managers) -> None:
+        """The target type is gone"""
+        refsec_type = _refsec_type()
+        render = _render(managers, [], types_cache={REFSEC_TYPE_ID: refsec_type})
+
+        assert self._merge(render, refsec_type) == [
+            _problem(RenderProblemCode.REFERENCE_SECTION_UNRESOLVED, REFSEC_NAME)
+        ]
+
+    def test_a_section_without_its_reference_field(self, managers) -> None:
+        """The type declares the section but not the '<section>-field' it reads the reference from"""
+        orphan_type = CmdbType.from_data(make_type_doc(
+            REFSEC_TYPE_ID, 'orphan-type',
+            fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}],
+            sections=[
+                {'type': 'ref-section', 'name': REFSEC_NAME, 'label': 'Orphan',
+                 'reference': {'type_id': REF_TYPE_ID, 'section_name': 'main', 'selected_fields': []},
+                 'fields': []},
+            ],
+        ))
+        render = _render(managers, [], types_cache={REFSEC_TYPE_ID: orphan_type, REF_TYPE_ID: _ref_type()})
+
+        assert _codes(self._merge(render, orphan_type)) == [RenderProblemCode.REFERENCE_SECTION_UNRESOLVED]
+
+    def test_a_referenced_type_that_cannot_be_read(self, managers) -> None:
+        """Reading the target type raises"""
+        refsec_type = _refsec_type()
+        render = _render(managers, [], types_cache={REFSEC_TYPE_ID: refsec_type})
+        broken_ref_type = Mock()
+        type(broken_ref_type).public_id = property(lambda _self: (_ for _ in ()).throw(RuntimeError('gone')))
+        render.types_cache[REF_TYPE_ID] = broken_ref_type
+
+        assert _codes(self._merge(render, refsec_type)) == [RenderProblemCode.REFERENCE_SECTION_UNRESOLVED]
+
+    def test_a_pulled_in_field_that_cannot_be_read(self, managers) -> None:
+        """The section renders short by one field, and names it"""
+        refsec_type = _refsec_type()
+        broken_ref_type = Mock()
+        broken_ref_type.public_id = REF_TYPE_ID
+        broken_ref_type.name = 'ref-type'
+        broken_ref_type.label = 'Ref'
+        broken_ref_type.get_icon.return_value = None
+        broken_ref_type.get_section.return_value = Mock(fields=[NAME_FIELD])
+        broken_ref_type.get_field.side_effect = CmdbTypeFieldNotFoundError('gone')
+        render = _render(managers, [], types_cache={REFSEC_TYPE_ID: refsec_type}, objects_cache={})
+        render.types_cache[REF_TYPE_ID] = broken_ref_type
+
+        assert self._merge(render, refsec_type) == [
+            _problem(RenderProblemCode.REFERENCE_SECTION_FIELD_SKIPPED, REFSEC_NAME, NAME_FIELD)
+        ]
+
+    def test_a_resolving_section_is_no_problem(self, managers) -> None:
+        """The control case"""
+        refsec_type = _refsec_type()
+        render = _render(managers, [], types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
+
+        assert self._merge(render, refsec_type) == []
+
+
+class TestNestedReferenceSections:
+    """A reference section nested inside another."""
+
+    def test_a_nested_section_that_cannot_be_rendered_is_flagged(self, managers) -> None:
+        """The object the outer section belongs to is missing the nested fields, and says so"""
+        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
+        failing_manager = Mock()
+        failing_manager.get_object.side_effect = RuntimeError('reference read failed')
+        render.objects_manager = failing_manager
+
+        with render.problems.rendering(MAIN_OBJ_ID):
+            render._CmdbMultiRender__merge_reference_section_fields(
+                {'name': REFSEC_REF_FIELD, 'type': FieldType.REF_SECTION, 'value': REF_OBJ_ID}, [], 1,
+            )
+
+        assert render.problems.problems_for(MAIN_OBJ_ID) == [
+            _problem(RenderProblemCode.NESTED_REFERENCE_SECTION_FAILED, field=REFSEC_REF_FIELD)
+        ]
+
+    def test_what_the_nested_render_lost_is_handed_up(self, managers) -> None:
+        """
+        The nested render's own problems become the outer object's
+
+        The nested render draws the referenced object into THIS object's section, so a field it had to
+        leave out is missing here
+        """
+        refsec_doc = make_type_doc(
+            REFSEC_TYPE_ID, 'refsec-type',
+            fields=[
+                {'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'},
+                {'type': FieldType.REFERENCE, 'name': REFSEC_REF_FIELD, 'label': 'Ref', 'ref_types': [REF_TYPE_ID]},
+            ],
+            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD, GHOST_FIELD]}],
+        )
+        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'x'}])
+        render = _render(managers, [], ref_render=True, objects_cache={REFSEC_OBJ_ID: refsec_obj},
+                         types_cache={REFSEC_TYPE_ID: CmdbType.from_data(refsec_doc)})
+
+        with render.problems.rendering(MAIN_OBJ_ID):
+            render._CmdbMultiRender__merge_reference_section_fields(
+                {'name': NAME_FIELD, 'type': FieldType.REF_SECTION, 'value': REFSEC_OBJ_ID}, [], DEFAULT_RENDER_LEVEL,
+            )
+
+        assert _problem(RenderProblemCode.FIELD_NOT_ON_TYPE, 'main', GHOST_FIELD) in \
+            render.problems.problems_for(MAIN_OBJ_ID)
+
+    def test_the_nested_render_shares_what_was_already_logged(self, managers, caplog) -> None:
+        """A problem the outer render logged is not logged again by the render nested in it"""
+        refsec_doc = make_type_doc(
+            REFSEC_TYPE_ID, 'refsec-type',
+            fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}],
+            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD, GHOST_FIELD]}],
+        )
+        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'x'}])
+        render = _render(managers, [], ref_render=True, objects_cache={REFSEC_OBJ_ID: refsec_obj},
+                         types_cache={REFSEC_TYPE_ID: CmdbType.from_data(refsec_doc)})
+        nested_field: dict[str, Any] = {'name': NAME_FIELD, 'type': FieldType.REF_SECTION, 'value': REFSEC_OBJ_ID}
+
+        with caplog.at_level(logging.WARNING):
+            render._CmdbMultiRender__merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
+            render._CmdbMultiRender__merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
+
+        assert caplog.text.count(GHOST_FIELD) == 1

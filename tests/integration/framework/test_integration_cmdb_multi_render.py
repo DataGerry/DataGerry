@@ -230,13 +230,27 @@ class TestRenderResult:
         assert reference['object_id'] == REF_OBJ_ID
         assert reference['type_id'] == REF_TYPE_ID
 
+    def test_a_reference_without_a_line_carries_its_summaries(self, full_access_user,
+                                                              database_manager, database_name) -> None:
+        """
+        No nested summary line: `line` stays None and `summaries` hold the type's summary fields
+
+        This is the pair the frontend's reference components read - they show `summaries` exactly when
+        `line` is empty - so an empty list here would render the reference as a bare icon and label
+        """
+        result = _render_main(full_access_user, database_manager, database_name).result(single_object=True)
+
+        reference = _field(result.fields, REF_FIELD)['reference']
+        assert reference['line'] is None
+        assert [summary['value'] for summary in reference['summaries']] == [REF_NAME_VALUE]
+
     def test_mds_reference_without_nested_line_renders_cleanly(self, full_access_user,
                                                               database_manager, database_name, caplog) -> None:
         """get_mds_reference for a ref with no nested summary line resolves with line=None, no log.
 
         A None line must not reach line_requires_fields' regex: a raise there would be caught and
         logged ("Could not fill summary line") for every such reference. No crash, no log, line stays
-        None, and the reference still resolves (summaries are not cleared, so they stay a list here).
+        None, and the reference still resolves with its summaries filled - they are what it shows.
         """
         render = _render_main(full_access_user, database_manager, database_name)
 
@@ -245,7 +259,7 @@ class TestRenderResult:
 
         assert reference['object_id'] == REF_OBJ_ID
         assert reference['line'] is None
-        assert isinstance(reference['summaries'], list)
+        assert [summary['value'] for summary in reference['summaries']] == [REF_NAME_VALUE]
         # The None-line does not trip line_requires_fields' regex, so nothing is logged
         assert 'Could not fill summary line' not in caplog.text
 

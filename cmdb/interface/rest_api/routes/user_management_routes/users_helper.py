@@ -16,9 +16,9 @@
 """
 Helper functions for the CmdbUser REST routes
 
-Keeps the route handlers small and unit-testable by extracting the two blocks that otherwise
-inflate their complexity: the ``registration_time`` coercion used on update, and the cloud-mode
-preparation used on create.
+Keeps the route handlers small and unit-testable by extracting the blocks that otherwise inflate
+their complexity: the ``registration_time`` coercion and the field guard used on update, and the
+cloud-mode preparation used on create.
 """
 import json
 from logging import Logger, getLogger
@@ -29,8 +29,17 @@ from flask import abort
 
 from cmdb.utils import coerce_mongo_datetime
 
-from cmdb.manager import UsersManager
+from cmdb.manager import UsersManager, GroupsManager
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
+from cmdb.models.group_model import CmdbUserGroup
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    ADMINISTRATIVE_FIELDS,
+    SERVER_OWNED_FIELDS,
+    ADMINISTRATIVE_FIELD_REFUSED,
+    SERVER_OWNED_FIELD_REFUSED,
+    PASSWORD_FIELD_REFUSED,
+)
 
 from cmdb.errors.manager.users_manager import UsersManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -75,6 +84,96 @@ def apply_registration_time(data: dict[str, Any]) -> None:
     """
     if 'registration_time' in data:
         data['registration_time'] = parse_registration_time(data['registration_time'])
+
+
+def holds_right(request_user: CmdbUser, right: str, groups_manager: GroupsManager) -> bool:
+    """
+    Answers whether the request user's CmdbUserGroup holds a right, directly or through a broader one
+
+    The same question `APIBlueprint.protect` asks before it falls back to the ``excepted`` carve-out,
+    answered from the already-resolved request user: a route that let a user through by the carve-out
+    can tell that apart from a user who holds the right. A group that cannot be found holds nothing
+
+    Args:
+        request_user (CmdbUser): The user issuing the request
+        right (str): The right to check, e.g. ``base.user-management.user.edit``
+        groups_manager (GroupsManager): Manager bound to the request user's tenant
+
+    Raises:
+        GroupsManagerGetError: When the group cannot be read - the caller fails closed rather than
+            guessing either way
+
+    Returns:
+        bool: True when the user's group holds the right or an extended right covering it
+    """
+    group: CmdbUserGroup | None = groups_manager.get_group(request_user.group_id)
+
+    if group is None:
+        return False
+
+    return group.has_right(right) or group.has_extended_right(right)
+
+
+def guard_user_update(stored_user: CmdbUser, data: dict[str, Any], may_administer: bool) -> None:
+    """
+    Refuses the fields an update may not change, and pins every field it must not reset
+
+    The update route rebuilds the whole user from the body, so a field the body leaves out would fall
+    back to its default. Every guarded field is therefore compared with the stored value when the
+    body carries it and COPIED from the stored user when it does not. Mutates ``data`` in place:
+
+    * **server-owned** (`SERVER_OWNED_FIELDS`) - nobody changes them here. `database` and
+      `config_items_limit` must equal the stored value (400 otherwise); a `password` is refused when
+      the body carries one at all, and the stored digest is kept when it does not - the read never
+      returns the digest, so a client sending the user back cannot include it
+    * **administrative** (`ADMINISTRATIVE_FIELDS`) - only when `may_administer` is False, i.e. the
+      user reached the route through the self-edit carve-out: each must equal the stored value
+      (400 otherwise). A holder of the edit right may change them freely
+
+    A body that sends a user back unchanged - what the frontend's profile and edit screens do - passes
+
+    Args:
+        stored_user (CmdbUser): The user as currently stored
+        data (dict[str, Any]): The validated update payload
+        may_administer (bool): Whether the request user holds the user edit right
+
+    Raises:
+        HTTPException: 400 naming the first field the caller may not change
+    """
+    stored: dict[str, Any] = CmdbUser.to_json(stored_user)
+
+    for field in sorted(SERVER_OWNED_FIELDS - {CmdbUserKey.PASSWORD}):
+        _pin_or_refuse(data, stored, field, SERVER_OWNED_FIELD_REFUSED)
+
+    if data.get(CmdbUserKey.PASSWORD.value) is not None:
+        abort(400, PASSWORD_FIELD_REFUSED)
+
+    data[CmdbUserKey.PASSWORD.value] = stored[CmdbUserKey.PASSWORD.value]
+
+    if not may_administer:
+        for field in sorted(ADMINISTRATIVE_FIELDS):
+            _pin_or_refuse(data, stored, field, ADMINISTRATIVE_FIELD_REFUSED)
+
+
+def _pin_or_refuse(data: dict[str, Any], stored: dict[str, Any], field: CmdbUserKey, refusal: str) -> None:
+    """
+    Copies a stored field into an absent body key, or refuses a body value that differs from it
+
+    Args:
+        data (dict[str, Any]): The update payload, mutated in place
+        stored (dict[str, Any]): The stored user's document
+        field (CmdbUserKey): The field to check
+        refusal (str): The 400 message, formatted with the field name
+
+    Raises:
+        HTTPException: 400 when the body carries a value other than the stored one
+    """
+    key: str = field.value
+
+    if key not in data:
+        data[key] = stored[key]
+    elif data[key] != stored[key]:
+        abort(400, refusal.format(field=key))
 
 
 def prepare_cloud_user(

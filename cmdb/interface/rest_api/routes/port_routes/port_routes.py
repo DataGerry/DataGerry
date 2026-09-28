@@ -118,7 +118,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     get_requested_side_or_abort,
     refuse_owner_change,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -624,7 +624,7 @@ def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         enforce_port_name_available(ports_manager, object_id, side, name, exclude_id=public_id)
 
         candidate: dict[str, Any] = build_port_candidate(object_id, side, name, payload)
-        candidate[PortKey.PUBLIC_ID.value] = public_id
+        pin_public_id(candidate, public_id)
         candidate[PortKey.AUTHOR_ID.value] = stored_port.get(PortKey.AUTHOR_ID.value)
         candidate[PortKey.CREATION_TIME.value] = stored_port.get(PortKey.CREATION_TIME.value)
         candidate[PortKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)

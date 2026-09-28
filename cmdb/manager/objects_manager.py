@@ -19,10 +19,13 @@ This module contains the implementation of the ObjectsManager
 The persistence layer of ``framework.objects`` - every object read, write, delete and reference lookup
 in the product goes through it. Three rules govern the methods here:
 
-**Every write is guarded by the object's CmdbType, and the guard runs first.** ``_guard_writable_type``
+**Every write is guarded by the object's CmdbType, and the guard runs first.** ``guard_writable_type``
 is the one place that checks the type exists, is active, and that the caller's ACL grants the
 permission; insert, update and delete all call it, and ``delete_with_follow_up`` calls it *before* the
-ISMS cascade so a refused delete cannot destroy the object's risk assessments.
+ISMS cascade so a refused delete cannot destroy the object's risk assessments. It is public because a
+caller with side effects of its own must ask it too: the object delete routes remove the location node,
+the rack and port state and - in bulk - the risk assessments before the manager deletes, so they run
+the guard for every target first, and a refused delete answers 403 with nothing touched.
 
 **A read may skip what the caller cannot see, a write may not.** ``get_objects_by`` and
 ``group_objects_by_value`` drop the objects whose type ACL denies the user and return the rest, so a
@@ -52,6 +55,7 @@ from cmdb.models.object_model import (
     CmdbObject,
     CmdbObjectKey,
     CmdbObjectFieldKey,
+    ObjectWriteVerb,
 )
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
@@ -131,7 +135,7 @@ class ObjectsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def _guard_writable_type(
+    def guard_writable_type(
             self,
             type_id: int,
             user: CmdbUser | None,
@@ -143,7 +147,9 @@ class ObjectsManager(BaseManager):
         Resolves an object's CmdbType and refuses the write when it may not be performed
 
         The three checks every write shares, in one place: the type has to exist, it has to be
-        active, and the user's ACL has to grant the permission
+        active, and the user's ACL has to grant the permission. Every write method calls it; a caller
+        that has side effects of its own before the write calls it first as well, so a refused write
+        changes nothing
 
         Args:
             type_id (int): public_id of the object's CmdbType
@@ -151,7 +157,7 @@ class ObjectsManager(BaseManager):
             permission (AccessControlPermission | None): The permission required, or None
             missing_type_error (type[Exception]): The error to raise when the type is gone - each
                                                   caller reports its own operation
-            action (str): The verb for the deactivated-type message ('created', 'updated', 'removed')
+            action (str): The verb for the deactivated-type message (an `ObjectWriteVerb`)
             object_type (CmdbType | None): An already-resolved type, which a bulk caller holding a
                                            type map passes to skip one lookup per object
 
@@ -204,8 +210,8 @@ class ObjectsManager(BaseManager):
         try:
             new_object: CmdbObject = CmdbObject.from_data(data)
 
-            self._guard_writable_type(
-                new_object.type_id, user, permission, ObjectsManagerInsertError, 'created',
+            self.guard_writable_type(
+                new_object.type_id, user, permission, ObjectsManagerInsertError, ObjectWriteVerb.CREATED.value,
             )
 
             return self.insert(CmdbObject.to_json(new_object))
@@ -979,7 +985,9 @@ class ObjectsManager(BaseManager):
             else:
                 type_id = instance.get('type_id')
 
-            self._guard_writable_type(type_id, user, permission, ObjectsManagerUpdateError, 'updated')
+            self.guard_writable_type(
+                type_id, user, permission, ObjectsManagerUpdateError, ObjectWriteVerb.UPDATED.value,
+            )
 
             self.update({CmdbObjectKey.PUBLIC_ID.value: public_id}, instance)
         except AccessDeniedError as err:
@@ -1025,8 +1033,8 @@ class ObjectsManager(BaseManager):
             type_id = CmdbObject.from_data(to_delete_object).type_id
 
             # A caller-supplied type skips the lookup (bulk-delete N+1 avoidance)
-            self._guard_writable_type(
-                type_id, user, permission, ObjectsManagerDeleteError, 'removed', object_type,
+            self.guard_writable_type(
+                type_id, user, permission, ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, object_type,
             )
 
             return self.delete({CmdbObjectKey.PUBLIC_ID.value: public_id})
@@ -1084,12 +1092,12 @@ class ObjectsManager(BaseManager):
         if not to_delete_object:
             return False
 
-        object_type = self._guard_writable_type(
+        object_type = self.guard_writable_type(
             CmdbObject.from_data(to_delete_object).type_id,
             user,
             permission,
             ObjectsManagerDeleteError,
-            'removed',
+            ObjectWriteVerb.REMOVED.value,
             object_type,
         )
 

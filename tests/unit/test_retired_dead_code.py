@@ -119,7 +119,7 @@ class TestPasswordAbleFoundItsReader:
         assert LdapAuthenticationProvider.PASSWORD_ABLE is False
 
     def test_it_is_read_through_the_auth_module(self) -> None:
-        """The flag is no longer dead state: one lookup answers it for a stored `authenticator`."""
+        """The flag is live state: one lookup answers it for a stored `authenticator`."""
         from cmdb.security.auth.auth_module import AuthModule  # pylint: disable=import-outside-toplevel
 
         assert AuthModule.provider_owns_passwords('LdapAuthenticationProvider') is False

@@ -38,6 +38,8 @@ from cmdb.errors.manager.impact_category_manager import (
     ImpactCategoryManagerDeleteError,
     ImpactCategoryManagerIterationError,
 )
+
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/impact_categories'
@@ -151,6 +153,16 @@ class TestPutImpactCategory:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_impact_category(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored impact category in place"""
+        _insert_category(database_manager, database_name, CATEGORY_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}', _category_payload(MISSING_CATEGORY_ID),
+            database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name), CATEGORY_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent category returns 404."""

@@ -74,7 +74,7 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
-from cmdb.interface.rest_api.routes.routes_helper import normalize_public_id_list, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import normalize_public_id_list, request_wants_body, pin_public_id
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     DEFAULT_TAB_PAGE_SIZE,
     MAX_TAB_PAGE_SIZE,
@@ -397,7 +397,7 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
         # The creation time describes how this relation came to exist and is preserved; `author_id`
         # doubles as "who last touched this" (there is no separate editor field), so it becomes the
         # editing user. Without pinning creation_time, a body that omits it would reset it to "now"
-        data[ObjectRelationKey.PUBLIC_ID.value] = public_id
+        pin_public_id(data, public_id)
         data[ObjectRelationKey.CREATION_TIME.value] = to_update_object_relation.get(
             ObjectRelationKey.CREATION_TIME.value)
         data[ObjectRelationKey.AUTHOR_ID.value] = request_user.get_public_id()

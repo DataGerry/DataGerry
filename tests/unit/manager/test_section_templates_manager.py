@@ -603,11 +603,11 @@ def test_cleanup_global_section_templates_is_a_noop_without_consumers() -> None:
 
 def test_cleanup_global_section_templates_persists_the_prune_for_a_type_without_the_section() -> None:
     """
-    A type listing the template but carrying no section keeps the prune - it used to be thrown away
+    A type listing the template but carrying no section keeps the prune
 
-    The reference was removed from global_template_ids in memory and the loop then skipped the
-    persist, so the type went on listing a template that no longer exists on every later boot. There
-    is nothing to clean up on its objects, but the reference itself has to go.
+    The reference is removed from global_template_ids in memory; skipping the persist for a type
+    without the section would leave it listing a template that no longer exists on every later boot.
+    There is nothing to clean up on its objects, but the reference itself has to go.
     """
     mock_self = MagicMock()
     fake = _fake_type(TYPE_ID, [SECTION_NAME], [], [], sections=[])

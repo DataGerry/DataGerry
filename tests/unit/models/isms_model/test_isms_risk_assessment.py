@@ -177,7 +177,7 @@ class TestDateFields:
 
     def test_refuses_an_unreadable_date_instead_of_guessing_one(self) -> None:
         """
-        The reason this model no longer parses with `fuzzy=True`.
+        The reason this model does not parse with `fuzzy=True`.
 
         Fuzzy parsing turned a note like 'planned for Q3' into a date assembled from today's values -
         stored just as confidently as a correct one, and wrong in a way nothing about it looks wrong.

@@ -486,7 +486,7 @@ class TestIsPublicIdConflict:
 
     @pytest.mark.parametrize('details', [None, {}, {'keyPattern': None}, {'keyPattern': {}}], ids=str)
     def test_an_unidentifiable_index_keeps_the_historical_retry(self, details) -> None:
-        """Pre-4.2 servers report no key pattern; with nothing to go on, the old behaviour stands."""
+        """With no key pattern to go on, the error is treated as a public_id clash and retried."""
         assert is_public_id_conflict(DuplicateKeyError('dup', details=details)) is True
 
 
