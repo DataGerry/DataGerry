@@ -18,7 +18,7 @@ Functional smoke for the ``/isms/impacts`` REST routes
 
 Covers the route-layer concerns on top of the ImpactManager suites: HTTP status codes, schema
 validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400 mapping, and the
-ISMS-specific branches - the max-6 limit (403), the calculation_basis float coercion and uniqueness
+ISMS-specific branches - the max-6 limit (400), the calculation_basis float coercion and uniqueness
 (400 on insert and on a colliding update), and the 400 when deleting an Impact referenced by a
 RiskAssessment. The routes are ISMS-license gated, so the license check is stubbed.
 """
@@ -38,7 +38,11 @@ from cmdb.models.isms_model import (
     IsmsRiskMatrix,
 )
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_CAP_REACHED_MSG,
+    ISMS_IMPACTS_LABEL,
+    MAX_ISMS_SCALE_ENTRIES,
+)
 from cmdb.errors.manager.impact_manager import (
     ImpactManagerInsertError,
     ImpactManagerGetError,
@@ -243,16 +247,20 @@ class TestPostImpact:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_limit_reached_returns_403(self, rest_api,
+    def test_limit_reached_returns_400(self, rest_api,
                                       database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Creating an Impact beyond the MAX_ISMS_SCALE_ENTRIES limit returns 403."""
+        """Creating an Impact beyond the MAX_ISMS_SCALE_ENTRIES limit is refused with 400."""
         for index, impact_id in enumerate(LIMIT_IMPACT_IDS):
             _insert_impact(database_manager, database_name, impact_id, basis=float(index))
 
         response = rest_api.post(f'{ROUTE_URL}/',
                                  json=_impact_payload(LIMIT_EXTRA_ID, basis=float(MAX_ISMS_SCALE_ENTRIES)))
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == ISMS_CAP_REACHED_MSG.format(cap=MAX_ISMS_SCALE_ENTRIES,
+                                                                          entity_label=ISMS_IMPACTS_LABEL)
+        stored = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)
+        assert stored.find_one({'public_id': LIMIT_EXTRA_ID}) is None
 
 
 class TestGetImpact:

@@ -29,6 +29,8 @@ from flask import abort
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
+from cmdb.framework.object_field_value_rules import find_default_value_errors
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     DUPLICATE_FIELD_IDENTIFIER_MESSAGE,
@@ -190,3 +192,24 @@ def guard_type_structure(data: dict[str, Any]) -> None:
 
     if blocker:
         abort(400, blocker)
+
+
+def guard_field_defaults(data: dict[str, Any]) -> None:
+    """
+    Aborts 400 when a CmdbType payload declares a field default that breaks the field's own value rules
+
+    A default is what every new object of the Type starts from - the object form pre-fills it and a create
+    fills an empty field with it - so it has to be a value the object write would accept: at most the text
+    / textarea cap, and matching the field's own ``regex``. Applied on create and on update, so a Type
+    stored with such a default before the rule existed cannot be saved again until the default is fixed
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+
+    Raises:
+        HTTPException: 400 naming every field whose default breaks a rule
+    """
+    errors: dict[str, list[str]] = find_default_value_errors(data.get(TypeSchemaKey.FIELDS.value))
+
+    if errors:
+        abort(400, FIELD_DEFAULT_ERROR_SEPARATOR.join(message for messages in errors.values() for message in messages))

@@ -33,7 +33,11 @@ __all__: list[str] = [
     'CiExplorerRight',
     'CiExplorerParam',
     'CiExplorerResponseKey',
+    'PROFILE_FILTER_UNKNOWN_IDS_MSG',
 ]
+
+#: What a profile write answers when a filter names ids that exist nowhere - `{field}` and `{ids}` filled in
+PROFILE_FILTER_UNKNOWN_IDS_MSG: str = "The CiExplorer Profile's {field} names ids that do not exist: {ids}!"
 
 
 class CiExplorerRight(BaseStrEnum):

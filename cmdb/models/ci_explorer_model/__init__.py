@@ -18,9 +18,11 @@ This module provide all classes for the CI Explorer logics
 """
 from .node_type_enum import NodeType
 from .ci_explorer_profile import CmdbCiExplorerProfile
+from .ci_explorer_profile_constants import CiExplorerProfileKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'NodeType',
     'CmdbCiExplorerProfile',
+    'CiExplorerProfileKey',
 ]

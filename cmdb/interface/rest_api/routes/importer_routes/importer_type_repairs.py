@@ -45,6 +45,7 @@ from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 from cmdb.utils import coerce_whole_number, random_hex_color, is_non_blank_string
 from cmdb.framework.ci_explorer.label_field import label_field_error
+from cmdb.framework.object_field_value_rules import find_default_value_errors
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     TypeStructure,
@@ -143,6 +144,46 @@ def apply_port_section_index_default(type_entry: Any) -> None:
                    and bool(type_entry.get(TypeSchemaKey.USES_PORTS.value))
 
     type_entry[TypeSchemaKey.PORT_SECTION_INDEX.value] = coerced if usable else DEFAULT_PORT_SECTION_INDEX
+
+
+def clear_invalid_field_defaults(type_entry: Any) -> list[str]:
+    """
+    Drops every field default the uploaded type's own value rules refuse, in place
+
+    A default is what every new object of the Type starts from, and it has to pass its field's own rules
+    (the text / textarea cap, the field's ``regex``) - the type routes refuse one that does not. An upload
+    is repaired instead of refused: the default belonged to the system the type came from, and a field
+    without a default is an ordinary state to start in. Only the default is dropped; the field and its
+    rules stay
+
+    Args:
+        type_entry (Any): A single entry of the uploaded payload, modified in place
+
+    Returns:
+        list[str]: The names of the fields whose default was dropped, in field order; empty when nothing
+            had to be repaired
+    """
+    if not isinstance(type_entry, dict):
+        return []
+
+    fields: Any = type_entry.get(TypeSchemaKey.FIELDS.value)
+
+    if not isinstance(fields, list):
+        return []
+
+    readable: list[dict[str, Any]] = [field for field in fields if isinstance(field, dict)]
+    errors: dict[str, list[str]] = find_default_value_errors(readable)
+    cleared: list[str] = []
+
+    for field in readable:
+        name: Any = field.get(FieldKey.NAME.value)
+
+        if name in errors:
+            LOGGER.warning("[clear_invalid_field_defaults] Dropping an unusable default: %s", '; '.join(errors[name]))
+            field[FieldKey.VALUE.value] = None
+            cleared.append(name)
+
+    return cleared
 
 
 def clear_dangling_ci_explorer_label(type_entry: Any) -> str | None:
@@ -620,6 +661,8 @@ def normalize_imported_type(
     clear_dangling_acl_groups(type_entry, types_manager)
     deactivate_empty_acl(type_entry)
     reconcile_global_templates(type_entry, section_templates_manager)
+    # After the template reconcile: it can add fields, whose defaults are judged like the rest
+    clear_invalid_field_defaults(type_entry)
     # LAST: the template repair above can add fields to the entry, and a nomination pointing at one
     # of those is perfectly usable - dropping it before they exist would be wrong
     clear_dangling_ci_explorer_label(type_entry)

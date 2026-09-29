@@ -41,17 +41,19 @@ def get_cmdb_ci_explorer_profile_schema() -> dict[str, Any]:
             'required': True,
             'empty': False,
         },
-        'types_filter': {  # public_ids of CmdbTypes the saved filter restricts neighbours to
+        'types_filter': {  # public_ids of CmdbTypes the saved filter restricts neighbours to; empty = no restriction
             'type': 'list',
             'required': False,
             'nullable': True,
             'empty': True,
+            'schema': {'type': 'integer', 'min': 1},
         },
-        'relations_filter': {  # public_ids of CmdbRelations the saved filter restricts edges to
+        'relations_filter': {  # public_ids of CmdbRelations the saved filter restricts edges to; empty = no restriction
             'type': 'list',
             'required': False,
             'nullable': True,
             'empty': True,
+            'schema': {'type': 'integer', 'min': 1},
         },
         'with_locations': {  # If True the saved filter includes the dg_location hierarchy
             'type': 'boolean',

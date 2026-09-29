@@ -27,7 +27,8 @@ Holds what the Create / Read / Update / Run / Delete routes share:
   SHAPE checks that keep a malformed value out of the document and out of a 500
 * the load-or-404 lookup and the two foreign-key guards (the report's CmdbType and its
   CmdbReportCategory must exist)
-* the Ref-Section-Field guard, the report-query builder and the safe evaluation of a stored query
+* the Ref-Section-Field guard, the report-query builder, and the route's reading of a stored query
+  (the evaluation itself is `models/reports_model/report_query`, shared with the DocAPI report table)
 * the two write-payload builders the Create / Update routes hand to the manager
 
 Validation helpers abort with HTTP 400 (404 for a missing report, 500 for an unusable stored query)
@@ -36,7 +37,6 @@ so the routes stay focused on orchestration.
 import json
 from logging import Logger, getLogger
 from typing import Any
-from datetime import datetime
 
 from flask import abort, request
 
@@ -48,6 +48,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
 from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportQueryKey
+from cmdb.models.reports_model.report_query import read_stored_report_query
 from cmdb.utils import str_to_bool
 
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
@@ -71,11 +72,6 @@ from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# Locked-down namespace for evaluating a stored report query: only 'datetime' is exposed and
-# builtins are removed, so the evaluation cannot reach arbitrary imports / builtins
-_EVAL_GLOBALS: dict[str, Any] = {'datetime': datetime, '__builtins__': {}}
-
 
 def strip_unknown_report_keys(params: dict[str, Any]) -> dict[str, Any]:
     """
@@ -451,28 +447,6 @@ def build_report_query(conditions: dict[str, Any] | None, report_type: CmdbType)
     return {ReportQueryKey.DATA: str(MongoDBQueryBuilder(conditions, report_type).build())}
 
 
-def eval_report_query(query_str: str) -> dict[str, Any]:
-    """
-    Safely evaluates a stored report query string back into a Mongo query dict
-
-    A report's query is persisted as the repr of a Python dict - ``datetime.datetime(...)`` calls and
-    all (see build_report_query). That stored shape is deliberately kept; reconstruction normalises
-    the ``datetime.datetime`` calls to ``datetime`` and evaluates the string in a locked-down
-    namespace exposing only ``datetime`` with an empty ``__builtins__``, so the evaluation cannot
-    reach arbitrary builtins / imports - mitigating the code-execution risk of eval'ing a stored
-    string. Because the namespace already binds ``datetime``, the normalised string evaluates
-    directly: no regex pre-processing of the datetime calls is required
-
-    Args:
-        query_str (str): The stored report query string
-
-    Returns:
-        dict[str, Any]: The reconstructed Mongo query
-    """
-    # pylint: disable=eval-used
-    return eval(query_str.replace('datetime.datetime', 'datetime'), _EVAL_GLOBALS)
-
-
 def resolve_report_query(report: dict[str, Any], public_id: int) -> dict[str, Any]:
     """
     Returns a stored report's executable Mongo query
@@ -493,14 +467,8 @@ def resolve_report_query(report: dict[str, Any], public_id: int) -> dict[str, An
     Returns:
         dict[str, Any]: The reconstructed Mongo query, or an empty dict when the report stores none
     """
-    stored_query: Any = report.get(ReportKey.REPORT_QUERY)
-    query_str: Any = stored_query.get(ReportQueryKey.DATA) if isinstance(stored_query, dict) else None
-
-    if not isinstance(query_str, str) or not query_str.strip():
-        return {}
-
     try:
-        return eval_report_query(query_str)
+        return read_stored_report_query(report)
     except Exception as err:
         LOGGER.error("[resolve_report_query] Exception: %s. Type: %s", err, type(err), exc_info=True)
         abort(500, REPORT_QUERY_CORRUPT_MSG.format(public_id=public_id))

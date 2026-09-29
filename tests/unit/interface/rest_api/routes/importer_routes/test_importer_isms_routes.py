@@ -165,6 +165,26 @@ class TestReadCsvFile:
 
         assert err.value.code == 400
 
+    @pytest.mark.parametrize('body', [
+        'name;source;identifier;description\nT1;S;ID;D\n',
+        f'{THREAT_HEADER_LINE}\nT1,S,ID,D\n',
+    ], ids=['semicolon', 'comma'])
+    def test_a_file_the_sniffer_cannot_read_falls_back_to_each_delimiter(
+        self, body: str, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        When sniffing fails, semicolon is tried first and comma second - each still reads the file
+
+        Sniffing is a guess over a sample and gives up on short or irregular files; the fallback is
+        what keeps such a file importable instead of refused
+        """
+        def _giving_up(_self, _sample: str, delimiters: str | None = None) -> None:
+            raise importer_isms_routes.Error(delimiters)
+
+        monkeypatch.setattr(importer_isms_routes.Sniffer, 'sniff', _giving_up)
+
+        assert next(read_csv_file(_csv_file(body), THREAT_HEADERS))['name'] == 'T1'
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  risk_row_is_valid                                                   #

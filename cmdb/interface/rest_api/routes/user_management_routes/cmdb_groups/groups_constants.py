@@ -33,3 +33,15 @@ GROUP_DELETE_RIGHT: str = f'{GROUP_RIGHT_PREFIX}.delete'
 # URL segments registered by the groups blueprint
 GROUPS_COLLECTION_ROUTE: str = '/'
 GROUP_ITEM_ROUTE: str = '/<int:public_id>'
+
+# A delete that names no action for a group that still has members: those members would be left holding a
+# group_id that resolves to nothing - authenticated, and refused every right
+GROUP_MEMBERS_NEED_ACTION_MSG: str = (
+    "The UserGroup with ID:{public_id} still has members - choose action=MOVE (with a target group_id) "
+    "or action=DELETE for them!"
+)
+
+# A MOVE whose target is the group being deleted moves the members into a group that is about to be gone
+GROUP_MOVE_TARGET_IS_SOURCE_MSG: str = (
+    "The users of the UserGroup with ID:{public_id} cannot be moved into the group that is being deleted!"
+)

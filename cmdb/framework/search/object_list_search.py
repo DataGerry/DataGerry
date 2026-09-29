@@ -61,8 +61,7 @@ def build_searchable_values_expression() -> dict[str, Any]:
     Builds the expression collecting everything a search term is matched against, as strings
 
     The referenced values come from the joined documents in `REFERENCED_OBJECTS_FIELD`, flattened with
-    the same `$reduce` / `$setUnion` the frontend used and the backend's own
-    `SearchReferencesPipelineBuilder` still uses. Every array is `$ifNull`-guarded because
+    the same `$reduce` / `$setUnion` the frontend used. Every array is `$ifNull`-guarded because
     `$concatArrays` answers null if any of its inputs is null, which would make an object with no
     fields unsearchable rather than merely unmatched
 

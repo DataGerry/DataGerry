@@ -22,6 +22,7 @@ They are re-exported here so a route reads its keys from one module
 """
 from cmdb.utils import BaseStrEnum
 from cmdb.framework.media_library.media_file_keys import MediaFileKey, MediaFileMetadataKey
+from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -51,8 +52,8 @@ class MediaFileRight(BaseStrEnum):
     the borrowing is visible in one place - whether the library should get its own rights is a filed
     decision, and this enum is where that change would land
     """
-    VIEW = 'base.framework.object.view'
-    EDIT = 'base.framework.object.edit'
+    VIEW = ObjectRightName.VIEW.value
+    EDIT = ObjectRightName.EDIT.value
 
 
 class MediaFileRequestKey(BaseStrEnum):

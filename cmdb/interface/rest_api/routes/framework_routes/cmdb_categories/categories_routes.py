@@ -60,6 +60,10 @@ from cmdb.interface.rest_api.responses import (
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import (
     CATEGORY_VIEW_PARAM,
     CategoryListView,
+    CategoryRight,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_helper import (
+    abort_if_category_types_unusable,
 )
 
 from cmdb.errors.manager.categories_manager import (
@@ -82,7 +86,7 @@ categories_blueprint = APIBlueprint('categories', __name__)
 @categories_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@categories_blueprint.protect(auth=True, right='base.framework.category.add')
+@categories_blueprint.protect(auth=True, right=CategoryRight.ADD.value)
 @categories_blueprint.validate(build_write_schema(CmdbCategory.SCHEMA))
 @handle_route_errors("while inserting the Category into the database")
 def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
@@ -128,6 +132,9 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
         if rejection:
             abort(400, rejection)
 
+        # Every type named once, existing, and in no other category
+        abort_if_category_types_unusable(categories_manager, data.get(CategoryKey.TYPES), None)
+
         result_id: int = categories_manager.insert_category(data)
 
         created_category: dict[str, Any] | None = categories_manager.get_category(result_id)
@@ -148,7 +155,7 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
 @categories_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@categories_blueprint.protect(auth=True, right='base.framework.category.view')
+@categories_blueprint.protect(auth=True, right=CategoryRight.VIEW.value)
 @categories_blueprint.parse_collection_parameters(view=CategoryListView.LIST.value)
 def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -225,7 +232,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
 @categories_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@categories_blueprint.protect(auth=True, right='base.framework.category.view')
+@categories_blueprint.protect(auth=True, right=CategoryRight.VIEW.value)
 @handle_route_errors("while retrieving the Category with ID:{public_id}")
 def get_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -272,7 +279,7 @@ def get_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
 @categories_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@categories_blueprint.protect(auth=True, right='base.framework.category.edit')
+@categories_blueprint.protect(auth=True, right=CategoryRight.EDIT.value)
 @categories_blueprint.validate(build_write_schema(CmdbCategory.SCHEMA))
 @handle_route_errors("while updating the Category with ID:{public_id}")
 def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> Response:
@@ -329,6 +336,9 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> 
         if rejection:
             abort(400, rejection)
 
+        # Every type named once, existing, and in no other category (its own current types are no clash)
+        abort_if_category_types_unusable(categories_manager, data.get(CategoryKey.TYPES), public_id)
+
         categories_manager.update_category(public_id, data)
 
         updated_category: dict[str, Any] | None = categories_manager.get_category(public_id)
@@ -346,7 +356,7 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> 
 @categories_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@categories_blueprint.protect(auth=True, right='base.framework.category.delete')
+@categories_blueprint.protect(auth=True, right=CategoryRight.DELETE.value)
 @handle_route_errors("while deleting the Category with ID: {public_id}")
 def delete_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
     """

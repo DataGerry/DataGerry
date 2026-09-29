@@ -19,6 +19,7 @@ Helper functions for the DateSettings REST routes
 from typing import Any
 
 from cmdb.settings.date_settings import DateSettingsDAO
+from cmdb.settings.date_settings_constants import DateSettingsKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -37,6 +38,6 @@ def build_date_settings(data: dict[str, Any]) -> DateSettingsDAO:
         DateSettingsDAO: The constructed date settings data object
     """
     return DateSettingsDAO(
-        date_format=data['date_format'],
-        timezone=data['timezone'],
+        date_format=data[DateSettingsKey.DATE_FORMAT],
+        timezone=data[DateSettingsKey.TIMEZONE],
     )

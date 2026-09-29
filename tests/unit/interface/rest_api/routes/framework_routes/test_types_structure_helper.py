@@ -30,7 +30,9 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR, FieldDefaultError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
+    guard_field_defaults,
     duplicated,
     guard_type_structure,
     summary_blocker,
@@ -327,3 +329,42 @@ def test_summary_blocker_reports_a_repeat_of_a_declared_name() -> None:
     payload = _payload([], [], summary=[FIELD_A, FIELD_A])
 
     assert FIELD_A in summary_blocker(payload, {FIELD_A})
+
+
+class TestGuardFieldDefaults:
+    """A Type write refused for a field default that breaks the field's own rules."""
+
+    CODE_REGEX: str = '[A-Z]+'
+
+    def test_a_valid_payload_passes(self) -> None:
+        """Defaults that pass, and fields without one"""
+        guard_field_defaults({TypeSchemaKey.FIELDS.value: [
+            {'type': 'text', 'name': 'code', 'regex': self.CODE_REGEX, 'value': 'ABC'},
+            {'type': 'text', 'name': 'note'},
+        ]})
+
+    def test_every_bad_default_is_named_in_one_400(self) -> None:
+        """All offenders at once, joined"""
+        payload = {TypeSchemaKey.FIELDS.value: [
+            {'type': 'text', 'name': 'code', 'regex': self.CODE_REGEX, 'value': 'abc'},
+            {'type': 'text', 'name': 'long', 'value': 'x' * 256},
+        ]}
+
+        with pytest.raises(HTTPException) as exc_info:
+            guard_field_defaults(payload)
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == FIELD_DEFAULT_ERROR_SEPARATOR.join([
+            FieldDefaultError.PATTERN_MISMATCH.format(field='code', regex=self.CODE_REGEX),
+            FieldDefaultError.TOO_LONG.format(field='long', length=256, max_length=255),
+        ])
+
+    def test_a_payload_without_fields_passes(self) -> None:
+        """Nothing to judge"""
+        guard_field_defaults({})
+
+
+def test_a_section_entry_that_is_not_a_dict_is_skipped() -> None:
+    """Its shape is the schema's to refuse; the structure rules only read real sections"""
+    assert type_structure_blocker(_payload([_field(FIELD_A)], ['not-a-section', _section(SECTION_A, [FIELD_A])])) \
+        is None

@@ -66,6 +66,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.object_model import CmdbObject, CmdbObjectKey, ObjectWriteVerb
 from cmdb.models.log_model.log_action_enum import LogAction
+from cmdb.models.right_model.right_constants import ObjectRightName
 from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
@@ -148,7 +149,7 @@ objects_blueprint = APIBlueprint('objects', __name__)
 @handle_db_errors
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.add')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ADD.value)
 @objects_blueprint.validate(CmdbObject.SCHEMA)
 @handle_route_errors("while creating the Object")
 def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
@@ -208,7 +209,7 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving the Object with ID: {public_id}")
 def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -284,7 +285,7 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @objects_blueprint.parse_collection_parameters(view='native')
 @handle_route_errors("while retrieving Objects from the database")
 def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
@@ -341,7 +342,7 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
 @objects_blueprint.route('/count', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the amount of CmdbObjects in database
@@ -374,7 +375,7 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/count/<int:type_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the number of CmdbObjects belonging to a given CmdbType
@@ -411,7 +412,7 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
 @objects_blueprint.route('/native/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving the native Object with ID: {public_id}")
 def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -447,7 +448,7 @@ def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/group/<string:value>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Response:
     """
     Groups CmdbObjects by the given field name and returns at most the first five groups
@@ -522,7 +523,7 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
 @objects_blueprint.route('/<int:public_id>/mds_reference', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving the MDS reference for Object with ID: {public_id}")
 def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -569,7 +570,7 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
 @objects_blueprint.route('/<int:public_id>/mds_references', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving MDS references")
 def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -630,7 +631,7 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
 @objects_blueprint.route('/references/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @objects_blueprint.parse_collection_parameters(view='native')
 def get_cmdb_object_references(public_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -707,7 +708,7 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 @objects_blueprint.route('/state/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.activation')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ACTIVATION.value)
 def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the active state of a single CmdbObject
@@ -747,7 +748,7 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
 @objects_blueprint.validate(CmdbObject.SCHEMA)
 @handle_route_errors("while updating Object with ID:{public_id}")
 def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Response:
@@ -818,7 +819,7 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
 @objects_blueprint.route('/<int:public_id>', methods=['PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
 @handle_route_errors("while patching Object with ID:{public_id}")
 def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -893,7 +894,7 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/state/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.activation')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ACTIVATION.value)
 @handle_route_errors("while updating Object state of ID:{public_id}")
 def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -988,7 +989,7 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
 @objects_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.DELETE.value)
 @handle_route_errors("while deleting the Object with ID: {public_id}")
 def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -1069,7 +1070,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.DELETE.value)
 @handle_route_errors("while deleting multiple Objects")
 # Cohesive bulk delete: location guard -> IPAM guard -> RA cascade -> per-object delete + side
 # effects -> reference scrub -> cloud count sync; the locals are inherent to the sequence

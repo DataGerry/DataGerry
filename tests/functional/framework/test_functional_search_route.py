@@ -182,7 +182,13 @@ class TestQuickSearchCounter:
     def test_returns_aggregated_result_when_present(self, rest_api, monkeypatch) -> None:
         """When the aggregation yields a row, it is returned as the response body."""
         counts = {'active': 3, 'inactive': 1, 'total': 4}
-        monkeypatch.setattr(ObjectsManager, 'aggregate_objects', lambda *_a, **_k: [counts])
+
+        def _aggregate(_self, pipeline: list[dict], **_kwargs: Any) -> list[dict[str, Any]]:
+            # Building the pipeline already collects the term's referenced objects; only the count
+            # pipeline itself - the one ending in the counters' $project - answers the row
+            return [counts] if 'total' in pipeline[-1].get('$project', {}) else []
+
+        monkeypatch.setattr(ObjectsManager, 'aggregate_objects', _aggregate)
 
         response = rest_api.get(QUICK_COUNT_URL)
 

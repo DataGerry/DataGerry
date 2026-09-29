@@ -106,6 +106,7 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants imp
 )
 from cmdb.framework.ci_explorer.label_field import label_field_error, selectable_label_fields
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import (
+    abort_if_profile_filters_name_unknown_ids,
     get_ci_explorer_label_schema,
     load_ci_explorer_entity,
 )
@@ -131,15 +132,17 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 
     Requires the ``base.framework.ciExplorer.edit`` right. The identity is server-owned: a public_id
     carried by the payload is dropped, so a client can neither choose an id nor collide with an
-    existing profile
+    existing profile. Each filter is a list of integer ids, and every id has to name an existing
+    CmdbType / CmdbRelation - an empty filter means "no restriction"
 
     Args:
         data (CmdbCiExplorerProfile.SCHEMA): Data of the CmdbCiExplorerProfile which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the insert / re-read fails; 500
-                       when the created profile cannot be re-read, or on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when a filter names an unknown id or the
+                       insert / re-read fails; 500 when the created profile cannot be re-read, or on an
+                       unexpected failure
 
     Returns:
         InsertSingleResponse: The new CmdbCiExplorerProfile and its public_id
@@ -152,6 +155,12 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 
         # The public_id is assigned by the collection counter, never taken from the payload
         data.pop(CmdbObjectKey.PUBLIC_ID.value, None)
+
+        abort_if_profile_filters_name_unknown_ids(
+            data,
+            ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            ManagerProvider.get_manager(ManagerType.RELATIONS, request_user),
+        )
 
         result_id = ci_explorer_profile_manager.insert_item(data)
 
@@ -433,7 +442,8 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
     HTTP `PUT`/`PATCH` route to update a single CmdbCiExplorerProfile
 
     Requires the ``base.framework.ciExplorer.edit`` right. The public_id is pinned to the URL before
-    the write, so a mismatched payload can not rewrite the profile's identity
+    the write, so a mismatched payload can not rewrite the profile's identity. The filters follow the
+    create route's rules: integer ids, each naming an existing CmdbType / CmdbRelation
 
     Args:
         public_id (int): public_id of the CmdbCiExplorerProfile which should be updated
@@ -441,8 +451,9 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the lookup / update fails;
-                       404 when the profile does not exist; 500 on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when a filter names an unknown id or the
+                       lookup / update fails; 404 when the profile does not exist; 500 on an unexpected
+                       failure
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbCiExplorerProfile
@@ -461,6 +472,12 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
         if not to_update_explorer_profile:
             abort(404, f"The CiExplorer Profile with ID:{public_id} was not found!")
         pin_public_id(data, public_id)
+
+        abort_if_profile_filters_name_unknown_ids(
+            data,
+            ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            ManagerProvider.get_manager(ManagerType.RELATIONS, request_user),
+        )
 
         stored: dict[str, Any] = update_item_from_payload(
             ci_explorer_profile_manager, public_id, CmdbCiExplorerProfile, data,

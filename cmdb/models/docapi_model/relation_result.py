@@ -135,6 +135,7 @@ class RelationResult:
             self.type_cache,
             self.objects_manager,
             self.types_manager,
+            self.request_user,
         )
 
         return RelationResult(

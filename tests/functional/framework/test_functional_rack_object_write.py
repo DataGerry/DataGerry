@@ -30,7 +30,7 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TEXTAREA_VALUE_MAX_LENGTH
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField, RackSection
 from cmdb.framework.rack.rack_constants import ABORT_PREFIX, RackLimits
@@ -419,3 +419,48 @@ class TestUpdateRackObject:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert _stored_height(database_manager, database_name, OBJECT_ID_FOR_PATCH) == VALID_HEIGHT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                       NOTES                                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheRackNotes:
+    """The Notes field is a textarea like any other: capped at the textarea length, nothing Rack-specific"""
+
+    def _notes_patch(self, rest_api, notes: str):
+        """Saves the notes the way the Rack view's notes card does"""
+        return rest_api.patch(
+            f'{ROUTE_URL}/{OBJECT_ID_FOR_PATCH}',
+            json={'fields': [{'name': RackField.NOTES.value, 'value': notes}]},
+        )
+
+    def test_notes_up_to_the_cap_are_saved(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """At most, not fewer than"""
+        _insert_rack_object(database_manager, database_name, OBJECT_ID_FOR_PATCH)
+
+        response = self._notes_patch(rest_api, 'n' * TEXTAREA_VALUE_MAX_LENGTH)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_notes_over_the_cap_are_refused(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """400 naming the Notes field, and nothing is stored"""
+        _insert_rack_object(database_manager, database_name, OBJECT_ID_FOR_PATCH)
+
+        response = self._notes_patch(rest_api, 'n' * (TEXTAREA_VALUE_MAX_LENGTH + 1))
+        stored = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one(
+            {'public_id': OBJECT_ID_FOR_PATCH}
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert RackField.NOTES.value in response.get_json()['message']
+        assert RackField.NOTES.value not in [field['name'] for field in stored['fields']]

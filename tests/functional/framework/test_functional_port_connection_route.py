@@ -61,7 +61,7 @@ from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route
 )
 from cmdb.models.special_type_model.cable_constants import CableField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.type_model import CmdbType, FieldType, SectionType
+from cmdb.models.type_model import CmdbType, FieldType, SectionType, TEXT_VALUE_MAX_LENGTH
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.port_connections_manager import PortConnectionsManager
@@ -1546,3 +1546,43 @@ class TestUnassignedCablePickerErrorTails:
         monkeypatch.setattr(manager, method, _raiser(error))
 
         assert rest_api.get(f'{ROUTE_URL}{UNASSIGNED_ROUTE}').status_code == expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                   CABLE TEXT CAP                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheCableTextCap:
+    """The four free-text cable fields hold at most the text cap, on create and on update"""
+
+    CAPPED_KEYS: list[str] = [
+        PortConnectionKey.CABLE_NAME.value, PortConnectionKey.CABLE_LENGTH.value,
+        PortConnectionKey.CABLE_COLOR.value, PortConnectionKey.CABLE_DESCRIPTION.value,
+    ]
+
+    @pytest.mark.parametrize('key', CAPPED_KEYS)
+    def test_the_cap_itself_is_accepted(self, rest_api, key: str) -> None:
+        """At most, not fewer than"""
+        response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID], **{key: 'x' * TEXT_VALUE_MAX_LENGTH})
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+
+    @pytest.mark.parametrize('key', CAPPED_KEYS)
+    def test_create_refuses_one_character_more(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str, key: str,
+    ) -> None:
+        """Refused before anything is written, naming the field"""
+        response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID], **{key: 'x' * (TEXT_VALUE_MAX_LENGTH + 1)})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert key in response.get_json()['message']
+        assert _connections(database_manager, database_name).count_documents({}) == 0
+
+    def test_update_refuses_one_character_more(self, rest_api) -> None:
+        """PUT validates the same body schema, and the stored value stays"""
+        new_id: int = _created_id(_create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID], cable_name='Kept'))
+
+        response = rest_api.put(f'{ROUTE_URL}/{new_id}', json={'cable_name': 'x' * (TEXT_VALUE_MAX_LENGTH + 1)})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result'][CABLE_VIEW_KEY][
+            CableViewKey.NAME.value] == 'Kept'

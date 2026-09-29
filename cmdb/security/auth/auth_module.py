@@ -39,6 +39,7 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
+from cmdb.security.auth.login_name import login_lookup_queries
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.models.security_models.auth_settings_constants import (
     AUTH_SETTINGS_ID,
@@ -412,7 +413,10 @@ class AuthModule:
         """
         Looks the login up as a stored CmdbUser
 
-        Cloud mode identifies a user by email, on-premise by the (lower-cased) user name
+        Cloud mode identifies a user by email, on-premise by the user name. The lookups are the ones the
+        local provider makes (``login_lookup_queries``): the login stripped and tried as given, then - on
+        premise - lower-cased, so a user stored as ``Admin`` is found here rather than only by the
+        fallback sweep
 
         Args:
             user_name (str): The login the user typed
@@ -420,10 +424,13 @@ class AuthModule:
         Returns:
             CmdbUser | None: The stored user, or None when no user carries that login
         """
-        if current_app.cloud_mode:
-            return self.users_manager.get_user_by({'email': user_name})
+        for query in login_lookup_queries(user_name, current_app.cloud_mode):
+            user: CmdbUser | None = self.users_manager.get_user_by(query)
 
-        return self.users_manager.get_user_by({'user_name': user_name.lower()})
+            if user:
+                return user
+
+        return None
 
 
     def login(self, user_name: str, password: str) -> CmdbUser:

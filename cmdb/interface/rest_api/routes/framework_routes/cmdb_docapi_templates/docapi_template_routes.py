@@ -25,7 +25,8 @@ paged list at ``/docs/template`` (the newer collection-parameters route the fron
 overview) while ``docapi`` carries everything else under ``/docapi/template``. The frontend calls the
 create and update routes WITH a trailing slash, which is the form registered here
 
-The render route is guarded by an OBJECT right, not a template one - see ``RENDER_OBJECT_RIGHT``
+The render route is guarded by an OBJECT right, not a template one - see ``RENDER_OBJECT_RIGHT`` - and
+reads its object, and everything the document pulls in, through the caller's READ ACL
 
 ``/docapi/template/name/<name>`` is the odd one out among the reads: it is a name-availability check for
 the template-name input, so an unused name is a 200 with ``null`` rather than a 404. That check is only
@@ -58,6 +59,7 @@ from cmdb.interface.route_utils import handle_route_errors, insert_request_user,
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
+    RENDER_OBJECT_DENIED_MSG,
     RENDER_OBJECT_RIGHT,
     RENDERED_DOCUMENT_EXTENSION,
     RENDERED_DOCUMENT_MIMETYPE,
@@ -69,8 +71,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docap
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
 
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.license.license_constants import LicenseFeature
 
+from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.docapi_templates_manager import (
     DocapiTemplatesManagerInsertError,
     DocapiTemplatesManagerGetError,
@@ -345,8 +349,11 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
     HTTP `GET` route for retrieving a single rendered DocapiTemplate
 
     Requires the ``base.framework.object.view`` right - an OBJECT right, because the document is built
-    from the object's field values - and the licensed DOCUMENT_GENERATOR feature. The object is read
-    WITHOUT the object ACL, deliberately
+    from the object's field values - and the licensed DOCUMENT_GENERATOR feature. The object is then read
+    through the caller's READ ACL, like ``GET /objects/<id>``: an object whose type the caller's group
+    may not read is a 403, and so is never rendered. The same ACL holds inside the document - every
+    object it references, names by id, reaches through a relation or lists in a report table is read
+    for the caller, and one they may not read renders blank
 
     The attachment is named by ``build_document_export_filename`` - the same helper the object and type
     exports use - so a rendered document carries its template, its object and the time it was taken
@@ -358,8 +365,9 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or the feature is unlicensed; 404 when the
-            template or the object does not exist; 500 when the render fails
+        HTTPException: 403 when the user lacks the right, the feature is unlicensed or the object's type
+            ACL denies them READ; 404 when the template or the object does not exist; 500 when the render
+            fails
 
     Returns:
         Response: The rendered DocapiTemplate with the CmdbObject as a PDF-file
@@ -375,7 +383,10 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         if not target_template:
             abort(404, f"Template with ID: {public_id} not found!")
 
-        target_object = objects_manager.get_object(object_id)
+        try:
+            target_object = objects_manager.get_object(object_id, request_user, AccessControlPermission.READ)
+        except AccessDeniedError:
+            abort(403, RENDER_OBJECT_DENIED_MSG.format(object_id=object_id))
 
         if not target_object:
             abort(404, f"Object with ID: {object_id} for Template with ID: {public_id} not found!")

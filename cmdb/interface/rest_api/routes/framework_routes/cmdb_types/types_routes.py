@@ -70,6 +70,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
     guard_referenced_section_removal,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
+    guard_field_defaults,
     guard_type_structure,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
@@ -191,6 +192,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # yields a Type that holds fields and renders none of them, or a summary line that drops
         # the entry it was configured to show
         guard_type_structure(data)
+
+        # A field's default is what every new object starts from, so it has to pass the field's own rules
+        guard_field_defaults(data)
 
         data.setdefault(TypeSchemaKey.CREATION_TIME, datetime.now(timezone.utc))
         data[TypeSchemaKey.AUTHOR_ID] = request_user.public_id
@@ -651,6 +655,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # An update writes the whole document, so it can introduce the same inconsistency a create
         # can: sections or a summary line referencing fields the payload does not declare
         guard_type_structure(data)
+
+        # Same default rule as the create - a Type stored with a bad default is refused until it is fixed
+        guard_field_defaults(data)
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id

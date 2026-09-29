@@ -24,7 +24,11 @@ Also holds DG_LOCATION_FIELD_NAME, the reserved name of the one location field a
 declare - the renderer, the CI Explorer, DocAPI and both importers all identify it by that name,
 DEFAULT_PORT_SECTION_INDEX / MIN_PORT_SECTION_INDEX, the position the ports section falls back to and
 the lowest one it may be given, and NestedSummaryKey, the keyset of a nested-summary entry.
+
+FIELD_VALUE_MAX_LENGTHS caps how many characters an object may store in a free-text field, per field
+kind: the one size rule every CmdbType's text and textarea fields follow, whatever the type
 """
+from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -40,6 +44,19 @@ DEFAULT_PORT_SECTION_INDEX: int = 0
 # The lowest position the ports section may be given. Same number as the default, but a different
 # statement: 0 is where an unspecified index lands, and it is also the first slot that exists
 MIN_PORT_SECTION_INDEX: int = 0
+
+# The most characters a single-line text value may hold - a name, a number, a short label
+TEXT_VALUE_MAX_LENGTH: int = 255
+
+# The most characters a textarea value may hold - notes and descriptions, kept well below the size at
+# which one value would crowd a MongoDB document and the change-log entry that copies it
+TEXTAREA_VALUE_MAX_LENGTH: int = 65536
+
+# The length cap of each free-text field kind. A kind missing here has no length cap
+FIELD_VALUE_MAX_LENGTHS: dict[FieldType, int] = {
+    FieldType.TEXT: TEXT_VALUE_MAX_LENGTH,
+    FieldType.TEXTAREA: TEXTAREA_VALUE_MAX_LENGTH,
+}
 
 
 class TypeRight(BaseStrEnum):

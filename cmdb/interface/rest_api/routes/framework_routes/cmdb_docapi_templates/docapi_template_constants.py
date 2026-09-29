@@ -22,6 +22,7 @@ route answers a rendered document with, and the document keys a searchfilter may
 """
 from cmdb.utils import BaseStrEnum
 from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
+from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -56,7 +57,7 @@ SEARCHFILTER_KEYS: frozenset[str] = frozenset({
 # picker asks for `{"template_parameters": {"type": <type_id>}}`
 SEARCHFILTER_NESTED_KEYS: frozenset[str] = frozenset({DocapiTemplateKey.TEMPLATE_PARAMETERS.value})
 
-RENDER_OBJECT_RIGHT: str = 'base.framework.object.view'
+RENDER_OBJECT_RIGHT: str = ObjectRightName.VIEW.value
 """
 The right guarding the render route - a CmdbObject right, not a DocapiTemplate one
 
@@ -64,6 +65,10 @@ Rendering reads the target CmdbObject and puts its field values into the documen
 decides it belongs to the object domain. The consequence is deliberate but worth knowing: holding all
 four DocapiTemplate rights is not enough to render, and holding this right alone is
 """
+
+
+#: What the render route answers a caller whose group may not READ the object's type
+RENDER_OBJECT_DENIED_MSG: str = 'No permission to render the Object with ID: {object_id}!'
 
 
 class DocapiTemplateRight(BaseStrEnum):

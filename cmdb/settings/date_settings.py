@@ -17,6 +17,8 @@
 Implementation of DateSettingsDAO
 """
 from logging import Logger, getLogger
+
+from cmdb.settings.date_settings_constants import DATE_SETTINGS_SECTION, DateSettingsKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -30,8 +32,8 @@ class DateSettingsDAO:
     """
 
     __DEFAULT_SETTINGS__: dict[str, str] = {
-            'date_format': 'YYYY-MM-DDThh:mm:ssZ',
-            'timezone': 'UTC',
+            DateSettingsKey.DATE_FORMAT: 'YYYY-MM-DDThh:mm:ssZ',
+            DateSettingsKey.TIMEZONE: 'UTC',
         }
 
 
@@ -43,6 +45,23 @@ class DateSettingsDAO:
             date_format (str): The date format to use
             timezone (str): The timezone setting
         """
-        self._id: str = 'date'
+        self._id: str = DATE_SETTINGS_SECTION
         self.date_format: str = date_format
         self.timezone: str = timezone
+
+
+    def to_json(self) -> dict[str, str]:
+        """
+        Returns the wire representation of the date settings
+
+        Declared so the JSON encoder serialises the settings through an explicit shape instead of the
+        instance's attribute dump
+
+        Returns:
+            dict[str, str]: The settings section id, date format and timezone
+        """
+        return {
+            DateSettingsKey.ID: self._id,
+            DateSettingsKey.DATE_FORMAT: self.date_format,
+            DateSettingsKey.TIMEZONE: self.timezone,
+        }

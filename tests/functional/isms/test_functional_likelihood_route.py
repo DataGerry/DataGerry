@@ -18,7 +18,7 @@ Functional smoke for the ``/isms/likelihoods`` REST routes
 
 Covers the route-layer concerns on top of the LikelihoodManager suites: HTTP status codes, schema
 validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400 mapping, and the
-ISMS-specific branches - the max-6 limit (403), the calculation_basis float coercion and uniqueness
+ISMS-specific branches - the max-6 limit (400), the calculation_basis float coercion and uniqueness
 (400 on insert and on a colliding update), and the 400 when deleting a Likelihood referenced by a
 RiskAssessment. The routes are ISMS-license gated, so the license check is stubbed.
 """
@@ -32,7 +32,11 @@ from cmdb.manager.isms_manager.likelihood_manager import LikelihoodManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsLikelihood, IsmsRiskAssessment
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_CAP_REACHED_MSG,
+    ISMS_LIKELIHOODS_LABEL,
+    MAX_ISMS_SCALE_ENTRIES,
+)
 from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerInsertError,
     LikelihoodManagerGetError,
@@ -186,16 +190,20 @@ class TestPostLikelihood:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_limit_reached_returns_403(self, rest_api,
+    def test_limit_reached_returns_400(self, rest_api,
                                       database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Creating a Likelihood beyond the MAX_ISMS_SCALE_ENTRIES limit returns 403."""
+        """Creating a Likelihood beyond the MAX_ISMS_SCALE_ENTRIES limit is refused with 400."""
         for index, likelihood_id in enumerate(LIMIT_LIKELIHOOD_IDS):
             _insert_likelihood(database_manager, database_name, likelihood_id, basis=float(index))
 
         response = rest_api.post(f'{ROUTE_URL}/',
                                  json=_likelihood_payload(LIMIT_EXTRA_ID, basis=float(MAX_ISMS_SCALE_ENTRIES)))
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == ISMS_CAP_REACHED_MSG.format(cap=MAX_ISMS_SCALE_ENTRIES,
+                                                                          entity_label=ISMS_LIKELIHOODS_LABEL)
+        stored = database_manager.get_collection(IsmsLikelihood.COLLECTION, database_name)
+        assert stored.find_one({'public_id': LIMIT_EXTRA_ID}) is None
 
 
 class TestGetLikelihood:

@@ -16,7 +16,7 @@
 """
 Functional smoke for the ``/isms/risk_classes`` REST routes
 
-Covers CRUD (incl. the max-MAX_ISMS_RISK_CLASSES limit -> 403), the bulk ``PUT /multiple`` route with
+Covers CRUD (incl. the max-MAX_ISMS_RISK_CLASSES limit -> 400), the bulk ``PUT /multiple`` route with
 its per-item success/failure results, the manager-error -> 400 mapping, and the DELETE side effect
 that resets the deleted class out of the RiskMatrix singleton (public_id 1). The routes are
 ISMS-license gated, so the check is stubbed.
@@ -28,6 +28,11 @@ import pytest
 from werkzeug.exceptions import BadRequest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_CAP_REACHED_MSG,
+    ISMS_RISK_CLASSES_LABEL,
+    MAX_ISMS_RISK_CLASSES,
+)
 from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsRiskClass, IsmsRiskMatrix
@@ -112,15 +117,19 @@ class TestPostRiskClass:
         """A POST without the required name fails schema validation with 400."""
         assert rest_api.post(f'{ROUTE_URL}/', json={'color': COLOR}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_limit_reached_returns_403(self, rest_api,
+    def test_limit_reached_returns_400(self, rest_api,
                                       database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Creating a RiskClass beyond the MAX_ISMS_RISK_CLASSES limit returns 403."""
+        """Creating a RiskClass beyond the MAX_ISMS_RISK_CLASSES limit is refused with 400."""
         for risk_class_id in LIMIT_RC_IDS:
             _insert_risk_class(database_manager, database_name, risk_class_id)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_risk_class_payload(LIMIT_EXTRA_ID))
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == ISMS_CAP_REACHED_MSG.format(cap=MAX_ISMS_RISK_CLASSES,
+                                                                          entity_label=ISMS_RISK_CLASSES_LABEL)
+        stored = database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name)
+        assert stored.find_one({'public_id': LIMIT_EXTRA_ID}) is None
 
 
 class TestGetRiskClass:
