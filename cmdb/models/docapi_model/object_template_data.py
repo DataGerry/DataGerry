@@ -30,8 +30,10 @@ from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateTyp
 from cmdb.models.docapi_model.reference_result import ReferenceResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -90,7 +92,11 @@ class ObjectTemplateData:
 
     def _resolve_reference(self, public_id: int, depth: int) -> dict[str, Any] | None:
         """
-        Resolves a referenced object into its extracted template data
+        Resolves a referenced object into its extracted template data - if the requesting user may read it
+
+        The referenced object is read through the requesting user's READ ACL. One their group may not
+        read resolves to None, exactly like one that does not exist: the template renders it blank, and
+        the document carries none of its values
 
         Args:
             public_id (int): The referenced object's public id
@@ -98,12 +104,20 @@ class ObjectTemplateData:
 
         Returns:
             dict[str, Any] | None: The referenced object's extracted data, or None if it cannot
-                be retrieved
+                be retrieved, does not exist or may not be read
         """
         try:
-            related_object: CmdbObject = self.objects_manager.get_object(public_id, as_dict=False)
+            related_object: CmdbObject | None = self.objects_manager.get_object(
+                public_id, self.request_user, AccessControlPermission.READ, as_dict=False,
+            )
+        except AccessDeniedError:
+            LOGGER.debug("Reference object with public_id '%s' is not readable for the requesting user", public_id)
+            return None
         except ObjectsManagerGetError:
             LOGGER.error("Failed to resolve reference object with public_id '%s'", public_id)
+            return None
+
+        if related_object is None:
             return None
 
         related_render: RenderResult = CmdbMultiRender(

@@ -17,7 +17,7 @@
 Unit tests for PipelineBuilder
 
 The base of every aggregation builder in the manager layer - `SearchPipelineBuilder`,
-`QuickSearchPipelineBuilder`, `SearchReferencesPipelineBuilder` and, through `BaseQueryBuilder`,
+`QuickSearchPipelineBuilder` and, through `BaseQueryBuilder`,
 every paged read. It owns the stage list itself: appending to it, replacing it, clearing it and
 reporting its length.
 

@@ -42,6 +42,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     is_special_type_changed,
     validate_and_fill_object_fields,
     validate_required_object_fields,
+    validate_object_field_values,
     guard_object_write_license,
     guard_object_delete_license,
     to_normalized_cmdb_object,
@@ -81,6 +82,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType, SectionType
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model import TEXT_VALUE_MAX_LENGTH
+from cmdb.framework.object_field_value_constants import FieldValueError
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    FIELD_VALUE_ERROR_SEPARATOR,
+)
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
@@ -359,6 +365,59 @@ class TestValidateRequiredObjectFields:
             validate_required_object_fields(object_data, self._type())
 
         assert exc_info.value.description.count('Missing value for required field(s)') == 2
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_object_field_values                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValidateObjectFieldValues:
+    """validate_object_field_values refuses a write storing a value its field does not allow."""
+
+    TEXT_FIELD: str = 'a-text'
+    CODE_FIELD: str = 'a-code'
+    CODE_REGEX: str = '[A-Z]+'
+    TOO_LONG: str = 'x' * (TEXT_VALUE_MAX_LENGTH + 1)
+
+    @classmethod
+    def _type(cls) -> CmdbType:
+        """A CmdbType with a plain text field and a patterned one"""
+        fields: list[dict[str, Any]] = [
+            {'type': FieldType.TEXT.value, 'name': cls.TEXT_FIELD, 'label': 'Text'},
+            {'type': FieldType.TEXT.value, 'name': cls.CODE_FIELD, 'label': 'Code', 'regex': cls.CODE_REGEX},
+        ]
+        sections: list[dict[str, Any]] = [{
+            'type': SectionType.SECTION.value, 'name': 'information', 'label': 'Information',
+            'fields': [cls.TEXT_FIELD, cls.CODE_FIELD],
+        }]
+
+        return CmdbType.from_data(make_type_doc(6, 'value-rules-demo', fields=fields, sections=sections))
+
+    def test_valid_values_pass(self) -> None:
+        """Nothing aborts"""
+        validate_object_field_values({'fields': [{'name': self.CODE_FIELD, 'value': 'ABC'}]}, self._type())
+
+    def test_every_broken_rule_is_one_400_message(self) -> None:
+        """Both fields' messages, joined"""
+        object_data = {'fields': [
+            {'name': self.TEXT_FIELD, 'value': self.TOO_LONG}, {'name': self.CODE_FIELD, 'value': 'abc'},
+        ]}
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_object_field_values(object_data, self._type())
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == FIELD_VALUE_ERROR_SEPARATOR.join([
+            FieldValueError.TOO_LONG.format(
+                field=self.TEXT_FIELD, length=len(self.TOO_LONG), max_length=TEXT_VALUE_MAX_LENGTH,
+            ),
+            FieldValueError.PATTERN_MISMATCH.format(field=self.CODE_FIELD, regex=self.CODE_REGEX),
+        ])
+
+    def test_a_value_the_stored_object_holds_is_not_judged(self) -> None:
+        """The update passes the stored object; an unchanged value is not its business"""
+        stored = {'fields': [{'name': self.TEXT_FIELD, 'value': self.TOO_LONG}]}
+
+        validate_object_field_values(stored, self._type(), previous_object=stored)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

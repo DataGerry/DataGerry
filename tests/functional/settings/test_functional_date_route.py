@@ -65,6 +65,15 @@ class TestGetDateSettings:
         assert 'date_format' in body
         assert 'timezone' in body
 
+    def test_answers_exactly_the_declared_shape(self, rest_api) -> None:
+        """The read answers the stored settings as the section id, date format and timezone - nothing else"""
+        rest_api.put('/date/', json=_date_payload())
+
+        response = rest_api.get('/date/')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == {'_id': DATE_SECTION, **_date_payload()}
+
 
 class TestUpdateDateSettings:
     """POST/PUT /date/ updates the date settings."""
@@ -77,6 +86,16 @@ class TestUpdateDateSettings:
         body = response.get_json()
         assert body['date_format'] == DATE_FORMAT
         assert body['timezone'] == TIMEZONE
+
+    def test_write_stores_exactly_the_declared_document(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The stored section holds the section id, date format and timezone - and nothing else"""
+        assert rest_api.put('/date/', json=_date_payload()).status_code == HTTPStatus.OK
+
+        stored: dict[str, Any] = database_manager.get_collection(SettingsManager.COLLECTION, database_name)\
+            .find_one({'_id': DATE_SECTION})
+
+        assert stored == {'_id': DATE_SECTION, **_date_payload()}
 
     def test_put_updates(self, rest_api) -> None:
         """PUT is accepted as well as POST for the update."""

@@ -34,6 +34,7 @@ class CategoryKey(BaseStrEnum):
     CREATION_TIME is stamped by the insert route (it is not part of the validation schema)
     but persists on the document, so it belongs to the document-key enum
     """
+    PUBLIC_ID = 'public_id'
     NAME = 'name'
     LABEL = 'label'
     META = 'meta'

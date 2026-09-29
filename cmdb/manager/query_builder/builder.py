@@ -244,6 +244,57 @@ class Builder(ABC):
 
 
     @staticmethod
+    def correlated_lookup_(
+        from_collection: str,
+        let: dict[str, Any],
+        pipeline: list[dict],
+        as_field: str,
+    ) -> dict:
+        """
+        Joins another collection through a sub-pipeline that can read the incoming document
+
+        The pipeline form of `$lookup`: `let` binds values of the incoming document to variables
+        (`$$name` inside the sub-pipeline), and the sub-pipeline decides what matches. Use it when a
+        plain `localField` / `foreignField` equality is not the join - when only some of the local
+        values take part, or the joined documents must also pass a filter of their own
+
+        Args:
+            from_collection (str): The collection to join with
+            let (dict[str, Any]): Variable name -> expression over the incoming document
+            pipeline (list[dict]): The stages run against the joined collection
+            as_field (str): Name of the new array field the joined documents are added under
+
+        Returns:
+            dict: A `$lookup` stage
+        """
+        return {
+            '$lookup': {
+                'from': from_collection,
+                'let': let,
+                'pipeline': pipeline,
+                'as': as_field,
+            }
+        }
+
+
+    @staticmethod
+    def unset_(fields: list[str]) -> dict:
+        """
+        Removes fields from the documents passing through, keeping everything else
+
+        The opposite of an inclusion `$project`: what it names is removed, and a field nobody named is
+        never dropped by accident
+
+        Args:
+            fields (list[str]): The field paths to remove
+
+        Returns:
+            dict: An `$unset` stage
+        """
+        return {'$unset': list(fields)}
+
+
+    @staticmethod
     def graph_lookup_(
         from_collection: str,
         start_with: str,

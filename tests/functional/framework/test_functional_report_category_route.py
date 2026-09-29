@@ -18,7 +18,7 @@ Functional tests for the ``/report_categories`` REST routes
 
 Pins the route-layer behaviour: create forces a server id + predefined=False, the missing-id 404s,
 the GET-list envelope, the update path (identity pinned to the URL id, predefined immutable), and
-the delete guards - missing -> 404, predefined -> 403, in-use-by-report -> 403, otherwise 200. The
+the delete guards - missing -> 404, predefined -> 400, in-use-by-report -> 400, otherwise 200. The
 create/update routes read their data from the schema-validated JSON body, and both sanitise it: a
 payload without a usable ``name`` is a 400 and every key outside the write whitelist is dropped
 instead of being persisted as a document key. A predefined category is read-only, so it
@@ -31,6 +31,11 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.interface.rest_api.routes.report_routes.report_constants import (
+    CATEGORY_IN_USE_MSG,
+    CATEGORY_PREDEFINED_MSG,
+    ReportCategoryAction,
+)
 from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
@@ -250,7 +255,7 @@ class TestUpdateReportCategory:
         stored = _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_FOR_UPDATE})
         assert stored['name'] == 'Original'
 
-    def test_update_of_a_predefined_category_returns_403(
+    def test_update_of_a_predefined_category_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """A predefined category is read-only: the rename is refused and the stored name stays."""
@@ -260,7 +265,9 @@ class TestUpdateReportCategory:
 
         response = rest_api.put(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}', json={'name': 'Renamed'})
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == CATEGORY_PREDEFINED_MSG.format(
+            action=ReportCategoryAction.UPDATED.value)
         stored = _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_PREDEFINED})
         assert stored['name'] == 'System'
 
@@ -275,7 +282,7 @@ class TestUpdateReportCategory:
 #                                                      DELETE                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteReportCategory:
-    """DELETE guards: success 200, missing 404, predefined 403, in-use 403 (none leak as 500)."""
+    """DELETE guards: success 200, missing 404, predefined 400, in-use 400 (none leak as 500)."""
 
     def test_delete_removes_category(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -292,26 +299,35 @@ class TestDeleteReportCategory:
         """Deleting a missing id returns 404 (not a 500 from the generic handler)."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_CATEGORY_ID}').status_code == HTTPStatus.NOT_FOUND
 
-    def test_delete_predefined_returns_403(
+    def test_delete_predefined_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Deleting a predefined category is rejected with 403 (a business-rule rejection, not 405)."""
+        """Deleting a predefined category is a business-rule rejection - 400, not 403 or 405."""
         _categories(database_manager, database_name).insert_one(
             _category_doc(CATEGORY_ID_PREDEFINED, 'System', predefined=True)
         )
 
-        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}').status_code == HTTPStatus.FORBIDDEN
+        response = rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}')
 
-    def test_delete_in_use_returns_403(
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == CATEGORY_PREDEFINED_MSG.format(
+            action=ReportCategoryAction.DELETED.value)
+        assert _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_PREDEFINED})
+
+    def test_delete_in_use_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Deleting a category still referenced by a report is rejected with 403."""
+        """Deleting a category still referenced by a report is rejected with 400 and stays stored."""
         _categories(database_manager, database_name).insert_one(_category_doc(CATEGORY_ID_IN_USE, 'Used'))
         _reports(database_manager, database_name).insert_one(
             {'public_id': REPORT_ID_USING_CATEGORY, 'report_category_id': CATEGORY_ID_IN_USE}
         )
 
-        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_IN_USE}').status_code == HTTPStatus.FORBIDDEN
+        response = rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_IN_USE}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == CATEGORY_IN_USE_MSG.format(public_id=CATEGORY_ID_IN_USE)
+        assert _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_IN_USE})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

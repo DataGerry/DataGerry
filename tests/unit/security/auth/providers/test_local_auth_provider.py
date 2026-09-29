@@ -30,18 +30,17 @@ from unittest.mock import MagicMock, patch
 import pytest
 from flask import Flask
 
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.manager.users_manager import UsersManagerGetError
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
-from cmdb.security.auth.providers.local_auth_provider import (
-    LocalAuthenticationProvider,
-    USER_NAME_FIELD,
-    EMAIL_FIELD,
-)
+from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.security.auth.providers.local_auth_provider'
+
+USER_NAME_FIELD: str = CmdbUserKey.USER_NAME.value
+EMAIL_FIELD: str = CmdbUserKey.EMAIL.value
 
 USER_NAME: str = 'alice'
 MIXED_CASE_USER_NAME: str = 'Alice'
@@ -227,7 +226,7 @@ class TestUserLookup:
         provider.users_manager.get_user_by.assert_called_once_with({EMAIL_FIELD: EMAIL})
 
     def test_a_mixed_case_name_falls_back_to_lower_case(self) -> None:
-        """AuthModule lower-cases the name on one login path only - both must find the same user."""
+        """The shared lookup rule: as given, then lower-cased - AuthModule.resolve_user makes the same reads."""
         stored = _user()
         provider = _provider()
         provider.users_manager.get_user_by.side_effect = [None, stored]
@@ -260,7 +259,7 @@ class TestUserLookup:
         provider.users_manager.get_user_by.assert_called_once()
 
     def test_no_case_fallback_in_cloud_mode(self) -> None:
-        """The cloud lookup is by email and is left exactly as the caller submitted it."""
+        """The cloud lookup is by the email the portal answered with, so it is tried as given only."""
         provider = _provider(None)
 
         with _app(cloud_mode=True).test_request_context('/'):
@@ -268,6 +267,21 @@ class TestUserLookup:
                 provider.authenticate('Alice@Example.com', PASSWORD)
 
         provider.users_manager.get_user_by.assert_called_once_with({EMAIL_FIELD: 'Alice@Example.com'})
+
+    @pytest.mark.parametrize('cloud_mode, submitted, field, stored', [
+        (False, f'  {USER_NAME} ', USER_NAME_FIELD, USER_NAME),
+        (True, f'{EMAIL}\t', EMAIL_FIELD, EMAIL),
+    ], ids=['user-name', 'email'])
+    def test_surrounding_whitespace_is_stripped(
+        self, cloud_mode: bool, submitted: str, field: str, stored: str,
+    ) -> None:
+        """A pasted trailing space does not make a correct login fail"""
+        provider = _provider(_user())
+
+        with _app(cloud_mode=cloud_mode).test_request_context('/'):
+            provider.authenticate(submitted, PASSWORD)
+
+        provider.users_manager.get_user_by.assert_called_once_with({field: stored})
 
     def test_a_failing_read_is_an_authentication_error(self) -> None:
         """The old handler caught an error type the UsersManager never raises, so this became a 500."""

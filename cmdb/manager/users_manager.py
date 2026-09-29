@@ -41,7 +41,7 @@ from cmdb.manager.users_manager_constants import MINIMAL_USER_PROJECTION, USER_I
 
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager import (
@@ -394,6 +394,28 @@ class UsersManager(BaseManager):
             raise UsersManagerGetError(str(err)) from err
 
 
+    def has_group_members(self, group_id: int) -> bool:
+        """
+        Reports whether any CmdbUser belongs to a UserGroup
+
+        Counts with a limit of one, so the answer costs a single index lookup whatever the group's size
+
+        Args:
+            group_id (int): public_id of the UserGroup
+
+        Raises:
+            UsersManagerGetError: When the members could not be counted
+
+        Returns:
+            bool: True when at least one CmdbUser holds this group_id
+        """
+        try:
+            return self.count_documents({CmdbUserKey.GROUP_ID.value: group_id}, limit=1) > 0
+        except BaseManagerGetError as err:
+            LOGGER.error("[has_group_members] BaseManagerGetError: %s", err)
+            raise UsersManagerGetError(err) from err
+
+
     def _move_group_members(self, group_id: int, target_group_id: int | None) -> None:
         """
         Reassigns every member of a UserGroup to another group
@@ -412,7 +434,7 @@ class UsersManager(BaseManager):
         if not target_group_id:
             raise UsersManagerUpdateError("Target group_id required when moving Users!")
 
-        self.update_many({'group_id': group_id}, {'group_id': int(target_group_id)})
+        self.update_many({CmdbUserKey.GROUP_ID.value: group_id}, {CmdbUserKey.GROUP_ID.value: int(target_group_id)})
 
 
     def _delete_group_members(self, group_id: int) -> None:
@@ -432,21 +454,23 @@ class UsersManager(BaseManager):
         """
         # Check if the admin user is part of this UserGroup
         admin_user: dict[str, Any] | None = self.get_one_by({
-            "group_id": group_id,
-            "public_id": CmdbUser.ADMIN_PUBLIC_ID
+            CmdbUserKey.GROUP_ID.value: group_id,
+            CmdbUserKey.PUBLIC_ID.value: CmdbUser.ADMIN_PUBLIC_ID,
         })
 
         if admin_user:
             raise UsersManagerDeleteError("This Group can not be deleted because the admin user is part of it")
 
         member_ids: list[int] = [
-            user['public_id']
-            for user in self.find(criteria={'group_id': group_id}, projection=USER_ID_PROJECTION)
+            user[CmdbUserKey.PUBLIC_ID.value]
+            for user in self.find(criteria={CmdbUserKey.GROUP_ID.value: group_id}, projection=USER_ID_PROJECTION)
         ]
 
         if not member_ids:
             return
 
-        self.delete_many({"group_id": group_id})
+        # Deleted by the ids just read, not by re-running the group query: a user added to the group in
+        # between would otherwise be deleted without being in member_ids, and so keep their settings
+        self.delete_many({CmdbUserKey.PUBLIC_ID.value: {'$in': member_ids}})
 
         self._delete_user_settings(member_ids)

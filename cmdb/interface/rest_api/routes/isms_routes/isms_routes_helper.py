@@ -26,6 +26,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_BULK_DELETE_DELETED_KEY,
+    ISMS_CAP_REACHED_MSG,
     ISMS_BULK_DELETE_IN_USE_KEY,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
 )
@@ -63,6 +64,26 @@ def get_item_or_404(
         abort(404, not_found_message)
 
     return item
+
+
+def abort_if_isms_cap_reached(manager: GenericManager, cap: int, entity_label: str) -> None:
+    """
+    Refuses the create of an ISMS entry once its collection already holds ``cap`` entries
+
+    The bounded ISMS scales (Likelihoods, Impacts) and the RiskClasses are kept small so the risk matrix
+    stays readable. Reaching the cap is a business rule, not an authorisation decision - the caller holds
+    the right, the collection is simply full - so the refusal is a 400
+
+    Args:
+        manager (GenericManager): Manager of the collection the create would add to
+        cap (int): Maximum number of entries the collection may hold
+        entity_label (str): Plural entity name used in the message (e.g. "Likelihoods")
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the collection already holds ``cap`` entries
+    """
+    if manager.count_documents() >= cap:
+        abort(400, ISMS_CAP_REACHED_MSG.format(cap=cap, entity_label=entity_label))
 
 
 def _is_item_public_id(value: Any) -> bool:

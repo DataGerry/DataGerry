@@ -43,12 +43,13 @@ from cmdb.manager import (
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.security.auth.login_name import normalize_login_email, strip_login
 from cmdb import __title__
 from cmdb.security.token.validator import TokenValidator
 from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey
 from cmdb.security.token.generator import TokenGenerator
 
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 
 from cmdb.errors.security import (
     TokenValidationError,
@@ -753,7 +754,9 @@ def _authenticate_basic(auth_info: str) -> str | None:
     Authenticates Basic credentials and exchanges them for a freshly generated JWT
 
     Decodes the ``email:password`` pair, resolves the target database (via the service portal in
-    cloud mode), logs in through the AuthModule and returns a new JWT for the authenticated user
+    cloud mode), logs in through the AuthModule and returns a new JWT for the authenticated user. In
+    cloud mode the AuthModule is given the email the portal answered with, so a login typed in another
+    case finds the tenant user it belongs to
 
     Args:
         auth_info (str): The base64-encoded ``email:password`` portion of a Basic Authorization header
@@ -765,7 +768,7 @@ def _authenticate_basic(auth_info: str) -> str | None:
         username, password = base64.b64decode(auth_info).split(b":", 1)
 
         with current_app.app_context():
-            username = username.decode("utf-8")
+            username = strip_login(username.decode("utf-8"))
             password = password.decode("utf-8")
 
             db_name = None
@@ -774,6 +777,10 @@ def _authenticate_basic(auth_info: str) -> str | None:
 
                 if not user_data:
                     return None
+
+                # The tenant user is stored under the address the portal answers with, whatever spelling
+                # the caller typed - the login route and the x-api-key path look it up the same way
+                username = user_data.get(CmdbUserKey.EMAIL.value) or username
 
                 if current_app.local_mode:
                     # Test API only with user with 1 subscription
@@ -858,6 +865,7 @@ def check_user_in_service_portal(
 ) -> dict[str, Any] | None:
     """Check if a user exists in the service portal
 
+    The email is normalised first (stripped and lower-cased), whatever spelling the caller submitted.
     This function verifies user credentials in two modes:
     - **Local mode**: Loads test users from a JSON file and verifies credentials
     - **Cloud mode**: Validates user credentials via the service portal
@@ -878,6 +886,10 @@ def check_user_in_service_portal(
     Returns:
         dict | None: A dictionary representing the user if authentication is successful, otherwise None
     """
+    # Every cloud entry point funnels through here, so the portal and the user cache always see the
+    # same spelling of one address - see cmdb.security.auth.login_name
+    email = normalize_login_email(email)
+
     if current_app.local_mode:
         return _load_local_test_user(email, password)
 
@@ -1134,7 +1146,9 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
         admin_user_from_db = None
 
         try:
-            admin_user_from_db = users_manager.get_user_by({'email': user_data['email']})
+            admin_user_from_db = users_manager.get_user_by(
+                {CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]}
+            )
         except UsersManagerGetError:
             pass
 
@@ -1142,7 +1156,7 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
             admin_user = CmdbUser(
                 public_id = users_manager.get_next_public_id(inc_id=True),
                 user_name = user_data['user_name'],
-                email = user_data['email'],
+                email = user_data[CmdbUserKey.EMAIL.value],
                 database = subscription['database'],
                 active = True,
                 api_level = api_level,
@@ -1184,7 +1198,7 @@ def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
         users_manager = UsersManager(current_app.database_manager, database)
 
     try:
-        return users_manager.get_user_by({'email': user_data['email']})
+        return users_manager.get_user_by({CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]})
     except UsersManagerGetError as err:
         LOGGER.debug("[retrieve_user] Exception: %s, Type: %s", err, type(err))
         return None

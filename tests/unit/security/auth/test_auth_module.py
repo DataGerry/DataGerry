@@ -35,7 +35,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.models.security_models import DEFAULT_TOKEN_LIFETIME
 from cmdb.security.auth.auth_module import (
     PROVIDER_CLASS_NAME_KEY,
@@ -468,15 +468,40 @@ class TestLogin:
         assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
 
     # pylint: disable=unused-argument
-    def test_the_lookup_lower_cases_the_user_name_on_premise(self, cmdb_app) -> None:
-        """On-premise the stored user is resolved by a lower-cased user_name."""
+    def test_a_name_stored_as_typed_is_found_by_the_first_read(self, cmdb_app) -> None:
+        """On-premise a user name is stored as it was created - 'TestUser' finds 'TestUser' directly"""
         module = self._module_with_stub()
         _reset_stub(_StubProvider, result=self._user('_StubProvider'))
         module.users_manager.get_user_by.return_value = self._user('_StubProvider')
 
         module.login('TestUser', PASSWORD)
 
-        assert module.users_manager.get_user_by.call_args.args[0] == {'user_name': 'testuser'}
+        assert [call.args[0] for call in module.users_manager.get_user_by.call_args_list] == [
+            {CmdbUserKey.USER_NAME.value: 'TestUser'},
+        ]
+
+    def test_a_miss_as_typed_is_retried_lower_cased(self, cmdb_app) -> None:
+        """'TESTUSER' finds 'testuser' on the primary path, not only through the fallback sweep"""
+        module = self._module_with_stub()
+        stored = self._user('_StubProvider')
+        _reset_stub(_StubProvider, result=stored)
+        module.users_manager.get_user_by.side_effect = [None, stored]
+
+        assert module.login('TESTUSER', PASSWORD) is stored
+        assert [call.args[0] for call in module.users_manager.get_user_by.call_args_list] == [
+            {CmdbUserKey.USER_NAME.value: 'TESTUSER'}, {CmdbUserKey.USER_NAME.value: 'testuser'},
+        ]
+        assert len(_StubProvider.calls) == 1
+
+    def test_surrounding_whitespace_is_stripped_before_the_lookup(self, cmdb_app) -> None:
+        """A pasted trailing space finds the user"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+        module.users_manager.get_user_by.return_value = self._user('_StubProvider')
+
+        module.login(f' {USER_NAME} ', PASSWORD)
+
+        assert module.users_manager.get_user_by.call_args.args[0] == {CmdbUserKey.USER_NAME.value: USER_NAME}
 
     def test_cloud_mode_resolves_the_user_by_email(self, cmdb_app) -> None:
         """In cloud mode the login is looked up as an email."""
@@ -487,7 +512,7 @@ class TestLogin:
 
         module.login(USER_EMAIL, PASSWORD)
 
-        assert module.users_manager.get_user_by.call_args.args[0] == {'email': USER_EMAIL}
+        assert module.users_manager.get_user_by.call_args.args[0] == {CmdbUserKey.EMAIL.value: USER_EMAIL}
 
     def test_an_unknown_user_falls_back_to_the_provider_sweep(self, cmdb_app) -> None:
         """No stored user: every active provider is tried so an external one can provision it."""

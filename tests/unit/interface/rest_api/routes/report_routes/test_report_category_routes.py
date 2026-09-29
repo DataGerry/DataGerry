@@ -31,6 +31,8 @@ from flask import Flask
 from werkzeug.exceptions import BadRequest, HTTPException
 
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
+    CATEGORY_IN_USE_MSG,
+    CATEGORY_PREDEFINED_MSG,
     REPORT_CATEGORY_WRITE_KEYS,
     ReportCategoryAction,
     ReportCategoryKey,
@@ -78,7 +80,6 @@ def _listing_params(search: str | None = None) -> MagicMock:
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.report_routes.report_category_routes'
 
 HTTP_BAD_REQUEST: int = 400
-HTTP_FORBIDDEN: int = 403
 HTTP_NOT_FOUND: int = 404
 HTTP_SERVER_ERROR: int = 500
 
@@ -229,12 +230,12 @@ def test_load_category_or_404_missing_maps_to_404() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 @pytest.mark.parametrize('action', [ReportCategoryAction.UPDATED, ReportCategoryAction.DELETED])
 def test_abort_if_predefined_refuses_a_predefined_category(action: ReportCategoryAction) -> None:
-    """A predefined category is read-only: both write actions are refused with 403, naming the verb."""
+    """A predefined category is read-only: both write actions are refused with a 400 naming the verb."""
     with pytest.raises(HTTPException) as exc_info:
         abort_if_predefined(_category(predefined=True), action)
 
-    assert exc_info.value.code == HTTP_FORBIDDEN
-    assert action.value in exc_info.value.description
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+    assert exc_info.value.description == CATEGORY_PREDEFINED_MSG.format(action=action.value)
 
 
 def test_abort_if_predefined_passes_a_user_created_category() -> None:
@@ -256,14 +257,15 @@ def test_abort_if_category_in_use_counts_referencing_reports_server_side() -> No
     )
 
 
-def test_abort_if_category_in_use_referenced_maps_to_403() -> None:
-    """A category a report still references can not be deleted."""
+def test_abort_if_category_in_use_referenced_maps_to_400() -> None:
+    """A category a report still references can not be deleted - a business rule, not a missing right."""
     manager = _manager(count_from_other_collection=MagicMock(return_value=1))
 
     with pytest.raises(HTTPException) as exc_info:
         abort_if_category_in_use(manager, CATEGORY_ID)
 
-    assert exc_info.value.code == HTTP_FORBIDDEN
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+    assert exc_info.value.description == CATEGORY_IN_USE_MSG.format(public_id=CATEGORY_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -485,11 +487,11 @@ def test_update_writes_a_sanitised_and_pinned_payload(flask_app: Flask) -> None:
     response_ctor.assert_called_once_with(expected_payload)
 
 
-def test_update_of_a_predefined_category_maps_to_403(flask_app: Flask) -> None:
+def test_update_of_a_predefined_category_maps_to_400(flask_app: Flask) -> None:
     """A predefined category may not be renamed - the write is refused before it happens."""
     manager = _manager(get_item=MagicMock(return_value=_category(predefined=True)), update_item=MagicMock())
 
-    _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_FORBIDDEN, method='PUT',
+    _expect_status(flask_app, update_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='PUT',
                    public_id=CATEGORY_ID, data={'name': 'Renamed'})
 
     manager.update_item.assert_not_called()
@@ -560,7 +562,7 @@ def test_delete_removes_a_free_category(flask_app: Flask) -> None:
     response_ctor.assert_called_once_with(True)
 
 
-def test_delete_of_a_predefined_category_maps_to_403(flask_app: Flask) -> None:
+def test_delete_of_a_predefined_category_maps_to_400(flask_app: Flask) -> None:
     """A predefined category may not be deleted, and the in-use count is never even asked for."""
     manager = _manager(
         get_item=MagicMock(return_value=_category(predefined=True)),
@@ -568,14 +570,14 @@ def test_delete_of_a_predefined_category_maps_to_403(flask_app: Flask) -> None:
         delete_item=MagicMock(),
     )
 
-    _expect_status(flask_app, delete_cmdb_report_category, manager, HTTP_FORBIDDEN, method='DELETE',
+    _expect_status(flask_app, delete_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='DELETE',
                    public_id=CATEGORY_ID)
 
     manager.count_from_other_collection.assert_not_called()
     manager.delete_item.assert_not_called()
 
 
-def test_delete_of_a_used_category_maps_to_403(flask_app: Flask) -> None:
+def test_delete_of_a_used_category_maps_to_400(flask_app: Flask) -> None:
     """A category a report still references may not be deleted."""
     manager = _manager(
         get_item=MagicMock(return_value=_category()),
@@ -583,7 +585,7 @@ def test_delete_of_a_used_category_maps_to_403(flask_app: Flask) -> None:
         delete_item=MagicMock(),
     )
 
-    _expect_status(flask_app, delete_cmdb_report_category, manager, HTTP_FORBIDDEN, method='DELETE',
+    _expect_status(flask_app, delete_cmdb_report_category, manager, HTTP_BAD_REQUEST, method='DELETE',
                    public_id=CATEGORY_ID)
 
     manager.delete_item.assert_not_called()

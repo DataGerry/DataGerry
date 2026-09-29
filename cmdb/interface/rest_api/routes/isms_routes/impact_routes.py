@@ -28,13 +28,19 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsImpact
 from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    MAX_ISMS_SCALE_ENTRIES,
+    ISMS_IMPACTS_LABEL,
+)
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_if_isms_cap_reached,
+    get_item_or_404,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -96,9 +102,8 @@ def insert_isms_impact(data: dict[str, Any], request_user: CmdbUser) -> Response
         impact_manager: ImpactManager = ManagerProvider.get_manager(ManagerType.IMPACT, request_user)
         impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                      request_user)
-        # There is a Limit of MAX_ISMS_SCALE_ENTRIES Impact classes
-        if impact_manager.count_documents() >= MAX_ISMS_SCALE_ENTRIES:
-            abort(403, f"Only a maximum of {MAX_ISMS_SCALE_ENTRIES} Impacts can be created!")
+
+        abort_if_isms_cap_reached(impact_manager, MAX_ISMS_SCALE_ENTRIES, ISMS_IMPACTS_LABEL)
 
         _coerce_calculation_basis(data)
 

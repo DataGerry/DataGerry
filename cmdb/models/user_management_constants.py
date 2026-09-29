@@ -26,6 +26,7 @@ from cmdb.models.settings_model import CmdbUserSetting
 from cmdb.models.person_model import CmdbPerson
 from cmdb.models.person_group_model import CmdbPersonGroup
 from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
 
 rights_manager = RightsManager()
@@ -43,7 +44,7 @@ __ADMIN_GROUP_RIGHTS__: list[BaseRight] = [
 ]
 
 __USER_GROUP_RIGHTS__: list[BaseRight] = [
-    rights_manager.get_right('base.framework.object.*'),
+    rights_manager.get_right(ObjectRightName.ALL.value),
     rights_manager.get_right('base.framework.type.view'),
     rights_manager.get_right('base.framework.category.view'),
     rights_manager.get_right('base.framework.log.view'),

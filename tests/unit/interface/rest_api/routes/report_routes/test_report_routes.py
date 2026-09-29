@@ -40,6 +40,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
 from cmdb.models.reports_model.report_constants import ReportQueryKey
+from cmdb.models.reports_model.report_query import eval_stored_report_query
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     PREVIEW_LIMIT,
     PREVIEW_PARAM,
@@ -62,7 +63,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     build_report_query,
     build_report_update_payload,
     collect_condition_field_names,
-    eval_report_query,
     load_report_or_404,
     normalize_report_params,
     parse_boolean_param,
@@ -574,22 +574,6 @@ def test_passes_when_type_has_no_ref_section_fields() -> None:
     abort_if_ref_section_fields(report_type, ['text-a', 'linked-section'], None)  # must not raise
 
 
-# ------------------------------------------------- eval_report_query ------------------------------------------------ #
-
-def test_eval_report_query_rebuilds_dict_with_datetime() -> None:
-    """A stored query string is evaluated back into a dict, including datetime() calls."""
-    result = eval_report_query("{'field': 'x', 'when': datetime.datetime(2024, 11, 26)}")
-
-    assert result['field'] == 'x'
-    assert result['when'] == datetime(2024, 11, 26)
-
-
-def test_eval_report_query_is_sandboxed_against_builtins() -> None:
-    """The locked-down namespace removes builtins, so a builtin call cannot execute (NameError)."""
-    with pytest.raises(NameError):
-        eval_report_query("__import__('os').system('echo pwned')")
-
-
 # ------------------------------------------------- build_report_query ----------------------------------------------- #
 
 def test_build_report_query_wraps_serialized_query_under_data() -> None:
@@ -603,15 +587,15 @@ def test_build_report_query_wraps_serialized_query_under_data() -> None:
     assert result == {ReportQueryKey.DATA: str(built)}
 
 
-def test_build_report_query_round_trips_through_eval_report_query() -> None:
-    """A built query (datetime values and all) survives the str-store / eval-load round-trip."""
+def test_build_report_query_round_trips_through_the_stored_query_reader() -> None:
+    """A built query (datetime values and all) survives the str-store / shared-reader round-trip."""
     built: dict[str, Any] = {'fields': {'$elemMatch': {'name': 'd', 'value': {'$gte': datetime(2024, 11, 26)}}}}
 
     with patch(f'{HELPER_PATH}.MongoDBQueryBuilder') as builder_cls:
         builder_cls.return_value.build.return_value = built
         stored = build_report_query({'condition': 'and', 'rules': []}, MagicMock())
 
-    assert eval_report_query(stored[ReportQueryKey.DATA]) == built
+    assert eval_stored_report_query(stored[ReportQueryKey.DATA]) == built
 
 
 # ------------------------------------------------- resolve_report_query --------------------------------------------- #

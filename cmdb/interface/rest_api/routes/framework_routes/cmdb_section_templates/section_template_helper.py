@@ -36,6 +36,8 @@ from cmdb.models.section_template_model.section_template_constants import (
     SECTION_TEMPLATE_WRITE_KEYS,
     SectionTemplateKey,
 )
+from cmdb.framework.object_field_value_rules import find_default_value_errors
+from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.utils import str_to_bool
@@ -105,6 +107,9 @@ def guard_template_fields(fields: list[dict[str, Any]]) -> None:
       - a non-blank ``name`` - it is the field's identifier, and an Object keys its value by it
       - a non-blank ``label`` - it is what the field is rendered as on every form and table
       - a known ``FieldType`` - the kind decides how the field is rendered and stored
+      - a default ``value`` that passes the field's own value rules (the text / textarea cap, the
+        field's ``regex``) - it is inlined into every consuming type and written into their objects, so
+        every new object would start from it
       - names unique within the template - two fields sharing one name make every read of that name
         ambiguous, and the type they are inlined into would be refused for it
 
@@ -136,6 +141,15 @@ def guard_template_fields(fields: list[dict[str, Any]]) -> None:
                        f"once: {name}!")
 
         seen.add(name)
+
+    # A template field's default is inlined into every consuming type and written into their objects, so
+    # it has to pass the field's own rules like any object value
+    default_errors: dict[str, list[str]] = find_default_value_errors(fields)
+
+    if default_errors:
+        abort(400, FIELD_DEFAULT_ERROR_SEPARATOR.join(
+            message for messages in default_errors.values() for message in messages
+        ))
 
 
 def require_params(params: dict[str, Any], keys: list[str]) -> None:

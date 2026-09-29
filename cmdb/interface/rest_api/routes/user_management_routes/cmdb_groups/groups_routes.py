@@ -77,6 +77,7 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_co
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
     resolve_move_target,
+    abort_if_members_would_be_stranded,
     ensure_admin_group_keeps_master_right,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
@@ -312,7 +313,8 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         by ``params.group_id``; that target group must exist
       * ``DELETE`` — every user currently in the deleted group is deleted alongside the group;
         the bootstrap admin user is protected and the request is refused if it would be deleted
-      * ``None`` — the group is deleted without touching its members
+      * ``None`` — allowed only for a group with no members; with members it is refused (400), since
+        they would be left pointing at a group that no longer exists
 
     Note:
         For ``MOVE`` / ``DELETE`` the member redistribution runs before the group delete. If the group
@@ -320,10 +322,11 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         still exists (there is no cross-document transaction) — an accepted partial-failure window.
 
     Status codes:
-        200 OK: Deleted; body is the serialized deleted group
+        202 ACCEPTED: Deleted; body is the serialized deleted group
         400 BAD_REQUEST: Protected group, ``action`` is not a ``GroupDeleteMode`` member (refused by
-            the parameter parsing, before any side effect), ``MOVE`` requested without a target
-            ``group_id``, target lookup failed, or the admin user is a member on ``DELETE``
+            the parameter parsing, before any side effect), no ``action`` for a group with members,
+            ``MOVE`` requested without a target ``group_id`` or into the group being deleted, target
+            lookup failed, or the admin user is a member on ``DELETE``
         404 NOT_FOUND: Source group not found, or ``MOVE`` target group not found
         500: Unexpected error
 
@@ -348,8 +351,11 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         if groups_manager.is_protected_group(public_id):
             abort(400, f"Deletion of the UserGroup with ID:{public_id} is not allowed!")
 
-        # For a MOVE this validates the target id is present and the target group exists (400 / 404)
-        resolve_move_target(groups_manager, params.action, params.group_id)
+        # For a MOVE this validates the target id is present, exists and is not this group (400 / 404)
+        resolve_move_target(groups_manager, params.action, params.group_id, public_id)
+
+        # No action leaves the members as they are - refused while there are any, before anything is written
+        abort_if_members_would_be_stranded(users_manager, public_id, params.action)
 
         if params.action is not None:
             users_manager.handle_users_on_group_delete(public_id, params.action, params.group_id)

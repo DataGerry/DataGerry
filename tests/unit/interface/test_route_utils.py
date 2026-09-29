@@ -28,6 +28,7 @@ request-user injection / API-access decorators, the Authorization-header parsing
 authentication, the service-portal check with its cache-sync helpers, and the small DB/user helpers.
 """
 # pylint: disable=protected-access  # these tests intentionally exercise module-private helpers
+import base64
 import inspect
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -75,6 +76,8 @@ _check_api_level: Callable[..., Any] = getattr(ru, '__check_api_level')
 
 # Base64 of "user@test.com:secret"
 BASIC_CREDENTIALS: str = 'dXNlckB0ZXN0LmNvbTpzZWNyZXQ='
+TYPED_EMAIL: str = ' User@Test.COM '
+NORMALISED_EMAIL: str = 'user@test.com'
 BASIC_HEADER: str = f'Basic {BASIC_CREDENTIALS}'
 BEARER_HEADER: str = 'Bearer sometoken'
 API_KEY_BASIC_HEADERS: dict[str, str] = {'Authorization': BASIC_HEADER, 'x-api-key': 'k'}
@@ -1025,6 +1028,38 @@ class TestAuthenticateBasic:
             with _app(cloud_mode=True, local_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt'
 
+    def test_cloud_logs_in_with_the_address_the_portal_answered_with(self) -> None:
+        """The tenant user is stored under the portal's address, whatever spelling was typed"""
+        user = MagicMock()
+        portal_user = {'database': 'the_db', 'email': NORMALISED_EMAIL}
+        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
+        with self._patches(login_result=user), \
+             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user) as portal:
+            with _app(cloud_mode=True, local_mode=False).test_request_context():
+                ru._authenticate_basic(credentials)
+
+            assert ru.AuthModule.return_value.login.call_args.args == (NORMALISED_EMAIL, 'secret')
+        assert portal.call_args.args[0] == TYPED_EMAIL.strip()
+
+    def test_a_portal_answer_without_an_email_keeps_the_typed_login(self) -> None:
+        """Nothing better to go by - the stripped login is used"""
+        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
+        with self._patches(login_result=MagicMock()), \
+             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value={'database': 'the_db'}):
+            with _app(cloud_mode=True, local_mode=False).test_request_context():
+                ru._authenticate_basic(credentials)
+
+            assert ru.AuthModule.return_value.login.call_args.args[0] == TYPED_EMAIL.strip()
+
+    def test_on_premise_the_login_is_stripped(self) -> None:
+        """The case is AuthModule's to try; the whitespace is removed here"""
+        credentials: str = base64.b64encode(b' Admin :secret').decode('utf-8')
+        with self._patches(login_result=MagicMock()):
+            with _app(cloud_mode=False).test_request_context():
+                ru._authenticate_basic(credentials)
+
+            assert ru.AuthModule.return_value.login.call_args.args == ('Admin', 'secret')
+
     def test_login_exception_returns_none(self) -> None:
         """An exception raised by AuthModule.login yields None."""
         auth_module = MagicMock()
@@ -1130,6 +1165,25 @@ class TestCheckUserInServicePortal:
             with _app(local_mode=True).test_request_context():
                 assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x'}
         loader.assert_called_once_with('x', 'p')
+
+    def test_the_email_is_normalised_before_the_local_loader(self) -> None:
+        """Stripped and lower-cased, whatever the caller submitted"""
+        with patch(f'{MODULE_PATH}._load_local_test_user', return_value=None) as loader:
+            with _app(local_mode=True).test_request_context():
+                ru.check_user_in_service_portal(TYPED_EMAIL, 'p')
+        loader.assert_called_once_with(NORMALISED_EMAIL, 'p')
+
+    def test_the_cache_and_the_portal_see_the_normalised_email(self) -> None:
+        """One address is one cache entry - the unique cache index compares case-sensitively"""
+        cached_mgr = MagicMock()
+        cached_mgr.cached_user_exists.return_value = False
+        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
+             patch(f'{MODULE_PATH}.SecurityManager'), \
+             patch(f'{MODULE_PATH}.validate_subscription_user', return_value={}) as portal:
+            with _app(local_mode=False).test_request_context():
+                ru.check_user_in_service_portal(TYPED_EMAIL, 'p', 'key', api_key_required=True)
+        cached_mgr.cached_user_exists.assert_called_once_with(NORMALISED_EMAIL)
+        portal.assert_called_once_with(NORMALISED_EMAIL, 'p', 'key', True)
 
     def test_api_key_required_without_key_returns_none(self) -> None:
         """When an API key is required but absent, None is returned early."""

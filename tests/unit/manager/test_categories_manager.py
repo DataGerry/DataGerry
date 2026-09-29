@@ -445,3 +445,99 @@ class TestGetAssignedTypeIds:
 
         with pytest.raises(CategoriesManagerGetError):
             CategoriesManager.get_assigned_type_ids(mgr)
+
+
+class TestReadersTolerateStoredJunk:
+    """A stored entry that is no type id is skipped by both readers of the array."""
+
+    def test_the_category_filter_skips_junk(self) -> None:
+        """What ?category= reads"""
+        mgr = _mock_manager()
+        mgr.get_item.return_value = {'public_id': CATEGORY_PUBLIC_ID, 'types': [4, {'a': 1}, 'x', 9]}
+
+        assert CategoriesManager.get_category_type_ids(mgr, CATEGORY_PUBLIC_ID) == [4, 9]
+
+    def test_the_assigned_set_skips_an_unhashable_entry(self) -> None:
+        """An unhashable entry is no TypeError - the uncategorized listing depends on this set"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'types': [1, {'a': 1}]}, {'types': [2]}]
+
+        assert CategoriesManager.get_assigned_type_ids(mgr) == {1, 2}
+
+
+class TestFindUnknownTypeIds:
+    """Which named type ids no CmdbType carries."""
+
+    def test_the_unknown_ones_are_answered_sorted(self) -> None:
+        """One projected read over the types"""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.return_value = [{'public_id': 2}]
+
+        assert CategoriesManager.find_unknown_type_ids(mgr, [9, 2, 7]) == [7, 9]
+        kwargs = mgr.get_many_from_other_collection.call_args.kwargs
+        assert kwargs['projection'] == {'public_id': 1, '_id': 0}
+        assert kwargs['public_id'] == {'$in': [9, 2, 7]}
+
+    def test_no_ids_cost_no_read(self) -> None:
+        """Nothing to look up"""
+        mgr = _mock_manager()
+
+        assert CategoriesManager.find_unknown_type_ids(mgr, []) == []
+        mgr.get_many_from_other_collection.assert_not_called()
+
+    def test_a_failed_read_is_a_get_error_with_its_cause(self) -> None:
+        """The route maps it to its own 400"""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('down')
+        mgr.get_many_from_other_collection.side_effect = cause
+
+        with pytest.raises(CategoriesManagerGetError) as exc_info:
+            CategoriesManager.find_unknown_type_ids(mgr, [1])
+
+        assert exc_info.value.__cause__ is cause
+
+
+class TestFindTypeClaims:
+    """Which other categories already hold a named type."""
+
+    def test_claims_are_grouped_by_type(self) -> None:
+        """Only the named ids; junk in a holder is skipped"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'public_id': 8, 'types': [1, 5, {'a': 1}]}, {'public_id': 9, 'types': [1]}]
+
+        assert CategoriesManager.find_type_claims(mgr, [1, 2], CATEGORY_PUBLIC_ID) == {1: [8, 9]}
+
+    def test_the_written_category_itself_is_excluded(self) -> None:
+        """Its own current types are no clash"""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        CategoriesManager.find_type_claims(mgr, [1], CATEGORY_PUBLIC_ID)
+
+        assert mgr.find.call_args.kwargs['criteria'] == {
+            'types': {'$in': [1]}, 'public_id': {'$ne': CATEGORY_PUBLIC_ID},
+        }
+
+    def test_a_create_excludes_nothing(self) -> None:
+        """No category is being written yet"""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        CategoriesManager.find_type_claims(mgr, [1], None)
+
+        assert mgr.find.call_args.kwargs['criteria'] == {'types': {'$in': [1]}}
+
+    def test_no_ids_cost_no_read(self) -> None:
+        """Nothing to look up"""
+        mgr = _mock_manager()
+
+        assert CategoriesManager.find_type_claims(mgr, [], None) == {}
+        mgr.find.assert_not_called()
+
+    def test_a_failed_read_is_a_get_error(self) -> None:
+        """Wrapped with its cause"""
+        mgr = _mock_manager()
+        mgr.find.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(CategoriesManagerGetError):
+            CategoriesManager.find_type_claims(mgr, [1], None)

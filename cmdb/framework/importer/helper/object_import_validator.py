@@ -46,6 +46,8 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils import duplicate_names, parse_import_bool
+from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
+from cmdb.framework.object_field_defaults import fill_entries_from_defaults, usable_default
 from cmdb.framework.object_required_fields import (
     build_missing_required_errors,
     collect_missing_required_values,
@@ -74,6 +76,8 @@ from cmdb.framework.section_templates import PREDEFINED_SELECT_OPTION_REJECTED
 #                                   unknown value rejects the object instead
 #   new_select_options            - {name: [added values]} accumulator of select options to persist to
 #                                   the type after the batch (mutated during validation)
+#   field_value_rules             - {name: FieldValueRule} length cap + pattern of each field that has one
+#                                   (see cmdb.framework.object_field_value_rules); empty checks nothing
 ImportTypeContext = namedtuple(
     'ImportTypeContext',
     [
@@ -86,7 +90,9 @@ ImportTypeContext = namedtuple(
         'field_options',
         'predefined_select_fields',
         'new_select_options',
+        'field_value_rules',
     ],
+    defaults=[{}],
 )
 
 # Field types whose value cannot be resolved on import yet (foreign object / location ids), so the value
@@ -168,6 +174,9 @@ def normalize_and_validate_object(
 
         # A required field must carry a value (cleared reference/location fields are exempt)
         _validate_required_fields(working_object, type_context, errors)
+
+        # No value longer than its field kind allows, none breaking its field's pattern
+        errors.extend(collect_object_value_errors(working_object, type_context.field_value_rules))
 
         # References/locations can't be resolved on import yet -> clear their values (keep the entries)
         clear_reference_values(working_object, type_context.clearable_reference_fields)
@@ -406,7 +415,13 @@ def build_import_type_context(
         ImportTypeContext: The derived inputs for ``normalize_and_validate_object``
     """
     type_fields = type_instance.get_fields()
-    field_defaults = {field.get(FieldKey.NAME.value): field.get(FieldKey.VALUE.value) for field in type_fields or []}
+    field_value_rules = build_field_value_rules(type_fields)
+    # The default each field may be filled with - None for an excluded kind or a default that breaks the
+    # field's own rules (see cmdb.framework.object_field_defaults)
+    field_defaults = {
+        field.get(FieldKey.NAME.value): usable_default(field, field_value_rules.get(field.get(FieldKey.NAME.value)))
+        for field in type_fields or []
+    }
 
     required_field_names = collect_required_field_names(type_fields, _CLEARABLE_FIELD_TYPES)
 
@@ -430,6 +445,7 @@ def build_import_type_context(
         field_options=_field_options(type_fields),
         predefined_select_fields=predefined_select_fields or {},
         new_select_options={},
+        field_value_rules=field_value_rules,
     )
 
 
@@ -468,35 +484,37 @@ def apply_new_select_options(type_instance, new_select_options: dict) -> None:
 
 def _backfill_from_type(working_object: dict, type_context: ImportTypeContext) -> None:
     """
-    Adds the type's fields the object did not provide, using each field's default value
+    Completes the object with the type's fields and fills its empty fields from their defaults
 
-    Top-level: every top-level type field absent from the object's ``fields`` is appended with its
-    default. MDS: for every section instance the object carries, each row is completed with the section's
-    fields it is missing (from the type default). Field ``type`` is stamped separately afterwards.
+    Top-level: every top-level type field absent from the object's ``fields`` is appended, and every entry
+    left empty (absent, null or '') takes its field's default. MDS: every row of every section instance the
+    object carries is completed and filled the same way from the section's fields. The defaults are the
+    context's usable ones (see ``cmdb.framework.object_field_defaults``) - an excluded kind or a default
+    that breaks its own rules is appended as None and fills nothing. Field ``type`` is stamped separately
+    afterwards.
 
     Args:
         working_object (dict): The object to complete (mutated in place)
         type_context (ImportTypeContext): The target type's field defaults
     """
-    top_level_fields = working_object.setdefault(CmdbObjectKey.FIELDS.value, [])
-    present = {field.get(CmdbObjectFieldKey.NAME.value) for field in top_level_fields}
-
-    for name, default in type_context.top_level_field_defaults.items():
-        if name not in present:
-            top_level_fields.append({CmdbObjectFieldKey.NAME.value: name, CmdbObjectFieldKey.VALUE.value: default})
+    fill_entries_from_defaults(
+        working_object.setdefault(CmdbObjectKey.FIELDS.value, []),
+        type_context.top_level_field_defaults,
+        append_without_default=True,
+    )
 
     for section in working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []:
         defaults = type_context.mds_field_defaults_by_section.get(section.get(CmdbObjectMdsKey.SECTION_ID.value))
+
         if not defaults:
             continue
 
         for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
-            row_data = row.setdefault(CmdbObjectMdsRowKey.DATA.value, [])
-            row_present = {entry.get(CmdbObjectFieldKey.NAME.value) for entry in row_data}
-
-            for name, default in defaults.items():
-                if name not in row_present:
-                    row_data.append({CmdbObjectFieldKey.NAME.value: name, CmdbObjectFieldKey.VALUE.value: default})
+            fill_entries_from_defaults(
+                row.setdefault(CmdbObjectMdsRowKey.DATA.value, []),
+                defaults,
+                append_without_default=True,
+            )
 
 
 def _validate_required_fields(working_object: dict, type_context: ImportTypeContext, errors: list[str]) -> None:

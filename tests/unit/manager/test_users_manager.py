@@ -541,6 +541,30 @@ class TestMoveGroupMembers:
         mgr.update_many.assert_not_called()
 
 
+class TestHasGroupMembers:
+    """Whether a group still has members, asked with a limit of one."""
+
+    @pytest.mark.parametrize('count, expected', [(0, False), (1, True)], ids=['empty', 'members'])
+    def test_answers_the_limited_count(self, count: int, expected: bool) -> None:
+        """One index lookup, whatever the group's size"""
+        mgr = _mock_manager()
+        mgr.count_documents.return_value = count
+
+        assert UsersManager.has_group_members(mgr, SRC_GROUP_ID) is expected
+        mgr.count_documents.assert_called_once_with({'group_id': SRC_GROUP_ID}, limit=1)
+
+    def test_a_failed_count_is_a_get_error_carrying_the_cause(self) -> None:
+        """The route maps it to its own 400; the original error stays reachable"""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('db down')
+        mgr.count_documents.side_effect = cause
+
+        with pytest.raises(UsersManagerGetError) as exc_info:
+            UsersManager.has_group_members(mgr, SRC_GROUP_ID)
+
+        assert exc_info.value.__cause__ is cause
+
+
 class TestDeleteGroupMembers:
     """DELETE: refuse for the admin, then delete the members and their settings."""
 
@@ -597,5 +621,17 @@ class TestDeleteGroupMembers:
 
         UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
 
-        mgr.delete_many.assert_called_once_with({'group_id': SRC_GROUP_ID})
+        mgr.delete_many.assert_called_once_with({'public_id': {'$in': [USER_ID, OTHER_USER_ID]}})
         mgr._delete_user_settings.assert_called_once_with([USER_ID, OTHER_USER_ID])
+
+    def test_deletes_exactly_the_members_it_read(self) -> None:
+        """By id, not by re-running the group query - a user added in between keeps account and settings together"""
+        mgr = _mock_manager()
+        mgr.get_one_by.return_value = None
+        mgr.find.return_value = [{'public_id': USER_ID}]
+
+        UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
+
+        criteria: dict[str, Any] = mgr.delete_many.call_args.args[0]
+        assert 'group_id' not in criteria
+        assert criteria == {'public_id': {'$in': [USER_ID]}}

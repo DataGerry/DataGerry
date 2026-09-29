@@ -36,6 +36,8 @@ import pytest
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.importer.helper.object_import_validator import ImportTypeContext
+from cmdb.framework.object_field_value_rules import FieldValueRule
+from cmdb.models.type_model import TEXT_VALUE_MAX_LENGTH
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
     ObjectsManagerGetTypeError,
@@ -531,6 +533,10 @@ class TestImportForType:
             field_options={},
             predefined_select_fields={},
             new_select_options={},
+            field_value_rules={
+                'host': FieldValueRule(max_length=TEXT_VALUE_MAX_LENGTH),
+                'note': FieldValueRule(max_length=TEXT_VALUE_MAX_LENGTH),
+            },
         )
         mock_self._resolve_predefined_select_fields.assert_called_once_with(type_instance)
         mock_self._import.assert_called_once_with(['cand'], 'SUBNET', expected_context)

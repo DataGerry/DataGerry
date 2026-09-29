@@ -16,21 +16,27 @@
 """
 Unit tests for the shared ISMS route helpers in isms_routes_helper.
 
-Pure tests driven against MagicMock managers: ``bulk_delete_reporting_in_use`` (delete_item reports
+Pure tests driven against MagicMock managers: ``abort_if_isms_cap_reached`` (the 400 once a bounded
+ISMS collection is full), ``bulk_delete_reporting_in_use`` (delete_item reports
 whether a document was removed) and ``update_multiple_items`` (the bulk-update orchestration that
 resolves existing ids in one batched query and reports a per-item result), plus the RiskAssessment
 required-field guard - which is where the "name every missing field at once" behaviour is asserted,
 since through HTTP the Cerberus schema already rejects four of the five before the guard is reached.
 """
+from http import HTTPStatus
 from unittest.mock import MagicMock
 
 import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_CAP_REACHED_MSG,
+    ISMS_LIKELIHOODS_LABEL,
+    MAX_ISMS_SCALE_ENTRIES,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_if_isms_cap_reached,
     bulk_delete_reporting_in_use,
     get_missing_risk_assessment_fields,
     guard_required_risk_assessment_fields,
@@ -44,6 +50,36 @@ ID_C: int = 13
 # The id a bool would alias in Python: True == 1
 TRUE_ALIASED_ID: int = 1
 MISSING_ID: int = 99
+
+
+def _counting_manager(count: int) -> MagicMock:
+    """A manager whose collection holds ``count`` documents."""
+    manager = MagicMock()
+    manager.count_documents.return_value = count
+
+    return manager
+
+
+class TestAbortIfIsmsCapReached:
+    """``abort_if_isms_cap_reached`` refuses a create once the collection holds ``cap`` entries."""
+
+    @pytest.mark.parametrize('count', [MAX_ISMS_SCALE_ENTRIES, MAX_ISMS_SCALE_ENTRIES + 1], ids=['at', 'over'])
+    def test_a_full_collection_is_a_400_naming_cap_and_entity(self, count: int) -> None:
+        """A business rule, not a missing right - so 400, never 403"""
+        with pytest.raises(HTTPException) as exc_info:
+            abort_if_isms_cap_reached(_counting_manager(count), MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == ISMS_CAP_REACHED_MSG.format(cap=MAX_ISMS_SCALE_ENTRIES,
+                                                                          entity_label=ISMS_LIKELIHOODS_LABEL)
+
+    def test_one_below_the_cap_passes(self) -> None:
+        """The last free slot can still be filled"""
+        manager = _counting_manager(MAX_ISMS_SCALE_ENTRIES - 1)
+
+        abort_if_isms_cap_reached(manager, MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)  # must not raise
+
+        manager.count_documents.assert_called_once_with()
 
 
 class TestBulkDeleteReportingInUse:

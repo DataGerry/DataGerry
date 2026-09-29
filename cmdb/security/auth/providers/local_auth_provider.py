@@ -41,6 +41,7 @@ from logging import Logger, getLogger
 from flask import current_app
 
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
+from cmdb.security.auth.login_name import login_lookup_queries
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
 from cmdb.models.user_model import CmdbUser
 
@@ -49,11 +50,6 @@ from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# CmdbUser fields a login is looked up by: the user name on premise, the email in cloud mode (where the
-# login form submits an email address)
-USER_NAME_FIELD: str = 'user_name'
-EMAIL_FIELD: str = 'email'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          LocalAuthenticationProvider - CLASS                                         #
@@ -141,11 +137,10 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
         """
         Reads the CmdbUser a login is for, by email in cloud mode and by user name on premise
 
-        User names are stored exactly as they were created, so the submitted value is tried as given and
-        only then - if nothing matched - as its lower-case form. `AuthModule.login` lower-cases the name
-        before it reaches its primary provider but NOT in its fallback loop, so without that second try
-        the same credentials would work through one path and fail through the other. The extra read only
-        happens for a name that is not already lower-case and that matched nothing
+        The lookups come from ``login_lookup_queries``, the rule ``AuthModule.resolve_user`` follows too:
+        the login stripped and tried as given, then - on premise, where user names are stored exactly as
+        they were created - its lower-case form. The second read only happens for a name that is not
+        already lower-case and that matched nothing
 
         Args:
             user_name (str): The submitted user name, or the email address in cloud mode
@@ -156,15 +151,13 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
         Returns:
             CmdbUser | None: The stored CmdbUser, or None when no user matches
         """
-        if current_app.cloud_mode:
-            return self._read_user_by({EMAIL_FIELD: user_name})
+        for query in login_lookup_queries(user_name, current_app.cloud_mode):
+            user: CmdbUser | None = self._read_user_by(query)
 
-        user = self._read_user_by({USER_NAME_FIELD: user_name})
+            if user:
+                return user
 
-        if user or user_name == user_name.lower():
-            return user
-
-        return self._read_user_by({USER_NAME_FIELD: user_name.lower()})
+        return None
 
 
     def _read_user_by(self, query: dict[str, str]) -> CmdbUser | None:

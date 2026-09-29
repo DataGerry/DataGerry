@@ -244,6 +244,45 @@ class TestLookup:
         assert stage['$lookup']['as'] == 'type_objects'
 
 
+class TestCorrelatedLookup:
+    """The pipeline form of $lookup: let-bound variables and a sub-pipeline."""
+
+    def test_shape(self) -> None:
+        """The four arguments map onto Mongo's from / let / pipeline / as"""
+        sub_pipeline: list[dict] = [{'$match': {'$expr': {'$in': ['$public_id', '$$refs']}}}]
+
+        assert Builder.correlated_lookup_('framework.objects', {'refs': '$fields.value'}, sub_pipeline, 'hits') == {
+            '$lookup': {
+                'from': 'framework.objects',
+                'let': {'refs': '$fields.value'},
+                'pipeline': sub_pipeline,
+                'as': 'hits',
+            }
+        }
+
+    def test_it_carries_no_local_or_foreign_field(self) -> None:
+        """Mixing the two forms is a different join - the constructor never emits the equality keys"""
+        stage = Builder.correlated_lookup_('framework.objects', {}, [], 'hits')['$lookup']
+
+        assert 'localField' not in stage and 'foreignField' not in stage
+
+
+class TestUnset:
+    """$unset removes the named fields and keeps the rest."""
+
+    def test_shape(self) -> None:
+        """The field list is passed through as Mongo's array form"""
+        assert Builder.unset_(['working', 'other']) == {'$unset': ['working', 'other']}
+
+    def test_the_callers_list_is_copied(self) -> None:
+        """A tuple or a list the caller keeps mutating ends up as a list of its own"""
+        fields: list[str] = ['working']
+        stage = Builder.unset_(fields)
+        fields.append('other')
+
+        assert stage == {'$unset': ['working']}
+
+
 class TestGraphLookup:
     """$graphLookup follows one edge recursively; the location tree is built on it."""
 

@@ -103,6 +103,8 @@ from cmdb.framework.object_required_fields import (
     mds_section_field_names,
     split_required_field_names,
 )
+from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
+from cmdb.framework.object_field_defaults import fill_object_defaults
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
     guard_cable_objects_delete,
     handle_object_deleted as handle_port_object_deleted,
@@ -128,6 +130,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     ObjectViewMode,
     ObjectPatchKey,
     REQUIRED_FIELD_ERROR_SEPARATOR,
+    FIELD_VALUE_ERROR_SEPARATOR,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
@@ -682,6 +685,35 @@ def validate_required_object_fields(object_data: dict[str, Any], object_type: Cm
         abort(400, REQUIRED_FIELD_ERROR_SEPARATOR.join(errors))
 
 
+def validate_object_field_values(
+        object_data: dict[str, Any],
+        object_type: CmdbType,
+        previous_object: dict[str, Any] | None = None) -> None:
+    """
+    Rejects an object write storing a value its field does not allow
+
+    The shared value rules (see cmdb.framework.object_field_value_rules): a text or textarea value no
+    longer than its field kind's cap, and a value matching the pattern its field declares. Checked in
+    the top-level field list and in every multi-data-section row. A value the stored object already
+    holds in the same place is not judged, so an update only answers for what it changes
+
+    Args:
+        object_data (dict[str, Any]): The about-to-be-saved CmdbObject document
+        object_type (CmdbType): The CmdbType of the object
+        previous_object (dict[str, Any] | None): The stored object an update replaces; None for a new
+            object, whose every value is judged
+
+    Raises:
+        HTTPException: 400 naming each field whose value breaks its rule
+    """
+    errors: list[str] = collect_object_value_errors(
+        object_data, build_field_value_rules(object_type.get_fields()), previous_object,
+    )
+
+    if errors:
+        abort(400, FIELD_VALUE_ERROR_SEPARATOR.join(errors))
+
+
 def to_normalized_cmdb_object(object_data: dict[str, Any]) -> CmdbObject:
     """
     Builds a CmdbObject from a payload dict, normalizing BSON types via a JSON round-trip
@@ -824,9 +856,10 @@ def apply_object_insert(
     Inserts one CmdbObject and runs its side effects, the counterpart of `apply_object_update`
 
     The order matters and is the point of this function: everything that can refuse the request runs
-    BEFORE the write (ConfigItem budget, payload normalisation, IPAM license, IPAM invariants, location
-    placement), and everything that describes an object that now exists runs after it (the CmdbLocation
-    mirror, the select-option sync, the CREATE webhook, the cloud item count and the create log)
+    BEFORE the write (ConfigItem budget, payload normalisation, the empty fields filled from their
+    type's defaults, the required and value rules, IPAM license, IPAM invariants, location placement),
+    and everything that describes an object that now exists runs after it (the CmdbLocation mirror, the
+    select-option sync, the CREATE webhook, the cloud item count and the create log)
 
     Args:
         payload (dict[str, Any]): The raw request body of the new CmdbObject
@@ -851,8 +884,14 @@ def apply_object_insert(
     # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
     new_object_data, object_type = build_new_object_data(objects_manager, payload)
 
+    # A field left empty takes its type's default - before the required and value rules judge it
+    fill_object_defaults(new_object_data, object_type)
+
     # A field the type marks required may not be saved without a value
     validate_required_object_fields(new_object_data, object_type)
+
+    # No value longer than its field kind allows, none breaking its field's pattern
+    validate_object_field_values(new_object_data, object_type)
 
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
@@ -1024,6 +1063,9 @@ def apply_object_update(  # pylint: disable=too-many-locals
 
     # A field the type marks required may not be saved without a value
     validate_required_object_fields(new_data, current_type_instance)
+
+    # No CHANGED value longer than its field kind allows, none breaking its field's pattern
+    validate_object_field_values(new_data, current_type_instance, CmdbObject.to_json(current_object_instance))
 
     # Location placement is validated BEFORE the write; the CmdbLocation mirror runs best-effort after
     has_location_field, location_parent = extract_object_location_parent(

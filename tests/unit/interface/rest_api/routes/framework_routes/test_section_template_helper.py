@@ -35,6 +35,7 @@ from cmdb.models.section_template_model.section_template_constants import (
     SECTION_TEMPLATE_WRITE_KEYS,
     SectionTemplateKey,
 )
+from cmdb.framework.object_field_value_constants import FieldDefaultError
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
@@ -175,3 +176,23 @@ def test_the_first_broken_field_is_the_one_reported() -> None:
                                                    FieldKey.LABEL.value: ''})])
 
     assert 'text-b' in raised.value.description
+
+
+class TestTemplateFieldDefaults:
+    """A template field's default passes the field's own rules - it is inlined and propagated."""
+
+    def test_a_default_breaking_its_regex_is_refused(self) -> None:
+        """Every consuming type's objects would start from it"""
+        fields = [{FieldKey.NAME.value: 'code', FieldKey.LABEL.value: 'Code', FieldKey.TYPE.value: FieldType.TEXT.value,
+                   FieldKey.REGEX.value: '[A-Z]+', FieldKey.VALUE.value: 'abc'}]
+
+        with pytest.raises(HTTPException) as exc_info:
+            guard_template_fields(fields)
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == FieldDefaultError.PATTERN_MISMATCH.format(field='code', regex='[A-Z]+')
+
+    def test_a_valid_default_passes(self) -> None:
+        """The control"""
+        guard_template_fields([{FieldKey.NAME.value: 'code', FieldKey.LABEL.value: 'Code',
+                                FieldKey.TYPE.value: FieldType.TEXT.value, FieldKey.VALUE.value: 'fine'}])

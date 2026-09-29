@@ -52,6 +52,10 @@ OBJECT_GROUP_FIELD_REFUSED_MESSAGE: str = "Objects can only be grouped by 'type_
 # value (one message for the top-level fields, one per multi-data section)
 REQUIRED_FIELD_ERROR_SEPARATOR: str = ' | '
 
+# Joins the messages of a write refused for its field values (a value too long for its field kind, or
+# not matching its field's pattern), one message per field and place
+FIELD_VALUE_ERROR_SEPARATOR: str = ' | '
+
 
 
 

@@ -30,13 +30,17 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRiskClass
 from cmdb.models.isms_model.isms_helper import remove_deleted_risk_class_from_matrix
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_RISK_CLASSES
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    MAX_ISMS_RISK_CLASSES,
+    ISMS_RISK_CLASSES_LABEL,
+)
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_if_isms_cap_reached,
     get_item_or_404,
     update_multiple_items,
 )
@@ -86,9 +90,7 @@ def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Resp
     try:
         risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        # There is a Limit of MAX_ISMS_RISK_CLASSES Risk classes
-        if risk_class_manager.count_documents() >= MAX_ISMS_RISK_CLASSES:
-            abort(403, f"Only a maximum of {MAX_ISMS_RISK_CLASSES} RiskClasses can be created!")
+        abort_if_isms_cap_reached(risk_class_manager, MAX_ISMS_RISK_CLASSES, ISMS_RISK_CLASSES_LABEL)
 
         result_id: int = risk_class_manager.insert_item(data)
 

@@ -15,15 +15,27 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of QuickSearchPipelineBuilder
+
+The count the search bar shows while the user types: how many objects a term finds, split into active
+and inactive. It must agree with what `GET|POST /search/` then lists for the same term, which is why a
+term is matched by the same `build_text_term_stages` - the object's own values, or those of a readable
+object it references - rather than by a copy of the rule
 """
 from logging import Logger, getLogger
+from typing import TYPE_CHECKING
 
 from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
-from cmdb.manager.query_builder.search_references_pipeline_builder import SearchReferencesPipelineBuilder
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.framework.search.search_reference_match import build_text_term_stages
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import build_acl_pipeline
+
+if TYPE_CHECKING:
+    # Imported for type checking only - cmdb.manager imports the query builders, so a module-level
+    # import would be circular; the manager is resolved inside build()
+    from cmdb.manager import ObjectsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -71,19 +83,23 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
         Returns:
             list[dict]: The constructed aggregation pipeline
         """
-        regex = self.regex_('fields.value', f'{search_term}', 'ims')
-        pipe_and = self.and_([regex, {'active': {"$eq": True}} if active_flag else {}])
-        pipe_match = self.match_(pipe_and)
+        # Imported lazily to avoid a circular import at module load (see the TYPE_CHECKING note above)
+        # pylint: disable=import-outside-toplevel
+        from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
-        # Load reference fields dynamically.
-        self.pipeline = SearchReferencesPipelineBuilder().build()
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, user)
 
-        # Apply permission-based filtering if a user and permission are provided
-        if user and permission:
-            self.pipeline = [*self.pipeline, *build_acl_pipeline(user, permission)]
+        value_condition: dict = self.regex_('fields.value', f'{search_term}', 'ims')
 
-         # Add the main search match stage
-        self.add_pipe(pipe_match)
+        # Resolved once: the term's referenced objects are restricted by it as well as the hits
+        acl_stages: list[dict] = build_acl_pipeline(user, permission) if user and permission else []
+
+        self.pipeline = [*acl_stages]
+
+        if active_flag:
+            self.add_pipe(self.match_({CmdbObjectKey.ACTIVE.value: {'$eq': True}}))
+
+        self.pipeline = [*self.pipeline, *build_text_term_stages(objects_manager, value_condition, acl_stages)]
 
         # Aggregation pipeline for counting and categorizing results
         self.add_pipe({'$group': {"_id": {'active': '$active'}, 'count': {'$sum': 1}}})

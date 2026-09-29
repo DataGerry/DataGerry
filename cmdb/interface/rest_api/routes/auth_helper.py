@@ -121,7 +121,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
     the ServicePortal accepted the credentials - the flag is the tenant's own decision about the account
 
     Args:
-        request_user_name (str): The submitted user name (lower-cased for the ServicePortal lookup)
+        request_user_name (str): The submitted email (normalised by ``check_user_in_service_portal``)
         request_password (str): The submitted password
         request_subscription (Any | None): The subscription the user selected in the frontend, if any
 
@@ -130,7 +130,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
                   subscriptions when the user must choose one
     """
     try:
-        request_user_name = request_user_name.lower()
+        # check_user_in_service_portal normalises the email (stripped, lower-cased) for the portal
         user_data = check_user_in_service_portal(request_user_name, request_password)
 
         if not user_data:

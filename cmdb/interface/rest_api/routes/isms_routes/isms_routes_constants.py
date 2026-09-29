@@ -26,6 +26,13 @@ MAX_ISMS_SCALE_ENTRIES: int = 6
 # Maximum number of IsmsRiskClasses that may be created
 MAX_ISMS_RISK_CLASSES: int = 10
 
+# The 400 a create answers once its entity already holds the maximum number of entries; filled with the
+# cap and the entity's plural label
+ISMS_CAP_REACHED_MSG: str = "Only a maximum of {cap} {entity_label} can be created!"
+ISMS_LIKELIHOODS_LABEL: str = 'Likelihoods'
+ISMS_IMPACTS_LABEL: str = 'Impacts'
+ISMS_RISK_CLASSES_LABEL: str = 'RiskClasses'
+
 # Minimum number of configured entries per ISMS section before it counts as "ready" in the setup
 # status reported by GET /isms/config/status
 MIN_CONFIGURED_RISK_CLASSES: int = 3
