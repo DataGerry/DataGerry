@@ -22,6 +22,9 @@ jobs:
         echo "VERSION_PATH=$(echo ${TAG})" >> $GITHUB_ENV
         echo "VERSION_DOCKER_TAG=$(echo ${TAG})" >> $GITHUB_ENV
 
+    - name: prepare SBOM output directory
+      run: mkdir -p sbom
+
     # CRA: SBOM of the source dependencies (requirements.txt, app/package-lock.json)
     # generated before the build so build outputs / node_modules are not scanned
     - name: generate SBOM (source dependencies)

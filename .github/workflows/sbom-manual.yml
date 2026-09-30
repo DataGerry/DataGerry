@@ -25,6 +25,9 @@ jobs:
       with:
         ref: ${{ inputs.tag }}
 
+    - name: prepare SBOM output directory
+      run: mkdir -p sbom
+
     - name: generate SBOM (source dependencies)
       uses: anchore/sbom-action@v0
       with:
