@@ -9,7 +9,7 @@ jobs:
     container: becongmbh/datagerry_ci
     steps:
     - name: checkout the source code
-      uses: actions/checkout@v2
+      uses: actions/checkout@v7
 
     # extract <tagname> from refs/tags/<tagname> and replace "/" characters 
     - name: extract Github tag name
@@ -22,8 +22,45 @@ jobs:
         echo "VERSION_PATH=$(echo ${TAG})" >> $GITHUB_ENV
         echo "VERSION_DOCKER_TAG=$(echo ${TAG})" >> $GITHUB_ENV
 
+    # CRA: SBOM of the source dependencies (requirements.txt, app/package-lock.json)
+    # generated before the build so build outputs / node_modules are not scanned
+    - name: generate SBOM (source dependencies)
+      uses: anchore/sbom-action@v0
+      with:
+        path: .
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ env.TAG }}-source.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
     - name: build DATAGERRY
       run:  BUILDVAR_VERSION=${VERSION_STRING} BUILDVAR_VERSION_EXT=${VERSION_ID} BUILDVAR_DOCKER_TAG=${VERSION_DOCKER_TAG} make -e
+
+    # CRA: SBOMs of the Docker images built by "make docker"
+    - name: generate SBOM (backend image)
+      uses: anchore/sbom-action@v0
+      with:
+        image: becongmbh/datagerry-backend:${{ env.VERSION_DOCKER_TAG }}
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ env.TAG }}-backend-image.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    - name: generate SBOM (frontend image)
+      uses: anchore/sbom-action@v0
+      with:
+        image: becongmbh/datagerry-frontend:${{ env.VERSION_DOCKER_TAG }}
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ env.TAG }}-frontend-image.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    - name: store SBOMs as workflow artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: sbom
+        path: sbom/*.cdx.json
+        if-no-files-found: error
 
     - name: copy artifacts to files.datagerry.com
       run: |
@@ -50,10 +87,61 @@ jobs:
         SCP_PASS: ${{ secrets.SCP_PASS }}
         SCP_PATH: ${{ secrets.SCP_PATH_DOCS }}
 
-    - name: publish docker image to hub.docker.com
+    # images are built by "make docker" as becongmbh/datagerry-{backend,frontend}
+    # (see Makefile and docs/source/sources/docker.rst)
+    - name: publish docker images to hub.docker.com
       run: |
-        echo "$DOCKER_TOKEN" | docker login --username $DOCKER_USER --password-stdin
-        docker push beconbmgh/datagerry:$VERSION_DOCKER_TAG
+        echo "$DOCKER_TOKEN" | docker login --username "$DOCKER_USER" --password-stdin
+        for img in becongmbh/datagerry-backend becongmbh/datagerry-frontend; do
+          docker push "$img:$VERSION_DOCKER_TAG"
+          # "latest" only for regular releases, not for pre-releases
+          if [ "$PRERELEASE" != "true" ]; then
+            docker push "$img:latest"
+          fi
+        done
       env:
         DOCKER_USER: ${{ secrets.DOCKER_USER }}
         DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+        PRERELEASE: ${{ github.event.release.prerelease }}
+
+  # CRA: attach SBOMs to the GitHub release and archive them (WORM) in Azure Blob Storage.
+  # Separate job because the build container has no az / gh CLI.
+  sbom-archive:
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+    - name: download SBOMs
+      uses: actions/download-artifact@v8
+      with:
+        name: sbom
+        path: sbom
+
+    - name: check SBOMs are not empty
+      run: |
+        for f in sbom/*.cdx.json; do
+          n=$(jq '.components | length' "$f")
+          v=$(jq -r '.specVersion' "$f")
+          echo "$f: CycloneDX $v, $n components"
+          if [ "$n" -lt 10 ]; then echo "::error::$f has only $n components"; exit 1; fi
+          # BSI TR-03183-2 requires CycloneDX >= 1.5
+          case "$v" in 1.5|1.6|1.7) ;; *) echo "::error::$f uses CycloneDX $v (< 1.5)"; exit 1;; esac
+        done
+
+    - name: attach SBOMs to GitHub release
+      run: gh release upload "$RELEASE_TAG" sbom/*.cdx.json --clobber --repo "$GITHUB_REPOSITORY"
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: archive SBOMs in Azure Blob Storage
+      run: |
+        az storage blob upload-batch \
+          --destination sbom \
+          --destination-path "datagerry/${RELEASE_TAG//\//-}" \
+          --source sbom --pattern "*.cdx.json"
+      env:
+        AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.SBOM_STORAGE_CONN }}
