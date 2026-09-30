@@ -194,7 +194,7 @@ class BaseManager:
             list[dict[str, Any]]: The aggregation results
         """
         try:
-            query: list[dict] = self.query_builder.build(builder_params, user, permission)
+            query: list[dict[str, Any]] = self.query_builder.build(builder_params, user, permission)
 
             return list(self.aggregate(query))
         except Exception as err:
@@ -269,7 +269,7 @@ class BaseManager:
 
             aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params)
 
-            count_query: list[dict] = self.query_builder.count(builder_params.get_criteria())
+            count_query: list[dict[str, Any]] = self.query_builder.count(builder_params.get_criteria())
             total_cursor = self.aggregate(count_query)
 
             total = next(total_cursor, {}).get('total', 0)
@@ -423,12 +423,12 @@ class BaseManager:
         return self.find(*args, **kwargs)
 
 
-    def find(self, criteria: dict | None = None, **kwargs: Any) -> list[dict[str, Any]]:
+    def find(self, criteria: dict[str, Any] | None = None, **kwargs: Any) -> list[dict[str, Any]]:
         """
         Retrieves documents from this manager's collection that match the given criteria
 
         Args:
-            criteria (dict | None): The filter criteria for the find query. Defaults to None
+            criteria (dict[str, Any] | None): The filter criteria for the find query. Defaults to None
             **kwargs: Additional keyword arguments for the 'find' operation (projection, sort, limit)
 
         Raises:
@@ -738,7 +738,7 @@ class BaseManager:
         self,
         filter_query: dict[str, Any],
         update: dict[str, Any],
-        array_filters: list[dict] | None = None,
+        array_filters: list[dict[str, Any]] | None = None,
     ) -> UpdateResult:
         """
         Updates multiple documents using a raw update spec, with optional array filters
@@ -749,7 +749,7 @@ class BaseManager:
         Args:
             filter_query (dict[str, Any]): Filter selecting the documents to update
             update (dict[str, Any]): The raw update document (must include its own operators)
-            array_filters (list[dict] | None): Array filters for positional updates. Defaults to None
+            array_filters (list[dict[str, Any]] | None): Array filters for positional updates. Defaults to None
 
         Raises:
             BaseManagerUpdateError: If the update operation fails

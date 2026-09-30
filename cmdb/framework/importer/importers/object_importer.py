@@ -18,6 +18,7 @@ Implementation of ObjectImporter
 """
 import copy
 from logging import Logger, getLogger
+from typing import Any
 
 from flask import current_app
 
@@ -46,6 +47,7 @@ from cmdb.framework.importer.helper.object_import_validator import (
     normalize_and_validate_object,
     build_import_type_context,
     apply_new_select_options,
+    ImportTypeContext,
 )
 from cmdb.framework.section_templates import resolve_predefined_select_fields
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
@@ -75,8 +77,8 @@ class ObjectImporter(BaseImporter):
     """Superclass for object importers"""
 
     def __init__(self,
-                 file,
-                 file_type,
+                 file: Any,
+                 file_type: str,
                  config: ObjectImporterConfig | None = None,
                  parser: BaseObjectParser | None = None,
                  objects_manager: ObjectsManager | None = None,
@@ -107,7 +109,11 @@ class ObjectImporter(BaseImporter):
         super().__init__(file=file, file_type=file_type, config=config)
 
 
-    def _generate_objects(self, parsed: ObjectParserResponse, *args, **kwargs) -> list[tuple[dict, dict]]:
+    def _generate_objects(
+            self,
+            parsed: ObjectParserResponse,
+            *args: Any,
+            **kwargs: Any) -> list[tuple[dict[str, Any], dict[str, Any]]]:
         """
         Generates ``(provided_data, generated_object)`` candidates from the parser response
 
@@ -119,9 +125,9 @@ class ObjectImporter(BaseImporter):
             parsed (ObjectParserResponse): The parser response holding the raw entries
 
         Returns:
-            list[tuple[dict, dict]]: One (provided_data, generated_object) pair per parsed entry
+            list[tuple[dict[str, Any], dict[str, Any]]]: One (provided_data, generated_object) pair per parsed entry
         """
-        candidates: list[tuple[dict, dict]] = []
+        candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
         for entry in parsed.entries:
             provided = self._to_provided_json(entry, **kwargs)
@@ -131,7 +137,10 @@ class ObjectImporter(BaseImporter):
         return candidates
 
 
-    def _to_provided_json(self, entry: dict, **kwargs) -> dict:  # pylint: disable=unused-argument
+    def _to_provided_json(  # pylint: disable=unused-argument
+            self,
+            entry: dict[str, Any],
+            **kwargs: Any) -> dict[str, Any]:
         """
         Returns the entry as the user provided it, for the failure report
 
@@ -140,31 +149,34 @@ class ObjectImporter(BaseImporter):
         override this to reconstruct the provided object.
 
         Args:
-            entry (dict): The parsed entry
+            entry (dict[str, Any]): The parsed entry
 
         Returns:
-            dict: The provided object snapshot
+            dict[str, Any]: The provided object snapshot
         """
         return copy.deepcopy(entry)
 
 
-    def generate_object(self, entry: dict, *args, **kwargs) -> dict:
+    def generate_object(self, entry: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
         Generates a single CmdbObject dict from one parsed entry (implemented by the subclass)
 
         Args:
-            entry (dict): A single parsed entry from the parser response
+            entry (dict[str, Any]): A single parsed entry from the parser response
 
         Raises:
             NotImplementedError: This method must be implemented in a subclass
 
         Returns:
-            dict: The generated object dict ready for import
+            dict[str, Any]: The generated object dict ready for import
         """
         raise NotImplementedError
 
 
-    def _import_for_type(self, candidates: list[tuple[dict, dict]], type_instance) -> ImporterObjectResponse:
+    def _import_for_type(
+            self,
+            candidates: list[tuple[dict[str, Any], dict[str, Any]]],
+            type_instance: CmdbType) -> ImporterObjectResponse:
         """
         Imports the candidates against the target type, deriving the normalization inputs from it
 
@@ -174,8 +186,9 @@ class ObjectImporter(BaseImporter):
         value for one of them rejects the object instead (see ``_resolve_predefined_select_fields``).
 
         Args:
-            candidates (list[tuple[dict, dict]]): (provided_data, generated_object) pairs to import
-            type_instance: The target ``CmdbType`` being imported into
+            candidates (list[tuple[dict[str, Any], dict[str, Any]]]): (provided_data, generated_object) pairs to
+                import
+            type_instance (CmdbType): The target ``CmdbType`` being imported into
 
         Returns:
             ImporterObjectResponse: The success and failure messages for the batch
@@ -215,13 +228,16 @@ class ObjectImporter(BaseImporter):
         return resolve_predefined_select_fields(type_instance, section_templates_manager)
 
 
-    def _persist_new_select_options(self, type_instance, new_select_options: dict) -> None:
+    def _persist_new_select_options(
+            self,
+            type_instance: CmdbType,
+            new_select_options: dict[str, list[Any]]) -> None:
         """
         Adds the import's newly-seen select values as options on the type and saves it
 
         Args:
-            type_instance: The target ``CmdbType`` (its select fields' options are extended)
-            new_select_options (dict): ``{field name: [added option values]}`` from the import
+            type_instance (CmdbType): The target ``CmdbType`` (its select fields' options are extended)
+            new_select_options (dict[str, list[Any]]): ``{field name: [added option values]}`` from the import
         """
         apply_new_select_options(type_instance, new_select_options)
 
@@ -249,9 +265,9 @@ class ObjectImporter(BaseImporter):
 
     def _import(
             self,
-            candidates: list[tuple[dict, dict]],
+            candidates: list[tuple[dict[str, Any], dict[str, Any]]],
             special_type: SpecialType | None,
-            type_context=None) -> ImporterObjectResponse:
+            type_context: ImportTypeContext | None = None) -> ImporterObjectResponse:
         """
         Normalizes, validates and imports the candidate objects, recording per-object success/failure
 
@@ -263,7 +279,8 @@ class ObjectImporter(BaseImporter):
         count is reported once after the batch, only if anything was written.
 
         Args:
-            candidates (list[tuple[dict, dict]]): (provided_data, generated_object) pairs to import
+            candidates (list[tuple[dict[str, Any], dict[str, Any]]]): (provided_data, generated_object) pairs to
+                import
             special_type (SpecialType | None): The target type's special type, assigned to each object
             type_context (ImportTypeContext | None): The target type's derived inputs (type-stamping,
                                                      required-field and reference-clearing sets); None
@@ -319,10 +336,10 @@ class ObjectImporter(BaseImporter):
 
     def _process_candidate(
             self,
-            provided: dict,
-            current_import_object: dict,
+            provided: dict[str, Any],
+            current_import_object: dict[str, Any],
             special_type: SpecialType | None,
-            type_context) -> tuple[ImportSuccessMessage | None, ImportFailedMessage | None]:
+            type_context: ImportTypeContext | None) -> tuple[ImportSuccessMessage | None, ImportFailedMessage | None]:
         """
         Normalizes, resolves the public_id and inserts a single candidate object
 
@@ -331,10 +348,10 @@ class ObjectImporter(BaseImporter):
         user provided; otherwise the object is inserted and a success is returned.
 
         Args:
-            provided (dict): The data the user submitted (reported on failure)
-            current_import_object (dict): The generated object to normalize and insert
+            provided (dict[str, Any]): The data the user submitted (reported on failure)
+            current_import_object (dict[str, Any]): The generated object to normalize and insert
             special_type (SpecialType | None): The target type's special type
-            type_context: The target type's derived inputs (see ``ImportTypeContext``)
+            type_context (ImportTypeContext | None): The target type's derived inputs (see ``ImportTypeContext``)
 
         Returns:
             tuple[ImportSuccessMessage | None, ImportFailedMessage | None]: The candidate's outcome
@@ -365,7 +382,7 @@ class ObjectImporter(BaseImporter):
 
 
     @staticmethod
-    def _provided_field_names(current_import_object: dict) -> set:
+    def _provided_field_names(current_import_object: dict[str, Any]) -> set[str | None]:
         """
         Collects the field names the import provided (top-level + inside MDS rows)
 
@@ -373,10 +390,10 @@ class ObjectImporter(BaseImporter):
         reflects only what the file actually carried.
 
         Args:
-            current_import_object (dict): The generated object (pre-backfill)
+            current_import_object (dict[str, Any]): The generated object (pre-backfill)
 
         Returns:
-            set: The provided field names
+            set[str | None]: The provided field names (None for an entry without a name)
         """
         names = {
             field.get(CmdbObjectFieldKey.NAME.value)
@@ -395,8 +412,8 @@ class ObjectImporter(BaseImporter):
 
     def _resolve_public_id(
             self,
-            current_import_object: dict,
-            provided_field_names: set) -> tuple[str | None, dict | None]:
+            current_import_object: dict[str, Any],
+            provided_field_names: set[str | None]) -> tuple[str | None, dict[str, Any] | None]:
         """
         Resolves what an object's public_id means for the import
 
@@ -409,14 +426,14 @@ class ObjectImporter(BaseImporter):
         have to look it up a second time
 
         Args:
-            current_import_object (dict): The object being imported (public_id may be dropped in place)
-            provided_field_names (set): The field names the file provided
+            current_import_object (dict[str, Any]): The object being imported (public_id may be dropped in place)
+            provided_field_names (set[str | None]): The field names the file provided
 
         Raises:
             ObjectsManagerGetError: If the existing-object lookup fails
 
         Returns:
-            tuple[str | None, dict | None]: An error message when the overwrite is incompatible (else
+            tuple[str | None, dict[str, Any] | None]: An error message when the overwrite is incompatible (else
                                             None), and the existing object being overwritten (None
                                             when the import creates a new object)
         """
@@ -442,8 +459,8 @@ class ObjectImporter(BaseImporter):
     def _check_overwrite_compatibility(
             self,
             public_id: int,
-            existing: dict,
-            provided_field_names: set) -> str | None:
+            existing: dict[str, Any],
+            provided_field_names: set[str | None]) -> str | None:
         """
         Checks that the object being overwritten can hold the imported object's fields
 
@@ -455,8 +472,8 @@ class ObjectImporter(BaseImporter):
 
         Args:
             public_id (int): The public_id the imported object carries
-            existing (dict): The stored object living at that public_id
-            provided_field_names (set): The field names the file provided
+            existing (dict[str, Any]): The stored object living at that public_id
+            provided_field_names (set[str | None]): The field names the file provided
 
         Raises:
             ObjectsManagerGetTypeError: If the existing object's type could not be retrieved
@@ -481,7 +498,10 @@ class ObjectImporter(BaseImporter):
         return None
 
 
-    def _import_single_object(self, current_import_object: dict, existing: dict | None = None) -> int:
+    def _import_single_object(
+            self,
+            current_import_object: dict[str, Any],
+            existing: dict[str, Any] | None = None) -> int:
         """
         Inserts a single (already normalized/validated) object, replacing an existing one of the same id
 
@@ -494,8 +514,8 @@ class ObjectImporter(BaseImporter):
         passes its result in as ``existing`` - this method does not read it again
 
         Args:
-            current_import_object (dict): The object to insert
-            existing (dict | None): The stored object this import overwrites, as resolved by
+            current_import_object (dict[str, Any]): The object to insert
+            existing (dict[str, Any] | None): The stored object this import overwrites, as resolved by
                                     ``_resolve_public_id``; None when the import creates a new object
 
         Raises:

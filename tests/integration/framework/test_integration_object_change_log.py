@@ -18,13 +18,16 @@ Integration tests for the shared change-log writer against a real MongoDB
 
 `build_object_log_data` + `write_object_log` are what every object write path stores its entry
 through. What only a real collection shows: that a real `RenderResult` survives the JSON encoding the
-entry is stored with, that the stored entry is a CmdbObjectLog the log reads find by object id, and that
-an entry the database refuses answers False instead of raising.
+entry is stored with, that the stored entry is a CmdbObjectLog the log reads find by object id, that the
+entry read back - with its BSON binary render and its date - satisfies CmdbObjectLog.SCHEMA for every action,
+and that an entry the database refuses answers False instead of raising.
 """
 import json
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
+from cerberus import Validator  # type: ignore
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.framework.rendering.render_result import RenderResult
@@ -119,3 +122,24 @@ def test_an_entry_the_database_refuses_answers_false(
     assert database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name).count_documents(
         {ObjectLogKey.OBJECT_ID.value: OBJECT_ID},
     ) == 0
+
+
+@pytest.mark.parametrize('action, changes', [
+    (LogAction.CREATE, None),
+    (LogAction.EDIT, {'old': [{'name': 'a', 'value': 'w'}], 'new': [{'name': 'a', 'value': 'x'}]}),
+    (LogAction.ACTIVE_CHANGE, {'old': True, 'new': False}),
+    (LogAction.DELETE, None),
+], ids=['create', 'edit', 'activation-change', 'delete'])
+def test_the_entry_read_back_satisfies_its_schema(
+        logs_manager: LogsManager, database_manager: MongoDatabaseManager, database_name: str,
+        action: LogAction, changes: Any,
+) -> None:
+    """The schema is the stored entry's contract - checked on what MongoDB answers, not on what was sent"""
+    write_object_log(logs_manager, action, build_object_log_data(_user(), OBJECT_ID, VERSION, 'c', _render(), changes))
+
+    stored: dict[str, Any] = database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name).find_one(
+        {ObjectLogKey.OBJECT_ID.value: OBJECT_ID}, {'_id': 0},
+    )
+    validator = Validator(CmdbObjectLog.SCHEMA)
+
+    assert validator.validate(stored), validator.errors

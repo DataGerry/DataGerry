@@ -228,7 +228,7 @@ class SearchResult(Generic[R]):
                  alive: bool,
                  limit: int,
                  skip: int,
-                 matches_regex: list[str] | None = None):
+                 matches_regex: list[str] | None = None) -> None:
         """
         Initialize a SearchResult
 

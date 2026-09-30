@@ -22,8 +22,10 @@ from typing import Any
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.query_builder import Builder
 
 from cmdb.models.isms_model import IsmsLikelihood, IsmsRiskAssessment
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
 
 from cmdb.errors.manager.likelihood_manager import LIKELIHOOD_MANAGER_ERRORS, LikelihoodManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -39,7 +41,14 @@ class LikelihoodManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the LikelihoodManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsLikelihood, LIKELIHOOD_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -70,22 +79,22 @@ class LikelihoodManager(GenericManager):
         }
 
         update_data = [
-            {'$set': {
+            Builder.set_({
                 'risk_calculation_before.likelihood_value': {
                     '$cond': [
                         {'$eq': ['$risk_calculation_before.likelihood_id', public_id]},
-                        new_data['calculation_basis'],
+                        new_data[LikelihoodKey.CALCULATION_BASIS.value],
                         '$risk_calculation_before.likelihood_value'
                     ]
                 },
                 'risk_calculation_after.likelihood_value': {
                     '$cond': [
                         {'$eq': ['$risk_calculation_after.likelihood_id', public_id]},
-                        new_data['calculation_basis'],
+                        new_data[LikelihoodKey.CALCULATION_BASIS.value],
                         '$risk_calculation_after.likelihood_value'
                     ]
                 }
-            }}
+            })
         ]
 
         self.dbm.update_many(IsmsRiskAssessment.COLLECTION, self.db_name, criteria, update_data, plain=True)
@@ -128,7 +137,7 @@ class LikelihoodManager(GenericManager):
             bool: True if calculation_basis exists, else false
         """
         try:
-            result = self.get_one_by({'calculation_basis': calculation_basis})
+            result = self.get_one_by({LikelihoodKey.CALCULATION_BASIS.value: calculation_basis})
 
             return bool(result)
         except Exception as err:

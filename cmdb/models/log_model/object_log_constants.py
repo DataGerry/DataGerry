@@ -29,6 +29,7 @@ from cmdb.utils import BaseStrEnum
 
 __all__: list[str] = [
     'OBJECT_LOG_LOST_MARKER',
+    'OBJECT_LOG_TYPE',
     'ObjectLogKey',
 ]
 
@@ -36,6 +37,10 @@ __all__: list[str] = [
 # write never waits for it - so this marker is how an operator finds out that one went missing: alert on
 # it, and the line carries the action, the object id and the traceback
 OBJECT_LOG_LOST_MARKER: str = 'OBJECT_LOG_LOST'
+
+# The `log_type` every CmdbObjectLog entry is stored with: the model's class name, which the write paths pass
+# as `CmdbObjectLog.__name__`. Named here so the schema can declare it without importing the model
+OBJECT_LOG_TYPE: str = 'CmdbObjectLog'
 
 
 class ObjectLogKey(BaseStrEnum):

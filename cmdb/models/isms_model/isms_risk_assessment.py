@@ -143,7 +143,7 @@ class IsmsRiskAssessment(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_isms_risk_assessment_schema()
+    SCHEMA: dict[str, Any] = get_isms_risk_assessment_schema()
 
     # The date-typed fields every write path normalises into real BSON dates
     DATE_FIELDS: tuple[str, ...] = tuple(date_key.value for date_key in RISK_ASSESSMENT_DATE_KEYS)

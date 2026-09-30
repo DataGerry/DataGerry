@@ -102,7 +102,7 @@ def _reference(case: str, user, database_manager: MongoDatabaseManager, database
     with caplog.at_level(logging.WARNING):
         result = CmdbMultiRender([CmdbObject.from_data(stored)], user, True).result(single_object=True)
 
-    assert '__merge_references' not in caplog.text
+    assert '_merge_references' not in caplog.text
 
     return next(field for field in result.fields if field['name'] == REF_FIELD)['reference']
 

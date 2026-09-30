@@ -137,7 +137,7 @@ def get_installed_providers(request_user: CmdbUser) -> Response:
             - external (bool): Indicates whether the provider is external
     """
     try:
-        provider_names: list[dict] = []
+        provider_names: list[dict[str, Any]] = []
 
         settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 

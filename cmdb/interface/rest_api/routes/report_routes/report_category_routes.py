@@ -185,7 +185,7 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
         builder_params: BuilderParameters = build_searchable_builder_params(params, REPORT_CATEGORY_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbReportCategory] = report_categories_manager.iterate_items(builder_params)
-        report_category_list: list[dict] = [CmdbReportCategory.to_json(report_category) for report_category
+        report_category_list: list[dict[str, Any]] = [CmdbReportCategory.to_json(report_category) for report_category
                                             in iteration_result.results]
 
         api_response = GetMultiResponse(report_category_list,

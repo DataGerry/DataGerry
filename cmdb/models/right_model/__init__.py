@@ -19,7 +19,8 @@ The static rights tree of DataGerry
 A right is immutable configuration rather than persisted data: `all_rights.py` assembles every right
 in the product into one nested tuple tree at import time, and it is served from memory. This package
 holds that tree plus its building blocks - `BaseRight` (the node type, and the only place a level is
-validated), `Levels` (the sensitivity scale), the `PREFIX`-specialising subclasses per domain
+validated), `DefaultLevelRight` (the name-first base every right family extends, which fills a missing
+level from the class), `Levels` (the sensitivity scale), the `PREFIX`-specialising subclasses per domain
 (`framework_rights`, `isms_rights`, `user_management_rights`, ...) and the shared constants.
 
 What consumes it: `RightsManager` and `GroupsManager` flatten the tree, `CmdbUserGroup` stores the

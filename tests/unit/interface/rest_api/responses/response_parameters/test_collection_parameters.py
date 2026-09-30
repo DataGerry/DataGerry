@@ -24,10 +24,18 @@ Two things these tests exist to pin:
 * **Every value arrives as a STRING.** Flask's query parser hands over ``'10'``, and a non-empty string
   is always truthy - so a truthiness default such as ``page or 1`` lets ``'0'`` through as page 0 and
   produces a negative ``$skip``. Where a test passes a string it is deliberate.
+* **The signature says so.** The constructor's pager parameters are annotated to accept the text they
+  are handed (``int | str | None``), while the attributes they end up in are plain ``int`` / ``str`` -
+  pinned in ``TestSignature``, because neither annotation tripwire can see a parameter typed narrower
+  than what it receives.
 * **A bad pager value must be rejected HERE.** Left to MongoDB it would surface through the route's
   ``except …IterationError`` arm, telling the caller the database failed. A ``ValueError`` raised from
   this layer is turned into an HTTP 400 by the ``parse_*_parameters`` decorators instead.
 """
+import types
+import typing
+from typing import Any
+
 import pytest
 
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -169,6 +177,10 @@ class TestSort:
     def test_an_unknown_field_is_accepted(self) -> None:
         """Not validated on purpose: sorting by a field no document has is legal in MongoDB."""
         assert CollectionParameters(QUERY_STRING, sort='no-such-field').sort == 'no-such-field'
+
+    def test_an_explicit_none_sort_is_the_default(self) -> None:
+        """A caller passing None gets the default, as the signature (`str | None`) promises"""
+        assert CollectionParameters(QUERY_STRING, sort=None).sort == DEFAULT_SORT
 
 
 class TestFilterIsMappedToCriteria:
@@ -333,3 +345,41 @@ class TestGetBuilderParams:
         params = CollectionParameters(QUERY_STRING, limit='0', page='4')
 
         assert CollectionParameters.get_builder_params(params)[BuilderParamKey.SKIP.value] == 0
+
+
+def _members(annotation: Any) -> set[Any]:
+    """The types a (possibly union) annotation admits"""
+    if isinstance(annotation, types.UnionType) or typing.get_origin(annotation) is typing.Union:
+        return set(typing.get_args(annotation))
+
+    return {annotation}
+
+
+class TestSignature:
+    """The constructor's annotations admit what the query parser hands over; the attributes are exact"""
+
+    HINTS: dict[str, Any] = typing.get_type_hints(CollectionParameters.__init__)
+
+    @pytest.mark.parametrize('name', ['limit', 'order', 'page'])
+    def test_a_pager_number_accepts_text_and_none(self, name: str) -> None:
+        """What `parse_collection_parameters` passes on is a string; the constructor converts it"""
+        assert _members(self.HINTS[name]) == {int, str, type(None)}
+
+    def test_sort_accepts_none(self) -> None:
+        """`sort or DEFAULT_SORT` handles None, so the signature says str | None"""
+        assert _members(self.HINTS['sort']) == {str, type(None)}
+
+    @pytest.mark.parametrize('name, value', [('limit', '5'), ('order', '-1'), ('page', '3')])
+    def test_the_stored_attribute_is_an_int(self, name: str, value: str) -> None:
+        """Text in, int out - the attribute annotations (`self.limit: int`, ...) stay exact"""
+        params = CollectionParameters(QUERY_STRING, **{name: value})
+
+        assert isinstance(getattr(params, name), int)
+        assert not isinstance(getattr(params, name), bool)
+
+    @pytest.mark.parametrize('name, value, expected', [
+        ('limit', 25, 25), ('order', SORT_DESCENDING, SORT_DESCENDING), ('page', 2, 2),
+    ], ids=['limit', 'order', 'page'])
+    def test_an_int_from_a_python_caller_passes_through(self, name: str, value: int, expected: int) -> None:
+        """The other half of the union: a route building the pager itself passes ints"""
+        assert getattr(CollectionParameters(QUERY_STRING, **{name: value}), name) == expected

@@ -103,7 +103,7 @@ class IsmsRisk(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_isms_risk_schema()
+    SCHEMA: dict[str, Any] = get_isms_risk_schema()
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
     KEYS = RiskKey

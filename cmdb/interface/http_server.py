@@ -23,9 +23,11 @@ the server programmatically (no CLI / no `gunicorn` entry point). Configuration 
 from the `[WebServer]` section of `cmdb.conf` merged with safe defaults set in `__init__`
 """
 import os
+from argparse import ArgumentParser, Namespace
+from collections.abc import Callable
 from logging import Logger, getLogger
 import multiprocessing
-from typing import Any
+from typing import Any, NoReturn
 from gunicorn.app.base import BaseApplication
 
 from cmdb import __MODE__
@@ -50,7 +52,7 @@ class HTTPServer(BaseApplication):
     optional SSL paths, and stores the WSGI app for `load` to return
     """
 
-    def __init__(self, app, options: dict[str, Any] | None = None) -> None:
+    def __init__(self, app: Callable[..., Any], options: dict[str, Any] | None = None) -> None:
         """
         Builds the merged gunicorn options dict and stores the WSGI app
 
@@ -67,7 +69,7 @@ class HTTPServer(BaseApplication):
         to bind TLS
 
         Args:
-            app: WSGI application gunicorn workers will serve — in production the
+            app (Callable[..., Any]): WSGI application gunicorn workers will serve — in production the
                 `DispatcherMiddleware` composed in `WebCmdbService._run`
             options (dict[str, Any] | None): Server-side configuration, typically the
                 `[WebServer]` section of `cmdb.conf`. Must include `host` and `port`; other
@@ -144,7 +146,7 @@ class HTTPServer(BaseApplication):
             self.cfg.set(key.lower(), value)
 
 
-    def load(self):
+    def load(self) -> Callable[..., Any]:
         """
         Gunicorn hook: returns the WSGI application each worker should serve
 
@@ -155,12 +157,12 @@ class HTTPServer(BaseApplication):
         carried into each worker
 
         Returns:
-            The WSGI app passed to `__init__`
+            Callable[..., Any]: The WSGI app passed to `__init__`
         """
         return self.application
 
 
-    def init(self, parser, opts, args):
+    def init(self, parser: ArgumentParser, opts: Namespace, args: list[str]) -> NoReturn:
         """
         Gunicorn hook: would parse CLI options if `gunicorn` were invoked from the shell
 

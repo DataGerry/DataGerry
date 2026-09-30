@@ -63,7 +63,7 @@ from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder import Builder, BuilderParameters
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.port_connection_model import PortConnectionKey, sort_endpoints
@@ -476,10 +476,10 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
         )
 
         if search_criteria:
-            params.filter.append({'$match': search_criteria})
+            params.filter.append(Builder.match_(search_criteria))
 
         if fetch_only_active_objects():
-            params.filter.append({'$match': {CmdbObjectKey.ACTIVE.value: {'$eq': True}}})
+            params.filter.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {'$eq': True}}))
 
         params.sort = resolve_cable_sort(params.sort)
 

@@ -34,12 +34,12 @@ class RenderResult:
         current_render_time (datetime): Timestamp when the render operation occurred
         object_information (dict[str, Any]): Information related to the rendered CmdbObject
         type_information (dict[str, Any]): Metadata about the object's type
-        fields (list): List of fields associated with the rendered object
-        sections (list): List of sections present in the rendered result
-        summaries (list): Summary details of the rendered object
+        fields (list[dict[str, Any]]): List of fields associated with the rendered object
+        sections (list[dict[str, Any]]): List of sections present in the rendered result
+        summaries (list[dict[str, Any]]): Summary details of the rendered object
         summary_line (str): A single-line summary representation
-        externals (list): External references related to the object
-        multi_data_sections (list): Sections containing multiple data entries
+        externals (list[dict[str, Any]]): External references related to the object
+        multi_data_sections (list[dict[str, Any]]): Sections containing multiple data entries
         render_problems (list[dict[str, Any]]): Where this render answered less than the stored data
             holds, one ``RenderProblemKey`` entry per loss. Empty for a complete render, which is the
             only way a caller can tell the two apart - a degraded render answers the same shape
@@ -49,12 +49,12 @@ class RenderResult:
         self.current_render_time: datetime = datetime.now(timezone.utc)
         self.object_information: dict[str, Any] = {}
         self.type_information: dict[str, Any] = {}
-        self.fields: list = []
-        self.sections: list = []
-        self.summaries: list = []
+        self.fields: list[dict[str, Any]] = []
+        self.sections: list[dict[str, Any]] = []
+        self.summaries: list[dict[str, Any]] = []
         self.summary_line: str = ''
-        self.externals: list = []
-        self.multi_data_sections: list = []
+        self.externals: list[dict[str, Any]] = []
+        self.multi_data_sections: list[dict[str, Any]] = []
         self.render_problems: list[dict[str, Any]] = []
 
 

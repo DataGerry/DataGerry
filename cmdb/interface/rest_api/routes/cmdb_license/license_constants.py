@@ -19,6 +19,8 @@ Constants for the license REST routes
 Names the route paths, the ACL right strings and the response-payload keys used by the license
 blueprints, so the route handlers carry no bare string literals
 """
+from typing import Any
+
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -88,7 +90,7 @@ class LicenseEntitlementsResponseKey(BaseStrEnum):
 
 
 # Cerberus schema for the activate/upload request body
-LICENSE_UPLOAD_SCHEMA: dict = {
+LICENSE_UPLOAD_SCHEMA: dict[str, Any] = {
     LicenseUploadKey.BLOB: {
         'type': 'string',
         'required': True,

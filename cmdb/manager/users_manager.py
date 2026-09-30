@@ -117,12 +117,12 @@ class UsersManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_user(self, user: CmdbUser | dict) -> int:
+    def insert_user(self, user: CmdbUser | dict[str, Any]) -> int:
         """
         Insert a single CmdbUser into the database
 
         Args:
-            user (CmdbUser | dict): Raw data of the CmdbUser
+            user (CmdbUser | dict[str, Any]): Raw data of the CmdbUser
 
         Raises:
             UsersManagerInsertError: When the CmdbUser could not be inserted in the database
@@ -166,12 +166,12 @@ class UsersManager(BaseManager):
             raise UsersManagerGetError(str(err)) from err
 
 
-    def get_user_by(self, query: dict) -> CmdbUser | None:
+    def get_user_by(self, query: dict[str, Any]) -> CmdbUser | None:
         """
         Get a single CmdbUser by a query
 
         Args:
-            query (dict): Query filter of CmdbUser parameters
+            query (dict[str, Any]): Query filter of CmdbUser parameters
 
         Raises:
             UsersManagerGetError: When the CmdbUser could not be retrieved
@@ -262,13 +262,13 @@ class UsersManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_user(self, public_id: int, user_data: CmdbUser | dict) -> None:
+    def update_user(self, public_id: int, user_data: CmdbUser | dict[str, Any]) -> None:
         """
         Update an existing CmdbUser
 
         Args:
             public_id (int): public_id of the CmdbUser
-            user_data (CmdbUser | dict): Instance or dict of CmdbUser
+            user_data (CmdbUser | dict[str, Any]): Instance or dict of CmdbUser
 
         Raises:
             UsersManagerUpdateError: When the CmdbUser could not be updated

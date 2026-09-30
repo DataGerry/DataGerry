@@ -378,7 +378,7 @@ class ObjectsManager(BaseManager):
         direction: int = -1,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None,
-        **requirements,
+        **requirements: Any,
     ) -> list[CmdbObject]:
         """
         Retrieves a list of CmdbObjects based on the provided filters
@@ -433,10 +433,10 @@ class ObjectsManager(BaseManager):
     def group_objects_by_value(
         self,
         value: str,
-        match: dict | None = None,
+        match: dict[str, Any] | None = None,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         Groups objects based on a specific field value and filters them by the provided criteria,
         ensuring the user has the necessary access permissions for each object.
@@ -447,7 +447,7 @@ class ObjectsManager(BaseManager):
 
         Args:
             value (str): The field by which to group the objects (e.g., 'type_id')
-            match (dict | None): Filtering criteria to apply to the documents before grouping
+            match (dict[str, Any] | None): Filtering criteria to apply to the documents before grouping
             user (CmdbUser | None): The user making the request
             permission (AccessControlPermission | None): The required permissions for the user
 
@@ -455,7 +455,7 @@ class ObjectsManager(BaseManager):
             ObjectsManagerIterationError: If the iteration fails
 
         Returns:
-            List[Dict]: A list of objects grouped by the specified field, containing the documents 
+            list[dict[str, Any]]: A list of objects grouped by the specified field, containing the documents 
                         that meet the selection criteria and pass the access control checks
         """
         try:
@@ -463,17 +463,14 @@ class ObjectsManager(BaseManager):
             aggregation_pipeline = []
 
             if match:
-                aggregation_pipeline.append({'$match': match})
+                aggregation_pipeline.append(Builder.match_(match))
 
-            aggregation_pipeline.append({
-                '$group': {
-                    '_id': f'${value}',
-                    'result': {'$first': '$$ROOT'},
-                    'count': {'$sum': 1},
-                }
-            })
+            aggregation_pipeline.append(Builder.group_(f'${value}', {
+                'result': {'$first': '$$ROOT'},
+                'count': {'$sum': 1},
+            }))
 
-            aggregation_pipeline.append({'$sort': {'count': -1}})
+            aggregation_pipeline.append(Builder.sort_('count', -1))
 
             objects = self.aggregate_objects(aggregation_pipeline)
 
@@ -659,7 +656,7 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(err) from err
 
 
-    def aggregate_objects(self, pipeline: list[dict], **kwargs) -> CommandCursor:
+    def aggregate_objects(self, pipeline: list[dict[str, Any]], **kwargs: Any) -> CommandCursor:
         """
         Executes an aggregation pipeline on the database to process and retrieve CmdbObjects
 
@@ -667,7 +664,7 @@ class ObjectsManager(BaseManager):
         and handling potential iteration errors
 
         Args:
-            pipeline (list[dict]): A list of aggregation stages to be executed on the database
+            pipeline (list[dict[str, Any]]): A list of aggregation stages to be executed on the database
             **kwargs: Additional keyword arguments to be passed to the aggregation function
 
         Raises:
@@ -716,7 +713,7 @@ class ObjectsManager(BaseManager):
             tuple[dict[int, int], int]: The type_id -> count mapping and the total object count
         """
         pipeline: list[dict[str, Any]] = [
-            {"$group": {"_id": f"${CmdbObjectKey.TYPE_ID.value}", "count": {"$sum": 1}}}
+            Builder.group_(f"${CmdbObjectKey.TYPE_ID.value}", {"count": {"$sum": 1}})
         ]
 
         cursor: CommandCursor = self.aggregate_objects(pipeline)
@@ -736,7 +733,7 @@ class ObjectsManager(BaseManager):
 
     def get_mds_references_for_object(self,
                                       referenced_object: CmdbObject,
-                                      query_filter: dict | list) -> list[dict]:
+                                      query_filter: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Retrieves all CmdbObjects whose multi-data sections (MDS) reference a given object
 
@@ -745,14 +742,14 @@ class ObjectsManager(BaseManager):
 
         Args:
             referenced_object (CmdbObject): The CmdbObject being referenced
-            query_filter (dict | list): Additional query filters to apply in the pipeline. 
+            query_filter (dict[str, Any] | list[dict[str, Any]]): Additional query filters to apply in the pipeline. 
                                               Can be a dictionary (single filter) or a list of filters
 
         Raises:
             ObjectsManagerIterationError: If the iteration fails
 
         Returns:
-            list[dict]: A list of CmdbObjects that reference the given `referenced_object` in their 
+            list[dict[str, Any]]: A list of CmdbObjects that reference the given `referenced_object` in their 
                         multi-data sections
         """
         try:
@@ -777,14 +774,13 @@ class ObjectsManager(BaseManager):
                 query_pipeline += query_filter
 
             # Get all types which reference this type
-            query_pipeline.append({'$match': {"$and": [
-                                        {"fields.type": FieldType.REFERENCE.value},
-                                        {"fields.ref_types": object_type_id}
-                                    ]}
-                        })
+            query_pipeline.append(Builder.match_(Builder.and_([
+                {"fields.type": FieldType.REFERENCE.value},
+                {"fields.ref_types": object_type_id},
+            ])))
 
             # Filter the public_id's of these types
-            query_pipeline.append({'$project': {"public_id": 1, "_id": 0}})
+            query_pipeline.append(Builder.project_({"public_id": 1, "_id": 0}))
 
             # Get all objects of these types
             query_pipeline.append(Builder.lookup_(from_collection='framework.objects',
@@ -793,21 +789,21 @@ class ObjectsManager(BaseManager):
                                                   as_field='type_objects'))
 
             # Filter out types which don't have any objects
-            query_pipeline.append({'$match': {"type_objects.0": {"$exists": True}}})
+            query_pipeline.append(Builder.match_({"type_objects.0": {"$exists": True}}))
 
             # Spread out the arrays
             query_pipeline.append(Builder.unwind_({'path': '$type_objects'}))
 
             # Filter the objects which actually have any multi section data
-            query_pipeline.append({'$match': {"type_objects.multi_data_sections.0": {"$exists": True}}})
+            query_pipeline.append(Builder.match_({"type_objects.multi_data_sections.0": {"$exists": True}}))
 
             # Remove the public_id field
-            query_pipeline.append({'$project': {"type_objects": 1}})
+            query_pipeline.append(Builder.project_({"type_objects": 1}))
 
             # Spread out as a list
-            query_pipeline.append({'$replaceRoot': {"newRoot": '$type_objects'}})
+            query_pipeline.append(Builder.replace_root_('$type_objects'))
 
-            query_pipeline.append({'$project': {"_id": 0}})
+            query_pipeline.append(Builder.project_({"_id": 0}))
 
             results = list(self.aggregate_from_other_collection(CmdbType.COLLECTION, query_pipeline))
 
@@ -857,7 +853,7 @@ class ObjectsManager(BaseManager):
     def references(
         self,
         object_: CmdbObject,
-        criteria: dict,
+        criteria: dict[str, Any] | list[dict[str, Any]],
         limit: int,
         skip: int,
         sort: str,
@@ -876,7 +872,8 @@ class ObjectsManager(BaseManager):
 
         Args:
             object_ (CmdbObject): The CmdbObject whose references are being retrieved
-            criteria (Dict): A filter to apply when querying for references
+            criteria (dict[str, Any] | list[dict[str, Any]]): A filter (or list of pipeline stages) to apply
+                when querying for references
             limit (int): The maximum number of results to return
             skip (int): The number of results to skip (for pagination)
             sort (str): The field by which to sort the results
@@ -948,7 +945,7 @@ class ObjectsManager(BaseManager):
 
     def update_object(self,
                       public_id: int,
-                      data: CmdbObject | dict,
+                      data: CmdbObject | dict[str, Any],
                       user: CmdbUser | None = None,
                       permission: AccessControlPermission | None = None,
                       partial: bool = False) -> None:
@@ -957,7 +954,7 @@ class ObjectsManager(BaseManager):
 
         Args:
             public_id (int): public_id of the CmdbObject which should be updated
-            data: (CmdbObject | dict): The new data for the CmdbObject
+            data: (CmdbObject | dict[str, Any]): The new data for the CmdbObject
             user (CmdbUser): Request user
             permission (AccessControlPermission): ACL permission
             partial (bool): If True, `data` holds only the top-level keys to set - a targeted $set

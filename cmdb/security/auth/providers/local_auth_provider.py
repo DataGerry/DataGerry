@@ -41,6 +41,7 @@ from logging import Logger, getLogger
 from flask import current_app
 
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 from cmdb.security.auth.login_name import login_lookup_queries
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
 from cmdb.models.user_model import CmdbUser
@@ -185,19 +186,29 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             raise AuthenticationError(str(err)) from err
 
 
+    @classmethod
+    def is_active_for(cls, config: BaseAuthProviderConfig) -> bool:
+        """
+        Answers active for every configuration
+
+        Pinned by design: local login is the way back into an instance, so it must not be possible to
+        switch off the only provider that never depends on an external system. The configuration's
+        `active` flag is still stored and shown on the settings page; neither half of a login reads it
+
+        Args:
+            config (BaseAuthProviderConfig): The configuration the provider is, or would be, built from
+
+        Returns:
+            bool: Always True
+        """
+        return True
+
+
     def is_active(self) -> bool:
         """
         Checks if the local authentication provider is active
 
-        Pinned to True by design: local login is the way back into an instance, so it must not be
-        possible to switch off the only provider that never depends on an external system.
-
-        NOTE the provider's configuration does carry an `active` flag, and `AuthModule.login` reads it in
-        its fallback loop (where it filters on the CONFIG, not on the provider) - so a local provider
-        configured inactive is skipped there while the primary path, which asks this method, still accepts
-        it.
-
         Returns:
-            bool: Always returns True, indicating that the local authentication provider is active
+            bool: Always True - see `is_active_for`
         """
-        return True
+        return self.is_active_for(self.config)

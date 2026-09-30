@@ -152,7 +152,7 @@ objects_blueprint = APIBlueprint('objects', __name__)
 @objects_blueprint.protect(auth=True, right=ObjectRightName.ADD.value)
 @objects_blueprint.validate(CmdbObject.SCHEMA)
 @handle_route_errors("while creating the Object")
-def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
+def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbObject into the database
 
@@ -751,7 +751,7 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
 @objects_blueprint.validate(CmdbObject.SCHEMA)
 @handle_route_errors("while updating Object with ID:{public_id}")
-def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route to fully replace one or more CmdbObjects with the same payload
 
@@ -766,7 +766,7 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
     Args:
         public_id (int): public_id of the CmdbObject; used as the only target when no
             'objectIDs' query parameter is provided
-        data (dict): The new CmdbObject payload, validated against CmdbObject.SCHEMA
+        data (dict[str, Any]): The new CmdbObject payload, validated against CmdbObject.SCHEMA
         request_user (CmdbUser): The CmdbUser making the request
 
     Returns:

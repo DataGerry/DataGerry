@@ -46,12 +46,12 @@ LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
-def mds_rows_reference(result: dict, ref_field_names: set[str], referenced_public_id: int) -> bool:
+def mds_rows_reference(result: dict[str, Any], ref_field_names: set[str], referenced_public_id: int) -> bool:
     """
     Reports whether any MDS row of the object holds a ref field pointing at the given id
 
     Args:
-        result (dict): A CmdbObject document carrying multi_data_sections
+        result (dict[str, Any]): A CmdbObject document carrying multi_data_sections
         ref_field_names (set[str]): Names of the object type's 'ref'-type fields
         referenced_public_id (int): public_id the ref field must point at
 
@@ -75,24 +75,24 @@ def mds_rows_reference(result: dict, ref_field_names: set[str], referenced_publi
 
 
 def filter_mds_results_referencing(
-        results: list[dict],
+        results: list[dict[str, Any]],
         referenced_public_id: int,
         ref_field_names_by_type: dict[int, set[str]],
-) -> list[dict]:
+) -> list[dict[str, Any]]:
     """
     Keeps only the result objects whose MDS rows reference the given object via a ref field
 
     Args:
-        results (list[dict]): Candidate CmdbObject documents (must carry multi_data_sections)
+        results (list[dict[str, Any]]): Candidate CmdbObject documents (must carry multi_data_sections)
         referenced_public_id (int): public_id the MDS ref field must point at
         ref_field_names_by_type (dict[int, set[str]]): {type_id: ref-field names}, resolved by the
             manager in ONE read - which is what keeps this a per-row decision rather than a per-row
             type fetch
 
     Returns:
-        list[dict]: The subset of results that reference the given object in their MDS data
+        list[dict[str, Any]]: The subset of results that reference the given object in their MDS data
     """
-    matching_results: list[dict] = []
+    matching_results: list[dict[str, Any]] = []
 
     for result in results:
         ref_field_names: set[str] = ref_field_names_by_type.get(result.get(CmdbObjectKey.TYPE_ID.value), set())
@@ -131,7 +131,7 @@ def build_reference_match_queries(object_: CmdbObject) -> list[dict[str, Any]]:
 
 
 def merge_mds_references(
-        mds_result: list,
+        mds_result: list[dict[str, Any]],
         obj_result: IterationResult,
         limit: int,
         skip: int,
@@ -143,7 +143,7 @@ def merge_mds_references(
     The merged results are sorted and paginated as per the given parameters
 
     Args:
-        mds_result (list[dict]): List of multi-data section references
+        mds_result (list[dict[str, Any]]): List of multi-data section references
         obj_result (IterationResult): Existing objects retrieved via normal references
         limit (int): Maximum number of objects to return (0 for no limit)
         skip (int): Number of objects to skip (for pagination)

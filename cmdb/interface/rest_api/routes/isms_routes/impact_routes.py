@@ -28,6 +28,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsImpact
 from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
+from cmdb.models.isms_model.isms_impact_constants import ImpactKey
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     MAX_ISMS_SCALE_ENTRIES,
     ISMS_IMPACTS_LABEL,
@@ -75,7 +76,7 @@ def _coerce_calculation_basis(data: dict[str, Any]) -> None:
         data (dict[str, Any]): The request body holding the calculation_basis to normalise
     """
     try:
-        data['calculation_basis'] = float(f"{float(data['calculation_basis']):.2f}")
+        data[ImpactKey.CALCULATION_BASIS.value] = float(f"{float(data[ImpactKey.CALCULATION_BASIS.value]):.2f}")
     except Exception:
         abort(400, "The calculation basis is either not provided or could not be converted to a float!")
 
@@ -107,12 +108,12 @@ def insert_isms_impact(data: dict[str, Any], request_user: CmdbUser) -> Response
 
         _coerce_calculation_basis(data)
 
-        if impact_manager.impact_calculation_basis_exists(data['calculation_basis']):
+        if impact_manager.impact_calculation_basis_exists(data[ImpactKey.CALCULATION_BASIS.value]):
             abort(400, "The calculation basis is already used by another Impact!")
 
         result_id: int = impact_manager.insert_item(data)
 
-        created_impact: dict = impact_manager.get_item(result_id, as_dict=True)
+        created_impact: dict[str, Any] | None = impact_manager.get_item(result_id, as_dict=True)
 
         if not created_impact:
             abort(404, "Could not retrieve the created Impact from the database!")
@@ -230,10 +231,11 @@ def update_isms_impact(public_id: int, data: dict[str, Any], request_user: CmdbU
 
         _coerce_calculation_basis(data)
 
-        basis_changed = round(data['calculation_basis'], 2) != round(to_update_impact.calculation_basis, 2)
+        new_basis = data[ImpactKey.CALCULATION_BASIS.value]
+        basis_changed = round(new_basis, 2) != round(to_update_impact.calculation_basis, 2)
 
         # A changed basis must not collide with another Impact's basis (insert enforces the same rule)
-        if basis_changed and impact_manager.impact_calculation_basis_exists(data['calculation_basis']):
+        if basis_changed and impact_manager.impact_calculation_basis_exists(new_basis):
             abort(400, "The calculation basis is already used by another Impact!")
 
         # The URL owns the identity: a body public_id would otherwise be $set onto the document, and

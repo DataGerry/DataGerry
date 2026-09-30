@@ -94,7 +94,7 @@ def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Resp
 
         result_id: int = risk_class_manager.insert_item(data)
 
-        created_risk_class: dict = risk_class_manager.get_item(result_id, as_dict=True)
+        created_risk_class: dict[str, Any] | None = risk_class_manager.get_item(result_id, as_dict=True)
 
         if not created_risk_class:
             abort(404, "Could not retrieve the created RiskClass from the database!")

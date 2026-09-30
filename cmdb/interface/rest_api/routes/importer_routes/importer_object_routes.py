@@ -66,6 +66,7 @@ from cmdb.framework.importer.configs.object_importer_config import ObjectImporte
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
+from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.helper.importer_helper import (
     load_parser_class,
     load_importer_class,
@@ -253,7 +254,9 @@ def parse_objects(request_user: CmdbUser) -> Response:
         request_file: FileStorage = get_file_in_request(ImporterFormField.FILE.value)
 
         # A missing / unparsable parser config is optional and falls back to the parser's defaults
-        parser_config: dict = get_element_from_data_request(ImporterFormField.PARSER_CONFIG.value, request) or {}
+        parser_config: dict[str, Any] = get_element_from_data_request(
+            ImporterFormField.PARSER_CONFIG.value, request
+        ) or {}
 
         # Same resolution as the import route: an unsupported format is named here rather than
         # surfacing later as a misleading "check your parser configuration"
@@ -329,12 +332,14 @@ def import_objects(request_user: CmdbUser) -> Response:
         file_format = _resolve_file_format()
 
         # Load parser config (optional - falls back to the parser's defaults)
-        parser_config: dict = get_element_from_data_request(ImporterFormField.PARSER_CONFIG.value, request) or {}
+        parser_config: dict[str, Any] = get_element_from_data_request(
+            ImporterFormField.PARSER_CONFIG.value, request
+        ) or {}
         if parser_config == {}:
             LOGGER.info('No parser config was provided - using default parser config')
 
         # Check for importer config
-        importer_config_request: dict | None = get_element_from_data_request(
+        importer_config_request: dict[str, Any] | None = get_element_from_data_request(
             ImporterFormField.IMPORTER_CONFIG.value, request
         )
         if not importer_config_request:
@@ -376,14 +381,14 @@ def import_objects(request_user: CmdbUser) -> Response:
 
 
 def _resolve_import_type(
-        importer_config_request: dict,
+        importer_config_request: dict[str, Any],
         request_user: CmdbUser,
         types_manager: TypesManager) -> CmdbType:
     """
     Resolves and authorises the target CmdbType for an import
 
     Args:
-        importer_config_request (dict): The importer config payload (must carry a valid 'type_id')
+        importer_config_request (dict[str, Any]): The importer config payload (must carry a valid 'type_id')
         request_user (CmdbUser): The user performing the import
         types_manager (TypesManager): Manager used to resolve the type
 
@@ -447,7 +452,7 @@ def _resolve_file_format() -> str:
     return file_format
 
 
-def _build_importer_config(importer_config_class: type, importer_config_request: dict) -> Any:
+def _build_importer_config(importer_config_class: type, importer_config_request: dict[str, Any]) -> Any:
     """
     Instantiates the importer configuration from the request payload
 
@@ -459,7 +464,7 @@ def _build_importer_config(importer_config_class: type, importer_config_request:
 
     Args:
         importer_config_class (type): The config class registered for the file format
-        importer_config_request (dict): The importer config payload from the request
+        importer_config_request (dict[str, Any]): The importer config payload from the request
 
     Returns:
         Any: The instantiated importer configuration
@@ -483,8 +488,8 @@ def _build_importer_config(importer_config_class: type, importer_config_request:
 def _build_object_importer(
         file_format: str,
         working_file: str,
-        parser_config: dict,
-        importer_config_request: dict,
+        parser_config: dict[str, Any],
+        importer_config_request: dict[str, Any],
         objects_manager: ObjectsManager,
         request_user: CmdbUser) -> ObjectImporter:
     """
@@ -493,8 +498,8 @@ def _build_object_importer(
     Args:
         file_format (str): The uploaded file's format ('csv' or 'json')
         working_file (str): Path to the saved import file
-        parser_config (dict): Parser configuration
-        importer_config_request (dict): Importer configuration payload
+        parser_config (dict[str, Any]): Parser configuration
+        importer_config_request (dict[str, Any]): Importer configuration payload
         objects_manager (ObjectsManager): Manager used by the importer to read/insert objects
         request_user (CmdbUser): The user performing the import
 
@@ -630,7 +635,7 @@ def _render_imported_objects(
 
 
 def _log_imported_objects(
-        success_messages: list,
+        success_messages: list[ImportSuccessMessage],
         objects_manager: ObjectsManager,
         logs_manager: LogsManager,
         request_user: CmdbUser) -> None:
@@ -643,9 +648,10 @@ def _log_imported_objects(
     because they are. Every lost entry is logged under ``OBJECT_LOG_LOST_MARKER``, one line per object
 
     Args:
-        success_messages (list): The ImportSuccessMessage entries of the imported objects. They exist
-                                 only inside the import: the response reports the imported objects as a
-                                 count, but the CREATE logs need their public_ids
+        success_messages (list[ImportSuccessMessage]): The ImportSuccessMessage entries of the imported
+                                                       objects. They exist only inside the import: the
+                                                       response reports the imported objects as a count,
+                                                       but the CREATE logs need their public_ids
         objects_manager (ObjectsManager): Manager used to re-read the imported object state
         logs_manager (LogsManager): Manager used to persist the create log
         request_user (CmdbUser): The user credited as the log author

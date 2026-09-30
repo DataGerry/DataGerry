@@ -16,70 +16,96 @@
 """
 Validation schema for CmdbObjectLog
 
-A CmdbObjectLog records a create / edit / delete change made to a CmdbObject
+A CmdbObjectLog records a create / edit / activation change / delete made to a CmdbObject
 (collection ``framework.logs``).
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbObjectLog.SCHEMA.
+
+It describes the entry the object write paths store, and nothing validates against it at write time - an
+entry is written best-effort after the object write, and refusing it would lose the change record. It is
+kept honest by a test instead: every entry shape the writer produces must validate. What that entry is:
+
+* ``LogsManager.insert_log`` sets ``public_id``, ``action`` / ``action_name`` (a ``LogAction``), ``log_type``
+  and ``log_time``; ``build_object_log_data`` adds ``object_id``, ``user_id``, ``version`` (the object's
+  version string, e.g. ``'1.0.1'``), ``user_name`` (the user's DISPLAY name - ``'First Last'`` or the user
+  name, an e-mail address in cloud mode), ``comment`` and ``render_state`` (the rendered object as
+  JSON-encoded bytes)
+* ``changes`` depends on the action: the field diff ``{'old': [...], 'new': [...]}`` on EDIT,
+  ``{'old': bool, 'new': bool}`` on ACTIVE_CHANGE, and ``[]`` on CREATE and DELETE, which record none
 """
 from typing import Any
-# -------------------------------------------------------------------------------------------------------------------- #
-
-DEFAULT_VERSION: str = '1.0.0'
-
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
 def get_cmdb_object_log_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbObjectLog document
 
+    A required field carries no ``default``: Cerberus applies a default BEFORE the required check, so a
+    default would both disable ``required`` and fill a missing value in
+
     Returns:
-        dict: Field name to Cerberus rule mapping, consumed as CmdbObjectLog.SCHEMA
+        dict[str, Any]: Field name to Cerberus rule mapping, consumed as CmdbObjectLog.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.log_model.log_action_enum import LogAction
+    from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
+
     return {
-        'object_id': {  # public_id of the CmdbObject this log entry refers to
-            'type': 'integer',
-        },
         'public_id': {  # public_id of the log entry itself
             'type': 'integer',
+            'required': True,
         },
-        'version': {  # Object version at log time (NOTE: typed integer but defaults to the '1.0.0' string)
+        'object_id': {  # public_id of the CmdbObject this log entry refers to
             'type': 'integer',
-            'default': DEFAULT_VERSION,
+            'required': True,
+        },
+        'version': {  # The object's version at log time, e.g. '1.0.1'
+            'type': 'string',
+            'nullable': True,
+            'required': True,
         },
         'user_id': {  # public_id of the CmdbUser who triggered the action
             'type': 'integer',
-        },
-        'user_name': {  # Name of the acting user
-            'type': 'string',
             'required': True,
-            'regex': r'(\w+)-*(\w)([\w-]*)',  # kebab case validation
         },
-        'render_state': {  # Optional serialized render snapshot of the object at log time
-            'type': 'string',
-        },
-        'log_type': {  # Log category / type discriminator
+        'user_name': {  # The acting user's display name: 'First Last', or the user name (an e-mail in cloud)
             'type': 'string',
             'required': True,
         },
-        'log_time': {  # Timestamp when the log entry was created
+        'render_state': {  # The object as rendered at log time, JSON-encoded bytes (BSON binary)
+            'type': 'binary',
+            'nullable': True,
+            'required': True,
+        },
+        'log_type': {  # Log type discriminator - always CmdbObjectLog for this document
+            'type': 'string',
+            'allowed': [OBJECT_LOG_TYPE],
+            'required': True,
+        },
+        'log_time': {  # When the entry was written (UTC)
             'type': 'datetime',
             'required': True,
         },
-        'changes': {  # List of field-level changes captured in this entry
-            'type': 'list',
-            'empty': True,
+        'changes': {  # EDIT: the field diff; ACTIVE_CHANGE: {'old': bool, 'new': bool}; CREATE / DELETE: []
+            'type': ['dict', 'list'],
             'default': [],
         },
-        'comment': {  # Optional free-text comment on the action
+        'comment': {  # The comment the write path records (an ObjectLogComment, or the user's edit comment)
             'type': 'string',
+            'nullable': True,
         },
-        'action': {  # LogAction as an integer code (e.g. create / edit / delete)
+        'action': {  # The LogAction value
             'type': 'integer',
+            'allowed': [action.value for action in LogAction],
             'required': True,
         },
-        'action_name': {  # Human-readable name of the action
+        'action_name': {  # The LogAction name
             'type': 'string',
+            'allowed': [action.name for action in LogAction],
             'required': True,
         },
     }

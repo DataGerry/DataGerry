@@ -17,6 +17,7 @@
 Implementation of the BaseExporterFormat
 """
 import json
+from io import BytesIO, StringIO
 from json import JSONDecodeError
 from typing import Any
 
@@ -34,6 +35,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
 from cmdb.framework.exporter.exporter_constants import ExporterOptionKey, ExporterMetadataKey
 from cmdb.framework.rendering.render_constants import RenderedFieldKey
+from cmdb.framework.rendering.render_result import RenderResult
 
 from cmdb.errors.exporter import ExporterColumnError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -106,7 +108,7 @@ class BaseExporterFormat:
 
 
     @staticmethod
-    def resolve_export_view(args: tuple) -> tuple[str, dict | None]:
+    def resolve_export_view(args: tuple[Any, ...]) -> tuple[str, dict[str, Any] | None]:
         """
         Determines the requested export view and any render-view column metadata from the export args
 
@@ -121,14 +123,14 @@ class BaseExporterFormat:
         exported header
 
         Args:
-            args (tuple): The positional export args; `args[0]` (if present) is the options dict
+            args (tuple[Any, ...]): The positional export args; `args[0]` (if present) is the options dict
 
         Raises:
             ExporterMetadataError: If the metadata override is not JSON, not an object, or carries a
                                    `header` / `columns` that is not a list
 
         Returns:
-            tuple[str, dict | None]: (requested view, parsed metadata override or None)
+            tuple[str, dict[str, Any] | None]: (requested view, parsed metadata override or None)
         """
         options = args[0] if args else {}
         view = options.get(ExporterOptionKey.VIEW.value, ExporterConfigType.NATIVE.value)
@@ -141,7 +143,7 @@ class BaseExporterFormat:
 
 
     @staticmethod
-    def _parse_metadata_override(raw_metadata: Any) -> dict:
+    def _parse_metadata_override(raw_metadata: Any) -> dict[str, Any]:
         """
         Decodes and checks the render-view metadata override
 
@@ -153,7 +155,7 @@ class BaseExporterFormat:
                                    `header` / `columns` that is not a list
 
         Returns:
-            dict: The parsed override
+            dict[str, Any]: The parsed override
         """
         try:
             metadata = json.loads(raw_metadata) if isinstance(raw_metadata, str) else raw_metadata
@@ -173,7 +175,8 @@ class BaseExporterFormat:
 
 
     @staticmethod
-    def serialize_multi_data_sections(multi_data_sections: list[dict]) -> list[dict]:
+    def serialize_multi_data_sections(
+            multi_data_sections: list[dict[str, Any]] | None) -> list[dict[str, Any]]:
         """
         Serializes an object's multi-data sections into a plain, JSON-serializable structure
 
@@ -183,15 +186,15 @@ class BaseExporterFormat:
         re-derived from the type's section template on import/read.
 
         Args:
-            multi_data_sections (list[dict]): The object's raw multi-data sections (or None)
+            multi_data_sections (list[dict[str, Any]] | None): The object's raw multi-data sections (or None)
 
         Returns:
-            list[dict]: The serialized sections (an empty list when there are none)
+            list[dict[str, Any]]: The serialized sections (an empty list when there are none)
         """
-        sections: list[dict] = []
+        sections: list[dict[str, Any]] = []
 
         for mds in multi_data_sections or []:
-            rows: list[dict] = []
+            rows: list[dict[str, Any]] = []
 
             for row in mds.get(CmdbObjectMdsKey.VALUES.value, []):
                 data = [
@@ -213,24 +216,30 @@ class BaseExporterFormat:
         return sections
 
 
-    def export(self, data, *args):
+    def export(self, data: list[RenderResult], *args: Any) -> str | bytes | StringIO | BytesIO:
         """
         Exports the given data
 
         This method must be implemented by subclasses
 
         Args:
-            data: The data to export
-            *args: Additional arguments for export customization
+            data (list[RenderResult]): The data to export
+            *args (Any): Additional arguments for export customization
 
         Raises:
             NotImplementedError: If the method is not implemented by a subclass
+
+        Returns:
+            str | bytes | StringIO | BytesIO: The export content (the concrete kind depends on the format)
         """
         raise NotImplementedError("The 'export' method must be implemented in a subclass.")
 
 
     @staticmethod
-    def summary_renderer(obj, field: dict, view: str = 'native') -> Any:  # pylint: disable=unused-argument
+    def summary_renderer(
+            obj: RenderResult,  # pylint: disable=unused-argument
+            field: dict[str, Any],
+            view: str = 'native') -> Any:
         """
         Resolves the exported value of a single field for the given view
 
@@ -240,8 +249,8 @@ class BaseExporterFormat:
         return their raw value. (`obj` is kept for the shared format-callback signature; it is not used.)
 
         Args:
-            obj: The rendered object (unused; kept for the shared callback signature)
-            field (dict): The field to resolve
+            obj (RenderResult): The rendered object (unused; kept for the shared callback signature)
+            field (dict[str, Any]): The field to resolve
             view (str): The view type, `'native'` or `'render'`. Defaults to `'native'`
 
         Returns:
@@ -266,7 +275,7 @@ class BaseExporterFormat:
     # helpers below build that layout so CSV and XLSX share one implementation.
 
     @staticmethod
-    def extract_mds_layout(sections: list[dict]) -> list[tuple[str, list[str]]]:
+    def extract_mds_layout(sections: list[dict[str, Any]] | None) -> list[tuple[str, list[str]]]:
         """
         Extracts the ordered multi-data-section layout from a type's rendered sections
 
@@ -274,7 +283,7 @@ class BaseExporterFormat:
         object-side `section_id`) and its ordered list of field names. Non-MDS sections are ignored.
 
         Args:
-            sections (list[dict]): The rendered `RenderResult.sections` of the (shared) type
+            sections (list[dict[str, Any]] | None): The rendered `RenderResult.sections` of the (shared) type
 
         Returns:
             list[tuple[str, list[str]]]: One `(section_id, [field_name, …])` tuple per MDS section, in
@@ -317,7 +326,8 @@ class BaseExporterFormat:
             )
 
     @staticmethod
-    def collect_mds_entries(obj, mds_layout: list[tuple[str, list[str]]]) -> dict[str, list[dict]]:
+    def collect_mds_entries(
+            obj: RenderResult, mds_layout: list[tuple[str, list[str]]]) -> dict[str, list[dict[str, Any]]]:
         """
         Collects one object's multi-data-section entries as per-section name→value maps
 
@@ -326,22 +336,22 @@ class BaseExporterFormat:
         carry yields an empty list.
 
         Args:
-            obj: The rendered object whose multi-data sections are read
+            obj (RenderResult): The rendered object whose multi-data sections are read
             mds_layout (list[tuple[str, list[str]]]): The `(section_id, field_names)` layout of the type
 
         Returns:
-            dict[str, list[dict]]: `section_id` -> ordered list of that section's row value-maps
+            dict[str, list[dict[str, Any]]]: `section_id` -> ordered list of that section's row value-maps
         """
-        section_by_id: dict[str, dict] = {
+        section_by_id: dict[str, dict[str, Any]] = {
             section.get(CmdbObjectMdsKey.SECTION_ID.value): section
             for section in obj.multi_data_sections or []
         }
 
-        entries: dict[str, list[dict]] = {}
+        entries: dict[str, list[dict[str, Any]]] = {}
 
         for section_id, _ in mds_layout:
             section = section_by_id.get(section_id)
-            rows: list[dict] = []
+            rows: list[dict[str, Any]] = []
 
             if section:
                 for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
@@ -356,27 +366,27 @@ class BaseExporterFormat:
 
     @staticmethod
     def object_prefix_cells(
-            obj,
+            obj: RenderResult,
             header: list[str],
             regular_columns: list[str],
             view: str,
             human_readable: bool = False,
-            location_names: dict | None = None) -> list[str]:
+            location_names: dict[int, str] | None = None) -> list[str]:
         """
         Builds the identity + regular-field cells that lead an object's first row
 
         Args:
-            obj: The rendered object to serialize
+            obj (RenderResult): The rendered object to serialize
             header (list[str]): The identity columns (`public_id` maps to `object_id`)
             regular_columns (list[str]): The regular (non-MDS) field names, in output order
             view (str): The export view passed to the field value resolver
             human_readable (bool): Resolve reference / ref-section / location fields to display text
-            location_names (dict | None): Resolved `{location public_id: name}` map (human-readable only)
+            location_names (dict[int, str] | None): Resolved `{location public_id: name}` map (human-readable only)
 
         Returns:
             list[str]: The stringified identity cells followed by the regular-field cells
         """
-        obj_fields: dict = {
+        obj_fields: dict[str, Any] = {
             field[FieldKey.NAME.value]:
                 BaseExporterFormat.resolve_export_value(obj, field, view, human_readable, location_names)
             for field in obj.fields
@@ -395,7 +405,7 @@ class BaseExporterFormat:
     @staticmethod
     def mds_cells_for_index(
             mds_layout: list[tuple[str, list[str]]],
-            section_entries: dict[str, list[dict]],
+            section_entries: dict[str, list[dict[str, Any]]],
             index: int) -> list[str]:
         """
         Builds the multi-data-section cells for one row (the `index`-th entry of each section)
@@ -405,7 +415,7 @@ class BaseExporterFormat:
 
         Args:
             mds_layout (list[tuple[str, list[str]]]): The `(section_id, field_names)` layout of the type
-            section_entries (dict[str, list[dict]]): `section_id` -> ordered row value-maps for the object
+            section_entries (dict[str, list[dict[str, Any]]]): `section_id` -> ordered row value-maps for the object
             index (int): The zero-based row index within the object's block
 
         Returns:
@@ -423,13 +433,13 @@ class BaseExporterFormat:
 
     @staticmethod
     def build_object_rows(
-            obj,
+            obj: RenderResult,
             header: list[str],
             regular_columns: list[str],
             mds_layout: list[tuple[str, list[str]]],
             view: str,
             human_readable: bool = False,
-            location_names: dict | None = None) -> list[list[str]]:
+            location_names: dict[int, str] | None = None) -> list[list[str]]:
         """
         Builds all tabular rows for a single object (identity + regular fields + spread MDS entries)
 
@@ -440,13 +450,13 @@ class BaseExporterFormat:
         HUMAN_READABLE export only resolves the top-level regular fields).
 
         Args:
-            obj: The rendered object to serialize
+            obj (RenderResult): The rendered object to serialize
             header (list[str]): The identity columns (`public_id` maps to `object_id`)
             regular_columns (list[str]): The regular (non-MDS) field names, in output order
             mds_layout (list[tuple[str, list[str]]]): The `(section_id, field_names)` layout of the type
             view (str): The export view passed to the field value resolver
             human_readable (bool): Resolve reference / ref-section / location regular fields to display text
-            location_names (dict | None): Resolved `{location public_id: name}` map (human-readable only)
+            location_names (dict[int, str] | None): Resolved `{location public_id: name}` map (human-readable only)
 
         Returns:
             list[list[str]]: The stringified rows for this object
@@ -474,12 +484,12 @@ class BaseExporterFormat:
     # not required to be unique, so they must never be used as build-time keys).
 
     @staticmethod
-    def is_human_readable(options: dict | None) -> bool:
+    def is_human_readable(options: dict[str, Any] | None) -> bool:
         """
         Reports whether the HUMAN_READABLE presentation export was requested
 
         Args:
-            options (dict | None): The export options (`params.optional`)
+            options (dict[str, Any] | None): The export options (`params.optional`)
 
         Returns:
             bool: True when the `human_readable` option is truthy
@@ -492,8 +502,8 @@ class BaseExporterFormat:
         return str(value).strip().lower() in ('true', '1', 'yes')
 
     @staticmethod
-    def resolve_export_value(obj, field: dict, view: str, human_readable: bool = False,
-                             location_names: dict | None = None) -> Any:
+    def resolve_export_value(obj: RenderResult, field: dict[str, Any], view: str, human_readable: bool = False,
+                             location_names: dict[int, str] | None = None) -> Any:
         """
         Resolves the exported value of a single field
 
@@ -502,11 +512,11 @@ class BaseExporterFormat:
         field in a non-human-readable export) falls back to `summary_renderer`.
 
         Args:
-            obj: The rendered object providing type/reference context
-            field (dict): The field to resolve
+            obj (RenderResult): The rendered object providing type/reference context
+            field (dict[str, Any]): The field to resolve
             view (str): The export view (used by the non-human-readable `summary_renderer` fallback)
             human_readable (bool): Whether to resolve references / locations to display text
-            location_names (dict | None): Resolved `{location public_id: name}` map
+            location_names (dict[int, str] | None): Resolved `{location public_id: name}` map
 
         Returns:
             Any: The resolved display value
@@ -527,7 +537,7 @@ class BaseExporterFormat:
         return BaseExporterFormat.summary_renderer(obj, field, view)
 
     @staticmethod
-    def _reference_summary_line(field: dict) -> str:
+    def _reference_summary_line(field: dict[str, Any]) -> str:
         """
         Builds the summary line for a reference field: `<type_label> #<object_id> | <summary values>`
 
@@ -535,7 +545,7 @@ class BaseExporterFormat:
         describes the referenced object. An unresolved / empty reference yields its raw value (or empty).
 
         Args:
-            field (dict): The reference field (carrying its rendered `reference` expansion)
+            field (dict[str, Any]): The reference field (carrying its rendered `reference` expansion)
 
         Returns:
             str: The reference summary line
@@ -561,7 +571,7 @@ class BaseExporterFormat:
         return line
 
     @staticmethod
-    def _ref_section_summary_line(field: dict) -> str:
+    def _ref_section_summary_line(field: dict[str, Any]) -> str:
         """
         Builds the summary line for a ref-section field: `<type_label> #<ref_id> | <pulled field values>`
 
@@ -569,7 +579,7 @@ class BaseExporterFormat:
         label, the referenced object id (the field value) and the pulled-in referenced field values.
 
         Args:
-            field (dict): The ref-section field (carrying its rendered `references` expansion)
+            field (dict[str, Any]): The ref-section field (carrying its rendered `references` expansion)
 
         Returns:
             str: The constructed ref-section summary line
@@ -596,7 +606,7 @@ class BaseExporterFormat:
         return line
 
     @staticmethod
-    def build_field_label_map(data: list) -> dict[str, str]:
+    def build_field_label_map(data: list[RenderResult]) -> dict[str, str]:
         """
         Builds a `{field name: field label}` map from the (shared) type's rendered fields
 
@@ -604,7 +614,7 @@ class BaseExporterFormat:
         (both appear in the flat `fields` list).
 
         Args:
-            data (list): The rendered objects (the first object's fields define the map)
+            data (list[RenderResult]): The rendered objects (the first object's fields define the map)
 
         Returns:
             dict[str, str]: The field-name-to-label map (empty when there is no data)
@@ -638,7 +648,7 @@ class BaseExporterFormat:
         return field_labels.get(name, name)
 
     @staticmethod
-    def relabel_header(header: list[str], data: list) -> list[str]:
+    def relabel_header(header: list[str], data: list[RenderResult]) -> list[str]:
         """
         Relabels a finished header row (field names -> labels) for a HUMAN_READABLE export
 
@@ -646,7 +656,7 @@ class BaseExporterFormat:
 
         Args:
             header (list[str]): The finished header of column NAMES
-            data (list): The rendered objects supplying the field labels
+            data (list[RenderResult]): The rendered objects supplying the field labels
 
         Returns:
             list[str]: The header with each column name replaced by its label

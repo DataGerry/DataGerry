@@ -74,22 +74,26 @@ def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
     Returns:
         dict[str, Any]: The Cerberus rules for a single risk_calculation matrix
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time for the same reason as in get_isms_risk_assessment_schema below
+    from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
+
     return {
         'type': 'dict',
         'required': True,
         'empty': False,
         'schema': {
-            'impacts': {  # All impact category sliders
+            RiskCalculationKey.IMPACTS.value: {  # All impact category sliders
                 'type': 'list',
                 'required': required_impacts,
                 'schema': {
                     'type': 'dict',
                     'schema': {
-                        'impact_category_id': {  # public_id of IsmsImpactCategory
+                        RiskCalculationKey.IMPACT_CATEGORY_ID.value: {  # public_id of IsmsImpactCategory
                             'type': 'integer',
                             'required': True,
                         },
-                        'impact_id': {  # public_id of IsmsImpact (empty = unrated)
+                        RiskCalculationKey.IMPACT_ID.value: {  # public_id of IsmsImpact (empty = unrated)
                             'type': 'integer',
                             'required': True,
                             'nullable': True,
@@ -97,23 +101,23 @@ def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
                     }
                 }
             },
-            'likelihood_id': {  # public_id of IsmsLikelihood (empty = unrated)
+            RiskCalculationKey.LIKELIHOOD_ID.value: {  # public_id of IsmsLikelihood (empty = unrated)
                 'type': 'integer',
                 'required': True,
                 'nullable': True,
             },
-            'likelihood_value': {  # calculation_basis of selected IsmsLikelihood
+            RiskCalculationKey.LIKELIHOOD_VALUE.value: {  # calculation_basis of selected IsmsLikelihood
                 'type': 'float',
                 'min': 0.0,
                 'required': True,
                 'nullable': True,
             },
-            'maximum_impact_id': {  # public_id of the maximum IsmsImpact
+            RiskCalculationKey.MAXIMUM_IMPACT_ID.value: {  # public_id of the maximum IsmsImpact
                 'type': 'integer',
                 'required': True,
                 'nullable': True,
             },
-            'maximum_impact_value': {  # Maximum calculation_basis of the impact sliders
+            RiskCalculationKey.MAXIMUM_IMPACT_VALUE.value: {  # Maximum calculation_basis of the impact sliders
                 'type': 'float',
                 'min': 0.0,
                 'required': True,
@@ -124,12 +128,12 @@ def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
 
 
 # pylint: disable=R0801
-def get_isms_risk_assessment_schema() -> dict:
+def get_isms_risk_assessment_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsRiskAssessment document
 
     Returns:
-        dict: Field name to Cerberus rule mapping, consumed as IsmsRiskAssessment.SCHEMA
+        dict[str, Any]: Field name to Cerberus rule mapping, consumed as IsmsRiskAssessment.SCHEMA
     """
     # pylint: disable=import-outside-toplevel
     # Resolved at call time, not at module import time: the model imports this builder while its own

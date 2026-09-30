@@ -48,7 +48,7 @@ class CmdbLog:
     REGISTERED_LOG_TYPE: dict[Any, Any] = {}
     DEFAULT_LOG_TYPE = CmdbObjectLog
 
-    def __new__(cls, *args, **kwargs) -> Any:
+    def __new__(cls, *args: Any, **kwargs: Any) -> Any:
         """
         Dynamically creates an instance of the appropriate log class based on provided arguments
 
@@ -72,7 +72,7 @@ class CmdbLog:
 
 
     @classmethod
-    def __get_log_class(cls, **kwargs) -> type:
+    def __get_log_class(cls, **kwargs: Any) -> type:
         """
         Retrieves the registered log class for the given 'log_type'
 

@@ -247,7 +247,7 @@ class MongoDatabaseManager:
         if self._keepalive_thread and self._keepalive_thread.is_alive():
             return
 
-        def _keepalive():
+        def _keepalive() -> None:
             # The loop itself carries no logic and cannot be exercised from a test - it never returns.
             # Everything that can fail lives in _keepalive_once, which is called directly instead
             while True:

@@ -25,6 +25,7 @@ header line is handed on untouched next to the resolved one.
 import csv
 import re
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.utils import auto_cast
 from cmdb.framework.importer.content_types import CSVContent
@@ -74,15 +75,15 @@ def extract_column_identifier(header_cell: str) -> str:
     return identifier or header_cell
 
 
-def normalize_csv_header(header: list | None) -> list:
+def normalize_csv_header(header: list[str] | None) -> list[str]:
     """
     Resolves every column of a CSV header row to its identifier
 
     Args:
-        header (list | None): The raw header row, or None when the file carries none
+        header (list[str] | None): The raw header row, or None when the file carries none
 
     Returns:
-        list: The resolved header, column for column and in the same order (empty when there was none)
+        list[str]: The resolved header, column for column and in the same order (empty when there was none)
     """
     return [extract_column_identifier(column) for column in header or []]
 
@@ -95,10 +96,10 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
 
     Attributes:
         DEFAULT_QUOTE_CHAR (str): Default quote character for CSV parsing
-        DEFAULT_CONFIG (dict): Default configuration for CSV parsing
+        DEFAULT_CONFIG (dict[str, Any]): Default configuration for CSV parsing
     """
     DEFAULT_QUOTE_CHAR: str = '"'
-    DEFAULT_CONFIG: dict = {
+    DEFAULT_CONFIG: dict[str, Any] = {
         CsvParserConfigKey.DELIMITER.value: ',',
         CsvParserConfigKey.NEWLINE.value: '',
         CsvParserConfigKey.QUOTE_CHAR.value: DEFAULT_QUOTE_CHAR,
@@ -127,8 +128,8 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
             ParserRuntimeError: If the file cannot be read/parsed
         """
         run_config = self.get_config()
-        header: list | None = None
-        entries: list[dict] = []
+        header: list[str] | None = None
+        entries: list[dict[int, Any]] = []
 
         try:
             with open(
@@ -176,14 +177,14 @@ class CsvObjectParser(BaseObjectParser, CSVContent):
 
 
     @staticmethod
-    def _generate_index_pair(row: list) -> dict:
+    def _generate_index_pair(row: list[Any]) -> dict[int, Any]:
         """
         Generates a dictionary mapping index positions to row values
 
         Args:
-            row (list): A list representing a single row of CSV data
+            row (list[Any]): A list representing a single row of CSV data
 
         Returns:
-            dict: A dictionary mapping column indices to values
+            dict[int, Any]: A dictionary mapping column indices to values
         """
         return dict(enumerate(row))

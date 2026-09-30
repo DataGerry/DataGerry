@@ -129,10 +129,10 @@ class DefaultTemplateData:
         self._parse_template(template_string)
 
         # Caches
-        self.object_cache: dict[int, dict] = {}
-        self.type_cache: dict[int, dict] = {}
-        self.relation_cache: dict[int, dict] = {}
-        self.all_object_relations: list[dict] = []
+        self.object_cache: dict[int, dict[str, Any]] = {}
+        self.type_cache: dict[int, dict[str, Any]] = {}
+        self.relation_cache: dict[int, dict[str, Any]] = {}
+        self.all_object_relations: list[dict[str, Any]] = []
 
         object_ids = set(self.external_object_ids)
         object_ids.add(self.root_object_id)
@@ -140,7 +140,7 @@ class DefaultTemplateData:
 
         self._prefetch_relations(self._collect_relation_ids())
         # Scoped copy used for first-hop traversal
-        self.object_relations: list[dict] = list(self.all_object_relations)
+        self.object_relations: list[dict[str, Any]] = list(self.all_object_relations)
 
         # Final template data
         self.template_data: dict[str, Any] = {
@@ -350,7 +350,7 @@ class DefaultTemplateData:
         return self._build_report_table(headers, rows)
 
 
-    def _run_report_query(self, report: dict[str, Any]) -> list:
+    def _run_report_query(self, report: dict[str, Any]) -> list[CmdbObject]:
         """
         Evaluates the stored report query and returns the matching objects the requesting user may read
 
@@ -399,13 +399,18 @@ class DefaultTemplateData:
         return headers
 
 
-    def _report_rows(self, report: dict[str, Any], objects: list, type_obj: dict[str, Any] | None) -> list[list[Any]]:
+    def _report_rows(
+        self,
+        report: dict[str, Any],
+        objects: list[CmdbObject],
+        type_obj: dict[str, Any] | None,
+    ) -> list[list[Any]]:
         """
         Builds the report table body rows, expanding multi-data-sections per the report's MDS mode
 
         Args:
             report (dict[str, Any]): The report definition
-            objects (list): The objects matching the report query
+            objects (list[CmdbObject]): The objects matching the report query
             type_obj (dict[str, Any] | None): The report's type (for MDS-field detection)
 
         Returns:
@@ -457,9 +462,9 @@ class DefaultTemplateData:
 
 
     @staticmethod
-    def _object_mds_sections(obj: CmdbObject) -> list[list[dict]]:
+    def _object_mds_sections(obj: CmdbObject) -> list[list[dict[str, Any]]]:
         """Extracts an object's multi-data-sections as a list of per-section row dicts."""
-        mds_sections: list[list[dict]] = []
+        mds_sections: list[list[dict[str, Any]]] = []
         for section in obj.multi_data_sections:
             section_rows = []
             for entry in section.get("values", []):
@@ -531,16 +536,20 @@ class DefaultTemplateData:
         return Markup("".join(tpl_html))
 
 
-    def _expand_mds_rows(self, base_fields: dict, mds_sections: list[list[dict]]) -> list[dict]:
+    def _expand_mds_rows(
+        self,
+        base_fields: dict[str, Any],
+        mds_sections: list[list[dict[str, Any]]],
+    ) -> list[dict[str, Any]]:
         """
         Expands multi-data-sections into cartesian-product rows
 
         Args:
-            base_fields (dict): The object's normal fields (including public_id)
-            mds_sections (list[list[dict]]): The MDS sections, each a list of row dicts
+            base_fields (dict[str, Any]): The object's normal fields (including public_id)
+            mds_sections (list[list[dict[str, Any]]]): The MDS sections, each a list of row dicts
 
         Returns:
-            list[dict]: The fully expanded row dicts (empty when any section is empty)
+            list[dict[str, Any]]: The fully expanded row dicts (empty when any section is empty)
         """
         # No MDS -> single row
         if not mds_sections:
@@ -561,20 +570,24 @@ class DefaultTemplateData:
         return rows
 
 
-    def _expand_mds_columns(self, base_fields: dict, mds_sections: list[list[dict]]) -> dict:
+    def _expand_mds_columns(
+        self,
+        base_fields: dict[str, Any],
+        mds_sections: list[list[dict[str, Any]]],
+    ) -> dict[str, Any]:
         """
         Collapses multi-data-section values into stacked columns (one cell, ``<br>``-separated)
 
         Args:
-            base_fields (dict): The object's normal fields (including public_id)
-            mds_sections (list[list[dict]]): The MDS sections, each a list of row dicts
+            base_fields (dict[str, Any]): The object's normal fields (including public_id)
+            mds_sections (list[list[dict[str, Any]]]): The MDS sections, each a list of row dicts
 
         Returns:
-            dict: base_fields with each MDS field collapsed to a `Markup` of escaped, ``<br>``-joined
-                values
+            dict[str, Any]: base_fields with each MDS field collapsed to a `Markup` of escaped,
+                ``<br>``-joined values
         """
         result = dict(base_fields)
-        collected: dict[str, list] = {}
+        collected: dict[str, list[Any]] = {}
 
         for section in mds_sections:
             for row in section:

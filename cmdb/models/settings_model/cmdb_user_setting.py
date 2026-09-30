@@ -78,7 +78,7 @@ class CmdbUserSetting:
         }
     ]
 
-    SCHEMA: dict = get_cmdb_user_setting_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_user_setting_schema()
 
 
     def __init__(

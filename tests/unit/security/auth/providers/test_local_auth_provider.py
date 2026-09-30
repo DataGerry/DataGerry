@@ -106,6 +106,11 @@ class TestConstruction:
         """Local login is the way back into an instance, so it is never reported as inactive."""
         assert LocalAuthenticationProvider(config=LocalAuthenticationProviderConfig(active=False)).is_active()
 
+    @pytest.mark.parametrize('active', [True, False, None])
+    def test_the_class_answers_active_for_every_config(self, active: bool | None) -> None:
+        """The sweep asks the class before building a provider, so the pin must hold there as well."""
+        assert LocalAuthenticationProvider.is_active_for(LocalAuthenticationProviderConfig(active=active)) is True
+
 
 class TestCredentialCheck:
     """The submitted password is hashed and compared with the stored hash."""

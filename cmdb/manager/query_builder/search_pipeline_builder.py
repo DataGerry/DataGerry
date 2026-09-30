@@ -90,12 +90,12 @@ class SearchPipelineBuilder(PipelineBuilder):
         PipelineBuilder: The base class for building aggregation query pipelines
     """
 
-    def __init__(self, pipeline: list[dict] | None = None):
+    def __init__(self, pipeline: list[dict[str, Any]] | None = None) -> None:
         """
         Initializes the SearchPipelineBuilder
 
         Args:
-            pipeline (list[dict] | None): An ALREADY BUILT search pipeline to work on - what
+            pipeline (list[dict[str, Any]] | None): An ALREADY BUILT search pipeline to work on - what
                 `SearcherFramework` hands in so it can read the search patterns back out and append
                 its facet. `build()` does not extend it: it assembles a complete pipeline of its own
                 (see that method). Defaults to an empty pipeline
@@ -126,7 +126,7 @@ class SearchPipelineBuilder(PipelineBuilder):
               params: list[SearchParam],
               user: CmdbUser | None = None,
               permission: AccessControlPermission | None = None,
-              active_flag: bool = False) -> list[dict]:
+              active_flag: bool = False) -> list[dict[str, Any]]:
         # A search pipeline is inherently branchy (text / type / category / publicID / permission stages)
         # pylint: disable=arguments-differ
         """
@@ -145,7 +145,7 @@ class SearchPipelineBuilder(PipelineBuilder):
             active_flag (bool): Whether to restrict the search to active objects. Defaults to False
 
         Returns:
-            list[dict]: The aggregation stages, ACL filtering included when a user and a permission
+            list[dict[str, Any]]: The aggregation stages, ACL filtering included when a user and a permission
                 were given
         """
         # Imported lazily to avoid a circular import at module load (see the TYPE_CHECKING note above)
@@ -157,7 +157,7 @@ class SearchPipelineBuilder(PipelineBuilder):
 
         # Resolved once: the text stages restrict the referenced objects by it, and the hits are
         # restricted by it last
-        acl_stages: list[dict] = build_acl_pipeline(user, permission) if user and permission else []
+        acl_stages: list[dict[str, Any]] = build_acl_pipeline(user, permission) if user and permission else []
 
         self.pipeline = [self.sort_(CmdbObjectKey.PUBLIC_ID.value, 1)]
 
@@ -179,7 +179,7 @@ class SearchPipelineBuilder(PipelineBuilder):
             self,
             params: list[SearchParam],
             objects_manager: 'ObjectsManager',
-            acl_stages: list[dict]) -> None:
+            acl_stages: list[dict[str, Any]]) -> None:
         """
         Adds the stages of every TEXT or REGEX parameter - one `$match` each, as a rule
 
@@ -201,7 +201,7 @@ class SearchPipelineBuilder(PipelineBuilder):
         Args:
             params (list[SearchParam]): The search parameters to read the text forms from
             objects_manager (ObjectsManager): Collects the referenced objects each term matches
-            acl_stages (list[dict]): The caller's access-control stages; empty for none
+            acl_stages (list[dict[str, Any]]): The caller's access-control stages; empty for none
         """
         for param in _params_of(params, SearchFormType.TEXT, SearchFormType.REGEX):
             pattern: str = param.search_text
@@ -209,7 +209,7 @@ class SearchPipelineBuilder(PipelineBuilder):
             if param.search_form == SearchFormType.TEXT:
                 pattern = as_executable_pattern(pattern)
 
-            value_condition: dict = self.regex_(SEARCH_VALUE_FIELD, pattern, SEARCH_REGEX_FLAGS)
+            value_condition: dict[str, Any] = self.regex_(SEARCH_VALUE_FIELD, pattern, SEARCH_REGEX_FLAGS)
 
             self.pipeline = [
                 *self.pipeline, *build_text_term_stages(objects_manager, value_condition, acl_stages),
@@ -227,7 +227,7 @@ class SearchPipelineBuilder(PipelineBuilder):
         Args:
             params (list[SearchParam]): The search parameters to read the type forms from
         """
-        disjunction_query: list[dict] = []
+        disjunction_query: list[dict[str, Any]] = []
 
         for param in _params_of(params, SearchFormType.TYPE):
             type_ids = param.settings.get('types', []) if param.settings else []

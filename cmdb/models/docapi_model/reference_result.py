@@ -40,14 +40,14 @@ class ReferenceResult:
     Wrapper for a resolved reference field to allow safe access and type filtering in templates
     """
 
-    def __init__(self, obj_data: dict | None) -> None:
+    def __init__(self, obj_data: dict[str, Any] | None) -> None:
         """
         Stores the resolved referenced-object data
 
         Args:
-            obj_data (dict | None): The resolved reference object's data (None becomes an empty dict)
+            obj_data (dict[str, Any] | None): The resolved reference object's data (None becomes an empty dict)
         """
-        self.obj_data: dict = obj_data or {}
+        self.obj_data: dict[str, Any] = obj_data or {}
 
 
     @staticmethod

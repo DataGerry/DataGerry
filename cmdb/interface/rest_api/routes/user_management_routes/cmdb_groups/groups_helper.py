@@ -132,7 +132,7 @@ def ensure_admin_group_keeps_master_right(public_id: int, data: dict[str, Any]) 
     if public_id != ADMIN_GROUP_ID:
         return
 
-    submitted_rights: list = data.get(GroupKey.RIGHTS) or []
+    submitted_rights: list[str] = data.get(GroupKey.RIGHTS) or []
 
     if MASTER_RIGHT_NAME not in submitted_rights:
         abort(

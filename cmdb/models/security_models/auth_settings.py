@@ -69,7 +69,7 @@ class CmdbAuthSettings:
     def __init__(
         self,
         _id: str = AUTH_SETTINGS_ID,
-        providers: list[dict] | None = None,
+        providers: list[dict[str, Any]] | None = None,
         enable_external: bool = False,
         token_lifetime: int = DEFAULT_TOKEN_LIFETIME,
     ) -> None:
@@ -79,7 +79,7 @@ class CmdbAuthSettings:
         Args:
             _id (str): Id of the settings section this belongs to. Defaults to AUTH_SETTINGS_ID,
                 which is the only value in use
-            providers (list[dict] | None): One entry per configured authentication provider, each a
+            providers (list[dict[str, Any]] | None): One entry per configured authentication provider, each a
                 `ProviderEntryKey` mapping. Defaults to an empty list
             enable_external (bool): Whether external (non-local) providers may authenticate at all.
                 Defaults to False
@@ -87,7 +87,7 @@ class CmdbAuthSettings:
                 DEFAULT_TOKEN_LIFETIME
         """
         self._id: str = _id or AUTH_SETTINGS_ID
-        self.providers: list[dict] = providers if providers is not None else []
+        self.providers: list[dict[str, Any]] = providers if providers is not None else []
         self.token_lifetime: int = token_lifetime
         self.enable_external: bool = enable_external
 
@@ -193,7 +193,7 @@ class CmdbAuthSettings:
 
 
     @staticmethod
-    def __validated_providers(value: Any) -> list[dict]:
+    def __validated_providers(value: Any) -> list[dict[str, Any]]:
         """
         Checks the provider list
 
@@ -208,7 +208,7 @@ class CmdbAuthSettings:
             AuthSettingsInitError: When the value is not a list of objects
 
         Returns:
-            list[dict]: The provider entries
+            list[dict[str, Any]]: The provider entries
         """
         if value is None:
             return []
@@ -285,17 +285,17 @@ class CmdbAuthSettings:
         return self.token_lifetime
 
 
-    def get_provider_list(self) -> list[dict]:
+    def get_provider_list(self) -> list[dict[str, Any]]:
         """
         Returns every configured provider entry
 
         Returns:
-            list[dict]: One `ProviderEntryKey` mapping per configured provider
+            list[dict[str, Any]]: One `ProviderEntryKey` mapping per configured provider
         """
         return self.providers
 
 
-    def get_provider_settings(self, class_name: str) -> dict | None:
+    def get_provider_settings(self, class_name: str) -> dict[str, Any] | None:
         """
         Returns the stored configuration of one provider, or None when it has no entry
 
@@ -308,7 +308,7 @@ class CmdbAuthSettings:
             class_name (str): Name of the provider class whose configuration is wanted
 
         Returns:
-            dict | None: The entry's `config` sub-document, or None when no entry names this provider
+            dict[str, Any] | None: The entry's `config` sub-document, or None when no entry names this provider
         """
         for entry in self.get_provider_list():
             if entry.get(ProviderEntryKey.CLASS_NAME.value) == class_name:

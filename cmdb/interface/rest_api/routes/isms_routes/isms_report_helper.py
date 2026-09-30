@@ -20,11 +20,29 @@ The Risk Treatment Plan and Risk Assessments reports build large aggregation pip
 two identical fragments: resolving the assessed object (object / object group / type label) and
 resolving each risk_calculation matrix cell to its risk class. These builders keep both reports in
 sync from a single definition.
+
+Every stage is built with its `Builder` constructor. Stored keys are spelled through the owning model's
+key enum, and the join aliases and response keys through the enums in `isms_report_constants`
 """
 import re
 from typing import Any
 
+from cmdb.manager.query_builder.builder import Builder
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
+    CALCULATION_BASIS_SEPARATOR,
+    INTERVIEWED_PERSON_VARIABLE,
+    MATRIX_CELL_IMPACT_VARIABLE,
+    MATRIX_CELL_LIKELIHOOD_VARIABLE,
+    OBJECT_GROUP_TYPE_LABEL,
+    PRIORITY_LABELS,
+    PROTECTION_GOAL_VARIABLE,
+    ImpactCategoryRowKey,
+    ReportAlias,
+    ReportFacetKey,
+    RiskAssessmentReportKey,
+    RiskBadgeKey,
+)
 from cmdb.models.isms_model import (
     IsmsImpact,
     IsmsImpactCategory,
@@ -34,17 +52,76 @@ from cmdb.models.isms_model import (
     IsmsRiskClass,
     IsmsRiskMatrix,
 )
-from cmdb.models.extendable_option_model import CmdbExtendableOption
-from cmdb.models.object_model import CmdbObject
-from cmdb.models.object_group_model import CmdbObjectGroup
-from cmdb.models.type_model import CmdbType
-from cmdb.models.person_model import CmdbPerson
-from cmdb.models.person_group_model import CmdbPersonGroup
+from cmdb.models.isms_model.isms_impact_category_constants import ImpactCategoryKey
+from cmdb.models.isms_model.isms_impact_constants import ImpactKey
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
+from cmdb.models.isms_model.isms_risk_matrix_constants import (
+    RISK_MATRIX_PUBLIC_ID,
+    RiskMatrixCellKey,
+    RiskMatrixKey,
+)
+from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
+from cmdb.models.extendable_option_model import CmdbExtendableOption, ExtendableOptionKey
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey
+from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey, ObjectReferenceType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.person_model import CmdbPerson, PersonKey
+from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Resolved (post-lookup) display fields the RiskAssessment report free-text search matches against.
 # These are projected field names, so the search stage must run after the report's final $project.
-RA_REPORT_SEARCH_FIELDS: list[str] = ["risk_title", "risk_category", "protection_goals"]
+RA_REPORT_SEARCH_FIELDS: list[str] = [
+    RiskAssessmentReportKey.RISK_TITLE.value,
+    RiskAssessmentReportKey.RISK_CATEGORY.value,
+    RiskAssessmentReportKey.PROTECTION_GOALS.value,
+]
+
+# The report search matches case-insensitively only
+RA_REPORT_SEARCH_OPTIONS: str = 'i'
+
+
+def field_path(*parts: str) -> str:
+    """
+    Joins keys into a dotted field path
+
+    Args:
+        *parts (str): The keys, outermost first (`ReportAlias.RISK, RiskKey.NAME`)
+
+    Returns:
+        str: The plain-string path (`'risk.name'`)
+    """
+    return '.'.join(parts)
+
+
+def field_reference(*parts: str) -> str:
+    """
+    Joins keys into an aggregation field reference - a dotted path behind a `$`
+
+    Args:
+        *parts (str): The keys, outermost first (`ReportAlias.RISK, RiskKey.NAME`)
+
+    Returns:
+        str: The plain-string reference (`'$risk.name'`)
+    """
+    return f'${field_path(*parts)}'
+
+
+def variable_reference(*parts: str) -> str:
+    """
+    Joins a variable name and keys into an aggregation variable reference - a dotted path behind `$$`
+
+    Args:
+        *parts (str): The variable name, then the keys read off it (`'pg', ProtectionGoalKey.NAME`)
+
+    Returns:
+        str: The plain-string reference (`'$$pg.name'`)
+    """
+    return f'$${field_path(*parts)}'
 
 
 def build_ra_report_search_stage(search: str) -> dict[str, Any]:
@@ -65,14 +142,12 @@ def build_ra_report_search_stage(search: str) -> dict[str, Any]:
     """
     pattern: str = re.escape(search)
 
-    return {
-        "$match": {
-            "$or": [
-                {field: {"$regex": pattern, "$options": "i"}}
-                for field in RA_REPORT_SEARCH_FIELDS
-            ]
-        }
-    }
+    return Builder.match_(
+        Builder.or_([
+            Builder.regex_(field, pattern, RA_REPORT_SEARCH_OPTIONS)
+            for field in RA_REPORT_SEARCH_FIELDS
+        ])
+    )
 
 
 def build_report_pagination_stages(params: CollectionParameters) -> list[dict[str, Any]]:
@@ -93,18 +168,20 @@ def build_report_pagination_stages(params: CollectionParameters) -> list[dict[st
     Returns:
         list[dict[str, Any]]: The $sort / $skip / $limit stages, in pipeline order
     """
-    if params.sort == "public_id":
-        sort_spec: dict[str, int] = {"public_id": params.order}
+    public_id: str = RiskAssessmentKey.PUBLIC_ID.value
+
+    if params.sort == public_id:
+        sort_spec: dict[str, int] = {public_id: params.order}
     else:
-        sort_spec = {params.sort: params.order, "public_id": 1}
+        sort_spec = {params.sort: params.order, public_id: 1}
 
     stages: list[dict[str, Any]] = [
-        {"$sort": sort_spec},
-        {"$skip": params.skip},
+        Builder.sort_(sort_spec),
+        Builder.skip_(params.skip),
     ]
 
     if params.limit:
-        stages.append({"$limit": params.limit})
+        stages.append(Builder.limit_(params.limit))
 
     return stages
 
@@ -128,15 +205,13 @@ def build_report_facet_stage(params: CollectionParameters) -> dict[str, Any]:
     Returns:
         dict[str, Any]: The $facet stage to append as the report pipeline's final stage
     """
-    return {
-        "$facet": {
-            "data": [
-                *build_report_pagination_stages(params),
-                {"$project": {"public_id": 0}},
-            ],
-            "total": [{"$count": "total"}],
-        }
-    }
+    return Builder.facet_({
+        ReportFacetKey.DATA.value: [
+            *build_report_pagination_stages(params),
+            Builder.project_({RiskAssessmentKey.PUBLIC_ID.value: 0}),
+        ],
+        ReportFacetKey.TOTAL.value: [Builder.count_(ReportFacetKey.TOTAL.value)],
+    })
 
 
 def paginate_report_rows(
@@ -180,9 +255,9 @@ def extract_report_page(aggregation_result: list[dict[str, Any]]) -> tuple[list[
         return [], 0
 
     facet_doc = aggregation_result[0]
-    rows: list[dict[str, Any]] = facet_doc.get("data", [])
-    total_bucket: list[dict[str, Any]] = facet_doc.get("total", [])
-    total: int = total_bucket[0]["total"] if total_bucket else 0
+    rows: list[dict[str, Any]] = facet_doc.get(ReportFacetKey.DATA.value, [])
+    total_bucket: list[dict[str, Any]] = facet_doc.get(ReportFacetKey.TOTAL.value, [])
+    total: int = total_bucket[0][ReportFacetKey.TOTAL.value] if total_bucket else 0
 
     return rows, total
 
@@ -198,30 +273,24 @@ def object_reference_lookup_stages() -> list[dict[str, Any]]:
         list[dict[str, Any]]: The object / object group / type $lookup stages
     """
     return [
-        {
-            "$lookup": {
-                "from": CmdbObject.COLLECTION,
-                "localField": "object_id",
-                "foreignField": "public_id",
-                "as": "object"
-            }
-        },
-        {
-            "$lookup": {
-                "from": CmdbObjectGroup.COLLECTION,
-                "localField": "object_id",
-                "foreignField": "public_id",
-                "as": "object_group"
-            }
-        },
-        {
-            "$lookup": {
-                "from": CmdbType.COLLECTION,
-                "localField": "object.type_id",
-                "foreignField": "public_id",
-                "as": "object_type"
-            }
-        },
+        Builder.lookup_(
+            CmdbObject.COLLECTION,
+            RiskAssessmentKey.OBJECT_ID.value,
+            CmdbObjectKey.PUBLIC_ID.value,
+            ReportAlias.OBJECT.value,
+        ),
+        Builder.lookup_(
+            CmdbObjectGroup.COLLECTION,
+            RiskAssessmentKey.OBJECT_ID.value,
+            ObjectGroupKey.PUBLIC_ID.value,
+            ReportAlias.OBJECT_GROUP.value,
+        ),
+        Builder.lookup_(
+            CmdbType.COLLECTION,
+            field_path(ReportAlias.OBJECT, CmdbObjectKey.TYPE_ID),
+            TypeSchemaKey.PUBLIC_ID.value,
+            ReportAlias.OBJECT_TYPE.value,
+        ),
     ]
 
 
@@ -242,41 +311,41 @@ def risk_matrix_class_lookup_stages(calculation_field: str, cell_field: str, cla
         list[dict[str, Any]]: The matrix-cell + risk-class $lookup / $unwind stages
     """
     return [
-        {
-            "$lookup": {
-                "from": IsmsRiskMatrix.COLLECTION,
-                "let": {
-                    "likelihood_id": f"${calculation_field}.likelihood_id",
-                    "impact_id": f"${calculation_field}.maximum_impact_id"
-                },
-                "pipeline": [
-                    {"$match": {"public_id": 1}},
-                    {"$unwind": "$risk_matrix"},
-                    {
-                        "$match": {
-                            "$expr": {
-                                "$and": [
-                                    {"$eq": ["$risk_matrix.likelihood_id", "$$likelihood_id"]},
-                                    {"$eq": ["$risk_matrix.impact_id", "$$impact_id"]}
-                                ]
-                            }
-                        }
-                    },
-                    {"$replaceRoot": {"newRoot": "$risk_matrix"}}
-                ],
-                "as": cell_field
-            }
-        },
-        {"$unwind": {"path": f"${cell_field}", "preserveNullAndEmptyArrays": True}},
-        {
-            "$lookup": {
-                "from": IsmsRiskClass.COLLECTION,
-                "localField": f"{cell_field}.risk_class_id",
-                "foreignField": "public_id",
-                "as": class_field
-            }
-        },
-        {"$unwind": {"path": f"${class_field}", "preserveNullAndEmptyArrays": True}},
+        Builder.correlated_lookup_(
+            IsmsRiskMatrix.COLLECTION,
+            {
+                MATRIX_CELL_LIKELIHOOD_VARIABLE: field_reference(calculation_field, RiskCalculationKey.LIKELIHOOD_ID),
+                MATRIX_CELL_IMPACT_VARIABLE: field_reference(calculation_field, RiskCalculationKey.MAXIMUM_IMPACT_ID),
+            },
+            [
+                Builder.match_({RiskMatrixKey.PUBLIC_ID.value: RISK_MATRIX_PUBLIC_ID}),
+                Builder.unwind_(field_reference(RiskMatrixKey.RISK_MATRIX)),
+                Builder.match_({
+                    "$expr": {
+                        "$and": [
+                            {"$eq": [
+                                field_reference(RiskMatrixKey.RISK_MATRIX, RiskMatrixCellKey.LIKELIHOOD_ID),
+                                variable_reference(MATRIX_CELL_LIKELIHOOD_VARIABLE),
+                            ]},
+                            {"$eq": [
+                                field_reference(RiskMatrixKey.RISK_MATRIX, RiskMatrixCellKey.IMPACT_ID),
+                                variable_reference(MATRIX_CELL_IMPACT_VARIABLE),
+                            ]},
+                        ]
+                    }
+                }),
+                Builder.replace_root_(field_reference(RiskMatrixKey.RISK_MATRIX)),
+            ],
+            cell_field,
+        ),
+        Builder.unwind_({"path": field_reference(cell_field), "preserveNullAndEmptyArrays": True}),
+        Builder.lookup_(
+            IsmsRiskClass.COLLECTION,
+            field_path(cell_field, RiskMatrixCellKey.RISK_CLASS_ID),
+            RiskClassKey.PUBLIC_ID.value,
+            class_field,
+        ),
+        Builder.unwind_({"path": field_reference(class_field), "preserveNullAndEmptyArrays": True}),
     ]
 
 def risk_assessment_report_stages() -> list[dict[str, Any]]:
@@ -295,336 +364,344 @@ def risk_assessment_report_stages() -> list[dict[str, Any]]:
     Returns:
         list[dict[str, Any]]: The lookup / unwind / rollup stages, in pipeline order
     """
+    before: str = RiskAssessmentKey.RISK_CALCULATION_BEFORE.value
+    after: str = RiskAssessmentKey.RISK_CALCULATION_AFTER.value
+
     return [
         # Step 2: Lookup assigned Risk
-        {"$lookup": {
-            "from": IsmsRisk.COLLECTION,
-            "localField": "risk_id",
-            "foreignField": "public_id",
-            "as": "risk"
-        }},
-        {"$unwind": "$risk"},
+        Builder.lookup_(
+            IsmsRisk.COLLECTION,
+            RiskAssessmentKey.RISK_ID.value,
+            RiskKey.PUBLIC_ID.value,
+            ReportAlias.RISK.value,
+        ),
+        Builder.unwind_(field_reference(ReportAlias.RISK)),
 
         # Step 3: Lookup risk category label (ExtendableOption)
-        {
-            "$lookup": {
-                "from": CmdbExtendableOption.COLLECTION,
-                "localField": "risk.category_id",
-                "foreignField": "public_id",
-                "as": "risk_category"
-            }
-        },
-        {"$unwind": {"path": "$risk_category", "preserveNullAndEmptyArrays": True}},
+        Builder.lookup_(
+            CmdbExtendableOption.COLLECTION,
+            field_path(ReportAlias.RISK, RiskKey.CATEGORY_ID),
+            ExtendableOptionKey.PUBLIC_ID.value,
+            ReportAlias.RISK_CATEGORY.value,
+        ),
+        Builder.unwind_({"path": field_reference(ReportAlias.RISK_CATEGORY), "preserveNullAndEmptyArrays": True}),
 
         # Step 4: Lookup Protection Goals
-        {"$lookup": {
-            "from": IsmsProtectionGoal.COLLECTION,
-            "localField": "risk.protection_goals",
-            "foreignField": "public_id",
-            "as": "protection_goals"
-        }},
+        Builder.lookup_(
+            IsmsProtectionGoal.COLLECTION,
+            field_path(ReportAlias.RISK, RiskKey.PROTECTION_GOALS),
+            ProtectionGoalKey.PUBLIC_ID.value,
+            ReportAlias.PROTECTION_GOALS.value,
+        ),
 
         # Step 5: Lookup Implementation Status
-        {
-            "$lookup": {
-                "from": CmdbExtendableOption.COLLECTION,
-                "localField": "implementation_status",
-                "foreignField": "public_id",
-                "as": "implementation_status"
-            }
-        },
-        {"$unwind": {"path": "$implementation_status", "preserveNullAndEmptyArrays": True}},
+        Builder.lookup_(
+            CmdbExtendableOption.COLLECTION,
+            RiskAssessmentKey.IMPLEMENTATION_STATUS.value,
+            ExtendableOptionKey.PUBLIC_ID.value,
+            ReportAlias.IMPLEMENTATION_STATUS.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.IMPLEMENTATION_STATUS),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Lookup Object / ObjectGroup / type label for the assessed object
         *object_reference_lookup_stages(),
 
         # Step 7: Lookup the Risk Assessor (P)
-        {
-            "$lookup": {
-                "from": CmdbPerson.COLLECTION,
-                "localField": "risk_assessor_id",
-                "foreignField": "public_id",
-                "as": "risk_assessor_person"
-            }
-        },
-        {
-            "$unwind": {
-                "path": "$risk_assessor_person",
-                "preserveNullAndEmptyArrays": True
-            }
-        },
+        Builder.lookup_(
+            CmdbPerson.COLLECTION,
+            RiskAssessmentKey.RISK_ASSESSOR_ID.value,
+            PersonKey.PUBLIC_ID.value,
+            ReportAlias.RISK_ASSESSOR_PERSON.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.RISK_ASSESSOR_PERSON),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Step 8: Lookup Risk Owner (P or PG)
-        {
-            "$lookup": {
-                "from": CmdbPerson.COLLECTION,
-                "localField": "risk_owner_id",
-                "foreignField": "public_id",
-                "as": "risk_owner_person"
-            }
-        },
-        {
-            "$lookup": {
-                "from": CmdbPersonGroup.COLLECTION,
-                "localField": "risk_owner_id",
-                "foreignField": "public_id",
-                "as": "risk_owner_group"
-            }
-        },
+        Builder.lookup_(
+            CmdbPerson.COLLECTION,
+            RiskAssessmentKey.RISK_OWNER_ID.value,
+            PersonKey.PUBLIC_ID.value,
+            ReportAlias.RISK_OWNER_PERSON.value,
+        ),
+        Builder.lookup_(
+            CmdbPersonGroup.COLLECTION,
+            RiskAssessmentKey.RISK_OWNER_ID.value,
+            PersonGroupKey.PUBLIC_ID.value,
+            ReportAlias.RISK_OWNER_GROUP.value,
+        ),
 
         # Step 9: Lookup Responsible Person (P or PG)
-        {
-            "$lookup": {
-                "from": CmdbPerson.COLLECTION,
-                "localField": "responsible_persons_id",
-                "foreignField": "public_id",
-                "as": "responsible_person"
-            }
-        },
-        {
-            "$lookup": {
-                "from": CmdbPersonGroup.COLLECTION,
-                "localField": "responsible_persons_id",
-                "foreignField": "public_id",
-                "as": "responsible_person_group"
-            }
-        },
+        Builder.lookup_(
+            CmdbPerson.COLLECTION,
+            RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
+            PersonKey.PUBLIC_ID.value,
+            ReportAlias.RESPONSIBLE_PERSON.value,
+        ),
+        Builder.lookup_(
+            CmdbPersonGroup.COLLECTION,
+            RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
+            PersonGroupKey.PUBLIC_ID.value,
+            ReportAlias.RESPONSIBLE_PERSON_GROUP.value,
+        ),
 
         # Step 10: Lookup Auditor (P or PG)
-        {
-            "$lookup": {
-                "from": CmdbPerson.COLLECTION,
-                "localField": "auditor_id",
-                "foreignField": "public_id",
-                "as": "auditor_person"
-            }
-        },
-        {
-            "$lookup": {
-                "from": CmdbPersonGroup.COLLECTION,
-                "localField": "auditor_id",
-                "foreignField": "public_id",
-                "as": "auditor_group"
-            }
-        },
+        Builder.lookup_(
+            CmdbPerson.COLLECTION,
+            RiskAssessmentKey.AUDITOR_ID.value,
+            PersonKey.PUBLIC_ID.value,
+            ReportAlias.AUDITOR_PERSON.value,
+        ),
+        Builder.lookup_(
+            CmdbPersonGroup.COLLECTION,
+            RiskAssessmentKey.AUDITOR_ID.value,
+            PersonGroupKey.PUBLIC_ID.value,
+            ReportAlias.AUDITOR_GROUP.value,
+        ),
 
         # Step 11: Lookup Interviewed Persons (multiple P)
-        {"$lookup": {
-            "from": CmdbPerson.COLLECTION,
-            "localField": "interviewed_persons",
-            "foreignField": "public_id",
-            "as": "interviewed_persons_data"
-        }},
+        Builder.lookup_(
+            CmdbPerson.COLLECTION,
+            RiskAssessmentKey.INTERVIEWED_PERSONS.value,
+            PersonKey.PUBLIC_ID.value,
+            ReportAlias.INTERVIEWED_PERSONS_DATA.value,
+        ),
 
         # Step 12: Lookup risk class matrix values for risk_before
-        {
-            "$lookup": {
-                "from": IsmsRiskMatrix.COLLECTION,
-                "let": {
-                    "likelihood_id": "$risk_calculation_before.likelihood_id",
-                    "impact_id": "$risk_calculation_before.maximum_impact_id"
-                },
-                "pipeline": [
-                    { "$match": { "public_id": 1 } },
-                    { "$unwind": "$risk_matrix" },
-                    {
-                        "$match": {
-                            "$expr": {
-                                "$and": [
-                                    { "$eq": ["$risk_matrix.likelihood_id", "$$likelihood_id"] },
-                                    { "$eq": ["$risk_matrix.impact_id", "$$impact_id"] }
-                                ]
-                            }
-                        }
-                    },
-                    { "$replaceRoot": { "newRoot": "$risk_matrix" } }
-                ],
-                "as": "risk_before"
-            }
-        },
-        { "$unwind": { "path": "$risk_before", "preserveNullAndEmptyArrays": True } },
-        {
-            "$lookup": {
-                "from": IsmsRiskClass.COLLECTION,
-                "localField": "risk_before.risk_class_id",
-                "foreignField": "public_id",
-                "as": "risk_before_class"
-            }
-        },
-        { "$unwind": { "path": "$risk_before_class", "preserveNullAndEmptyArrays": True } },
+        Builder.correlated_lookup_(
+            IsmsRiskMatrix.COLLECTION,
+            {
+                MATRIX_CELL_LIKELIHOOD_VARIABLE: field_reference(before, RiskCalculationKey.LIKELIHOOD_ID),
+                MATRIX_CELL_IMPACT_VARIABLE: field_reference(before, RiskCalculationKey.MAXIMUM_IMPACT_ID),
+            },
+            [
+                Builder.match_({RiskMatrixKey.PUBLIC_ID.value: RISK_MATRIX_PUBLIC_ID}),
+                Builder.unwind_(field_reference(RiskMatrixKey.RISK_MATRIX)),
+                Builder.match_({
+                    "$expr": {
+                        "$and": [
+                            {"$eq": [
+                                field_reference(RiskMatrixKey.RISK_MATRIX, RiskMatrixCellKey.LIKELIHOOD_ID),
+                                variable_reference(MATRIX_CELL_LIKELIHOOD_VARIABLE),
+                            ]},
+                            {"$eq": [
+                                field_reference(RiskMatrixKey.RISK_MATRIX, RiskMatrixCellKey.IMPACT_ID),
+                                variable_reference(MATRIX_CELL_IMPACT_VARIABLE),
+                            ]},
+                        ]
+                    }
+                }),
+                Builder.replace_root_(field_reference(RiskMatrixKey.RISK_MATRIX)),
+            ],
+            ReportAlias.RISK_BEFORE.value,
+        ),
+        Builder.unwind_({"path": field_reference(ReportAlias.RISK_BEFORE), "preserveNullAndEmptyArrays": True}),
+        Builder.lookup_(
+            IsmsRiskClass.COLLECTION,
+            field_path(ReportAlias.RISK_BEFORE, RiskMatrixCellKey.RISK_CLASS_ID),
+            RiskClassKey.PUBLIC_ID.value,
+            ReportAlias.RISK_BEFORE_CLASS.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.RISK_BEFORE_CLASS),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Step 13: Repeat for risk after treatment
-        {
-            "$lookup": {
-                "from": IsmsRiskMatrix.COLLECTION,
-                "let": {
-                    "likelihood_id": "$risk_calculation_after.likelihood_id",
-                    "impact_id": "$risk_calculation_after.maximum_impact_id"
-                },
-                "pipeline": [
-                    { "$match": { "public_id": 1 } },
-                    { "$unwind": "$risk_matrix" },
-                    {
-                        "$match": {
-                            "$expr": {
-                                "$and": [
-                                    { "$eq": ["$risk_matrix.likelihood_id", "$$likelihood_id"] },
-                                    { "$eq": ["$risk_matrix.impact_id", "$$impact_id"] }
-                                ]
-                            }
-                        }
-                    },
-                    { "$replaceRoot": { "newRoot": "$risk_matrix" } }
-                ],
-                "as": "risk_after"
-            }
-        },
-        { "$unwind": { "path": "$risk_after", "preserveNullAndEmptyArrays": True } },
-        {
-            "$lookup": {
-                "from": IsmsRiskClass.COLLECTION,
-                "localField": "risk_after.risk_class_id",
-                "foreignField": "public_id",
-                "as": "risk_after_class"
-            }
-        },
-        { "$unwind": { "path": "$risk_after_class", "preserveNullAndEmptyArrays": True } },
+        Builder.correlated_lookup_(
+            IsmsRiskMatrix.COLLECTION,
+            {
+                MATRIX_CELL_LIKELIHOOD_VARIABLE: field_reference(after, RiskCalculationKey.LIKELIHOOD_ID),
+                MATRIX_CELL_IMPACT_VARIABLE: field_reference(after, RiskCalculationKey.MAXIMUM_IMPACT_ID),
+            },
+            [
+                Builder.match_({RiskMatrixKey.PUBLIC_ID.value: RISK_MATRIX_PUBLIC_ID}),
+                Builder.unwind_(field_reference(RiskMatrixKey.RISK_MATRIX)),
+                Builder.match_({
+                    "$expr": {
+                        "$and": [
+                            {"$eq": [
+                                field_reference(RiskMatrixKey.RISK_MATRIX, RiskMatrixCellKey.LIKELIHOOD_ID),
+                                variable_reference(MATRIX_CELL_LIKELIHOOD_VARIABLE),
+                            ]},
+                            {"$eq": [
+                                field_reference(RiskMatrixKey.RISK_MATRIX, RiskMatrixCellKey.IMPACT_ID),
+                                variable_reference(MATRIX_CELL_IMPACT_VARIABLE),
+                            ]},
+                        ]
+                    }
+                }),
+                Builder.replace_root_(field_reference(RiskMatrixKey.RISK_MATRIX)),
+            ],
+            ReportAlias.RISK_AFTER.value,
+        ),
+        Builder.unwind_({"path": field_reference(ReportAlias.RISK_AFTER), "preserveNullAndEmptyArrays": True}),
+        Builder.lookup_(
+            IsmsRiskClass.COLLECTION,
+            field_path(ReportAlias.RISK_AFTER, RiskMatrixCellKey.RISK_CLASS_ID),
+            RiskClassKey.PUBLIC_ID.value,
+            ReportAlias.RISK_AFTER_CLASS.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.RISK_AFTER_CLASS),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Step 14: Create Impact categories before list
         # Step A: Unwind before impacts
-        { "$unwind": { "path": "$risk_calculation_before.impacts", "preserveNullAndEmptyArrays": True } },
+        Builder.unwind_({
+            "path": field_reference(before, RiskCalculationKey.IMPACTS),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Step B: Lookup impact category
-        {
-        "$lookup": {
-            "from": IsmsImpactCategory.COLLECTION,
-            "localField": "risk_calculation_before.impacts.impact_category_id",
-            "foreignField": "public_id",
-            "as": "impact_category_before"
-        }
-        },
-        { "$unwind": { "path": "$impact_category_before", "preserveNullAndEmptyArrays": True } },
+        Builder.lookup_(
+            IsmsImpactCategory.COLLECTION,
+            field_path(before, RiskCalculationKey.IMPACTS, RiskCalculationKey.IMPACT_CATEGORY_ID),
+            ImpactCategoryKey.PUBLIC_ID.value,
+            ReportAlias.IMPACT_CATEGORY_BEFORE.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.IMPACT_CATEGORY_BEFORE),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Step C: Lookup impact
-        {
-        "$lookup": {
-            "from": IsmsImpact.COLLECTION,
-            "localField": "risk_calculation_before.impacts.impact_id",
-            "foreignField": "public_id",
-            "as": "impact_before"
-        }
-        },
-        { "$unwind": { "path": "$impact_before", "preserveNullAndEmptyArrays": True } },
+        Builder.lookup_(
+            IsmsImpact.COLLECTION,
+            field_path(before, RiskCalculationKey.IMPACTS, RiskCalculationKey.IMPACT_ID),
+            ImpactKey.PUBLIC_ID.value,
+            ReportAlias.IMPACT_BEFORE.value,
+        ),
+        Builder.unwind_({"path": field_reference(ReportAlias.IMPACT_BEFORE), "preserveNullAndEmptyArrays": True}),
 
         # Step D: Group and build new array
-        {
-        "$group": {
-            "_id": "$_id",
-            "doc": { "$first": "$$ROOT" },
-            "impact_categories_before": {
-            "$push": {
-                "impact_category": "$impact_category_before.name",
-                "impact_value": {
-                "$cond": {
-                    "if": { "$and": [
-                        { "$ne": ["$impact_before.calculation_basis", None] },
-                        { "$ne": ["$impact_before.name", None]}]
-                    },
-                    "then": {
-                    "$concat": [
-                        { "$toString": "$impact_before.calculation_basis" },
-                        " - ",
-                        "$impact_before.name"
-                    ]
-                    },
-                    "else": None
-                }
+        Builder.group_("$_id", {
+            ReportAlias.DOC.value: {"$first": "$$ROOT"},
+            RiskAssessmentReportKey.IMPACT_CATEGORIES_BEFORE.value: {
+                "$push": {
+                    ImpactCategoryRowKey.IMPACT_CATEGORY.value: field_reference(
+                        ReportAlias.IMPACT_CATEGORY_BEFORE, ImpactCategoryKey.NAME
+                    ),
+                    ImpactCategoryRowKey.IMPACT_VALUE.value: {
+                        "$cond": {
+                            "if": {"$and": [
+                                {"$ne": [
+                                    field_reference(ReportAlias.IMPACT_BEFORE, ImpactKey.CALCULATION_BASIS), None
+                                ]},
+                                {"$ne": [field_reference(ReportAlias.IMPACT_BEFORE, ImpactKey.NAME), None]}]
+                            },
+                            "then": {
+                                "$concat": [
+                                    {"$toString": field_reference(
+                                        ReportAlias.IMPACT_BEFORE, ImpactKey.CALCULATION_BASIS
+                                    )},
+                                    CALCULATION_BASIS_SEPARATOR,
+                                    field_reference(ReportAlias.IMPACT_BEFORE, ImpactKey.NAME)
+                                ]
+                            },
+                            "else": None
+                        }
+                    }
                 }
             }
-            }
-        }
-        },
-        { "$replaceRoot": { "newRoot": { "$mergeObjects": ["$doc", {
-                                        "impact_categories_before": "$impact_categories_before" }] } } },
+        }),
+        Builder.replace_root_({"$mergeObjects": [field_reference(ReportAlias.DOC), {
+            RiskAssessmentReportKey.IMPACT_CATEGORIES_BEFORE.value: field_reference(
+                RiskAssessmentReportKey.IMPACT_CATEGORIES_BEFORE
+            )}]}),
 
         # Step 15: Create Impact categories after list
         # Step A: Unwind after impacts
-        { "$unwind": { "path": "$risk_calculation_after.impacts", "preserveNullAndEmptyArrays": True } },
+        Builder.unwind_({
+            "path": field_reference(after, RiskCalculationKey.IMPACTS),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Step B: Lookup impact category
-        {
-        "$lookup": {
-            "from": IsmsImpactCategory.COLLECTION,
-            "localField": "risk_calculation_after.impacts.impact_category_id",
-            "foreignField": "public_id",
-            "as": "impact_category_after"
-        }
-        },
-        { "$unwind": { "path": "$impact_category_after", "preserveNullAndEmptyArrays": True } },
+        Builder.lookup_(
+            IsmsImpactCategory.COLLECTION,
+            field_path(after, RiskCalculationKey.IMPACTS, RiskCalculationKey.IMPACT_CATEGORY_ID),
+            ImpactCategoryKey.PUBLIC_ID.value,
+            ReportAlias.IMPACT_CATEGORY_AFTER.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.IMPACT_CATEGORY_AFTER),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Step C: Lookup impact
-        {
-        "$lookup": {
-            "from": IsmsImpact.COLLECTION,
-            "localField": "risk_calculation_after.impacts.impact_id",
-            "foreignField": "public_id",
-            "as": "impact_after"
-        }
-        },
-        { "$unwind": { "path": "$impact_after", "preserveNullAndEmptyArrays": True } },
+        Builder.lookup_(
+            IsmsImpact.COLLECTION,
+            field_path(after, RiskCalculationKey.IMPACTS, RiskCalculationKey.IMPACT_ID),
+            ImpactKey.PUBLIC_ID.value,
+            ReportAlias.IMPACT_AFTER.value,
+        ),
+        Builder.unwind_({"path": field_reference(ReportAlias.IMPACT_AFTER), "preserveNullAndEmptyArrays": True}),
 
         # Step D: Group and build new array
-        {
-        "$group": {
-            "_id": "$_id",
-            "doc": { "$first": "$$ROOT" },
-            "impact_categories_after": {
-            "$push": {
-                "impact_category": "$impact_category_after.name",
-                "impact_value": {
-                "$cond": {
-                    "if": { "$and": [
-                        { "$ne": ["$impact_after.calculation_basis", None] },
-                        { "$ne": ["$impact_after.name", None]}]
-                    },
-                    "then": {
-                    "$concat": [
-                        { "$toString": "$impact_after.calculation_basis" },
-                        " - ",
-                        "$impact_after.name"
-                    ]
-                    },
-                    "else": None
-                }
+        Builder.group_("$_id", {
+            ReportAlias.DOC.value: {"$first": "$$ROOT"},
+            RiskAssessmentReportKey.IMPACT_CATEGORIES_AFTER.value: {
+                "$push": {
+                    ImpactCategoryRowKey.IMPACT_CATEGORY.value: field_reference(
+                        ReportAlias.IMPACT_CATEGORY_AFTER, ImpactCategoryKey.NAME
+                    ),
+                    ImpactCategoryRowKey.IMPACT_VALUE.value: {
+                        "$cond": {
+                            "if": {"$and": [
+                                {"$ne": [
+                                    field_reference(ReportAlias.IMPACT_AFTER, ImpactKey.CALCULATION_BASIS), None
+                                ]},
+                                {"$ne": [field_reference(ReportAlias.IMPACT_AFTER, ImpactKey.NAME), None]}]
+                            },
+                            "then": {
+                                "$concat": [
+                                    {"$toString": field_reference(
+                                        ReportAlias.IMPACT_AFTER, ImpactKey.CALCULATION_BASIS
+                                    )},
+                                    CALCULATION_BASIS_SEPARATOR,
+                                    field_reference(ReportAlias.IMPACT_AFTER, ImpactKey.NAME)
+                                ]
+                            },
+                            "else": None
+                        }
+                    }
                 }
             }
-            }
-        }
-        },
-        { "$replaceRoot": { "newRoot": { "$mergeObjects": ["$doc", {
-                                        "impact_categories_after": "$impact_categories_after" }] } } },
+        }),
+        Builder.replace_root_({"$mergeObjects": [field_reference(ReportAlias.DOC), {
+            RiskAssessmentReportKey.IMPACT_CATEGORIES_AFTER.value: field_reference(
+                RiskAssessmentReportKey.IMPACT_CATEGORIES_AFTER
+            )}]}),
 
         # Lookup Likelihood before
-        {
-        "$lookup": {
-            "from": IsmsLikelihood.COLLECTION,
-            "localField": "risk_calculation_before.likelihood_id",
-            "foreignField": "public_id",
-            "as": "likelihood_before"
-        }
-        },
-        { "$unwind": { "path": "$likelihood_before", "preserveNullAndEmptyArrays": True } },
+        Builder.lookup_(
+            IsmsLikelihood.COLLECTION,
+            field_path(before, RiskCalculationKey.LIKELIHOOD_ID),
+            LikelihoodKey.PUBLIC_ID.value,
+            ReportAlias.LIKELIHOOD_BEFORE.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.LIKELIHOOD_BEFORE),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
         # Lookup Likelihood after
-        {
-        "$lookup": {
-            "from": IsmsLikelihood.COLLECTION,
-            "localField": "risk_calculation_after.likelihood_id",
-            "foreignField": "public_id",
-            "as": "likelihood_after"
-        }
-        },
-        { "$unwind": { "path": "$likelihood_after", "preserveNullAndEmptyArrays": True } },
+        Builder.lookup_(
+            IsmsLikelihood.COLLECTION,
+            field_path(after, RiskCalculationKey.LIKELIHOOD_ID),
+            LikelihoodKey.PUBLIC_ID.value,
+            ReportAlias.LIKELIHOOD_AFTER.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.LIKELIHOOD_AFTER),
+            "preserveNullAndEmptyArrays": True,
+        }),
 
     ]
 
@@ -641,170 +718,189 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
     Returns:
         dict[str, Any]: The $project stage
     """
-    return {"$project": {
+    return Builder.project_({
         "_id": 0,
         # Kept only as the pagination sort tiebreaker; dropped again after paging
-        "public_id": 1,
-        "risk_title": "$risk.name",
-        "risk_category": "$risk_category.value",
-        "protection_goals": {
+        RiskAssessmentKey.PUBLIC_ID.value: 1,
+        RiskAssessmentReportKey.RISK_TITLE.value: field_reference(ReportAlias.RISK, RiskKey.NAME),
+        RiskAssessmentReportKey.RISK_CATEGORY.value: field_reference(
+            ReportAlias.RISK_CATEGORY, ExtendableOptionKey.VALUE
+        ),
+        RiskAssessmentReportKey.PROTECTION_GOALS.value: {
             "$map": {
-                "input": "$protection_goals",
-                "as": "pg",
-                "in": "$$pg.name"
+                "input": field_reference(ReportAlias.PROTECTION_GOALS),
+                "as": PROTECTION_GOAL_VARIABLE,
+                "in": variable_reference(PROTECTION_GOAL_VARIABLE, ProtectionGoalKey.NAME)
             }
         },
-        "risk_owner": {
+        RiskAssessmentReportKey.RISK_OWNER.value: {
             "$cond": [
-                { "$eq": ["$risk_owner_id_ref_type", "PERSON"] },
+                {"$eq": [field_reference(RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE), PersonReferenceType.PERSON.value]},
                 {
                     "$ifNull": [
-                        { "$arrayElemAt": ["$risk_owner_person.display_name", 0] },
+                        {"$arrayElemAt": [field_reference(ReportAlias.RISK_OWNER_PERSON, PersonKey.DISPLAY_NAME), 0]},
                         None
                     ]
                 },
                 {
                     "$ifNull": [
-                        { "$arrayElemAt": ["$risk_owner_group.name", 0] },
+                        {"$arrayElemAt": [field_reference(ReportAlias.RISK_OWNER_GROUP, PersonGroupKey.NAME), 0]},
                         None
                     ]
                 }
             ]
         },
-        "responsible_person": {
+        RiskAssessmentReportKey.RESPONSIBLE_PERSON.value: {
             "$cond": [
-                { "$eq": ["$responsible_persons_id_ref_type", "PERSON"] },
+                {"$eq": [
+                    field_reference(RiskAssessmentKey.RESPONSIBLE_PERSONS_ID_REF_TYPE),
+                    PersonReferenceType.PERSON.value,
+                ]},
                 {
                     "$ifNull": [
-                        { "$arrayElemAt": ["$responsible_person.display_name", 0] },
+                        {"$arrayElemAt": [field_reference(ReportAlias.RESPONSIBLE_PERSON, PersonKey.DISPLAY_NAME), 0]},
                         None
                     ]
                 },
                 {
                     "$ifNull": [
-                        { "$arrayElemAt": ["$responsible_person_group.name", 0] },
+                        {"$arrayElemAt": [
+                            field_reference(ReportAlias.RESPONSIBLE_PERSON_GROUP, PersonGroupKey.NAME), 0
+                        ]},
                         None
                     ]
                 }
             ]
         },
-        "auditor": {
+        RiskAssessmentReportKey.AUDITOR.value: {
             "$cond": [
-                { "$eq": ["$auditor_id_ref_type", "PERSON"] },
+                {"$eq": [field_reference(RiskAssessmentKey.AUDITOR_ID_REF_TYPE), PersonReferenceType.PERSON.value]},
                 {
                     "$ifNull": [
-                        { "$arrayElemAt": ["$auditor_person.display_name", 0] },
+                        {"$arrayElemAt": [field_reference(ReportAlias.AUDITOR_PERSON, PersonKey.DISPLAY_NAME), 0]},
                         None
                     ]
                 },
                 {
                     "$ifNull": [
-                        { "$arrayElemAt": ["$auditor_group.name", 0] },
+                        {"$arrayElemAt": [field_reference(ReportAlias.AUDITOR_GROUP, PersonGroupKey.NAME), 0]},
                         None
                     ]
                 }
             ]
         },
-        "implementation_status": {
-            "$ifNull": ["$implementation_status.value", None]
+        RiskAssessmentReportKey.IMPLEMENTATION_STATUS.value: {
+            "$ifNull": [field_reference(ReportAlias.IMPLEMENTATION_STATUS, ExtendableOptionKey.VALUE), None]
         },
-        "priority": {
+        RiskAssessmentReportKey.PRIORITY.value: {
             "$switch": {
                 "branches": [
-                    {"case": {"$eq": ["$priority", 1]}, "then": "Low"},
-                    {"case": {"$eq": ["$priority", 2]}, "then": "Medium"},
-                    {"case": {"$eq": ["$priority", 3]}, "then": "High"},
-                    {"case": {"$eq": ["$priority", 4]}, "then": "Very High"}
+                    {"case": {"$eq": [field_reference(RiskAssessmentKey.PRIORITY), priority]}, "then": label}
+                    for priority, label in PRIORITY_LABELS.items()
                 ],
                 "default": None
             }
         },
-        "assigned_object": {
+        RiskAssessmentReportKey.ASSIGNED_OBJECT.value: {
             "$cond": [
-                {"$eq": ["$object_id_ref_type", "OBJECT_GROUP"]},
-                {"$arrayElemAt": ["$object_group.name", 0]},
-                {"$arrayElemAt": ["$object.public_id", 0]}
+                {"$eq": [
+                    field_reference(RiskAssessmentKey.OBJECT_ID_REF_TYPE),
+                    ObjectReferenceType.OBJECT_GROUP.value,
+                ]},
+                {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_GROUP, ObjectGroupKey.NAME), 0]},
+                {"$arrayElemAt": [field_reference(ReportAlias.OBJECT, CmdbObjectKey.PUBLIC_ID), 0]}
             ]
         },
-        "assigned_object_type": {
+        RiskAssessmentReportKey.ASSIGNED_OBJECT_TYPE.value: {
             "$cond": [
-                {"$eq": ["$object_id_ref_type", "OBJECT_GROUP"]},
-                "Object group",
-                {"$arrayElemAt": ["$object_type.label", 0]}
+                {"$eq": [
+                    field_reference(RiskAssessmentKey.OBJECT_ID_REF_TYPE),
+                    ObjectReferenceType.OBJECT_GROUP.value,
+                ]},
+                OBJECT_GROUP_TYPE_LABEL,
+                {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_TYPE, TypeSchemaKey.LABEL), 0]}
             ]
         },
-        "risk_assessor": {
-            "$ifNull": ["$risk_assessor_person.display_name", None]
+        RiskAssessmentReportKey.RISK_ASSESSOR.value: {
+            "$ifNull": [field_reference(ReportAlias.RISK_ASSESSOR_PERSON, PersonKey.DISPLAY_NAME), None]
         },
-        "interviewed_persons": {
+        RiskAssessmentReportKey.INTERVIEWED_PERSONS.value: {
             "$cond": {
-                "if": { "$gt": [{ "$size": "$interviewed_persons_data" }, 0] },
+                "if": {"$gt": [{"$size": field_reference(ReportAlias.INTERVIEWED_PERSONS_DATA)}, 0]},
                 "then": {
                     "$map": {
-                        "input": "$interviewed_persons_data",
-                        "as": "person",
-                        "in": "$$person.display_name"
+                        "input": field_reference(ReportAlias.INTERVIEWED_PERSONS_DATA),
+                        "as": INTERVIEWED_PERSON_VARIABLE,
+                        "in": variable_reference(INTERVIEWED_PERSON_VARIABLE, PersonKey.DISPLAY_NAME)
                     }
                 },
                 "else": None
             }
         },
         **risk_calculation_projection_fields(),
-        "impact_categories_before": 1,
-        "impact_categories_after": 1,
-        "likelihood_value_before": {
+        RiskAssessmentReportKey.IMPACT_CATEGORIES_BEFORE.value: 1,
+        RiskAssessmentReportKey.IMPACT_CATEGORIES_AFTER.value: 1,
+        RiskAssessmentReportKey.LIKELIHOOD_VALUE_BEFORE.value: {
             "$cond": {
                 "if": {
-                "$and": [
-                    { "$ne": ["$likelihood_before.calculation_basis", None] },
-                    { "$ne": ["$likelihood_before.name", None] }
-                ]
+                    "$and": [
+                        {"$ne": [
+                            field_reference(ReportAlias.LIKELIHOOD_BEFORE, LikelihoodKey.CALCULATION_BASIS), None
+                        ]},
+                        {"$ne": [field_reference(ReportAlias.LIKELIHOOD_BEFORE, LikelihoodKey.NAME), None]}
+                    ]
                 },
                 "then": {
-                "$concat": [
-                    { "$toString": "$likelihood_before.calculation_basis" },
-                    " - ",
-                    "$likelihood_before.name"
-                ]
+                    "$concat": [
+                        {"$toString": field_reference(
+                            ReportAlias.LIKELIHOOD_BEFORE, LikelihoodKey.CALCULATION_BASIS
+                        )},
+                        CALCULATION_BASIS_SEPARATOR,
+                        field_reference(ReportAlias.LIKELIHOOD_BEFORE, LikelihoodKey.NAME)
+                    ]
                 },
                 "else": None
             }
         },
-        "likelihood_value_after": {
+        RiskAssessmentReportKey.LIKELIHOOD_VALUE_AFTER.value: {
             "$cond": {
                 "if": {
-                "$and": [
-                    { "$ne": ["$likelihood_after.calculation_basis", None] },
-                    { "$ne": ["$likelihood_after.name", None] }
-                ]
+                    "$and": [
+                        {"$ne": [
+                            field_reference(ReportAlias.LIKELIHOOD_AFTER, LikelihoodKey.CALCULATION_BASIS), None
+                        ]},
+                        {"$ne": [field_reference(ReportAlias.LIKELIHOOD_AFTER, LikelihoodKey.NAME), None]}
+                    ]
                 },
                 "then": {
-                "$concat": [
-                    { "$toString": "$likelihood_after.calculation_basis" },
-                    " - ",
-                    "$likelihood_after.name"
-                ]
+                    "$concat": [
+                        {"$toString": field_reference(
+                            ReportAlias.LIKELIHOOD_AFTER, LikelihoodKey.CALCULATION_BASIS
+                        )},
+                        CALCULATION_BASIS_SEPARATOR,
+                        field_reference(ReportAlias.LIKELIHOOD_AFTER, LikelihoodKey.NAME)
+                    ]
                 },
                 "else": None
             }
         },
         "additional_information": 1,
-        "risk_treatment_option": {
-            "$ifNull": ["$risk_treatment_option", None]
+        RiskAssessmentReportKey.RISK_TREATMENT_OPTION.value: {
+            "$ifNull": [field_reference(RiskAssessmentKey.RISK_TREATMENT_OPTION), None]
         },
-        "risk_treatment_description": 1,
-        "risk_assessment_date": 1,
-        "additional_info": 1,
-        "planned_implementation_date": 1,
-        "finished_implementation_date": 1,
+        RiskAssessmentKey.RISK_TREATMENT_DESCRIPTION.value: 1,
+        RiskAssessmentKey.RISK_ASSESSMENT_DATE.value: 1,
+        RiskAssessmentKey.ADDITIONAL_INFO.value: 1,
+        RiskAssessmentKey.PLANNED_IMPLEMENTATION_DATE.value: 1,
+        RiskAssessmentKey.FINISHED_IMPLEMENTATION_DATE.value: 1,
         "implementation_finished_on": 1,
-        "required_resources": 1,
-        "costs_for_implementation": 1,
-        "costs_for_implementation_currency": 1,
-        "audit_done_date": 1,
-        "audit_result": 1,
-        "object_id_ref_type": 1,
-    }}
+        RiskAssessmentKey.REQUIRED_RESOURCES.value: 1,
+        RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value: 1,
+        RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION_CURRENCY.value: 1,
+        RiskAssessmentKey.AUDIT_DONE_DATE.value: 1,
+        RiskAssessmentKey.AUDIT_RESULT.value: 1,
+        RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: 1,
+    })
 
 def build_report_filter_stages(report_filter: dict[str, Any] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """
@@ -828,7 +924,7 @@ def build_report_filter_stages(report_filter: dict[str, Any] | list[dict[str, An
     if isinstance(report_filter, list):
         return list(report_filter)
 
-    return [{"$match": report_filter}]
+    return [Builder.match_(report_filter)]
 
 def risk_calculation_projection_fields() -> dict[str, Any]:
     """
@@ -847,20 +943,20 @@ def risk_calculation_projection_fields() -> dict[str, Any]:
         dict[str, Any]: The two projection fields
     """
     return {
-        "risk_before": {
-            "value": "$risk_before.calculated_value",
-            "risk_class_id": "$risk_before_class.public_id",
-            "color": "$risk_before_class.color"
+        RiskBadgeKey.RISK_BEFORE.value: {
+            RiskBadgeKey.VALUE.value: field_reference(ReportAlias.RISK_BEFORE, RiskMatrixCellKey.CALCULATED_VALUE),
+            RiskBadgeKey.RISK_CLASS_ID.value: field_reference(ReportAlias.RISK_BEFORE_CLASS, RiskClassKey.PUBLIC_ID),
+            RiskBadgeKey.COLOR.value: field_reference(ReportAlias.RISK_BEFORE_CLASS, RiskClassKey.COLOR)
         },
-        "risk_after": {
-            "value": {
-                "$ifNull": ["$risk_after.calculated_value", None]
+        RiskBadgeKey.RISK_AFTER.value: {
+            RiskBadgeKey.VALUE.value: {
+                "$ifNull": [field_reference(ReportAlias.RISK_AFTER, RiskMatrixCellKey.CALCULATED_VALUE), None]
             },
-            "risk_class_id": {
-                "$ifNull": ["$risk_after_class.public_id", None]
+            RiskBadgeKey.RISK_CLASS_ID.value: {
+                "$ifNull": [field_reference(ReportAlias.RISK_AFTER_CLASS, RiskClassKey.PUBLIC_ID), None]
             },
-            "color": {
-                "$ifNull": ["$risk_after_class.color", None]
+            RiskBadgeKey.COLOR.value: {
+                "$ifNull": [field_reference(ReportAlias.RISK_AFTER_CLASS, RiskClassKey.COLOR), None]
             }
         },
     }

@@ -99,7 +99,8 @@ class IsmsControlMeasureAssignment(CmdbDAO):
             finished_implementation_date: datetime,
             priority: Priority,
             responsible_for_implementation_id_ref_type: PersonReferenceType,
-            responsible_for_implementation_id: int):
+            responsible_for_implementation_id: int
+        ) -> None:
         """
         Initialises an IsmsControlMeasureAssignment
 

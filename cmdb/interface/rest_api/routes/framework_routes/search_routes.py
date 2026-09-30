@@ -165,11 +165,11 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
     try:
         # Inside the try: building the pipeline already queries - it collects the objects the term
         # finds to match their referrers - so a term MongoDB refuses fails here, and is a 400 either way
-        pipeline: list[dict] = builder.build(search_term=search_term,
-                                             user=request_user,
-                                             permission=AccessControlPermission.READ,
-                                             active_flag=only_active)
-        result: list[dict] = list(objects_manager.aggregate_objects(pipeline=pipeline))
+        pipeline: list[dict[str, Any]] = builder.build(search_term=search_term,
+                                                       user=request_user,
+                                                       permission=AccessControlPermission.READ,
+                                                       active_flag=only_active)
+        result: list[dict[str, Any]] = list(objects_manager.aggregate_objects(pipeline=pipeline))
     except ObjectsManagerIterationError as err:
         LOGGER.error('[quick_search_result_counter] ObjectsManagerIterationError: %s', err, exc_info=True)
         abort(400, "Failed to aggregate Objects for quick search result")
@@ -251,10 +251,10 @@ def search_framework(request_user: CmdbUser) -> Response:
         searcher = SearcherFramework(objects_manager)
         builder = SearchPipelineBuilder()
 
-        query: list[dict] = builder.build(search_parameters,
-                                          user=request_user,
-                                          permission=AccessControlPermission.READ,
-                                          active_flag=only_active)
+        query: list[dict[str, Any]] = builder.build(search_parameters,
+                                                    user=request_user,
+                                                    permission=AccessControlPermission.READ,
+                                                    active_flag=only_active)
 
         result: Any = searcher.aggregate(
             pipeline=query,

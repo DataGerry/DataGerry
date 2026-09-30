@@ -16,6 +16,8 @@
 """
 Implementation of ObjectImporterConfig
 """
+from typing import Any
+
 from cmdb.framework.importer.configs.base_importer_config import BaseImporterConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -28,7 +30,7 @@ class ObjectImporterConfig(BaseImporterConfig):
 
     def __init__(self,
                  type_id: int,
-                 mapping: list | None = None,
+                 mapping: list[dict[str, Any]] | None = None,
                  start_element: int = 0,
                  max_elements: int = 0,
                  overwrite_public: bool = True) -> None:
@@ -37,7 +39,7 @@ class ObjectImporterConfig(BaseImporterConfig):
 
         Args:
             type_id (int): The identifier for the import type
-            mapping (list | None): The mapping of data for the import. Defaults to None
+            mapping (list[dict[str, Any]] | None): The mapping of data for the import. Defaults to None
             start_element (int): The index of the first element to process. Defaults to 0
             max_elements (int): The maximum number of elements to process. Defaults to 0 (no limit)
             overwrite_public (bool): Whether existing public data should be overwritten. Defaults to True

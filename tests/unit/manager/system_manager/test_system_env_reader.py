@@ -87,7 +87,7 @@ class TestWhatItCollects:
         clean_env.setenv('PATH_TO_SOMETHING', 'ignored')
         clean_env.setenv(f'DATAGERRY_{SECTION}_{NAME}', VALUE)
 
-        assert list(SystemEnvironmentReader().get_sections()) == [SECTION]
+        assert SystemEnvironmentReader().get_sections() == [SECTION]
 
     def test_groups_several_names_under_one_section(self, clean_env: pytest.MonkeyPatch) -> None:
         """One section usually carries every setting of a component."""
@@ -103,4 +103,15 @@ class TestWhatItCollects:
     def test_no_datagerry_variables_is_no_sections(
             self, clean_env: pytest.MonkeyPatch) -> None:  # pylint: disable=unused-argument
         """The ordinary on-premise case: everything comes from the config file."""
-        assert not list(SystemEnvironmentReader().get_sections())
+        assert SystemEnvironmentReader().get_sections() == []
+
+    def test_the_sections_are_a_list_the_caller_owns(self, clean_env: pytest.MonkeyPatch) -> None:
+        """A real list, as SystemReader promises - changing it does not change the reader"""
+        clean_env.setenv(f'DATAGERRY_{SECTION}_{NAME}', VALUE)
+        reader = SystemEnvironmentReader()
+
+        sections = reader.get_sections()
+        sections.append('added-by-the-caller')
+
+        assert isinstance(sections, list)
+        assert reader.get_sections() == [SECTION]

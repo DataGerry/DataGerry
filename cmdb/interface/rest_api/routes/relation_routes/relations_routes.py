@@ -158,7 +158,7 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
 
         result_id: int = relations_manager.insert_relation(data)
 
-        created_relation: dict | None = relations_manager.get_relation(result_id)
+        created_relation: dict[str, Any] | None = relations_manager.get_relation(result_id)
 
         if created_relation:
             return InsertSingleResponse(created_relation, result_id).make_response()
@@ -250,7 +250,7 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
             request_user
         )
 
-        requested_relation: dict | None = relations_manager.get_relation(public_id)
+        requested_relation: dict[str, Any] | None = relations_manager.get_relation(public_id)
 
         if requested_relation:
             return GetSingleResponse(requested_relation, body=request_wants_body()).make_response()

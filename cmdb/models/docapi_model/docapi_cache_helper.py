@@ -31,8 +31,8 @@ from cmdb.security.acl.permission import AccessControlPermission
 
 def cache_objects_and_types(
     object_ids: list[int],
-    object_cache: dict[int, dict],
-    type_cache: dict[int, dict],
+    object_cache: dict[int, dict[str, Any]],
+    type_cache: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     request_user: CmdbUser,
@@ -48,8 +48,8 @@ def cache_objects_and_types(
 
     Args:
         object_ids (list[int]): The public_ids of the objects that must be present in the cache
-        object_cache (dict[int, dict]): Object cache keyed by public_id, mutated in place
-        type_cache (dict[int, dict]): Type cache keyed by public_id, mutated in place
+        object_cache (dict[int, dict[str, Any]]): Object cache keyed by public_id, mutated in place
+        type_cache (dict[int, dict[str, Any]]): Type cache keyed by public_id, mutated in place
         objects_manager (ObjectsManager): Manager used to fetch missing objects
         types_manager (TypesManager): Manager used to fetch missing types
         request_user (CmdbUser): The user the document is built for; their READ ACL filters the objects

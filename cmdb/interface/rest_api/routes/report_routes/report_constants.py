@@ -109,9 +109,8 @@ REPORT_PARAMS_MALFORMED_MSG: str = 'One or more Report parameters are malformed!
 
 REPORT_ID_NOT_A_NUMBER_MSG: str = "The Report's '{param_name}' must be a whole number, not {actual}!"
 
-REPORT_BODY_NOT_AN_OBJECT_MSG: str = (
-    "The Report write payload must be a JSON object when it is sent as a request body!"
-)
+# What a Report write is called in the shared refusal of a body that is not a JSON object
+REPORT_ENTITY_LABEL: str = 'Report'
 
 
 # Query-string parameter that, when true, runs a report in capped 'preview' mode

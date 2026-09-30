@@ -22,7 +22,7 @@ term is matched by the same `build_text_term_stages` - the object's own values, 
 object it references - rather than by a copy of the rule
 """
 from logging import Logger, getLogger
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
 
@@ -53,12 +53,12 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
     Extends: PipelineBuilder
     """
 
-    def __init__(self, pipeline: list[dict] | None = None):
+    def __init__(self, pipeline: list[dict[str, Any]] | None = None) -> None:
         """
         Initializes the QuickSearchPipelineBuilder instance
 
         Args:
-            pipeline (list[dict] | None): A predefined aggregation pipeline.
+            pipeline (list[dict[str, Any]] | None): A predefined aggregation pipeline.
                                           Defaults to an empty list
         """
         super().__init__(pipeline=pipeline)
@@ -69,19 +69,19 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
             search_term: str,
             user: CmdbUser | None = None,
             permission: AccessControlPermission | None = None,
-            active_flag: bool = False) -> list[dict]:
+            active_flag: bool = False) -> list[dict[str, Any]]:
         # pylint: disable=arguments-differ
         """
         Builds an aggregation pipeline based on the given search term and optional filters
 
         Args:
             search_term (str): The term to search for
-            user (CmdbUser, optional): The user executing the search, used for access control
-            permission (AccessControlPermission, optional): The required permission level
+            user (CmdbUser | None): The user executing the search, used for access control
+            permission (AccessControlPermission | None): The required permission level
             active_flag (bool, optional): If True, filters results to only active items. Defaults to False
 
         Returns:
-            list[dict]: The constructed aggregation pipeline
+            list[dict[str, Any]]: The constructed aggregation pipeline
         """
         # Imported lazily to avoid a circular import at module load (see the TYPE_CHECKING note above)
         # pylint: disable=import-outside-toplevel
@@ -89,10 +89,10 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
 
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, user)
 
-        value_condition: dict = self.regex_('fields.value', f'{search_term}', 'ims')
+        value_condition: dict[str, Any] = self.regex_('fields.value', f'{search_term}', 'ims')
 
         # Resolved once: the term's referenced objects are restricted by it as well as the hits
-        acl_stages: list[dict] = build_acl_pipeline(user, permission) if user and permission else []
+        acl_stages: list[dict[str, Any]] = build_acl_pipeline(user, permission) if user and permission else []
 
         self.pipeline = [*acl_stages]
 
@@ -102,27 +102,24 @@ class QuickSearchPipelineBuilder(PipelineBuilder):
         self.pipeline = [*self.pipeline, *build_text_term_stages(objects_manager, value_condition, acl_stages)]
 
         # Aggregation pipeline for counting and categorizing results
-        self.add_pipe({'$group': {"_id": {'active': '$active'}, 'count': {'$sum': 1}}})
-        self.add_pipe({'$group': {'_id': 0,
-                                  'levels': {'$push': {'_id': '$_id.active', 'count': '$count'}},
-                                  'total': {'$sum': '$count'}}
-                      })
-        self.add_pipe({'$unwind': '$levels'})
-        self.add_pipe({'$sort': {"levels._id": -1}})
-        self.add_pipe(
-            {'$group': {'_id': 0, 'levels': {'$push': {'count': "$levels.count"}}, "total": {'$avg': '$total'}}})
-        self.add_pipe({
-            '$project': {
-                'total': "$total",
-                'active': {'$arrayElemAt': ["$levels", 0]},
-                'inactive': {'$arrayElemAt': ["$levels", 1]}
-            }})
-        self.add_pipe({
-            '$project': {
-                '_id': 0,
-                'active': {'$cond': [{'$ifNull': ["$active", False]}, '$active.count', 0]},
-                'inactive': {'$cond': [{'$ifNull': ['$inactive', False]}, '$inactive.count', 0]},
-                'total': '$total'
-            }})
+        self.add_pipe(self.group_({'active': '$active'}, {'count': {'$sum': 1}}))
+        self.add_pipe(self.group_(0, {
+            'levels': {'$push': {'_id': '$_id.active', 'count': '$count'}},
+            'total': {'$sum': '$count'},
+        }))
+        self.add_pipe(self.unwind_('$levels'))
+        self.add_pipe(self.sort_('levels._id', -1))
+        self.add_pipe(self.group_(0, {'levels': {'$push': {'count': "$levels.count"}}, "total": {'$avg': '$total'}}))
+        self.add_pipe(self.project_({
+            'total': "$total",
+            'active': {'$arrayElemAt': ["$levels", 0]},
+            'inactive': {'$arrayElemAt': ["$levels", 1]}
+        }))
+        self.add_pipe(self.project_({
+            '_id': 0,
+            'active': {'$cond': [{'$ifNull': ["$active", False]}, '$active.count', 0]},
+            'inactive': {'$cond': [{'$ifNull': ['$inactive', False]}, '$inactive.count', 0]},
+            'total': '$total'
+        }))
 
         return self.pipeline

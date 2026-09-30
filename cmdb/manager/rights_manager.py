@@ -139,7 +139,7 @@ class RightsManager:
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
     @staticmethod
-    def flat_tree(right_tree: tuple | list) -> list[BaseRight]:
+    def flat_tree(right_tree: tuple[Any, ...] | list[Any]) -> list[BaseRight]:
         """
         Flattens a nested right tree into a flat list of rights
 
@@ -148,7 +148,7 @@ class RightsManager:
         two had byte-identical bodies before
 
         Args:
-            right_tree (tuple | list): A nested structure containing rights
+            right_tree (tuple[Any, ...] | list[Any]): A nested structure containing rights
 
         Returns:
             list[BaseRight]: A flat list containing all rights
@@ -157,7 +157,7 @@ class RightsManager:
 
 
     @staticmethod
-    def tree_to_json(right_tree: tuple | list) -> list[Any]:
+    def tree_to_json(right_tree: tuple[Any, ...] | list[Any]) -> list[Any]:
         """
         Converts a nested rights tree into a JSON-serializable structure
 
@@ -165,7 +165,7 @@ class RightsManager:
         becomes its `to_dict` representation.
 
         Args:
-            right_tree (tuple | list): A nested structure containing rights
+            right_tree (tuple[Any, ...] | list[Any]): A nested structure containing rights
 
         Returns:
             list[Any]: A JSON-serializable, nesting-preserving representation of the rights tree

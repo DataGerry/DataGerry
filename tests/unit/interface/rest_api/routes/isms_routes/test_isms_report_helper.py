@@ -27,12 +27,68 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
     build_report_filter_stages,
     build_report_pagination_stages,
     extract_report_page,
+    field_path,
+    field_reference,
     object_reference_lookup_stages,
     paginate_report_rows,
     risk_matrix_class_lookup_stages,
     RA_REPORT_SEARCH_FIELDS,
+    risk_assessment_report_projection_stage,
+    variable_reference,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import ReportAlias
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+class TestFieldPaths:
+    """field_path / field_reference / variable_reference join enum keys into plain-string paths."""
+
+    def test_field_path_joins_the_keys_with_dots(self) -> None:
+        """The keys are joined outermost first."""
+        assert field_path(ReportAlias.RISK, RiskKey.NAME) == 'risk.name'
+
+    def test_field_reference_puts_one_dollar_in_front(self) -> None:
+        """A field reference is the path behind a single `$`."""
+        assert field_reference(ReportAlias.RISK, RiskKey.NAME) == '$risk.name'
+        assert field_reference(ReportAlias.RISK) == '$risk'
+
+    def test_variable_reference_puts_two_dollars_in_front(self) -> None:
+        """A variable reference is the path behind `$$`."""
+        assert variable_reference('pg', ProtectionGoalKey.NAME) == '$$pg.name'
+
+    def test_the_results_are_plain_strings(self) -> None:
+        """An enum member must never reach MongoDB, so every result is a plain `str`."""
+        for result in (
+            field_path(ReportAlias.RISK, RiskKey.NAME),
+            field_reference(ReportAlias.RISK),
+            variable_reference('pg', ProtectionGoalKey.NAME),
+            field_path(ReportAlias.RISK),
+        ):
+            assert type(result) is str  # pylint: disable=unidiomatic-typecheck
+
+
+class TestRiskAssessmentReportProjectionStage:
+    """The RiskAssessment projection's keys reach MongoDB as plain strings."""
+
+    def test_every_key_is_a_plain_string(self) -> None:
+        """Enum members as projection keys would still work, but only by the str mix-in - pin the plain form."""
+        projection = risk_assessment_report_projection_stage()['$project']
+
+        assert all(type(key) is str for key in projection)  # pylint: disable=unidiomatic-typecheck
+
+    def test_priority_labels_follow_the_stored_value(self) -> None:
+        """The four stored priorities map to their labels in order; anything else is null."""
+        switch = risk_assessment_report_projection_stage()['$project']['priority']['$switch']
+
+        assert [(branch['case']['$eq'], branch['then']) for branch in switch['branches']] == [
+            (['$priority', 1], 'Low'),
+            (['$priority', 2], 'Medium'),
+            (['$priority', 3], 'High'),
+            (['$priority', 4], 'Very High'),
+        ]
+        assert switch['default'] is None
 
 
 class TestBuildRaReportSearchStage:

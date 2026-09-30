@@ -77,7 +77,7 @@ class MediaFilesManager(BaseManager):
     # GridFS exposes the underlying file document / id only via GridIn/GridOut ._file / ._id
     # pylint: disable=protected-access
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Initializes the MediaFilesManager with a database manager
 
@@ -91,7 +91,7 @@ class MediaFilesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_file(self, data: Any, metadata: dict) -> dict:
+    def insert_file(self, data: Any, metadata: dict[str, Any]) -> dict[str, Any]:
         """
         Inserts a new media file into GridFS
 
@@ -100,10 +100,10 @@ class MediaFilesManager(BaseManager):
 
         Args:
             data (Any): The file-like object containing the media data
-            metadata (dict): Metadata describing the media file, e.g. its author, folder and reference
+            metadata (dict[str, Any]): Metadata describing the media file, e.g. its author, folder and reference
 
         Returns:
-            dict: The inserted MediaFile document
+            dict[str, Any]: The inserted MediaFile document
 
         Raises:
             MediaFileManagerInsertError: If the file could not be inserted
@@ -130,7 +130,7 @@ class MediaFilesManager(BaseManager):
         return self.get_next_public_id(inc_id=True)
 
 
-    def get_file(self, metadata: dict) -> dict | None:
+    def get_file(self, metadata: dict[str, Any]) -> dict[str, Any] | None:
         """
         Retrieves a media file's document by its metadata
 
@@ -138,20 +138,20 @@ class MediaFilesManager(BaseManager):
         caller that maps None onto a 404 cannot turn a database outage into "not found"
 
         Args:
-            metadata (dict): Filter criteria for locating the file
+            metadata (dict[str, Any]): Filter criteria for locating the file
 
         Raises:
             MediaFileManagerGetError: If the lookup failed
 
         Returns:
-            dict | None: The file's document, or None when no such file exists
+            dict[str, Any] | None: The file's document, or None when no such file exists
         """
         grid_out: GridOut | None = self.open_file(metadata)
 
         return grid_out._file if grid_out is not None else None
 
 
-    def open_file(self, metadata: dict) -> GridOut | None:
+    def open_file(self, metadata: dict[str, Any]) -> GridOut | None:
         """
         Opens a media file for reading, without reading its content
 
@@ -160,7 +160,7 @@ class MediaFilesManager(BaseManager):
         the file is absent, as for `get_file`
 
         Args:
-            metadata (dict): Filter criteria for locating the file
+            metadata (dict[str, Any]): Filter criteria for locating the file
 
         Raises:
             MediaFileManagerGetError: If the lookup failed
@@ -179,7 +179,7 @@ class MediaFilesManager(BaseManager):
 
     def get_many_media_files(
             self,
-            metadata: dict,
+            metadata: dict[str, Any],
             limit: int = 0,
             skip: int = 0,
             sort: list[tuple[str, int]] | None = None,
@@ -193,7 +193,7 @@ class MediaFilesManager(BaseManager):
         same filter, so ``total`` is always the number of matching files
 
         Args:
-            metadata (dict): Filter criteria
+            metadata (dict[str, Any]): Filter criteria
             limit (int): Maximum number of files to return; 0 for all. Defaults to 0
             skip (int): Number of matching files to skip. Defaults to 0
             sort (list[tuple[str, int]] | None): ``(key, direction)`` pairs; None keeps the storage
@@ -219,12 +219,12 @@ class MediaFilesManager(BaseManager):
             raise MediaFileManagerGetError(str(err)) from err
 
 
-    def file_exists(self, filter_metadata: dict) -> bool:
+    def file_exists(self, filter_metadata: dict[str, Any]) -> bool:
         """
         Checks whether a media file exists with the given metadata
 
         Args:
-            filter_metadata (dict): Metadata to filter files
+            filter_metadata (dict[str, Any]): Metadata to filter files
 
         Raises:
             MediaFileManagerGetError: If the existence check failed
@@ -239,7 +239,7 @@ class MediaFilesManager(BaseManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_file(self, data: dict) -> dict:
+    def update_file(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Updates the stored document of an existing media file
 
@@ -249,17 +249,17 @@ class MediaFilesManager(BaseManager):
         the write goes through a copy
 
         Args:
-            data (dict): Updated data dictionary, must include 'public_id'
+            data (dict[str, Any]): Updated data dictionary, must include 'public_id'
 
         Raises:
             MediaFileManagerUpdateError: If the update fails or `public_id` is missing
 
         Returns:
-            dict: The data that was written
+            dict[str, Any]: The data that was written
         """
         try:
             # A copy, so a caller that reuses its dict does not receive our edits back
-            update_data: dict = dict(data)
+            update_data: dict[str, Any] = dict(data)
             update_data.pop(MediaFileKey.UPLOAD_DATE.value, None)
 
             # GridFS keeps the addressable file documents in the '.files' sub-collection

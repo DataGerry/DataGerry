@@ -20,7 +20,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder import Builder, BuilderParameters
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree, readable_type_ids
@@ -476,15 +476,15 @@ class CategoriesManager(GenericManager):
                 CmdbCategory with that public_id exists
         """
         pipeline: list[dict[str, Any]] = [
-            {'$match': {CmdbObjectKey.PUBLIC_ID.value: parent_id}},
-            {'$graphLookup': {
-                'from': CmdbCategory.COLLECTION,
-                'startWith': f'${CategoryKey.PARENT.value}',
-                'connectFromField': CategoryKey.PARENT.value,
-                'connectToField': CmdbObjectKey.PUBLIC_ID.value,
-                'as': '_ancestors',
-            }},
-            {'$project': {'_ancestor_ids': f'$_ancestors.{CmdbObjectKey.PUBLIC_ID.value}'}},
+            Builder.match_({CmdbObjectKey.PUBLIC_ID.value: parent_id}),
+            Builder.graph_lookup_(
+                from_collection=CmdbCategory.COLLECTION,
+                start_with=f'${CategoryKey.PARENT.value}',
+                connect_from_field=CategoryKey.PARENT.value,
+                connect_to_field=CmdbObjectKey.PUBLIC_ID.value,
+                as_field='_ancestors',
+            ),
+            Builder.project_({'_ancestor_ids': f'$_ancestors.{CmdbObjectKey.PUBLIC_ID.value}'}),
         ]
 
         try:

@@ -21,6 +21,18 @@ A CmdbWebhookEvent records a single webhook delivery: operation, payload and res
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbWebhookEvent.SCHEMA.
+
+It describes the document ``webhook_helper`` writes, and nothing validates against it at write time - an
+event is recorded best-effort after the delivery, and refusing it would lose the delivery record. It is
+kept honest by a test instead: every document shape the writer produces must validate. What that
+document looks like:
+
+* ``build_webhook_payload`` writes ``event_time`` (a ``datetime``), ``operation`` and the three payload
+  fields; the delivery adds ``webhook_id``, ``response_code`` (``WEBHOOK_NO_RESPONSE_CODE``, 0, when no
+  response came back) and ``status``
+* which payload fields are set depends on the operation - CREATE: ``object_after`` only; DELETE:
+  ``object_before`` only; UPDATE: both, plus ``changes`` (the field diff, or ``{'state': bool}`` for an
+  activation toggle). The ones not set are stored as ``None``
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -30,40 +42,55 @@ def get_cmdb_webhook_event_schema() -> dict[str, Any]:
     Builds the Cerberus validation schema for a CmdbWebhookEvent document
 
     Returns:
-        dict: Field name to Cerberus rule mapping, consumed as CmdbWebhookEvent.SCHEMA
+        dict[str, Any]: Field name to Cerberus rule mapping, consumed as CmdbWebhookEvent.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running, so a module-level import back into cmdb.models would close that
+    # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
+    from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+
     return {
         'public_id': {  # public_id of the CmdbWebhookEvent
             'type': 'integer',
         },
-        'event_time': {  # Timestamp payload describing when the event occurred
-            'type': 'dict',
+        'event_time': {  # When the triggering object write happened (UTC); stored as a BSON date
+            'type': 'datetime',
             'nullable': True,
+            'required': True,
         },
-        'operation': {  # Triggering operation (a WebhookEventType value: CREATE / UPDATE / DELETE)
+        'operation': {  # Triggering operation: a WebhookEventType value
             'type': 'string',
+            'allowed': [event_type.value for event_type in WebhookEventType],
+            'required': True,
         },
         'webhook_id': {  # public_id of the CmdbWebhook that produced this event
             'type': 'integer',
+            'required': True,
         },
-        'object_before': {  # Serialized object state before the change
+        'object_before': {  # The object before the write; None on CREATE
             'type': 'dict',
+            'nullable': True,
             'required': False,
         },
-        'object_after': {  # Serialized object state after the change
+        'object_after': {  # The object after the write; None on DELETE
             'type': 'dict',
+            'nullable': True,
             'required': False,
         },
-        'changes': {  # Diff between object_before and object_after
+        'changes': {  # UPDATE only: the field diff, or {'state': bool} for an activation toggle; else None
             'type': 'dict',
+            'nullable': True,
             'required': False,
         },
-        'response_code': {  # HTTP status code returned by the webhook target
+        # No default on purpose: Cerberus applies a default BEFORE the required check, so a default would
+        # both disable `required` and fill a missing code in as a success. The writer always sets it
+        'response_code': {  # HTTP status the target answered; 0 (WEBHOOK_NO_RESPONSE_CODE) when none came back
             'type': 'integer',
-            'default': 200,
+            'required': True,
         },
-        'status': {  # Whether delivery to the target succeeded
+        'status': {  # Whether the target answered 2xx - i.e. whether the delivery succeeded
             'type': 'boolean',
-            'required': False,
+            'required': True,
         },
     }

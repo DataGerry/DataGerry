@@ -150,7 +150,7 @@ class ObjectTemplateData:
         return location.get("name") if location else ""
 
 
-    def _resolve_field(self, name: str, ftype: str, value: Any, references: dict | None, depth: int) -> Any:
+    def _resolve_field(self, name: str, ftype: str, value: Any, references: dict[str, Any] | None, depth: int) -> Any:
         """
         Resolves a single field value, dispatching by field name / kind and template mode
 
@@ -158,7 +158,7 @@ class ObjectTemplateData:
             name (str): The field name
             ftype (str): The field type (a `FieldType` value)
             value (Any): The stored field value
-            references (dict | None): The field's resolved references (for reference sections)
+            references (dict[str, Any] | None): The field's resolved references (for reference sections)
             depth (int): The remaining recursion depth for nested references
 
         Returns:
@@ -173,7 +173,7 @@ class ObjectTemplateData:
         return self._resolve_legacy_field(ftype, value, references, depth)
 
 
-    def _resolve_legacy_field(self, ftype: str, value: Any, references: dict | None, depth: int) -> Any:
+    def _resolve_legacy_field(self, ftype: str, value: Any, references: dict[str, Any] | None, depth: int) -> Any:
         """
         Resolves a field for OBJECT (legacy) templates
 
@@ -183,7 +183,7 @@ class ObjectTemplateData:
         Args:
             ftype (str): The field type (a `FieldType` value)
             value (Any): The stored field value
-            references (dict | None): The field's resolved references
+            references (dict[str, Any] | None): The field's resolved references
             depth (int): The remaining recursion depth for nested references
 
         Returns:
@@ -205,7 +205,7 @@ class ObjectTemplateData:
         return value
 
 
-    def _resolve_modern_field(self, ftype: str, value: Any, references: dict | None, depth: int) -> Any:
+    def _resolve_modern_field(self, ftype: str, value: Any, references: dict[str, Any] | None, depth: int) -> Any:
         """
         Resolves a field for DEFAULT (modern) templates
 
@@ -215,7 +215,7 @@ class ObjectTemplateData:
         Args:
             ftype (str): The field type (a `FieldType` value)
             value (Any): The stored field value
-            references (dict | None): The field's resolved references
+            references (dict[str, Any] | None): The field's resolved references
             depth (int): The remaining recursion depth for nested references
 
         Returns:
@@ -261,7 +261,7 @@ class ObjectTemplateData:
             if not section_id:
                 continue
 
-            aggregated: dict[str, list] = {}
+            aggregated: dict[str, list[Any]] = {}
 
             for entry in section.get("values", []):
                 for field in entry.get("data", []):

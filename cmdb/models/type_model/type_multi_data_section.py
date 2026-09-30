@@ -41,8 +41,8 @@ class TypeMultiDataSection(TypeSection):
         type: str,
         name: str,
         label: str | None = None,
-        fields: list | None = None,
-        hidden_fields: list | None = None
+        fields: list[str] | None = None,
+        hidden_fields: list[str] | None = None
     ) -> None:
         """TODO: document"""
         self.fields = fields or []
@@ -92,12 +92,12 @@ class TypeMultiDataSection(TypeSection):
 
 # -------------------------------------------------- GENERAL METHODS ------------------------------------------------- #
 
-    def get_fields(self) -> list:
+    def get_fields(self) -> list[str]:
         """
         Retrieves all fields of the section
 
         Returns:
-            list: All fields of the section
+            list[str]: All fields of the section
         """
         return self.fields
 

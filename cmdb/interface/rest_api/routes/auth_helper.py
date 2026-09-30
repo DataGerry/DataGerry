@@ -24,7 +24,6 @@ credential parsing.
 """
 from logging import Logger, getLogger
 from typing import Any, Tuple
-from datetime import datetime, timezone
 
 from flask import current_app, abort
 from werkzeug import Response
@@ -77,7 +76,9 @@ def generate_token_with_params(
 
     This function creates a token containing user-specific data, including a
     public identifier and optionally the associated database (if cloud mode is enabled).
-    The token's issue and expiration times are also returned
+    The token's issue and expiration times are also returned - the very ones signed into it, so the
+    `token_expire` the frontend's session timer runs on is the token's own `exp`. In cloud mode the
+    token lifetime is the tenant's own `auth` setting
 
     Args:
         login_user (CmdbUser): The user for whom the token is generated
@@ -90,19 +91,15 @@ def generate_token_with_params(
             - token_issued_at (int): The timestamp (UTC) when the token was issued
             - token_expire (int): The timestamp (UTC) when the token expires
     """
-    tg = TokenGenerator(database_manager)
+    tenant_database: str | None = login_user.get_database() if cloud_mode else None
+    tg = TokenGenerator(database_manager, tenant_database)
 
     user_data: dict[str, Any] = {'public_id': login_user.get_public_id()}
 
     if cloud_mode:
-        user_data['database'] = login_user.get_database()
+        user_data['database'] = tenant_database
 
-    token: bytes = tg.generate_token(payload={'user': user_data})
-
-    token_issued_at = int(datetime.now(timezone.utc).timestamp())
-    token_expire = int(tg.get_expire_time().timestamp())
-
-    return token, token_issued_at, token_expire
+    return tg.generate_token_with_times(payload={'user': user_data})
 
 
 # The branch/statement count is inherent to the subscription matrix + the per-error HTTP mapping; it is

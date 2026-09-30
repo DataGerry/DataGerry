@@ -268,7 +268,7 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
     return decorator
 
 
-def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: disable=unused-argument
+def parse_assistant_parameters(**optional: Any) -> Callable[..., Any]:  # pylint: disable=unused-argument
     # '**optional' is an extensibility placeholder, matching the other parameter decorators
     """
     Decorator to parse and extract query parameters from an HTTP request
@@ -286,7 +286,7 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
     so it lives with them rather than on a blueprint type
 
     Args:
-        **optional: Placeholder for optional keyword arguments (currently unused)
+        **optional (Any): Placeholder for optional keyword arguments (currently unused)
 
     Returns:
         Callable: A decorator that injects parsed request parameters into the decorated function
@@ -447,7 +447,7 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     return get_request_user
 
 
-def verify_api_access(*, required_api_level: ApiLevel | None = None):
+def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable[..., Any]:
     """
     Decorator to verify API access based on authentication method and required API level
 
@@ -459,11 +459,11 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
     - If authentication fails or an error occurs, the request is aborted with a 400 status
 
     Returns:
-        function: A decorated function with API access control
+        Callable[..., Any]: A decorator applying API access control to the decorated function
     """
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not current_app.cloud_mode:
                 return func(*args, **kwargs)
 
@@ -704,7 +704,7 @@ def token_user_claim(claims: dict[str, Any]) -> dict[str, Any]:
     return claims[TokenClaim.DATAGERRY.value][TokenClaimWrapperKey.VALUE.value]['user']
 
 
-def parse_authorization_header(header):
+def parse_authorization_header(header: str | None) -> str | None:
     """
     Parses the HTTP Auth Header to a JWT Token
 
@@ -712,11 +712,11 @@ def parse_authorization_header(header):
     freshly generated JWT; a bearer token is validated and returned unchanged. Anything else yields None
 
     Args:
-        header: Authorization header of the HTTP Request
+        header (str | None): Authorization header of the HTTP Request
     Examples:
         request.headers['Authorization'] or something same
     Returns:
-        Valid JWT token, or None when the header is missing/unsupported or authentication fails
+        str | None: Valid JWT token, or None when the header is missing/unsupported or authentication fails
     """
     if not header:
         return None
@@ -810,7 +810,8 @@ def _authenticate_basic(auth_info: str) -> str | None:
             if current_app.cloud_mode:
                 token_payload['user']['database'] = user_instance.database
 
-            return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
+            # The token lifetime is the tenant's own setting: db_name is the tenant database in cloud mode
+            return TokenGenerator(current_app.database_manager, db_name).generate_token(payload=token_payload)
     except SetDatabaseError as err:
         LOGGER.error("[_authenticate_basic] SetDatabaseError: %s", err)
         return None

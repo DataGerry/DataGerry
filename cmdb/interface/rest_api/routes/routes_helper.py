@@ -24,7 +24,7 @@ from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
 
-from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder import Builder, BuilderParameters
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.framework.search.list_search import build_list_search_stages
 from cmdb.interface.rest_api.responses.response_parameters import (
@@ -38,6 +38,11 @@ LOGGER: Logger = getLogger(__name__)
 
 # The one HTTP method that asks for a response without a payload
 HEAD_METHOD: str = 'HEAD'
+
+# Refusal (HTTP 400) for a write request whose body is present but is not a JSON object
+WRITE_PAYLOAD_NOT_AN_OBJECT_MSG: str = (
+    "The {entity} write payload must be a JSON object when it is sent as a request body!"
+)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -66,7 +71,7 @@ def get_file_in_request(file_name: str) -> FileStorage:
     return uploaded_file
 
 
-def get_element_from_data_request(element: str, _request: Request) -> dict | None:
+def get_element_from_data_request(element: str, _request: Request) -> dict[str, Any] | None:
     """
     Extracts and JSON-parses a single form field from a multipart request
 
@@ -78,7 +83,7 @@ def get_element_from_data_request(element: str, _request: Request) -> dict | Non
         _request (Request): The Flask request object carrying the form data
 
     Returns:
-        dict | None: The parsed JSON object, or None if the field is missing or not valid JSON
+        dict[str, Any] | None: The parsed JSON object, or None if the field is missing or not valid JSON
     """
     try:
         return json.loads(_request.form.to_dict()[element])
@@ -120,6 +125,41 @@ def request_wants_body(current_request: Request | None = None) -> bool:
     return (current_request or request).method != HEAD_METHOD
 
 
+def read_write_payload(query_params: dict[str, Any], entity_label: str) -> dict[str, Any]:
+    """
+    Reads a write payload from the request body, falling back to the query string
+
+    **The body wins, key by key.** A client may send the payload either way, and a client that sends
+    both - which the Angular report and webhook forms do, building query parameters *and* posting the
+    same object as the body - is served from the body: there the values arrive already typed, where the
+    query string can only carry text. Merging rather than choosing means neither half can go missing.
+
+    A body is optional. A body that is not a JSON object is refused rather than ignored: it was meant
+    as the payload, and silently reading the query string instead would answer 400 'missing parameter'
+    for a request whose problem is its body
+
+    Args:
+        query_params (dict[str, Any]): The query-string parameters, as the route decorator read them;
+            not modified
+        entity_label (str): What is being written (e.g. 'Report'), used in the refusal message
+
+    Raises:
+        HTTPException: 400 when a request body is present but is not a JSON object
+
+    Returns:
+        dict[str, Any]: The merged payload, still raw
+    """
+    body: Any = request.get_json(silent=True)
+
+    if body is None:
+        return dict(query_params)
+
+    if not isinstance(body, dict):
+        abort(400, WRITE_PAYLOAD_NOT_AN_OBJECT_MSG.format(entity=entity_label))
+
+    return {**query_params, **body}
+
+
 def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """
     Answers a client's ``?filter=`` as pipeline stages, as a NEW list
@@ -145,7 +185,7 @@ def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] |
     if not request_filter:
         return []
 
-    return [{'$match': request_filter}]
+    return [Builder.match_(request_filter)]
 
 
 def build_searchable_builder_params(params: Any, searchable_fields: Sequence[str]) -> BuilderParameters:
@@ -199,7 +239,7 @@ def append_criteria_to_filter(
     pipeline: list[dict[str, Any]] = as_pipeline_criteria(request_filter)
 
     if criteria:
-        pipeline.append({'$match': criteria})
+        pipeline.append(Builder.match_(criteria))
 
     return pipeline
 

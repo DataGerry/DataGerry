@@ -33,7 +33,7 @@ class Versioning:
     This class provides attributes and methods to track and update version numbers
     """
 
-    def __init__(self, major: int = 1, minor: int = 0, patch: int = 0):
+    def __init__(self, major: int = 1, minor: int = 0, patch: int = 0) -> None:
         """
         Initializes a version instance
 
@@ -59,7 +59,7 @@ class Versioning:
 
 
     @major.setter
-    def major(self, value: int):
+    def major(self, value: int) -> None:
         if not isinstance(value, int):
             raise VersionTypeError(f"Invalid 'major' version type: {value} (expected int).")
 
@@ -73,7 +73,7 @@ class Versioning:
 
 
     @minor.setter
-    def minor(self, value: int):
+    def minor(self, value: int) -> None:
         if not isinstance(value, int):
             raise VersionTypeError(f"Invalid 'minor' version type: {value} (expected int).")
 
@@ -87,7 +87,7 @@ class Versioning:
 
 
     @patch.setter
-    def patch(self, value: int):
+    def patch(self, value: int) -> None:
         if not isinstance(value, int):
             raise VersionTypeError(f"Invalid 'patch' version type: {value} (expected int).")
 

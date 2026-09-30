@@ -68,13 +68,15 @@ class APIParameters:
     A base class for representing parameters used in REST API calls
     """
 
-    def __init__(self, query_string: str = None, projection: dict = None, **optional: Any) -> None:
+    def __init__(self, query_string: str | None = None, projection: dict[str, Any] | None = None,
+                 **optional: Any) -> None:
         """
         Initializes the API parameters with the provided values
 
         Args:
             query_string (str | None): The query string for filtering or searching data (default is empty string)
-            projection (dict | None): A dictionary representing the projection for the response (default is None)
+            projection (dict[str, Any] | None): A dictionary representing the projection for the response
+                (default is None)
             **optional (Any): Additional optional parameters that can be passed as keyword arguments
         """
         self.query_string = query_string or ''

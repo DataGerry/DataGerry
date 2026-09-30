@@ -17,7 +17,7 @@
 Implementation of CmdbDAO
 """
 from logging import Logger, getLogger
-from typing import Type, TypeVar, Any
+from typing import Type, TypeVar, Any, Self
 from enum import Enum
 import pprint
 
@@ -134,7 +134,7 @@ class CmdbDAO:
             setattr(self, key, value)
 
 
-    def __new__(cls, *args: Any, **kwargs: Any):
+    def __new__(cls, *args: Any, **kwargs: Any) -> Self:
         """
         Refuses a construction that omits a required key, before __init__ runs
 

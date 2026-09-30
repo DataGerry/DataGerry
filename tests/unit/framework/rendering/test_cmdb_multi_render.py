@@ -53,6 +53,8 @@ from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError
 from tests.utils.ipam_doc_builders import make_type_doc
+# The render's steps are private methods, and these tests drive them one at a time
+# pylint: disable=protected-access
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MAIN_TYPE_ID: int = 700
@@ -226,7 +228,7 @@ class TestObjectAndTypeInformation:
         """Object information carries the object id and author placeholder name."""
         render = _render(managers, [_main_obj()], types_cache={MAIN_TYPE_ID: _main_type()})
 
-        info = render._CmdbMultiRender__generate_object_information(_main_obj())
+        info = render._generate_object_information(_main_obj())
 
         assert info['object_id'] == MAIN_OBJ_ID
         assert info['author_name'] == ANONYMOUS_NAME
@@ -237,7 +239,7 @@ class TestObjectAndTypeInformation:
         del main_type.render_meta.__dict__['icon']
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        info = render._CmdbMultiRender__generate_type_information(main_type)
+        info = render._generate_type_information(main_type)
 
         assert info['icon'] == ''
 
@@ -255,7 +257,7 @@ class TestObjectAndTypeInformation:
         main_type.selectable_as_parent = False
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        info = render._CmdbMultiRender__generate_type_information(main_type)
+        info = render._generate_type_information(main_type)
 
         assert info[RenderTypeInfoKey.USES_PORTS.value] is True
         assert info[RenderTypeInfoKey.SELECTABLE_AS_PARENT.value] is False
@@ -273,7 +275,7 @@ class TestObjectAndTypeInformation:
         del main_type.__dict__[flag.value]
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        info = render._CmdbMultiRender__generate_type_information(main_type)
+        info = render._generate_type_information(main_type)
 
         assert info[flag.value] is False
 
@@ -288,7 +290,7 @@ class TestObjectAndTypeInformation:
         main_type.uses_ports = 'true'
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        info = render._CmdbMultiRender__generate_type_information(main_type)
+        info = render._generate_type_information(main_type)
 
         assert info[RenderTypeInfoKey.USES_PORTS.value] is True
 
@@ -304,7 +306,7 @@ class TestObjectAndTypeInformation:
         main_type.port_section_index = 3
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        info = render._CmdbMultiRender__generate_type_information(main_type)
+        info = render._generate_type_information(main_type)
 
         assert info[RenderTypeInfoKey.PORT_SECTION_INDEX.value] == 3
 
@@ -319,7 +321,7 @@ class TestObjectAndTypeInformation:
         del main_type.__dict__[RenderTypeInfoKey.PORT_SECTION_INDEX.value]
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        info = render._CmdbMultiRender__generate_type_information(main_type)
+        info = render._generate_type_information(main_type)
 
         assert info[RenderTypeInfoKey.PORT_SECTION_INDEX.value] == 0
 
@@ -333,19 +335,19 @@ class TestObjectAndTypeInformation:
         """
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: _main_type()})
 
-        info = render._CmdbMultiRender__generate_type_information(_main_type())
+        info = render._generate_type_information(_main_type())
 
         assert set(info) == {member.value for member in RenderTypeInfoKey}
 
 
 class TestTypeSections:
-    """__get_type_sections serialises the type sections and degrades on error."""
+    """_get_type_sections serialises the type sections and degrades on error."""
 
     def test_returns_serialised_sections(self, managers) -> None:
         """The sections of the type are serialised to dicts."""
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: _main_type()})
 
-        sections = render._CmdbMultiRender__get_type_sections(_main_type())
+        sections = render._get_type_sections(_main_type())
 
         assert isinstance(sections, list) and len(sections) == 1
 
@@ -357,23 +359,23 @@ class TestTypeSections:
         bad_section.to_json.side_effect = RuntimeError('boom')
         bad_type.render_meta.sections = [bad_section]
 
-        assert render._CmdbMultiRender__get_type_sections(bad_type) == []
+        assert render._get_type_sections(bad_type) == []
 
 
 class TestExternals:
-    """__set_externals resolves external links and skips those with missing values."""
+    """_set_externals resolves external links and skips those with missing values."""
 
     def test_no_externals(self, managers) -> None:
         """A type without external links yields an empty list."""
         render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()})
 
-        assert render._CmdbMultiRender__set_externals(_ref_obj(), _ref_type()) == []
+        assert render._set_externals(_ref_obj(), _ref_type()) == []
 
     def test_external_resolved(self, managers) -> None:
         """An external link with all required values is filled and returned."""
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: _main_type()})
 
-        externals = render._CmdbMultiRender__set_externals(_main_obj(), _main_type())
+        externals = render._set_externals(_main_obj(), _main_type())
 
         assert len(externals) == 1
         assert externals[0]['href'] == f'http://x/{MAIN_NAME_VALUE}'
@@ -414,7 +416,7 @@ class TestExternals:
         obj = _obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': ''}])
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: _main_type()})
 
-        assert render._CmdbMultiRender__set_externals(obj, _main_type()) == []
+        assert render._set_externals(obj, _main_type()) == []
 
 
 class TestCollectFieldValues:
@@ -464,14 +466,14 @@ class TestCollectFieldValues:
 
 
 class TestSummaries:
-    """__set_summaries fills the summaries/summary line with a default fallback."""
+    """_set_summaries fills the summaries/summary line with a default fallback."""
 
     def test_no_summaries_uses_default_line(self, managers) -> None:
         """A type with no summary fields yields an empty summaries list and the default line."""
         main_type = _main_type()
         main_type.render_meta.summary.fields = []
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
-        result = render._CmdbMultiRender__set_summaries(RenderResult(), _main_obj(), main_type)
+        result = render._set_summaries(RenderResult(), _main_obj(), main_type)
 
         assert result.summaries == []
         assert result.summary_line == f'{main_type.label} #{MAIN_OBJ_ID}'
@@ -480,7 +482,7 @@ class TestSummaries:
         """A configured summary field drives the summaries and summary line."""
         main_type = _main_type()
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
-        result = render._CmdbMultiRender__set_summaries(RenderResult(), _main_obj(), main_type)
+        result = render._set_summaries(RenderResult(), _main_obj(), main_type)
 
         assert result.summary_line == MAIN_NAME_VALUE
 
@@ -488,7 +490,7 @@ class TestSummaries:
         """
         A summary field the OBJECT does not carry falls back to the default line
 
-        This is what actually reaches `__set_summaries`' except arm: `CmdbObject.get_value` raises
+        This is what actually reaches `_set_summaries`' except arm: `CmdbObject.get_value` raises
         `ValueError` for a field the object has no row for, which happens whenever a field is added to
         a type and put in its summary before existing objects are saved.
 
@@ -502,7 +504,7 @@ class TestSummaries:
         main_type.fields = main_type.fields + [{'name': MISSING_ON_OBJECT_FIELD, 'type': FieldType.TEXT}]
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        result = render._CmdbMultiRender__set_summaries(RenderResult(), _main_obj(), main_type)
+        result = render._set_summaries(RenderResult(), _main_obj(), main_type)
 
         assert result.summaries == []
         assert result.summary_line == f'{main_type.label} #{MAIN_OBJ_ID}'
@@ -519,7 +521,7 @@ class TestSummaries:
         main_type.render_meta.summary.fields = ['does-not-exist']
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        result = render._CmdbMultiRender__set_summaries(RenderResult(), _main_obj(), main_type)
+        result = render._set_summaries(RenderResult(), _main_obj(), main_type)
 
         assert result.summaries == []
         assert result.summary_line == f'{main_type.label} #{MAIN_OBJ_ID}'
@@ -530,7 +532,7 @@ class TestSummaries:
         main_type.render_meta.summary.fields = ['does-not-exist', NAME_FIELD]
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
-        result = render._CmdbMultiRender__set_summaries(RenderResult(), _main_obj(), main_type)
+        result = render._set_summaries(RenderResult(), _main_obj(), main_type)
 
         assert [entry['name'] for entry in result.summaries] == [NAME_FIELD]
         assert result.summary_line == MAIN_NAME_VALUE
@@ -637,11 +639,11 @@ class TestLinkedLookups:
 
 
 class TestMergeFieldContentSection:
-    """__merge_field_content_section merges the object value onto a type field."""
+    """_merge_field_content_section merges the object value onto a type field."""
 
     def _merge(self, render, t_field, obj):
-        """Invokes the name-mangled __merge_field_content_section."""
-        return render._CmdbMultiRender__merge_field_content_section(t_field, obj)
+        """Invokes the name-mangled _merge_field_content_section."""
+        return render._merge_field_content_section(t_field, obj)
 
     def test_value_merged_and_default_kept(self, managers) -> None:
         """The object value replaces the field value; a preset value becomes the default."""
@@ -759,11 +761,11 @@ class TestReferenceExpansion:
 
 
 class TestMergeReferences:
-    """__merge_references / _build_reference_summaries resolve a reference field to a TypeReference."""
+    """_merge_references / _build_reference_summaries resolve a reference field to a TypeReference."""
 
     def _merge(self, render, field):
-        """Invokes the name-mangled __merge_references."""
-        return render._CmdbMultiRender__merge_references(field)
+        """Invokes the name-mangled _merge_references."""
+        return render._merge_references(field)
 
     def test_no_value_empty_reference(self, managers) -> None:
         """A field with no value yields an empty reference."""
@@ -854,20 +856,20 @@ class TestMergeReferences:
 
 
 class TestMergeFieldsValue:
-    """__merge_fields_value and its section helpers build the merged field list."""
+    """_merge_fields_value and its section helpers build the merged field list."""
 
     def test_level_zero_returns_empty(self, managers) -> None:
         """A level of 0 stops the recursion with an empty field list."""
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: _main_type()})
 
-        assert render._CmdbMultiRender__merge_fields_value(_main_obj(), _main_type(), 0) == []
+        assert render._merge_fields_value(_main_obj(), _main_type(), 0) == []
 
     def test_plain_section_reference_expanded(self, managers) -> None:
         """A reference field in a plain section gets its reference expansion filled."""
         render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
                          types_cache={MAIN_TYPE_ID: _main_type(), REF_TYPE_ID: _ref_type()})
 
-        fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), _main_type(), 3)
+        fields = render._merge_fields_value(_main_obj(), _main_type(), 3)
 
         assert _field(fields, REF_FIELD)['reference']['object_id'] == REF_OBJ_ID
         assert _field(fields, LOC_FIELD)['reference']['object_id'] == REF_OBJ_ID
@@ -876,7 +878,7 @@ class TestMergeFieldsValue:
         """Without a resolvable reference the field value is cleared to None."""
         render = _render(managers, [], ref_render=False, types_cache={MAIN_TYPE_ID: _main_type()})
 
-        fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), _main_type(), 3)
+        fields = render._merge_fields_value(_main_obj(), _main_type(), 3)
 
         assert _field(fields, REF_FIELD)['value'] is None
 
@@ -889,7 +891,7 @@ class TestMergeFieldsValue:
         render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
                          types_cache={REFSEC_TYPE_ID: _refsec_type(), REF_TYPE_ID: _ref_type()})
 
-        fields = render._CmdbMultiRender__merge_fields_value(refsec_obj, _refsec_type(), 3)
+        fields = render._merge_fields_value(refsec_obj, _refsec_type(), 3)
 
         ref_field = _field(fields, REFSEC_REF_FIELD)
         assert ref_field['references']['type_id'] == REF_TYPE_ID
@@ -904,7 +906,7 @@ class TestMergeFieldsValue:
         ])
         render = _render(managers, [], ref_render=True, types_cache={REFSEC_TYPE_ID: _refsec_type()})
 
-        fields = render._CmdbMultiRender__merge_fields_value(refsec_obj, _refsec_type(), 3)
+        fields = render._merge_fields_value(refsec_obj, _refsec_type(), 3)
 
         # only the plain 'main' section field survives; the ref-section is dropped
         assert all('references' not in f for f in fields)
@@ -1014,7 +1016,7 @@ class TestDoesNotMutateCache:
         render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
                          types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: _ref_type()})
 
-        render._CmdbMultiRender__merge_fields_value(refsec_obj, refsec_type, 3)
+        render._merge_fields_value(refsec_obj, refsec_type, 3)
 
         ref_section = refsec_type.render_meta.sections[1]
         assert ref_section.reference.selected_fields == []
@@ -1201,11 +1203,11 @@ class TestReportsAnUnresolvableReferenceSection:
 
 
 class TestMergeReferenceSectionFields:
-    """__merge_reference_section_fields recurses only for ref-section-typed fields."""
+    """_merge_reference_section_fields recurses only for ref-section-typed fields."""
 
     def _call(self, render, field, acc, level):
-        """Invokes the name-mangled __merge_reference_section_fields."""
-        return render._CmdbMultiRender__merge_reference_section_fields(field, acc, level)
+        """Invokes the name-mangled _merge_reference_section_fields."""
+        return render._merge_reference_section_fields(field, acc, level)
 
     def test_non_ref_section_field_unchanged(self, managers) -> None:
         """A non ref-section field returns the accumulator untouched."""
@@ -1271,7 +1273,7 @@ class TestMergeReferenceSectionFields:
                          types_cache={REFSEC_TYPE_ID: _refsec_type(), REF_TYPE_ID: _ref_type()})
 
         seen: list[dict] = []
-        original = render._CmdbMultiRender__merge_reference_section_fields
+        original = render._merge_reference_section_fields
 
         def _merge_content(_field, _instance):
             """Answers a ref-section, so the loop below takes its recursing leg."""
@@ -1281,8 +1283,8 @@ class TestMergeReferenceSectionFields:
             seen.append(field)
             return original(field, acc, level)
 
-        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section', _merge_content)
-        monkeypatch.setattr(render, '_CmdbMultiRender__merge_reference_section_fields', _spy)
+        monkeypatch.setattr(render, '_merge_field_content_section', _merge_content)
+        monkeypatch.setattr(render, '_merge_reference_section_fields', _spy)
 
         field = {'type': FieldType.REF_SECTION, 'name': REFSEC_REF_FIELD, 'value': REFSEC_OBJ_ID}
         original(field, [], 3)
@@ -1292,7 +1294,7 @@ class TestMergeReferenceSectionFields:
 
 
 class TestExternalsEdgeCases:
-    """__set_externals skips unresolved links and swallows fill errors."""
+    """_set_externals skips unresolved links and swallows fill errors."""
 
     def test_external_not_found_skipped(self, managers) -> None:
         """A declared external whose lookup returns None is skipped."""
@@ -1304,7 +1306,7 @@ class TestExternalsEdgeCases:
         type_instance.get_externals.return_value = [link]
         type_instance.get_external.return_value = None
 
-        assert render._CmdbMultiRender__set_externals(_main_obj(), type_instance) == []
+        assert render._set_externals(_main_obj(), type_instance) == []
 
     def test_external_fill_error_swallowed(self, managers) -> None:
         """An external whose href fill raises is skipped without aborting the render."""
@@ -1320,7 +1322,7 @@ class TestExternalsEdgeCases:
         type_instance.get_externals.return_value = [link]
         type_instance.get_external.return_value = link
 
-        assert render._CmdbMultiRender__set_externals(_main_obj(), type_instance) == []
+        assert render._set_externals(_main_obj(), type_instance) == []
 
 
 class TestMergeErrorBranches:
@@ -1340,7 +1342,7 @@ class TestMergeErrorBranches:
         ))
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: bad_type})
 
-        fields = render._CmdbMultiRender__merge_fields_value(_obj(MAIN_OBJ_ID, MAIN_TYPE_ID, []), bad_type, 3)
+        fields = render._merge_fields_value(_obj(MAIN_OBJ_ID, MAIN_TYPE_ID, []), bad_type, 3)
 
         assert [field['name'] for field in fields] == [NAME_FIELD]
 
@@ -1364,10 +1366,10 @@ class TestMergeErrorBranches:
 
 
 class TestMergeReferencesSummaryLine:
-    """__merge_references fills a configured nested summary line and tolerates lookup errors."""
+    """_merge_references fills a configured nested summary line and tolerates lookup errors."""
 
     def _mock_ref_type(self) -> Mock:
-        """A mock referenced type exposing the summary API used by __merge_references."""
+        """A mock referenced type exposing the summary API used by _merge_references."""
         ref_type = Mock()
         ref_type.get_public_id.return_value = REF_TYPE_ID
         ref_type.label = 'ref'
@@ -1388,7 +1390,7 @@ class TestMergeReferencesSummaryLine:
         """A configured nested summary line is filled from the referenced object's values."""
         render = self._render_with_mock_type(managers, self._mock_ref_type())
 
-        reference = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
+        reference = render._merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
 
         assert reference['line'] == f'Name {REF_NAME_VALUE}'
 
@@ -1401,7 +1403,7 @@ class TestMergeReferencesSummaryLine:
         render = self._render_with_mock_type(managers, ref_type)
 
         # no configured nested summaries -> after the lookup error it falls back to get_summary().fields
-        reference = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID})
+        reference = render._merge_references({'value': REF_OBJ_ID})
 
         assert reference['object_id'] == REF_OBJ_ID
 
@@ -1411,7 +1413,7 @@ class TestMergeReferencesSummaryLine:
         ref_type.get_public_id.side_effect = RuntimeError('boom')
         render = self._render_with_mock_type(managers, ref_type)
 
-        reference = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID})
+        reference = render._merge_references({'value': REF_OBJ_ID})
 
         assert reference['object_id'] == 0
 
@@ -1421,7 +1423,7 @@ class TestMergeReferencesSummaryLine:
         ref_type.get_nested_summary_line.return_value = 'Static'
         render = self._render_with_mock_type(managers, ref_type)
 
-        reference = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
+        reference = render._merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
 
         assert reference['line'] == 'Static'
         assert reference['summaries'] == []
@@ -1440,7 +1442,7 @@ class TestMergeReferencesSummaryLine:
         ref_type.get_summary.return_value = Mock(fields=[{'name': NAME_FIELD, 'type': FieldType.TEXT}])
         render = self._render_with_mock_type(managers, ref_type)
 
-        reference = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID})
+        reference = render._merge_references({'value': REF_OBJ_ID})
 
         assert reference['line'] is None
         assert reference['summaries'] == [{'value': REF_NAME_VALUE, 'type': FieldType.TEXT}]
@@ -1542,59 +1544,16 @@ class TestRenderDegradation:
     """
 
     def test_a_failing_reference_expansion_yields_an_empty_reference(self, managers) -> None:
-        """__merge_references swallows anything raised while building the expansion"""
+        """_merge_references swallows anything raised while building the expansion"""
         render = _render(managers, [], types_cache={}, objects_cache={})
         render.objects_cache[REF_OBJ_ID] = _ref_obj()
         broken_type = Mock()
         broken_type.get_public_id.side_effect = RuntimeError('type is broken')
         render.types_cache[REF_TYPE_ID] = broken_type
 
-        result = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID, 'summaries': []})
+        result = render._merge_references({'value': REF_OBJ_ID, 'summaries': []})
 
         assert result is not None
-
-    def test_a_ref_section_field_without_usable_references_yields_nothing(self, managers) -> None:
-        """
-        A ref-section field whose `references` block is unusable accumulates no fields
-
-        NOTE this exercises the outcome, not the `except` arm inside the method - the nested render
-        the method builds resolves its own managers from the patched provider, so a failure injected
-        on the outer render does not reach it. That arm is still uncovered.
-        """
-        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
-
-        merged = render._CmdbMultiRender__merge_reference_section_fields(
-            {'name': 'broken', 'type': FieldType.REF_SECTION, 'references': None}, [], 1,
-        )
-
-        assert merged == []
-
-    def test_a_ref_section_field_whose_reference_cannot_be_resolved_yields_nothing(self, managers) -> None:
-        """
-        A ref-section field pointing at an object the render cannot resolve accumulates no fields
-
-        Same caveat as above: this pins the OUTCOME. Reaching the method's own `except` arm needs the
-        nested render's manager to fail, which this harness cannot inject.
-        """
-        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
-        # the nested render is what fails: the referenced object is not in the cache and the fetch
-        # blows up, so the recursion cannot produce the pulled-in fields
-        failing_manager = Mock()
-        failing_manager.get_object.side_effect = RuntimeError('reference read failed')
-        render.objects_manager = failing_manager
-
-        merged = render._CmdbMultiRender__merge_reference_section_fields(
-            {
-                'name': REFSEC_REF_FIELD,
-                'type': FieldType.REF_SECTION,
-                'value': REF_OBJ_ID,
-                'references': {'fields': [{'name': NAME_FIELD, 'type': FieldType.TEXT}]},
-            },
-            [],
-            1,
-        )
-
-        assert merged == []
 
     @staticmethod
     def _render_with_summary_line(managers, summary_line: str):
@@ -1625,7 +1584,7 @@ class TestRenderDegradation:
         render = self._render_with_summary_line(managers, 'Name {} in {}')
 
         with caplog.at_level(logging.WARNING):
-            result = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
+            result = render._merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
 
         assert result[TypeReferenceKey.LINE.value] == ''
         assert result[TypeReferenceKey.OBJECT_ID.value] == REF_OBJ_ID
@@ -1641,7 +1600,7 @@ class TestRenderDegradation:
         """
         render = self._render_with_summary_line(managers, 'Name {} in {}')
 
-        result = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
+        result = render._merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
 
         assert result[TypeReferenceKey.SUMMARIES.value]
 
@@ -1650,7 +1609,7 @@ class TestRenderDegradation:
         render = self._render_with_summary_line(managers, 'Name {}')
 
         with patch.object(TypeReference, 'line_requires_fields', side_effect=RuntimeError('bad line')):
-            result = render._CmdbMultiRender__merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
+            result = render._merge_references({'value': REF_OBJ_ID, 'summaries': [{}]})
 
         assert result is not None
 
@@ -1718,7 +1677,7 @@ class TestUnknownSectionType:
         unknown_type = self._type_with_an_unknown_section()
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: unknown_type})
 
-        fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), unknown_type, 1)
+        fields = render._merge_fields_value(_main_obj(), unknown_type, 1)
 
         assert _field(fields, NAME_FIELD)[FieldKey.VALUE.value] == MAIN_NAME_VALUE
 
@@ -1731,7 +1690,7 @@ class TestUnknownSectionType:
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
         with caplog.at_level(logging.WARNING):
-            fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), main_type, 1)
+            fields = render._merge_fields_value(_main_obj(), main_type, 1)
 
         assert _field(fields, NAME_FIELD)[FieldKey.VALUE.value] == MAIN_NAME_VALUE
         assert self.UNKNOWN_KIND in caplog.text
@@ -1750,7 +1709,7 @@ class TestUnknownSectionType:
         render = _render(managers, [], types_cache={MAIN_TYPE_ID: main_type})
 
         with caplog.at_level(logging.WARNING):
-            fields = render._CmdbMultiRender__merge_fields_value(_main_obj(), main_type, 1)
+            fields = render._merge_fields_value(_main_obj(), main_type, 1)
 
         assert fields == []
         assert self.UNKNOWN_KIND in caplog.text
@@ -1893,7 +1852,7 @@ class TestAFieldThatFailsToMerge:
     def test_the_stored_value_is_answered(self, managers, monkeypatch) -> None:
         """A null would claim the object holds nothing there - it holds the stored value"""
         render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _defaulted_type()})
-        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+        monkeypatch.setattr(render, '_merge_field_content_section',
                             Mock(side_effect=RuntimeError('merge failed')))
 
         result = _render_one(render)
@@ -1904,7 +1863,7 @@ class TestAFieldThatFailsToMerge:
     def test_the_answered_entry_is_a_full_triple(self, managers, monkeypatch) -> None:
         """The fallback carries the definition's name and type, not just a value"""
         render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _defaulted_type()})
-        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+        monkeypatch.setattr(render, '_merge_field_content_section',
                             Mock(side_effect=RuntimeError('merge failed')))
 
         entry: dict[str, Any] = _render_one(render).fields[0]
@@ -1934,7 +1893,7 @@ class TestAFieldThatFailsToMerge:
     def test_a_field_the_object_does_not_carry_answers_the_types_proposal(self, managers, monkeypatch) -> None:
         """No stored value to answer: the fallback keeps what the type proposes"""
         render = _render(managers, [_obj(MAIN_OBJ_ID, MAIN_TYPE_ID, [])], types_cache={MAIN_TYPE_ID: _defaulted_type()})
-        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+        monkeypatch.setattr(render, '_merge_field_content_section',
                             Mock(side_effect=RuntimeError('merge failed')))
 
         assert _render_one(render).fields[0]['value'] == TYPE_DEFAULT_VALUE
@@ -1942,7 +1901,7 @@ class TestAFieldThatFailsToMerge:
     def test_it_is_logged_at_warning(self, managers, monkeypatch, caplog) -> None:
         """The operator sees which field of which object"""
         render = _render(managers, [_only_name_obj()], types_cache={MAIN_TYPE_ID: _defaulted_type()})
-        monkeypatch.setattr(render, '_CmdbMultiRender__merge_field_content_section',
+        monkeypatch.setattr(render, '_merge_field_content_section',
                             Mock(side_effect=RuntimeError('merge failed')))
 
         with caplog.at_level(logging.WARNING):
@@ -2091,7 +2050,7 @@ class TestReferencesThatCannotBeBuilt:
         render = TestRenderDegradation._render_with_summary_line(managers, 'Name {} in {}')
 
         with render.problems.rendering(MAIN_OBJ_ID):
-            render._CmdbMultiRender__merge_references({'name': REF_FIELD, 'value': REF_OBJ_ID, 'summaries': [{}]})
+            render._merge_references({'name': REF_FIELD, 'value': REF_OBJ_ID, 'summaries': [{}]})
 
         assert render.problems.problems_for(MAIN_OBJ_ID) == [
             _problem(RenderProblemCode.REFERENCE_LINE_UNFILLED, field=REF_FIELD)
@@ -2191,20 +2150,61 @@ class TestNestedReferenceSections:
     """A reference section nested inside another."""
 
     def test_a_nested_section_that_cannot_be_rendered_is_flagged(self, managers) -> None:
-        """The object the outer section belongs to is missing the nested fields, and says so"""
+        """
+        A set reference whose object cannot be read contributes nothing, and says so
+
+        The object the outer section belongs to is missing the nested fields, so the failure is this
+        object's render problem too
+        """
         render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
         failing_manager = Mock()
         failing_manager.get_object.side_effect = RuntimeError('reference read failed')
         render.objects_manager = failing_manager
 
         with render.problems.rendering(MAIN_OBJ_ID):
-            render._CmdbMultiRender__merge_reference_section_fields(
+            merged = render._merge_reference_section_fields(
                 {'name': REFSEC_REF_FIELD, 'type': FieldType.REF_SECTION, 'value': REF_OBJ_ID}, [], 1,
             )
 
+        assert merged == []
         assert render.problems.problems_for(MAIN_OBJ_ID) == [
             _problem(RenderProblemCode.NESTED_REFERENCE_SECTION_FAILED, field=REFSEC_REF_FIELD)
         ]
+
+    @pytest.mark.parametrize('unset_value', [None, '', 0], ids=['none', 'empty-string', 'zero'])
+    def test_an_unset_nested_reference_is_no_problem(self, managers, unset_value: Any) -> None:
+        """
+        A nested reference section whose reference is unset references nothing yet
+
+        It pulls in nothing, queries nothing and flags nothing - the same rule as an unset reference
+        section on the rendered object itself. Looking it up used to run a `public_id: None` query on
+        every render and report the empty section as a NESTED_REFERENCE_SECTION_FAILED problem
+        """
+        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
+        objects_manager = Mock()
+        render.objects_manager = objects_manager
+
+        with render.problems.rendering(MAIN_OBJ_ID):
+            merged = render._merge_reference_section_fields(
+                {'name': REFSEC_REF_FIELD, 'type': FieldType.REF_SECTION, 'value': unset_value}, [], 1,
+            )
+
+        assert merged == []
+        objects_manager.get_object.assert_not_called()
+        assert render.problems.problems_for(MAIN_OBJ_ID) == []
+
+    def test_a_field_that_is_not_a_ref_section_is_passed_over(self, managers) -> None:
+        """Only a ref-section field is resolved; any other field adds nothing and reads nothing"""
+        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
+        objects_manager = Mock()
+        render.objects_manager = objects_manager
+
+        merged = render._merge_reference_section_fields(
+            {'name': NAME_FIELD, 'type': FieldType.TEXT, 'value': REF_OBJ_ID}, [], 1,
+        )
+
+        assert merged == []
+        objects_manager.get_object.assert_not_called()
 
     def test_what_the_nested_render_lost_is_handed_up(self, managers) -> None:
         """
@@ -2226,7 +2226,7 @@ class TestNestedReferenceSections:
                          types_cache={REFSEC_TYPE_ID: CmdbType.from_data(refsec_doc)})
 
         with render.problems.rendering(MAIN_OBJ_ID):
-            render._CmdbMultiRender__merge_reference_section_fields(
+            render._merge_reference_section_fields(
                 {'name': NAME_FIELD, 'type': FieldType.REF_SECTION, 'value': REFSEC_OBJ_ID}, [], DEFAULT_RENDER_LEVEL,
             )
 
@@ -2246,7 +2246,7 @@ class TestNestedReferenceSections:
         nested_field: dict[str, Any] = {'name': NAME_FIELD, 'type': FieldType.REF_SECTION, 'value': REFSEC_OBJ_ID}
 
         with caplog.at_level(logging.WARNING):
-            render._CmdbMultiRender__merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
-            render._CmdbMultiRender__merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
+            render._merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
+            render._merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
 
         assert caplog.text.count(GHOST_FIELD) == 1

@@ -26,6 +26,7 @@ CmdbObject rights (see ``MediaFileRight``) - the library has no right family of 
 file is a 404 on every one of them
 """
 import json
+from typing import Any
 from logging import Logger, getLogger
 from bson import json_util
 from flask import abort, request, Response
@@ -159,7 +160,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
 
         upload, existing_filter, metadata = get_upload_from_request(request)
 
-        replaced_file: dict | None = None
+        replaced_file: dict[str, Any] | None = None
 
         if media_files_manager.file_exists(existing_filter):
             replaced_file = media_files_manager.get_file(existing_filter)
