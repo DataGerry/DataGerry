@@ -31,12 +31,16 @@ from .database_errors import (
     DropIndexError,
     DocumentInsertError,
     DocumentUpdateError,
+    DocumentDuplicateKeyError,
+    DocumentInsertDuplicateKeyError,
+    DocumentUpdateDuplicateKeyError,
     DocumentGetError,
     DocumentAggregationError,
     PublicIdCounterInitError,
     CollectionInitError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
+    TRANSIENT_DATABASE_ERRORS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -55,10 +59,14 @@ __all__: list[str] = [
     'DropIndexError',
     'DocumentInsertError',
     'DocumentUpdateError',
+    'DocumentDuplicateKeyError',
+    'DocumentInsertDuplicateKeyError',
+    'DocumentUpdateDuplicateKeyError',
     'DocumentGetError',
     'DocumentAggregationError',
     'PublicIdCounterInitError',
     'CollectionInitError',
     'DocumentLockTimeoutError',
     'DocumentNetworkError',
+    'TRANSIENT_DATABASE_ERRORS',
 ]

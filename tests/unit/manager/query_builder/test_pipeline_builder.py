@@ -27,7 +27,7 @@ uninstantiable. Both are tested below so a caller-grep does not lead to their re
 import pytest
 
 from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 # pylint: disable=use-implicit-booleaness-not-comparison
 # `== []` rather than `not ...`: these assert the pipeline is an empty LIST, which is what the
 # builders hand to pymongo - `not x` would also pass for None.

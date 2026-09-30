@@ -88,7 +88,7 @@ class TypesManager(BaseManager):
         try:
             super().__init__(CmdbType.COLLECTION, dbm, database)
         except Exception as err:
-            raise TypesManagerInitError(str(err)) from err
+            raise TypesManagerInitError(err) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -109,7 +109,7 @@ class TypesManager(BaseManager):
             return self.insert(self._as_stored_type_dict(new_type))
         except Exception as err:
             LOGGER.error("[insert_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerInsertError(str(err)) from err
+            raise TypesManagerInsertError(err) from err
 
 
     @staticmethod
@@ -149,7 +149,7 @@ class TypesManager(BaseManager):
             return self.get_next_public_id(inc_id=True)
         except Exception as err:
             LOGGER.error("[get_new_type_public_id] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type(self, public_id: int) -> dict[str, Any] | None:
@@ -172,7 +172,7 @@ class TypesManager(BaseManager):
             return self.get_one(public_id)
         except Exception as err:
             LOGGER.error("[get_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type_instance(self, public_id: int) -> CmdbType | None:
@@ -197,7 +197,7 @@ class TypesManager(BaseManager):
             return CmdbType.from_data(target_type) if target_type else None
         except Exception as err:
             LOGGER.error("[get_type_instance] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def iterate(
@@ -250,7 +250,7 @@ class TypesManager(BaseManager):
 
             return iteration_result
         except Exception as err:
-            raise TypesManagerIterationError(str(err)) from err
+            raise TypesManagerIterationError(err) from err
 
 
     def find_types(self, criteria: dict[str, Any]) -> list[CmdbType]:
@@ -269,7 +269,7 @@ class TypesManager(BaseManager):
             return [CmdbType.from_data(found_type) for found_type in found_types]
         except Exception as err:
             LOGGER.error("[find_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_types_lookup(self, public_ids: list[int]) -> dict[int, CmdbType]:
@@ -318,7 +318,7 @@ class TypesManager(BaseManager):
             return [CmdbType.from_data(raw_type) for raw_type in raw_types]
         except Exception as err:
             LOGGER.error("[get_all_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_types_by(
@@ -354,7 +354,7 @@ class TypesManager(BaseManager):
             return [CmdbType.from_data(data) for data in raw_data]
         except Exception as err:
             LOGGER.error("[get_types_by] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
@@ -386,7 +386,7 @@ class TypesManager(BaseManager):
             return self.update(criteria={TypeSchemaKey.PUBLIC_ID.value: public_id}, data=update_data)
         except Exception as err:
             LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerUpdateError(str(err)) from err
+            raise TypesManagerUpdateError(err) from err
 
     def update_type_field(self, public_id: int, field: str, value: Any) -> UpdateResult:
         """
@@ -412,7 +412,7 @@ class TypesManager(BaseManager):
             return self.update(criteria={TypeSchemaKey.PUBLIC_ID.value: public_id}, data={field: value})
         except Exception as err:
             LOGGER.error("[update_type_field] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerUpdateError(str(err)) from err
+            raise TypesManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -436,7 +436,7 @@ class TypesManager(BaseManager):
             return self.delete({TypeSchemaKey.PUBLIC_ID.value: public_id})
         except Exception as err:
             LOGGER.error("[delete_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerDeleteError(str(err)) from err
+            raise TypesManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -481,7 +481,7 @@ class TypesManager(BaseManager):
             return bool(matching_type)
         except Exception as err:
             LOGGER.error("[check_special_type_exists] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type_ids_of_special_type(self, special_type: SpecialType | str) -> list[int]:
@@ -513,7 +513,7 @@ class TypesManager(BaseManager):
             ]
         except Exception as err:
             LOGGER.error("[get_type_ids_of_special_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type_ids_with_location_field(self) -> list[int]:
@@ -542,7 +542,7 @@ class TypesManager(BaseManager):
             ]
         except Exception as err:
             LOGGER.error("[get_type_ids_with_location_field] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_existing_type_ids(self, public_ids: list[int]) -> set[int]:
@@ -574,4 +574,4 @@ class TypesManager(BaseManager):
             return set(found_ids)
         except Exception as err:
             LOGGER.error("[get_existing_type_ids] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err

@@ -142,4 +142,4 @@ def delete_isms_item_if_unused_by_risk(
     except risk_usage_error:
         raise
     except Exception as err:
-        raise delete_error(str(err)) from err
+        raise delete_error(err) from err

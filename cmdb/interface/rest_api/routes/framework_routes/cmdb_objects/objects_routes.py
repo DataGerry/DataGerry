@@ -49,7 +49,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager import (
     LocationsManager,

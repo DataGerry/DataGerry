@@ -25,7 +25,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager import GroupsManager
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 
 from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.group_model.group_constants import GroupKey

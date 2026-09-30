@@ -32,7 +32,10 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_CAP_REACHED_MSG,
     ISMS_RISK_CLASSES_LABEL,
     MAX_ISMS_RISK_CLASSES,
+    RISK_CLASS_LABEL,
+    IsmsManagerErrorMessage,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from cmdb.manager.isms_manager.risk_class_manager import RiskClassManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsRiskClass, IsmsRiskMatrix
@@ -325,13 +328,17 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{RC_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(RiskClassManager, 'insert_item', lambda *_a, **_k: RC_ID_FOR_GET)
         monkeypatch.setattr(RiskClassManager, 'get_item', lambda *_a, **_k: None)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_risk_class_payload(RC_ID_FOR_GET))
-        assert response.status_code == HTTPStatus.NOT_FOUND
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_CLASS_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""

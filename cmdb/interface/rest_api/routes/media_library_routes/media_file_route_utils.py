@@ -31,7 +31,7 @@ from werkzeug.datastructures import FileStorage
 from gridfs.grid_file import GridOut
 
 from cmdb.manager import MediaFilesManager
-from cmdb.manager.query_builder import Builder
+from cmdb.utils import Builder
 
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     MediaFileKey,
@@ -204,7 +204,7 @@ def create_attachment_name(
 
         return name
     except Exception as err:
-        raise MediaFileManagerGetError(str(err)) from err
+        raise MediaFileManagerGetError(err) from err
 
 
 def recursive_delete_filter(

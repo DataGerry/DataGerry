@@ -42,7 +42,7 @@ from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.locations_manager_constants import (
     CASE_INSENSITIVE_REGEX_OPTIONS,
@@ -138,7 +138,7 @@ class LocationsManager(BaseManager):
         try:
             super().__init__(CmdbLocation.COLLECTION, dbm, database)
         except Exception as err:
-            raise LocationsManagerInitError(str(err)) from err
+            raise LocationsManagerInitError(err) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -173,7 +173,7 @@ class LocationsManager(BaseManager):
             raise
         except Exception as err:
             LOGGER.error("[insert_location] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerInsertError(str(err)) from err
+            raise LocationsManagerInsertError(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -203,10 +203,10 @@ class LocationsManager(BaseManager):
 
             return [to_location_document(document) for document in aggregation_result], total
         except BaseManagerIterationError as err:
-            raise LocationsManagerIterationError(str(err)) from err
+            raise LocationsManagerIterationError(err) from err
         except Exception as err:
             LOGGER.error("[iterate_location_documents] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerIterationError(str(err)) from err
+            raise LocationsManagerIterationError(err) from err
 
 
     def get_location(self, public_id: int) -> dict[str, Any] | None:
@@ -228,10 +228,10 @@ class LocationsManager(BaseManager):
         try:
             return self.get_one(public_id)
         except BaseManagerGetError as err:
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_location] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
 
     def get_location_for_object(self, object_id: int) -> dict[str, Any] | None:
@@ -254,10 +254,10 @@ class LocationsManager(BaseManager):
         try:
             return self.get_one_by({LocationKey.OBJECT_ID.value: object_id})
         except BaseManagerGetError as err:
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_location_for_object] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
 
     def get_location_names(self, public_ids: list[int]) -> dict[int, str]:
@@ -303,7 +303,7 @@ class LocationsManager(BaseManager):
             }
         except Exception as err:
             LOGGER.error("[get_location_names] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
 
     def get_child_object_ids(self, parent_id: int) -> list[int]:
@@ -338,7 +338,7 @@ class LocationsManager(BaseManager):
             ]
         except Exception as err:
             LOGGER.error("[get_child_object_ids] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
 
     def get_child_location_documents(self, parent_id: int) -> list[dict[str, Any]]:
@@ -363,10 +363,10 @@ class LocationsManager(BaseManager):
         try:
             documents: list[dict[str, Any]] = self.get_many(**{LocationKey.PARENT.value: parent_id})
         except BaseManagerGetError as err:
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_child_location_documents] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
         return sort_locations_by_name([to_location_document(document) for document in documents])
 
@@ -413,10 +413,10 @@ class LocationsManager(BaseManager):
 
             return result[0].get(descendants_field, [])
         except BaseManagerIterationError as err:
-            raise LocationsManagerChildrenError(str(err)) from err
+            raise LocationsManagerChildrenError(err) from err
         except Exception as err:
             LOGGER.error("[get_all_descendant_locations] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerChildrenError(str(err)) from err
+            raise LocationsManagerChildrenError(err) from err
 
 
     def get_parents_with_children(self, parent_ids: list[int]) -> set[int]:
@@ -449,7 +449,7 @@ class LocationsManager(BaseManager):
             return {document[MONGO_ID_KEY] for document in self.aggregate(pipeline)}
         except Exception as err:
             LOGGER.error("[get_parents_with_children] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
 
     def search_locations_with_ancestors(self, query: str) -> list[dict[str, Any]]:
@@ -499,10 +499,10 @@ class LocationsManager(BaseManager):
         try:
             matches: list[dict[str, Any]] = list(self.aggregate(pipeline))
         except BaseManagerIterationError as err:
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[search_locations_with_ancestors] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
         # collapse every match + its ancestors into a de-duplicated set, dropping the synthetic root
         collected: dict[int, dict[str, Any]] = {}
@@ -586,10 +586,10 @@ class LocationsManager(BaseManager):
 
             return sort_locations_by_name([to_location_document(document) for document in documents])
         except (BaseManagerGetError, BaseManagerIterationError) as err:
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_locations_on_path_to] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerGetError(str(err)) from err
+            raise LocationsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -612,7 +612,7 @@ class LocationsManager(BaseManager):
             self.update({LocationKey.OBJECT_ID.value: object_id}, data)
         except Exception as err:
             LOGGER.error("[update_location] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerUpdateError(str(err)) from err
+            raise LocationsManagerUpdateError(err) from err
 
 
     def update_locations_by_type(self, type_id: int, data: dict[str, Any]) -> bool:
@@ -642,10 +642,10 @@ class LocationsManager(BaseManager):
 
             return True
         except BaseManagerUpdateError as err:
-            raise LocationsManagerUpdateError(str(err)) from err
+            raise LocationsManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[update_locations_by_type] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerUpdateError(str(err)) from err
+            raise LocationsManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -729,7 +729,7 @@ class LocationsManager(BaseManager):
 
             return self.delete({LocationKey.PUBLIC_ID.value: public_id})
         except (BaseManagerGetError, BaseManagerUpdateError, BaseManagerDeleteError) as err:
-            raise LocationsManagerDeleteError(str(err)) from err
+            raise LocationsManagerDeleteError(err) from err
         except Exception as err:
             LOGGER.error("[delete_location] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerDeleteError(str(err)) from err
+            raise LocationsManagerDeleteError(err) from err

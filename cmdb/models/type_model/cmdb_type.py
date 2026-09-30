@@ -171,7 +171,7 @@ class CmdbType(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbTypeInitError(str(err)) from err
+            raise CmdbTypeInitError(err) from err
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
@@ -224,7 +224,7 @@ class CmdbType(CmdbDAO):
                 acl=AccessControlList.from_data(data.get(TypeSchemaKey.ACL.value, {})),
             )
         except Exception as err:
-            raise CmdbTypeInitFromDataError(str(err)) from err
+            raise CmdbTypeInitFromDataError(err) from err
 
 
     @classmethod
@@ -265,7 +265,7 @@ class CmdbType(CmdbDAO):
                 TypeSchemaKey.ACL.value: AccessControlList.to_json(instance.acl),
             }
         except Exception as err:
-            raise CmdbTypeToJsonError(str(err)) from err
+            raise CmdbTypeToJsonError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

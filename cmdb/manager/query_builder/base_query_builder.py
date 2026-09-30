@@ -23,7 +23,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import build_acl_pipeline
 from cmdb.models.user_model import CmdbUser
 
-from .builder import Builder
+from cmdb.utils import Builder
 from .builder_parameters import BuilderParameters
 from .query_builder_constants import SortPipeline
 # -------------------------------------------------------------------------------------------------------------------- #

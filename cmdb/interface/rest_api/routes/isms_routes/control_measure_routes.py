@@ -31,10 +31,21 @@ from cmdb.models.isms_model import IsmsControlMeasure
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    handle_manager_errors,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     bulk_delete_reporting_in_use,
+    manager_error_messages,
+    require_created_item,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    CONTROL_MEASURE_LABEL,
+    IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
     extract_public_ids,
@@ -74,6 +85,10 @@ control_measure_blueprint = APIBlueprint('control_measure', __name__)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.add')
 @control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
 @handle_route_errors("while creating the ControlMeasure")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerInsertError: IsmsManagerErrorMessage.INSERT,
+    ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+}))
 def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasure into the database
@@ -82,29 +97,25 @@ def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) ->
         data (IsmsControlMeasure.SCHEMA): Data of the IsmsControlMeasure which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the insert or the read-back of the created ControlMeasure fails, 500 when
+            the created ControlMeasure cannot be found afterwards or on an unexpected error
+
     Returns:
         InsertSingleResponse: The new IsmsControlMeasure and its public_id
     """
-    try:
-        control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
-                                                                                       request_user)
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
 
-        # The validated payload is written straight to the collection, so the SoA answer is normalised
-        # here: the schema accepts null and a null is an empty cell in the report, not a third state
-        result_id: int = control_measure_manager.insert_item(IsmsControlMeasure.normalize_is_applicable(data))
+    # The validated payload is written straight to the collection, so the SoA answer is normalised
+    # here: the schema accepts null and a null is an empty cell in the report, not a third state
+    result_id: int = control_measure_manager.insert_item(IsmsControlMeasure.normalize_is_applicable(data))
 
-        created_control_measure: dict[str, Any] | None = control_measure_manager.get_item(result_id, as_dict=True)
+    created_control_measure: dict[str, Any] = require_created_item(
+        control_measure_manager.get_item(result_id, as_dict=True), CONTROL_MEASURE_LABEL,
+    )
 
-        if not created_control_measure:
-            abort(404, "Could not retrieve the created ControlMeasure from the database!")
-
-        return InsertSingleResponse(created_control_measure, result_id).make_response()
-    except ControlMeasureManagerInsertError as err:
-        LOGGER.error("[insert_isms_control_measure] ControlMeasureManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Could not insert the new ControlMeasure in the database!")
-    except ControlMeasureManagerGetError as err:
-        LOGGER.error("[insert_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created ControlMeasure from the database!")
+    return InsertSingleResponse(created_control_measure, result_id).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -113,6 +124,10 @@ def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) ->
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.view')
 @control_measure_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving ControlMeasures")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerIterationError: IsmsManagerErrorMessage.ITERATE,
+}))
 def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsControlMeasures
@@ -124,31 +139,24 @@ def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUs
     Returns:
         GetMultiResponse: All the IsmsControlMeasures matching the CollectionParameters
     """
-    try:
-        body: bool = request_wants_body()
+    body: bool = request_wants_body()
 
-        control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
-                                                                                       request_user)
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[IsmsControlMeasure] = control_measure_manager.iterate_items(builder_params)
-        control_measures_list = [IsmsControlMeasure.to_json(control_measure) for control_measure
-                                  in iteration_result.results]
+    iteration_result: IterationResult[IsmsControlMeasure] = control_measure_manager.iterate_items(builder_params)
+    control_measures_list = [IsmsControlMeasure.to_json(control_measure) for control_measure
+                              in iteration_result.results]
 
-        api_response = GetMultiResponse(control_measures_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+    api_response = GetMultiResponse(control_measures_list,
+                                    iteration_result.total,
+                                    params,
+                                    request.url,
+                                    body)
 
-        return api_response.make_response()
-    except ControlMeasureManagerIterationError as err:
-        LOGGER.error("[get_isms_control_measures] ControlMeasureManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve ControlMeasures from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_control_measures] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving ControlMeasures!")
+    return api_response.make_response()
 
 
 @control_measure_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -156,6 +164,9 @@ def get_isms_control_measures(params: CollectionParameters, request_user: CmdbUs
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.view')
 @handle_route_errors("while retrieving the ControlMeasure with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsControlMeasure
@@ -167,17 +178,13 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
     Returns:
         GetSingleResponse: The requested IsmsControlMeasure
     """
-    try:
-        control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
-                                                                                       request_user)
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
 
-        requested_control_measure = get_item_or_404(control_measure_manager, public_id,
-                                                    f"The ControlMeasure with ID:{public_id} was not found!")
+    requested_control_measure = get_item_or_404(control_measure_manager, public_id,
+                                                f"The ControlMeasure with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_control_measure, body=request_wants_body()).make_response()
-    except ControlMeasureManagerGetError as err:
-        LOGGER.error("[get_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the ControlMeasure with ID: {public_id} from the database!")
+    return GetSingleResponse(requested_control_measure, body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -187,6 +194,10 @@ def get_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.edit')
 @control_measure_blueprint.validate(build_write_schema(IsmsControlMeasure.SCHEMA))
 @handle_route_errors("while updating the ControlMeasure with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
+    ControlMeasureManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+}))
 def update_isms_control_measure(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasure
@@ -199,26 +210,19 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
     Returns:
         UpdateSingleResponse: The new data of the IsmsControlMeasure
     """
-    try:
-        control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
-                                                                                       request_user)
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
 
-        get_item_or_404(control_measure_manager, public_id,
-                        f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False)
+    get_item_or_404(control_measure_manager, public_id,
+                    f"The ControlMeasure with ID:{public_id} was not found!", as_dict=False)
 
-        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+    # The URL owns the identity: a body public_id would otherwise be $set onto the document
 
-        pin_public_id(data, public_id)
+    pin_public_id(data, public_id)
 
-        stored: dict[str, Any] = update_item_from_payload(control_measure_manager, public_id, IsmsControlMeasure, data)
+    stored: dict[str, Any] = update_item_from_payload(control_measure_manager, public_id, IsmsControlMeasure, data)
 
-        return UpdateSingleResponse(stored).make_response()
-    except ControlMeasureManagerGetError as err:
-        LOGGER.error("[update_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the ControlMeasure with ID: {public_id} from the database!")
-    except ControlMeasureManagerUpdateError as err:
-        LOGGER.error("[update_isms_control_measure] ControlMeasureManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the ControlMeasure with ID: {public_id}!")
+    return UpdateSingleResponse(stored).make_response()
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -227,6 +231,10 @@ def update_isms_control_measure(public_id: int, data: dict[str, Any], request_us
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
 @handle_route_errors("while deleting the ControlMeasure with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerDeleteError: IsmsManagerErrorMessage.DELETE,
+    ControlMeasureManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsControlMeasure
@@ -238,25 +246,18 @@ def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Respo
     Returns:
         DeleteSingleResponse: The deleted IsmsControlMeasure data
     """
-    try:
-        control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
-                                                                                       request_user)
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
 
-        to_delete_control_measure = get_item_or_404(control_measure_manager, public_id,
-                                                    f"The ControlMeasure with ID:{public_id} was not found!")
+    to_delete_control_measure = get_item_or_404(control_measure_manager, public_id,
+                                                f"The ControlMeasure with ID:{public_id} was not found!")
 
-        if control_measure_manager.is_control_measure_used(public_id):
-            abort(400, f"ControlMeasure with ID:{public_id} is not deletable while used by ControlMeasureAssignments!")
+    if control_measure_manager.is_control_measure_used(public_id):
+        abort(400, f"ControlMeasure with ID:{public_id} is not deletable while used by ControlMeasureAssignments!")
 
-        control_measure_manager.delete_item(public_id)
+    control_measure_manager.delete_item(public_id)
 
-        return DeleteSingleResponse(to_delete_control_measure).make_response()
-    except ControlMeasureManagerDeleteError as err:
-        LOGGER.error("[delete_isms_control_measure] ControlMeasureManagerDeleteError: %s", err, exc_info=True)
-        abort(400, f"Failed to delete the ControlMeasure with ID:{public_id}!")
-    except ControlMeasureManagerGetError as err:
-        LOGGER.error("[delete_isms_control_measure] ControlMeasureManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the ControlMeasure with ID:{public_id} from the database!")
+    return DeleteSingleResponse(to_delete_control_measure).make_response()
 
 
 @control_measure_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
@@ -264,6 +265,10 @@ def delete_isms_control_measure(public_id: int, request_user: CmdbUser) -> Respo
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_blueprint.protect(auth=True, right='base.isms.controlMeasure.delete')
 @handle_route_errors("while bulk-deleting ControlMeasures")
+@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_LABEL, {
+    ControlMeasureManagerGetError: IsmsManagerErrorMessage.BULK_USAGE,
+    ControlMeasureManagerDeleteError: IsmsManagerErrorMessage.BULK_DELETE,
+}))
 def delete_many_isms_control_measures(public_ids: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to bulk-delete IsmsControlMeasures by a comma-separated id list
@@ -282,24 +287,17 @@ def delete_many_isms_control_measures(public_ids: str, request_user: CmdbUser) -
     Returns:
         DefaultResponse: {'successfully': [deleted ids], 'in_use': [skipped ids still referenced]}
     """
-    try:
-        control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
-                                                                                       request_user)
+    control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
+                                                                                   request_user)
 
-        requested_ids: list[int] = extract_public_ids(public_ids)
+    requested_ids: list[int] = extract_public_ids(public_ids)
 
-        # Partition the whole batch in one grouped query: ids still referenced by an assignment are
-        # kept (deleting them would orphan a RiskAssessment's treatment plan)
-        in_use_ids: set[int] = control_measure_manager.get_used_control_measure_ids(requested_ids)
+    # Partition the whole batch in one grouped query: ids still referenced by an assignment are
+    # kept (deleting them would orphan a RiskAssessment's treatment plan)
+    in_use_ids: set[int] = control_measure_manager.get_used_control_measure_ids(requested_ids)
 
-        payload: dict[str, list[int]] = bulk_delete_reporting_in_use(
-            control_measure_manager, requested_ids, in_use_ids
-        )
+    payload: dict[str, list[int]] = bulk_delete_reporting_in_use(
+        control_measure_manager, requested_ids, in_use_ids
+    )
 
-        return DefaultResponse(payload).make_response()
-    except ControlMeasureManagerGetError as err:
-        LOGGER.error("[delete_many_isms_control_measures] ControlMeasureManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to determine which ControlMeasures are still in use!")
-    except ControlMeasureManagerDeleteError as err:
-        LOGGER.error("[delete_many_isms_control_measures] ControlMeasureManagerDeleteError: %s", err, exc_info=True)
-        abort(400, "Failed to delete one of the requested ControlMeasures!")
+    return DefaultResponse(payload).make_response()

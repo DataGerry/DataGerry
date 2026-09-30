@@ -22,7 +22,8 @@ from typing import Any
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 
 from cmdb.models.object_relation_model import (
     CmdbObjectRelation,
@@ -229,7 +230,7 @@ class ObjectRelationsManager(GenericManager):
         try:
             return list(self.aggregate(build_relation_tabs_pipeline(object_id)))
         except Exception as err:
-            raise ObjectRelationsManagerIterationError(str(err)) from err
+            raise ObjectRelationsManagerIterationError(err) from err
 
 
     def get_relation_tab_instances(
@@ -288,7 +289,7 @@ class ObjectRelationsManager(GenericManager):
 
             return instances, total
         except Exception as err:
-            raise ObjectRelationsManagerIterationError(str(err)) from err
+            raise ObjectRelationsManagerIterationError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

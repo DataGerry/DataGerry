@@ -49,8 +49,12 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     normalize_public_id_list,
     update_item_from_payload,
     read_write_payload,
+    abort_if_duplicate,
+    abort_if_taken,
+    require_created_item,
     WRITE_PAYLOAD_NOT_AN_OBJECT_MSG,
 )
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentNetworkError
 # An empty list is the contract for "no stages" in several helpers here, so these assert the exact
 # value rather than falsiness - a None slipping through would break the caller that splices the result
 # pylint: disable=use-implicit-booleaness-not-comparison
@@ -505,3 +509,116 @@ class TestReadWritePayload:
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
         assert exc_info.value.description == WRITE_PAYLOAD_NOT_AN_OBJECT_MSG.format(entity=self.ENTITY_LABEL)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the write routes' error answers                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Thing from the database!'
+DUPLICATE_MESSAGE: str = "A Thing named 'x' already exists!"
+
+
+class _ManagerInsertError(Exception):
+    """Stands in for a domain manager's insert error."""
+
+
+def _wrapped(cause: Exception) -> Exception:
+    """A manager error raised `from` the cause, as every layer does it."""
+    try:
+        raise cause
+    except Exception as err:  # pylint: disable=broad-exception-caught
+        try:
+            raise _ManagerInsertError(err) from err
+        except _ManagerInsertError as wrapped:
+            return wrapped
+
+
+class TestRequireCreatedItem:
+    """The read-back of a created item: found is the answer, missing is the server's own fault."""
+
+    def test_a_found_item_is_answered_untouched(self) -> None:
+        """The document itself."""
+        item = {'public_id': 1}
+
+        assert require_created_item(item, CREATED_NOT_READABLE_MESSAGE) is item
+
+    @pytest.mark.parametrize('missing', [None, {}], ids=['none', 'empty'])
+    def test_a_missing_item_is_a_500_not_a_404(self, missing) -> None:
+        """The caller asked for nothing; the server lost sight of its own write."""
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            require_created_item(missing, CREATED_NOT_READABLE_MESSAGE)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == CREATED_NOT_READABLE_MESSAGE
+
+
+class TestAbortIfDuplicate:
+    """Only a unique index's refusal is the caller's clash; everything else stays the server's."""
+
+    def test_a_duplicate_anywhere_in_the_chain_is_the_readable_400(self) -> None:
+        """Found by type through the manager's wrapper - what a lost race looks like."""
+        err = _wrapped(DocumentInsertDuplicateKeyError('dup', key_pattern={'name': 1}))
+
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_duplicate(err, DUPLICATE_MESSAGE)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == DUPLICATE_MESSAGE
+
+    @pytest.mark.parametrize('cause', [
+        DocumentNetworkError('connection lost'),
+        RuntimeError('E11000 duplicate key error - text alone is no duplicate'),
+    ], ids=['outage', 'text-that-looks-like-a-duplicate'])
+    def test_anything_else_is_re_raised_unchanged(self, cause: Exception) -> None:
+        """For the route's generic tail to answer as a 500 - never "that name already exists"."""
+        err = _wrapped(cause)
+
+        with pytest.raises(_ManagerInsertError) as exc_info:
+            abort_if_duplicate(err, DUPLICATE_MESSAGE)
+
+        assert exc_info.value is err
+
+
+TAKEN_MESSAGE: str = "A Thing named 'x' already exists!"
+STORED_ID: int = 7
+OTHER_ID: int = 8
+
+
+def _manager_holding(document: dict[str, Any] | None) -> MagicMock:
+    """A manager whose get_one_by answers `document` for any criteria."""
+    manager = MagicMock()
+    manager.get_one_by.return_value = document
+
+    return manager
+
+
+class TestAbortIfTaken:
+    """The readable half of a uniqueness rule a unique index enforces."""
+
+    def test_a_free_value_passes_and_is_asked_about_exactly(self) -> None:
+        """The criteria go to the read as given - compared as sent, the way the index compares."""
+        manager = _manager_holding(None)
+
+        abort_if_taken(manager, {'name': ' X '}, TAKEN_MESSAGE)
+
+        manager.get_one_by.assert_called_once_with({'name': ' X '})
+
+    def test_a_value_another_document_holds_is_a_400_with_the_message(self) -> None:
+        """A create, or an update of a different document."""
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_taken(_manager_holding({'public_id': STORED_ID}), {'name': 'x'}, TAKEN_MESSAGE,
+                           exclude_id=OTHER_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == TAKEN_MESSAGE
+
+    def test_the_document_being_updated_may_keep_its_own_value(self) -> None:
+        """Its own name is no clash."""
+        abort_if_taken(_manager_holding({'public_id': STORED_ID}), {'name': 'x'}, TAKEN_MESSAGE,
+                       exclude_id=STORED_ID)
+
+    def test_a_create_excludes_nothing(self) -> None:
+        """exclude_id None: even a document without an id counts as taken."""
+        with app.test_request_context(), pytest.raises(HTTPException):
+            abort_if_taken(_manager_holding({'name': 'x'}), {'name': 'x'}, TAKEN_MESSAGE)
+

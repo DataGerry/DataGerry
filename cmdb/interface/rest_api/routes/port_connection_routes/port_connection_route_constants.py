@@ -127,11 +127,9 @@ CONNECTION_DUPLICATE_MESSAGE: str = (
     'internal connection, and a Cable belongs to at most one connection!'
 )
 
+# Server error (HTTP 500) when a connection the insert just reported cannot be read back - the server
+# losing sight of its own write, not a missing resource the caller asked for
+CONNECTION_CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Port connection from the database!'
+
 # Prefix of the aggregated 400 the write routes build from the validator's reasons
 CONNECTION_ABORT_PREFIX: str = 'Port connection validation failed'
-
-# Substrings identifying which unique index a duplicate-key error names. The database reports the key
-# PATTERN, so the two endpoint indexes are indistinguishable from each other here - which is fine, the
-# route knows the requested connection_type and picks the message from that
-DUPLICATE_KEY_ENDPOINTS_MARKER: str = 'endpoints'
-DUPLICATE_KEY_CABLE_CI_MARKER: str = 'cable_ci_id'

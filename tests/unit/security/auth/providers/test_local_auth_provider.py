@@ -291,13 +291,16 @@ class TestUserLookup:
     def test_a_failing_read_is_an_authentication_error(self) -> None:
         """The old handler caught an error type the UsersManager never raises, so this became a 500."""
         provider = _provider()
-        provider.users_manager.get_user_by.side_effect = UsersManagerGetError('db down')
+        failure = UsersManagerGetError('db down')
+        provider.users_manager.get_user_by.side_effect = failure
 
         with _app().test_request_context('/'):
             with pytest.raises(AuthenticationError) as exc_info:
                 provider.authenticate(USER_NAME, PASSWORD)
 
         assert 'db down' in str(exc_info.value)
+        # The read error itself, not its text, so a caller can still tell an outage from a refusal
+        assert exc_info.value.args[0] is failure
 
 
 class TestCollaboratorGuard:

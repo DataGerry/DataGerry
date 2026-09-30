@@ -161,4 +161,4 @@ class ImpactManager(GenericManager):
             return bool(result)
         except Exception as err:
             LOGGER.error("[impact_calculation_basis_exists] Exception: %s. Type: %s", err, type(err))
-            raise ImpactManagerGetError(str(err)) from err
+            raise ImpactManagerGetError(err) from err

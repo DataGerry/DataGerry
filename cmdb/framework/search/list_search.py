@@ -39,7 +39,7 @@ import re
 from collections.abc import Iterable, Sequence
 from typing import Any
 
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS, SEARCH_REGEX_RE_FLAGS
 from cmdb.framework.search.search_pattern import escape_search_term
 # -------------------------------------------------------------------------------------------------------------------- #

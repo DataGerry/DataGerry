@@ -41,7 +41,7 @@ criteria; the framework layer sits above the managers, so that import direction 
 """
 from typing import Any
 
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model import CmdbType, TypeSchemaKey

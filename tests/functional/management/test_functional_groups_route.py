@@ -51,6 +51,9 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerUpdateError,
     UsersManagerDeleteError,
 )
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
+    GROUP_CREATED_NOT_READABLE_MSG,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/groups'
@@ -536,20 +539,28 @@ def _patch_get_group(monkeypatch, ids, *, raises: Exception | None = None, retur
 class TestErrorMapping:
     """Manager failures map to the documented HTTP statuses across the /groups routes."""
 
-    def test_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A GroupsManagerInsertError on create surfaces as 400."""
+    def test_an_insert_error_that_is_no_duplicate_returns_500(self, rest_api, monkeypatch) -> None:
+        """
+        A GroupsManagerInsertError alone is no taken name: only a typed refusal in its chain is
+
+        It used to be a 400, the same one a duplicate name answered - so an outage read as the caller's
+        fault, and the caller learned nothing about the name.
+        """
         monkeypatch.setattr(GroupsManager, 'insert_group', _raiser(GroupsManagerInsertError('boom')))
 
         assert rest_api.post(f'{ROUTE_URL}/',
-                             json=_group_payload(GROUP_ID_FOR_CREATE)).status_code == HTTPStatus.BAD_REQUEST
+                             json=_group_payload(GROUP_ID_FOR_CREATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_insert_created_retrieval_none_returns_404(self, rest_api, monkeypatch) -> None:
-        """A None result while re-reading the created group surfaces as 404."""
+    def test_insert_created_retrieval_none_returns_500(self, rest_api, monkeypatch) -> None:
+        """The insert worked but the read-back found nothing: the server lost its own write, not a 404."""
         monkeypatch.setattr(GroupsManager, 'insert_group', lambda *_a, **_k: 999)
         _patch_get_group(monkeypatch, 999, returns=None)
 
-        assert rest_api.post(f'{ROUTE_URL}/',
-                             json=_group_payload(GROUP_ID_FOR_CREATE)).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_CREATE))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == GROUP_CREATED_NOT_READABLE_MSG
 
     def test_insert_created_retrieval_error_returns_500(self, rest_api, monkeypatch) -> None:
         """A get error while re-reading the created group surfaces as 500 (server-side)."""
@@ -599,13 +610,14 @@ class TestErrorMapping:
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
                             json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_update_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A GroupsManagerUpdateError on update surfaces as 400."""
+    def test_an_update_error_that_is_no_duplicate_returns_500(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerUpdateError alone says nothing about the request - a 500, not the old 400."""
         _patch_get_group(monkeypatch, GROUP_ID_FOR_UPDATE, returns=object())
         monkeypatch.setattr(GroupsManager, 'update_group', _raiser(GroupsManagerUpdateError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
-                            json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
+                            json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on update surfaces as 500."""

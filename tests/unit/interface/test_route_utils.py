@@ -205,6 +205,204 @@ class TestHandleRouteErrors:
         assert not hasattr(route, '__wrapped__')
 
 
+class _ManagerFailure(Exception):
+    """A manager operation that went wrong."""
+
+
+class _SpecificManagerFailure(_ManagerFailure):
+    """A narrower failure, listed with a message of its own."""
+
+
+class _ManagerRefusal(Exception):
+    """A business rule the manager enforced."""
+
+
+FAILURE_MESSAGE: str = 'Failed to read the Thing with ID: {public_id}!'
+SPECIFIC_FAILURE_MESSAGE: str = 'Failed to read the specific Thing with ID: {public_id}!'
+REFUSAL_MESSAGE: str = 'The Thing with ID: {public_id} is still used!'
+ROUTE_ID: int = 42
+
+
+class TestFormatRouteMessage:
+    """The template filling both route error decorators share."""
+
+    @staticmethod
+    def _route(public_id: int, subject: str = 'the default subject') -> None:
+        """A route signature with a defaulted parameter."""
+        del public_id, subject
+
+    def test_keyword_and_positional_arguments_fill_alike(self) -> None:
+        """The shared route bodies call positionally; Flask calls by keyword."""
+        signature = inspect.signature(self._route)
+
+        assert ru.format_route_message(signature, 'ID {public_id}', (ROUTE_ID,), {}) == f'ID {ROUTE_ID}'
+        assert ru.format_route_message(signature, 'ID {public_id}', (), {'public_id': ROUTE_ID}) == f'ID {ROUTE_ID}'
+
+    def test_a_defaulted_parameter_fills_too(self) -> None:
+        """apply_defaults: a placeholder over a parameter the caller left out still reads its default."""
+        signature = inspect.signature(self._route)
+
+        assert ru.format_route_message(signature, '{subject}', (ROUTE_ID,), {}) == 'the default subject'
+
+    @pytest.mark.parametrize('args, kwargs, template', [
+        ((ROUTE_ID,), {}, 'while doing {nothing_the_route_takes}'),
+        ((), {}, 'while reading {public_id}'),
+        ((ROUTE_ID,), {}, 'while reading {0}'),
+        ((ROUTE_ID,), {}, 'while reading {public_id'),
+    ], ids=['unknown-placeholder', 'unbindable-call', 'positional-placeholder', 'malformed-template'])
+    def test_an_unfillable_template_is_answered_as_it_is(self, args: tuple, kwargs: dict, template: str) -> None:
+        """A broken error message must not replace the error it reports."""
+        assert ru.format_route_message(inspect.signature(self._route), template, args, kwargs) == template
+
+
+class TestClosestListedErrorClass:
+    """Which listed class a raised error answers to."""
+
+    def test_the_errors_own_class(self) -> None:
+        """An exact match."""
+        assert ru.closest_listed_error_class({_ManagerFailure}, _ManagerFailure()) is _ManagerFailure
+
+    def test_a_listed_base_class_catches_a_subclass(self) -> None:
+        """A subclass nobody listed answers to its listed base."""
+        assert ru.closest_listed_error_class({_ManagerFailure}, _SpecificManagerFailure()) is _ManagerFailure
+
+    def test_the_most_specific_listed_class_wins(self) -> None:
+        """Listing base and subclass answers the subclass with its own entry, whatever the order."""
+        listed = [_ManagerFailure, _SpecificManagerFailure]
+
+        assert ru.closest_listed_error_class(listed, _SpecificManagerFailure()) is _SpecificManagerFailure
+
+    def test_an_unlisted_error(self) -> None:
+        """None: the error is not one of the route's rules."""
+        assert ru.closest_listed_error_class({_ManagerFailure}, RuntimeError()) is None
+
+
+class TestHandleManagerErrors:
+    """
+    A route's manager-error table: each listed error is a 400 with the route's own message
+
+    Failures log as errors with the traceback, refusals as warnings without it. Everything the table does
+    not name - an abort, an unexpected error - passes through untouched for the generic tail above it.
+    """
+
+    @staticmethod
+    def _decorate(raised: Exception | None = None):
+        """A route taking a public_id, raising `raised`, under a table with one failure and one refusal."""
+        @ru.handle_manager_errors(
+            {_ManagerFailure: FAILURE_MESSAGE, _SpecificManagerFailure: SPECIFIC_FAILURE_MESSAGE},
+            refusals={_ManagerRefusal: REFUSAL_MESSAGE},
+        )
+        def route(public_id: int):
+            del public_id
+            if raised is not None:
+                raise raised
+            return 'ok'
+
+        return route
+
+    def test_a_route_that_succeeds_answers_as_it_did(self) -> None:
+        """The table only matters when something is raised."""
+        assert self._decorate()(public_id=ROUTE_ID) == 'ok'
+
+    @pytest.mark.parametrize('raised, template', [
+        (_ManagerFailure('boom'), FAILURE_MESSAGE),
+        (_SpecificManagerFailure('boom'), SPECIFIC_FAILURE_MESSAGE),
+        (_ManagerRefusal('used'), REFUSAL_MESSAGE),
+    ], ids=['failure', 'specific-failure', 'refusal'])
+    def test_a_listed_error_is_a_400_with_its_own_message(self, raised: Exception, template: str) -> None:
+        """The message is the listed one, filled from the route's argument."""
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            self._decorate(raised)(ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == template.format(public_id=ROUTE_ID)
+
+    def test_a_failure_is_logged_as_an_error_with_the_traceback(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A failed operation is something to investigate."""
+        with _app().test_request_context(), pytest.raises(HTTPException):
+            self._decorate(_ManagerFailure('boom'))(ROUTE_ID)
+
+        record = next(r for r in caplog.records if r.name == MODULE_PATH)
+        assert record.levelname == 'ERROR'
+        assert record.exc_info is not None
+
+    def test_a_refusal_is_logged_as_a_warning_without_one(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A declined request is the rule working, not a fault."""
+        with _app().test_request_context(), pytest.raises(HTTPException):
+            self._decorate(_ManagerRefusal('used'))(ROUTE_ID)
+
+        record = next(r for r in caplog.records if r.name == MODULE_PATH)
+        assert record.levelname == 'WARNING'
+        assert not record.exc_info
+
+    def test_an_unlisted_error_passes_through_raw(self) -> None:
+        """Not this table's business: the generic tail decides what it is."""
+        with pytest.raises(RuntimeError):
+            self._decorate(RuntimeError('boom'))(ROUTE_ID)
+
+    def test_an_abort_keeps_its_own_status(self) -> None:
+        """A route's own abort is not a manager error."""
+        with _app().test_request_context(), pytest.raises(Forbidden) as exc_info:
+            self._decorate(Forbidden())(ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+    def test_an_empty_table_is_refused(self) -> None:
+        """A decorator that maps nothing is a mistake at the route, not a no-op."""
+        with pytest.raises(ValueError):
+            ru.handle_manager_errors({})
+
+    def test_a_class_listed_as_both_failure_and_refusal_is_refused(self) -> None:
+        """It could be logged only one way."""
+        with pytest.raises(ValueError):
+            ru.handle_manager_errors({_ManagerFailure: FAILURE_MESSAGE}, refusals={_ManagerFailure: REFUSAL_MESSAGE})
+
+    def test_the_wrapper_keeps_the_routes_signature_but_not_its_wrapped_link(self) -> None:
+        """No `__wrapped__` for the route tests to unwrap past; the signature for the decorator above."""
+        route = self._decorate()
+
+        assert route.__name__ == 'route'
+        assert not hasattr(route, '__wrapped__')
+        assert list(inspect.signature(route).parameters) == ['public_id']
+
+
+class TestTheTwoErrorDecoratorsStacked:
+    """The order every route uses: handle_route_errors above handle_manager_errors."""
+
+    @staticmethod
+    def _route(raised: Exception):
+        """A route under both decorators, both messages templated over its public_id."""
+        @ru.handle_route_errors('while reading the Thing with ID: {public_id}')
+        @ru.handle_manager_errors({_ManagerFailure: FAILURE_MESSAGE})
+        def route(public_id: int):
+            del public_id
+            raise raised
+
+        return route
+
+    def test_a_listed_error_is_the_manager_tables_400(self) -> None:
+        """The 400 is an HTTPException, which the generic tail hands through."""
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            self._route(_ManagerFailure('boom'))(public_id=ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_anything_else_is_the_generic_500_with_its_placeholder_filled(self) -> None:
+        """
+        The generic tail fills `{public_id}` through the manager wrapper
+
+        Without the signature the inner wrapper pins, the tail would see `(*args, **kwargs)`, fail to
+        bind, and answer the unfilled template.
+        """
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            self._route(RuntimeError('boom'))(public_id=ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == (
+            f'An internal server error occured while reading the Thing with ID: {ROUTE_ID}!'
+        )
+
+
 class TestGetCachedUserManager:
     """
     The one place the cloud user-cache manager is built
@@ -1712,20 +1910,28 @@ class TestValidateSubscriptionUser:
                     ru.validate_subscription_user('x', 'p')
 
     def test_timeout_raises_request_timeout(self) -> None:
-        """A request timeout raises RequestTimeoutError."""
+        """A request timeout raises RequestTimeoutError, carrying the timeout itself."""
+        failure = ru.requests.exceptions.Timeout('slow')
+
         with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', side_effect=ru.requests.exceptions.Timeout('slow')):
+             patch(f'{MODULE_PATH}.requests.post', side_effect=failure):
             with _app().test_request_context():
-                with pytest.raises(RequestTimeoutError):
+                with pytest.raises(RequestTimeoutError) as caught:
                     ru.validate_subscription_user('x', 'p')
 
+        assert caught.value.args[0] is failure
+
     def test_request_exception_raises_request_error(self) -> None:
-        """A generic request exception raises RequestError."""
+        """A generic request exception raises RequestError, carrying the exception itself."""
+        failure = ru.requests.exceptions.RequestException('down')
+
         with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', side_effect=ru.requests.exceptions.RequestException('down')):
+             patch(f'{MODULE_PATH}.requests.post', side_effect=failure):
             with _app().test_request_context():
-                with pytest.raises(RequestError):
+                with pytest.raises(RequestError) as caught:
                     ru.validate_subscription_user('x', 'p')
+
+        assert caught.value.args[0] is failure
 
 
 # ============================================ parse_assistant_parameters ============================================ #

@@ -45,3 +45,11 @@ GROUP_MEMBERS_NEED_ACTION_MSG: str = (
 GROUP_MOVE_TARGET_IS_SOURCE_MSG: str = (
     "The users of the UserGroup with ID:{public_id} cannot be moved into the group that is being deleted!"
 )
+
+# Refusal (HTTP 400) when another CmdbUserGroup already carries the name - by the route's pre-check or, under a
+# concurrent write, by the unique index on name. The name is compared exactly as sent, as the index does
+GROUP_NAME_TAKEN_MSG: str = "A UserGroup with the name '{name}' already exists!"
+
+# Server error (HTTP 500) when the CmdbUserGroup the insert just reported cannot be read back - the server
+# losing sight of its own write, not a missing resource the caller asked for
+GROUP_CREATED_NOT_READABLE_MSG: str = "Could not retrieve the created UserGroup from the database!"

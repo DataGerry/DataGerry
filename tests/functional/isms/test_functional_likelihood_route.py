@@ -36,7 +36,10 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_CAP_REACHED_MSG,
     ISMS_LIKELIHOODS_LABEL,
     MAX_ISMS_SCALE_ENTRIES,
+    LIKELIHOOD_LABEL,
+    IsmsManagerErrorMessage,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerInsertError,
     LikelihoodManagerGetError,
@@ -358,13 +361,16 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{LIKELIHOOD_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(LikelihoodManager, 'insert_item', lambda *_a, **_k: LIKELIHOOD_ID_FOR_GET)
         monkeypatch.setattr(LikelihoodManager, 'get_item', lambda *_a, **_k: None)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_likelihood_payload(LIKELIHOOD_ID_FOR_GET))
-        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            LIKELIHOOD_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""

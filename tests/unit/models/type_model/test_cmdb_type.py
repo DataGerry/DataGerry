@@ -173,8 +173,12 @@ def test_from_data_wraps_a_missing_required_key(missing: TypeSchemaKey) -> None:
     document = _document()
     del document[missing.value]
 
-    with pytest.raises(CmdbTypeInitFromDataError):
+    with pytest.raises(CmdbTypeInitFromDataError) as caught:
         CmdbType.from_data(document)
+
+    # The KeyError itself: a caller can tell a missing key from a malformed value by type
+    assert isinstance(caught.value.args[0], KeyError)
+    assert caught.value.args[0] is caught.value.__cause__
 
 
 def test_to_json_emits_every_schema_key() -> None:

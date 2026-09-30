@@ -57,6 +57,8 @@ from cmdb.models.extendable_option_model import (
 )
 from cmdb.class_schema.port_connection_model import get_cmdb_port_connection_write_schema
 from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route_constants import (
+    CONNECTION_CABLE_CI_IN_USE_MESSAGE,
+    CONNECTION_CREATED_NOT_READABLE_MESSAGE,
     ConnectionRequestKey,
 )
 from cmdb.models.special_type_model.cable_constants import CableField
@@ -66,6 +68,8 @@ from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
+from cmdb.errors.database import DocumentInsertError, DocumentNetworkError, DocumentUpdateError
+from cmdb.interface.rest_api.routes.port_connection_routes import port_connection_routes
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 from cmdb.errors.manager.ports_manager import PortsManagerGetError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -73,7 +77,6 @@ from cmdb.errors.security import AccessDeniedError
 from cmdb.errors.manager.port_connections_manager import (
     PortConnectionsManagerDeleteError,
     PortConnectionsManagerGetError,
-    PortConnectionsManagerInsertError,
     PortConnectionsManagerUpdateError,
 )
 from cmdb.security.license.license_constants import LicenseFeature
@@ -620,28 +623,46 @@ class TestCardinality:
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_the_index_refuses_a_racing_duplicate_with_the_same_wording(
-            self, rest_api, monkeypatch) -> None:
+            self, rest_api, indexed, monkeypatch) -> None:
         """
-        The arm that holds under concurrency, and the only way to reach it
+        The arm that holds under concurrency, reached through the real index
 
         Every pre-check is a read followed by a write, so in a real race BOTH creates pass them and
-        the index stops the loser at insert time. The seeded-row case above can not exercise this -
-        its pre-check catches the duplicate first - so the failure is injected at the insert itself,
-        which is exactly where a concurrent write would land. The message must still be the
-        actionable one rather than a raw driver error.
+        the index stops the loser at insert time. Switching the slot pre-check off reproduces that
+        without threads: the second create reaches the database, the partial endpoints index refuses
+        it, and the typed refusal travels the whole manager chain. The message must still be the
+        actionable one rather than a raw driver error - and nothing was stored twice.
         """
-        monkeypatch.setattr(
-            PortConnectionsManager, 'insert_item',
-            _raiser(PortConnectionsManagerInsertError(
-                "Duplicate key error in collection 'framework.portConnections': "
-                "{'endpoints': 1} already exists (index on ['endpoints'])",
-            )),
-        )
+        del indexed
+        assert _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID]).status_code \
+            in (HTTPStatus.OK, HTTPStatus.CREATED)
+        monkeypatch.setattr(port_connection_routes, 'enforce_endpoints_free', lambda *_a, **_k: None)
 
-        response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID])
+        response = _create(rest_api, [FRONT_PORT_ID, SWITCH_PORT_ID])
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert 'already has a cable connection' in response.get_json()['message']
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentInsertError('Operation failure: document failed validation'),
+        DocumentInsertError("text naming 'endpoints' is no duplicate"),
+    ], ids=['outage', 'other-insert-failure', 'text-that-looks-like-a-duplicate'])
+    def test_a_create_that_fails_for_any_other_reason_is_never_a_taken_slot(
+            self, rest_api, monkeypatch, failure: Exception) -> None:
+        """
+        Only a typed duplicate is an occupied slot - not an outage, and not a message that names a key
+
+        The database write is failed for real, below every manager. An outage is left unwrapped up to
+        Flask's catch-all, so the test runs with exception propagation off, as production does.
+        """
+        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
+        monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(failure))
+
+        response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID])
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'already' not in response.get_json()['message']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -999,12 +1020,15 @@ class TestErrorMapping:
     an insert failure is a duplicate-key refusal and has to keep its readable 400.
     """
 
-    def test_create_retrieval_of_the_created_connection_failing_is_404(
+    def test_create_retrieval_of_the_created_connection_failing_is_500(
             self, rest_api, monkeypatch) -> None:
-        """The insert worked but the read-back did not, so the response would be empty."""
+        """The insert worked but the read-back did not: the server lost its own write, not a 404."""
         monkeypatch.setattr(PortConnectionsManager, 'get_item', lambda *_a, **_k: None)
 
-        assert _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID]).status_code == HTTPStatus.NOT_FOUND
+        response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID])
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == CONNECTION_CREATED_NOT_READABLE_MESSAGE
 
     def test_create_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Not a 400: nothing is wrong with the request."""
@@ -1045,8 +1069,12 @@ class TestErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/port/{SERVER_PORT_ID}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_update_manager_error_is_400(self, rest_api, monkeypatch) -> None:
-        """A failed write is reported as a bad request."""
+    def test_an_update_manager_error_that_is_no_duplicate_is_500(self, rest_api, monkeypatch) -> None:
+        """
+        A failed write that is no duplicate says nothing about the request
+
+        It used to be a 400 "Failed to update the Port connection" - the same answer a lost cable-CI race gave.
+        """
         new_id: int = _created_id(_create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID]))
         monkeypatch.setattr(
             PortConnectionsManager, 'replace_connection',
@@ -1054,7 +1082,7 @@ class TestErrorMapping:
         )
 
         assert rest_api.put(f'{ROUTE_URL}/{new_id}', json={'cable_name': 'x'}).status_code \
-            == HTTPStatus.BAD_REQUEST
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_update_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Anything else is a server error."""
@@ -1586,3 +1614,132 @@ class TestTheCableTextCap:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result'][CABLE_VIEW_KEY][
             CableViewKey.NAME.value] == 'Kept'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        ONE CABLE CI, ONE CONNECTION - under a race too                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestACableCiIsClaimedOnce:
+    """
+    The pre-check names the Cable and the connection holding it; the partial unique index on cable_ci_id is
+    what holds under concurrency, and its refusal answers the pre-check's own words on the create AND the
+    update. Anything else the write raises is a 500, never "the Cable is already used".
+    """
+
+    @staticmethod
+    def _holder(rest_api) -> int:
+        """Connection A, holding the Cable CI."""
+        return _created_id(_create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID], cable_ci_id=CABLE_CI_ID))
+
+    @staticmethod
+    def _in_use(holder_id: int) -> str:
+        """The message naming the Cable and its holder."""
+        return CONNECTION_CABLE_CI_IN_USE_MESSAGE.format(cable_ci_id=CABLE_CI_ID, public_id=holder_id)
+
+    def test_a_create_claiming_a_used_cable_is_refused_by_name(self, rest_api) -> None:
+        """The pre-check."""
+        holder_id: int = self._holder(rest_api)
+
+        response = _create(rest_api, [SWITCH_PORT_ID, REAR_PORT_ID], cable_ci_id=CABLE_CI_ID)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == self._in_use(holder_id)
+
+    def test_a_create_only_the_index_catches_answers_the_same_words(
+            self, rest_api, indexed, monkeypatch) -> None:
+        """
+        The race through the real partial index - it used to answer the general "collides with an existing
+        one" text, where the pre-check named the Cable and its holder
+        """
+        del indexed
+        holder_id: int = self._holder(rest_api)
+        monkeypatch.setattr(port_connection_routes, 'enforce_cable_ci_free', lambda *_a, **_k: None)
+
+        response = _create(rest_api, [SWITCH_PORT_ID, REAR_PORT_ID], cable_ci_id=CABLE_CI_ID)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == self._in_use(holder_id)
+
+    def test_an_update_claiming_a_used_cable_is_refused_by_name(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The update's pre-check - and the claiming connection keeps what it had."""
+        holder_id: int = self._holder(rest_api)
+        claimant_id: int = _created_id(_create(rest_api, [SWITCH_PORT_ID, REAR_PORT_ID]))
+
+        response = rest_api.put(f'{ROUTE_URL}/{claimant_id}', json={'cable_ci_id': CABLE_CI_ID})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == self._in_use(holder_id)
+        assert PortConnectionKey.CABLE_CI_ID.value not in _connections(database_manager, database_name).find_one(
+            {PortConnectionKey.PUBLIC_ID.value: claimant_id},
+        )
+
+    def test_an_update_only_the_index_catches_answers_the_same_words(
+            self, rest_api, indexed, monkeypatch, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """
+        The update half of the race, through the real index
+
+        It used to answer "Failed to update the Port connection with ID: n!" - naming neither the Cable nor
+        the connection that had just taken it.
+        """
+        del indexed
+        holder_id: int = self._holder(rest_api)
+        claimant_id: int = _created_id(_create(rest_api, [SWITCH_PORT_ID, REAR_PORT_ID]))
+        monkeypatch.setattr(port_connection_routes, 'enforce_cable_ci_free', lambda *_a, **_k: None)
+
+        response = rest_api.put(f'{ROUTE_URL}/{claimant_id}', json={'cable_ci_id': CABLE_CI_ID})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == self._in_use(holder_id)
+        assert PortConnectionKey.CABLE_CI_ID.value not in _connections(database_manager, database_name).find_one(
+            {PortConnectionKey.PUBLIC_ID.value: claimant_id},
+        )
+
+    def test_the_create_pre_check_refuses_before_any_write(self, rest_api, monkeypatch) -> None:
+        """
+        The named refusal is the read's own: the insert is never attempted
+
+        With the index in place a missing pre-check would still answer the same words through the race path,
+        so only this tells the two halves apart.
+        """
+        self._holder(rest_api)
+        attempts: list[Any] = []
+        monkeypatch.setattr(PortConnectionsManager, 'insert_item', lambda _self, doc: attempts.append(doc))
+
+        assert _create(rest_api, [SWITCH_PORT_ID, REAR_PORT_ID], cable_ci_id=CABLE_CI_ID).status_code \
+            == HTTPStatus.BAD_REQUEST
+        assert not attempts
+
+    def test_the_update_pre_check_refuses_before_any_write(self, rest_api, monkeypatch) -> None:
+        """The same for the update: replace_connection is never called."""
+        self._holder(rest_api)
+        claimant_id: int = _created_id(_create(rest_api, [SWITCH_PORT_ID, REAR_PORT_ID]))
+        attempts: list[Any] = []
+        monkeypatch.setattr(
+            PortConnectionsManager, 'replace_connection',
+            lambda _self, public_id, document: attempts.append((public_id, document)),
+        )
+
+        assert rest_api.put(f'{ROUTE_URL}/{claimant_id}', json={'cable_ci_id': CABLE_CI_ID}).status_code \
+            == HTTPStatus.BAD_REQUEST
+        assert not attempts
+
+    def test_an_update_keeping_its_own_cable_passes(self, rest_api, indexed) -> None:
+        """Round-tripping the Cable a connection already holds is no claim on someone else's."""
+        del indexed
+        holder_id: int = self._holder(rest_api)
+
+        response = rest_api.put(f'{ROUTE_URL}/{holder_id}', json={'cable_ci_id': CABLE_CI_ID})
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_an_update_that_fails_for_any_other_reason_is_500(self, rest_api, monkeypatch) -> None:
+        """Failed below every manager: no typed refusal in the chain, so the generic tail answers it."""
+        claimant_id: int = _created_id(_create(rest_api, [SWITCH_PORT_ID, REAR_PORT_ID]))
+        monkeypatch.setattr(MongoDatabaseManager, 'update', _raiser(DocumentUpdateError('connection lost')))
+
+        response = rest_api.put(f'{ROUTE_URL}/{claimant_id}', json={'cable_ci_id': CABLE_CI_ID})
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'already used' not in response.get_json()['message']
+

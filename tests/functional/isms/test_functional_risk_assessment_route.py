@@ -59,6 +59,11 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerIterationError,
 )
 
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    RISK_ASSESSMENT_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -813,11 +818,16 @@ class TestErrorMapping:
 
         assert rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created assessment cannot be re-read, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(RiskAssessmentManager, 'get_item', lambda *_args, **_kwargs: None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_ASSESSMENT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""

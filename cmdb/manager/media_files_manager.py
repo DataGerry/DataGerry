@@ -116,7 +116,7 @@ class MediaFilesManager(BaseManager):
 
             return media_file._file
         except Exception as err:
-            raise MediaFileManagerInsertError(str(err)) from err
+            raise MediaFileManagerInsertError(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -174,7 +174,7 @@ class MediaFilesManager(BaseManager):
             return None
         except Exception as err:
             LOGGER.error("[open_file] Exception: %s. Type: %s", err, type(err), exc_info=True)
-            raise MediaFileManagerGetError(str(err)) from err
+            raise MediaFileManagerGetError(err) from err
 
 
     def get_many_media_files(
@@ -216,7 +216,7 @@ class MediaFilesManager(BaseManager):
 
             return GridFsResponse(results, total)
         except Exception as err:
-            raise MediaFileManagerGetError(str(err)) from err
+            raise MediaFileManagerGetError(err) from err
 
 
     def file_exists(self, filter_metadata: dict[str, Any]) -> bool:
@@ -235,7 +235,7 @@ class MediaFilesManager(BaseManager):
         try:
             return self.fs.exists(**filter_metadata)
         except Exception as err:
-            raise MediaFileManagerGetError(str(err)) from err
+            raise MediaFileManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

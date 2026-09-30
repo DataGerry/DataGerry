@@ -32,7 +32,7 @@ from cmdb.manager import (
 )
 
 from cmdb.framework.results import IterationResult
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     apply_registration_time,
@@ -40,7 +40,11 @@ from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     holds_right,
     prepare_cloud_user,
 )
-from cmdb.interface.rest_api.routes.user_management_routes.users_constants import UserAccessRight
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    USER_CREATED_NOT_READABLE_MESSAGE,
+    USER_NAME_TAKEN_MESSAGE,
+    UserAccessRight,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -62,9 +66,12 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerDeleteError,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_if_duplicate,
+    abort_if_taken,
     build_searchable_builder_params,
     request_wants_body,
     pin_public_id,
+    require_created_item,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -87,8 +94,16 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbUser into the database
 
+    The user_name is unique, compared exactly as sent: a pre-check names the clash, and the unique index
+    refuses a concurrent create of the same name with the same message
+
     Args:
         data (CmdbUser.SCHEMA): Data of a new CmdbUser
+
+    Raises:
+        HTTPException: 400 when the body fails the schema or the user_name is taken; 500 when the insert
+            fails for any other reason (an outage is never reported as a taken name), when the created
+            user cannot be read back, or on an unexpected error
 
     Returns:
         InsertSingleResponse: Insert response with the new CmdbUser and the corresponding public_id
@@ -111,18 +126,24 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
             current_app.local_mode,
         )
 
-        result_id = users_manager.insert_user(data)
+        user_name: str = data[CmdbUserKey.USER_NAME.value]
+        taken_message: str = USER_NAME_TAKEN_MESSAGE.format(user_name=user_name)
 
-        # Confirm that user is created
-        created_user = users_manager.get_user(result_id)
+        abort_if_taken(users_manager, {CmdbUserKey.USER_NAME.value: user_name}, taken_message)
 
-        if not created_user:
-            abort(404, "Could not retrieve the created User from the database!")
+        try:
+            result_id: int = users_manager.insert_user(data)
+        except UsersManagerInsertError as err:
+            # The unique index is what stops a concurrent create of the same name; any other failure of the
+            # insert is the server's (500), never a taken name
+            LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
+            abort_if_duplicate(err, taken_message)
+
+        created_user: CmdbUser = require_created_item(
+            users_manager.get_user(result_id), USER_CREATED_NOT_READABLE_MESSAGE,
+        )
 
         return InsertSingleResponse(CmdbUser.to_public_json(created_user), result_id).make_response()
-    except UsersManagerInsertError as err:
-        LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
-        abort(400, "Failed to create the User in database!")
     except UsersManagerGetError as err:
         LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
         abort(500, "Failed to retrieve the created User from the database!")
@@ -221,36 +242,47 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
     Raises:
         HTTPException: 400 when the body changes a field the caller may not change, carries a password,
-            or the update fails; 403 when the caller neither holds the right nor edits themselves; 404
-            when the user does not exist; 500 on an unexpected error
+            or renames the user onto a user_name another user holds (by the pre-check or, under a
+            concurrent write, by the unique index); 403 when the caller neither holds the right nor edits
+            themselves; 404 when the user does not exist; 500 when the update fails for any other reason,
+            or on an unexpected error
 
     Returns:
         UpdateSingleResponse: The updated raw data of the CmdbUser
     """
+    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+
+    to_update_user = users_manager.get_user(public_id)
+
+    if not to_update_user:
+        abort(404, f"The User with ID:{public_id} was not found!")
+
+    guard_user_update(
+        to_update_user,
+        data,
+        may_administer=holds_right(request_user, UserAccessRight.EDIT.value, groups_manager),
+    )
+    pin_public_id(data, public_id)
+    apply_registration_time(data)
+
+    # After the guard: a self-edit has had its user_name pinned to the stored one, which excludes itself
+    user_name: str = data[CmdbUserKey.USER_NAME.value]
+    taken_message: str = USER_NAME_TAKEN_MESSAGE.format(user_name=user_name)
+
+    abort_if_taken(users_manager, {CmdbUserKey.USER_NAME.value: user_name}, taken_message, exclude_id=public_id)
+
+    user = CmdbUser.from_data(data=data)
+
     try:
-        users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
-        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
-
-        to_update_user = users_manager.get_user(public_id)
-
-        if not to_update_user:
-            abort(404, f"The User with ID:{public_id} was not found!")
-
-        guard_user_update(
-            to_update_user,
-            data,
-            may_administer=holds_right(request_user, UserAccessRight.EDIT.value, groups_manager),
-        )
-        pin_public_id(data, public_id)
-        apply_registration_time(data)
-
-        user = CmdbUser.from_data(data=data)
         users_manager.update_user(public_id, user)
-
-        return UpdateSingleResponse(CmdbUser.to_public_json(user)).make_response()
     except UsersManagerUpdateError as err:
+        # A rename that loses the race to a concurrent write is refused by the same unique index; any
+        # other failure of the update is the server's (500)
         LOGGER.error("[update_cmdb_user] %s", err, exc_info=True)
-        abort(400, f"Failed to update the User with public_id: {public_id}!")
+        abort_if_duplicate(err, taken_message)
+
+    return UpdateSingleResponse(CmdbUser.to_public_json(user)).make_response()
 
 
 @users_blueprint.route('/<int:public_id>/password', methods=['PATCH'])

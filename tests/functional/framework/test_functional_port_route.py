@@ -37,7 +37,12 @@ from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
 from cmdb.models.port_connection_model import CmdbPortConnection, ConnectionType, PortConnectionKey
-from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_CONNECTED_KEY,
+    PORT_CREATED_NOT_READABLE_MESSAGE,
+    PORT_NAME_TAKEN_MESSAGE,
+)
+from cmdb.errors.database import DocumentInsertError, DocumentNetworkError, DocumentUpdateError
 from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -67,6 +72,7 @@ SPEED_OPTION_ID: int = 9841
 
 NAME_FIELD: str = 'dg-name'
 PORT_NAME: str = 'Gi0/1'
+OTHER_PORT_NAME: str = 'Gi0/2'
 
 ALL_TYPE_IDS: list[int] = [PORT_TYPE_ID, PLAIN_TYPE_ID]
 ALL_OBJECT_IDS: list[int] = [OWNER_OBJECT_ID, PLAIN_OBJECT_ID, SECOND_OWNER_OBJECT_ID]
@@ -328,8 +334,38 @@ class TestCreatePort:
         response = _create(rest_api)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'already exists' in response.get_json()['message']
+        # The resolved values, word for word the pre-check's message: the body named no side, and the
+        # race message used to print that as the 'None' side
+        assert response.get_json()['message'] == PORT_NAME_TAKEN_MESSAGE.format(
+            name=PORT_NAME, side=PortSide.SINGLE.value, object_id=OWNER_OBJECT_ID,
+        )
         assert indexed_ports.count_documents({PortKey.NAME.value: PORT_NAME}) == 1
+
+    def test_a_rename_only_the_index_catches_is_the_same_400(self, rest_api, indexed_ports,
+                                                             monkeypatch) -> None:
+        """
+        The update half of the race: a rename onto a name a concurrent write just stored
+
+        It used to answer a generic "Failed to update the Port" that named neither the cause nor the
+        field. Now it is the same readable refusal the create gives, and the port keeps its name.
+        """
+        renamed_id: int = _create(rest_api, name=OTHER_PORT_NAME).get_json()['result_id']
+        indexed_ports.insert_one({
+            PortKey.PUBLIC_ID.value: 9851,
+            PortKey.OBJECT_ID.value: OWNER_OBJECT_ID,
+            PortKey.SIDE.value: PortSide.SINGLE.value,
+            PortKey.NAME.value: PORT_NAME,
+        })
+        monkeypatch.setattr(PortsManager, 'get_port_by_name', lambda *_a, **_k: None)
+
+        response = rest_api.put(f'{ROUTE_URL}/{renamed_id}', json=_port_payload(name=PORT_NAME))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == PORT_NAME_TAKEN_MESSAGE.format(
+            name=PORT_NAME, side=PortSide.SINGLE.value, object_id=OWNER_OBJECT_ID,
+        )
+        assert indexed_ports.find_one({PortKey.PUBLIC_ID.value: renamed_id})[PortKey.NAME.value] \
+            == OTHER_PORT_NAME
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -605,11 +641,36 @@ class TestErrorMapping:
     400 tells the caller their request was wrong when it was not.
     """
 
-    def test_create_retrieval_of_the_created_port_failing_is_404(self, rest_api, monkeypatch) -> None:
-        """The insert worked but the read-back did not, so the response would be empty."""
+    def test_create_retrieval_of_the_created_port_failing_is_500(self, rest_api, monkeypatch) -> None:
+        """The insert worked but the read-back did not: the server lost its own write, not a 404."""
         monkeypatch.setattr(PortsManager, 'get_item', lambda *_a, **_k: None)
 
-        assert _create(rest_api).status_code == HTTPStatus.NOT_FOUND
+        response = _create(rest_api)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == PORT_CREATED_NOT_READABLE_MESSAGE
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentInsertError('Operation failure: document failed validation'),
+    ], ids=['outage', 'other-insert-failure'])
+    def test_a_create_that_fails_for_any_other_reason_is_never_a_taken_name(
+            self, rest_api, monkeypatch, failure: Exception) -> None:
+        """
+        Only the unique index's refusal is the caller's clash
+
+        The database write is failed for real, below every manager, so the whole chain runs: an outage
+        and any other insert failure are the server's - a 500 - and never "that name already exists".
+        An outage is left unwrapped all the way up and answered by Flask's catch-all, so the test runs
+        with exception propagation off, as production does.
+        """
+        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
+        monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(failure))
+
+        response = _create(rest_api)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'already exists' not in response.get_json()['message']
 
     def test_create_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Not a 400: nothing is wrong with the request."""
@@ -642,13 +703,28 @@ class TestErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/object/{OWNER_OBJECT_ID}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_update_manager_error_is_400(self, rest_api, monkeypatch) -> None:
-        """A failed write is reported as a bad request."""
+    def test_an_update_that_fails_for_any_reason_but_a_duplicate_is_500(self, rest_api, monkeypatch) -> None:
+        """
+        A failed write that is no duplicate says nothing about the request
+
+        It used to be a 400 - telling the client its request was bad when the database was the problem.
+        Failed below every manager, so the whole chain runs.
+        """
+        new_id = _create(rest_api).get_json()['result_id']
+        monkeypatch.setattr(MongoDatabaseManager, 'update', _raiser(DocumentUpdateError('connection lost')))
+
+        response = rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload())
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'already exists' not in response.get_json()['message']
+
+    def test_a_manager_update_error_without_a_duplicate_is_500(self, rest_api, monkeypatch) -> None:
+        """The manager error alone is not a duplicate: only a typed refusal in its chain is."""
         new_id = _create(rest_api).get_json()['result_id']
         monkeypatch.setattr(PortsManager, 'update_item', _raiser(PortsManagerUpdateError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload()).status_code \
-            == HTTPStatus.BAD_REQUEST
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_update_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Anything else is a server error."""

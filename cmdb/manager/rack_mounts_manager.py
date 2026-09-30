@@ -79,7 +79,7 @@ class RackMountsManager(GenericManager):
         try:
             return self.get_one_by({RackMountKey.OBJECT_ID.value: object_id})
         except BaseManagerGetError as err:
-            raise RackMountsManagerGetError(str(err)) from err
+            raise RackMountsManagerGetError(err) from err
 
 
     def get_mounts_of_rack(self, rack_id: int, area: str | None = None) -> list[dict[str, Any]]:
@@ -107,7 +107,7 @@ class RackMountsManager(GenericManager):
         try:
             return self.find(criteria=criteria)
         except Exception as err:
-            raise RackMountsManagerGetError(str(err)) from err
+            raise RackMountsManagerGetError(err) from err
 
 
     def get_mounts_in_areas(self, rack_id: int, areas: set[str]) -> list[dict[str, Any]]:
@@ -136,7 +136,7 @@ class RackMountsManager(GenericManager):
                 RackMountKey.AREA.value: {'$in': sorted(areas)},
             })
         except Exception as err:
-            raise RackMountsManagerGetError(str(err)) from err
+            raise RackMountsManagerGetError(err) from err
 
 
     def get_next_position(self, rack_id: int, area: str) -> int:
@@ -183,7 +183,7 @@ class RackMountsManager(GenericManager):
         try:
             return self.count_documents({RackMountKey.RACK_ID.value: rack_id})
         except Exception as err:
-            raise RackMountsManagerGetError(str(err)) from err
+            raise RackMountsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -206,7 +206,7 @@ class RackMountsManager(GenericManager):
         try:
             return self.delete_many({RackMountKey.RACK_ID.value: rack_id}).deleted_count
         except (BaseManagerDeleteError, Exception) as err:
-            raise RackMountsManagerDeleteError(str(err)) from err
+            raise RackMountsManagerDeleteError(err) from err
 
 
     def delete_mount_of_object(self, object_id: int) -> int:
@@ -227,7 +227,7 @@ class RackMountsManager(GenericManager):
         try:
             return self.delete_many({RackMountKey.OBJECT_ID.value: object_id}).deleted_count
         except (BaseManagerDeleteError, Exception) as err:
-            raise RackMountsManagerDeleteError(str(err)) from err
+            raise RackMountsManagerDeleteError(err) from err
 
 # ------------------------------------------------- GENERAL FUNCTIONS ------------------------------------------------ #
 
@@ -277,7 +277,7 @@ class RackMountsManager(GenericManager):
                 if isinstance(object_id, int)
             ]
         except BaseManagerGetError as err:
-            raise RackMountsManagerGetError(str(err)) from err
+            raise RackMountsManagerGetError(err) from err
 
 
     def get_member_object_ids(self, rack_id: int) -> list[int]:
@@ -307,7 +307,7 @@ class RackMountsManager(GenericManager):
                 if isinstance(object_id, int)
             ]
         except BaseManagerGetError as err:
-            raise RackMountsManagerGetError(str(err)) from err
+            raise RackMountsManagerGetError(err) from err
 
 
     def get_mounts_of_objects(self, object_ids: list[int]) -> list[dict[str, Any]]:
@@ -332,7 +332,7 @@ class RackMountsManager(GenericManager):
         try:
             return self.find(criteria={RackMountKey.OBJECT_ID.value: {'$in': list(set(object_ids))}})
         except Exception as err:
-            raise RackMountsManagerGetError(str(err)) from err
+            raise RackMountsManagerGetError(err) from err
 
 
     def get_unassigned_mounts(self, rack_id: int) -> list[dict[str, Any]]:

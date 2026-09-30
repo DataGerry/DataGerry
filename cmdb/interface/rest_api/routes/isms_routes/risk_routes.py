@@ -32,12 +32,23 @@ from cmdb.models.isms_model.isms_risk_constants import RiskKey
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.route_utils import (
+    handle_manager_errors,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    get_item_or_404,
+    manager_error_messages,
+    require_created_item,
+)
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_BULK_DELETE_DELETED_KEY,
     RISK_BULK_DELETED_RA_KEY,
     RISK_BULK_DELETED_CMA_KEY,
+    RISK_LABEL,
+    IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
     extract_public_ids,
@@ -77,6 +88,10 @@ risk_blueprint = APIBlueprint('risk', __name__)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.add')
 @risk_blueprint.validate(build_write_schema(IsmsRisk.SCHEMA))
 @handle_route_errors("while creating the Risk")
+@handle_manager_errors(manager_error_messages(RISK_LABEL, {
+    RiskManagerInsertError: IsmsManagerErrorMessage.INSERT,
+    RiskManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+}))
 def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRisk into the database
@@ -85,31 +100,25 @@ def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
         data (IsmsRisk.SCHEMA): Data of the IsmsRisk which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the insert or the read-back of the created Risk fails, 500 when
+            the created Risk cannot be found afterwards or on an unexpected error
+
     Returns:
         InsertSingleResponse: The new IsmsRisk and its public_id
     """
-    try:
-        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        # risk_type is refused by IsmsRisk.SCHEMA itself (an 'allowed' list built from RiskType), so
-        # only the cross-field rule a per-field schema cannot express is left to check here
-        if not is_risk_data_valid(data):
-            abort(400, "Incomplete Risk data, no creation possible!")
+    # risk_type is refused by IsmsRisk.SCHEMA itself (an 'allowed' list built from RiskType), so
+    # only the cross-field rule a per-field schema cannot express is left to check here
+    if not is_risk_data_valid(data):
+        abort(400, "Incomplete Risk data, no creation possible!")
 
-        result_id: int = risk_manager.insert_item(data)
+    result_id: int = risk_manager.insert_item(data)
 
-        created_risk: dict[str, Any] | None = risk_manager.get_item(result_id, as_dict=True)
+    created_risk: dict[str, Any] = require_created_item(risk_manager.get_item(result_id, as_dict=True), RISK_LABEL)
 
-        if not created_risk:
-            abort(404, "Could not retrieve the created Risk from the database!")
-
-        return InsertSingleResponse(created_risk, result_id).make_response()
-    except RiskManagerInsertError as err:
-        LOGGER.error("[insert_isms_risk] RiskManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Could not insert the new Risk in the database!")
-    except RiskManagerGetError as err:
-        LOGGER.error("[insert_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created Risk from the database!")
+    return InsertSingleResponse(created_risk, result_id).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -118,6 +127,10 @@ def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.view')
 @risk_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving Risks")
+@handle_manager_errors(manager_error_messages(RISK_LABEL, {
+    RiskManagerIterationError: IsmsManagerErrorMessage.ITERATE,
+}))
 def get_isms_risks(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRisks
@@ -129,29 +142,22 @@ def get_isms_risks(params: CollectionParameters, request_user: CmdbUser) -> Resp
     Returns:
         GetMultiResponse: All the IsmsRisks matching the CollectionParameters
     """
-    try:
-        body = request_wants_body()
+    body = request_wants_body()
 
-        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[IsmsRisk] = risk_manager.iterate_items(builder_params)
-        risks_list = [IsmsRisk.to_json(risk) for risk in iteration_result.results]
+    iteration_result: IterationResult[IsmsRisk] = risk_manager.iterate_items(builder_params)
+    risks_list = [IsmsRisk.to_json(risk) for risk in iteration_result.results]
 
-        api_response = GetMultiResponse(risks_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+    api_response = GetMultiResponse(risks_list,
+                                    iteration_result.total,
+                                    params,
+                                    request.url,
+                                    body)
 
-        return api_response.make_response()
-    except RiskManagerIterationError as err:
-        LOGGER.error("[get_isms_risks] RiskManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Risks from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risks] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving Risks!")
+    return api_response.make_response()
 
 
 @risk_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -159,6 +165,9 @@ def get_isms_risks(params: CollectionParameters, request_user: CmdbUser) -> Resp
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.view')
 @handle_route_errors("while retrieving the Risk with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_LABEL, {
+    RiskManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRisk
@@ -170,16 +179,12 @@ def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         GetSingleResponse: The requested IsmsRisk
     """
-    try:
-        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        requested_risk = get_item_or_404(risk_manager, public_id,
-                                         f"The Risk with ID:{public_id} was not found!")
+    requested_risk = get_item_or_404(risk_manager, public_id,
+                                     f"The Risk with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_risk, body=request_wants_body()).make_response()
-    except RiskManagerGetError as err:
-        LOGGER.error("[get_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Risk with ID: {public_id} from the database!")
+    return GetSingleResponse(requested_risk, body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -189,6 +194,10 @@ def get_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
 @risk_blueprint.protect(auth=True, right='base.isms.risk.edit')
 @risk_blueprint.validate(build_write_schema(IsmsRisk.SCHEMA))
 @handle_route_errors("while updating the Risk with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_LABEL, {
+    RiskManagerGetError: IsmsManagerErrorMessage.GET,
+    RiskManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+}))
 def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRisk
@@ -201,29 +210,22 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
     Returns:
         UpdateSingleResponse: The new data of the IsmsRisk
     """
-    try:
-        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        get_item_or_404(risk_manager, public_id,
-                        f"The Risk with ID:{public_id} was not found!", as_dict=False)
+    get_item_or_404(risk_manager, public_id,
+                    f"The Risk with ID:{public_id} was not found!", as_dict=False)
 
-        # See the insert route: the schema owns risk_type, this owns the cross-field rule
-        if not is_risk_data_valid(data):
-            abort(400, "Incomplete Risk data, no update possible!")
+    # See the insert route: the schema owns risk_type, this owns the cross-field rule
+    if not is_risk_data_valid(data):
+        abort(400, "Incomplete Risk data, no update possible!")
 
-        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+    # The URL owns the identity: a body public_id would otherwise be $set onto the document
 
-        pin_public_id(data, public_id)
+    pin_public_id(data, public_id)
 
-        stored: dict[str, Any] = update_item_from_payload(risk_manager, public_id, IsmsRisk, data)
+    stored: dict[str, Any] = update_item_from_payload(risk_manager, public_id, IsmsRisk, data)
 
-        return UpdateSingleResponse(stored).make_response()
-    except RiskManagerGetError as err:
-        LOGGER.error("[update_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Risk with ID: {public_id} from the database!")
-    except RiskManagerUpdateError as err:
-        LOGGER.error("[update_isms_risk] RiskManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the Risk with ID: {public_id}!")
+    return UpdateSingleResponse(stored).make_response()
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -232,6 +234,10 @@ def update_isms_risk(public_id: int, data: dict[str, Any], request_user: CmdbUse
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
 @handle_route_errors("while deleting the Risk with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_LABEL, {
+    RiskManagerDeleteError: IsmsManagerErrorMessage.DELETE,
+    RiskManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRisk
@@ -243,21 +249,14 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         DeleteSingleResponse: The deleted IsmsRisk data
     """
-    try:
-        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        to_delete_risk = get_item_or_404(risk_manager, public_id,
-                                         f"The Risk with ID:{public_id} was not found!")
+    to_delete_risk = get_item_or_404(risk_manager, public_id,
+                                     f"The Risk with ID:{public_id} was not found!")
 
-        risk_manager.delete_with_follow_up(public_id)
+    risk_manager.delete_with_follow_up(public_id)
 
-        return DeleteSingleResponse(to_delete_risk).make_response()
-    except RiskManagerDeleteError as err:
-        LOGGER.error("[delete_isms_risk] RiskManagerDeleteError: %s", err, exc_info=True)
-        abort(400, f"Failed to delete the Risk with ID:{public_id}!")
-    except RiskManagerGetError as err:
-        LOGGER.error("[delete_isms_risk] RiskManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Risk with ID:{public_id} from the database!")
+    return DeleteSingleResponse(to_delete_risk).make_response()
 
 
 @risk_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
@@ -265,6 +264,9 @@ def delete_isms_risk(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_blueprint.protect(auth=True, right='base.isms.risk.delete')
 @handle_route_errors("while bulk-deleting Risks")
+@handle_manager_errors(manager_error_messages(RISK_LABEL, {
+    RiskManagerDeleteError: IsmsManagerErrorMessage.BULK_DELETE,
+}))
 def delete_many_isms_risks(public_ids: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to bulk-delete IsmsRisks by a comma-separated id list
@@ -284,21 +286,17 @@ def delete_many_isms_risks(public_ids: str, request_user: CmdbUser) -> Response:
         DefaultResponse: {'successfully': [deleted Risk ids], 'deleted_risk_assessments': int,
                           'deleted_control_measure_assignments': int}
     """
-    try:
-        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
 
-        requested_ids: list[int] = extract_public_ids(public_ids)
+    requested_ids: list[int] = extract_public_ids(public_ids)
 
-        deleted_ids, deleted_ras, deleted_cmas = risk_manager.delete_many_with_follow_up(requested_ids)
+    deleted_ids, deleted_ras, deleted_cmas = risk_manager.delete_many_with_follow_up(requested_ids)
 
-        return DefaultResponse({
-            ISMS_BULK_DELETE_DELETED_KEY: sorted(deleted_ids),
-            RISK_BULK_DELETED_RA_KEY: deleted_ras,
-            RISK_BULK_DELETED_CMA_KEY: deleted_cmas,
-        }).make_response()
-    except RiskManagerDeleteError as err:
-        LOGGER.error("[delete_many_isms_risks] RiskManagerDeleteError: %s", err, exc_info=True)
-        abort(400, "Failed to bulk-delete the requested Risks!")
+    return DefaultResponse({
+        ISMS_BULK_DELETE_DELETED_KEY: sorted(deleted_ids),
+        RISK_BULK_DELETED_RA_KEY: deleted_ras,
+        RISK_BULK_DELETED_CMA_KEY: deleted_cmas,
+    }).make_response()
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

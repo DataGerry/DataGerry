@@ -60,8 +60,11 @@ from cmdb.errors.manager.port_interface_links_manager import (
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
     INTERFACE_ROW_KEY,
+    LINK_ALREADY_EXISTS_MESSAGE,
+    LINK_CREATED_NOT_READABLE_MESSAGE,
     PORT_INTERFACE_LINKS_KEY,
 )
+from cmdb.errors.database import DocumentInsertError, DocumentNetworkError
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -833,34 +836,69 @@ class TestErrorMapping:
     A database failure is a 400, anything unexpected a 500 - never the other way round
 
     A manager error surfacing as a 500 hides a recoverable problem; an unexpected error surfacing as a
-    400 tells the caller their request was wrong when it was not. The create route has a third arm: an
-    insert failure is the unique index refusing a racing duplicate, and it keeps the readable message
-    the pre-check would have given.
+    400 tells the caller their request was wrong when it was not. The create route has a third arm: the
+    unique index refusing a racing duplicate keeps the readable message the pre-check would have given -
+    and only that refusal, recognised by type; any other insert failure is a 500.
     """
 
-    def test_create_retrieval_of_the_created_link_failing_is_404(self, rest_api, monkeypatch) -> None:
-        """The insert worked but the read-back did not, so the response would be empty."""
+    def test_create_retrieval_of_the_created_link_failing_is_500(self, rest_api, monkeypatch) -> None:
+        """The insert worked but the read-back did not: the server lost its own write, not a 404."""
         monkeypatch.setattr(PortInterfaceLinksManager, 'get_item', lambda *_a, **_k: None)
 
-        assert _create(rest_api).status_code == HTTPStatus.NOT_FOUND
+        response = _create(rest_api)
 
-    def test_create_duplicate_from_the_index_is_400(self, rest_api, monkeypatch) -> None:
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == LINK_CREATED_NOT_READABLE_MESSAGE
+
+    def test_create_duplicate_from_the_index_is_400(self, rest_api, monkeypatch,
+                                                    database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
         """
-        The arm that holds under concurrency, and the only way to reach it
+        The arm that holds under concurrency, reached through the real index
 
         The pre-check is a read followed by a write, so in a real race both creates pass it and the
-        unique index stops the loser at insert time. Injected at the insert itself, which is where a
-        concurrent write lands.
+        unique index stops the loser at insert time. Switching the pre-check off reproduces that without
+        threads: the second create reaches the database and the typed refusal travels the whole chain.
         """
+        database_manager.create_indexes(
+            CmdbPortInterfaceLink.COLLECTION, database_name, CmdbPortInterfaceLink.get_index_keys(),
+        )
+        assert _create(rest_api).status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        monkeypatch.setattr(port_interface_link_routes, 'enforce_link_is_new', lambda *_a, **_k: None)
+
+        response = _create(rest_api)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == LINK_ALREADY_EXISTS_MESSAGE.format(port_id=PORT_ID)
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentInsertError('Operation failure: document failed validation'),
+    ], ids=['outage', 'other-insert-failure'])
+    def test_a_create_that_fails_for_any_other_reason_is_never_an_existing_link(
+            self, rest_api, monkeypatch, failure: Exception) -> None:
+        """
+        Only the unique index's refusal is an existing link
+
+        It used to be: every insert failure answered "already linked". Failed below every manager, so the
+        whole chain runs; an outage is left unwrapped up to Flask's catch-all, hence propagation off.
+        """
+        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
+        monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(failure))
+
+        response = _create(rest_api)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'already linked' not in response.get_json()['message']
+
+    def test_a_manager_insert_error_without_a_duplicate_is_500(self, rest_api, monkeypatch) -> None:
+        """The manager error alone is not a duplicate: only a typed refusal in its chain is."""
         monkeypatch.setattr(
             PortInterfaceLinksManager, 'insert_item',
             _raiser(PortInterfaceLinksManagerInsertError('duplicate key')),
         )
 
-        response = _create(rest_api)
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'already linked' in response.get_json()['message']
+        assert _create(rest_api).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_create_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Not a 400: nothing is wrong with the request."""
@@ -1227,4 +1265,3 @@ class TestTheDanglingReportErrorArms:
         monkeypatch.setattr(port_interface_link_routes, 'collect_dangling_links', _abort)
 
         assert rest_api.get(f'{LINKS_URL}/dangling').status_code == HTTPStatus.NOT_FOUND
-

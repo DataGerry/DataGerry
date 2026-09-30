@@ -25,7 +25,7 @@ chips next to subnet rows without an extra round-trip
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.models.object_model import (
     CmdbObjectKey,
     CmdbObjectFieldKey,

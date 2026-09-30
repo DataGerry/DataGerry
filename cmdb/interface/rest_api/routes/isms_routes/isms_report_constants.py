@@ -136,6 +136,18 @@ class ReportFacetKey(BaseStrEnum):
     TOTAL = 'total'
 
 
+class IsmsReportErrorMessage(BaseStrEnum):
+    """
+    The 400 an ISMS report route answers when a manager fails to read what the report is built from
+
+    Any other failure is the route's 500 (``handle_route_errors``)
+    """
+    RISK_MATRIX = "Failed to build the RiskMatrix report from the stored ISMS configuration!"
+    RISK_TREATMENT_PLAN = "Failed to read the data of the Risk Treatment Plan report from the database!"
+    SOA = "Failed to read the data of the SOA report from the database!"
+    RISK_ASSESSMENTS = "Failed to read the data of the RiskAssessment report from the database!"
+
+
 # The label of an assessed object group, in place of the type label an assessed object shows
 OBJECT_GROUP_TYPE_LABEL: str = 'Object group'
 

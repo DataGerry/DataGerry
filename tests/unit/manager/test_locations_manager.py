@@ -101,10 +101,13 @@ class TestInsertLocation:
     def test_base_insert_error_wraps_as_locations_insert_error(self) -> None:
         """A ``BaseManagerInsertError`` from ``insert`` is wrapped as ``LocationsManagerInsertError``."""
         mgr = _mock_manager()
-        mgr.insert.side_effect = BaseManagerInsertError('write failed')
+        failure = BaseManagerInsertError('write failed')
+        mgr.insert.side_effect = failure
 
-        with pytest.raises(LocationsManagerInsertError):
+        with pytest.raises(LocationsManagerInsertError) as caught:
             LocationsManager.insert_location(mgr, dict(SAMPLE_LOCATION_DICT))
+
+        assert caught.value.args[0] is failure
 
     def test_missing_public_id_wraps_as_locations_insert_error(self) -> None:
         """An insert answering with no public_id is reported instead of returned as None."""
