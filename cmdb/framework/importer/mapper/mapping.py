@@ -18,7 +18,7 @@ This module handles the mapping of data connections to respective memory areas, 
 It provides functionality to manage mappings, retrieve mapped entries, and manipulate mappings dynamically
 """
 from logging import Logger, getLogger
-from typing import Iterator
+from typing import Any, Iterator
 from collections.abc import Iterable
 
 from cmdb.framework.importer.mapper.map_entry import MapEntry
@@ -74,12 +74,12 @@ class Mapping(Iterable):
         return self.__entries
 
 
-    def get_entries_with_option(self, query: dict) -> list[MapEntry]:
+    def get_entries_with_option(self, query: dict[str, Any]) -> list[MapEntry]:
         """
         Retrieves mapping entries that match a given query
 
         Args:
-            query (dict): A dictionary representing the search criteria
+            query (dict[str, Any]): A dictionary representing the search criteria
 
         Returns:
             list[MapEntry]: A list of MapEntry objects that match the query
@@ -99,12 +99,12 @@ class Mapping(Iterable):
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def generate_mapping_from_list(cls, map_list: list[dict]) -> "Mapping":
+    def generate_mapping_from_list(cls, map_list: list[dict[str, Any]]) -> "Mapping":
         """
         Generates a Mapping instance from a list of dictionaries
 
         Args:
-            map_list (list[dict]): A list of dictionary representations of mappings
+            map_list (list[dict[str, Any]]): A list of dictionary representations of mappings
 
         Returns:
             Mapping: A Mapping instance with the provided entries

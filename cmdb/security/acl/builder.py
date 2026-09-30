@@ -212,7 +212,12 @@ def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
     if not denied_type_ids:
         return []
 
-    return [{'$match': build_denied_types_condition(denied_type_ids)}]
+    # Imported lazily for the same reason as in resolve_denied_type_ids: the manager package imports
+    # this module through the query builders
+    # pylint: disable=import-outside-toplevel
+    from cmdb.manager.query_builder.builder import Builder
+
+    return [Builder.match_(build_denied_types_condition(denied_type_ids))]
 
 
 def resolve_denied_type_ids(user: 'CmdbUser', permission: AccessControlPermission) -> list[int]:

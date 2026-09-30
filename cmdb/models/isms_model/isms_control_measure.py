@@ -71,12 +71,12 @@ class IsmsControlMeasure(CmdbDAO):
         # driven '?filter=' / '?sort=' on the list route, where control_measure_type is a table column
         {
             'keys': [(ControlMeasureKey.CONTROL_MEASURE_TYPE.value, CmdbDAO.DAO_ASCENDING)],
-            'name': 'control_measure_type',
+            'name': ControlMeasureKey.CONTROL_MEASURE_TYPE.value,
             'unique': False,
         },
     ]
 
-    SCHEMA: dict = get_isms_control_measure_schema()
+    SCHEMA: dict[str, Any] = get_isms_control_measure_schema()
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither;
     # the is_applicable rule below travels as the normalize_document hook
@@ -98,11 +98,11 @@ class IsmsControlMeasure(CmdbDAO):
             control_measure_type: str,
             source: int,
             implementation_state: int,
-            identifier: str = None,
-            chapter: str = None,
-            description: str = None,
+            identifier: str | None = None,
+            chapter: str | None = None,
+            description: str | None = None,
             is_applicable: bool = False,
-            reason: str = None
+            reason: str | None = None
         ) -> None:
         """
         Initialises an IsmsControlMeasure
@@ -114,11 +114,11 @@ class IsmsControlMeasure(CmdbDAO):
             source (int): public_id of CmdbExtendableOption('CONTROL_MEASURE') of the IsmsControlMeasure
             implementation_state (int): public_id of CmdbExtendableOption('IMPLEMENTATION_STATE')
                                         of the IsmsControlMeasure
-            identifier (str, optional): The identifier of the IsmsControlMeasure
-            chapter (str, optional): The chapter of the IsmsControlMeasure
-            description (str, optional): The description of the IsmsControlMeasure
+            identifier (str | None): The identifier of the IsmsControlMeasure
+            chapter (str | None): The chapter of the IsmsControlMeasure
+            description (str | None): The description of the IsmsControlMeasure
             is_applicable (bool): If True then the IsmsControlMeasure is applicable. Defaults to False
-            reason (str, optional): The reason of the IsmsControlMeasure
+            reason (str | None): The reason of the IsmsControlMeasure
 
         Raises:
             IsmsControlMeasureInitError: If the IsmsControlMeasure could not be initialised

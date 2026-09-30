@@ -16,14 +16,17 @@
 """
 Functional smoke for the ``/webhooks`` REST routes
 
-Covers CRUD over the GenericManager-backed WebhooksManager: HTTP status codes, the query-param
-event_types parsing (400 on missing/invalid), the 404 on a missing id, the manager-error -> 400 / 500
-mappings, and the public_id pinning on update. Params arrive as query args (parse_request_parameters).
+Covers CRUD over the GenericManager-backed WebhooksManager: HTTP status codes, the 404 on a missing
+id, the manager-error -> 400 / 500 mappings, and the public_id pinning on update.
 
-Also covered: the write-route VALIDATION, which is the whole guard a webhook document gets
-because ``CmdbWebhook.SCHEMA`` is never applied - a missing name or url, a non-http(s) or host-less
-url, and an event_types that is not a non-empty list of known WebhookEventType values are all 400
-(without it each is a 200 that stores an unusable webhook). Plus the DELETE route without a
+The write routes read their payload from the JSON body, and a key the body leaves out from the query
+string (``read_write_payload``). Both halves are covered: the body classes below, and the query-string
+tests, which are the fallback a query-only client still gets.
+
+Also covered: the write-route VALIDATION (``parse_webhook_params``, which ends by holding the document
+against ``CmdbWebhook.SCHEMA``) - a missing name or url, a non-http(s) or host-less url, an
+event_types that is not a non-empty list of known WebhookEventType values and an unreadable active
+flag are all 400, and a missing active flag is stored as True. Plus the DELETE route without a
 trailing slash, and the per-route error tails.
 """
 from http import HTTPStatus
@@ -37,6 +40,7 @@ from werkzeug.exceptions import NotFound
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.webhooks_manager import WebhooksManager
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
+from cmdb.interface.rest_api.routes.routes_helper import WRITE_PAYLOAD_NOT_AN_OBJECT_MSG
 from cmdb.errors.manager.webhooks_manager import (
     WebhooksManagerInsertError,
     WebhooksManagerGetError,
@@ -61,6 +65,22 @@ def _webhook_query(name: str = 'Hook', url: str = 'http://example.test/hook',
                    event_types: str = "['CREATE']", active: str = 'true') -> str:
     """Builds the query string the create/update routes parse (event_types is a Python-literal string)."""
     return urlencode({'name': name, 'url': url, 'event_types': event_types, 'active': active})
+
+
+def _webhook_body(name: str = CREATE_NAME, **overrides: Any) -> dict[str, Any]:
+    """Builds a typed JSON body for the create/update routes (event_types a list, active a bool)."""
+    body: dict[str, Any] = {'name': name, 'url': 'http://example.test/hook', 'event_types': ['CREATE'],
+                            'active': True}
+    body.update(overrides)
+
+    return body
+
+
+def _stored_by_name(database_manager: MongoDatabaseManager, database_name: str,
+                    name: str = CREATE_NAME) -> dict[str, Any] | None:
+    """Reads a stored webhook back by its name, without the Mongo _id."""
+    return database_manager.get_collection(CmdbWebhook.COLLECTION, database_name).find_one({'name': name},
+                                                                                           {'_id': 0})
 
 
 def _webhook_doc(public_id: int, name: str = 'Hook') -> dict[str, Any]:
@@ -89,7 +109,7 @@ def _insert_webhook(database_manager: MongoDatabaseManager, database_name: str, 
 
 
 class TestCreateWebhook:
-    """POST /webhooks/ creates a CmdbWebhook from query params."""
+    """POST /webhooks/ creates a CmdbWebhook - here from query params alone, the fallback."""
 
     def test_creates_webhook(self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
         """A POST with valid params succeeds and the webhook is persisted."""
@@ -267,11 +287,10 @@ class TestErrorMapping:
 
 class TestCreateValidation:
     """
-    parse_webhook_params is the only validation a CmdbWebhook document gets
+    parse_webhook_params validates a CmdbWebhook write, sent here as query params
 
-    The routes read query args, so ``CmdbWebhook.SCHEMA`` - which marks name, url and event_types
-    required - never runs. Without that validation, every case below is a 200 that stores an unusable
-    webhook.
+    Without it, every case below is a 200 that stores an unusable webhook. The same rules for a JSON
+    body are in TestBodyPayload and in the helper's unit tests.
     """
 
     def test_missing_name_returns_400(self, rest_api) -> None:
@@ -448,19 +467,22 @@ class TestFrontendContract:
 
         return urlencode(payload)
 
-    def test_create_as_the_frontend_sends_it(self, rest_api) -> None:
-        """POST webhooks/ with the FE's query params (it also sends a body, which the route ignores)."""
-        response = rest_api.post(f'{ROUTE_URL}/?{self._frontend_params()}',
-                                 json={'name': CREATE_NAME, 'url': 'http://example.test/hook',
-                                       'event_types': ['CREATE'], 'active': True})
+    def test_create_as_the_frontend_sends_it(self, rest_api, database_manager: MongoDatabaseManager,
+                                             database_name: str) -> None:
+        """POST webhooks/ with the FE's query params AND its body - the body is what is stored"""
+        response = rest_api.post(f'{ROUTE_URL}/?{self._frontend_params()}', json=_webhook_body())
 
         assert response.status_code == HTTPStatus.OK
+        assert _stored_by_name(database_manager, database_name)['event_types'] == ['CREATE']
 
-    def test_create_with_an_inactive_webhook(self, rest_api) -> None:
-        """active='false' is accepted and is not mistaken for a missing value."""
-        response = rest_api.post(f'{ROUTE_URL}/?{self._frontend_params(active="false")}')
+    def test_create_with_an_inactive_webhook(self, rest_api, database_manager: MongoDatabaseManager,
+                                             database_name: str) -> None:
+        """active false is accepted and is not mistaken for a missing value, in either half"""
+        response = rest_api.post(f'{ROUTE_URL}/?{self._frontend_params(active="false")}',
+                                 json=_webhook_body(active=False))
 
         assert response.status_code == HTTPStatus.OK
+        assert _stored_by_name(database_manager, database_name)['active'] is False
 
     def test_list_as_the_frontend_sends_it(self, rest_api) -> None:
         """GET webhooks/ with the FE's pager params."""
@@ -477,7 +499,7 @@ class TestFrontendContract:
 
     def test_update_as_the_frontend_sends_it(self, rest_api, database_manager: MongoDatabaseManager,
                                             database_name: str) -> None:
-        """PUT webhooks/<id> with the params in the query AND the body, as the service does."""
+        """PUT webhooks/<id> with the params in the query AND the body, as the service does - body wins"""
         _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_UPDATE)
         query = self._frontend_params(name='Renamed', public_id=str(WEBHOOK_ID_FOR_UPDATE))
 
@@ -487,6 +509,9 @@ class TestFrontendContract:
                                       'event_types': ['CREATE'], 'active': True})
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        stored = database_manager.get_collection(CmdbWebhook.COLLECTION, database_name)\
+            .find_one({'public_id': WEBHOOK_ID_FOR_UPDATE})
+        assert stored['event_types'] == ['CREATE']
 
     def test_delete_as_the_frontend_sends_it(self, rest_api, database_manager: MongoDatabaseManager,
                                             database_name: str) -> None:
@@ -512,3 +537,112 @@ class TestFrontendContract:
         the backend's scheme + host check.
         """
         assert rest_api.post(f'{ROUTE_URL}/?{self._frontend_params(url=url)}').status_code == HTTPStatus.OK
+
+
+class TestBodyPayload:
+    """The write routes read the JSON body, and the query string only for a key the body leaves out."""
+
+    def test_create_from_the_body_alone_stores_the_typed_document(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """No query string at all: the body is the whole payload, stored as sent"""
+        body = _webhook_body(event_types=['CREATE', 'DELETE'], active=False)
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=body)
+
+        assert response.status_code == HTTPStatus.OK
+        stored = _stored_by_name(database_manager, database_name)
+        assert stored == {**body, 'public_id': response.get_json()}
+
+    def test_the_body_wins_over_the_query_string_key_by_key(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A key in both halves is read from the body; a key only in the query string still counts"""
+        query = urlencode({'name': 'From query', 'url': 'https://query.test/hook', 'event_types': "['UPDATE']"})
+
+        response = rest_api.post(f'{ROUTE_URL}/?{query}', json={'name': CREATE_NAME, 'event_types': ['DELETE']})
+
+        assert response.status_code == HTTPStatus.OK
+        stored = _stored_by_name(database_manager, database_name)
+        assert stored['event_types'] == ['DELETE']
+        assert stored['url'] == 'https://query.test/hook'
+
+    @pytest.mark.parametrize('body', [['CREATE'], 'text', 7], ids=['list', 'string', 'number'])
+    def test_a_body_that_is_not_an_object_is_a_400(self, rest_api, body: Any) -> None:
+        """It was meant as the payload, so it is refused rather than silently replaced by the query"""
+        response = rest_api.post(f'{ROUTE_URL}/?{_webhook_query(name=CREATE_NAME)}', json=body)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == WRITE_PAYLOAD_NOT_AN_OBJECT_MSG.format(entity='Webhook')
+
+    def test_a_client_public_id_on_create_is_ignored(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The id is reserved from the counter; a body can not choose it"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_webhook_body(public_id=MISSING_WEBHOOK_ID))
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() != MISSING_WEBHOOK_ID
+        assert database_manager.get_collection(CmdbWebhook.COLLECTION, database_name)\
+            .find_one({'public_id': MISSING_WEBHOOK_ID}) is None
+
+    @pytest.mark.parametrize('overrides', [
+        {'name': 5}, {'url': ['http://example.test/hook']}, {'event_types': 'CREATE'},
+        {'event_types': ['CREATE', 'NOPE']}, {'event_types': []}, {'url': 'ftp://example.test/hook'},
+    ], ids=['name-int', 'url-list', 'event-types-bare-string', 'event-types-unknown', 'event-types-empty',
+            'url-ftp'])
+    def test_an_unusable_body_is_a_400(self, rest_api, overrides: dict[str, Any]) -> None:
+        """A body is validated by the same rules as a query string"""
+        assert rest_api.post(f'{ROUTE_URL}/', json=_webhook_body(**overrides)).status_code \
+            == HTTPStatus.BAD_REQUEST
+
+    def test_update_from_the_body_alone(self, rest_api, database_manager: MongoDatabaseManager,
+                                        database_name: str) -> None:
+        """The update route reads the body the same way, and answers the document as stored"""
+        _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_UPDATE)
+        body = _webhook_body(name='Renamed', event_types=['UPDATE'])
+
+        response = rest_api.put(f'{ROUTE_URL}/{WEBHOOK_ID_FOR_UPDATE}', json=body)
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        stored = database_manager.get_collection(CmdbWebhook.COLLECTION, database_name)\
+            .find_one({'public_id': WEBHOOK_ID_FOR_UPDATE}, {'_id': 0})
+        assert stored == {**body, 'public_id': WEBHOOK_ID_FOR_UPDATE}
+        assert response.get_json()['result'] == stored
+
+    def test_update_pins_a_body_public_id_to_the_url(self, rest_api, database_manager: MongoDatabaseManager,
+                                                     database_name: str) -> None:
+        """A body naming another id can not move the webhook there"""
+        _insert_webhook(database_manager, database_name, WEBHOOK_ID_FOR_UPDATE)
+
+        response = rest_api.put(f'{ROUTE_URL}/{WEBHOOK_ID_FOR_UPDATE}',
+                                json=_webhook_body(name='Pinned', public_id=MISSING_WEBHOOK_ID))
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        collection = database_manager.get_collection(CmdbWebhook.COLLECTION, database_name)
+        assert collection.find_one({'public_id': WEBHOOK_ID_FOR_UPDATE})['name'] == 'Pinned'
+        assert collection.find_one({'public_id': MISSING_WEBHOOK_ID}) is None
+
+
+class TestActiveFlag:
+    """A missing active flag is stored as True; an unreadable one is refused."""
+
+    def test_a_body_without_active_stores_an_active_webhook(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Left out, the flag is the schema default - the webhook delivers"""
+        body = _webhook_body()
+        del body['active']
+
+        assert rest_api.post(f'{ROUTE_URL}/', json=body).status_code == HTTPStatus.OK
+        assert _stored_by_name(database_manager, database_name)['active'] is True
+
+    def test_a_query_without_active_stores_an_active_webhook(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The same for a query-only client - it used to be stored switched off"""
+        query = urlencode({'name': CREATE_NAME, 'url': 'http://example.test/hook', 'event_types': "['CREATE']"})
+
+        assert rest_api.post(f'{ROUTE_URL}/?{query}').status_code == HTTPStatus.OK
+        assert _stored_by_name(database_manager, database_name)['active'] is True
+
+    @pytest.mark.parametrize('active', ['yes', 1, 'on'], ids=['yes', 'int-one', 'on'])
+    def test_an_unreadable_active_is_a_400(self, rest_api, active: Any) -> None:
+        """Each of these used to become False silently"""
+        assert rest_api.post(f'{ROUTE_URL}/', json=_webhook_body(active=active)).status_code \
+            == HTTPStatus.BAD_REQUEST

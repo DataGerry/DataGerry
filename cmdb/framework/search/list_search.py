@@ -117,9 +117,9 @@ def build_search_match_stages(values_expression: Any,
     cleanup.update({field: 0 for field in extra_cleanup_fields})
 
     return [
-        {'$addFields': {SEARCHABLE_VALUES_FIELD: values_expression}},
+        Builder.add_fields_({SEARCHABLE_VALUES_FIELD: values_expression}),
         Builder.match_(Builder.regex_(SEARCHABLE_VALUES_FIELD, escape_search_term(search_term), SEARCH_REGEX_FLAGS)),
-        {'$project': cleanup},
+        Builder.project_(cleanup),
     ]
 
 

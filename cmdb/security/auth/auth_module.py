@@ -29,6 +29,7 @@ Provider settings live in the section as ``{'class_name': ..., 'config': {...}}`
 that the stored section does not list is topped up with its own defaults.
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from flask import current_app
 
@@ -100,16 +101,16 @@ class AuthModule:
     }
 
 
-    def __init__(self, settings: dict,
-                 security_manager: SecurityManager = None,
-                 users_manager: UsersManager = None):
+    def __init__(self, settings: dict[str, Any],
+                 security_manager: SecurityManager | None = None,
+                 users_manager: UsersManager | None = None) -> None:
         self.__settings: CmdbAuthSettings = self.__init_settings(settings)
         self.users_manager = users_manager
         self.__security_manager = security_manager
 
 
     @staticmethod
-    def __init_settings(auth_settings_values: dict) -> CmdbAuthSettings:
+    def __init_settings(auth_settings_values: dict[str, Any]) -> CmdbAuthSettings:
         """
         Normalises the stored 'auth' section against the installed providers
 
@@ -119,16 +120,16 @@ class AuthModule:
         removed keys) falls back to the defaults with the error logged instead of breaking the login
 
         Args:
-            auth_settings_values (dict): The stored 'auth' settings section (mutated in place)
+            auth_settings_values (dict[str, Any]): The stored 'auth' settings section (mutated in place)
 
         Returns:
             CmdbAuthSettings: The normalised settings
         """
-        provider_config_list: list[dict] = auth_settings_values.setdefault(PROVIDERS_KEY, [])
+        provider_config_list: list[dict[str, Any]] = auth_settings_values.setdefault(PROVIDERS_KEY, [])
 
         for provider in AuthModule.get_installed_providers():
             provider_name: str = provider.get_name()
-            default_config_values: dict = provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES
+            default_config_values: dict[str, Any] = provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES
             provider_index: int = next(
                 (
                     index for index, entry in enumerate(provider_config_list)
@@ -146,7 +147,7 @@ class AuthModule:
                 continue
 
             try:
-                stored_config: dict = provider_config_list[provider_index][PROVIDER_CONFIG_KEY]
+                stored_config: dict[str, Any] = provider_config_list[provider_index][PROVIDER_CONFIG_KEY]
                 provider_config_list[provider_index][PROVIDER_CONFIG_KEY] = provider.PROVIDER_CONFIG_CLASS(
                     **stored_config
                 ).__dict__
@@ -321,7 +322,7 @@ class AuthModule:
         return self.__settings
 
 
-    def get_provider_config_values(self, provider: type[BaseAuthenticationProvider]) -> dict:
+    def get_provider_config_values(self, provider: type[BaseAuthenticationProvider]) -> dict[str, Any]:
         """
         Retrieves the stored configuration values of a provider, falling back to its defaults
 
@@ -332,10 +333,10 @@ class AuthModule:
             provider (type[BaseAuthenticationProvider]): The provider whose configuration is read
 
         Returns:
-            dict: The stored config values, or the provider's DEFAULT_CONFIG_VALUES when the settings
+            dict[str, Any]: The stored config values, or the provider's DEFAULT_CONFIG_VALUES when the settings
                 section carries no entry for it
         """
-        stored_config: dict | None = self.settings.get_provider_settings(provider.get_name())
+        stored_config: dict[str, Any] | None = self.settings.get_provider_settings(provider.get_name())
 
         if stored_config is None:
             LOGGER.warning(
@@ -440,8 +441,8 @@ class AuthModule:
         The stored CmdbUser names the provider that should authenticate it; that primary attempt is used
         when the user exists, its provider is installed and activated, and external providers are
         enabled for an external one. If **anything** about that attempt fails - unknown user, unknown or
-        deactivated provider, wrong credentials, unusable settings - every installed provider whose
-        configuration is active is tried in turn, which is how a user that does not exist locally yet
+        deactivated provider, wrong credentials, unusable settings - every installed provider that is
+        active is tried in turn, which is how a user that does not exist locally yet
         gets provisioned by an external provider
 
         Args:
@@ -488,12 +489,13 @@ class AuthModule:
         primary_error: Exception,
     ) -> CmdbUser:
         """
-        Tries every installed provider whose configuration is active, in installation order
+        Tries every installed provider that is active, in installation order
 
         The fallback half of ``login``. A provider that rejects the credentials, or that finds the user
-        but cannot store it, does not end the sweep - the next provider gets its turn. Note this filters
-        on the provider's CONFIG 'active' flag, while the primary attempt asks the provider instance
-        itself, so the two checks can disagree
+        but cannot store it, does not end the sweep - the next provider gets its turn. Whether a
+        provider takes part is asked of its class (`is_active_for`), the same rule the primary
+        attempt's `is_active` follows, and before it is built - so the local provider is always tried
+        and an inactive provider is never constructed
 
         Args:
             user_name (str): Name (or, in cloud mode, email) of the user
@@ -509,7 +511,7 @@ class AuthModule:
         for provider in self.providers:
             provider_config: BaseAuthProviderConfig = self.build_provider_config(provider)
 
-            if not provider_config.is_active():
+            if not provider.is_active_for(provider_config):
                 continue
 
             if provider.EXTERNAL_PROVIDER and not self.settings.enable_external:

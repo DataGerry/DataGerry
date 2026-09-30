@@ -41,7 +41,7 @@ class MapEntry:
         """
         self.name: Any = name
         self.value: Any = value
-        self.options: dict = options
+        self.options: dict[str, Any] = options
 
 
     def get_name(self) -> Any:
@@ -64,12 +64,12 @@ class MapEntry:
         return self.value
 
 
-    def has_option(self, option: dict) -> bool:
+    def has_option(self, option: dict[str, Any]) -> bool:
         """
         Check if the given option is present in the mapping entry's options
 
         Args:
-            option (dict): A dictionary representing the option to check
+            option (dict[str, Any]): A dictionary representing the option to check
 
         Returns:
             bool: True if the option is present in the mapping entry's options, otherwise False
@@ -77,11 +77,11 @@ class MapEntry:
         return option.items() <= self.get_options().items()
 
 
-    def get_options(self) -> dict:
+    def get_options(self) -> dict[str, Any]:
         """
         Get the options associated with this mapping entry.
 
         Returns:
-            dict: A dictionary of options associated with the entry.
+            dict[str, Any]: A dictionary of options associated with the entry.
         """
         return self.options

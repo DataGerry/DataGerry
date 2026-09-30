@@ -336,7 +336,7 @@ class CmdbType(CmdbDAO):
         return self.render_meta.summary.has_fields()
 
 
-    def get_nested_summaries(self) -> list[dict]:
+    def get_nested_summaries(self) -> list[dict[str, Any]]:
         """
         Collects the nested summaries of every reference field of the CmdbType
 
@@ -350,10 +350,10 @@ class CmdbType(CmdbDAO):
         override the CmdbType declares
 
         Returns:
-            list[dict]: Every nested-summary entry declared by the type's reference fields, in field
+            list[dict[str, Any]]: Every nested-summary entry declared by the type's reference fields, in field
                         order; empty when no reference field declares any
         """
-        nested_summaries: list[dict] = []
+        nested_summaries: list[dict[str, Any]] = []
 
         for field in self.get_fields():
             if field.get(FieldKey.TYPE.value) != FieldType.REFERENCE:
@@ -364,7 +364,7 @@ class CmdbType(CmdbDAO):
         return nested_summaries
 
 
-    def _nested_summary_for(self, nested_summaries: list[dict]) -> dict[str, Any] | None:
+    def _nested_summary_for(self, nested_summaries: list[dict[str, Any]]) -> dict[str, Any] | None:
         """
         Finds the nested-summary entry addressing this CmdbType
 
@@ -374,7 +374,7 @@ class CmdbType(CmdbDAO):
         with a default rather than by subscript
 
         Args:
-            nested_summaries (list[dict]): The reference field's ``summaries`` entries
+            nested_summaries (list[dict[str, Any]]): The reference field's ``summaries`` entries
 
         Returns:
             dict[str, Any] | None: The first entry whose ``type_id`` is this type's public_id, or None
@@ -385,7 +385,7 @@ class CmdbType(CmdbDAO):
         )
 
 
-    def has_nested_prefix(self, nested_summaries: list[dict]) -> str | bool:
+    def has_nested_prefix(self, nested_summaries: list[dict[str, Any]]) -> str | bool:
         """
         Checks if any of the nested summaries have a matching prefix for this instance
 
@@ -395,7 +395,7 @@ class CmdbType(CmdbDAO):
         entry without `prefix` answers the type write schema's default, `NESTED_SUMMARY_PREFIX_DEFAULT`
 
         Args:
-            nested_summaries (list[dict]): A list of nested summary dictionaries that may contain a `type_id`
+            nested_summaries (list[dict[str, Any]]): A list of nested summary dictionaries that may contain a `type_id`
                                             and `prefix` key
 
         Returns:
@@ -409,7 +409,7 @@ class CmdbType(CmdbDAO):
         return entry.get(NestedSummaryKey.PREFIX.value, NESTED_SUMMARY_PREFIX_DEFAULT)
 
 
-    def get_nested_summary_fields(self, nested_summaries: list[dict]) -> list[str]:
+    def get_nested_summary_fields(self, nested_summaries: list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Retrieves the fields from the nested summaries that match the current CmdbType's public_id
 
@@ -422,11 +422,12 @@ class CmdbType(CmdbDAO):
         normal state of a long-lived type and must not cost the caller the whole summary
 
         Args:
-            nested_summaries (list[dict]): A list of nested summary dictionaries containing `type_id` and `fields`
+            nested_summaries (list[dict[str, Any]]): A list of nested summary dictionaries containing `type_id`
+                                                     and `fields`
 
         Returns:
-            list[str]: The field definitions named by the matching nested summary, in its order, with
-                       names that no longer exist dropped
+            list[dict[str, Any]]: The field definitions named by the matching nested summary, in its
+                order, with names that no longer exist dropped
         """
         entry: dict[str, Any] | None = self._nested_summary_for(nested_summaries)
         field_names: list[str] = (entry.get(NestedSummaryKey.FIELDS.value) or []) if entry else []
@@ -434,7 +435,7 @@ class CmdbType(CmdbDAO):
         return TypeSummary(self._resolve_summary_fields(field_names)).fields
 
 
-    def get_nested_summary_line(self, nested_summaries: list[dict]) -> str | None:
+    def get_nested_summary_line(self, nested_summaries: list[dict[str, Any]]) -> str | None:
         """
         Retrieves the 'line' value from the nested summaries that match the current CmdbType's public_id
 
@@ -442,7 +443,8 @@ class CmdbType(CmdbDAO):
         or None when no entry addresses this type or the entry carries no `line`
 
         Args:
-            nested_summaries (list[dict]): A list of nested summary dictionaries containing `type_id` and `line`
+            nested_summaries (list[dict[str, Any]]): A list of nested summary dictionaries containing `type_id`
+                                                     and `line`
 
         Returns:
             str | None: The `line` value from the matching nested summary if found, otherwise `None`

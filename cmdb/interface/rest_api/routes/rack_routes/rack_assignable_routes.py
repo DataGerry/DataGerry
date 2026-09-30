@@ -35,7 +35,7 @@ from flask import request, abort
 from werkzeug import Response
 
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder import Builder, BuilderParameters
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -135,7 +135,7 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
         params.filter = append_criteria_to_filter(params.filter, criteria)
 
         if fetch_only_active_objects():
-            params.filter.append({'$match': {CmdbObjectKey.ACTIVE.value: {'$eq': True}}})
+            params.filter.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {'$eq': True}}))
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 

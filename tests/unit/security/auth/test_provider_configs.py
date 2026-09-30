@@ -26,7 +26,8 @@ these classes accept decides whether an administrator's saved LDAP settings surv
 """
 import pytest
 
-from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, PROVIDER_ACTIVE_KEY
+from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
 from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
 
 from cmdb.errors.provider import GroupMappingError
@@ -81,6 +82,36 @@ class TestBaseAuthProviderConfig:
 
         assert config.is_active() is True
         assert config.unexpected == 'value'
+
+
+class TestLocalConstruction:
+    """A missing `active` reads as the local provider's default, never as a falsy None."""
+
+    def test_a_config_built_from_nothing_is_active(self) -> None:
+        """A stored config written without the key is what `PROVIDER_CONFIG_CLASS(**stored)` passes."""
+        assert LocalAuthenticationProviderConfig(**{}).is_active() is True
+
+    def test_an_explicit_none_is_the_default_too(self) -> None:
+        """`{'active': null}` is the other shape an API client can store."""
+        assert LocalAuthenticationProviderConfig(active=None).is_active() is True
+
+    @pytest.mark.parametrize('active', [True, False])
+    def test_an_explicit_flag_is_kept(self, active: bool) -> None:
+        """Only an absent flag is defaulted; a stored False is still shown as False."""
+        assert LocalAuthenticationProviderConfig(active=active).is_active() is active
+
+    def test_the_default_comes_from_the_class_defaults(self) -> None:
+        """One source for the default - the value the settings page seeds a new section with."""
+        default = LocalAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES[PROVIDER_ACTIVE_KEY]
+
+        assert LocalAuthenticationProviderConfig().is_active() is default
+
+    def test_building_a_config_leaves_the_class_defaults_alone(self) -> None:
+        """The defaults dict is shared by every section that lacks an entry, so it must not change."""
+        before = dict(LocalAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES)
+        LocalAuthenticationProviderConfig(active=False)
+
+        assert LocalAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES == before
 
 
 class TestLdapConstruction:

@@ -16,6 +16,7 @@
 """
 Shared constants for the ISMS REST routes
 """
+from cmdb.utils import BaseStrEnum
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -39,6 +40,39 @@ MIN_CONFIGURED_RISK_CLASSES: int = 3
 MIN_CONFIGURED_LIKELIHOODS: int = 3
 MIN_CONFIGURED_IMPACTS: int = 3
 MIN_CONFIGURED_IMPACT_CATEGORIES: int = 1
+
+class IsmsConfigStatusKey(BaseStrEnum):
+    """
+    The sections of the readiness report answered by GET /isms/config/status
+
+    Response keys, not document keys: some share a spelling with a document key (`impacts`,
+    `risk_matrix`) but name a configuration section, so they are kept apart from the model enums
+    """
+    RISK_CLASSES = 'risk_classes'
+    LIKELIHOODS = 'likelihoods'
+    IMPACTS = 'impacts'
+    IMPACT_CATEGORIES = 'impact_categories'
+    RISK_MATRIX = 'risk_matrix'
+
+
+class BulkItemResultKey(BaseStrEnum):
+    """The keys of one per-item entry in an ISMS bulk-update response"""
+    PUBLIC_ID = 'public_id'
+    STATUS = 'status'
+    MESSAGE = 'message'
+
+
+class BulkItemStatus(BaseStrEnum):
+    """The outcome of one item in an ISMS bulk-update response"""
+    SUCCESS = 'success'
+    FAILED = 'failed'
+
+
+# The reasons a bulk-update item fails; the last two are filled with the entity label and the id
+BULK_ITEM_MISSING_ID_MSG: str = 'Missing public_id'
+BULK_ITEM_INVALID_ID_MSG: str = 'Invalid public_id'
+BULK_ITEM_NOT_FOUND_MSG: str = '{item_label} ID:{public_id} not found'
+BULK_ITEM_UPDATE_FAILED_MSG: str = 'Failed to update {item_label} ID: {public_id}'
 
 # Response keys shared by the ISMS bulk-delete routes (ControlMeasure, Vulnerability, Threat): the ids
 # that were deleted, and the ids that were skipped because they are still referenced elsewhere

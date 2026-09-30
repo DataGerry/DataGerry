@@ -41,20 +41,20 @@ class DocapiTemplate(TemplateManagementBase):
     def __init__(
         self,
         name: str,
-        label: str = None,
-        description: str = None,
+        label: str | None = None,
+        description: str | None = None,
         active: bool = True,
-        author_id: int = None,
-        template_data: str = None,
-        template_style: str = None,
-        template_type: DocapiTemplateType = None,
-        template_parameters = None,
-        header: dict[str, Any] = None,
-        footer: dict[str, Any] = None,
-        table_of_contents: dict[str, Any] = None,
-        cover_page: dict[str, Any] = None,
-        page_config: dict[str, Any] = None,
-        **kwargs
+        author_id: int | None = None,
+        template_data: str | None = None,
+        template_style: str | None = None,
+        template_type: DocapiTemplateType | None = None,
+        template_parameters: dict[str, Any] | None = None,
+        header: dict[str, Any] | None = None,
+        footer: dict[str, Any] | None = None,
+        table_of_contents: dict[str, Any] | None = None,
+        cover_page: dict[str, Any] | None = None,
+        page_config: dict[str, Any] | None = None,
+        **kwargs: Any
     ) -> None:
         """
         Args:
@@ -75,14 +75,14 @@ class DocapiTemplate(TemplateManagementBase):
             **kwargs: optional params
         """
         self.name: str = name
-        self.label: str = label
-        self.description: str = description
+        self.label: str | None = label
+        self.description: str | None = description
         self.active: bool = active
-        self.author_id: int = author_id
-        self.template_data: str = template_data
-        self.template_style: str = template_style
+        self.author_id: int | None = author_id
+        self.template_data: str | None = template_data
+        self.template_style: str | None = template_style
         self.template_type: DocapiTemplateType = template_type or DocapiTemplateType.OBJECT
-        self.template_parameters = template_parameters
+        self.template_parameters: dict[str, Any] | None = template_parameters
         self.header: dict[str, Any] = header or {}
         self.footer: dict[str, Any] = footer or {}
         self.table_of_contents: dict[str, Any] = table_of_contents or {}
@@ -93,12 +93,12 @@ class DocapiTemplate(TemplateManagementBase):
 
 
     @classmethod
-    def from_data(cls, data: dict) -> "DocapiTemplate":
+    def from_data(cls, data: dict[str, Any]) -> "DocapiTemplate":
         """
         Initialises a DocapiTemplate from a dict
 
         Args:
-            data (dict): Data with which the DocapiTemplate should be initialised
+            data (dict[str, Any]): Data with which the DocapiTemplate should be initialised
 
         Returns:
             DocapiTemplate: DocapiTemplate with the given data
@@ -123,7 +123,7 @@ class DocapiTemplate(TemplateManagementBase):
 
 
     @classmethod
-    def to_json(cls, instance: "DocapiTemplate") -> dict:
+    def to_json(cls, instance: "DocapiTemplate") -> dict[str, Any]:
         """
         Converts a DocapiTemplate into a json compatible dict
 
@@ -131,7 +131,7 @@ class DocapiTemplate(TemplateManagementBase):
             instance (DocapiTemplate): The DocapiTemplate which should be converted
 
         Returns:
-            dict: Json compatible dict of the DocapiTemplate values
+            dict[str, Any]: Json compatible dict of the DocapiTemplate values
         """
         return {
             DocapiTemplateKey.PUBLIC_ID: instance.public_id,
@@ -221,22 +221,22 @@ class DocapiTemplate(TemplateManagementBase):
         return self.author_id
 
 
-    def get_template_data(self) -> str:
+    def get_template_data(self) -> str | None:
         """
         Get the template data
         
         Returns:
-            str: Template data or None if not set
+            str | None: Template data or None if not set
         """
         return self.template_data
 
 
-    def get_template_style(self) -> str:
+    def get_template_style(self) -> str | None:
         """
         Get the style of this template
         
         Returns:
-            Template style if set else None
+            str | None: Template style if set else None
         """
         return self.template_style
 

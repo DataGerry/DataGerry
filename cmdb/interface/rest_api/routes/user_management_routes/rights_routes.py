@@ -38,6 +38,7 @@ the group form reads it - so the right that opens those screens is the one that 
 holding a wildcard above it (`base.user-management.group.*`, `base.user-management.*`, `base.*`)
 reaches it the same way.
 """
+from typing import Any
 from logging import Logger, getLogger
 
 from flask import request, abort
@@ -130,7 +131,7 @@ def get_rights(params: CollectionParameters, request_user: CmdbUser) -> Response
         order=params.order,
     )
 
-    rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
+    rights: list[dict[str, Any]] = [BaseRight.to_dict(right) for right in iteration_result.results]
 
     api_response = GetMultiResponse(rights,
                                     total=iteration_result.total,
@@ -195,7 +196,7 @@ def get_rights_overview(params: CollectionParameters, request_user: CmdbUser) ->
         search=params.optional.get(ParameterKey.SEARCH.value),
     )
 
-    rights: list[dict] = [BaseRight.to_dict(right) for right in iteration_result.results]
+    rights: list[dict[str, Any]] = [BaseRight.to_dict(right) for right in iteration_result.results]
     holders = resolve_right_holders(groups_manager, [right[RightHolderKey.NAME.value] for right in rights])
 
     api_response = GetMultiResponse(with_right_holders(rights, holders),

@@ -27,6 +27,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsProtectionGoal
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -83,14 +84,16 @@ def insert_isms_protection_goal(data: dict[str, Any], request_user: CmdbUser) ->
                                                                             request_user
                                                                          )
 
-        if data.get('predefined'):
+        if data.get(ProtectionGoalKey.PREDEFINED.value):
             abort(400, "Predefined ProtectionGoals cannot be created via API!")
 
         #Check if a ProtectionGoal with the name already exists
-        goal_with_name = protection_goal_manager.get_one_by({'name': data.get('name')})
+        goal_with_name = protection_goal_manager.get_one_by(
+            {ProtectionGoalKey.NAME.value: data.get(ProtectionGoalKey.NAME.value)}
+        )
 
         if goal_with_name:
-            abort(400, f"A ProtectionGoal with the name {data.get('name')} already exists!")
+            abort(400, f"A ProtectionGoal with the name {data.get(ProtectionGoalKey.NAME.value)} already exists!")
 
         result_id = protection_goal_manager.insert_item(data)
 
@@ -215,17 +218,19 @@ def update_isms_protection_goal(public_id: int, data: dict[str, Any], request_us
                                                             f"The ProtectionGoal with ID:{public_id} was not found!",
                                                             as_dict=False)
 
-        if data.get('predefined') != to_update_protection_goal.predefined:
+        if data.get(ProtectionGoalKey.PREDEFINED.value) != to_update_protection_goal.predefined:
             abort(400, "The predefined property of ProtectionGoals cannot be edited!")
 
         if to_update_protection_goal.predefined is True:
             abort(400, "The predefined ProtectionGoals can not be edited!")
 
         # Reject only if a DIFFERENT ProtectionGoal already uses the new name (exclude this one)
-        goal_with_name = protection_goal_manager.get_one_by({'name': data.get('name')})
+        goal_with_name = protection_goal_manager.get_one_by(
+            {ProtectionGoalKey.NAME.value: data.get(ProtectionGoalKey.NAME.value)}
+        )
 
-        if goal_with_name and goal_with_name.get('public_id') != public_id:
-            abort(400, f"A ProtectionGoal with the name {data.get('name')} already exists!")
+        if goal_with_name and goal_with_name.get(ProtectionGoalKey.PUBLIC_ID.value) != public_id:
+            abort(400, f"A ProtectionGoal with the name {data.get(ProtectionGoalKey.NAME.value)} already exists!")
 
         # The URL owns the identity: a body public_id would otherwise be $set onto the document
 

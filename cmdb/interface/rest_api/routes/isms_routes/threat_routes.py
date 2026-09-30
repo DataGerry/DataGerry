@@ -91,7 +91,7 @@ def insert_isms_threat(data: dict[str, Any], request_user: CmdbUser) -> Response
 
         result_id: int = threat_manager.insert_item(data)
 
-        created_threat: dict = threat_manager.get_item(result_id, as_dict=True)
+        created_threat: dict[str, Any] | None = threat_manager.get_item(result_id, as_dict=True)
 
         if not created_threat:
             abort(404, "Could not retrieve the created Threat from the database!")

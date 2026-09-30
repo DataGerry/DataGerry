@@ -35,9 +35,11 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
-from cmdb.models.isms_model.isms_risk_assessment_constants import CONTROL_MEASURE_ASSIGNMENTS_KEY
+from cmdb.models.isms_model.isms_risk_assessment_constants import CONTROL_MEASURE_ASSIGNMENTS_KEY, RiskAssessmentKey
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -83,13 +85,13 @@ def _coerce_costs_for_implementation(data: dict[str, Any]) -> None:
     Args:
         data (dict[str, Any]): The request body holding the costs_for_implementation to normalise
     """
-    costs = data.get('costs_for_implementation')
+    costs = data.get(RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value)
 
     if costs is None:
         return
 
     try:
-        data['costs_for_implementation'] = float(f"{float(costs):.2f}")
+        data[RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value] = float(f"{float(costs):.2f}")
     except Exception:
         abort(400, "The 'Cost for Implementation' could not be converted to a float!")
 
@@ -205,7 +207,7 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
 
         # Create all provided ControlMeasureAssignments (each linked to this RiskAssessment)
         for cma in cm_assignments:
-            cma['risk_assessment_id'] = result_id
+            cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = result_id
             cm_assignment_manager.insert_item(cma)
 
         created_risk_assessment = risk_assessment_manager.get_item(result_id, as_dict=True)
@@ -279,7 +281,7 @@ def duplicate_isms_risk_assessment(
         data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, None)
 
         # Extract the public_id
-        initial_risk_assessment_id = data.pop('public_id', None)
+        initial_risk_assessment_id = data.pop(RiskAssessmentKey.PUBLIC_ID.value, None)
 
         if not initial_risk_assessment_id:
             abort(400, "Missing 'public_id' of the source RiskAssessment in request body!")
@@ -290,9 +292,10 @@ def duplicate_isms_risk_assessment(
             abort(400, "No valid public_ids were provided for duplication.")
 
         # The duplicate mode depends only on the source payload, not the targets, so validate it once
-        if duplicate_mode == "object" and data.get('object_id_ref_type') != ObjectReferenceType.OBJECT:
+        source_ref_type = data.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value)
+        if duplicate_mode == "object" and source_ref_type != ObjectReferenceType.OBJECT:
             abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
-        if duplicate_mode == "object_group" and data.get('object_id_ref_type') != ObjectReferenceType.OBJECT_GROUP:
+        if duplicate_mode == "object_group" and source_ref_type != ObjectReferenceType.OBJECT_GROUP:
             abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
 
         risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
@@ -329,8 +332,8 @@ def duplicate_isms_risk_assessment(
                 new_assignments = []
                 for assignment in original_assignments:
                     new_assignment = assignment.copy()
-                    new_assignment.pop('public_id', None)
-                    new_assignment['risk_assessment_id'] = new_risk_assessment_id
+                    new_assignment.pop(ControlMeasureAssignmentKey.PUBLIC_ID.value, None)
+                    new_assignment[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = new_risk_assessment_id
                     new_assignments.append(new_assignment)
 
                 cma_manager.insert_many_items(new_assignments)
@@ -394,10 +397,10 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
 
         for clause in clauses:
             if 'object_id' in clause:
-                object_id = clause['object_id']
+                object_id = clause[RiskAssessmentKey.OBJECT_ID.value]
 
             if 'object_id_ref_type' in clause:
-                ref_type = clause['object_id_ref_type']
+                ref_type = clause[RiskAssessmentKey.OBJECT_ID_REF_TYPE.value]
 
         # STEP 2: Enhance the filter if object_id was found
         if object_id is not None and ref_type == ObjectReferenceType.OBJECT:
@@ -416,9 +419,10 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
                 # STEP 3: Build enhanced filter
                 params.filter = {
                     '$or': [
-                        {'$and': [{'object_id_ref_type': ref_type}, {'object_id': object_id}]},
-                        {'$and': [{'object_id_ref_type': ObjectReferenceType.OBJECT_GROUP},
-                                  {'object_id': {'$in': all_group_ids}}]}
+                        {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ref_type},
+                                  {RiskAssessmentKey.OBJECT_ID.value: object_id}]},
+                        {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT_GROUP},
+                                  {RiskAssessmentKey.OBJECT_ID.value: {'$in': all_group_ids}}]}
                     ]
                 }
 
@@ -451,8 +455,8 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
 
         # Bulk fetch metadata
         risks = {
-            r['public_id']: r['name'] for r in
-            risk_manager.find_all(criteria={'public_id': {'$in': list(risk_ids)}})
+            r[RiskKey.PUBLIC_ID.value]: r[RiskKey.NAME.value] for r in
+            risk_manager.find_all(criteria={RiskKey.PUBLIC_ID.value: {'$in': list(risk_ids)}})
         }
         object_groups = {
             g['public_id']: g['name'] for g in
@@ -582,7 +586,7 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
         _coerce_costs_for_implementation(data)
 
         # Handle ControlMeasureAssignments (a dict of created / updated / deleted entries)
-        cm_assignments: dict = data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, {}) or {}
+        cm_assignments: dict[str, Any] = data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, {}) or {}
 
         # Reject unknown ControlMeasure references (created + updated) before applying any change
         referenced_assignments = cm_assignments.get('created', []) + cm_assignments.get('updated', [])
@@ -596,23 +600,24 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
 
         if cm_assignments.get('updated') or cm_assignments.get('deleted'):
             owned_cma_ids = {
-                cma['public_id'] for cma in risk_assessment_manager.get_many_from_other_collection(
+                cma[ControlMeasureAssignmentKey.PUBLIC_ID.value]
+                for cma in risk_assessment_manager.get_many_from_other_collection(
                     IsmsControlMeasureAssignment.COLLECTION, risk_assessment_id=public_id)
             }
 
         # Handle created ControlMeasureAssignments (each is linked to this RiskAssessment)
         for created_cma in cm_assignments.get('created', []):
-            created_cma['risk_assessment_id'] = public_id
+            created_cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = public_id
             cm_assignment_manager.insert_item(created_cma)
 
         # Handle updated ControlMeasureAssignments (only those belonging to this RiskAssessment)
         for updated_cma in cm_assignments.get('updated', []):
-            cma_id = updated_cma.get('public_id')
+            cma_id = updated_cma.get(ControlMeasureAssignmentKey.PUBLIC_ID.value)
 
             if cma_id not in owned_cma_ids:
                 abort(400, f"ControlMeasureAssignment ID:{cma_id} is not linked to RiskAssessment ID:{public_id}!")
 
-            updated_cma['risk_assessment_id'] = public_id
+            updated_cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = public_id
             cm_assignment_manager.update_item(cma_id, IsmsControlMeasureAssignment.from_data(updated_cma))
 
         # Handle deleted ControlMeasureAssignments (only those belonging to this RiskAssessment)

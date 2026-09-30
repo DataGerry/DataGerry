@@ -93,7 +93,7 @@ def insert_isms_control_measure(data: dict[str, Any], request_user: CmdbUser) ->
         # here: the schema accepts null and a null is an empty cell in the report, not a third state
         result_id: int = control_measure_manager.insert_item(IsmsControlMeasure.normalize_is_applicable(data))
 
-        created_control_measure: dict = control_measure_manager.get_item(result_id, as_dict=True)
+        created_control_measure: dict[str, Any] | None = control_measure_manager.get_item(result_id, as_dict=True)
 
         if not created_control_measure:
             abort(404, "Could not retrieve the created ControlMeasure from the database!")

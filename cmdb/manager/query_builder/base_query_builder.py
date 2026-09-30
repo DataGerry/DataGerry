@@ -17,12 +17,11 @@
 Implementation of BaseQueryBuilder
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import build_acl_pipeline
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 
 from .builder import Builder
 from .builder_parameters import BuilderParameters
@@ -42,11 +41,11 @@ class BaseQueryBuilder(Builder):
     storing them as a list of dictionaries
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         """
         Initializes the BaseQueryBuilder
         """
-        self.query: list[dict] = []
+        self.query: list[dict[str, Any]] = []
         super().__init__()
 
 
@@ -58,8 +57,8 @@ class BaseQueryBuilder(Builder):
 
     def build(self,
               builder_params: BuilderParameters,
-              user: CmdbUser = None,
-              permission: AccessControlPermission = None) -> list[dict]:
+              user: CmdbUser | None = None,
+              permission: AccessControlPermission | None = None) -> list[dict[str, Any]]:
         """
         Converts the parameters from the call to a MongoDB aggregation pipeline
 
@@ -74,7 +73,7 @@ class BaseQueryBuilder(Builder):
         the user is allowed to see. Filtering first also shrinks the set that has to be sorted.
 
         Returns:
-            list[dict]: The build query
+            list[dict[str, Any]]: The build query
         """
         self.query = self.__init_query(builder_params.get_criteria())
 
@@ -92,17 +91,19 @@ class BaseQueryBuilder(Builder):
 
 
     def count(self,
-              criteria: dict | list[dict],
-              user: CmdbUser = None,
-              permission: AccessControlPermission = None) -> list[dict]:
+              criteria: dict[str, Any] | list[dict[str, Any]],
+              user: CmdbUser | None = None,
+              permission: AccessControlPermission | None = None) -> list[dict[str, Any]]:
         """
         Count the number of documents
 
         Args:
-            criteria: Filter for documents
+            criteria (dict[str, Any] | list[dict[str, Any]]): Filter for documents
+            user (CmdbUser | None): The user the ACL stages are built for
+            permission (AccessControlPermission | None): The permission the ACL stages check
 
         Returns:
-            Query with count stages
+            list[dict[str, Any]]: Query with count stages
         """
         self.query = self.__init_query(criteria)
 
@@ -116,8 +117,12 @@ class BaseQueryBuilder(Builder):
 # ------------------------------------------------- HELPER - SECTION ------------------------------------------------- #
 
     def clear(self) -> None:
-        """`Delete` the query content"""
-        self.query = None
+        """
+        Resets the query to an empty stage list, the state the constructor starts from
+
+        The attribute stays a list, so `len(builder)` and appending a stage keep working after a clear
+        """
+        self.query = []
 
 
     def _append_sort_stage(self, sort_key: str, sort_order: int) -> None:
@@ -139,53 +144,52 @@ class BaseQueryBuilder(Builder):
         if sort_key and sort_key.startswith(SortPipeline.FIELDS_PREFIX):
             field_name = sort_key[len(SortPipeline.FIELDS_PREFIX):]
 
-            self.query.append({
-                '$addFields': {
-                    SortPipeline.TEMP_KEY: {
-                        '$toLower': {
-                            '$convert': {
-                                'input': {
-                                    '$first': {
-                                        '$map': {
-                                            'input': {
-                                                '$filter': {
-                                                    'input': '$fields',
-                                                    'as': 'f',
-                                                    'cond': {'$eq': ['$$f.name', field_name]},
-                                                }
-                                            },
-                                            'as': 'f',
-                                            'in': '$$f.value',
-                                        }
+            self.query.append(self.add_fields_({
+                SortPipeline.TEMP_KEY: {
+                    '$toLower': {
+                        '$convert': {
+                            'input': {
+                                '$first': {
+                                    '$map': {
+                                        'input': {
+                                            '$filter': {
+                                                'input': '$fields',
+                                                'as': 'f',
+                                                'cond': {'$eq': ['$$f.name', field_name]},
+                                            }
+                                        },
+                                        'as': 'f',
+                                        'in': '$$f.value',
                                     }
-                                },
-                                'to': 'string',
-                                'onError': '',
-                                'onNull': '',
-                            }
+                                }
+                            },
+                            'to': 'string',
+                            'onError': '',
+                            'onNull': '',
                         }
                     }
                 }
-            })
-            self.query.append({'$sort': {SortPipeline.TEMP_KEY: sort_order, 'public_id': 1}})
-            self.query.append({'$project': {SortPipeline.TEMP_KEY: 0}})
+            }))
+            self.query.append(self.sort_({SortPipeline.TEMP_KEY: sort_order, 'public_id': 1}))
+            self.query.append(self.project_({SortPipeline.TEMP_KEY: 0}))
             return
 
         self.query.append(self.sort_(sort_key, sort_order))
 
 
-    def __init_query(self, criteria: dict | list[dict]) -> list[dict]:
+    def __init_query(self, criteria: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Initialises the query with valid format
 
+        Builds a fresh list and leaves `self.query` untouched; `build` and `count` assign the result
+
         Args:
-            criteria (dict | list[dict]): Filter which should be applied
+            criteria (dict[str, Any] | list[dict[str, Any]]): Filter which should be applied
 
         Returns:
-            list[dict]: The initialised query
+            list[dict[str, Any]]: The initialised query
         """
-        self.clear()
-        query: list[dict] = []
+        query: list[dict[str, Any]] = []
 
         if isinstance(criteria, dict):
             query.append(self.match_(criteria))
@@ -193,45 +197,5 @@ class BaseQueryBuilder(Builder):
         elif isinstance(criteria, list):
             for pipe in criteria:
                 query.append(pipe)
-
-        return query
-
-
-    def prepare_log_query(self, object_exists: bool = True) -> list[dict]:
-        """
-        Prepares the query for logs
-
-        Args:
-            object_exists (bool): If the referenced object of the log still exists
-
-        Returns:
-            list[dict]: the prepared query for object logs
-        """
-        query = []
-
-        query.append({'$match': {
-            'log_type': CmdbObjectLog.__name__,
-            'action': {
-                '$ne': LogAction.DELETE.value
-            }
-        }})
-
-        # Only the existence of the referenced object matters here, so the lookup sub-pipeline
-        # caps at a single id-only document instead of hauling each full object into memory
-        query.append({
-            "$lookup": {
-                "from": "framework.objects",
-                "localField": "object_id",
-                "foreignField": "public_id",
-                "as": "object",
-                "pipeline": [
-                    {"$limit": 1},
-                    {"$project": {"_id": 1}},
-                ],
-            }
-        })
-
-        query.append({'$unwind': {'path': '$object', 'preserveNullAndEmptyArrays': True}})
-        query.append({'$match': {'object': {'$exists': object_exists}}})
 
         return query

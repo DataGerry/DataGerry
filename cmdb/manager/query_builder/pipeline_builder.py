@@ -17,6 +17,7 @@
 Implementation of PipelineBuilder
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.manager.query_builder.builder import Builder
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -36,15 +37,15 @@ class PipelineBuilder(Builder):
     Extends: Builder
     """
 
-    def __init__(self, pipeline: list[dict] = None):
+    def __init__(self, pipeline: list[dict[str, Any]] | None = None) -> None:
         """
         Initializes the PipelineBuilder
 
         Args:
-            pipeline (list[dict], optional): A predefined pipeline to initialize with.
+            pipeline (list[dict[str, Any]] | None): A predefined pipeline to initialize with.
                                              Defaults to an empty list
         """
-        self._pipeline = pipeline if pipeline is not None else []
+        self._pipeline: list[dict[str, Any]] = pipeline if pipeline is not None else []
 
 
     def __len__(self) -> int:
@@ -57,7 +58,7 @@ class PipelineBuilder(Builder):
         return len(self.pipeline)
 
 
-    def clear(self):
+    def clear(self) -> None:
         """
         Clears the pipeline, removing all stages
         """
@@ -65,38 +66,38 @@ class PipelineBuilder(Builder):
 
 
     @property
-    def pipeline(self) -> list[dict]:
+    def pipeline(self) -> list[dict[str, Any]]:
         """
         Retrieves the current aggregation pipeline
 
         Returns:
-            list[dict]: The list of pipeline stages
+            list[dict[str, Any]]: The list of pipeline stages
         """
         return self._pipeline
 
 
     @pipeline.setter
-    def pipeline(self, pipes: list[dict]):
+    def pipeline(self, pipes: list[dict[str, Any]]) -> None:
         """
         Sets a new aggregation pipeline
 
         Args:
-            pipes (list[dict]): A list of pipeline stages
+            pipes (list[dict[str, Any]]): A list of pipeline stages
         """
         self._pipeline = pipes
 
 
-    def add_pipe(self, pipe: dict):
+    def add_pipe(self, pipe: dict[str, Any]) -> None:
         """
         Adds a new stage to the pipeline
 
         Args:
-            pipe (dict): The pipeline stage to add
+            pipe (dict[str, Any]): The pipeline stage to add
         """
         self._pipeline.append(pipe)
 
 
-    def build(self, *args, **kwargs) -> list[dict]:
+    def build(self, *args: Any, **kwargs: Any) -> list[dict[str, Any]]:
         """
         Constructs and returns the aggregation pipeline
 
@@ -104,6 +105,6 @@ class PipelineBuilder(Builder):
             NotImplementedError: This method should be implemented by subclasses
 
         Returns:
-            list[dict]: The constructed pipeline (if implemented)
+            list[dict[str, Any]]: The constructed pipeline (if implemented)
         """
         raise NotImplementedError("Subclasses must implement the build method.")

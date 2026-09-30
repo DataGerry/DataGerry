@@ -200,6 +200,51 @@ class TestTheBuilderProtocol:
         assert len(builder) == len(builder.query)
 
 
+CLEAR_CRITERIA: dict[str, Any] = {'public_id': 1}
+APPENDED_STAGE: dict[str, Any] = {'$limit': 1}
+
+
+class TestClear:
+    """`clear` resets the builder to the state the constructor starts from."""
+
+    def _built_builder(self) -> BaseQueryBuilder:
+        """A builder that already holds a built pipeline."""
+        builder = BaseQueryBuilder()
+        builder.build(BuilderParameters(criteria=CLEAR_CRITERIA, sort=PUBLIC_ID_FIELD, order=1))
+        return builder
+
+    def test_a_cleared_builder_holds_an_empty_list(self) -> None:
+        """`== []`, not falsiness: None is falsy too and was what `clear` used to leave behind."""
+        builder = self._built_builder()
+        builder.clear()
+
+        assert isinstance(builder.query, list)
+        assert builder.query == []  # pylint: disable=use-implicit-booleaness-not-comparison
+
+    def test_a_cleared_builder_reports_no_stages(self) -> None:
+        """`len` reads the stage list, so it has to stay a list for the length to be answerable."""
+        builder = self._built_builder()
+        builder.clear()
+
+        assert len(builder) == 0
+
+    def test_a_stage_can_be_appended_after_a_clear(self) -> None:
+        """The point of clearing is reuse - the next stage must land in a usable list."""
+        builder = self._built_builder()
+        builder.clear()
+        builder.query.append(APPENDED_STAGE)
+
+        assert builder.query == [APPENDED_STAGE]
+
+    def test_a_build_after_a_clear_matches_a_fresh_builder(self) -> None:
+        """Nothing of the cleared pipeline may leak into the next one."""
+        params = BuilderParameters(criteria=CLEAR_CRITERIA, sort=PUBLIC_ID_FIELD, order=1)
+        builder = self._built_builder()
+        builder.clear()
+
+        assert builder.build(params) == BaseQueryBuilder().build(params)
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                     how a criteria becomes stages                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #

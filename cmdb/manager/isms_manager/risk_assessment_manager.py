@@ -31,6 +31,9 @@ from cmdb.models.isms_model import (
     IsmsLikelihood,
 )
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.models.isms_model.isms_impact_constants import ImpactKey
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
 
 from cmdb.errors.manager.risk_assessment_manager import RISK_ASSESMENT_MANAGER_ERRORS
 from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerDeleteError
@@ -47,7 +50,14 @@ class RiskAssessmentManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the RiskAssessmentManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsRiskAssessment, RISK_ASSESMENT_MANAGER_ERRORS, database)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
@@ -64,8 +74,8 @@ class RiskAssessmentManager(GenericManager):
         Args:
             data (dict[str, Any]): The RiskAssessment payload to normalise in place
         """
-        impact_basis = load_calculation_basis(self.dbm, self.db_name, IsmsImpact.COLLECTION)
-        likelihood_basis = load_calculation_basis(self.dbm, self.db_name, IsmsLikelihood.COLLECTION)
+        impact_basis = load_calculation_basis(self.dbm, self.db_name, IsmsImpact.COLLECTION, ImpactKey)
+        likelihood_basis = load_calculation_basis(self.dbm, self.db_name, IsmsLikelihood.COLLECTION, LikelihoodKey)
 
         for matrix_key in RISK_CALCULATION_MATRIX_KEYS:
             matrix = data.get(matrix_key.value)
@@ -103,7 +113,7 @@ class RiskAssessmentManager(GenericManager):
             # it in a single cross-collection delete rather than one delete per assignment
             self.delete_many_from_other_collection(
                 IsmsControlMeasureAssignment.COLLECTION,
-                {'risk_assessment_id': public_id}
+                {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: public_id}
             )
 
             return self.delete_item(public_id)

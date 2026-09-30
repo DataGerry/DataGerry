@@ -42,6 +42,7 @@ from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManager
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 from cmdb.interface.rest_api.routes import auth_helper, auth_routes
 from cmdb.security.auth.auth_settings_masking import MASKED_SECRET
+from cmdb.security.auth.base_provider_config import PROVIDER_ACTIVE_KEY
 from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID as AUTH_SETTINGS_SECTION
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -49,6 +50,7 @@ LOGIN_URL: str = '/auth/login'
 SETTINGS_URL: str = '/auth/settings'
 PROVIDERS_URL: str = '/auth/providers'
 LDAP_PROVIDER: str = 'LdapAuthenticationProvider'
+LOCAL_PROVIDER: str = 'LocalAuthenticationProvider'
 
 CLOUD_USER_ID: int = 99101
 
@@ -305,6 +307,18 @@ class TestCloudLogin:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            SETTINGS / PROVIDERS                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
+@pytest.fixture(name='restore_auth_section')
+def fixture_restore_auth_section(database_manager: MongoDatabaseManager, database_name: str):
+    """Puts the stored auth section back exactly as it was, or removes it if there was none."""
+    collection = database_manager.get_collection(SettingsManager.COLLECTION, database_name)
+    before = collection.find_one({'_id': AUTH_SETTINGS_SECTION})
+    yield
+    if before is None:
+        collection.delete_one({'_id': AUTH_SETTINGS_SECTION})
+    else:
+        collection.replace_one({'_id': AUTH_SETTINGS_SECTION}, before, upsert=True)
+
+
 class TestAuthSettingsAndProviders:
     """The /auth/settings and /auth/providers read + update routes."""
 
@@ -373,6 +387,7 @@ class TestAuthSettingsAndProviders:
 
         assert body['connection_config']['password'] == MASKED_SECRET
 
+    @pytest.mark.usefixtures('restore_auth_section')
     def test_the_real_password_survives_a_read_modify_write(self, rest_api) -> None:
         """
         The half that makes masking safe
@@ -403,6 +418,7 @@ class TestAuthSettingsAndProviders:
         assert before != MASKED_SECRET
         assert settings_manager.get_all_values_from_section(AUTH_SETTINGS_SECTION)['token_lifetime'] == 4242
 
+    @pytest.mark.usefixtures('restore_auth_section')
     def test_a_deliberate_password_change_is_written(self, rest_api) -> None:
         """A real value at the secret path is a change, not a mask, and must be stored."""
         served = rest_api.get(SETTINGS_URL).get_json()
@@ -418,6 +434,7 @@ class TestAuthSettingsAndProviders:
 
         assert stored_ldap['config']['connection_config']['password'] == 'a-deliberately-new-password'
 
+    @pytest.mark.usefixtures('restore_auth_section')
     def test_the_update_response_is_masked_too(self, rest_api) -> None:
         """The update echoes the stored section back, which is a third read of the same credential."""
         served = rest_api.get(SETTINGS_URL).get_json()
@@ -453,18 +470,53 @@ class TestAuthSettingsAndProviders:
         assert rest_api.post(SETTINGS_URL, json={'providers': [], 'enable_external': False,
                                                  'token_lifetime': 1440}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_update_auth_settings_success(self, rest_api, database_manager: MongoDatabaseManager,
-                                          database_name: str) -> None:
+    @pytest.mark.usefixtures('restore_auth_section')
+    def test_update_auth_settings_success(self, rest_api) -> None:
         """A valid update persists and echoes the auth settings; the section is restored afterwards."""
-        collection = database_manager.get_collection(SettingsManager.COLLECTION, database_name)
-        original = collection.find_one({'_id': 'auth'})
-        try:
-            response = rest_api.post(SETTINGS_URL, json={'providers': [], 'enable_external': False,
-                                                         'token_lifetime': 1440})
+        response = rest_api.post(SETTINGS_URL, json={'providers': [], 'enable_external': False,
+                                                     'token_lifetime': 1440})
 
-            assert response.status_code == HTTPStatus.OK
-        finally:
-            if original is not None:
-                collection.replace_one({'_id': 'auth'}, original, upsert=True)
-            else:
-                collection.delete_one({'_id': 'auth'})
+        assert response.status_code == HTTPStatus.OK
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         THE LOCAL PROVIDER'S ACTIVE FLAG                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _local_entry(body: dict) -> dict:
+    """The local provider's entry of an auth settings body."""
+    return next(entry for entry in body['providers'] if entry['class_name'] == LOCAL_PROVIDER)
+
+
+@pytest.mark.usefixtures('restore_auth_section')
+class TestLocalProviderActiveFlag:
+    """A local config stored without its flag is served as active, not as `active: null`."""
+
+    @pytest.mark.parametrize('local_config', [{}, {PROVIDER_ACTIVE_KEY: None}], ids=['missing', 'null'])
+    def test_a_saved_config_without_a_flag_reads_back_active(self, rest_api, local_config: dict) -> None:
+        """The settings page shows this checkbox and posts it back, so a null would keep itself alive."""
+        served = rest_api.get(SETTINGS_URL).get_json()
+        _local_entry(served)['config'] = local_config
+
+        assert rest_api.post(SETTINGS_URL, json=served).status_code == HTTPStatus.OK
+
+        assert _local_entry(rest_api.get(SETTINGS_URL).get_json())['config'][PROVIDER_ACTIVE_KEY] is True
+
+    def test_the_provider_config_route_reads_it_active_too(self, rest_api) -> None:
+        """The second read path builds the provider, and its config, the same way."""
+        served = rest_api.get(SETTINGS_URL).get_json()
+        _local_entry(served)['config'] = {}
+        rest_api.post(SETTINGS_URL, json=served)
+
+        body = rest_api.get(f'{PROVIDERS_URL}/{LOCAL_PROVIDER}').get_json()
+
+        assert body[PROVIDER_ACTIVE_KEY] is True
+
+    def test_login_works_with_the_local_provider_configured_inactive(self, rest_api) -> None:
+        """Local login is the way back in: a stored False does not lock the admin out."""
+        served = rest_api.get(SETTINGS_URL).get_json()
+        _local_entry(served)['config'] = {PROVIDER_ACTIVE_KEY: False}
+        rest_api.post(SETTINGS_URL, json=served)
+
+        response = rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'})
+
+        assert response.status_code == HTTPStatus.OK

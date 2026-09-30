@@ -21,9 +21,11 @@ from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.query_builder import Builder
 from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk
 
 from cmdb.models.isms_model import IsmsThreat, IsmsRisk
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
 from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.threat_manager import THREAT_MANAGER_ERRORS
@@ -45,7 +47,14 @@ class ThreatManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the ThreatManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsThreat, THREAT_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -97,10 +106,10 @@ class ThreatManager(GenericManager):
             return set()
 
         pipeline: list[dict[str, Any]] = [
-            {'$match': {'threats': {'$in': public_ids}}},
-            {'$unwind': '$threats'},
-            {'$match': {'threats': {'$in': public_ids}}},
-            {'$group': {'_id': '$threats'}},
+            Builder.match_({RiskKey.THREATS.value: {'$in': public_ids}}),
+            Builder.unwind_(f'${RiskKey.THREATS.value}'),
+            Builder.match_({RiskKey.THREATS.value: {'$in': public_ids}}),
+            Builder.group_(f'${RiskKey.THREATS.value}'),
         ]
 
         try:

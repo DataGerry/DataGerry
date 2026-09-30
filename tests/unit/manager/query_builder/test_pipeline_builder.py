@@ -16,15 +16,13 @@
 """
 Unit tests for PipelineBuilder
 
-The base of every aggregation builder in the manager layer - `SearchPipelineBuilder`,
-`QuickSearchPipelineBuilder` and, through `BaseQueryBuilder`,
-every paged read. It owns the stage list itself: appending to it, replacing it, clearing it and
-reporting its length.
+The base of the search builders, `SearchPipelineBuilder` and `QuickSearchPipelineBuilder`. The paged
+reads use `BaseQueryBuilder`, which extends `Builder` directly and keeps its own stage list. This
+builder owns its stage list: appending to it, replacing it, clearing it and reporting its length.
 
 `__len__` and `clear` have no obvious caller, which makes them look like dead code. They are not:
-`Builder` declares `__len__` **abstract**, so removing it makes every concrete builder
-uninstantiable, and `BaseQueryBuilder.clear` delegates here. Both are tested below so a caller-grep
-does not lead to their removal.
+`Builder` declares both **abstract**, so removing either makes this builder and its subclasses
+uninstantiable. Both are tested below so a caller-grep does not lead to their removal.
 """
 import pytest
 
@@ -77,7 +75,7 @@ class TestClear:
     """Emptying the builder for reuse."""
 
     def test_clear_empties_the_pipeline(self) -> None:
-        """`BaseQueryBuilder.clear` delegates here - this is not an unused convenience."""
+        """`Builder` declares `clear` abstract - this is not an unused convenience."""
         builder = PipelineBuilder([MATCH_STAGE, LIMIT_STAGE])
         builder.clear()
 

@@ -58,12 +58,12 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     PREVIEW_LIMIT,
     PREVIEW_PARAM,
     REPORT_CONDITIONS_INVALID_MSG,
+    REPORT_ENTITY_LABEL,
     REPORT_RETRIEVE_FAILED_MSG,
     ReportKey,
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
-    read_report_write_payload,
     build_report_create_payload,
     build_report_update_payload,
     load_report_or_404,
@@ -80,7 +80,11 @@ from cmdb.errors.manager.reports_manager import (
     ReportsManagerUpdateError,
     ReportsManagerDeleteError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import (
+    build_searchable_builder_params,
+    read_write_payload,
+    request_wants_body,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -127,7 +131,7 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
         payload: dict[str, Any] = build_report_create_payload(
-            reports_manager, read_report_write_payload(params),
+            reports_manager, read_write_payload(params, REPORT_ENTITY_LABEL),
         )
 
         new_report_id: int = reports_manager.insert_item(payload)
@@ -353,7 +357,7 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
         current_report: dict[str, Any] = load_report_or_404(reports_manager, public_id)
 
         payload: dict[str, Any] = build_report_update_payload(
-            reports_manager, read_report_write_payload(params), public_id, current_report,
+            reports_manager, read_write_payload(params, REPORT_ENTITY_LABEL), public_id, current_report,
         )
 
         reports_manager.update_item(public_id, payload)

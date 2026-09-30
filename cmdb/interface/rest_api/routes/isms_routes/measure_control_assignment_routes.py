@@ -35,6 +35,8 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRisk
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -96,12 +98,12 @@ def build_cma_summary(
     if not risk_assessment:
         return None
 
-    ra_id = risk_assessment.get('public_id', '')
-    risk_name = risks.get(risk_assessment.get('risk_id'), {}).get('name', '')
+    ra_id = risk_assessment.get(RiskAssessmentKey.PUBLIC_ID.value, '')
+    risk_name = risks.get(risk_assessment.get(RiskAssessmentKey.RISK_ID.value), {}).get(RiskKey.NAME.value, '')
     obj_summary = ''
 
-    if risk_assessment.get('object_id_ref_type') == ObjectReferenceType.OBJECT:
-        obj_id = risk_assessment.get('object_id')
+    if risk_assessment.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) == ObjectReferenceType.OBJECT:
+        obj_id = risk_assessment.get(RiskAssessmentKey.OBJECT_ID.value)
         summary_line = object_summaries.get(obj_id, '')
         obj = object_map.get(obj_id)
         type_label = ''
@@ -111,8 +113,8 @@ def build_cma_summary(
             type_label = f"{type_obj['label']}" if type_obj and 'label' in type_obj else ''
 
         obj_summary = f"{summary_line} ({type_label})"
-    elif risk_assessment.get('object_id_ref_type') == ObjectReferenceType.OBJECT_GROUP:
-        obj_summary = object_groups.get(risk_assessment.get('object_id'), '')
+    elif risk_assessment.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) == ObjectReferenceType.OBJECT_GROUP:
+        obj_summary = object_groups.get(risk_assessment.get(RiskAssessmentKey.OBJECT_ID.value), '')
 
     return f"#{ra_id} - {risk_name} @ {obj_summary}"
 
@@ -225,8 +227,8 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
 
         # Fetch Risk Assessments in bulk
         ra_map = {
-            ra['public_id']: ra for ra in risk_assessment_manager.find_all(
-                criteria={'public_id': {'$in': list(ra_ids)}}
+            ra[RiskAssessmentKey.PUBLIC_ID.value]: ra for ra in risk_assessment_manager.find_all(
+                criteria={RiskAssessmentKey.PUBLIC_ID.value: {'$in': list(ra_ids)}}
             )
         }
 
@@ -236,16 +238,16 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
         object_group_ids = set()
 
         for ra in ra_map.values():
-            if ra.get('risk_id'):
-                risk_ids.add(ra['risk_id'])
-            if ra.get('object_id_ref_type') == ObjectReferenceType.OBJECT:
-                object_ids.add(ra.get('object_id'))
-            elif ra.get('object_id_ref_type') == ObjectReferenceType.OBJECT_GROUP:
-                object_group_ids.add(ra.get('object_id'))
+            if ra.get(RiskAssessmentKey.RISK_ID.value):
+                risk_ids.add(ra[RiskAssessmentKey.RISK_ID.value])
+            if ra.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) == ObjectReferenceType.OBJECT:
+                object_ids.add(ra.get(RiskAssessmentKey.OBJECT_ID.value))
+            elif ra.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) == ObjectReferenceType.OBJECT_GROUP:
+                object_group_ids.add(ra.get(RiskAssessmentKey.OBJECT_ID.value))
 
         # Fetch required details
         risks = {
-            risk['public_id']: risk
+            risk[RiskKey.PUBLIC_ID.value]: risk
             for risk in risk_manager.get_many_from_other_collection(
                 IsmsRisk.COLLECTION,
                 public_id={'$in': list(risk_ids)}

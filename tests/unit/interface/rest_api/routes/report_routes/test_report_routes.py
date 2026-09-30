@@ -55,7 +55,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     guard_report_name,
     guard_report_selected_fields,
     parse_report_json_param,
-    read_report_write_payload,
     abort_if_report_category_missing,
     abort_if_ref_section_fields,
     build_report_create_payload,
@@ -263,45 +262,6 @@ def test_a_report_without_a_usable_name_maps_to_400(name: Any) -> None:
 def test_a_usable_name_is_accepted() -> None:
     """Surrounding whitespace is tolerated - only a blank name is refused"""
     guard_report_name(' My Report ')
-
-
-# ------------------------------------------- read_report_write_payload -------------------------------------------- #
-
-def test_the_body_is_preferred_and_the_query_string_fills_the_gaps(flask_app: Flask) -> None:
-    """A client may send either; one that sends both is served from the body, key by key"""
-    with flask_app.test_request_context(json={'name': 'from-body'}, query_string={'name': 'from-query',
-                                                                                 'type_id': '5'}):
-        payload = read_report_write_payload({'name': 'from-query', 'type_id': '5'})
-
-    assert payload == {'name': 'from-body', 'type_id': '5'}
-
-
-def test_without_a_body_the_query_string_is_the_payload(flask_app: Flask) -> None:
-    """The shape every caller used before a body was read at all"""
-    with flask_app.test_request_context(query_string={'name': 'from-query'}):
-        payload = read_report_write_payload({'name': 'from-query'})
-
-    assert payload == {'name': 'from-query'}
-
-
-def test_the_query_parameters_are_not_mutated(flask_app: Flask) -> None:
-    """The decorator's dict belongs to the request, not to the payload builder"""
-    params = {'name': 'from-query'}
-
-    with flask_app.test_request_context(json={'name': 'from-body'}):
-        read_report_write_payload(params)
-
-    assert params == {'name': 'from-query'}
-
-
-@pytest.mark.parametrize('body', [[1, 2], 'text', 7])
-def test_a_body_that_is_not_an_object_maps_to_400(flask_app: Flask, body: Any) -> None:
-    """It was meant as the payload, so reading the query string instead would answer the wrong 400"""
-    with flask_app.test_request_context(json=body):
-        with pytest.raises(HTTPException) as exc_info:
-            read_report_write_payload({})
-
-    assert exc_info.value.code == HTTP_BAD_REQUEST
 
 
 # ------------------------------------------------- normalize_report_params ------------------------------------------ #

@@ -27,6 +27,7 @@ turned into pipeline stages) and knows nothing about either domain. Its tests mo
 why they read in terms of a generic criteria dict rather than of the rack's rules.
 """
 import json
+from http import HTTPStatus
 from io import BytesIO
 from types import SimpleNamespace
 from unittest.mock import MagicMock
@@ -47,6 +48,8 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     extract_public_ids,
     normalize_public_id_list,
     update_item_from_payload,
+    read_write_payload,
+    WRITE_PAYLOAD_NOT_AN_OBJECT_MSG,
 )
 # An empty list is the contract for "no stages" in several helpers here, so these assert the exact
 # value rather than falsiness - a None slipping through would break the caller that splices the result
@@ -454,3 +457,51 @@ def test_update_item_from_payload_answers_nothing_when_the_write_fails() -> None
 
     with pytest.raises(RuntimeError):
         update_item_from_payload(manager, 7, _Model, {'public_id': 7})
+
+
+class TestReadWritePayload:
+    """read_write_payload serves a write from the body, key by key, and falls back to the query string"""
+
+    ENTITY_LABEL: str = 'Thing'
+
+    def test_the_body_is_preferred_and_the_query_string_fills_the_gaps(self) -> None:
+        """A client may send either; one that sends both is served from the body, key by key"""
+        query_params = {'name': 'from-query', 'type_id': '5'}
+
+        with app.test_request_context(json={'name': 'from-body'}, query_string=query_params):
+            payload = read_write_payload(query_params, self.ENTITY_LABEL)
+
+        assert payload == {'name': 'from-body', 'type_id': '5'}
+
+    def test_a_body_value_keeps_its_json_type(self) -> None:
+        """The body is the typed half: a list stays a list and a bool a bool"""
+        with app.test_request_context(json={'items': ['a'], 'active': False}):
+            payload = read_write_payload({'items': "['a']", 'active': 'false'}, self.ENTITY_LABEL)
+
+        assert payload == {'items': ['a'], 'active': False}
+
+    def test_without_a_body_the_query_string_is_the_payload(self) -> None:
+        """The shape every caller used before a body was read at all"""
+        with app.test_request_context(query_string={'name': 'from-query'}):
+            payload = read_write_payload({'name': 'from-query'}, self.ENTITY_LABEL)
+
+        assert payload == {'name': 'from-query'}
+
+    def test_the_query_parameters_are_not_mutated(self) -> None:
+        """The decorator's dict belongs to the request, not to the payload builder"""
+        params = {'name': 'from-query'}
+
+        with app.test_request_context(json={'name': 'from-body'}):
+            read_write_payload(params, self.ENTITY_LABEL)
+
+        assert params == {'name': 'from-query'}
+
+    @pytest.mark.parametrize('body', [[1, 2], 'text', 7], ids=['list', 'string', 'number'])
+    def test_a_body_that_is_not_an_object_maps_to_400(self, body: Any) -> None:
+        """It was meant as the payload, so reading the query string instead would answer the wrong 400"""
+        with app.test_request_context(json=body):
+            with pytest.raises(HTTPException) as exc_info:
+                read_write_payload({}, self.ENTITY_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == WRITE_PAYLOAD_NOT_AN_OBJECT_MSG.format(entity=self.ENTITY_LABEL)

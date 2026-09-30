@@ -37,6 +37,8 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.isms_model import RiskType
+from cmdb.models.isms_model.isms_threat_constants import ThreatKey
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerInsertError
 from cmdb.interface.rest_api.routes.importer_routes import importer_isms_routes
 from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import (
@@ -309,14 +311,14 @@ class TestResolveNamedItems:
         """No references, no query."""
         manager = _manager()
 
-        assert resolve_named_items(set(), manager, {}) == {}
+        assert resolve_named_items(set(), manager, ThreatKey, {}) == {}
         manager.find.assert_not_called()
 
     def test_existing_names_are_reused_in_one_query(self) -> None:
         """One $in query resolves the whole batch."""
         manager = _manager(found=[{'name': 'T1', 'public_id': 5}])
 
-        assert resolve_named_items({'T1'}, manager, {}) == {'T1': 5}
+        assert resolve_named_items({'T1'}, manager, ThreatKey, {}) == {'T1': 5}
         manager.find.assert_called_once_with(criteria={'name': {'$in': ['T1']}})
         manager.insert_item.assert_not_called()
 
@@ -324,7 +326,7 @@ class TestResolveNamedItems:
         """A name nobody knows becomes a new entity carrying the caller's defaults."""
         manager = _manager(insert_ids=[11])
 
-        result = resolve_named_items({'New'}, manager, {'predefined': False})
+        result = resolve_named_items({'New'}, manager, ProtectionGoalKey, {'predefined': False})
 
         assert result == {'New': 11}
         manager.insert_item.assert_called_once_with({'name': 'New', 'predefined': False})

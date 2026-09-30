@@ -28,14 +28,15 @@ SHAPE: a section's ``fields`` is a list of non-blank strings, and a field's ``ty
 ``FieldType``. What it cannot express - that a named field is actually declared, and that no name is
 used twice - is enforced by ``relation_structure_helper`` on both write routes
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 # pylint: disable=R0801
-def get_cmdb_relation_schema() -> dict:
+def get_cmdb_relation_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbRelation document
 
     Returns:
-        dict: Field name to Cerberus rule mapping, consumed as CmdbRelation.SCHEMA
+        dict[str, Any]: Field name to Cerberus rule mapping, consumed as CmdbRelation.SCHEMA
     """
     # Imported inside the builder: the enum lives in the model layer, which imports this package
     # pylint: disable=import-outside-toplevel

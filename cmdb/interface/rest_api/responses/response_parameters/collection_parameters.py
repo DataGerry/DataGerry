@@ -61,14 +61,14 @@ from cmdb.interface.rest_api.responses.response_parameters.response_parameters_c
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def _coerce_limit(limit: Any) -> int:
+def _coerce_limit(limit: int | str | None) -> int:
     """
     Coerces the ``limit`` query value to an int, refusing a negative page size
 
     ``0`` is kept as-is: it means "no limit" and the frontend relies on it
 
     Args:
-        limit (Any): The raw ``limit`` value, a string when it came from the query parser
+        limit (int | str | None): The raw ``limit`` value, a string when it came from the query parser
 
     Raises:
         ValueError: When the value is not an integer or is negative; the ``parse_*_parameters``
@@ -88,12 +88,12 @@ def _coerce_limit(limit: Any) -> int:
     return coerced
 
 
-def _coerce_order(order: Any) -> int:
+def _coerce_order(order: int | str | None) -> int:
     """
     Coerces the ``order`` query value to an int, refusing anything but ascending / descending
 
     Args:
-        order (Any): The raw ``order`` value, a string when it came from the query parser
+        order (int | str | None): The raw ``order`` value, a string when it came from the query parser
 
     Raises:
         ValueError: When the value is not an integer or is not 1 / -1
@@ -112,7 +112,7 @@ def _coerce_order(order: Any) -> int:
     return coerced
 
 
-def _coerce_page(page: Any) -> int:
+def _coerce_page(page: int | str | None) -> int:
     """
     Coerces the ``page`` query value to an int, clamping anything below the first page
 
@@ -120,7 +120,7 @@ def _coerce_page(page: Any) -> int:
     value is clamped rather than refused, because it would otherwise produce a negative ``$skip``
 
     Args:
-        page (Any): The raw ``page`` value, a string when it came from the query parser
+        page (int | str | None): The raw ``page`` value, a string when it came from the query parser
 
     Raises:
         ValueError: When the value is not an integer at all
@@ -144,30 +144,36 @@ class CollectionParameters(APIParameters):
 
     def __init__(
         self,
-        query_string: str = None,
-        limit: int = None,
-        sort: str = DEFAULT_SORT,
-        order: int = SORT_ASCENDING,
-        page: int = None,
-        criteria: list[dict] | dict = None,
+        query_string: str | None = None,
+        limit: int | str | None = None,
+        sort: str | None = DEFAULT_SORT,
+        order: int | str | None = SORT_ASCENDING,
+        page: int | str | None = None,
+        criteria: list[dict[str, Any]] | dict[str, Any] | None = None,
         **kwargs: Any
     ) -> None:
         """
         Constructor of the CollectionParameters
 
         Every value may arrive as a string from the query parser, so each is coerced and validated
-        here; see the module docstring for why a bad value has to be rejected at this layer
+        here - which is why the pager parameters accept ``str`` as well as their stored type, while the
+        attributes they end up in are always ``int`` / ``str``. A value that cannot be converted raises
+        ``ValueError``, which the ``parse_*_parameters`` decorators answer with HTTP 400; see the module
+        docstring for why a bad value has to be rejected at this layer
 
         Args:
             query_string (str | None): The raw http query string. Can be used when the parsed
                 parameters are not enough
-            limit (int | None): The max number of resources returned (pageSize). 0 means unlimited.
-                Defaults to DEFAULT_LIMIT
-            sort (str): The query element used as the sort id (nested resources are possible via a dot)
-            order (int): The sort direction, 1 (ascending) or -1 (descending)
-            page (int | None): The current page; (limit * (page - 1)) elements are skipped. Clamped to
-                FIRST_PAGE
-            criteria (list[dict] | dict | None): A generic query filter based on
+            limit (int | str | None): The max number of resources returned (pageSize). 0 means
+                unlimited. Text from the query string is converted; None or '' is DEFAULT_LIMIT
+            sort (str | None): The query element used as the sort id (nested resources are possible via
+                a dot). None or '' is DEFAULT_SORT
+            order (int | str | None): The sort direction, 1 (ascending) or -1 (descending). Text from the
+                query string is converted; None or '' is ascending
+            page (int | str | None): The current page; (limit * (page - 1)) elements are skipped. Text
+                from the query string is converted; None or '' is FIRST_PAGE, a lower page is clamped to
+                it
+            criteria (list[dict[str, Any]] | dict[str, Any] | None): A generic query filter based on
                 https://docs.mongodb.com/compass/master/query/filter/ - the query string calls this
                 ``filter``, which is the name it keeps on the wire and on the attribute
             **kwargs (Any): Additional optional parameters, forwarded to APIParameters. The wire key
@@ -197,7 +203,7 @@ class CollectionParameters(APIParameters):
         # aggregation verbatim, so this is the boundary at which it stops being arbitrary
         assert_client_filter_is_allowed(criteria)
 
-        self.filter: list[dict] | dict = criteria or {}
+        self.filter: list[dict[str, Any]] | dict[str, Any] = criteria or {}
 
         super().__init__(query_string=query_string, **kwargs)
 

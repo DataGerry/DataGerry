@@ -89,7 +89,11 @@ def validate_upload_metadata(metadata: dict[str, Any]) -> None:
         abort(400, f"The metadata carries unknown key(s): {', '.join(sorted(unknown_keys))}!")
 
 
-def generate_metadata_filter(element: str, _request: Request | None = None, params: dict | None = None) -> dict:
+def generate_metadata_filter(
+    element: str,
+    _request: Request | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Generates a MongoDB filter query based on provided metadata either from request or parameters
 
@@ -103,13 +107,13 @@ def generate_metadata_filter(element: str, _request: Request | None = None, para
     Args:
         element (str): The metadata key in the request or parameters
         _request (Request | None): Flask request containing the metadata in query/form
-        params (dict | None): Direct dictionary containing metadata
+        params (dict[str, Any] | None): Direct dictionary containing metadata
 
     Raises:
         HTTPException: 400 if metadata cannot be generated
 
     Returns:
-        dict: A MongoDB filter dictionary ready for querying
+        dict[str, Any]: A MongoDB filter dictionary ready for querying
     """
     filter_metadata = {}
 
@@ -137,7 +141,7 @@ def generate_metadata_filter(element: str, _request: Request | None = None, para
         abort(400, "Metadata was not provided!")
 
 
-def generate_collection_parameters(params: CollectionParameters) -> dict:
+def generate_collection_parameters(params: CollectionParameters) -> dict[str, Any]:
     """
     Builds a MongoDB aggregation filter for file collections based on search and metadata parameters
 
@@ -145,7 +149,7 @@ def generate_collection_parameters(params: CollectionParameters) -> dict:
         params (CollectionParameters): The collection parameters including optional filters
 
     Returns:
-        dict: A MongoDB query filter based on search term or metadata
+        dict[str, Any]: A MongoDB query filter based on search term or metadata
     """
     search = params.optional.get(MediaFileRequestKey.SEARCH_TERM.value)
     param = json.loads(params.optional[MediaFileRequestKey.METADATA.value])
@@ -170,7 +174,12 @@ def generate_collection_parameters(params: CollectionParameters) -> dict:
     return generate_metadata_filter(MediaFileRequestKey.METADATA.value, params=param)
 
 
-def create_attachment_name(name: str, index: int, metadata: dict, media_files_manager: MediaFilesManager) -> str:
+def create_attachment_name(
+    name: str,
+    index: int,
+    metadata: dict[str, Any],
+    media_files_manager: MediaFilesManager,
+) -> str:
     """
     Recursively generates a unique attachment file name if a file with the same name already exists.
     Adds a prefix like 'copy_(index)_' to the filename.
@@ -178,7 +187,7 @@ def create_attachment_name(name: str, index: int, metadata: dict, media_files_ma
     Args:
         name (str): Original file name
         index (int): Copy index counter
-        metadata (dict): Metadata for querying existing files
+        metadata (dict[str, Any]): Metadata for querying existing files
         media_files_manager (MediaFilesManager): Media file manager to check for existing files
 
     Returns:

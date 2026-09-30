@@ -129,7 +129,7 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     return app
 
 
-def register_converters(app: BaseCmdbApp):
+def register_converters(app: BaseCmdbApp) -> None:
     """
     Registers the ``regex`` URL converter on the Flask app's URL map
 

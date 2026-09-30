@@ -116,7 +116,7 @@ class CmdbPortInterfaceLink(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_cmdb_port_interface_link_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_port_interface_link_schema()
 
 
     #pylint: disable=R0913, R0917
@@ -129,8 +129,8 @@ class CmdbPortInterfaceLink(CmdbDAO):
             interface_multi_data_id: int,
             relation_type: str,
             author_id: int | None = None,
-            creation_time: datetime = None,
-            last_edit_time: datetime = None):
+            creation_time: datetime | None = None,
+            last_edit_time: datetime | None = None) -> None:
         """
         Initialises a CmdbPortInterfaceLink
 
@@ -144,8 +144,8 @@ class CmdbPortInterfaceLink(CmdbDAO):
                                            reference
             relation_type (str): An InterfaceRelationType value
             author_id (int | None): public_id of the CmdbUser who created the link
-            creation_time (datetime, optional): When the link was created. Defaults to now
-            last_edit_time (datetime, optional): When the link was last changed. Defaults to None
+            creation_time (datetime | None): When the link was created. Defaults to now
+            last_edit_time (datetime | None): When the link was last changed. Defaults to None
 
         Raises:
             CmdbPortInterfaceLinkInitError: If the CmdbPortInterfaceLink could not be initialised
@@ -167,12 +167,12 @@ class CmdbPortInterfaceLink(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbPortInterfaceLink":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbPortInterfaceLink":
         """
         Initialises a CmdbPortInterfaceLink from a dict
 
         Args:
-            data (dict): Data with which the CmdbPortInterfaceLink should be initialised
+            data (dict[str, Any]): Data with which the CmdbPortInterfaceLink should be initialised
 
         Raises:
             CmdbPortInterfaceLinkInitFromDataError: If the initialisation with the given data fails
@@ -207,7 +207,7 @@ class CmdbPortInterfaceLink(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbPortInterfaceLink") -> dict:
+    def to_json(cls, instance: "CmdbPortInterfaceLink") -> dict[str, Any]:
         """
         Converts a CmdbPortInterfaceLink into a json compatible dict
 
@@ -218,7 +218,7 @@ class CmdbPortInterfaceLink(CmdbDAO):
             CmdbPortInterfaceLinkToJsonError: If the CmdbPortInterfaceLink could not be converted
 
         Returns:
-            dict: Json compatible dict of the CmdbPortInterfaceLink values
+            dict[str, Any]: Json compatible dict of the CmdbPortInterfaceLink values
         """
         try:
             return {

@@ -24,6 +24,9 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.isms_model import IsmsRisk, IsmsRiskAssessment, IsmsControlMeasureAssignment
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
 from cmdb.errors.manager.risk_manager import RISK_MANAGER_ERRORS, RiskManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -39,7 +42,14 @@ class RiskManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the RiskManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsRisk, RISK_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -90,7 +100,7 @@ class RiskManager(GenericManager):
         try:
             # Only existing Risks are reported / cascaded; the delete_many below removes exactly these
             existing_risk_ids: list[int] = [
-                risk['public_id'] for risk in self.get_many(public_id={'$in': public_ids})
+                risk[RiskKey.PUBLIC_ID.value] for risk in self.get_many(public_id={'$in': public_ids})
             ]
 
             if not existing_risk_ids:
@@ -98,7 +108,7 @@ class RiskManager(GenericManager):
 
             deleted_ras, deleted_cmas = self._cascade_delete_risk_assessments(existing_risk_ids)
 
-            self.delete_many({'public_id': {'$in': existing_risk_ids}})
+            self.delete_many({RiskKey.PUBLIC_ID.value: {'$in': existing_risk_ids}})
 
             return existing_risk_ids, deleted_ras, deleted_cmas
         except Exception as err:
@@ -126,7 +136,9 @@ class RiskManager(GenericManager):
             risk_id={'$in': risk_ids},
         )
 
-        linked_risk_assessment_ids: list[int] = [ra['public_id'] for ra in linked_risk_assessments]
+        linked_risk_assessment_ids: list[int] = [
+            ra[RiskAssessmentKey.PUBLIC_ID.value] for ra in linked_risk_assessments
+        ]
 
         if not linked_risk_assessment_ids:
             return 0, 0
@@ -134,13 +146,13 @@ class RiskManager(GenericManager):
         # Delete all ControlMeasureAssignments referencing the linked RiskAssessments
         deleted_cmas: int = self.delete_many_from_other_collection(
             IsmsControlMeasureAssignment.COLLECTION,
-            {'risk_assessment_id': {'$in': linked_risk_assessment_ids}},
+            {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: {'$in': linked_risk_assessment_ids}},
         ).deleted_count
 
         # Delete all RiskAssessments referencing the Risks
         deleted_ras: int = self.delete_many_from_other_collection(
             IsmsRiskAssessment.COLLECTION,
-            {'risk_id': {'$in': risk_ids}},
+            {RiskAssessmentKey.RISK_ID.value: {'$in': risk_ids}},
         ).deleted_count
 
         return deleted_ras, deleted_cmas

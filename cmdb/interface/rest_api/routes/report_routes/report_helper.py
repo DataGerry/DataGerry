@@ -18,9 +18,6 @@ Helper methods for the CmdbReport API routes
 
 Holds what the Create / Read / Update / Run / Delete routes share:
 
-* reading the write payload from wherever the client sent it - a JSON request body is preferred and
-  the query string is the fallback, so a caller may send either (and one that sends both, as the
-  Angular report form does, is served from the body)
 * request-payload sanitising and normalisation - the write whitelist (a client may set only the six
   required parameters; 'public_id' comes from the URL, 'predefined' is system-owned and
   'report_query' is built server-side), the required-parameter check, the type coercions and the
@@ -38,7 +35,7 @@ import json
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request
+from flask import abort
 
 from cmdb.database import MongoDBQueryBuilder
 from cmdb.manager import ReportsManager
@@ -53,7 +50,6 @@ from cmdb.utils import str_to_bool
 
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     BOOLEAN_PARAM_INVALID_MSG,
-    REPORT_BODY_NOT_AN_OBJECT_MSG,
     REPORT_CONDITIONS_NOT_A_TREE_MSG,
     REPORT_ID_NOT_A_NUMBER_MSG,
     REPORT_NAME_BLANK_MSG,
@@ -89,39 +85,6 @@ def strip_unknown_report_keys(params: dict[str, Any]) -> dict[str, Any]:
         dict[str, Any]: A new dict holding only the whitelisted keys
     """
     return {key: value for key, value in params.items() if key in REPORT_WRITE_KEYS}
-
-
-def read_report_write_payload(query_params: dict[str, Any]) -> dict[str, Any]:
-    """
-    Reads a report write payload from the request body, falling back to the query string
-
-    **The body wins, key by key.** A client may send the payload either way, and a client that sends
-    both - which the Angular report form does, building query parameters *and* posting the same object
-    as the body - is served from the body: there the values arrive already typed, where the query
-    string can only carry text. Merging rather than choosing means neither half can go missing.
-
-    A body is optional. A body that is not a JSON object is refused rather than ignored: it was meant
-    as the payload, and silently reading the query string instead would answer 400 'missing parameter'
-    for a request whose problem is its body
-
-    Args:
-        query_params (dict[str, Any]): The query-string parameters, as the route decorator read them
-
-    Raises:
-        HTTPException: 400 when a request body is present but is not a JSON object
-
-    Returns:
-        dict[str, Any]: The merged payload, still raw
-    """
-    body: Any = request.get_json(silent=True)
-
-    if body is None:
-        return dict(query_params)
-
-    if not isinstance(body, dict):
-        abort(400, REPORT_BODY_NOT_AN_OBJECT_MSG)
-
-    return {**query_params, **body}
 
 
 def coerce_report_id(value: Any, param_name: str) -> int:

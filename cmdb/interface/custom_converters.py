@@ -27,7 +27,7 @@ to `self.regex`, which is the attribute `BaseConverter` matches with; without it
 behave as the default string converter
 """
 from logging import Logger, getLogger
-from werkzeug.routing import BaseConverter
+from werkzeug.routing import BaseConverter, Map
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -46,7 +46,7 @@ class RegexConverter(BaseConverter):
     Extends: BaseConverter
     """
 
-    def __init__(self, url_map, *items: str) -> None:
+    def __init__(self, url_map: Map, *items: str) -> None:
         """
         Initialises the converter with the pattern written in the URL rule
 

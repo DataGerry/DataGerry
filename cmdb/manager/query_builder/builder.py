@@ -27,12 +27,31 @@ schema keys of a stored document, which belong in their `*Key` enums (`FieldKey`
 `TypeSchemaKey`, ...) and must never be written as literals. This module is the boundary between
 those two worlds: operators in, schema keys out.
 
+**The rule for callers.** Every aggregation stage in live code is built with its constructor here -
+`Builder.match_(...)`, never `{'$match': ...}` - so a stage's shape is written down once. Two things are
+deliberately outside the rule:
+
+* the database updaters (`cmdb/database/updater/versions/`): shipped migrations are history, and editing
+  one only adds risk to a module that must stay safe to re-run
+* query operators (`$in`, `$and`, `$exists`, ...): mostly nested expressions no constructor fits. The
+  operator constructors here are used where they fit, and `regex_` always, because it carries the
+  options default
+
+`tests/unit/test_builder_stage_tripwire.py` enforces the stage rule: a hand-written stage in a pipeline
+position fails it.
+
 Only constructors with real callers live here. Adding one back is a two-line change, so the file
 stays a description of what DataGerry actually queries rather than a mirror of the MongoDB manual
 """
 from abc import ABC, abstractmethod
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# Why a `$sort` stage could not be built
+SORT_ORDER_INVALID_MSG: str = 'Order value must be 1 (ascending) or -1 (descending)'
+SORT_ORDER_MISSING_MSG: str = 'A single sort field needs its order (1 or -1)'
+SORT_ORDER_DUPLICATED_MSG: str = 'A sort specification carries its own orders; pass no separate order'
+SORT_SPECIFICATION_EMPTY_MSG: str = 'A sort specification needs at least one field'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    Builder - CLASS                                                   #
@@ -67,36 +86,36 @@ class Builder(ABC):
 # ------------------------------------------- LOGICAL QUERY OPERATORS ------------------------------------------------ #
 
     @staticmethod
-    def and_(expressions: list[dict]) -> dict:
+    def and_(expressions: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Joins query clauses with a logical AND
 
         Args:
-            expressions (list[dict]): The clauses that must all match
+            expressions (list[dict[str, Any]]): The clauses that must all match
 
         Returns:
-            dict: An `$and` expression
+            dict[str, Any]: An `$and` expression
         """
         return {'$and': expressions}
 
 
     @staticmethod
-    def or_(expressions: list[dict]) -> dict:
+    def or_(expressions: list[dict[str, Any]]) -> dict[str, Any]:
         """
         Joins query clauses with a logical OR
 
         Args:
-            expressions (list[dict]): The clauses of which at least one must match
+            expressions (list[dict[str, Any]]): The clauses of which at least one must match
 
         Returns:
-            dict: An `$or` expression
+            dict[str, Any]: An `$or` expression
         """
         return {'$or': expressions}
 
 # ---------------------------------------------------- COMPARISON ---------------------------------------------------- #
 
     @staticmethod
-    def in_(field: str, values: list[Any]) -> dict:
+    def in_(field: str, values: list[Any]) -> dict[str, Any]:
         """
         Matches any of the values specified in an array
 
@@ -105,14 +124,14 @@ class Builder(ABC):
             values (list[Any]): The accepted values
 
         Returns:
-            dict: An `$in` expression
+            dict[str, Any]: An `$in` expression
         """
         return {field: {'$in': values}}
 
 # ---------------------------------------------------- EVALUATION ---------------------------------------------------- #
 
     @staticmethod
-    def regex_(field: str, regex: str, options: str = 'ims') -> dict:
+    def regex_(field: str, regex: str, options: str = 'ims') -> dict[str, Any]:
         """
         Matches a field against a regular expression
 
@@ -128,28 +147,28 @@ class Builder(ABC):
             options (str): MongoDB regex option flags. Defaults to `'ims'`
 
         Returns:
-            dict: A `$regex` expression carrying its `$options`
+            dict[str, Any]: A `$regex` expression carrying its `$options`
         """
         return {field: {'$regex': regex, '$options': options}}
 
 # --------------------------------------------------- AGGREGATIONS --------------------------------------------------- #
 
     @staticmethod
-    def match_(query: dict) -> dict:
+    def match_(query: dict[str, Any]) -> dict[str, Any]:
         """
         Filters the document stream to the documents matching the query
 
         Args:
-            query (dict): The filter the documents must satisfy
+            query (dict[str, Any]): The filter the documents must satisfy
 
         Returns:
-            dict: A `$match` stage
+            dict[str, Any]: A `$match` stage
         """
         return {'$match': query}
 
 
     @staticmethod
-    def count_(name: str) -> dict:
+    def count_(name: str) -> dict[str, Any]:
         """
         Counts the documents reaching this stage of the pipeline
 
@@ -157,13 +176,13 @@ class Builder(ABC):
             name (str): Name of the output field holding the count
 
         Returns:
-            dict: A `$count` stage
+            dict[str, Any]: A `$count` stage
         """
         return {'$count': name}
 
 
     @staticmethod
-    def skip_(value: int) -> dict:
+    def skip_(value: int) -> dict[str, Any]:
         """
         Skips the given number of documents
 
@@ -171,13 +190,13 @@ class Builder(ABC):
             value (int): How many documents to pass over
 
         Returns:
-            dict: A `$skip` stage
+            dict[str, Any]: A `$skip` stage
         """
         return {'$skip': value}
 
 
     @staticmethod
-    def limit_(value: int) -> dict:
+    def limit_(value: int) -> dict[str, Any]:
         """
         Limits how many documents pass to the next stage
 
@@ -185,71 +204,84 @@ class Builder(ABC):
             value (int): Maximum number of documents to forward
 
         Returns:
-            dict: A `$limit` stage
+            dict[str, Any]: A `$limit` stage
         """
         return {'$limit': value}
 
 
     @staticmethod
-    def facet_(stages: dict) -> dict:
+    def facet_(stages: dict[str, list[dict[str, Any]]]) -> dict[str, Any]:
         """
         Runs several sub-pipelines over the same input documents
 
         Args:
-            stages (dict): Mapping of output field name to its sub-pipeline
+            stages (dict[str, list[dict[str, Any]]]): Mapping of output field name to its sub-pipeline
 
         Returns:
-            dict: A `$facet` stage
+            dict[str, Any]: A `$facet` stage
         """
         return {'$facet': stages}
 
 
     @staticmethod
-    def group_(_id: Any, value: dict | None = None) -> dict:
+    def group_(_id: Any, value: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Groups documents by an expression, optionally accumulating further fields
 
         Args:
             _id (Any): The grouping expression; None groups every document into one bucket
-            value (dict | None): Additional accumulator fields to emit per group
+            value (dict[str, Any] | None): Additional accumulator fields to emit per group
 
         Returns:
-            dict: A `$group` stage
+            dict[str, Any]: A `$group` stage
         """
         return {'$group': {'_id': _id, **(value or {})}}
 
 
     @staticmethod
-    def lookup_(from_collection: str, local_field: str, foreign_field: str, as_field: str) -> dict:
+    def lookup_(from_collection: str,
+                local_field: str,
+                foreign_field: str,
+                as_field: str,
+                pipeline: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         """
         Performs a left outer join to another collection in the same database
+
+        With a `pipeline`, the joined documents run through it after the equality match - the way to
+        cap or trim what each join loads while keeping the index-backed `localField` / `foreignField`
+        match. Without one, the stage carries no `pipeline` key at all
 
         Args:
             from_collection (str): The collection to join with
             local_field (str): The field on the documents entering the stage
             foreign_field (str): The field on the joined collection to match against
             as_field (str): Name of the new array field the matches are added under
+            pipeline (list[dict[str, Any]] | None): Stages run on the matched documents, or None for
+                a plain equality join
 
         Returns:
-            dict: A `$lookup` stage
+            dict[str, Any]: A `$lookup` stage
         """
-        return {
-            '$lookup': {
-                'from': from_collection,
-                'localField': local_field,
-                'foreignField': foreign_field,
-                'as': as_field,
-            }
+        stage: dict[str, Any] = {
+            'from': from_collection,
+            'localField': local_field,
+            'foreignField': foreign_field,
+            'as': as_field,
         }
+
+        if pipeline is not None:
+            stage['pipeline'] = pipeline
+
+        return {'$lookup': stage}
 
 
     @staticmethod
     def correlated_lookup_(
         from_collection: str,
         let: dict[str, Any],
-        pipeline: list[dict],
+        pipeline: list[dict[str, Any]],
         as_field: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Joins another collection through a sub-pipeline that can read the incoming document
 
@@ -261,11 +293,11 @@ class Builder(ABC):
         Args:
             from_collection (str): The collection to join with
             let (dict[str, Any]): Variable name -> expression over the incoming document
-            pipeline (list[dict]): The stages run against the joined collection
+            pipeline (list[dict[str, Any]]): The stages run against the joined collection
             as_field (str): Name of the new array field the joined documents are added under
 
         Returns:
-            dict: A `$lookup` stage
+            dict[str, Any]: A `$lookup` stage
         """
         return {
             '$lookup': {
@@ -278,7 +310,7 @@ class Builder(ABC):
 
 
     @staticmethod
-    def unset_(fields: list[str]) -> dict:
+    def unset_(fields: list[str]) -> dict[str, Any]:
         """
         Removes fields from the documents passing through, keeping everything else
 
@@ -289,7 +321,7 @@ class Builder(ABC):
             fields (list[str]): The field paths to remove
 
         Returns:
-            dict: An `$unset` stage
+            dict[str, Any]: An `$unset` stage
         """
         return {'$unset': list(fields)}
 
@@ -301,7 +333,7 @@ class Builder(ABC):
         connect_from_field: str,
         connect_to_field: str,
         as_field: str,
-    ) -> dict:
+    ) -> dict[str, Any]:
         """
         Recursively follows a parent/child edge and collects every reachable document
 
@@ -318,7 +350,7 @@ class Builder(ABC):
             as_field (str): Name of the new array field the reachable documents are added under
 
         Returns:
-            dict: A `$graphLookup` stage
+            dict[str, Any]: A `$graphLookup` stage
         """
         return {
             '$graphLookup': {
@@ -332,50 +364,114 @@ class Builder(ABC):
 
 
     @staticmethod
-    def unwind_(path: str | dict) -> dict:
+    def unwind_(path: str | dict[str, Any]) -> dict[str, Any]:
         """
         Outputs one document per element of an array field
 
         Args:
-            path (str | dict): The array field path (`'$items'`), or the full option document when
+            path (str | dict[str, Any]): The array field path (`'$items'`), or the full option document when
                 extra behaviour such as `preserveNullAndEmptyArrays` is needed
 
         Returns:
-            dict: An `$unwind` stage
+            dict[str, Any]: An `$unwind` stage
         """
         return {'$unwind': path}
 
 
     @staticmethod
-    def project_(specification: dict) -> dict:
+    def project_(specification: dict[str, Any]) -> dict[str, Any]:
         """
         Passes the documents on with only the requested fields
 
         Args:
-            specification (dict): The field inclusion / exclusion specification
+            specification (dict[str, Any]): The field inclusion / exclusion specification
 
         Returns:
-            dict: A `$project` stage
+            dict[str, Any]: A `$project` stage
         """
         return {'$project': specification}
 
 
     @staticmethod
-    def sort_(sort: str, order: int) -> dict:
+    def sort_(sort: str | dict[str, int], order: int | None = None) -> dict[str, Any]:
         """
-        Sorts the documents by one field
+        Sorts the documents by one field, or by several in the given order
+
+        One field is `sort_('name', 1)`. Several are an ordered specification,
+        `sort_({'value': -1, 'public_id': 1})`: the first key sorts, each later one breaks the ties left
+        by the keys before it, so the dict's order is the sort's order
 
         Args:
-            sort (str): The field to sort on
-            order (int): 1 for ascending, -1 for descending
+            sort (str | dict[str, int]): The field to sort on, or the ordered field -> order specification
+            order (int | None): 1 for ascending, -1 for descending, for a single field. Must be None
+                with a specification, which carries its orders itself
 
         Raises:
-            ValueError: If order is neither 1 nor -1
+            ValueError: If an order is neither 1 nor -1, a single field comes without its order, a
+                specification comes with a separate one, or the specification is empty
 
         Returns:
-            dict: A `$sort` stage
+            dict[str, Any]: A `$sort` stage
         """
-        if order not in (1, -1):
-            raise ValueError('Order value must be 1 (ascending) or -1 (descending)')
+        if isinstance(sort, str):
+            if order is None:
+                raise ValueError(SORT_ORDER_MISSING_MSG)
+            specification: dict[str, int] = {sort: order}
+        else:
+            if order is not None:
+                raise ValueError(SORT_ORDER_DUPLICATED_MSG)
+            specification = dict(sort)
 
-        return {'$sort': {sort: order}}
+        if not specification:
+            raise ValueError(SORT_SPECIFICATION_EMPTY_MSG)
+
+        if any(value not in (1, -1) for value in specification.values()):
+            raise ValueError(SORT_ORDER_INVALID_MSG)
+
+        return {'$sort': specification}
+
+
+    @staticmethod
+    def add_fields_(fields: dict[str, Any]) -> dict[str, Any]:
+        """
+        Adds computed fields to the documents passing through, keeping every existing one
+
+        Args:
+            fields (dict[str, Any]): New field name -> expression
+
+        Returns:
+            dict[str, Any]: An `$addFields` stage
+        """
+        return {'$addFields': fields}
+
+
+    @staticmethod
+    def set_(fields: dict[str, Any]) -> dict[str, Any]:
+        """
+        Sets fields on the documents passing through - the `$set` stage, MongoDB's alias of `$addFields`
+
+        Kept as its own constructor rather than folded into `add_fields_`: a pipeline-style update
+        (`update_many(filter, [ ... ])`) reads more naturally with `$set`, and the stage a caller wrote is
+        the stage it gets
+
+        Args:
+            fields (dict[str, Any]): Field name -> expression
+
+        Returns:
+            dict[str, Any]: A `$set` stage
+        """
+        return {'$set': fields}
+
+
+    @staticmethod
+    def replace_root_(new_root: Any) -> dict[str, Any]:
+        """
+        Replaces each document with the embedded document an expression names
+
+        Args:
+            new_root (Any): The expression of the new document (e.g. `'$type_objects'`)
+
+        Returns:
+            dict[str, Any]: A `$replaceRoot` stage
+        """
+        return {'$replaceRoot': {'newRoot': new_root}}

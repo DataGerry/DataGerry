@@ -27,6 +27,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRisk, RiskType
+from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -97,7 +98,7 @@ def insert_isms_risk(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         result_id: int = risk_manager.insert_item(data)
 
-        created_risk: dict = risk_manager.get_item(result_id, as_dict=True)
+        created_risk: dict[str, Any] | None = risk_manager.get_item(result_id, as_dict=True)
 
         if not created_risk:
             abort(404, "Could not retrieve the created Risk from the database!")
@@ -316,27 +317,27 @@ def is_risk_data_valid(data: dict[str, Any]) -> bool:
     Returns:
         bool: True if the risk data is valid, False otherwise
     """
-    data_risk_type = data.get('risk_type')
+    data_risk_type = data.get(RiskKey.RISK_TYPE.value)
 
     if not RiskType.is_valid(data_risk_type):
         return False
 
     if data_risk_type == RiskType.THREAT_X_VULNERABILITY:
-        if not data.get('threats'):
+        if not data.get(RiskKey.THREATS.value):
             return False
 
-        if not data.get('vulnerabilities'):
+        if not data.get(RiskKey.VULNERABILITIES.value):
             return False
 
     if data_risk_type == RiskType.THREAT:
-        if not data.get('threats'):
+        if not data.get(RiskKey.THREATS.value):
             return False
 
     if data_risk_type == RiskType.EVENT:
-        if not data.get('consequences'):
+        if not data.get(RiskKey.CONSEQUENCES.value):
             return False
 
-        if not data.get('description'):
+        if not data.get(RiskKey.DESCRIPTION.value):
             return False
 
     return True

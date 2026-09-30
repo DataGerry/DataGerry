@@ -128,7 +128,7 @@ class PersonGroupsManager(GenericManager):
         )
 
 
-    def delete_person_from_groups(self, person_id: int, groups_ids: list[int] = None) -> None:
+    def delete_person_from_groups(self, person_id: int, groups_ids: list[int] | None = None) -> None:
         """
         Removes a CmdbPerson from the 'group_members' of CmdbPersonGroups in a single bulk '$pull' update
 
@@ -137,7 +137,7 @@ class PersonGroupsManager(GenericManager):
 
         Args:
             person_id (int): public_id of CmdbPerson which should be removed
-            groups_ids (list[int], optional): public_id's of the CmdbPersonGroups to update. Defaults to None
+            groups_ids (list[int] | None): public_id's of the CmdbPersonGroups to update. Defaults to None
         """
         remove_member_from_documents(
             self.dbm,

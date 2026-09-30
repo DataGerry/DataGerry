@@ -26,12 +26,18 @@ class APIPagination:
     Reference to RFC 5988 and should be used as a cursor.
     """
 
-    def __init__(self, current: str, first, prev=None, next_=None, last=None) -> None:
+    def __init__(
+            self,
+            current: str,
+            first: str,
+            prev: str | None = None,
+            next_: str | None = None,
+            last: str | None = None) -> None:
         self.current: str = current
-        self.first = first
-        self.prev = prev
-        self.next = next_
-        self.last = last
+        self.first: str = first
+        self.prev: str | None = prev
+        self.next: str | None = next_
+        self.last: str | None = last
 
 
     @staticmethod
@@ -84,7 +90,7 @@ class APIPagination:
 
 
     @staticmethod
-    def __pre_url(parsed_url: parse.ParseResult, page: int):
+    def __pre_url(parsed_url: parse.ParseResult, page: int) -> parse.ParseResult:
         """Set the page parameter of a url to the previous page"""
         query = parsed_url.query
         if page == 1:
@@ -95,7 +101,7 @@ class APIPagination:
 
 
     @staticmethod
-    def __next_url(parsed_url: parse.ParseResult, page: int, total_pages: int):
+    def __next_url(parsed_url: parse.ParseResult, page: int, total_pages: int) -> parse.ParseResult:
         """Set the page parameter of a url to the last page"""
         query = parsed_url.query
         if page == total_pages:
@@ -106,7 +112,7 @@ class APIPagination:
 
 
     @classmethod
-    def create(cls, url: str, page: int, total_pages: int):
+    def create(cls, url: str, page: int, total_pages: int) -> 'APIPagination':
         """
         Create a APIPagination from the url and the pager data
 

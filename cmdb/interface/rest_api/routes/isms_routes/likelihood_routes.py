@@ -28,6 +28,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsLikelihood
 from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     MAX_ISMS_SCALE_ENTRIES,
     ISMS_LIKELIHOODS_LABEL,
@@ -75,7 +76,7 @@ def _coerce_calculation_basis(data: dict[str, Any]) -> None:
         data (dict[str, Any]): The request body holding the calculation_basis to normalise
     """
     try:
-        data['calculation_basis'] = float(f"{float(data['calculation_basis']):.2f}")
+        data[LikelihoodKey.CALCULATION_BASIS.value] = float(f"{float(data[LikelihoodKey.CALCULATION_BASIS.value]):.2f}")
     except Exception:
         abort(400, "The calculation basis is either not provided or could not be converted to a float!")
 
@@ -105,12 +106,12 @@ def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Resp
 
         _coerce_calculation_basis(data)
 
-        if likelihood_manager.likelihood_calculation_basis_exists(data['calculation_basis']):
+        if likelihood_manager.likelihood_calculation_basis_exists(data[LikelihoodKey.CALCULATION_BASIS.value]):
             abort(400, "The calculation basis is already used by another Likelihood!")
 
         result_id: int = likelihood_manager.insert_item(data)
 
-        created_likelihood: dict = likelihood_manager.get_item(result_id, as_dict=True)
+        created_likelihood: dict[str, Any] | None = likelihood_manager.get_item(result_id, as_dict=True)
 
         if not created_likelihood:
             abort(404, "Could not retrieve the created Likelihood from the database!")
@@ -224,10 +225,11 @@ def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: C
 
         _coerce_calculation_basis(data)
 
-        basis_changed = round(data['calculation_basis'], 2) != round(to_update_likelihood.calculation_basis, 2)
+        new_basis = data[LikelihoodKey.CALCULATION_BASIS.value]
+        basis_changed = round(new_basis, 2) != round(to_update_likelihood.calculation_basis, 2)
 
         # A changed basis must not collide with another Likelihood's basis (insert enforces the same rule)
-        if basis_changed and likelihood_manager.likelihood_calculation_basis_exists(data['calculation_basis']):
+        if basis_changed and likelihood_manager.likelihood_calculation_basis_exists(new_basis):
             abort(400, "The calculation basis is already used by another Likelihood!")
 
         # The URL owns the identity: a body public_id would otherwise be $set onto the document, and

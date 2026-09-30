@@ -18,10 +18,11 @@ Helper for the CmdbWebhook routes: validating the request parameters and emittin
 
 Two roles, both belonging to the caller/helper layer rather than to a manager:
 
-* ``parse_webhook_params`` normalises and validates what the create/update routes receive. The
-  parameters arrive as query args rather than as a validated JSON body, so ``CmdbWebhook.SCHEMA``
-  never runs and this function is the ONLY validation a webhook document gets. It is therefore where
-  the required fields, the event-type list and the URL scheme are checked.
+* ``parse_webhook_params`` normalises and validates what the create/update routes receive - the
+  JSON body, with the query string as a fallback for any key the body leaves out. It checks the
+  semantics the document schema can not express (non-blank name and url, a fetchable http(s) URL,
+  known event types, a strict ``active`` flag) and then holds the normalised document against
+  ``CmdbWebhook.SCHEMA``, so every stored webhook satisfies its own schema.
 * ``send_webhook_event`` notifies the configured CmdbWebhooks and records a CmdbWebhookEvent per
   delivery. The orchestration spans two domains (reading the CmdbWebhooks and writing the events), so
   it cannot live inside a manager - a manager must not depend on another manager. Both managers are
@@ -47,6 +48,7 @@ from urllib.parse import urlsplit
 import json
 from datetime import datetime, timezone
 
+from cerberus import Validator  # type: ignore
 from flask import abort
 import requests
 
@@ -55,16 +57,29 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import WebhooksManager, WebhooksEventManager
 
+from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
+from cmdb.utils import str_to_bool
+from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
+    WEBHOOK_ACTIVE_DEFAULT,
+    WEBHOOK_ACTIVE_INVALID_MSG,
     WEBHOOK_ALLOWED_URL_SCHEMES,
     WEBHOOK_DELIVERED_STATUS_MAX,
     WEBHOOK_DELIVERED_STATUS_MIN,
     WEBHOOK_DISPATCH_MAX_WORKERS,
     WEBHOOK_DISPATCH_THREAD_PREFIX,
+    WEBHOOK_EVENT_TYPES_INVALID_MSG,
+    WEBHOOK_EVENT_TYPES_NOT_A_LIST_MSG,
+    WEBHOOK_EVENT_TYPES_UNKNOWN_MSG,
+    WEBHOOK_FIELD_REQUIRED_MSG,
     WEBHOOK_NO_RESPONSE_CODE,
     WEBHOOK_REQUEST_TIMEOUT_SECONDS,
+    WEBHOOK_TEXT_NOT_A_STRING_MSG,
+    WEBHOOK_URL_NO_HOST_MSG,
+    WEBHOOK_URL_SCHEME_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -77,55 +92,68 @@ DISPATCH_EXECUTOR: ThreadPoolExecutor = ThreadPoolExecutor(
     thread_name_prefix=WEBHOOK_DISPATCH_THREAD_PREFIX,
 )
 
+#: The document schema minus the server-owned public_id: what a webhook write has to satisfy
+WEBHOOK_WRITE_SCHEMA: dict[str, Any] = build_write_schema(CmdbWebhook.SCHEMA)
+
 # ------------------------------------------------ REQUEST PARAMETERS ------------------------------------------------ #
 
 def parse_webhook_params(params: dict[str, Any]) -> None:
     """
-    Normalises and validates the form-encoded CmdbWebhook params in place
+    Normalises and validates a CmdbWebhook write payload in place
 
-    The create and update routes read their parameters from the query string, so nothing has coerced
-    or checked them yet and ``CmdbWebhook.SCHEMA`` is never applied. This function is the whole of the
-    validation a webhook document gets:
+    The payload is what ``read_write_payload`` merged: the JSON body, which arrives typed, with the
+    query string filling any key the body leaves out, where every value is text. Both spellings are
+    accepted here, and the result is the typed document:
 
-    - ``name`` and ``url`` must be present and non-blank (the schema marks both required, but it does
-      not run - and a webhook with no URL is one whose every delivery fails)
+    - ``name`` and ``url`` must be present, text and non-blank (a webhook with no URL is one whose
+      every delivery fails)
     - ``url`` must carry an allowed scheme and a host: the server itself fetches this URL
-    - ``event_types`` must be a **list** of known ``WebhookEventType`` values. It arrives as a string
-      literal, and ``literal_eval`` happily returns an int or a dict, either of which would be stored
-      and produce a webhook that silently never matches an event
-    - ``active`` is coerced to a bool
+    - ``event_types`` must be a non-empty **list** of known ``WebhookEventType`` values - a JSON list,
+      or its text spelling from a query string. ``literal_eval`` alone happily returns an int or a
+      dict, either of which would be stored and produce a webhook that silently never matches an event
+    - ``active`` is a bool or the text 'true' / 'false'; left out, it is ``WEBHOOK_ACTIVE_DEFAULT``
+
+    The normalised document is then held against ``CmdbWebhook.SCHEMA`` (minus the server-owned
+    public_id), so what is stored always satisfies the model's own schema. The checks above are
+    stricter than the schema, so a refusal at that last step means the two have drifted apart
 
     Args:
-        params (dict[str, Any]): The request params to normalise, modified in place
+        params (dict[str, Any]): The merged request payload to normalise, modified in place
 
     Raises:
-        HTTPException: 400 when a required parameter is missing or blank, when the URL is not usable,
-            or when event_types is not a list of known event types
+        HTTPException: 400 when a required parameter is missing, blank or not text, when the URL is
+            not usable, when event_types is not a list of known event types, when active is not a
+            boolean, or when the normalised document does not satisfy the schema
     """
     params['name'] = _require_non_blank(params.get('name'), 'name')
     params['url'] = _validated_webhook_url(params.get('url'))
     params['event_types'] = _validated_event_types(params.get('event_types'))
-    params['active'] = str(params.get('active')).lower() == 'true'
+    params['active'] = _validated_active(params.get('active'))
+
+    _check_webhook_document_shape(params)
 
 
 def _require_non_blank(value: Any, field_name: str) -> str:
     """
-    Returns the value as a stripped string, aborting when it is missing or blank
+    Returns the value stripped, aborting when it is missing, blank or not text
 
     Args:
         value (Any): The raw parameter value
         field_name (str): Name of the parameter, used in the error message
 
     Raises:
-        HTTPException: 400 when the value is None or contains only whitespace
+        HTTPException: 400 when the value is None, is not a string, or contains only whitespace
 
     Returns:
         str: The value with surrounding whitespace removed
     """
-    if value is None or not str(value).strip():
-        abort(400, f"The '{field_name}' of a Webhook is required!")
+    if value is None or (isinstance(value, str) and not value.strip()):
+        abort(400, WEBHOOK_FIELD_REQUIRED_MSG.format(field=field_name))
 
-    return str(value).strip()
+    if not isinstance(value, str):
+        abort(400, WEBHOOK_TEXT_NOT_A_STRING_MSG.format(field=field_name, actual=value))
+
+    return value.strip()
 
 
 def _validated_webhook_url(value: Any) -> str:
@@ -149,20 +177,23 @@ def _validated_webhook_url(value: Any) -> str:
 
     if parts.scheme.lower() not in WEBHOOK_ALLOWED_URL_SCHEMES:
         allowed = ', '.join(sorted(WEBHOOK_ALLOWED_URL_SCHEMES))
-        abort(400, f"The 'url' of a Webhook must use one of these schemes: {allowed}!")
+        abort(400, WEBHOOK_URL_SCHEME_MSG.format(allowed=allowed))
 
     if not parts.netloc:
-        abort(400, "The 'url' of a Webhook must contain a host!")
+        abort(400, WEBHOOK_URL_NO_HOST_MSG)
 
     return url
 
 
 def _validated_event_types(value: Any) -> list[str]:
     """
-    Parses the ``event_types`` string literal into a list of known WebhookEventType values
+    Reads ``event_types`` into a list of known WebhookEventType values
+
+    A JSON body sends the list itself; a query string can only send its text spelling (a Python or
+    JSON list literal), which is parsed with ``literal_eval``
 
     Args:
-        value (Any): The raw ``event_types`` parameter, a Python/JSON list literal as a string
+        value (Any): The raw ``event_types`` parameter - a list, or a list literal as a string
 
     Raises:
         HTTPException: 400 when the value is missing, is not a valid literal, is not a list, is empty
@@ -172,23 +203,74 @@ def _validated_event_types(value: Any) -> list[str]:
         list[str]: The event type values the webhook subscribes to
     """
     if value is None:
-        abort(400, "Invalid or missing 'event_types' for the Webhook!")
+        abort(400, WEBHOOK_EVENT_TYPES_INVALID_MSG)
 
-    try:
-        event_types = literal_eval(str(value))
-    except (ValueError, SyntaxError, MemoryError, RecursionError):
-        abort(400, "Invalid or missing 'event_types' for the Webhook!")
+    event_types: Any = value
+
+    if isinstance(value, str):
+        try:
+            event_types = literal_eval(value)
+        except (ValueError, SyntaxError, MemoryError, RecursionError):
+            abort(400, WEBHOOK_EVENT_TYPES_INVALID_MSG)
 
     if not isinstance(event_types, list) or not event_types:
-        abort(400, "The 'event_types' of a Webhook must be a non-empty list!")
+        abort(400, WEBHOOK_EVENT_TYPES_NOT_A_LIST_MSG)
 
     known = {event_type.value for event_type in WebhookEventType}
-    unknown = [str(event_type) for event_type in event_types if str(event_type) not in known]
+    unknown = [str(event_type) for event_type in event_types
+               if not isinstance(event_type, str) or event_type not in known]
 
     if unknown:
-        abort(400, f"Unknown Webhook event types: {', '.join(unknown)}! Allowed: {', '.join(sorted(known))}")
+        abort(400, WEBHOOK_EVENT_TYPES_UNKNOWN_MSG.format(unknown=', '.join(unknown),
+                                                          allowed=', '.join(sorted(known))))
 
-    return [str(event_type) for event_type in event_types]
+    return list(event_types)
+
+
+def _validated_active(value: Any) -> bool:
+    """
+    Reads the ``active`` flag strictly, defaulting it when the write leaves it out
+
+    A JSON body sends a bool, a query string the text 'true' / 'false'. Anything else is refused: read
+    leniently, a ``1`` or a ``yes`` used to become False and store a webhook that never delivers
+
+    Args:
+        value (Any): The raw ``active`` parameter
+
+    Raises:
+        HTTPException: 400 when the value is neither a bool nor the text 'true' / 'false'
+
+    Returns:
+        bool: The flag, ``WEBHOOK_ACTIVE_DEFAULT`` when the value is absent
+    """
+    if value is None:
+        return WEBHOOK_ACTIVE_DEFAULT
+
+    try:
+        return str_to_bool(value)
+    except ValueError:
+        abort(400, WEBHOOK_ACTIVE_INVALID_MSG.format(actual=value))
+
+
+def _check_webhook_document_shape(params: dict[str, Any]) -> None:
+    """
+    Holds the normalised webhook document against the write schema
+
+    Only the keys the schema declares are checked - a merged payload may carry others (the update
+    route's pinned public_id, a stray query parameter), and ``CmdbWebhook.from_data`` reads the declared
+    keys alone, so nothing else is stored
+
+    Args:
+        params (dict[str, Any]): The normalised payload
+
+    Raises:
+        HTTPException: 400 naming each field that does not satisfy the schema
+    """
+    document: dict[str, Any] = {key: params[key] for key in WEBHOOK_WRITE_SCHEMA if key in params}
+    validator = Validator(WEBHOOK_WRITE_SCHEMA)
+
+    if not validator.validate(document):
+        abort(400, describe_schema_errors(validator.errors))
 
 # -------------------------------------------------- EVENT EMISSION -------------------------------------------------- #
 

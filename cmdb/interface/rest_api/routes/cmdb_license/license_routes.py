@@ -30,6 +30,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from flask import abort, current_app
+from werkzeug import Response
 
 from cmdb.manager import LicenseService
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -96,7 +97,7 @@ def _current_license_payload(license_service: LicenseService) -> dict[str, Any]:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_VIEW_RIGHT)
-def get_current_license(request_user: CmdbUser):
+def get_current_license(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning the currently effective license
 
@@ -125,7 +126,7 @@ def get_current_license(request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @handle_route_errors("while retrieving the license entitlements")
-def get_license_entitlements(request_user: CmdbUser):
+def get_license_entitlements(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route returning what the current license unlocks
 
@@ -175,7 +176,7 @@ def get_license_entitlements(request_user: CmdbUser):
 @license_blueprint.protect(auth=True, right=LICENSE_EDIT_RIGHT)
 @license_blueprint.validate(LICENSE_UPLOAD_SCHEMA)
 @handle_route_errors("while activating the license")
-def activate_license(data: dict, request_user: CmdbUser):
+def activate_license(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route activating an uploaded license blob
 
@@ -205,7 +206,7 @@ def activate_license(data: dict, request_user: CmdbUser):
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_blueprint.protect(auth=True, right=LICENSE_DELETE_RIGHT)
-def delete_current_license(request_user: CmdbUser):
+def delete_current_license(request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route removing the active license, reverting the install to the free tier
 

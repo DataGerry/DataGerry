@@ -17,6 +17,7 @@
 Implementation of BaseParser
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.framework.importer.responses.base_parser_response import BaseParserResponse
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,11 +32,11 @@ class BaseParser:
     A base class for parsers that handle file parsing with configurable settings
 
     Attributes:
-        DEFAULT_CONFIG (dict): Default configuration settings, merged under any caller-supplied config
+        DEFAULT_CONFIG (dict[str, Any]): Default configuration settings, merged under any caller-supplied config
     """
-    DEFAULT_CONFIG: dict = {}
+    DEFAULT_CONFIG: dict[str, Any] = {}
 
-    def __init__(self, parser_config: dict | None = None) -> None:
+    def __init__(self, parser_config: dict[str, Any] | None = None) -> None:
         """
         Initializes the BaseParser with a given configuration
 
@@ -43,17 +44,17 @@ class BaseParser:
         omitted keys keep their defaults.
 
         Args:
-            parser_config (dict | None): Parser-specific settings. If None, only DEFAULT_CONFIG is used
+            parser_config (dict[str, Any] | None): Parser-specific settings. If None, only DEFAULT_CONFIG is used
         """
-        self.parser_config: dict = {**self.DEFAULT_CONFIG, **(parser_config or {})}
+        self.parser_config: dict[str, Any] = {**self.DEFAULT_CONFIG, **(parser_config or {})}
 
 
-    def get_config(self) -> dict:
+    def get_config(self) -> dict[str, Any]:
         """
         Retrieves the current parser configuration
 
         Returns:
-            dict: The parser's effective configuration settings
+            dict[str, Any]: The parser's effective configuration settings
         """
         return self.parser_config
 

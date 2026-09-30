@@ -45,6 +45,7 @@ from cmdb.models.user_model import CmdbUser
 ROUTE_URL: str = '/logs'
 
 OBJECT_LOG_TYPE: str = CmdbObjectLog.__name__
+OTHER_LOG_TYPE: str = CmdbMetaLog.__name__
 
 # Log public_ids (kept in a high, dedicated band to avoid collisions with seeded/admin logs)
 LOG_ID_SINGLE: int = 90001
@@ -54,6 +55,7 @@ LOG_ID_DELETE_ACTION: int = 90004
 LOG_ID_OBJECT_EXISTS: int = 90005
 LOG_ID_OBJECT_DELETED: int = 90006
 LOG_ID_FOR_DELETE: int = 90007
+LOG_ID_OTHER_TYPE: int = 90008
 MISSING_LOG_ID: int = 90099
 
 # Object public_ids referenced by the logs above
@@ -76,7 +78,7 @@ MINIMAL_USER_FIELDS: set[str] = {'public_id', 'first_name', 'last_name', 'image'
 
 ALL_LOG_IDS: list[int] = [
     LOG_ID_SINGLE, LOG_ID_EDIT_A, LOG_ID_EDIT_B, LOG_ID_DELETE_ACTION,
-    LOG_ID_OBJECT_EXISTS, LOG_ID_OBJECT_DELETED, LOG_ID_FOR_DELETE,
+    LOG_ID_OBJECT_EXISTS, LOG_ID_OBJECT_DELETED, LOG_ID_FOR_DELETE, LOG_ID_OTHER_TYPE,
     LOG_ID_IU_A, LOG_ID_IU_B, LOG_ID_IU_DUP, LOG_ID_IU_MISSING_USER,
 ]
 ALL_OBJECT_IDS: list[int] = [EXISTING_OBJECT_ID]
@@ -250,6 +252,21 @@ class TestExistingVsDeletedObjects:
 
         assert LOG_ID_OBJECT_DELETED in _result_ids(notexists.json)
         assert LOG_ID_OBJECT_DELETED not in _result_ids(exists.json)
+
+    def test_delete_logs_and_other_log_types_are_on_neither_side(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A delete log belongs to /object/deleted, a foreign log type to no object-log list."""
+        _objects(database_manager, database_name).insert_one({'public_id': EXISTING_OBJECT_ID})
+        _logs(database_manager, database_name).insert_many([
+            _log_doc(LOG_ID_DELETE_ACTION, DELETED_OBJECT_ID, action=LogAction.DELETE),
+            _log_doc(LOG_ID_OTHER_TYPE, EXISTING_OBJECT_ID, log_type=OTHER_LOG_TYPE),
+        ])
+
+        exists = _result_ids(rest_api.get(f'{ROUTE_URL}/object/exists?limit=0').json)
+        notexists = _result_ids(rest_api.get(f'{ROUTE_URL}/object/notexists?limit=0').json)
+
+        assert {LOG_ID_DELETE_ACTION, LOG_ID_OTHER_TYPE}.isdisjoint(exists | notexists)
 
 
 class TestCorrespondingLog:

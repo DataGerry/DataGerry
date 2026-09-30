@@ -38,6 +38,7 @@ Two rules the provider enforces itself instead of trusting the directory:
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
+from types import TracebackType
 
 from ldap3 import Server, Connection
 from ldap3.core.exceptions import LDAPExceptionError
@@ -95,9 +96,9 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
     PROVIDER_CONFIG_CLASS = LdapAuthenticationProviderConfig
 
     def __init__(self,
-                 config: LdapAuthenticationProviderConfig = None,
-                 security_manager: SecurityManager = None,
-                 users_manager: UsersManager = None):
+                 config: LdapAuthenticationProviderConfig | None = None,
+                 security_manager: SecurityManager | None = None,
+                 users_manager: UsersManager | None = None) -> None:
         """
         Initialize the LDAP authentication provider.
 
@@ -106,9 +107,9 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         `config=None` really works instead of raising
 
         Args:
-            config (LdapAuthenticationProviderConfig, optional): The LDAP provider configuration
-            security_manager (SecurityManager, optional): The security manager instance
-            users_manager (UsersManager, optional): The users manager instance
+            config (LdapAuthenticationProviderConfig | None): The LDAP provider configuration
+            security_manager (SecurityManager | None): The security manager instance
+            users_manager (UsersManager | None): The users manager instance
         """
         super().__init__(config,
                          security_manager=security_manager,
@@ -128,14 +129,18 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         return self
 
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(
+            self,
+            exc_type: type[BaseException] | None,
+            exc_val: BaseException | None,
+            exc_tb: TracebackType | None) -> None:
         """
         Close the LDAP connection when exiting the context
 
         Args:
-            exc_type (Type[BaseException]): Exception type
-            exc_val (BaseException): Exception value
-            exc_tb (TracebackType): Traceback object
+            exc_type (type[BaseException] | None): Exception type
+            exc_val (BaseException | None): Exception value
+            exc_tb (TracebackType | None): Traceback object
         """
         self.disconnect()
 
@@ -171,7 +176,7 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         Returns:
             bool: True if the provider is active, False otherwise
         """
-        return self.config.active
+        return self.is_active_for(self.config)
 
 
     def authenticate(self, user_name: str, password: str) -> CmdbUser:

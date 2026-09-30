@@ -82,19 +82,23 @@ class TestGetSection:
 
 
 class TestGetSections:
-    """SettingsManager.get_sections lists section identifiers."""
+    """SettingsManager.get_sections lists section names, like every SystemReader."""
 
-    def test_lists_written_section_id(self, settings_manager: SettingsManager) -> None:
-        """A written section appears in get_sections, projected to its '_id' only."""
+    def test_lists_written_section_names(self, settings_manager: SettingsManager) -> None:
+        """A written section appears by its name - a plain string, not the stored document"""
         settings_manager.write(SECTION, {'colour': 'red', 'size': 3})
 
         sections = settings_manager.get_sections()
 
-        ids = [entry['_id'] for entry in sections]
-        assert SECTION in ids
-        # projection keeps only '_id'
-        entry = next(entry for entry in sections if entry['_id'] == SECTION)
-        assert set(entry.keys()) == {'_id'}
+        assert SECTION in sections
+        assert all(isinstance(section, str) for section in sections)
+
+    def test_each_section_is_listed_once(self, settings_manager: SettingsManager) -> None:
+        """Writing a section again updates the one document instead of adding a second name"""
+        settings_manager.write(SECTION, {'colour': 'red'})
+        settings_manager.write(SECTION, {'colour': 'blue'})
+
+        assert settings_manager.get_sections().count(SECTION) == 1
 
 
 class TestGetAllValuesFromSection:

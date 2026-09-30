@@ -29,6 +29,10 @@ Two invariants are worth knowing before touching this class:
   prefixing is part of the authorisation contract and not a display concern
 * the **level is bounded per subclass** - `MIN_LEVEL` / `MAX_LEVEL` are class attributes a subclass
   may narrow, and the setter refuses anything outside them
+
+Every catalogue right is built through `DefaultLevelRight`, which takes the name first and fills a
+level left out from the class: its `DEFAULT_LEVEL` when one is set, its `MIN_LEVEL` otherwise.
+`BaseRight` itself keeps the level-first signature for the rare direct construction
 """
 from typing import Any
 
@@ -54,7 +58,13 @@ class BaseRight:
     DEFAULT_MASTER: bool = False
     PREFIX: str = 'base'
 
-    def __init__(self, level: Levels, name: str, label: str = None, description: str = None):
+    def __init__(
+            self,
+            level: Levels,
+            name: str,
+            label: str | None = None,
+            description: str | None = None
+        ) -> None:
         """
         Initializes a BaseRight instance
 
@@ -65,8 +75,8 @@ class BaseRight:
         Args:
             level (Levels): The permission level assigned to the right
             name (str): The internal name of the right, without the PREFIX
-            label (str, optional): A human-readable label for the right. Defaults to a generated label
-            description (str, optional): A description of what the right permits or controls
+            label (str | None): A human-readable label for the right. Defaults to a generated label
+            description (str | None): A description of what the right permits or controls
 
         Raises:
             InvalidLevelRightError: If the provided level is not a Levels member
@@ -170,3 +180,48 @@ class BaseRight:
             'description': instance.description,
             'is_master': instance.is_master
         }
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               DefaultLevelRight - CLASS                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class DefaultLevelRight(BaseRight):
+    """
+    A BaseRight built name-first, whose level defaults per class
+
+    Every right family (`FrameworkRight`, `IsmsRight`, `UserManagementRight`, ...) extends this class, so
+    a right is declared as `ObjectRight('view')` or `WebhookRight('edit', Levels.PROTECTED)`. A level
+    left out is the class's `DEFAULT_LEVEL` when the class sets one, and its own `MIN_LEVEL` otherwise -
+    read from the class the right is built from, so a subclass that narrows `MIN_LEVEL` defaults to its
+    narrowed minimum without declaring a constructor of its own
+    """
+    #: The level a right of this class gets when none is given; None means the class's MIN_LEVEL
+    DEFAULT_LEVEL: Levels | None = None
+
+    def __init__(self, name: str, level: Levels | None = None, description: str | None = None) -> None:
+        """
+        Initialises a right of this class
+
+        Args:
+            name (str): The internal name of the right, without the PREFIX
+            level (Levels | None): The permission level; None picks the class default (DEFAULT_LEVEL,
+                else MIN_LEVEL)
+            description (str | None): A description of what the right permits or controls
+
+        Raises:
+            InvalidLevelRightError: If the level is not a Levels member
+            MinLevelRightError: If the level is lower than the class's minimum
+            MaxLevelRightError: If the level is higher than the class's maximum
+        """
+        super().__init__(self.default_level() if level is None else level, name, description=description)
+
+
+    @classmethod
+    def default_level(cls) -> Levels:
+        """
+        The level a right of this class gets when none is given
+
+        Returns:
+            Levels: DEFAULT_LEVEL when the class sets one, the class's MIN_LEVEL otherwise
+        """
+        return cls.MIN_LEVEL if cls.DEFAULT_LEVEL is None else cls.DEFAULT_LEVEL

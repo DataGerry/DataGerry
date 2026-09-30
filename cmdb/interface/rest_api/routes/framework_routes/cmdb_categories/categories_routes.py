@@ -89,7 +89,7 @@ categories_blueprint = APIBlueprint('categories', __name__)
 @categories_blueprint.protect(auth=True, right=CategoryRight.ADD.value)
 @categories_blueprint.validate(build_write_schema(CmdbCategory.SCHEMA))
 @handle_route_errors("while inserting the Category into the database")
-def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
+def insert_cmdb_category(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     POST ``/rest/categories/`` - insert a CmdbCategory
 
@@ -103,7 +103,7 @@ def insert_cmdb_category(data: dict, request_user: CmdbUser) -> Response:
     Required right: ``base.framework.category.add``. Required API level: ``ApiLevel.ADMIN``.
 
     Args:
-        data (dict): Validated CmdbCategory payload (shape: ``CmdbCategory.SCHEMA``)
+        data (dict[str, Any]): Validated CmdbCategory payload (shape: ``CmdbCategory.SCHEMA``)
         request_user (CmdbUser): Authenticated requester, injected by ``@insert_request_user``
 
     Raises:
@@ -282,7 +282,7 @@ def get_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
 @categories_blueprint.protect(auth=True, right=CategoryRight.EDIT.value)
 @categories_blueprint.validate(build_write_schema(CmdbCategory.SCHEMA))
 @handle_route_errors("while updating the Category with ID:{public_id}")
-def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+def update_cmdb_category(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     PUT/PATCH ``/rest/categories/<public_id>`` - update a CmdbCategory
 
@@ -302,7 +302,7 @@ def update_cmdb_category(public_id: int, data: dict, request_user: CmdbUser) -> 
 
     Args:
         public_id (int): public_id of the CmdbCategory which should be updated
-        data (dict): Validated CmdbCategory payload (shape: ``CmdbCategory.SCHEMA``)
+        data (dict[str, Any]): Validated CmdbCategory payload (shape: ``CmdbCategory.SCHEMA``)
         request_user (CmdbUser): Authenticated requester, injected by ``@insert_request_user``
 
     Raises:

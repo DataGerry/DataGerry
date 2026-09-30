@@ -121,6 +121,9 @@ class BaseAPIResponse(ABC):
         """
         Returns the envelope keys every response carries
 
+        The enveloped responses extend this dict. ``DefaultResponse`` is the one deliberate exception: it
+        answers its payload bare, whatever its type, so its override returns ``Any``
+
         Returns:
             dict[str, Any]: The operation type and the response time
         """
@@ -206,7 +209,9 @@ class BaseAPIResponse(ABC):
 
 
     @staticmethod
-    def apply_projection(data: dict | list[dict], projection: dict | list | None) -> dict | list[dict]:
+    def apply_projection(
+            data: dict[str, Any] | list[dict[str, Any]],
+            projection: dict[str, Any] | list[str] | None) -> dict[str, Any] | list[dict[str, Any]]:
         """
         Trims result document(s) down to a client-requested `?projection=`
 
@@ -214,12 +219,12 @@ class BaseAPIResponse(ABC):
         A falsy projection returns the data untouched, so a caller can pass whatever it holds
 
         Args:
-            data (dict | list[dict]): The result document, or a list of them
-            projection (dict | list | None): The `projection` query parameter - a MongoDB-style
+            data (dict[str, Any] | list[dict[str, Any]]): The result document, or a list of them
+            projection (dict[str, Any] | list[str] | None): The `projection` query parameter - a MongoDB-style
                 `{field: 1|0}` mapping, a list of field names, or None
 
         Returns:
-            dict | list[dict]: The projected data, in the shape it came in
+            dict[str, Any] | list[dict[str, Any]]: The projected data, in the shape it came in
         """
         if not projection:
             return data

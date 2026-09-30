@@ -22,7 +22,7 @@ from typing import Any, Callable
 from cerberus import Validator #type: ignore
 from flask import Blueprint, abort, request
 
-from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+from cmdb.interface.rest_api.responses.response_parameters import APIParameters, CollectionParameters
 from cmdb.interface.route_utils import user_has_right
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints.api_blueprint_constants import (
@@ -45,11 +45,15 @@ class APIBlueprint(Blueprint):
     Wrapper class for Blueprints with nested elements
     """
 
-    def __init__(self, *args, **kwargs) -> None:
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
         super().__init__(*args, **kwargs)
 
     @staticmethod
-    def _user_matches_excepted(excepted: dict, user_dict: dict, route_kwargs: dict, right: str) -> bool:
+    def _user_matches_excepted(
+            excepted: dict[str, str],
+            user_dict: dict[str, Any],
+            route_kwargs: dict[str, Any],
+            right: str) -> bool:
         """
         Check whether a user qualifies for an `excepted` carve-out from a required right
 
@@ -58,9 +62,9 @@ class APIBlueprint(Blueprint):
         (e.g. `{'public_id': 'public_id'}` lets a user act on their own record without holding the right)
 
         Args:
-            excepted (dict): Mapping of user-attribute key -> route-parameter name to compare against
-            user_dict (dict): Serialized user (`CmdbUser.to_public_json`) to read the attribute values from
-            route_kwargs (dict): Keyword arguments passed to the decorated route (holds the route parameters)
+            excepted (dict[str, str]): Mapping of user-attribute key -> route-parameter name to compare against
+            user_dict (dict[str, Any]): Serialized user (`CmdbUser.to_public_json`) to read the attribute values from
+            route_kwargs (dict[str, Any]): Keyword arguments passed to the decorated route (holds the route parameters)
             right (str): The required right, used only for the abort message
 
         Returns:
@@ -85,14 +89,18 @@ class APIBlueprint(Blueprint):
 
 
     @staticmethod
-    def _user_is_excepted(excepted: dict | None, request_user: CmdbUser, route_kwargs: dict, right: str) -> bool:
+    def _user_is_excepted(
+            excepted: dict[str, str] | None,
+            request_user: CmdbUser,
+            route_kwargs: dict[str, Any],
+            right: str) -> bool:
         """
         Whether a user without the right still passes through the route's `excepted` carve-out
 
         Args:
-            excepted (dict | None): The route's carve-out, or None when it has none
+            excepted (dict[str, str] | None): The route's carve-out, or None when it has none
             request_user (CmdbUser): The authenticated user of the request
-            route_kwargs (dict): Keyword arguments passed to the decorated route (holds the route parameters)
+            route_kwargs (dict[str, Any]): Keyword arguments passed to the decorated route (holds the route parameters)
             right (str): The required right, used only for the abort message
 
         Returns:
@@ -107,7 +115,10 @@ class APIBlueprint(Blueprint):
 
 
     @staticmethod
-    def protect(auth: bool = True, right: str | None = None, excepted: dict | None = None) -> Callable:
+    def protect(
+            auth: bool = True,
+            right: str | None = None,
+            excepted: dict[str, str] | None = None) -> Callable[..., Any]:
         """
         Decorator refusing a route to a caller who lacks the route's right
 
@@ -124,20 +135,20 @@ class APIBlueprint(Blueprint):
         Args:
             auth (bool): Kept for the call sites; the check runs only when it is True. Defaults to True
             right (str | None): The required right. If None, the decorator performs no enforcement
-            excepted (dict | None): Optional mapping of user-attribute key -> route-parameter name that
+            excepted (dict[str, str] | None): Optional mapping of user-attribute key -> route-parameter name that
                                     grants access even without `right` when the values match
 
         Returns:
-            Callable: A decorator that wraps the route with the right check
+            Callable[..., Any]: A decorator that wraps the route with the right check
 
         Raises:
             403 Forbidden: If the user lacks the required right and matches no excepted rule
             500 Internal Server Error: If the route has no `insert_request_user` above this decorator,
                 or the user's group could not be read - a failed check is not a missing right
         """
-        def _protect(f):
+        def _protect(f: Callable[..., Any]) -> Callable[..., Any]:
             @wraps(f)
-            def _decorate(*args, **kwargs):
+            def _decorate(*args: Any, **kwargs: Any) -> Any:
                 if auth and right:
                     request_user: CmdbUser | None = kwargs.get(REQUEST_USER_KWARG)
 
@@ -162,16 +173,16 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def validate(cls, schema: dict[str, Any]):
+    def validate(cls, schema: dict[str, Any]) -> Callable[..., Any]:
         """
         Decorator to validate incoming JSON request data against a provided schema
 
         Args:
-            schema (dict, optional): A validation schema used by the Cerberus Validator
+            schema (dict[str, Any]): A validation schema used by the Cerberus Validator
                                     Defines the required structure and rules for the incoming data
 
         Returns:
-            function: A decorator that injects validated and normalized data into the decorated function
+            Callable[..., Any]: A decorator that injects validated and normalized data into the decorated function
 
         Raises:
             400 Bad Request:
@@ -182,9 +193,9 @@ class APIBlueprint(Blueprint):
         """
         validator = Validator(schema, purge_unknown=True)
 
-        def _validate(f):
+        def _validate(f: Callable[..., Any]) -> Callable[..., Any]:
             @wraps(f)
-            def _decorate(*args, **kwargs):
+            def _decorate(*args: Any, **kwargs: Any) -> Any:
                 data = request.get_json()
                 # LOGGER.debug("validation data: %s", data)
                 try:
@@ -207,23 +218,24 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def parse_parameters(cls, parameters_class, **optional):
+    def parse_parameters(cls, parameters_class: type[APIParameters], **optional: Any) -> Callable[..., Any]:
         """
         Decorator to parse and validate HTTP request query parameters using a specified parameters class
 
         Args:
-            parameters_class (Type): A class that defines the structure and validation of the request parameters
+            parameters_class (type[APIParameters]): A class that defines the structure and validation of the
+                                                    request parameters
             **optional: Additional optional keyword arguments to pass to the parameters class
 
         Returns:
-            function: A decorator that injects parsed parameters into the decorated function
+            Callable[..., Any]: A decorator that injects parsed parameters into the decorated function
 
         Raises:
             400 Bad Request: If parameter parsing or validation fails
         """
-        def _parse(f):
+        def _parse(f: Callable[..., Any]) -> Callable[..., Any]:
             @wraps(f)
-            def _decorate(*args, **kwargs):
+            def _decorate(*args: Any, **kwargs: Any) -> Any:
                 try:
                     params = parameters_class.from_data(
                         str(request.query_string, 'utf-8'), **{**optional, **request.args.to_dict()}
@@ -240,7 +252,7 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def parse_request_parameters(cls, **optional):  # pylint: disable=unused-argument
+    def parse_request_parameters(cls, **optional: Any) -> Callable[..., Any]:  # pylint: disable=unused-argument
         # '**optional' is an extensibility placeholder, matching the other parameter decorators
         """
         Decorator to extract raw HTTP request query parameters and pass them to the decorated function
@@ -249,14 +261,15 @@ class APIBlueprint(Blueprint):
             **optional: (Currently unused) Additional optional keyword arguments
 
         Returns:
-            function: A decorator that injects request query parameters as a dictionary into the decorated function
+            Callable[..., Any]: A decorator that injects request query parameters as a dictionary into the
+                                decorated function
 
         Raises:
             400 Bad Request: If request argument extraction fails
         """
-        def _parse(f):
+        def _parse(f: Callable[..., Any]) -> Callable[..., Any]:
             @wraps(f)
-            def _decorate(*args, **kwargs):
+            def _decorate(*args: Any, **kwargs: Any) -> Any:
                 try:
                     request_args = request.args.to_dict()
                 except Exception as err:
@@ -271,7 +284,7 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def parse_request_body(cls, **optional):  # pylint: disable=unused-argument
+    def parse_request_body(cls, **optional: Any) -> Callable[..., Any]:  # pylint: disable=unused-argument
         # '**optional' is an extensibility placeholder, matching the other parameter decorators
         """
         Decorator to extract the JSON request body and pass it to the decorated function
@@ -280,14 +293,15 @@ class APIBlueprint(Blueprint):
             **optional: (Currently unused) Additional optional keyword arguments
 
         Returns:
-            function: A decorator that injects the parsed JSON body as a dictionary into the decorated function
+            Callable[..., Any]: A decorator that injects the parsed JSON body as a dictionary into the
+                                decorated function
 
         Raises:
             400 Bad Request: If the request body is missing or is not a valid JSON object
         """
-        def _parse(f):
+        def _parse(f: Callable[..., Any]) -> Callable[..., Any]:
             @wraps(f)
-            def _decorate(*args, **kwargs):
+            def _decorate(*args: Any, **kwargs: Any) -> Any:
                 payload = request.get_json(silent=True)
 
                 if not isinstance(payload, dict):
@@ -302,7 +316,7 @@ class APIBlueprint(Blueprint):
 
 
     @classmethod
-    def parse_collection_parameters(cls, **optional):
+    def parse_collection_parameters(cls, **optional: Any) -> Callable[..., Any]:
         """
         Decorator to parse and validate HTTP request query parameters into a CollectionParameters instance
 
@@ -311,7 +325,7 @@ class APIBlueprint(Blueprint):
                         parsed collection parameters
 
         Returns:
-            function: A decorator that injects the parsed CollectionParameters into the decorated function
+            Callable[..., Any]: A decorator that injects the parsed CollectionParameters into the decorated function
 
         Raises:
             400 Bad Request: If parameter parsing or validation fails. The raised message is carried
@@ -320,9 +334,9 @@ class APIBlueprint(Blueprint):
                 fixed message here reported a refused pipeline stage the same way it reported a
                 mistyped page number
         """
-        def _parse(f):
+        def _parse(f: Callable[..., Any]) -> Callable[..., Any]:
             @wraps(f)
-            def _decorate(*args, **kwargs):
+            def _decorate(*args: Any, **kwargs: Any) -> Any:
                 try:
                     params = CollectionParameters.from_data(
                         str(request.query_string, 'utf-8'), **{**optional, **request.args.to_dict()}

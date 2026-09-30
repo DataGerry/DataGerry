@@ -238,7 +238,7 @@ class OcConnectorManager(OcBaseManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
-    def get_connector(self, connector_id: int, password: str = None) -> dict[str, Any]:
+    def get_connector(self, connector_id: int, password: str | None = None) -> dict[str, Any]:
         """
         Retrieves a single OcConnector from OpenCelium
 
@@ -261,7 +261,7 @@ class OcConnectorManager(OcBaseManager):
         )
 
 
-    def get_connector_by_name(self, title: str, password: str = None) -> dict[str, Any]:
+    def get_connector_by_name(self, title: str, password: str | None = None) -> dict[str, Any]:
         """
         Retrieves a single OcConnector from OpenCelium
 

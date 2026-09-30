@@ -23,27 +23,34 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.isms_model import IsmsImpact, IsmsRisk
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey
+from cmdb.models.isms_model.isms_impact_constants import ImpactKey
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def load_calculation_basis(dbm: MongoDatabaseManager, db_name: str, collection: str) -> dict[int, float | None]:
+def load_calculation_basis(dbm: MongoDatabaseManager,
+                           db_name: str,
+                           collection: str,
+                           scale_keys: type[ImpactKey] | type[LikelihoodKey]) -> dict[int, float | None]:
     """
     Loads every document's calculation_basis from a scale collection in a single query.
 
     Used for the bounded ISMS scale collections (IsmsImpact, IsmsLikelihood) whose public_id ->
     calculation_basis lookup is needed to (re)derive a RiskAssessment's maximum impact and likelihood
-    value without issuing a per-row query.
+    value without issuing a per-row query. The two scales are separate entities whose documents
+    happen to share their key names, so the caller names the key set of the collection it reads
 
     Args:
         dbm (MongoDatabaseManager): The database manager to query through
         db_name (str): Name of the database holding the collection
         collection (str): The scale collection to read (e.g. IsmsImpact.COLLECTION)
+        scale_keys (type[ImpactKey] | type[LikelihoodKey]): The key enum of that collection
 
     Returns:
         dict[int, float | None]: Mapping of document public_id to its calculation_basis
     """
     return {
-        doc['public_id']: doc.get('calculation_basis')
+        doc[scale_keys.PUBLIC_ID.value]: doc.get(scale_keys.CALCULATION_BASIS.value)
         for doc in dbm.find(collection=collection, db_name=db_name, filter={})
     }
 
@@ -62,7 +69,7 @@ def load_impact_calculation_basis(dbm: MongoDatabaseManager, db_name: str) -> di
     Returns:
         dict[int, float | None]: Mapping of IsmsImpact public_id to its calculation_basis
     """
-    return load_calculation_basis(dbm, db_name, IsmsImpact.COLLECTION)
+    return load_calculation_basis(dbm, db_name, IsmsImpact.COLLECTION, ImpactKey)
 
 
 def recompute_max_impact(

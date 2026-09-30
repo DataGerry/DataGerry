@@ -17,6 +17,7 @@
 Implementation of CsvObjectImporter
 """
 from logging import Logger, getLogger
+from typing import Any
 from datetime import datetime, timezone
 
 from cmdb.manager import ObjectsManager
@@ -75,7 +76,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
     """
     def __init__(
             self,
-            file=None,
+            file: Any = None,
             config: CsvObjectImporterConfig | None = None,
             parser: JsonObjectParser | None = None,
             objects_manager: ObjectsManager | None = None,
@@ -100,7 +101,11 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         )
 
 
-    def _generate_objects(self, parsed: CsvObjectParserResponse, *args, **kwargs) -> list[tuple[dict, dict]]:
+    def _generate_objects(
+            self,
+            parsed: CsvObjectParserResponse,
+            *args: Any,
+            **kwargs: Any) -> list[tuple[dict[str, Any], dict[str, Any]]]:
         """
         Groups the parsed rows into objects and builds one ``(provided, generated)`` candidate per object
 
@@ -115,16 +120,17 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             parsed (CsvObjectParserResponse): The parser response holding the index-keyed rows
 
         Keyword Args:
-            header (list): The CSV header (column names)
+            header (list[str]): The CSV header (column names)
             mds_layout (list[tuple[str, list[str]]]): The type's ``(section_id, field_names)`` MDS layout
 
         Returns:
-            list[tuple[dict, dict]]: One (provided_data, generated_object) pair per reconstructed object
+            list[tuple[dict[str, Any], dict[str, Any]]]: One (provided_data, generated_object) pair per
+                reconstructed object
         """
-        header: list = kwargs.get('header') or []
+        header: list[str] = kwargs.get('header') or []
         mds_layout: list[tuple[str, list[str]]] = kwargs.get('mds_layout') or []
 
-        candidates: list[tuple[dict, dict]] = []
+        candidates: list[tuple[dict[str, Any], dict[str, Any]]] = []
 
         for group in self._group_rows(parsed.entries, header):
             primary = group[0]
@@ -142,7 +148,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
 
 
     @staticmethod
-    def _group_rows(entries: list[dict], header: list) -> list[list[dict]]:
+    def _group_rows(entries: list[dict[int, Any]], header: list[str]) -> list[list[dict[int, Any]]]:
         """
         Groups consecutive CSV rows into per-object blocks using the ``public_id`` column
 
@@ -151,16 +157,16 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         column each row is its own object (no multi-row grouping).
 
         Args:
-            entries (list[dict]): The parsed rows, each keyed by column index
-            header (list): The CSV header (column names)
+            entries (list[dict[int, Any]]): The parsed rows, each keyed by column index
+            header (list[str]): The CSV header (column names)
 
         Returns:
-            list[list[dict]]: One list of rows per object, in file order
+            list[list[dict[int, Any]]]: One list of rows per object, in file order
         """
         public_id_key = CmdbObjectKey.PUBLIC_ID.value
         public_id_index = header.index(public_id_key) if header and public_id_key in header else None
 
-        groups: list[list[dict]] = []
+        groups: list[list[dict[int, Any]]] = []
 
         for entry in entries:
             continues_previous = (
@@ -179,9 +185,9 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
 
     @staticmethod
     def _build_multi_data_sections(
-            group: list[dict],
-            header: list,
-            mds_layout: list[tuple[str, list[str]]]) -> list[dict]:
+            group: list[dict[int, Any]],
+            header: list[str],
+            mds_layout: list[tuple[str, list[str]]]) -> list[dict[str, Any]]:
         """
         Reassembles an object's multi-data sections from its group of CSV rows
 
@@ -191,14 +197,14 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         section's ``highest_id`` is set to the resulting entry count, matching the object-edit convention.
 
         Args:
-            group (list[dict]): The rows belonging to one object (primary + continuation rows)
-            header (list): The CSV header (column names)
+            group (list[dict[int, Any]]): The rows belonging to one object (primary + continuation rows)
+            header (list[str]): The CSV header (column names)
             mds_layout (list[tuple[str, list[str]]]): The type's ``(section_id, field_names)`` MDS layout
 
         Returns:
-            list[dict]: The reconstructed multi-data-section instances (empty when the object has none)
+            list[dict[str, Any]]: The reconstructed multi-data-section instances (empty when the object has none)
         """
-        sections: list[dict] = []
+        sections: list[dict[str, Any]] = []
 
         for section_id, field_names in mds_layout:
             # Only the section's fields that are actually columns in this CSV can be restored
@@ -206,7 +212,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             if not present_fields:
                 continue
 
-            values: list[dict] = []
+            values: list[dict[str, Any]] = []
 
             for row in group:
                 cells = [(name, row.get(index)) for name, index in present_fields]
@@ -257,7 +263,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
 
 
     @staticmethod
-    def _is_blank(value) -> bool:
+    def _is_blank(value: Any) -> bool:
         """
         Reports whether a parsed CSV cell carries no value
 
@@ -271,7 +277,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
 
 
     @staticmethod
-    def _blank_to_none(value):
+    def _blank_to_none(value: Any) -> Any:
         """
         Normalises an empty cell to the absent value
 
@@ -284,12 +290,12 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             value: The parsed cell value
 
         Returns:
-            The value, or None when the cell is blank
+            Any: The value, or None when the cell is blank
         """
         return None if CsvObjectImporter._is_blank(value) else value
 
 
-    def generate_object(self, entry: dict, *args, **kwargs) -> dict:
+    def generate_object(self, entry: dict[int | str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
         Generate an object dictionary from a CSV row based on the import configuration
 
@@ -298,20 +304,20 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         field mapped as a regular field is skipped here to avoid emitting it twice.
 
         Args:
-            entry (dict): A single row from the CSV file represented as a dictionary
+            entry (dict[int | str, Any]): A single row from the CSV file represented as a dictionary
 
         Keyword Args:
-            fields (list[dict]): The target type's field definitions (required)
+            fields (list[dict[str, Any]]): The target type's field definitions (required)
             mds_layout (list[tuple[str, list[str]]]): The type's MDS layout (its fields are excluded here)
 
         Raises:
             ImportRuntimeError: If required field information is missing or cannot be processed
 
         Returns:
-            dict: A dictionary representing the generated object, ready to be imported into the system
+            dict[str, Any]: A dictionary representing the generated object, ready to be imported into the system
         """
         try:
-            possible_fields: list[dict] = kwargs['fields']
+            possible_fields: list[dict[str, Any]] = kwargs['fields']
         except (KeyError, IndexError, ValueError) as err:
             raise ImportRuntimeError(f"[generate_object] can't import objects: {err}") from err
 
@@ -333,7 +339,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         entry = ImproveObject(entry, field_entries, possible_fields).improve_entry()
         object_fields = self._build_object_fields(field_entries, foreign_entries, entry, mds_field_names)
 
-        working_object: dict = {
+        working_object: dict[str, Any] = {
             CmdbObjectKey.ACTIVE.value: True,
             CmdbObjectKey.TYPE_ID.value: self.get_config().get_type_id(),
             CmdbObjectKey.FIELDS.value: object_fields,
@@ -348,7 +354,7 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         return working_object
 
 
-    def _to_provided_json(self, entry: dict, **kwargs) -> dict:
+    def _to_provided_json(self, entry: dict[int, Any], **kwargs: Any) -> dict[str, Any]:
         """
         Reconstructs the CSV row as a header-keyed JSON object (the data the user provided)
 
@@ -356,13 +362,13 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         so a rejected/failed row is reported as a readable ``{column: value}`` object.
 
         Args:
-            entry (dict): The parsed CSV row (keyed by column index)
+            entry (dict[int, Any]): The parsed CSV row (keyed by column index)
 
         Keyword Args:
-            header (list): The CSV header (column names)
+            header (list[str]): The CSV header (column names)
 
         Returns:
-            dict: The row as a {column_name: value} object (empty when there is no header)
+            dict[str, Any]: The row as a {column_name: value} object (empty when there is no header)
         """
         header = kwargs.get('header') or []
 
@@ -373,9 +379,9 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
             self,
             field_entries: list[MapEntry],
             foreign_entries: list[MapEntry],
-            entry: dict,
+            entry: dict[int | str, Any],
             mds_field_names: set[str],
-        ) -> list[dict]:
+        ) -> list[dict[str, Any]]:
         """
         Builds the object's ``fields`` list from the mapped regular fields and reference fields
 
@@ -387,13 +393,13 @@ class CsvObjectImporter(ObjectImporter, CSVContent):
         Args:
             field_entries (list[MapEntry]): Mapping entries for regular fields
             foreign_entries (list[MapEntry]): Mapping entries for object references
-            entry (dict): The (already coerced) source row
+            entry (dict[int | str, Any]): The (already coerced) source row
             mds_field_names (set[str]): Field names that belong to a multi-data-section (excluded here)
 
         Returns:
-            list[dict]: The {name, value} field dicts for the object
+            list[dict[str, Any]]: The {name, value} field dicts for the object
         """
-        fields: list[dict] = []
+        fields: list[dict[str, Any]] = []
 
         for entry_field in field_entries:
             # MDS fields are restored from the row group, not as a flat field

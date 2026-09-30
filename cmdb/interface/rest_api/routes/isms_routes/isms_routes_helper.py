@@ -25,6 +25,12 @@ from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    BULK_ITEM_INVALID_ID_MSG,
+    BULK_ITEM_MISSING_ID_MSG,
+    BULK_ITEM_NOT_FOUND_MSG,
+    BULK_ITEM_UPDATE_FAILED_MSG,
+    BulkItemResultKey,
+    BulkItemStatus,
     ISMS_BULK_DELETE_DELETED_KEY,
     ISMS_CAP_REACHED_MSG,
     ISMS_BULK_DELETE_IN_USE_KEY,
@@ -132,47 +138,45 @@ def update_multiple_items(
     if not isinstance(data, list):
         abort(400, f"The request body must be a list of {item_label}s!")
 
+    id_key: str = BulkItemResultKey.PUBLIC_ID.value
+
     # Resolve which requested ids exist in one batched query instead of a per-item existence read
     requested_ids: list[int] = [
-        item["public_id"] for item in data
-        if isinstance(item, dict) and _is_item_public_id(item.get("public_id"))
+        item[id_key] for item in data
+        if isinstance(item, dict) and _is_item_public_id(item.get(id_key))
     ]
     existing_ids: set[int] = {
-        doc["public_id"] for doc in manager.find_all(criteria={"public_id": {"$in": requested_ids}})
+        doc[id_key] for doc in manager.find_all(criteria={id_key: {"$in": requested_ids}})
     } if requested_ids else set()
 
     results: list[dict[str, Any]] = []
 
     for item in data:
-        public_id = item.get("public_id") if isinstance(item, dict) else None
+        public_id = item.get(id_key) if isinstance(item, dict) else None
 
         if public_id is None:
-            results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
+            results.append(_bulk_item_failure(None, BULK_ITEM_MISSING_ID_MSG))
             continue
 
         if not _is_item_public_id(public_id):
-            results.append({"public_id": public_id, "status": "failed", "message": "Invalid public_id"})
+            results.append(_bulk_item_failure(public_id, BULK_ITEM_INVALID_ID_MSG))
             continue
 
         if public_id not in existing_ids:
-            results.append({
-                "public_id": public_id,
-                "status": "failed",
-                "message": f"{item_label} ID:{public_id} not found",
-            })
+            results.append(_bulk_item_failure(
+                public_id, BULK_ITEM_NOT_FOUND_MSG.format(item_label=item_label, public_id=public_id),
+            ))
             continue
 
         try:
             manager.update_item(public_id, model.from_data(item))
-            results.append({"public_id": public_id, "status": "success"})
+            results.append({id_key: public_id, BulkItemResultKey.STATUS.value: BulkItemStatus.SUCCESS.value})
         except Exception as err:
             LOGGER.error("[%s] Failed to update %s ID %s: %s. Type: %s",
                          log_tag, item_label, public_id, err, type(err))
-            results.append({
-                "public_id": public_id,
-                "status": "failed",
-                "message": f"Failed to update {item_label} ID: {public_id}",
-            })
+            results.append(_bulk_item_failure(
+                public_id, BULK_ITEM_UPDATE_FAILED_MSG.format(item_label=item_label, public_id=public_id),
+            ))
 
     return results
 
@@ -256,3 +260,21 @@ def guard_required_risk_assessment_fields(data: dict[str, Any]) -> None:
 
     if missing_fields:
         abort(400, f"The RiskAssessment is missing required field(s): {', '.join(missing_fields)}!")
+
+
+def _bulk_item_failure(public_id: Any, message: str) -> dict[str, Any]:
+    """
+    Builds the per-item entry of a bulk update that did not go through
+
+    Args:
+        public_id (Any): The item's id as sent, or None when it carried none
+        message (str): Why the item failed
+
+    Returns:
+        dict[str, Any]: `{public_id, status: 'failed', message}`
+    """
+    return {
+        BulkItemResultKey.PUBLIC_ID.value: public_id,
+        BulkItemResultKey.STATUS.value: BulkItemStatus.FAILED.value,
+        BulkItemResultKey.MESSAGE.value: message,
+    }

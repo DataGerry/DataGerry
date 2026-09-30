@@ -25,6 +25,7 @@ chips next to subnet rows without an extra round-trip
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager.query_builder.builder import Builder
 from cmdb.models.object_model import (
     CmdbObjectKey,
     CmdbObjectFieldKey,
@@ -238,7 +239,7 @@ def load_vlans_by_subnets(
 
     subnet_ref_key: str = VlanField.SUBNET_REF.value
     pipeline: list[dict[str, Any]] = [
-        {'$match': {
+        Builder.match_({
             CmdbObjectKey.TYPE_ID: vlan_type_id,
             CmdbObjectKey.FIELDS: {
                 '$elemMatch': {
@@ -246,28 +247,27 @@ def load_vlans_by_subnets(
                     CmdbObjectFieldKey.VALUE: {'$in': subnet_ids},
                 },
             },
-        }},
-        {'$project': {
+        }),
+        Builder.project_({
             '_id': 0,
             CmdbObjectKey.PUBLIC_ID: 1,
             subnet_ref_key: field_value_expr(VlanField.SUBNET_REF),
             IpamOverviewKey.NAME: field_value_expr(VlanField.NAME),
-        }},
-        {'$match': {subnet_ref_key: {'$in': subnet_ids}}},
-        {'$group': {
-            '_id': f'${subnet_ref_key}',
+        }),
+        Builder.match_({subnet_ref_key: {'$in': subnet_ids}}),
+        Builder.group_(f'${subnet_ref_key}', {
             IpamOverviewKey.VLANS: {'$push': {
                 CmdbObjectKey.PUBLIC_ID: f'${CmdbObjectKey.PUBLIC_ID.value}',
                 IpamOverviewKey.NAME: f'${IpamOverviewKey.NAME.value}',
             }},
-        }},
+        }),
         # Sort each per-subnet bucket instead of the whole match set ($sortArray: MongoDB 6.0)
-        {'$project': {
+        Builder.project_({
             IpamOverviewKey.VLANS: {'$sortArray': {
                 'input': f'${IpamOverviewKey.VLANS.value}',
                 'sortBy': {CmdbObjectKey.PUBLIC_ID.value: 1},
             }},
-        }},
+        }),
     ]
 
     return {
