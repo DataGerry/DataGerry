@@ -1,0 +1,105 @@
+# CRA: generate SBOMs for an EXISTING DataGerry release without rebuilding or
+# publishing anything (no files.datagerry.com, docs or Docker Hub push).
+# Use it to backfill older releases or to test the SBOM pipeline.
+# Regular releases get their SBOMs from release.yml automatically.
+name: SBOM (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing tag, e.g. 3.2.0'
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  sbom:
+    runs-on: ubuntu-24.04
+    env:
+      TAG: ${{ inputs.tag }}
+    steps:
+    - name: checkout the source code
+      uses: actions/checkout@v7
+      with:
+        ref: ${{ inputs.tag }}
+
+    - name: generate SBOM (source dependencies)
+      uses: anchore/sbom-action@v0
+      with:
+        path: .
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ inputs.tag }}-source.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    # published images are pulled from Docker Hub; missing tags are skipped with a warning
+    - name: check which published images exist
+      id: images
+      run: |
+        for c in backend frontend; do
+          if docker manifest inspect "becongmbh/datagerry-$c:$TAG" >/dev/null 2>&1; then
+            echo "$c=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::becongmbh/datagerry-$c:$TAG not found on Docker Hub - skipping image SBOM"
+            echo "$c=false" >> "$GITHUB_OUTPUT"
+          fi
+        done
+
+    - name: generate SBOM (backend image)
+      if: steps.images.outputs.backend == 'true'
+      uses: anchore/sbom-action@v0
+      with:
+        image: becongmbh/datagerry-backend:${{ inputs.tag }}
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ inputs.tag }}-backend-image.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    - name: generate SBOM (frontend image)
+      if: steps.images.outputs.frontend == 'true'
+      uses: anchore/sbom-action@v0
+      with:
+        image: becongmbh/datagerry-frontend:${{ inputs.tag }}
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ inputs.tag }}-frontend-image.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    - name: check SBOMs are not empty
+      run: |
+        for f in sbom/*.cdx.json; do
+          n=$(jq '.components | length' "$f")
+          v=$(jq -r '.specVersion' "$f")
+          echo "$f: CycloneDX $v, $n components"
+          if [ "$n" -lt 10 ]; then echo "::error::$f has only $n components"; exit 1; fi
+          # BSI TR-03183-2 requires CycloneDX >= 1.5
+          case "$v" in 1.5|1.6|1.7) ;; *) echo "::error::$f uses CycloneDX $v (< 1.5)"; exit 1;; esac
+        done
+
+    - name: store SBOMs as workflow artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: sbom
+        path: sbom/*.cdx.json
+        if-no-files-found: error
+
+    - name: attach SBOMs to GitHub release
+      run: |
+        if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+          gh release upload "$TAG" sbom/*.cdx.json --clobber --repo "$GITHUB_REPOSITORY"
+        else
+          echo "No GitHub release for $TAG - skipping release upload"
+        fi
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: archive SBOMs in Azure Blob Storage
+      run: |
+        az storage blob upload-batch \
+          --destination sbom \
+          --destination-path "datagerry/${TAG//\//-}" \
+          --source sbom --pattern "*.cdx.json"
+      env:
+        AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.SBOM_STORAGE_CONN }}
