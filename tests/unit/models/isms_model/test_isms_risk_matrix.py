@@ -17,14 +17,14 @@
 Unit tests for IsmsRiskMatrix
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO, whose shared machinery has its own tests, so what is
 pinned here is what remains this model's own:
 
   - **the grid is never None.** Every reader indexes ``risk_matrix`` as a list - the transfer helper,
     the self-heal's cell count, the config wizard's completeness check - and a matrix whose scales are
     not configured yet legitimately has no cells. An absent key reads as ``[]``
   - **the document the first boot writes passes its own schema.** The seeded default carries
-    ``matrix_unit: None``, which the schema used to reject outright; the same null is what ``to_json``
+    ``matrix_unit: None``, which the schema has to accept; the same null is what ``to_json``
     writes for an unset unit, so the two halves have to agree
   - **the singleton requires nothing beyond its public_id**, which is why REQUIRED_INIT_KEYS stays
     empty here while the impact category declares its name
@@ -95,7 +95,7 @@ class TestTheKeySets:
         """
         Where the enum is defined is the point of this move
 
-        It used to live in `cmdb/database/predefined_data/`, so the model layer imported its own
+        Keeping it in `cmdb/database/predefined_data/` makes the model layer import its own
         document shape from the seeding package; the seed data now imports it from here instead.
         """
         assert RiskMatrixKey.__module__ == 'cmdb.models.isms_model.isms_risk_matrix_constants'
@@ -138,7 +138,7 @@ class TestTheDocumentRoundTrip:
         """
         The read/write asymmetry this migration closed
 
-        Such a document used to load as `risk_matrix: None` and serialise back into something the
+        Such a document must not load as `risk_matrix: None` and serialise back into something the
         schema rejects - while every reader indexed it as a list.
         """
         legacy = _document()

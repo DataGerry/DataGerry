@@ -17,6 +17,7 @@
 Implementation of LdapAuthenticationProviderConfig
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 
@@ -69,35 +70,38 @@ class LdapAuthenticationProviderConfig(BaseAuthProviderConfig):
 
     def __init__(
         self,
-        active: bool = None,
-        default_group: int = None,
-        server_config: dict = None,
-        connection_config: dict = None,
-        search: dict = None,
-        groups: dict = None,
-        *args, **kwargs):
+        active: bool | None = None,
+        default_group: int | None = None,
+        server_config: dict[str, Any] | None = None,
+        connection_config: dict[str, Any] | None = None,
+        search: dict[str, Any] | None = None,
+        groups: dict[str, Any] | None = None,
+        **kwargs: Any) -> None:
         """
         Initialize an LDAP Authentication Provider Configuration instance
 
         Args:
-            active (bool, optional): Whether the LDAP provider is active. Defaults to False
-            default_group (int, optional): Default group ID for users. Defaults to 2
-            server_config (dict, optional): Configuration for the LDAP server (host, port, SSL)
-            connection_config (dict, optional): Configuration for the LDAP connection (bind user, password, version)
-            search (dict, optional): Search parameters for finding users
-            groups (dict, optional): Group mapping settings
-
+            active (bool | None): Whether the LDAP provider is active. Defaults to False
+            default_group (int | None): Default group ID for users. Defaults to 2
+            server_config (dict[str, Any] | None): Configuration for the LDAP server (host, port, SSL)
+            connection_config (dict[str, Any] | None): Configuration for the LDAP connection (bind user, password,
+                version)
+            search (dict[str, Any] | None): Search parameters for finding users
+            groups (dict[str, Any] | None): Group mapping settings
+            **kwargs (Any): Stored keys this configuration does not declare. Accepted, so a settings
+                document carrying an extra key still loads, and dropped - unlike the local provider's
+                configuration, which hands them to the base class to be set as attributes
         """
         active = active or False
         self.default_group = int(default_group or LdapAuthenticationProviderConfig.
                                  DEFAULT_CONFIG_VALUES.get('default_group'))
-        self.server_config: dict = server_config or LdapAuthenticationProviderConfig. \
+        self.server_config: dict[str, Any] = server_config or LdapAuthenticationProviderConfig. \
             DEFAULT_CONFIG_VALUES.get('server_config')
-        self.connection_config: dict = connection_config or LdapAuthenticationProviderConfig. \
+        self.connection_config: dict[str, Any] = connection_config or LdapAuthenticationProviderConfig. \
             DEFAULT_CONFIG_VALUES.get('connection_config')
-        self.search: dict = search or LdapAuthenticationProviderConfig. \
+        self.search: dict[str, Any] = search or LdapAuthenticationProviderConfig. \
             DEFAULT_CONFIG_VALUES.get('search')
-        self.groups: dict = groups or LdapAuthenticationProviderConfig. \
+        self.groups: dict[str, Any] = groups or LdapAuthenticationProviderConfig. \
             DEFAULT_CONFIG_VALUES.get('groups')
 
         super().__init__(active)

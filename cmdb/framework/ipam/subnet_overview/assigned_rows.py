@@ -26,6 +26,7 @@ from typing import Any
 from flask import abort
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.utils import Builder
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SubnetField,
@@ -156,7 +157,7 @@ def load_assigned_rows_map(
     }
 
     pipeline: list[dict[str, Any]] = [
-        {'$match': {
+        Builder.match_({
             CmdbObjectKey.MULTI_DATA_SECTIONS: {
                 '$elemMatch': {
                     CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
@@ -165,18 +166,18 @@ def load_assigned_rows_map(
                     },
                 },
             },
-        }},
-        {'$unwind': f'${mds_key}'},
-        {'$match': {f'{mds_key}.{CmdbObjectMdsKey.SECTION_ID.value}': IpamSection.INTERFACE}},
-        {'$unwind': f'${rows_path}'},
-        {'$match': {data_path: subnet_ref_match}},
-        {'$project': {
+        }),
+        Builder.unwind_(f'${mds_key}'),
+        Builder.match_({f'{mds_key}.{CmdbObjectMdsKey.SECTION_ID.value}': IpamSection.INTERFACE}),
+        Builder.unwind_(f'${rows_path}'),
+        Builder.match_({data_path: subnet_ref_match}),
+        Builder.project_({
             '_id': 0,
             AssignedField.OBJECT_ID: f'${CmdbObjectKey.PUBLIC_ID.value}',
             AssignedField.TYPE_ID: f'${CmdbObjectKey.TYPE_ID.value}',
             AssignedField.IP: field_value_expr(InterfaceField.IP, data_path),
             AssignedField.MAC: field_value_expr(InterfaceField.MAC, data_path),
-        }},
+        }),
     ]
 
     out: dict[str, dict[str, Any]] = {}

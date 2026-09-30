@@ -95,7 +95,7 @@ class AccessControlListSection(ABC, Generic[T]):
 
     @classmethod
     @abstractmethod
-    def to_json(cls, section: "AccessControlListSection[T]") -> dict:
+    def to_json(cls, section: "AccessControlListSection[T]") -> dict[str, Any]:
         """
         Abstract method that serializes the ACL section to a dictionary.
         """
@@ -190,7 +190,7 @@ class AccessControlListSection(ABC, Generic[T]):
 
 
     @staticmethod
-    def _as_permission_set(permissions: Any) -> set:
+    def _as_permission_set(permissions: Any) -> set[str]:
         """
         Normalises a key's stored permissions into a set of their string values
 
@@ -202,7 +202,7 @@ class AccessControlListSection(ABC, Generic[T]):
             permissions (Any): The key's currently stored permissions
 
         Returns:
-            set: The permissions as a set of string values
+            set[str]: The permissions as a set of string values
         """
         if not permissions:
             return set()
@@ -214,7 +214,7 @@ class AccessControlListSection(ABC, Generic[T]):
 
 
     @classmethod
-    def _serialise_includes(cls, section: "AccessControlListSection[T]") -> dict:
+    def _serialise_includes(cls, section: "AccessControlListSection[T]") -> dict[str, list[str]]:
         """
         Serialises a section's `includes` into a json / BSON compatible mapping
 
@@ -225,7 +225,7 @@ class AccessControlListSection(ABC, Generic[T]):
             section (AccessControlListSection[T]): The section to serialise
 
         Returns:
-            dict: {str(key): [permission values]}
+            dict[str, list[str]]: {str(key): [permission values]}
         """
         return {
             str(key): sorted(cls._as_permission_set(permissions))

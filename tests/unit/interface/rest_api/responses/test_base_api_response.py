@@ -79,7 +79,7 @@ def _response(**kwargs: Any) -> _Response:
 #                                                  the body flag                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestBodyFlag:
-    """`body` decides whether the response carries a payload - it used to decide nothing at all."""
+    """`body` decides whether the response carries a payload, rather than nothing at all."""
 
     def test_false_really_means_no_body(self) -> None:
         """
@@ -142,7 +142,7 @@ class TestEnvelope:
         assert _response(url='/rest/objects/').url == '/rest/objects/'
 
     def test_the_operation_type_is_kept_as_the_member(self) -> None:
-        """The type guard that used to sit here could never fire, and raised the wrong error anyway"""
+        """A type guard here could never fire, and would raise the wrong error anyway"""
         assert _response().operation_type is OperationType.GET
 
 

@@ -17,7 +17,7 @@
 Unit tests for cmdb.models.location_model.cmdb_location
 
 The class that owns the ``framework.locations`` document had **no test module of its own** until
-2026-09-10 - it was exercised through the manager, the routes and the functional suite, which is why
+its own module - it is exercised through the manager, the routes and the functional suite, which is why
 its three hand-rolled `except` arms were its only uncovered statements.
 
 Those three methods are gone: the model declares ``KEYS`` and shares ``CmdbDAO.from_data`` /
@@ -25,12 +25,12 @@ Those three methods are gone: the model declares ``KEYS`` and shares ``CmdbDAO.f
 adds:
 
 * the round trip and its key order - the eight keys are a frontend contract (``LocationTreeNode``);
-* ``REQUIRED_INIT_KEYS`` actually refusing a document that misses one of the five. It used to be
+* ``REQUIRED_INIT_KEYS`` actually refusing a document that misses one of the five. It has to be
   **inert on the read path**: ``CmdbDAO.__new__`` only checks that the keyword was passed, and the
   old ``from_data`` always passed all eight, so a document without a ``name`` became an instance
   holding None and the list routes answered ``"name": null``;
 * the two optional render keys defaulting for an absent **and** a null value, since they are copied
-  from the CmdbType at write time and a stored null used to reach the tree as one;
+  from the CmdbType at write time, and a stored null must not reach the tree as one;
 * ``to_json`` refusing a foreign instance - ``LocationNode`` carries five of the same attributes.
 """
 from typing import Any
@@ -145,7 +145,7 @@ class TestTheClassContract:
         """
         A location has no version of its own
 
-        It mirrors an object rather than being edited, so the DEFAULT_VERSION this class used to
+        It mirrors an object rather than being edited, so a DEFAULT_VERSION on this class would
         declare was never read by anything - unlike CmdbObject's and CmdbType's.
         """
         assert 'DEFAULT_VERSION' not in vars(CmdbLocation)
@@ -186,7 +186,7 @@ class TestInit:
 
     @pytest.mark.parametrize('key', [LocationKey.TYPE_ICON.value, LocationKey.TYPE_SELECTABLE.value])
     def test_a_null_optional_key_reads_as_its_default(self, key: str) -> None:
-        """A stored null used to reach the tree as null - the payload contradicted the default"""
+        """A stored null must not reach the tree as null - that payload contradicts the default"""
         location = _location(**{key: None})
 
         assert getattr(location, key) == getattr(
@@ -279,7 +279,7 @@ class TestFromData:
     ])
     def test_a_document_missing_a_required_key_is_refused(self, missing: str) -> None:
         """
-        It used to become an instance holding None
+        It must not become an instance holding None
 
         REQUIRED_INIT_KEYS was declared but inert on this path: __new__ only checks that the keyword
         was passed, and from_data always passed all eight.

@@ -21,14 +21,16 @@ here from the importer + media-library route utils) plus fetch_only_active_objec
 readers (extract_public_ids for a URL segment, normalize_public_id_list for a JSON body) and
 append_criteria_to_filter, exercised inside a minimal Flask request context (no REST API booted).
 
-append_criteria_to_filter came here on 2026-09-09 from cmdb/framework/rack/assignable_objects.py, when
+append_criteria_to_filter lives here rather than in the rack package because
 the port-connection picker became its second caller: it is route-layer plumbing (a parsed ``?filter=``
 turned into pipeline stages) and knows nothing about either domain. Its tests moved with it, which is
 why they read in terms of a generic criteria dict rather than of the rack's rules.
 """
 import json
+from http import HTTPStatus
 from io import BytesIO
 from types import SimpleNamespace
+from unittest.mock import MagicMock
 from typing import Any
 
 import pytest
@@ -45,7 +47,14 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     fetch_only_active_objects,
     extract_public_ids,
     normalize_public_id_list,
+    update_item_from_payload,
+    read_write_payload,
+    abort_if_duplicate,
+    abort_if_taken,
+    require_created_item,
+    WRITE_PAYLOAD_NOT_AN_OBJECT_MSG,
 )
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentNetworkError
 # An empty list is the contract for "no stages" in several helpers here, so these assert the exact
 # value rather than falsiness - a None slipping through would break the caller that splices the result
 # pylint: disable=use-implicit-booleaness-not-comparison
@@ -302,7 +311,7 @@ def test_as_pipeline_criteria_copies_the_pipeline_it_was_given() -> None:
     """
     The caller's own object is echoed back as `parameters.filter`
 
-    The routes used to append their stages to it in place, so the response claimed the client had sent
+    A route appending its stages to it in place makes the response claim the client had sent
     the server's injected `active` stage.
     """
     stages = [{'$match': {'a': 1}}]
@@ -402,3 +411,214 @@ def test_pin_public_id_mutates_in_place_and_returns_the_same_dict() -> None:
     data: dict = {'name': 'x'}
 
     assert pin_public_id(data, 7) is data
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               update_item_from_payload                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class _Model:
+    """A stand-in model: from_data fills an omitted optional key, to_json serialises what it holds."""
+
+    def __init__(self, document: dict) -> None:
+        self.document = {'description': '', **document}
+
+    @classmethod
+    def from_data(cls, document: dict) -> '_Model':
+        """Builds the model without touching the caller's dict."""
+        return cls(dict(document))
+
+    @classmethod
+    def to_json(cls, model: '_Model') -> dict:
+        """The document the manager stores."""
+        return dict(model.document)
+
+
+def test_update_item_from_payload_writes_the_model_it_built() -> None:
+    """The manager receives the model instance, so it stores that model's to_json wholesale"""
+    manager = MagicMock()
+
+    update_item_from_payload(manager, 7, _Model, {'public_id': 7, 'name': 'n'})
+
+    public_id, written = manager.update_item.call_args.args
+    assert public_id == 7
+    assert isinstance(written, _Model)
+
+
+def test_update_item_from_payload_answers_the_stored_document_not_the_payload() -> None:
+    """A key the payload left out comes back as the model stored it"""
+    payload = {'public_id': 7, 'name': 'n'}
+
+    stored = update_item_from_payload(MagicMock(), 7, _Model, payload)
+
+    assert stored == {'public_id': 7, 'name': 'n', 'description': ''}
+    assert 'description' not in payload
+
+
+def test_update_item_from_payload_answers_nothing_when_the_write_fails() -> None:
+    """A failed write raises before a response is built - the caller maps the manager's error"""
+    manager = MagicMock()
+    manager.update_item.side_effect = RuntimeError('write failed')
+
+    with pytest.raises(RuntimeError):
+        update_item_from_payload(manager, 7, _Model, {'public_id': 7})
+
+
+class TestReadWritePayload:
+    """read_write_payload serves a write from the body, key by key, and falls back to the query string"""
+
+    ENTITY_LABEL: str = 'Thing'
+
+    def test_the_body_is_preferred_and_the_query_string_fills_the_gaps(self) -> None:
+        """A client may send either; one that sends both is served from the body, key by key"""
+        query_params = {'name': 'from-query', 'type_id': '5'}
+
+        with app.test_request_context(json={'name': 'from-body'}, query_string=query_params):
+            payload = read_write_payload(query_params, self.ENTITY_LABEL)
+
+        assert payload == {'name': 'from-body', 'type_id': '5'}
+
+    def test_a_body_value_keeps_its_json_type(self) -> None:
+        """The body is the typed half: a list stays a list and a bool a bool"""
+        with app.test_request_context(json={'items': ['a'], 'active': False}):
+            payload = read_write_payload({'items': "['a']", 'active': 'false'}, self.ENTITY_LABEL)
+
+        assert payload == {'items': ['a'], 'active': False}
+
+    def test_without_a_body_the_query_string_is_the_payload(self) -> None:
+        """The shape every caller used before a body was read at all"""
+        with app.test_request_context(query_string={'name': 'from-query'}):
+            payload = read_write_payload({'name': 'from-query'}, self.ENTITY_LABEL)
+
+        assert payload == {'name': 'from-query'}
+
+    def test_the_query_parameters_are_not_mutated(self) -> None:
+        """The decorator's dict belongs to the request, not to the payload builder"""
+        params = {'name': 'from-query'}
+
+        with app.test_request_context(json={'name': 'from-body'}):
+            read_write_payload(params, self.ENTITY_LABEL)
+
+        assert params == {'name': 'from-query'}
+
+    @pytest.mark.parametrize('body', [[1, 2], 'text', 7], ids=['list', 'string', 'number'])
+    def test_a_body_that_is_not_an_object_maps_to_400(self, body: Any) -> None:
+        """It was meant as the payload, so reading the query string instead would answer the wrong 400"""
+        with app.test_request_context(json=body):
+            with pytest.raises(HTTPException) as exc_info:
+                read_write_payload({}, self.ENTITY_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == WRITE_PAYLOAD_NOT_AN_OBJECT_MSG.format(entity=self.ENTITY_LABEL)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the write routes' error answers                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Thing from the database!'
+DUPLICATE_MESSAGE: str = "A Thing named 'x' already exists!"
+
+
+class _ManagerInsertError(Exception):
+    """Stands in for a domain manager's insert error."""
+
+
+def _wrapped(cause: Exception) -> Exception:
+    """A manager error raised `from` the cause, as every layer does it."""
+    try:
+        raise cause
+    except Exception as err:  # pylint: disable=broad-exception-caught
+        try:
+            raise _ManagerInsertError(err) from err
+        except _ManagerInsertError as wrapped:
+            return wrapped
+
+
+class TestRequireCreatedItem:
+    """The read-back of a created item: found is the answer, missing is the server's own fault."""
+
+    def test_a_found_item_is_answered_untouched(self) -> None:
+        """The document itself."""
+        item = {'public_id': 1}
+
+        assert require_created_item(item, CREATED_NOT_READABLE_MESSAGE) is item
+
+    @pytest.mark.parametrize('missing', [None, {}], ids=['none', 'empty'])
+    def test_a_missing_item_is_a_500_not_a_404(self, missing) -> None:
+        """The caller asked for nothing; the server lost sight of its own write."""
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            require_created_item(missing, CREATED_NOT_READABLE_MESSAGE)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == CREATED_NOT_READABLE_MESSAGE
+
+
+class TestAbortIfDuplicate:
+    """Only a unique index's refusal is the caller's clash; everything else stays the server's."""
+
+    def test_a_duplicate_anywhere_in_the_chain_is_the_readable_400(self) -> None:
+        """Found by type through the manager's wrapper - what a lost race looks like."""
+        err = _wrapped(DocumentInsertDuplicateKeyError('dup', key_pattern={'name': 1}))
+
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_duplicate(err, DUPLICATE_MESSAGE)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == DUPLICATE_MESSAGE
+
+    @pytest.mark.parametrize('cause', [
+        DocumentNetworkError('connection lost'),
+        RuntimeError('E11000 duplicate key error - text alone is no duplicate'),
+    ], ids=['outage', 'text-that-looks-like-a-duplicate'])
+    def test_anything_else_is_re_raised_unchanged(self, cause: Exception) -> None:
+        """For the route's generic tail to answer as a 500 - never "that name already exists"."""
+        err = _wrapped(cause)
+
+        with pytest.raises(_ManagerInsertError) as exc_info:
+            abort_if_duplicate(err, DUPLICATE_MESSAGE)
+
+        assert exc_info.value is err
+
+
+TAKEN_MESSAGE: str = "A Thing named 'x' already exists!"
+STORED_ID: int = 7
+OTHER_ID: int = 8
+
+
+def _manager_holding(document: dict[str, Any] | None) -> MagicMock:
+    """A manager whose get_one_by answers `document` for any criteria."""
+    manager = MagicMock()
+    manager.get_one_by.return_value = document
+
+    return manager
+
+
+class TestAbortIfTaken:
+    """The readable half of a uniqueness rule a unique index enforces."""
+
+    def test_a_free_value_passes_and_is_asked_about_exactly(self) -> None:
+        """The criteria go to the read as given - compared as sent, the way the index compares."""
+        manager = _manager_holding(None)
+
+        abort_if_taken(manager, {'name': ' X '}, TAKEN_MESSAGE)
+
+        manager.get_one_by.assert_called_once_with({'name': ' X '})
+
+    def test_a_value_another_document_holds_is_a_400_with_the_message(self) -> None:
+        """A create, or an update of a different document."""
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            abort_if_taken(_manager_holding({'public_id': STORED_ID}), {'name': 'x'}, TAKEN_MESSAGE,
+                           exclude_id=OTHER_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == TAKEN_MESSAGE
+
+    def test_the_document_being_updated_may_keep_its_own_value(self) -> None:
+        """Its own name is no clash."""
+        abort_if_taken(_manager_holding({'public_id': STORED_ID}), {'name': 'x'}, TAKEN_MESSAGE,
+                       exclude_id=STORED_ID)
+
+    def test_a_create_excludes_nothing(self) -> None:
+        """exclude_id None: even a document without an id counts as taken."""
+        with app.test_request_context(), pytest.raises(HTTPException):
+            abort_if_taken(_manager_holding({'name': 'x'}), {'name': 'x'}, TAKEN_MESSAGE)
+

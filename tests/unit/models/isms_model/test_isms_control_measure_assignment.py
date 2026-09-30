@@ -32,6 +32,10 @@ from cmdb.class_schema.isms_model.isms_control_measure_assignment_schema import 
     get_isms_control_measure_assignment_schema,
 )
 from cmdb.models.isms_model import IsmsControlMeasureAssignment
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import (
+    CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS,
+    ControlMeasureAssignmentKey,
+)
 from cmdb.errors.models.isms_control_measure_assignment import (
     IsmsControlMeasureAssignmentInitError,
     IsmsControlMeasureAssignmentInitFromDataError,
@@ -159,3 +163,49 @@ class TestErrorHandling:
 
         with pytest.raises(IsmsControlMeasureAssignmentToJsonError):
             IsmsControlMeasureAssignment.to_json(_NotAnAssignment())
+
+
+class TestSharedDocumentMachinery:
+    """The model reads and writes through CmdbDAO's shared from_data / to_json, over its key enum."""
+
+    def test_it_declares_its_key_enum_and_writes_neither_method_itself(self) -> None:
+        """The pair is inherited, so the key enum is the one place the document shape is stated."""
+        assert IsmsControlMeasureAssignment.KEYS is ControlMeasureAssignmentKey
+        assert 'from_data' not in vars(IsmsControlMeasureAssignment)
+        assert 'to_json' not in vars(IsmsControlMeasureAssignment)
+
+    def test_to_json_emits_exactly_the_key_enum(self) -> None:
+        """The key set is the wire format - nothing more, nothing less."""
+        serialised = IsmsControlMeasureAssignment.to_json(IsmsControlMeasureAssignment.from_data(_assignment_data()))
+
+        assert set(serialised) == {key.value for key in ControlMeasureAssignmentKey}
+
+    @pytest.mark.parametrize('missing', CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS)
+    def test_a_document_without_its_identity_is_refused(self, missing: str) -> None:
+        """An assignment that names no measure or no assessment links nothing, so it is not read."""
+        data = _assignment_data()
+        data.pop(missing)
+
+        with pytest.raises(IsmsControlMeasureAssignmentInitFromDataError, match=missing):
+            IsmsControlMeasureAssignment.from_data(data)
+
+    def test_a_document_without_its_dates_still_loads(self) -> None:
+        """The read is kept to the identity: a list page must not fail on one row without a date."""
+        data = _assignment_data()
+        data.pop('planned_implementation_date')
+        data.pop('finished_implementation_date')
+
+        loaded = IsmsControlMeasureAssignment.from_data(data)
+
+        assert (loaded.planned_implementation_date, loaded.finished_implementation_date) == (None, None)
+
+    def test_to_json_refuses_an_instance_of_another_model(self) -> None:
+        """The shared to_json type-checks its instance, so a foreign model cannot serialise as this one."""
+        with pytest.raises(IsmsControlMeasureAssignmentToJsonError):
+            IsmsControlMeasureAssignment.to_json(object())
+
+    def test_every_index_is_named_after_the_field_it_keys_on(self) -> None:
+        """The indexes are built from the key enum, so a key rename cannot leave an index behind."""
+        for index in IsmsControlMeasureAssignment.INDEX_KEYS:
+            assert index['name'] == index['keys'][0][0]
+            assert index['name'] in {key.value for key in ControlMeasureAssignmentKey}

@@ -22,9 +22,9 @@ the response keys the label-field route adds of its own.
 The CI Explorer FIELD keys are deliberately not repeated here: ``ci_explorer_label`` and
 ``ci_explorer_color`` belong to the CmdbType document (``TypeSchemaKey.CI_EXPLORER_*``), so the models
 own them and every reader - these routes included - takes them from there. ``ci_explorer_tooltip`` is
-a CmdbObject key (``CmdbObjectKey.CI_EXPLORER_TOOLTIP``) that these routes no longer write at all: its
-route was removed 2026-09-18 for want of a caller, and the field travels to the graph inside the
-node's ``linked_object``. The node-direction values live in cmdb.models.ci_explorer_model.NodeType
+a CmdbObject key (``CmdbObjectKey.CI_EXPLORER_TOOLTIP``) that these routes do not write at all: the
+field travels to the graph inside the node's ``linked_object``. The node-direction values live in
+cmdb.models.ci_explorer_model.NodeType
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -33,7 +33,11 @@ __all__: list[str] = [
     'CiExplorerRight',
     'CiExplorerParam',
     'CiExplorerResponseKey',
+    'PROFILE_FILTER_UNKNOWN_IDS_MSG',
 ]
+
+#: What a profile write answers when a filter names ids that exist nowhere - `{field}` and `{ids}` filled in
+PROFILE_FILTER_UNKNOWN_IDS_MSG: str = "The CiExplorer Profile's {field} names ids that do not exist: {ids}!"
 
 
 class CiExplorerRight(BaseStrEnum):

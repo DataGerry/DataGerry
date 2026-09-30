@@ -33,12 +33,12 @@ resolves. That is the point of an audit trail, and it is why this model declares
 adds later. A defect in a log is invisible by construction - nobody notices a history that quietly
 lost an entry - so the model refuses nothing and invents nothing.
 
-**Nothing is invented, including the timestamp.** The constructor used to default ``creation_time`` to
-``datetime.now()``, so an entry that did not carry one reported *today*, differently on every read - on
-the one collection whose whole content is "when did this happen". A document without a timestamp now
-reports None. ``creation_time`` is declared in ``DATE_FIELDS``, so the value is a real date whichever
-shape it was written in, and an unreadable one is refused rather than guessed (it was parsed with
-``fuzzy=True``, which reads 'sometime in March' as a date built from today's day number).
+**Nothing is invented, including the timestamp.** Defaulting ``creation_time`` to ``datetime.now()``
+would make an entry that did not carry one report *today*, differently on every read - on the one
+collection whose whole content is "when did this happen". A document without a timestamp reports None.
+``creation_time`` is declared in ``DATE_FIELDS``, so the value is a real date whichever shape it was
+written in, and an unreadable one is refused rather than guessed (fuzzy parsing would read 'sometime in
+March' as a date built from today's day number).
 
 **The two indexes that matter are the parent and child ones.** The only consumer - the relation-log
 list in the object view - matches ``{$or: [{object_relation_parent_id}, {object_relation_child_id}]}``
@@ -76,7 +76,7 @@ class CmdbObjectRelationLog(CmdbDAO):
     INDEX_KEYS: list[dict[str, Any]] = [
         # The history of one object is read as "every entry where it is either endpoint", sorted by
         # public_id. One compound index per side covers match + sort of that query from a single index;
-        # without them an unbounded, append-only collection was scanned on every object view
+        # without them an unbounded, append-only collection would be scanned on every object view
         {
             'keys': [
                 (ObjectRelationLogKey.OBJECT_RELATION_PARENT_ID.value, CmdbDAO.DAO_ASCENDING),
@@ -129,7 +129,7 @@ class CmdbObjectRelationLog(CmdbDAO):
         Creates an instance of CmdbObjectRelationLog
 
         Keyword-only, because CmdbDAO.__new__ looks for public_id in **kwargs and runs before this:
-        a positional call could never have worked
+        a positional call cannot work
 
         Args:
             public_id (int): public_id of the CmdbObjectRelationLog

@@ -16,25 +16,19 @@
 """
 The REST API's single error handler: every failure answers the same JSON envelope
 
-**One handler for every status, rather than one per status.** Until 2026-09-16 nine codes were
-Registering statuses individually would leave anything outside the list falling through to Flask's
-HTML page - which breaks the envelope the Angular client reads (`err?.error?.message`) for any
-status nobody thought of. That is not hypothetical: **415 is reachable without any route raising
-it**, because Werkzeug raises it while parsing the request, before any route runs and therefore out
-of reach of any `abort()` census.
+**One handler for every status, rather than one per status.** Registering statuses individually would
+leave anything outside the list falling through to Flask's HTML page - which breaks the envelope the
+Angular client reads (`err?.error?.message`) for any status nobody thought of. That is not
+hypothetical: **415 is reachable without any route raising it**, because Werkzeug raises it while
+parsing the request, before any route runs and therefore out of reach of any `abort()` census.
 
-Registering the `HTTPException` **class** closes the whole family at once, including the statuses a
+Registering the `HTTPException` **class** covers the whole family at once, including the statuses a
 future route invents, and including an unhandled non-HTTP exception - Flask converts one to
 `InternalServerError`, which is an `HTTPException`, so it lands here as a 500 too.
 
-**The envelope is unchanged**, deliberately: `{description, message, response, status}` with the same
-values the nine hand-written handlers produced. Each of them passed the Werkzeug class's default
-`description` and a prefix that was that class's `name`; both are read off the exception here instead
-of being spelled out nine times, so the output is identical and there is nothing left to keep in sync
-
-Two statuses this replaces were never raised at all (**406** and **410** - the whole `cmdb/` tree
-aborts only 400, 401, 403, 404, 405, 500 and 503) and were kept as defensive catches. Under a
-class handler that justification is unnecessary: they are covered because everything is
+**The envelope** is `{description, message, response, status}`. The `description` is the Werkzeug
+class's default text and the `response` prefix is that class's `name`; both are read off the exception
+rather than spelled out per status, so there is nothing to keep in sync
 
 Note this is the REST API's contract only. The SPA host (`interface/net_app`) registers a 404 of its
 own that serves the Angular entry point, and must keep it - that app answers HTML on purpose
@@ -139,8 +133,8 @@ def http_exception(error: HTTPException) -> Response:
     status: int = error.code or FALLBACK_STATUS
 
     # `type(error).description` is the class default - the generic meaning of the status - while
-    # `error.description` is what this failure was given. The nine hand-written handlers spelled the
-    # first one out per status; reading it off the class keeps them identical and self-maintaining
+    # `error.description` is what this failure was given. Reading the first one off the class keeps it
+    # self-maintaining for every status
     return ErrorResponse(
         status=status,
         prefix=error.name,

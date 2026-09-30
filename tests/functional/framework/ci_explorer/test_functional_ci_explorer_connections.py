@@ -14,19 +14,26 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The port-connectivity source of GET /ci_explorer/items (Port Connectivity step 14)
+The port-connectivity source of GET /ci_explorer/items
 
-Drives the real route against a real patch-panel fixture:
+Drives the real route against a real patch-panel fixture. **Every object a cable reaches is a node,
+the panel included**: one cable is one edge, to the object owning the port at the other end, so
+expanding a switch shows the panel it is patched into and expanding the panel shows what is behind
+it. The graph is symmetric.
 
-    Server A --cable-- P.front-1 --internal-- P.rear-1 --cable-- Switch B
+One panel, with its three faces in the three states an installation is actually in:
 
-plus a half-patched second path (C1) and an unpaired third one (C2), which are the states an
-installation is actually in most of the time.
+    Server A --cable-- P.front-1 --internal-- P.rear-1 --cable-- Switch B   (patched through)
+    Server C --cable-- P.front-2 --internal-- P.rear-2                      (half patched)
+    Server D --cable-- P.front-3                                            (never paired)
 
-The unit tests in tests/unit/framework/ci_explorer/test_connections.py own the walk's branches. What
-these own is the contract over HTTP: the flag, the bucket the collapsed edge lands in, the metadata
-the frontend branches on, and the two refusals that are not refusals - an unlicensed instance and a
-parents-only request both get an empty source rather than an error.
+All three draw their cable; what differs is only how far the path continues, which is port-level
+detail the ports panel of the object view answers.
+
+The source's own branches are covered by its unit tests. What these own is the contract over HTTP:
+the flag, the bucket the edge lands in, the metadata the frontend branches on, and the two refusals
+that are not refusals - an unlicensed instance and a parents-only request both get an empty source
+rather than an error.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -118,7 +125,7 @@ def _make_object(public_id: int, type_id: int, display_name: str) -> dict[str, A
 
 
 def _make_port(public_id: int, object_id: int, name: str, side: str) -> dict[str, Any]:
-    """A CmdbPort; `side` is what the collapse rule reads panel-ness from."""
+    """A CmdbPort; the two panel faces are joined by an INTERNAL connection, never by their side."""
     return {
         'public_id': public_id,
         'object_id': object_id,
@@ -239,40 +246,33 @@ def _connection_edges(body: dict[str, Any]) -> list[dict[str, Any]]:
     ]
 
 
-class TestThePanelIsCollapsedAway:
-    """The feature's whole point: the graph shows the two CIs, not the panel between them."""
+class TestAPanelIsAnOrdinaryNode:
+    """A patch panel is a CmdbObject, so the graph draws it - one cable, one edge."""
 
-    def test_the_far_side_ci_is_drawn(self, rest_api) -> None:
-        """A -- P -- B is answered as A -- B."""
+    def test_the_switch_is_drawn_next_to_its_panel(self, rest_api) -> None:
+        """A --cable-- P: expanding A shows the panel it is cabled to."""
         response = _get(rest_api, OBJ_SERVER_A, target_type='CHILD')
 
         assert response.status_code == HTTPStatus.OK
-        assert OBJ_SWITCH_B in _child_ids(response.get_json())
+        assert OBJ_PANEL_P in _child_ids(response.get_json())
 
-    def test_the_panel_is_not_drawn(self, rest_api) -> None:
-        """Not as a node, and not as the far end of an edge."""
+    def test_what_is_behind_the_panel_is_one_hop_further(self, rest_api) -> None:
+        """Switch B is reached by expanding the panel, not by expanding A."""
         body = _get(rest_api, OBJ_SERVER_A, target_type='CHILD').get_json()
 
-        assert OBJ_PANEL_P not in _child_ids(body)
-        assert OBJ_PANEL_P not in {edge['to'] for edge in body['child_edges']}
+        assert OBJ_SWITCH_B not in _child_ids(body)
 
-    def test_the_edge_carries_the_collapsed_physical_path(self, rest_api) -> None:
-        """
-        Case C5: all three hops ride on the edge, focal end first
-
-        Which is what lets the frontend answer "show me the physical path" without a second request.
-        """
+    def test_the_edge_carries_the_one_cable_it_is(self, rest_api) -> None:
+        """``metadata.path`` is one entry: an edge is exactly one CmdbPortConnection."""
         body = _get(rest_api, OBJ_SERVER_A, target_type='CHILD').get_json()
-        edge = next(edge for edge in _connection_edges(body) if edge['to'] == OBJ_SWITCH_B)
+        edge = next(edge for edge in _connection_edges(body) if edge['to'] == OBJ_PANEL_P)
 
-        assert [hop['public_id'] for hop in edge['metadata']['path']] == [
-            CONN_A_TO_PANEL, CONN_PANEL_PAIR_1, CONN_PANEL_TO_B,
-        ]
+        assert [hop['public_id'] for hop in edge['metadata']['path']] == [CONN_A_TO_PANEL]
         assert [hop['connection_type'] for hop in edge['metadata']['path']] == [
-            ConnectionType.CABLE.value, ConnectionType.INTERNAL.value, ConnectionType.CABLE.value,
+            ConnectionType.CABLE.value,
         ]
 
-    def test_each_hop_carries_the_resolved_cable_block(self, rest_api) -> None:
+    def test_the_hop_carries_the_resolved_cable_block(self, rest_api) -> None:
         """
         The same shape the /port_connections reads answer with
 
@@ -280,65 +280,63 @@ class TestThePanelIsCollapsedAway:
         cable is inline or an inventoried CI.
         """
         body = _get(rest_api, OBJ_SERVER_A, target_type='CHILD').get_json()
-        edge = next(edge for edge in _connection_edges(body) if edge['to'] == OBJ_SWITCH_B)
-        first_hop = edge['metadata']['path'][0]
+        edge = next(edge for edge in _connection_edges(body) if edge['to'] == OBJ_PANEL_P)
 
-        assert 'cable' in first_hop
-        assert 'cable_name' not in first_hop
+        assert 'cable' in edge['metadata']['path'][0]
+        assert 'cable_name' not in edge['metadata']['path'][0]
 
     def test_the_edge_is_undirected_and_tagged(self, rest_api) -> None:
         """The two metadata flags the frontend branches on."""
         body = _get(rest_api, OBJ_SERVER_A, target_type='CHILD').get_json()
-        edge = next(edge for edge in _connection_edges(body) if edge['to'] == OBJ_SWITCH_B)
+        edge = next(edge for edge in _connection_edges(body) if edge['to'] == OBJ_PANEL_P)
 
         assert edge['metadata']['undirected'] is True
         assert edge['metadata']['source'] == 'port_connection'
         assert edge['metadata']['relation_id'] is None
 
+    def test_an_internal_pairing_draws_no_edge(self, rest_api) -> None:
+        """It joins two ports of the panel itself, so it is a self-loop."""
+        body = _get(rest_api, OBJ_PANEL_P, target_type='CHILD').get_json()
 
-class TestTheIncompletePaths:
-    """C1 and C2 - the states a half-rolled-out panel is actually in."""
+        assert OBJ_PANEL_P not in _child_ids(body)
 
-    def test_c1_a_chain_dying_inside_the_panel_shows_nothing(self, rest_api) -> None:
+
+class TestTheIncompletePathsAreVisible:
+    """The states a half-rolled-out panel is actually in - all of them draw their cable."""
+
+    def test_a_chain_dying_inside_the_panel_still_shows_the_panel(self, rest_api) -> None:
         """
         Server C is cabled and patched, but the rear face leads nowhere yet
 
-        Accepted explicitly (Q31): its graph is indistinguishable from an unpatched server's.
+        Its cable is real, so the edge is real - where hiding the panel made this graph
+        indistinguishable from an unpatched server's.
         """
         body = _get(rest_api, OBJ_SERVER_C, target_type='CHILD').get_json()
 
-        assert not _connection_edges(body)
-        assert _child_ids(body) == set()
+        assert OBJ_PANEL_P in _child_ids(body)
 
-    def test_c2_an_unpaired_panel_face_shows_nothing(self, rest_api) -> None:
+    def test_an_unpaired_panel_face_still_shows_the_panel(self, rest_api) -> None:
         """Server D's cable lands on a front port with no internal pairing at all."""
         body = _get(rest_api, OBJ_SERVER_D, target_type='CHILD').get_json()
 
-        assert not _connection_edges(body)
-        assert _child_ids(body) == set()
+        assert OBJ_PANEL_P in _child_ids(body)
 
 
-class TestTheFocalPanelIsTransparent:
-    """C4 - opening the panel itself."""
+class TestTheFocalPanel:
+    """Opening the panel itself - every object its own cables reach."""
 
-    def test_it_shows_the_cis_its_paths_reach(self, rest_api) -> None:
-        """Both ends of the patched path, from the panel's two faces."""
+    def test_it_shows_every_ci_its_cables_reach(self, rest_api) -> None:
+        """Both ends of the patched pair, plus the two incomplete faces' own cables."""
         body = _get(rest_api, OBJ_PANEL_P, target_type='CHILD').get_json()
 
-        assert {OBJ_SERVER_A, OBJ_SWITCH_B}.issubset(_child_ids(body))
+        assert {OBJ_SERVER_A, OBJ_SWITCH_B, OBJ_SERVER_C, OBJ_SERVER_D}.issubset(_child_ids(body))
 
-    def test_it_still_shows_nothing_for_its_incomplete_paths(self, rest_api) -> None:
-        """
-        The panel's own half-patched faces follow the same rules
+    def test_the_graph_is_symmetric(self, rest_api) -> None:
+        """Every object's view of one cable is the same cable, from either end."""
+        from_switch = _child_ids(_get(rest_api, OBJ_SWITCH_B, target_type='CHILD').get_json())
 
-        Server C's cable reaches the panel, but walking outward from the panel's F02 face ends on an
-        uncabled rear - and walking from F03 ends nowhere at all.
-        """
-        body = _get(rest_api, OBJ_PANEL_P, target_type='CHILD').get_json()
-
-        assert OBJ_SERVER_C in _child_ids(body)     # reached directly from F02's own cable
-        assert OBJ_SERVER_D in _child_ids(body)     # reached directly from F03's own cable
-        assert OBJ_PANEL_P not in _child_ids(body)
+        assert OBJ_PANEL_P in from_switch
+        assert OBJ_SERVER_A not in from_switch
 
 
 class TestTheRequestContract:

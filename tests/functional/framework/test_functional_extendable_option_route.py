@@ -21,8 +21,8 @@ answers 400 when only the database catches the duplicate), read single + list, u
 pins the identity, refuses a predefined option), and the delete guards (missing -> 404,
 predefined -> 400, in-use -> 400, otherwise success).
 
-Two of them were added on 2026-09-10: the public_id is the server's to assign, so a payload id is
-dropped rather than squatted (it used to be inserted as-is, without the collection counter being
+Two rules about the public_id: it is the server's to assign, so a payload id is dropped rather than
+squatted (inserting it as-is leaves the collection counter
 advanced); and the list route answers normalised documents rather than a model per row, so a
 document it cannot read is left out instead of failing the whole dropdown.
 """
@@ -46,6 +46,7 @@ from cmdb.errors.manager.extendable_options_manager import (
     ExtendableOptionsManagerDeleteError,
     ExtendableOptionsManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/extendable_options'
@@ -132,7 +133,7 @@ class TestCreate:
         """
         The body is built from the document the insert wrote, so a create costs two queries
 
-        The insert stamps the public_id onto that very dict, so the third query the route used to
+        The insert stamps the public_id onto that very dict, so a third query the route would
         spend on reading its own write bought nothing. The answer still carries exactly the four
         payload keys - pymongo's insert_one puts its own '_id' into the dict it is handed, and the
         Angular option manager pushes this body straight into its local list.
@@ -292,7 +293,7 @@ class TestRead:
         """
         One drifted document must not cost the dropdown every other value it offers
 
-        A document without a value is not an option; it used to be answered as 'value': null.
+        A document without a value is not an option, and is not answered as 'value': null.
         """
         options = _options(database_manager, database_name)
         options.insert_one(_option_doc(OPTION_ID_FOR_GET, 'readable'))
@@ -366,7 +367,7 @@ class TestUpdate:
     def test_update_keeping_same_value_succeeds(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Re-saving an option with its value unchanged succeeds (regression: self-match used to 400)."""
+        """Re-saving an option with its value unchanged succeeds: it must not match itself and 400."""
         _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
 
         response = rest_api.put(f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', json=_payload(value=ORIGINAL_VALUE))
@@ -608,3 +609,23 @@ class TestErrorMapping:
 
         assert rest_api.delete(f'{ROUTE_URL}/{OPTION_ID_FOR_DELETE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /extendable_options/<id> answers the option as stored."""
+
+    def test_the_response_is_the_stored_option_with_its_public_id(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """
+        The frontend's option manager only accepts an update whose result carries a public_id
+
+        ``extendable-option-manager.component.ts`` skips its success path otherwise, so the id is part
+        of the contract, not just of the document.
+        """
+        _options(database_manager, database_name).insert_one(_option_doc(OPTION_ID_FOR_UPDATE))
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{OPTION_ID_FOR_UPDATE}', _payload(UPDATED_VALUE))
+
+        assert result == stored
+        assert result['public_id'] == OPTION_ID_FOR_UPDATE

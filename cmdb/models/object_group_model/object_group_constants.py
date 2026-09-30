@@ -20,9 +20,9 @@ The keys of the ``framework.objectGroups`` documents, named once - they were spe
 literals in the model's ``from_data``, its ``to_json`` and the Cerberus schema.
 
 ``OBJECT_GROUP_LIST_KEYS`` names the keys the model coerces to the empty list instead of storing null.
-``assigned_ids`` is deliberately NOT one of them: the schema requires it to be a non-empty list, so
-filling it in would turn a document that lost the key into a group of nothing - a state the schema
-itself refuses - instead of refusing to read it
+``assigned_ids`` is deliberately NOT one of them. An empty member list is a valid state - a group whose
+members were all deleted - but a MISSING key is not: the schema requires it, and filling it in would
+turn a document that lost the key into an empty group instead of refusing to read it
 
 Members are the raw MongoDB keys; use ``.value`` wherever a key is needed as a dict key, a Mongo filter
 key or a projection key, so what reaches the database is a plain string
@@ -48,7 +48,7 @@ class ObjectGroupKey(BaseStrEnum):
 
 
 # The list-valued keys: absent or null becomes the empty list, never null. 'assigned_ids' is required
-# and non-empty, so it is not here - see the module docstring
+# (though it may be empty), so it is not here - see the module docstring
 OBJECT_GROUP_LIST_KEYS: tuple[str, ...] = (
     ObjectGroupKey.CATEGORIES.value,
 )

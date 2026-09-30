@@ -16,10 +16,10 @@
 """
 Document keys of an IsmsRisk
 
-The keys of the ``isms.risk`` documents, named once. They were previously spelled out as bare literals
-in four independent places - the model's ``from_data`` and ``to_json``, the Cerberus schema, and both
-halves of the CSV importer (its header set and the candidate row it builds) - 46 occurrences for ten
-keys, so a renamed or mistyped key showed up as a silently missing value rather than as an error.
+The keys of the ``isms.risk`` documents, named once. The model's ``from_data`` and ``to_json``, the
+Cerberus schema, and both halves of the CSV importer (its header set and the candidate row it builds)
+all read them from here, so a renamed or mistyped key fails as an error instead of showing up as a
+silently missing value.
 
 The order of the members is the order ``CmdbDAO.to_json`` emits, since the shared implementation walks
 this enum: ``public_id`` first, then the document's own fields.
@@ -31,6 +31,7 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'RISK_REQUIRED_DOCUMENT_KEYS',
     'RiskKey',
     'RISK_IMPORT_KEYS',
 ]
@@ -58,3 +59,11 @@ class RiskKey(BaseStrEnum):
 RISK_IMPORT_KEYS: tuple[str, ...] = tuple(
     key.value for key in RiskKey if key not in (RiskKey.PUBLIC_ID, RiskKey.CATEGORY_ID)
 )
+
+
+# The keys without which a risk means nothing: its name, its category and which kind of risk it is
+RISK_REQUIRED_DOCUMENT_KEYS: list[str] = [
+    RiskKey.NAME.value,
+    RiskKey.CATEGORY_ID.value,
+    RiskKey.RISK_TYPE.value,
+]

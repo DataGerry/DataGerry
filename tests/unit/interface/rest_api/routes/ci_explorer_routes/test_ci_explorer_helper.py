@@ -20,9 +20,6 @@ Pure tests with stub callables: load_ci_explorer_entity aborts 404 for an unknow
 reports the entity plus the field's previous value. flask.abort raises a werkzeug HTTPException, so
 the status codes are asserted without a Flask app context, and the request schema is checked against a
 real Cerberus Validator.
-
-The tooltip half of this module - its schema, the version bump, the edit log and the webhook - went
-with the ``/ci_explorer/tooltip`` route on 2026-09-18, which nothing ever called
 """
 from http import HTTPStatus
 from typing import Any
@@ -31,7 +28,13 @@ from cerberus import Validator
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from unittest.mock import Mock
+
+from cmdb.models.ci_explorer_model import CiExplorerProfileKey
+from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants import PROFILE_FILTER_UNKNOWN_IDS_MSG
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import (
+    abort_if_profile_filters_name_unknown_ids,
+    find_unknown_ids,
     get_ci_explorer_label_schema,
     load_ci_explorer_entity,
 )
@@ -48,9 +51,8 @@ class TestLoadCiExplorerEntity:
     """
     load_ci_explorer_entity resolves the entity a field write targets
 
-    It was shared by the two field routes; since the tooltip route was removed only the label field
-    uses it, but the entity and the field it reads are still both parameters - it answers 404 for
-    whatever it is pointed at.
+    Only the label field route uses it, but the entity and the field it reads are both parameters - it
+    answers 404 for whatever it is pointed at.
     """
 
     def test_missing_entity_aborts_404(self) -> None:
@@ -101,3 +103,81 @@ class TestRequestSchema:
     def test_non_string_value_is_rejected(self) -> None:
         """The field holds a field NAME; a number or an object is refused."""
         assert not Validator(get_ci_explorer_label_schema(), purge_unknown=True).validate({LABEL_KEY: 5})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             the profile filter ids                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+EXISTING_IDS: list[int] = [11, 12]
+UNKNOWN_IDS: list[int] = [98, 99]
+
+
+def _manager(existing: list[int]) -> Mock:
+    """A manager whose find() answers the documents among the asked ids that exist."""
+    manager = Mock()
+    manager.find.side_effect = lambda criteria, projection: [
+        {'public_id': public_id} for public_id in criteria['public_id']['$in'] if public_id in existing
+    ]
+
+    return manager
+
+
+class TestFindUnknownIds:
+    """Which ids name no document."""
+
+    def test_every_id_existing_answers_none(self) -> None:
+        """Nothing unknown"""
+        assert find_unknown_ids(_manager(EXISTING_IDS), EXISTING_IDS) == []
+
+    def test_the_unknown_ids_are_answered_sorted(self) -> None:
+        """Sorted, so a message naming them is stable"""
+        assert find_unknown_ids(_manager(EXISTING_IDS), [99, 11, 98]) == UNKNOWN_IDS
+
+    @pytest.mark.parametrize('ids', [None, []])
+    def test_no_ids_cost_no_query(self, ids: list[int] | None) -> None:
+        """An empty or absent filter asks nothing"""
+        manager = _manager(EXISTING_IDS)
+
+        assert find_unknown_ids(manager, ids) == []
+        manager.find.assert_not_called()
+
+    def test_the_whole_list_is_one_projected_query(self) -> None:
+        """One query, reading the public_id alone"""
+        manager = _manager(EXISTING_IDS)
+
+        find_unknown_ids(manager, EXISTING_IDS + UNKNOWN_IDS)
+
+        manager.find.assert_called_once_with(
+            criteria={'public_id': {'$in': EXISTING_IDS + UNKNOWN_IDS}}, projection={'public_id': 1},
+        )
+
+
+class TestAbortIfProfileFiltersNameUnknownIds:
+    """A profile naming a type or relation that does not exist is refused."""
+
+    def test_known_ids_pass(self) -> None:
+        """Nothing raised"""
+        data = {CiExplorerProfileKey.TYPES_FILTER.value: EXISTING_IDS,
+                CiExplorerProfileKey.RELATIONS_FILTER.value: EXISTING_IDS}
+
+        abort_if_profile_filters_name_unknown_ids(data, _manager(EXISTING_IDS), _manager(EXISTING_IDS))
+
+    @pytest.mark.parametrize('field', [CiExplorerProfileKey.TYPES_FILTER.value,
+                                       CiExplorerProfileKey.RELATIONS_FILTER.value])
+    def test_an_unknown_id_is_a_400_naming_the_filter(self, field: str) -> None:
+        """Each filter is checked against its own collection"""
+        data = {field: EXISTING_IDS + UNKNOWN_IDS}
+
+        with pytest.raises(HTTPException) as refused:
+            abort_if_profile_filters_name_unknown_ids(data, _manager(EXISTING_IDS), _manager(EXISTING_IDS))
+
+        assert refused.value.code == HTTPStatus.BAD_REQUEST
+        assert refused.value.description == PROFILE_FILTER_UNKNOWN_IDS_MSG.format(field=field, ids=UNKNOWN_IDS)
+
+    def test_each_filter_is_checked_against_its_own_manager(self) -> None:
+        """A relation id is not accepted because some TYPE carries it"""
+        data = {CiExplorerProfileKey.RELATIONS_FILTER.value: [11]}
+
+        with pytest.raises(HTTPException):
+            abort_if_profile_filters_name_unknown_ids(data, _manager([11]), _manager([]))
+

@@ -76,7 +76,7 @@ class TestCoerceSettingType:
     @pytest.mark.parametrize('value', ['NOT_A_TYPE', '', None, 1], ids=['unknown', 'empty', 'none', 'int'])
     def test_anything_else_is_refused(self, value: Any) -> None:
         """
-        The refusal that used to happen on the read path and cost the whole list
+        The refusal that would otherwise happen on the read path and cost the whole list
 
         It is now also refused at the door: the document schema allows exactly the three values.
         """
@@ -88,7 +88,7 @@ class TestCoerceSettingType:
 #                                                coerce_user_id                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestCoerceUserId:
-    """The owner's public_id, which used to be read with a bare int()."""
+    """The owner's public_id, which a bare int() cannot read safely."""
 
     def test_an_int_passes(self) -> None:
         """The normal case"""
@@ -176,7 +176,7 @@ class TestNormalizeUserSettingDocument:
     ], ids=['bad-scope', 'no-user-id', 'bad-payloads'])
     def test_an_unreadable_document_answers_none(self, overrides: dict[str, Any], reason: str) -> None:
         """
-        Each of these used to fail the WHOLE list read for that user
+        Each of these would fail the WHOLE list read for that user
 
         The caller skips the record instead, so the user's other settings still load. `reason` names
         what is wrong with the document for the test id.

@@ -28,6 +28,7 @@ from logging.config import dictConfig
 import signal
 import sys
 import threading
+from types import FrameType
 
 from cmdb.utils.logger import get_logging_conf
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -76,7 +77,7 @@ class AbstractCmdbService:
         self._thread_service = None
 
 
-    def start(self):
+    def start(self) -> None:
         """
         Entry point invoked inside the spawned `multiprocessing.Process`
 
@@ -109,7 +110,7 @@ class AbstractCmdbService:
         self._shutdown(None, None)
 
 
-    def _run_and_signal(self):
+    def _run_and_signal(self) -> None:
         """
         Invokes `_run` and always sets `_event_shutdown` when it returns
 
@@ -126,7 +127,7 @@ class AbstractCmdbService:
                 self._event_shutdown.set()
 
 
-    def _run(self):
+    def _run(self) -> None:
         """
         Daemon body to be implemented by subclasses
 
@@ -139,7 +140,7 @@ class AbstractCmdbService:
 
 
     #pylint: disable=unused-argument
-    def _shutdown(self, signum, frame):
+    def _shutdown(self, signum: int | None, frame: FrameType | None) -> None:
         """
         SIGTERM handler / internal shutdown bridge that defers to `stop`
 
@@ -150,14 +151,14 @@ class AbstractCmdbService:
         `super()._shutdown(...)`
 
         Args:
-            signum: Signal number passed by `signal.signal`; unused (kept for the callback
-                signature)
-            frame: Current stack frame passed by `signal.signal`; unused
+            signum (int | None): Signal number passed by `signal.signal`, None when `start()` calls it;
+                unused (kept for the callback signature)
+            frame (FrameType | None): Current stack frame passed by `signal.signal`; unused
         """
         self.stop()
 
 
-    def stop(self):
+    def stop(self) -> None:
         """
         Sets the shutdown event, joins the worker thread (if any) and exits the process
 

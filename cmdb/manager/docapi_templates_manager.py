@@ -147,7 +147,7 @@ class DocapiTemplatesManager(GenericManager):
 
             return [DocapiTemplate.from_data(template) for template in templates]
         except Exception as err:
-            raise DocapiTemplatesManagerGetError(str(err)) from err
+            raise DocapiTemplatesManagerGetError(err) from err
 
 
     def get_minimal_templates_by(self, **requirements: Any) -> list[dict[str, Any]]:
@@ -169,7 +169,7 @@ class DocapiTemplatesManager(GenericManager):
         try:
             return self.find(criteria=requirements, projection=MINIMAL_TEMPLATE_PROJECTION)
         except Exception as err:
-            raise DocapiTemplatesManagerGetError(str(err)) from err
+            raise DocapiTemplatesManagerGetError(err) from err
 
 
     def get_template_by_name(self, **requirements: Any) -> DocapiTemplate | None:
@@ -193,7 +193,7 @@ class DocapiTemplatesManager(GenericManager):
 
             return None
         except Exception as err:
-            raise DocapiTemplatesManagerGetError(str(err)) from err
+            raise DocapiTemplatesManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

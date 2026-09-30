@@ -25,7 +25,7 @@ asserted on separately - which is what makes the bind / unbind expectations mean
 
 Covered beyond the happy path: the credential guards (an empty password must never reach a bind), the
 filter escaping, the single-entry rule, the group mapping by DN and by CN, and every way the local
-CmdbUser sync can fail - including the one that used to provision a duplicate user.
+CmdbUser sync can fail - including the one that would provision a duplicate user.
 """
 from datetime import datetime
 from types import SimpleNamespace
@@ -200,7 +200,7 @@ class TestConnectionLifecycle:
         ldap.build().disconnect()
 
     def test_context_manager_releases_the_connection(self, ldap) -> None:
-        """`with provider:` now works - __exit__ used to exist without an __enter__."""
+        """`with provider:` works: an __exit__ without an __enter__ would not."""
         provider = ldap.build()
 
         with provider as entered:
@@ -301,7 +301,7 @@ class TestUserLookup:
         assert 'No matching entry' in str(exc_info.value)
 
     def test_an_ambiguous_match_is_refused_without_binding(self, ldap) -> None:
-        """Two matches used to bind BOTH DNs; guessing which one was meant decides who you become."""
+        """Two matches must not bind BOTH DNs; guessing which one was meant decides who you become."""
         ldap.service.entries = [_entry(USER_DN), _entry(OTHER_USER_DN)]
 
         with pytest.raises(AuthenticationError) as exc_info:
@@ -403,7 +403,7 @@ class TestGroupResolution:
         assert updated.group_id == MAPPED_GROUP_ID
 
     def test_a_malformed_group_dn_does_not_break_the_login(self, ldap) -> None:
-        """A DN the CN pattern does not fit used to raise an AttributeError out of authenticate."""
+        """A DN the CN pattern does not fit must not raise an AttributeError out of authenticate."""
         ldap.service.search.side_effect = self._group_search(ldap, [_entry('malformed-dn')])
         ldap.users_manager.get_user_by.return_value = _stored_user()
 
@@ -481,7 +481,7 @@ class TestLocalUserSync:
         ldap.users_manager.get_user_by.assert_called_once()
 
     def test_a_failing_group_update_does_not_provision_a_duplicate(self, ldap) -> None:
-        """The regression: the update error used to be swallowed and the user created a second time."""
+        """The regression: a swallowed update error gets the user created a second time."""
         ldap.users_manager.get_user_by.return_value = _stored_user()
         ldap.users_manager.update_user.side_effect = UsersManagerUpdateError('write failed')
         ldap.service.search.side_effect = TestGroupResolution._group_search(ldap, [_entry(ADMIN_GROUP_DN)])

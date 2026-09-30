@@ -17,7 +17,7 @@
 Unit tests for cmdb.framework.isms.risk_matrix_report
 
 Pure tests: no Mongo, no Flask - the three managers are stubs. Moved here (with the module itself)
-from tests/unit/models/isms_model/ on 2026-09-09, because a builder that orchestrates three managers
+beside the builder rather than the model, because a builder that orchestrates three managers
 is a service rather than a model.
 
 The counting itself is straightforward; what is worth pinning is everything around it:
@@ -314,7 +314,7 @@ class TestTheCurrentStateRule:
 
     def test_the_implemented_option_is_resolved_by_its_predefined_value(self) -> None:
         """
-        The criteria that used to be a re-spelled literal
+        The criteria, composed rather than re-spelled as a literal
 
         The seeding writes `ImplementationState.IMPLEMENTED`; the report resolves the same constant,
         so a renamed option cannot silently make the current-state matrix a copy of the
@@ -396,7 +396,7 @@ class TestDriftedDocuments:
                              ids=['impact', 'likelihood'])
     def test_a_cell_without_its_identity_is_skipped(self, missing_key: RiskMatrixCellKey) -> None:
         """
-        It used to raise a KeyError the route reported as a 500 for the whole report
+        A KeyError here is reported by the route as a 500 for the whole report
 
         A cell that does not carry the pair the assessments are indexed by cannot be filled, so it is
         reported and skipped while the rest of the grid is answered.
@@ -481,7 +481,7 @@ class TestTheReads:
         """
         The route answers 400 with "the report could not be built"
 
-        Every failure used to reach the route's blanket handler as a 500, whatever had gone wrong.
+        Every failure otherwise reaches the route's blanket handler as a 500, whatever went wrong.
         """
         builder, *_ = _builder([_assessment()], **{failure: RuntimeError('boom')})
 

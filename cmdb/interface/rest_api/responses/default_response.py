@@ -79,7 +79,8 @@ class DefaultResponse(BaseAPIResponse):
         Returns the payload this response answers with
 
         The value as it was handed in: unlike the paginated responses, a DefaultResponse adds no
-        envelope of its own
+        envelope of its own. That is why this override returns ``Any`` where ``BaseAPIResponse.export``
+        returns the envelope dict - the one response whose body is not an envelope
 
         Args:
             *args (Any): Unused; kept so every response answers to the same call

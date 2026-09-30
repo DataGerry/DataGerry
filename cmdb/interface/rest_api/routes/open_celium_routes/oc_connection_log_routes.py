@@ -32,8 +32,8 @@ no per-route ACL right, unlike the sibling connection and connector routes - the
 do not exist yet.
 
 **No frontend calls these.** The Automations view's log menu and viewer read
-`open_celium/schedulers/logs` (a scheduler route); this file is API-only surface, which is also why a
-defect in its cloud-only branch could go unnoticed.
+`open_celium/schedulers/logs` (a scheduler route); this file is API-only surface, so a defect in its
+cloud-only branch does not surface through the UI.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -140,7 +140,7 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
     **On a hosted installation the connector names are unprefixed first**: every OpenCelium connector
     is registered as `<database>_<name>` so tenants cannot see each other's, and the prefix is not
     the customer's to read. The rewrite is tolerant of the payload it is handed - see
-    `unmap_flowchart_connector_names`, which is where that had never been exercised
+    `unmap_flowchart_connector_names`
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -198,7 +198,7 @@ def oc_get_log_list(request_user: CmdbUser) -> Response:
     GET/HEAD route to retrieve the available execution Logs of one automation
 
     All three query parameters are required and are forwarded to OpenCelium, which decides what
-    exists. **An id of 0 counts as provided**: reading the parsed value for truthiness used to report
+    exists. **An id of 0 counts as provided**: reading the parsed value for truthiness would report
     `?connectionId=0` as missing
 
     Args:

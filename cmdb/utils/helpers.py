@@ -473,7 +473,7 @@ def coerce_whole_number(value: Any) -> int | None:
     return None
 
 
-def duplicate_names(names: Iterable[Any]) -> list:
+def duplicate_names(names: Iterable[Any]) -> list[Any]:
     """
     Returns the values that occur more than once, each listed once, in first-seen order
 
@@ -484,11 +484,11 @@ def duplicate_names(names: Iterable[Any]) -> list:
         names (Iterable[Any]): The values to inspect
 
     Returns:
-        list: The duplicated values (empty when all are unique)
+        list[Any]: The duplicated values (empty when all are unique)
     """
-    seen: set = set()
-    reported: set = set()
-    duplicates: list = []
+    seen: set[Any] = set()
+    reported: set[Any] = set()
+    duplicates: list[Any] = []
 
     for name in names:
         if name in seen and name not in reported:

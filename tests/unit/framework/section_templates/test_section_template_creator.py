@@ -18,8 +18,8 @@ Unit tests for cmdb.framework.section_templates.section_template_creator
 
 Pure tests (no database): assert the set and shape of the predefined templates returned by
 get_predefined_templates, the per-template field layout (model specifications and the
-dg-ipam-interface MDS section), that the retired 'dg-network' and 'dg-rackmounting' templates no
-longer appear, and the branching of the two private section/field builders (including the optional
+dg-ipam-interface MDS section), that the retired 'dg-network' and 'dg-rackmounting' templates do not
+appear, and the branching of the two private section/field builders (including the optional
 options/regex/helperText keys that no live template currently exercises).
 """
 from typing import Any
@@ -72,10 +72,10 @@ def test_returns_expected_template_set(creator: SectionTemplateCreator) -> None:
 
 @pytest.mark.parametrize('retired_template', [REMOVED_NETWORK_TEMPLATE, REMOVED_RACK_TEMPLATE])
 def test_retired_template_absent(creator: SectionTemplateCreator, retired_template: str) -> None:
-    """A retired template is no longer produced, so CollectionValidator cannot re-seed it
+    """A retired template is not produced, so CollectionValidator cannot re-seed it
 
-    'dg-network' was replaced by the IPAM interface section; 'dg-rackmounting' by the Rack View,
-    which records the same facts on the mount document (see updater_20260824).
+    The IPAM interface section covers what 'dg-network' held, and the Rack View records what
+    'dg-rackmounting' held on the mount document.
     """
     names: set[str] = {template[SectionKey.NAME] for template in creator.get_predefined_templates()}
 

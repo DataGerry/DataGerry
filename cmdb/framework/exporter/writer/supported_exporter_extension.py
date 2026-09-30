@@ -71,7 +71,7 @@ class SupportedExporterExtension:
         "XmlExportFormat"
     ]
 
-    def __init__(self, extensions: list[str] | None = None):
+    def __init__(self, extensions: list[str] | None = None) -> None:
         """
         Initializes the SupportedExporterExtension with the default plus any custom extensions
 

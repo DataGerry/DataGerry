@@ -86,7 +86,7 @@ class PortInterfaceLinksManager(GenericManager):
         try:
             return self.find(criteria={PortInterfaceLinkKey.PORT_ID.value: port_id})
         except (BaseManagerGetError, Exception) as err:
-            raise PortInterfaceLinksManagerGetError(str(err)) from err
+            raise PortInterfaceLinksManagerGetError(err) from err
 
 
     def get_links_of_ports(self, port_ids: list[int]) -> list[dict[str, Any]]:
@@ -111,7 +111,7 @@ class PortInterfaceLinksManager(GenericManager):
         try:
             return self.find(criteria={PortInterfaceLinkKey.PORT_ID.value: {'$in': port_ids}})
         except (BaseManagerGetError, Exception) as err:
-            raise PortInterfaceLinksManagerGetError(str(err)) from err
+            raise PortInterfaceLinksManagerGetError(err) from err
 
 
     def get_links_of_interface_object(self, interface_object_id: int) -> list[dict[str, Any]]:
@@ -135,7 +135,7 @@ class PortInterfaceLinksManager(GenericManager):
                 criteria={PortInterfaceLinkKey.INTERFACE_OBJECT_ID.value: interface_object_id},
             )
         except (BaseManagerGetError, Exception) as err:
-            raise PortInterfaceLinksManagerGetError(str(err)) from err
+            raise PortInterfaceLinksManagerGetError(err) from err
 
 
     def get_all_links(self) -> list[dict[str, Any]]:
@@ -155,7 +155,7 @@ class PortInterfaceLinksManager(GenericManager):
         try:
             return self.find(criteria={})
         except (BaseManagerGetError, Exception) as err:
-            raise PortInterfaceLinksManagerGetError(str(err)) from err
+            raise PortInterfaceLinksManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -185,4 +185,4 @@ class PortInterfaceLinksManager(GenericManager):
                 {PortInterfaceLinkKey.PORT_ID.value: {'$in': port_ids}},
             ).deleted_count
         except (BaseManagerDeleteError, Exception) as err:
-            raise PortInterfaceLinksManagerDeleteError(str(err)) from err
+            raise PortInterfaceLinksManagerDeleteError(err) from err

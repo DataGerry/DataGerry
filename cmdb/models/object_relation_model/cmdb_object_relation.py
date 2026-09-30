@@ -34,10 +34,8 @@ above them serve the cascades that clean up after a deleted object, type or rela
 create route and preserved by every update; ``last_edit_time`` stays null until the first edit and is
 stamped by the update route. Both are declared in ``DATE_FIELDS``, so a payload's ``{'$date': ...}``
 wrapper - the shape the frontend sends - is converted to a datetime before the document is stored,
-whichever path writes it. Before that, ``last_edit_time`` was neither stamped nor normalised: a client
-could set it on create and the wrapper was stored as a **sub-document**, which MongoDB cannot sort or
-range-filter, while ``creation_time`` beside it was a real date (fixed 2026-09-08, converged by
-``updater_20260910``).
+whichever path writes it. A wrapper stored as-is would be a **sub-document**, which MongoDB cannot sort
+or range-filter; ``updater_20260910`` converts any stored that way into real dates.
 
 **``field_values`` are name/value pairs, not the name/value/type triples a CmdbObject carries** - the
 type comes from the relation definition's field, so it is not repeated per instance.
@@ -207,9 +205,9 @@ class CmdbObjectRelation(CmdbDAO):
         ``{'$date': ...}`` wrapper the frontend sends, a timestamp string from an API client, or an
         already-normalised datetime - and fills an absent ``field_values`` with the empty list.
 
-        A value that is present but unreadable is refused rather than guessed: the previous
-        implementation parsed strings with ``fuzzy=True``, which turns a note like 'sometime in March'
-        into a date built from today's day number.
+        A value that is present but unreadable is refused rather than guessed: parsing strings with
+        ``fuzzy=True`` would turn a note like 'sometime in March' into a date built from today's day
+        number.
 
         Args:
             data (dict[str, Any]): The document or validated payload, edited in place

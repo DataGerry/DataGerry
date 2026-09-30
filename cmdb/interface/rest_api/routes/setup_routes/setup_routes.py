@@ -31,10 +31,9 @@ for a cloud-mode request that authenticates with Basic auth - it passes every re
 untouched when the instance does not run in cloud mode, and it evaluates no API level for a request
 carrying a Bearer token. No route here carries ``.protect``, so nothing else gates them.
 
-**Which is why this surface is cloud-only, guarded twice** (fixed 2026-09-16): on-premise
-``verify_api_access`` is a pass-through, so publishing these routes there meant an unauthenticated
-``DELETE /rest/setup/subscriptions?database=<name>`` dropped any database on the cluster - verified
-against the running app.
+**Which is why this surface is cloud-only, guarded twice**: on-premise ``verify_api_access`` is a
+pass-through, so publishing these routes there would let an unauthenticated
+``DELETE /rest/setup/subscriptions?database=<name>`` drop any database on the cluster.
 
 * ``init_rest_api`` registers the blueprint **only when ``cmdb.__CLOUD_MODE__`` is set**. That is the
   primary control: outside cloud mode the surface does not exist, so there is nothing to reach.
@@ -43,8 +42,7 @@ against the running app.
   future refactor), and so that this rule is visible to a reader of this file.
 
 Both are blueprint-wide on purpose. A route added here inherits them; a per-handler check would have
-to be remembered, and it is precisely a per-route guard that was relied on and turned out to be inert
-in one mode.
+to be remembered, and a per-route guard can be inert in one mode without anything showing it.
 
 Two things are left as they are on the CLOUD side, where the routes do exist: ``verify_api_access``
 evaluates no API level for a request carrying a Bearer token, and the database name is used as
@@ -89,8 +87,8 @@ def refuse_outside_cloud_mode() -> None:
     and to keep the rule visible in the file it governs.
 
     Blueprint-wide rather than per-handler deliberately: a route added to this module inherits it,
-    and the finding this guards against existed because a per-route guard was relied on and was inert
-    in one mode.
+    whereas a per-route guard has to be remembered and can be inert in one mode without anything
+    showing it.
 
     Raises:
         HTTPException: 404 when the process does not run in cloud mode

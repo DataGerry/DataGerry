@@ -20,8 +20,8 @@ Pure tests: no Mongo. The manager is driven against a ``MagicMock(spec=RiskManag
 database collaborators (get_many / get_many_from_other_collection / delete_many_from_other_collection
 / delete_many) stubbed, so only the batched-cascade bookkeeping is exercised - the existing-id
 resolution, the RA -> CMA cascade order, the returned (ids, ra_count, cma_count) tuple, the empty
-short circuits, and the error-wrapping. The real cascade is pinned against MongoDB in
-tests/integration/isms/test_integration_risk_manager.py.
+short circuits, and the error-wrapping. The real cascade is exercised against MongoDB by the
+integration tier.
 """
 # pylint: disable=protected-access
 from unittest.mock import MagicMock

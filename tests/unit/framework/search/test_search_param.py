@@ -17,17 +17,16 @@
 Unit tests for cmdb.framework.search.search_param
 
 Pure tests: no Mongo, no Flask. `SearchParam` is the wire contract of the object search - one parsed
-tag of the Angular search bar - and no test module had ever named it: the pipeline-builder tests
-construct it directly, so `from_request`, the form validation and the two defaults were never
-exercised.
+tag of the Angular search bar. The pipeline-builder tests construct it directly, so `from_request`,
+the form validation and the two defaults are exercised here.
 
 What is pinned here:
 
-  - **a malformed parameter refuses the request.** It used to be logged and skipped, so the search ran
+  - **a malformed parameter refuses the request.** Logging and skipping it would let the search run
     with fewer criteria than the user asked for - and a lost FILTER parameter returns MORE objects,
     with a 200 and nothing to notice
-  - **one default for `disjunction`.** The constructor said False and `from_request` said True, so the
-    same absent key meant OR or AND depending on which built the parameter
+  - **one default for `disjunction`.** The constructor and `from_request` must agree, or the same
+    absent key would mean OR or AND depending on which built the parameter
   - **the accepted form names are the frontend's own strings**, including the two that drive no
     pipeline stage, because rejecting either would reject a payload the UI sends
 """
@@ -53,7 +52,7 @@ def _param(**overrides: Any) -> dict[str, Any]:
 
 
 class TestAMalformedParameterRefusesTheRequest:
-    """The behaviour change of 2026-09-08, and the reason for it."""
+    """Refusing rather than skipping, and the reason for it."""
 
     @pytest.mark.parametrize('missing', [
         SearchParamKey.SEARCH_TEXT.value,
@@ -84,7 +83,7 @@ class TestAMalformedParameterRefusesTheRequest:
         assert 'position 2' in str(caught.value)
 
     def test_an_unknown_form_is_refused(self) -> None:
-        """A typo'd form used to be dropped, and the search silently ran without that criterion."""
+        """A typo'd form must not be dropped, leaving the search to run without that criterion."""
         with pytest.raises(SearchParamError) as caught:
             SearchParam.from_request([_param(searchForm='nope')])
 
@@ -94,8 +93,8 @@ class TestAMalformedParameterRefusesTheRequest:
         """
         The whole request fails rather than part of it succeeding
 
-        A partial list is what made the old behaviour dangerous: a dropped filter widens the result
-        set, so the caller gets MORE than they asked for and reads it as the answer.
+        A partial list is dangerous: a dropped filter widens the result set, so the caller gets MORE
+        than they asked for and reads it as the answer.
         """
         params: list[dict[str, Any]] = [_param(), {SearchParamKey.SEARCH_FORM.value: 'text'}]
 
@@ -121,14 +120,14 @@ class TestAMalformedParameterRefusesTheRequest:
 
 
 class TestTheDisjunctionDefault:
-    """One concept, one default - it used to have two."""
+    """One concept, one default - two of them cannot agree."""
 
     def test_both_constructors_default_to_or(self) -> None:
         """
-        The constructor said False while from_request said True
+        The constructor and from_request share one default
 
-        Whichever built the parameter decided whether two type filters were OR'd or AND'd, and the
-        builder branches on exactly this flag.
+        Otherwise whichever built the parameter would decide whether two type filters are OR'd or
+        AND'd, and the builder branches on exactly this flag.
         """
         assert SearchParam('x', SearchFormType.TYPE.value).disjunction is True
         assert SearchParam.from_request([_param(searchForm=SearchFormType.TYPE.value)])[0].disjunction is True
@@ -185,8 +184,8 @@ class TestThePublicIdForm:
                              ids=['letters', 'empty', 'decimal', 'none', 'bool'])
     def test_anything_else_is_refused_here_rather_than_two_layers_away(self, search_text: Any) -> None:
         """
-        The builder's bare int() raised inside pipeline construction, where the route could only
-        answer a generic 400 that named no parameter
+        Refused at construction, not by the builder's bare int() inside pipeline construction, where
+        the route could only answer a generic 400 that named no parameter
 
         A bool is refused on purpose: int(True) is 1, so it would silently search for object 1.
         """

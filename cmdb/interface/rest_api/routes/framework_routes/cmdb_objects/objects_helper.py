@@ -34,7 +34,8 @@ serves. The routes stay thin: they validate the request, resolve managers and de
 * **Side effects** - ``handle_notify_webhooks``, ``handle_create_object_log`` and
   ``emit_object_*_events`` are **best-effort**: each catches and logs its own failures so a webhook or
   logging problem never rolls back a stored object. The trade-off is that a successful write can leave
-  no audit entry, with nothing surfaced to the caller -
+  no audit entry, with nothing surfaced to the caller; a lost change-log entry is logged under the
+  ``OBJECT_LOG_LOST`` marker so an operator can alert on it
 * **Re-alignment** - ``realign_objects_to_type`` and ``clean_type_reports`` repair stored objects after
   their CmdbType changed
 
@@ -49,12 +50,17 @@ from logging import Logger, getLogger
 from typing import Any
 
 from bson import json_util
-from pymongo import UpdateOne
 from flask import abort, current_app
 
 from cmdb.database.json_codec import default, object_hook
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+from cmdb.manager.objects_propagation_helper import (
+    RawUpdate,
+    build_add_field_update,
+    build_field_entry,
+    build_remove_undeclared_fields_update,
+)
 from cmdb.manager import (
     LogsManager,
     LocationsManager,
@@ -89,6 +95,7 @@ from cmdb.framework.ipam.enforcement import (
     format_errors_for_abort,
 )
 from cmdb.framework.object_invariants import enforce_object_write_invariants
+from cmdb.framework.object_edit import compute_object_version
 from cmdb.framework.object_required_fields import (
     build_missing_required_errors,
     collect_missing_required_values,
@@ -96,6 +103,8 @@ from cmdb.framework.object_required_fields import (
     mds_section_field_names,
     split_required_field_names,
 )
+from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
+from cmdb.framework.object_field_defaults import fill_object_defaults
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
     guard_cable_objects_delete,
     handle_object_deleted as handle_port_object_deleted,
@@ -108,6 +117,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
 )
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
+from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     emit_object_update_events,
     handle_create_object_log,
@@ -120,11 +130,14 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     ObjectViewMode,
     ObjectPatchKey,
     REQUIRED_FIELD_ERROR_SEPARATOR,
+    FIELD_VALUE_ERROR_SEPARATOR,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
 )
 from cmdb.security.license.license_constants import LicenseFeature
+
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -672,6 +685,35 @@ def validate_required_object_fields(object_data: dict[str, Any], object_type: Cm
         abort(400, REQUIRED_FIELD_ERROR_SEPARATOR.join(errors))
 
 
+def validate_object_field_values(
+        object_data: dict[str, Any],
+        object_type: CmdbType,
+        previous_object: dict[str, Any] | None = None) -> None:
+    """
+    Rejects an object write storing a value its field does not allow
+
+    The shared value rules (see cmdb.framework.object_field_value_rules): a text or textarea value no
+    longer than its field kind's cap, and a value matching the pattern its field declares. Checked in
+    the top-level field list and in every multi-data-section row. A value the stored object already
+    holds in the same place is not judged, so an update only answers for what it changes
+
+    Args:
+        object_data (dict[str, Any]): The about-to-be-saved CmdbObject document
+        object_type (CmdbType): The CmdbType of the object
+        previous_object (dict[str, Any] | None): The stored object an update replaces; None for a new
+            object, whose every value is judged
+
+    Raises:
+        HTTPException: 400 naming each field whose value breaks its rule
+    """
+    errors: list[str] = collect_object_value_errors(
+        object_data, build_field_value_rules(object_type.get_fields()), previous_object,
+    )
+
+    if errors:
+        abort(400, FIELD_VALUE_ERROR_SEPARATOR.join(errors))
+
+
 def to_normalized_cmdb_object(object_data: dict[str, Any]) -> CmdbObject:
     """
     Builds a CmdbObject from a payload dict, normalizing BSON types via a JSON round-trip
@@ -746,7 +788,11 @@ def guard_config_item_limit(request_user: CmdbUser, objects_manager: ObjectsMana
     """
     Refuses a new CmdbObject when the user's subscription has no ConfigItem budget left
 
-    A no-op outside cloud mode, where no such limit exists
+    A no-op outside cloud mode, where no such limit exists. The count and the insert that follows it
+    are two separate operations, so requests creating objects at the same moment can each pass the
+    check and together go past the limit - by at most the number of requests in flight. That overshoot
+    is accepted: the limit is a subscription budget, not an integrity constraint, and closing the
+    window would need an atomic reservation on every create
 
     Args:
         request_user (CmdbUser): The CmdbUser the limit is checked for
@@ -810,9 +856,10 @@ def apply_object_insert(
     Inserts one CmdbObject and runs its side effects, the counterpart of `apply_object_update`
 
     The order matters and is the point of this function: everything that can refuse the request runs
-    BEFORE the write (ConfigItem budget, payload normalisation, IPAM license, IPAM invariants, location
-    placement), and everything that describes an object that now exists runs after it (the CmdbLocation
-    mirror, the select-option sync, the CREATE webhook, the cloud item count and the create log)
+    BEFORE the write (ConfigItem budget, payload normalisation, the empty fields filled from their
+    type's defaults, the required and value rules, IPAM license, IPAM invariants, location placement),
+    and everything that describes an object that now exists runs after it (the CmdbLocation mirror, the
+    select-option sync, the CREATE webhook, the cloud item count and the create log)
 
     Args:
         payload (dict[str, Any]): The raw request body of the new CmdbObject
@@ -837,8 +884,14 @@ def apply_object_insert(
     # Normalise the payload: assign/verify public_id, resolve the type, stamp defaults + version
     new_object_data, object_type = build_new_object_data(objects_manager, payload)
 
+    # A field left empty takes its type's default - before the required and value rules judge it
+    fill_object_defaults(new_object_data, object_type)
+
     # A field the type marks required may not be saved without a value
     validate_required_object_fields(new_object_data, object_type)
+
+    # No value longer than its field kind allows, none breaking its field's pattern
+    validate_object_field_values(new_object_data, object_type)
 
     # Creating an IPAM special-type object (or linking a subnet on an interface) needs an IPAM license
     guard_object_write_license(types_manager, request_user, new_object_data)
@@ -923,39 +976,6 @@ def apply_object_insert(
     return new_object_id
 
 
-def compute_object_version(current_object: CmdbObject, updated_object: CmdbObject) -> tuple[str, dict[str, Any]]:
-    """
-    Derives the field-level diff and applies the resulting semantic version bump
-
-    The bump is chosen from how many fields changed relative to the total field count: a single
-    changed field is a PATCH, all fields a MAJOR, more than half a MINOR, and anything else a PATCH.
-    ``updated_object`` is mutated in place with the new version, which is what makes the edit log's
-    ``get_version()`` read agree with the version written into the document. Returning the string
-    alone would leave the log recording every edit one bump behind
-
-    Args:
-        current_object (CmdbObject): The stored object before the update
-        updated_object (CmdbObject): The candidate object after the update
-
-    Returns:
-        tuple[str, dict[str, Any]]: The new version string and the diff (as returned by ``/``)
-    """
-    changes: dict[str, Any] = current_object / updated_object
-
-    changed_count: int = len(changes['new'])
-    field_count: int = len(updated_object.fields)
-
-    if changed_count == 1:
-        version_type = updated_object.VERSIONING_PATCH
-    elif changed_count == field_count:
-        version_type = updated_object.VERSIONING_MAJOR
-    elif changed_count > (field_count / 2):
-        version_type = updated_object.VERSIONING_MINOR
-    else:
-        version_type = updated_object.VERSIONING_PATCH
-
-    return updated_object.update_version(version_type), changes
-
 # Cohesive single-object update orchestration (fetch -> guard -> validate -> persist -> side effects);
 # the local count is inherent to the sequence, so the too-many-locals check is scoped off here
 # too-many-locals: this is the object update ORCHESTRATOR - 8 arguments plus one local per pipeline
@@ -1023,8 +1043,8 @@ def apply_object_update(  # pylint: disable=too-many-locals
         objects_manager, current_object_instance.get_type_id(), type_cache,
     )
 
+    pin_public_id(new_data, obj_id)
     new_data.update({
-        CmdbObjectKey.PUBLIC_ID.value: obj_id,
         CmdbObjectKey.CREATION_TIME.value: current_object_instance.creation_time,
         CmdbObjectKey.AUTHOR_ID.value: current_object_instance.author_id,
         CmdbObjectKey.ACTIVE.value: (
@@ -1043,6 +1063,9 @@ def apply_object_update(  # pylint: disable=too-many-locals
 
     # A field the type marks required may not be saved without a value
     validate_required_object_fields(new_data, current_type_instance)
+
+    # No CHANGED value longer than its field kind allows, none breaking its field's pattern
+    validate_object_field_values(new_data, current_type_instance, CmdbObject.to_json(current_object_instance))
 
     # Location placement is validated BEFORE the write; the CmdbLocation mirror runs best-effort after
     has_location_field, location_parent = extract_object_location_parent(
@@ -1209,78 +1232,39 @@ def guard_object_delete(
 def realign_objects_to_type(
         objects_manager: ObjectsManager,
         type_instance: CmdbType,
-    ) -> set[str]:
+    ) -> None:
     """
     Re-aligns every CmdbObject of a CmdbType with that type's current field definition
 
-    Drops fields the object carries but the type no longer declares, and adds fields the type now
-    declares but the object is missing (seeded with the type's default value under ``value`` or
-    None). At most one ``$pull`` and one ``$addToSet`` per affected object are applied in a single
-    bulk write. Returns the field names removed from at least one object so the caller can clean
-    the type's reports once afterwards
+    Drops every ``fields`` entry the type does not declare - whether the edit just removed it or the
+    object never should have carried it - and adds each declared field an object is missing, seeded
+    with the field's default value (``value`` on the definition) or None. Both run as server-side
+    statements (`objects_propagation_helper`), so no object is read: one ``$pull`` for the undeclared
+    names, and one ``$push`` per declared field matching only the objects that lack it. Each is
+    idempotent, so a second run modifies nothing
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         type_instance (CmdbType): The CmdbType whose objects should be re-aligned
 
     Raises:
-        HTTPException: 500 when the bulk write of the re-aligned objects fails
-
-    Returns:
-        set[str]: The field names dropped from at least one object of the type
+        HTTPException: 500 when a statement fails
     """
     type_fields: list[dict[str, Any]] = type_instance.fields
-    type_fields_by_name: dict[str, dict[str, Any]] = {t_field["name"]: t_field for t_field in type_fields}
-    type_field_names: set[str] = set(type_fields_by_name)
+    declared_names: list[str] = sorted(type_field[FieldKey.NAME] for type_field in type_fields)
 
-    objects_by_type: list[CmdbObject] = objects_manager.get_objects_by(type_id=type_instance.public_id)
+    updates: list[RawUpdate] = [
+        build_remove_undeclared_fields_update(type_instance.public_id, declared_names),
+        *(build_add_field_update(type_instance.public_id, build_field_entry(type_field)) for type_field in type_fields),
+    ]
 
-    # One $pull (stale fields) and one $addToSet (missing fields) per affected object, applied in a
-    # single bulk write instead of a write per object/field. Removed names accumulate for the caller
-    object_ops: list[UpdateOne] = []
-    removed_field_names: set[str] = set()
-
-    for obj in objects_by_type:
-        obj_field_names: set[str] = {field["name"] for field in obj.get_all_fields()}
-
-        # Fields the object carries but the type no longer declares
-        stale_field_names: set[str] = obj_field_names - type_field_names
-        # Fields the type now declares but the object is missing
-        missing_field_names: set[str] = type_field_names - obj_field_names
-
-        if stale_field_names:
-            object_ops.append(UpdateOne(
-                {'public_id': obj.public_id},
-                {'$pull': {'fields': {'name': {'$in': list(stale_field_names)}}}}
-            ))
-            removed_field_names |= stale_field_names
-
-        if missing_field_names:
-            # A field entry is a name+type+value triple; new fields start from the type's default
-            # value (stored under 'value' on the field definition) or None
-            new_field_entries: list[dict[str, Any]] = [
-                {
-                    "name": name,
-                    "type": type_fields_by_name[name]["type"],
-                    "value": type_fields_by_name[name].get("value"),
-                }
-                for name in missing_field_names
-            ]
-            object_ops.append(UpdateOne(
-                {'public_id': obj.public_id},
-                {'$addToSet': {'fields': {'$each': new_field_entries}}}
-            ))
-
-    if object_ops:
-        try:
-            objects_manager.bulk_write(object_ops)
-        except Exception as error:
-            LOGGER.error(
-                "[realign_objects_to_type] Clean objects Exception: %s, Type: %s", error, type(error)
-            )
-            abort(500, "An internal server error occured while cleaning objects!")
-
-    return removed_field_names
+    try:
+        objects_manager.apply_raw_updates(updates)
+    except ObjectsManagerUpdateError as error:
+        LOGGER.error(
+            "[realign_objects_to_type] Clean objects Exception: %s, Type: %s", error, type(error)
+        )
+        abort(500, "An internal server error occured while cleaning objects!")
 
 
 def clean_type_reports(

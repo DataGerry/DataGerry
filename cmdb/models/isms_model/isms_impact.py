@@ -22,8 +22,8 @@ it be" axis of the risk matrix. Four properties of this document are worth knowi
 **``calculation_basis`` is a number, and it is the reason this entity exists.** It is the weight the
 risk matrix multiplies and the value every risk assessment's ``maximum_impact_value`` is recomputed
 from, which ``ImpactManager.update_with_follow_up`` does across the whole assessment collection when
-this field changes. It is stored as a float (the schema's ``'type': 'float', 'min': 0.0``); the model
-annotated it ``str`` until 2026-09-07, which was the only claim of that anywhere.
+this field changes. It is stored as a float (the schema's ``'type': 'float', 'min': 0.0``), and the
+model annotates it as one.
 
 **The collection is a small fixed scale**, three to six rows in practice - the whole set is preloaded
 in one query by ``load_impact_calculation_basis``. That is why it declares no ``INDEX_KEYS`` even
@@ -33,7 +33,7 @@ needs no index, and the other ISMS scale entities declare none either.
 **``IsmsLikelihood`` is its structural twin.** Both carry exactly ``public_id`` / ``name`` /
 ``calculation_basis`` / ``description``, so one serialises cleanly as the other - a mix-up produces a
 valid-looking payload rather than an error. The shared ``CmdbDAO.to_json`` type-checks its instance for
-that reason, a guard this model had of its own before the check was lifted into the base class.
+that reason.
 
 **Its key set is closed.** ``ImpactKey`` names every persisted key and drives the shared
 ``CmdbDAO.from_data`` / ``to_json``; ``IMPACT_REQUIRED_DOCUMENT_KEYS`` keeps a document that lacks a

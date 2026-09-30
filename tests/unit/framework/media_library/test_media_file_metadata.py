@@ -103,7 +103,7 @@ class TestBuildMediaFileMetadataValues:
         assert result[MediaFileMetadataKey.REFERENCE.value] == references
 
     def test_the_permission_is_read_under_its_stored_name(self) -> None:
-        """The key is 'permission' on the way in and out - it used to be accepted as 'permissions'."""
+        """The key is 'permission' on the way in and out, never 'permissions'."""
         result = build_media_file_metadata({MediaFileMetadataKey.PERMISSION.value: PERMISSION})
 
         assert result[MediaFileMetadataKey.PERMISSION.value] == PERMISSION
@@ -170,7 +170,7 @@ class TestBuildMediaFileMetadataUnknownKeys:
         assert 'bogus' not in result
 
     def test_an_undeclared_key_does_not_raise(self) -> None:
-        """It used to be a TypeError, which the manager turned into a failed insert."""
+        """A TypeError here is turned into a failed insert by the manager."""
         result = build_media_file_metadata({'public_id': 5})
 
         assert set(result) == {key.value for key in MediaFileMetadataKey}

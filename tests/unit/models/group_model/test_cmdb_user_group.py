@@ -20,12 +20,12 @@ Pure: no Mongo, no Flask. A CmdbUserGroup is where authorisation actually gets d
 `route_utils.user_has_right` asks `has_right` and then `has_extended_right` for the right named on
 the route - so the two membership checks and the two serialisers are what this pins.
 
-Three regressions are pinned by name:
+Three rules get their own tests:
 
-* `has_extended_right` used to recurse forever on a name carrying no dot (`rsplit` returns such a
-  name unchanged), which meant a RecursionError instead of a denial
-* `to_json` built its rights list outside its own try block, so a failure there escaped raw instead
-  of as CmdbUserGroupToJsonError
+* `has_extended_right` must not recurse forever on a name carrying no dot (`rsplit` returns such a
+  name unchanged) - that would be a RecursionError instead of a denial
+* `to_json` builds its rights list inside its own try block, so a failure there surfaces as
+  CmdbUserGroupToJsonError, not raw
 * the two serialisation modes are asymmetric on purpose: `insert_mode=True` writes right NAMES (the
   stored form) and False writes full dicts (the API form), and `from_data` resolves names back into
   instances - so the round trip is what guards against drift between them
@@ -56,7 +56,7 @@ OBJECT_VIEW_RIGHT: str = 'base.framework.object.view'
 TYPE_VIEW_RIGHT: str = 'base.framework.type.view'
 UNKNOWN_RIGHT: str = 'base.does.not.exist'
 
-# Names carrying no dot at all - the shape that used to recurse forever
+# Names carrying no dot at all - the shape that recurses forever without a terminating case
 UNQUALIFIED_RIGHT: str = 'nodots'
 EMPTY_RIGHT: str = ''
 
@@ -243,7 +243,7 @@ class TestHasExtendedRight:
         assert _group().has_extended_right(OBJECT_VIEW_RIGHT) is False
 
     def test_unqualified_name_is_denied_without_recursing(self) -> None:
-        """A name with no dot terminates as a denial - it used to recurse until RecursionError."""
+        """A name with no dot terminates as a denial rather than recursing until RecursionError."""
         group = _group(rights=[])
 
         assert group.has_extended_right(UNQUALIFIED_RIGHT) is False

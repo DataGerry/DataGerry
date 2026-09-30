@@ -71,6 +71,12 @@ class ImporterRight(BaseStrEnum):
     ImportObjectRight / ImportTypeRight / IsmsImportRight in the right model - a value that does not
     exist there denies every caller, which is why they are written down once here instead of being
     spelled at each route
+
+    Each right is a capability of its own and **enough on its own**: an import route asks for its import
+    right and nothing else, never also for the framework right a hand-made write would need
+    (``base.framework.object.add``, ``base.framework.type.add`` / ``.edit``). An administrator grants
+    import deliberately, and no default group holds it. What an object import checks beyond the right is
+    the target type's ACL and its active flag
     """
     OBJECT = 'base.import.object.*'
     TYPE = 'base.import.type.*'

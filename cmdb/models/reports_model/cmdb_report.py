@@ -179,7 +179,7 @@ class CmdbReport(CmdbDAO):
 
             super().__init__(**kwargs)
         except Exception as err:
-            raise CmdbReportInitError(str(err)) from err
+            raise CmdbReportInitError(err) from err
 
 
     def remove_field_occurrences(self, field_name: str) -> None:
@@ -233,7 +233,7 @@ class CmdbReport(CmdbDAO):
                 predefined = data.get('predefined', False),
             )
         except Exception as err:
-            raise CmdbReportInitFromDataError(str(err)) from err
+            raise CmdbReportInitFromDataError(err) from err
 
     @classmethod
     def to_json(cls, instance: "CmdbReport") -> dict[str, Any]:
@@ -262,4 +262,4 @@ class CmdbReport(CmdbDAO):
                 'mds_mode': instance.mds_mode,
             }
         except Exception as err:
-            raise CmdbReportToJsonError(str(err)) from err
+            raise CmdbReportToJsonError(err) from err

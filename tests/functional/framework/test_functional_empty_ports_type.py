@@ -66,8 +66,8 @@ def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
     """
     Licenses IPAM so a Type may declare `uses_ports` and the /ports surface is reachable
 
-    Port Connectivity is gated behind LicenseFeature.IPAM by decision D6; that the gate really blocks
-    the surface is asserted in tests/functional/license/.
+    Port Connectivity is gated behind LicenseFeature.IPAM; that the gate really blocks the surface is
+    asserted by the license tests.
     """
     monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
 

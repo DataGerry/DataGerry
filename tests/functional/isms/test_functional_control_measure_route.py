@@ -42,6 +42,13 @@ from cmdb.errors.manager.control_measure_manager import (
     ControlMeasureManagerDeleteError,
     ControlMeasureManagerIterationError,
 )
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    CONTROL_MEASURE_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/control_measures'
@@ -189,6 +196,16 @@ class TestPutControlMeasure:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{CM_ID_FOR_UPDATE}').get_json()['result']['title'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_control_measure(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored control measure in place"""
+        _insert_control_measure(database_manager, database_name, CM_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{CM_ID_FOR_UPDATE}', _control_measure_payload(MISSING_CM_ID),
+            database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name), CM_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent control measure returns 404."""
@@ -379,13 +396,16 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{CM_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(ControlMeasureManager, 'insert_item', lambda *_a, **_k: CM_ID_FOR_GET)
         monkeypatch.setattr(ControlMeasureManager, 'get_item', lambda *_a, **_k: None)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_control_measure_payload(CM_ID_FOR_GET))
-        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            CONTROL_MEASURE_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""

@@ -228,7 +228,7 @@ class MongoConnector:
 
             raise DatabaseConnectionError("Unexpected response from database: " + str(response))
         except Exception as err:
-            raise DatabaseConnectionError(str(err)) from err
+            raise DatabaseConnectionError(err) from err
 
 
     @retry_operation

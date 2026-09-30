@@ -23,6 +23,7 @@ the PUT round-trip, and the DELETE 200 + follow-up 404. The CRUD behavior itself
 is asserted at the manager layer; these tests only verify the route wraps it
 correctly
 """
+import json
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
@@ -64,7 +65,7 @@ TYPE_ID_FOR_GET: int = 9703
 TYPE_ID_FOR_UPDATE: int = 9704
 TYPE_ID_FOR_DELETE: int = 9705
 TYPE_ID_FOR_SELECTABLE: int = 9706
-# The bug report's two types: 'User' owns the referenced section, 'test' references it
+# The ref-section scenario's two types: 'User' owns the referenced section, 'test' references it
 TYPE_ID_REFERENCED: int = 9707
 TYPE_ID_DEPENDENT: int = 9708
 # the listing-filter fixtures: one categorized, one not, one the admin group may not READ
@@ -132,7 +133,7 @@ def _type_doc(public_id: int, label: str) -> dict[str, Any]:
 
 
 def _referenced_type_payload(public_id: int = TYPE_ID_REFERENCED) -> dict[str, Any]:
-    """The bug report's 'User' type: a referenced section plus one nothing references."""
+    """The scenario's 'User' type: a referenced section plus one nothing references."""
     payload = _type_payload(public_id, 'User')
     payload['render_meta']['sections'] = [
         {'type': 'section', 'name': REFERENCED_SECTION_NAME, 'label': 'Personal Data',
@@ -145,7 +146,7 @@ def _referenced_type_payload(public_id: int = TYPE_ID_REFERENCED) -> dict[str, A
 
 def _dependent_type_payload(public_id: int = TYPE_ID_DEPENDENT,
                             section_name: str = REFERENCED_SECTION_NAME) -> dict[str, Any]:
-    """The bug report's 'test' type: a ref-section pulling the referenced section's field."""
+    """The scenario's 'test' type: a ref-section pulling the referenced section's field."""
     payload = _type_payload(public_id, 'test')
     payload['fields'].append({'type': 'ref', 'name': f'{REF_SECTION_NAME}-field', 'label': 'User',
                               'ref_types': [TYPE_ID_REFERENCED]})
@@ -160,7 +161,7 @@ def _dependent_type_payload(public_id: int = TYPE_ID_DEPENDENT,
 
 
 def _without_section(payload: dict[str, Any], section_name: str) -> dict[str, Any]:
-    """Returns the payload with one section removed - step 5 of the bug report."""
+    """Returns the payload with one section removed."""
     stripped = {**payload, 'render_meta': {**payload['render_meta']}}
     stripped['render_meta']['sections'] = [
         section for section in payload['render_meta']['sections'] if section['name'] != section_name
@@ -263,9 +264,9 @@ class TestPostType:
         """
         A section kind outside SectionType is refused by the write schema
 
-        The type IMPORT has always refused one (`INVALID_SECTION_TYPES`); the write route used to
-        accept any string, so a mistyped `multi-data-section` was stored as a kind of its own,
-        read back as a plain section, and its fields quietly stopped being multi-data fields.
+        The type IMPORT refuses one (`INVALID_SECTION_TYPES`); a write route accepting any string would
+        store a mistyped `multi-data-section` as a kind of its own, read it back as a plain section,
+        and its fields would quietly stop being multi-data fields.
         """
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         payload['render_meta']['sections'][0]['type'] = 'multi-data-sections'
@@ -349,13 +350,20 @@ class TestGetType:
         assert response.status_code == HTTPStatus.NOT_FOUND
 
     def test_get_list_returns_results_envelope(self, rest_api) -> None:
-        """A GET /types/ returns a JSON envelope whose results length matches X-Total-Count."""
+        """A GET /types/ returns a JSON envelope reporting one page of a larger match
+
+        `count` counts the page the response carries, `total` and the X-Total-Count header the whole
+        match - so the relation holds however many Types the rest of the suite left behind, which
+        `len(results) == X-Total-Count` did not once the database held more than one page of them.
+        """
         response = rest_api.get(f'{ROUTE_URL}/')
 
         assert response.status_code == HTTPStatus.OK
         body = response.get_json()
         assert 'results' in body
-        assert len(body['results']) == int(response.headers['X-Total-Count'])
+        assert len(body['results']) == body['count']
+        assert body['total'] == int(response.headers['X-Total-Count'])
+        assert body['count'] <= body['total']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -438,7 +446,9 @@ class TestTypeReadExtras:
         """GET /overview returns 200 with a list of {type_data, user_data} items."""
         _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_GET, ORIGINAL_LABEL)
         try:
-            response = rest_api.get(f'{ROUTE_URL}/overview')
+            # Unpaged, like every other listing assertion here: the seeded type has to be IN the
+            # answer, and one page of it holds whatever the rest of the suite left behind
+            response = rest_api.get(f'{ROUTE_URL}/overview?limit=0')
 
             assert response.status_code == HTTPStatus.OK
             results = response.get_json()['results']
@@ -481,11 +491,16 @@ class TestSelectableAsParentGuard:
     """selectable_as_parent may not be turned off while objects of the Type are placed in the tree."""
 
     def test_usage_in_use_true_when_object_placed(self, rest_api, database_manager, database_name) -> None:
-        """The pre-check route reports in_use True when an object of the type holds a location value."""
+        """
+        The pre-check reports in_use True when an object of the type holds a location value
+
+        The selectable-as-parent guard asks the same question as the location-field removal guard, so
+        its pre-check is /location_field_usage/ - there is no route of its own.
+        """
         _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
         _insert_placed_object(database_manager, database_name, PLACED_OBJECT_ID, TYPE_ID_FOR_SELECTABLE)
         try:
-            response = rest_api.get(f'{ROUTE_URL}/selectable_as_parent_usage/{TYPE_ID_FOR_SELECTABLE}')
+            response = rest_api.get(f'{ROUTE_URL}/location_field_usage/{TYPE_ID_FOR_SELECTABLE}')
 
             assert response.status_code == HTTPStatus.OK
             body = response.get_json()
@@ -496,35 +511,42 @@ class TestSelectableAsParentGuard:
             _drop_object(database_manager, database_name, PLACED_OBJECT_ID)
             _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
 
-    def test_both_usage_routes_answer_identically(self, rest_api, database_manager, database_name) -> None:
-        """The two pre-check routes share one body, so the same Type must produce the same payload."""
+    @pytest.mark.parametrize('placed', [True, False], ids=['placed object', 'nothing placed'])
+    def test_the_pre_check_predicts_the_guard(self, rest_api, database_manager, database_name, placed: bool) -> None:
+        """in_use True means turning selectable_as_parent off is refused; in_use False means it is allowed."""
         _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
-        _insert_placed_object(database_manager, database_name, PLACED_OBJECT_ID, TYPE_ID_FOR_SELECTABLE)
+        if placed:
+            _insert_placed_object(database_manager, database_name, PLACED_OBJECT_ID, TYPE_ID_FOR_SELECTABLE)
         try:
-            location_usage = rest_api.get(f'{ROUTE_URL}/location_field_usage/{TYPE_ID_FOR_SELECTABLE}')
-            selectable_usage = rest_api.get(f'{ROUTE_URL}/selectable_as_parent_usage/{TYPE_ID_FOR_SELECTABLE}')
+            in_use = rest_api.get(f'{ROUTE_URL}/location_field_usage/{TYPE_ID_FOR_SELECTABLE}').get_json()['in_use']
+            payload = _type_payload_with_location(TYPE_ID_FOR_SELECTABLE, ORIGINAL_LABEL, selectable_as_parent=False)
 
-            assert location_usage.status_code == HTTPStatus.OK
-            assert selectable_usage.status_code == HTTPStatus.OK
-            # The projected query still returns the placed object's public_id
-            assert location_usage.get_json()['object_public_ids'] == [PLACED_OBJECT_ID]
-            assert location_usage.get_json() == selectable_usage.get_json()
+            refused = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_FOR_SELECTABLE}', json=payload).status_code \
+                == HTTPStatus.BAD_REQUEST
+
+            assert in_use is placed
+            assert refused is in_use
         finally:
             _drop_object(database_manager, database_name, PLACED_OBJECT_ID)
             _drop_type(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
 
-    @pytest.mark.parametrize('usage_route', ['location_field_usage', 'selectable_as_parent_usage'])
-    def test_usage_of_missing_type_returns_404(self, rest_api, usage_route: str) -> None:
-        """Both pre-check routes 404 for a Type that does not exist."""
-        response = rest_api.get(f'{ROUTE_URL}/{usage_route}/{MISSING_TYPE_ID}')
+    def test_the_retired_selectable_as_parent_route_is_gone(self, rest_api) -> None:
+        """It answered exactly what /location_field_usage/ answers, and nothing called it."""
+        response = rest_api.get(f'{ROUTE_URL}/selectable_as_parent_usage/{MISSING_TYPE_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+    def test_usage_of_missing_type_returns_404(self, rest_api) -> None:
+        """The pre-check 404s for a Type that does not exist."""
+        response = rest_api.get(f'{ROUTE_URL}/location_field_usage/{MISSING_TYPE_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
     def test_usage_false_when_no_object_placed(self, rest_api, database_manager, database_name) -> None:
-        """The pre-check route reports in_use False when no object of the type is placed."""
+        """The pre-check reports in_use False when no object of the type is placed."""
         _insert_type_doc_with_location(database_manager, database_name, TYPE_ID_FOR_SELECTABLE)
         try:
-            response = rest_api.get(f'{ROUTE_URL}/selectable_as_parent_usage/{TYPE_ID_FOR_SELECTABLE}')
+            response = rest_api.get(f'{ROUTE_URL}/location_field_usage/{TYPE_ID_FOR_SELECTABLE}')
 
             assert response.status_code == HTTPStatus.OK
             body = response.get_json()
@@ -782,14 +804,14 @@ class TestReferencedSectionGuard:
     """
     A section another Type pulls fields from through a ref-section may not be removed
 
-    Reproduces the reported bug end to end: before the guard, step 5 (deleting 'Personal Data' from
-    the User type) succeeded and left the dependent type's reference dangling, which blanked the
-    referenced block in every object view of that type.
+    Runs the scenario end to end: without the guard, deleting 'Personal Data' from the User type
+    would succeed and leave the dependent type's reference dangling, which blanks the referenced
+    block in every object view of that type.
     """
 
     @pytest.fixture(autouse=True)
     def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
-        """Seeds the report's two types and removes them afterwards."""
+        """Seeds the scenario's two types and removes them afterwards."""
         _drop_type(database_manager, database_name, TYPE_ID_REFERENCED)
         _drop_type(database_manager, database_name, TYPE_ID_DEPENDENT)
         _insert_payload(database_manager, database_name, _referenced_type_payload())
@@ -801,7 +823,7 @@ class TestReferencedSectionGuard:
         _drop_type(database_manager, database_name, TYPE_ID_DEPENDENT)
 
     def test_removing_the_referenced_section_returns_400(self, rest_api) -> None:
-        """Step 5 of the report is now refused, naming the dependent Type."""
+        """Removing the referenced section is refused, naming the dependent Type."""
         payload = _without_section(_referenced_type_payload(), REFERENCED_SECTION_NAME)
 
         response = rest_api.put(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}', json=payload)
@@ -863,8 +885,8 @@ class TestReferencedSectionGuard:
         The type-level half of the same rule
 
         Deleting the whole referenced Type leaves the dependent pointing at a type_id that no longer
-        resolves - the same blank block, one level up. Reachable because verify_type_deletable only
-        checked objects and reports.
+        resolves - the same blank block, one level up - so verify_type_deletable checks dependent
+        types as well as objects and reports.
         """
         response = rest_api.delete(f'{ROUTE_URL}/{TYPE_ID_REFERENCED}')
 
@@ -1015,6 +1037,67 @@ class TestListingFilterEcho:
         assert TYPE_ID_FOR_GET not in listed
 
 
+class TestTheClientsActiveConditionWins:
+    """
+    A client that filters on ``active`` itself gets what it asked for, whatever ``?active=`` says
+
+    ``?active=`` defaults to true, so before this rule a filter asking for inactive types had its
+    condition replaced (dict criteria) or contradicted (a pipeline) by the flag: the opposite, or nothing,
+    with a 200. The flag now applies only to criteria that say nothing about ``active``
+    """
+
+    ACTIVE_TYPE_ID: int = 93961
+    INACTIVE_TYPE_ID: int = 93962
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One active and one inactive type."""
+        types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+        ids = [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]
+        types.delete_many({'public_id': {'$in': ids}})
+        for public_id, active in ((self.ACTIVE_TYPE_ID, True), (self.INACTIVE_TYPE_ID, False)):
+            doc = _type_doc(public_id, f'active-condition-{public_id}')
+            doc['name'] = f'active-condition-{public_id}'
+            doc['active'] = active
+            types.insert_one(doc)
+        yield
+        types.delete_many({'public_id': {'$in': ids}})
+
+    def _listed(self, rest_api, query: str) -> list[int]:
+        """The seeded types a listing answers, in id order."""
+        response = rest_api.get(f'{ROUTE_URL}/?limit=0&{query}')
+        assert response.status_code == HTTPStatus.OK
+
+        seeded = {self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID}
+        return sorted(t['public_id'] for t in response.get_json()['results'] if t['public_id'] in seeded)
+
+    def _inactive_dict(self) -> str:
+        """A dict filter asking for inactive types among the two seeded ones."""
+        return json.dumps({'active': False, 'public_id': {'$in': [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]}})
+
+    def _inactive_pipeline(self) -> str:
+        """The same question as a pipeline."""
+        return json.dumps([{'$match': {'active': False,
+                                       'public_id': {'$in': [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]}}}])
+
+    @pytest.mark.parametrize('flag', ['', 'active=true&', 'active=false&'], ids=['no flag', 'flag on', 'flag off'])
+    def test_a_dict_filter_for_inactive_types_gets_them(self, rest_api, flag: str) -> None:
+        """Not the active type (the flag replacing the key), and not nothing"""
+        assert self._listed(rest_api, f'{flag}filter={self._inactive_dict()}') == [self.INACTIVE_TYPE_ID]
+
+    @pytest.mark.parametrize('flag', ['', 'active=true&', 'active=false&'], ids=['no flag', 'flag on', 'flag off'])
+    def test_a_pipeline_filter_for_inactive_types_gets_them(self, rest_api, flag: str) -> None:
+        """Not an empty list (the flag's appended $match contradicting the client's)"""
+        assert self._listed(rest_api, f'{flag}filter={self._inactive_pipeline()}') == [self.INACTIVE_TYPE_ID]
+
+    def test_without_an_active_condition_the_flag_still_restricts(self, rest_api) -> None:
+        """A filter on other fields is combined with the flag as before"""
+        other = json.dumps({'public_id': {'$in': [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]}})
+
+        assert self._listed(rest_api, f'active=true&filter={other}') == [self.ACTIVE_TYPE_ID]
+        assert self._listed(rest_api, f'active=false&filter={other}') == [self.ACTIVE_TYPE_ID, self.INACTIVE_TYPE_ID]
+
+
 class TestListingCategoryFilters:
     """``?category=`` and ``?uncategorized=`` replace the $lookup pipelines the frontend posted."""
 
@@ -1098,7 +1181,7 @@ class TestListingCategoryFilters:
 
     def test_the_category_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
         """
-        The migration contract for **F3**: same rows, same order, same documents
+        The migration contract: same rows, same order, same documents
 
         The Angular app asks "types in category N" with a `$lookup` into `framework.categories`
         posted as `?filter=`. `?category=` has to be a drop-in for it, or switching the frontend over
@@ -1120,7 +1203,7 @@ class TestListingCategoryFilters:
         assert with_parameter.get_json()['total'] == with_pipeline.get_json()['total']
 
     def test_the_uncategorized_parameter_returns_what_the_frontend_pipeline_returns(self, rest_api) -> None:
-        """The same contract for the other half of **F3**: "types in no category"."""
+        """The same contract for the other half: "types in no category"."""
         frontend_pipeline = (
             '[{"$lookup":{"from":"framework.categories","localField":"public_id",'
             '"foreignField":"types","as":"categories"}},'
@@ -1160,7 +1243,7 @@ class TestListingAccessControl:
         types.delete_many({'public_id': {'$in': [TYPE_ID_UNCATEGORIZED, TYPE_ID_ACL_DENIED]}})
 
     def test_a_denied_type_is_absent_from_the_listing(self, rest_api) -> None:
-        """The route enforces the ACL itself now - no client-supplied filter is involved."""
+        """The route enforces the ACL itself - no client-supplied filter is involved."""
         response = rest_api.get(f'{ROUTE_URL}/?limit=0')
 
         listed = [result['public_id'] for result in response.get_json()['results']]
@@ -1222,9 +1305,9 @@ class TestCreateNormalisesTheAcl:
     """
     ``POST /types/`` stores the same ``acl`` block every other write path stores
 
-    The insert hands the raw payload to the manager, so before 2026-09-17 a create without an ``acl``
-    stored a document without one and the first edit silently added it - two stored shapes for one
-    meaning, decided by whether anyone had edited the type.
+    The insert hands the raw payload to the manager, so without completion here a create without an ``acl``
+    would store a document without one and the first edit would silently add it - two stored shapes for
+    one meaning, decided by whether anyone had edited the type.
     """
 
     @staticmethod
@@ -1265,7 +1348,7 @@ class TestCreateNormalisesTheAcl:
     def test_a_partial_acl_is_completed_rather_than_refused(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """Groups without the flag is the shape the model and the query used to read differently."""
+        """Groups without the flag is the shape the model and the query most easily read differently."""
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         payload['acl'] = {'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
 
@@ -1292,7 +1375,7 @@ class TestCreateNormalisesTheAcl:
     def test_a_null_groups_does_not_become_a_500(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """``GroupACL.from_data`` used to raise on a null groups; the create path must not inherit that."""
+        """``GroupACL.from_data`` must not raise on a null groups, and the create path must not inherit one."""
         payload = _type_payload(TYPE_ID_FOR_CREATE, ORIGINAL_LABEL)
         payload['acl'] = {'activated': False, 'groups': None}
 

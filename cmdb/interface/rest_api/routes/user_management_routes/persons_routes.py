@@ -22,7 +22,7 @@ beyond the plain CRUD:
 **Membership is written on both sides.** The ``groups`` list of the payload is stored on the person AND
 mirrored into the ``group_members`` of each named CmdbPersonGroup, so the create and update routes make
 a second, reciprocal call after the person itself is persisted. The ids are checked first
-(``abort_on_unknown_references``): an unknown group id used to be stored and then mirrored into
+(``abort_on_unknown_references``): an unknown group id would be stored and then mirrored into
 nothing, leaving the two sides permanently disagreeing.
 
 **Deleting is one manager call.** ``PersonsManager.delete_with_follow_up`` clears the ISMS references,
@@ -66,7 +66,7 @@ from cmdb.errors.manager.persons_manager import (
     PersonsManagerDeleteError,
     PersonsManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -247,16 +247,14 @@ def update_cmdb_person(public_id: int, data: dict[str, Any], request_user: CmdbU
 
         # Refuse a membership naming a group that does not exist, before anything is written
         abort_on_unknown_references(person_groups_manager, groups_to_add, 'PersonGroup')
-
-        # Pin the public_id to the URL so a forged body public_id cannot rewrite the document identity
-        data[PersonKey.PUBLIC_ID.value] = public_id
+        pin_public_id(data, public_id)
 
         # Persist the Person first, then sync the reciprocal group membership only on success
-        persons_manager.update_item(public_id, CmdbPerson.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(persons_manager, public_id, CmdbPerson, data)
 
         person_groups_manager.update_person_in_groups(public_id, groups_to_add, groups_to_remove)
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except PersonsManagerGetError as err:
         LOGGER.error("[update_cmdb_person] PersonsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Person with ID: {public_id} from the database!")

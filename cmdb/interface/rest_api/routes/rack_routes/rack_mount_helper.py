@@ -110,9 +110,9 @@ def resolve_kind_or_abort(payload: dict[str, Any]) -> str:
     """
     Reads what kind of row a request is creating, aborting 400 on an unknown kind
 
-    An absent kind means MOUNT, so a client that predates the reservations and blockers keeps working
-    unchanged. A misspelled one is refused rather than defaulted - silently creating a mount for
-    'RESERVATON' would be worse than saying no
+    An absent kind means MOUNT, so a client that never sends a kind keeps working unchanged. A
+    misspelled one is refused rather than defaulted - silently creating a mount for 'RESERVATON'
+    would be worse than saying no
 
     Args:
         payload (dict[str, Any]): The request body
@@ -392,7 +392,7 @@ def same_rack_membership_blocker(
     """
     Judges whether the object is already in THIS rack, without aborting
 
-    An object is still a member of at most one rack, but a second membership is no longer refused: an
+    An object is a member of at most one rack, but a second membership is not refused: an
     object held by ANOTHER rack is mounted by moving it out of that one, which is what the picker offers.
     What stays refused is mounting an object into the rack it is already in - the verb for that is a PATCH
     of its existing mount, and re-inserting it would drop that mount's public_id and collide with its own

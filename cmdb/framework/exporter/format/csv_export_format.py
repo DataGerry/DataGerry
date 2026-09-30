@@ -19,6 +19,7 @@ Implementation of the CsvExportFormat
 from logging import Logger, getLogger
 import csv
 from io import StringIO
+from typing import Any
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.field_key_enum import FieldKey
@@ -53,7 +54,7 @@ class CsvExportFormat(BaseExporterFormat):
     ACTIVE = True
 
 
-    def export(self, data: list[RenderResult], *args) -> StringIO:
+    def export(self, data: list[RenderResult], *args: Any) -> StringIO:
         """
         Exports the objects as a CSV file
 
@@ -106,13 +107,13 @@ class CsvExportFormat(BaseExporterFormat):
     def _resolve_columns(
             self,
             data: list[RenderResult],
-            args: tuple) -> tuple[list[str], list[str], list[tuple[str, list[str]]], list[str], str]:
+            args: tuple[Any, ...]) -> tuple[list[str], list[str], list[tuple[str, list[str]]], list[str], str]:
         """
         Resolves the identity header, regular columns, MDS layout/columns and view for the export
 
         Args:
             data (list[RenderResult]): The objects to export
-            args (tuple): The positional export args; `args[0]` (if present) is the options dict
+            args (tuple[Any, ...]): The positional export args; `args[0]` (if present) is the options dict
 
         Returns:
             tuple: `(header, regular_columns, mds_layout, mds_columns, view)` where `mds_layout` is the
@@ -141,13 +142,17 @@ class CsvExportFormat(BaseExporterFormat):
         return header, regular_columns, mds_layout, mds_columns, view
 
 
-    def csv_writer(self, header: list[str], rows: list[list], dialect=csv.excel) -> StringIO:
+    def csv_writer(
+            self,
+            header: list[str],
+            rows: list[list[str]],
+            dialect: type[csv.Dialect] = csv.excel) -> StringIO:
         """
         Generates a CSV file in memory
 
         Args:
             header (list[str]): A list representing the CSV header row
-            rows (list[list]): A list of lists, where each inner list represents a row of data
+            rows (list[list[str]]): A list of lists, where each inner list represents a row of data
             dialect (type[csv.Dialect]): The CSV dialect to use. Defaults to `csv.excel`
 
         Returns:

@@ -16,8 +16,8 @@
 """
 Integration tests for cmdb.database.updater.versions.updater_20260910 against a real MongoDB
 
-Reproduces a pre-migration collection - object relations whose ``last_edit_time`` holds the
-``{'$date': ...}`` wrapper the create route used to accept from the body - and asserts that the
+Reproduces a pre-migration collection - object relations whose ``last_edit_time`` holds a
+``{'$date': ...}`` wrapper stored verbatim from a request body - and asserts that the
 conversion lands, that the result is a value MongoDB can actually sort and range-filter (the whole
 point of the migration, and the one thing a stubbed manager cannot show), that a real value is left
 alone, and that a second run changes nothing.
@@ -78,9 +78,9 @@ def fixture_pre_migration_db(database_manager: MongoDatabaseManager, database_na
         _relation_doc(WRAPPED_ID, last_edit_time={'$date': LATER_MILLIS}),
         # The same wrapper carrying a timestamp string instead of millis
         _relation_doc(STRING_WRAPPED_ID, last_edit_time={'$date': '2023-11-14T22:13:20Z'}),
-        # Already a real date: written after the fix, and the shape a re-run must not touch
+        # Already a real date: the shape a re-run must not touch
         _relation_doc(MIGRATED_ID, last_edit_time=LATER),
-        # Never edited, which is what a create writes now
+        # Never edited, which is what a create writes
         _relation_doc(NEVER_EDITED_ID, last_edit_time=None),
         # A sub-document that is not a wrapper: must survive rather than be nulled
         _relation_doc(UNREADABLE_ID, last_edit_time={'legacy_shape': True}),
@@ -108,7 +108,7 @@ class TestConversion:
     def test_a_wrapped_millis_value_becomes_a_real_date(
         self, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The shape the frontend sends, which passed validation and was stored verbatim."""
+        """The shape the frontend sends, stored verbatim in a pre-migration document."""
         _run_migration(database_manager, database_name)
 
         assert _relation(database_manager, database_name, WRAPPED_ID)[
@@ -175,7 +175,8 @@ class TestTheResultIsSortable:
         A sub-document cannot be compared as a date, and the relation-tab route accepts ?sort=
 
         Asserted against a real server because this is exactly what a stubbed manager cannot show: the
-        query returns the two converted relations and orders them, where before it returned neither.
+        query returns the two converted relations and orders them, where on the unmigrated documents
+        it returns neither.
         """
         _run_migration(database_manager, database_name)
 

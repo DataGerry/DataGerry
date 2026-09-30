@@ -19,7 +19,7 @@ Unit tests for cmdb.manager.objects_summary_helper
 The summary line is what identifies an object everywhere it is not shown in full - lists, pickers,
 references - so its text is a user-facing contract: `Type label #public_id - field | field`.
 
-What these tests pin is mostly about ABSENCE, because that is where the line used to read badly: a
+What these tests pin is mostly about ABSENCE, because that is where the line reads badly: a
 summary field the object has no value for contributes neither text nor a separator (an unset field
 once rendered the literal word 'None', and emitting the separator alone left the line trailing off),
 while `0` and `False` are real data and are rendered. The separator therefore tracks the first field
@@ -113,7 +113,7 @@ def test_compose_summary_line_falls_back_to_default_when_field_walk_raises() -> 
 
 
 def test_compose_summary_line_skips_a_summary_field_absent_from_the_object() -> None:
-    """Regression: a summary field the object has no entry for used to render the text 'None'"""
+    """Regression: a summary field the object has no entry for must not render the text 'None'"""
     obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
         {'name': 'hostname', 'value': 'web01'},
     ])
@@ -130,7 +130,7 @@ def test_compose_summary_line_skips_a_summary_field_absent_from_the_object() -> 
 
 @pytest.mark.parametrize('unset_value', [None, ''], ids=['none', 'empty-string'])
 def test_compose_summary_line_skips_an_unset_summary_value(unset_value) -> None:
-    """Regression: an unset summary value used to leave the line trailing off as '#<id> - '"""
+    """Regression: an unset summary value must not leave the line trailing off as '#<id> - '"""
     obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID, fields=[
         {'name': 'hostname', 'value': unset_value},
     ])

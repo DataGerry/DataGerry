@@ -252,7 +252,7 @@ def test_every_status_answers_with_the_json_envelope(status: int) -> None:
     Any status, not a whitelist of nine
 
     One handler is registered for the `HTTPException` class, so the second half of this
-    parametrisation - the statuses nothing aborts today - is the point: each of them used to answer
+    parametrisation - the statuses nothing aborts today - is the point: without the catch-all each answers
     Flask's HTML page, and a client that reads `message` off the envelope got nothing.
     """
     app = BaseCmdbApp(__name__, database_manager=MagicMock())
@@ -600,9 +600,9 @@ def test_the_local_mode_flag_reaches_the_validator() -> None:
 
 def test_both_boot_paths_share_one_rule() -> None:
     """
-    The on-premise and tenant paths used to duplicate the validate-then-migrate sequence
+    The on-premise and tenant paths share the validate-then-migrate sequence
 
-    They disagreed about a newly created database, which is what G45 recorded. Sharing the helper is
+    Duplicated, they disagree about a newly created database. Sharing the helper is
     what keeps them from drifting apart again.
     """
     source: str = SOURCE_FILE.read_text(encoding='utf-8')

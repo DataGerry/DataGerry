@@ -19,7 +19,7 @@ Implementation of safe_wrap
 Shared helper that recursively wraps template data for DocAPI rendering: dicts become `SafeDict`
 and lists have their elements wrapped, so any missing key/attribute encountered while rendering
 resolves to a blank `SafeNull` instead of raising. Used by both `TemplateEngine` and
-`DefaultTemplateData` (previously duplicated as a private ``_safe_wrap`` in each).
+`DefaultTemplateData`.
 """
 from typing import Any
 

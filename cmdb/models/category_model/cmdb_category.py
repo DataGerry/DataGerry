@@ -109,7 +109,7 @@ class CmdbCategory(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbCategoryInitError(str(err)) from err
+            raise CmdbCategoryInitError(err) from err
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
@@ -156,7 +156,7 @@ class CmdbCategory(CmdbDAO):
                 types=data.get(CategoryKey.TYPES.value, []),
             )
         except Exception as err:
-            raise CmdbCategoryInitFromDataError(str(err)) from err
+            raise CmdbCategoryInitFromDataError(err) from err
 
 
     @classmethod
@@ -188,7 +188,7 @@ class CmdbCategory(CmdbDAO):
                 CategoryKey.TYPES.value: instance.types
             }
         except Exception as err:
-            raise CmdbCategoryToJsonError(str(err)) from err
+            raise CmdbCategoryToJsonError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 

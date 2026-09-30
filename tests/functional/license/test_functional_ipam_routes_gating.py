@@ -21,7 +21,7 @@ lookups, validation) is part of the licensed IPAM feature, so with no license ac
 blocked with HTTP 403 by a blueprint-level guard - across all 5 IPAM blueprints. IPAM data stays
 readable through the generic /objects and /types routes (gated separately at write time); only these
 dedicated surfaces are locked here. When IPAM is licensed, or in local (cloud) mode, the guard lets
-the request through (asserted as "no longer 403")
+the request through (asserted as "not 403")
 """
 from http import HTTPStatus
 
@@ -78,7 +78,7 @@ def test_ipam_validation_route_blocked_without_license(rest_api) -> None:
 #                                          allowed when licensed / bypassed                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_ipam_routes_allowed_when_licensed(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
-    """With IPAM licensed the guard lets the request through (no longer 403)"""
+    """With IPAM licensed the guard lets the request through (not 403)"""
     monkeypatch.setattr(
         LicenseService,
         'has_feature',
@@ -103,9 +103,9 @@ def test_ipam_cors_preflight_not_blocked_without_license(rest_api) -> None:
     A CORS preflight (OPTIONS) on a dedicated /ipam route must NOT be gated even when unlicensed
 
     The browser sends an unauthenticated OPTIONS before the real cross-origin request and requires a
-    2xx on it. The blueprint guard previously aborted the preflight with 403, failing the preflight
-    so the real request never left the browser - surfacing as a CORS error in the frontend rather
-    than the intended 403 on the actual GET. The preflight must come back OK with CORS headers.
+    2xx on it. A guard that aborted the preflight with 403 would fail it, so the real request would
+    never leave the browser - surfacing as a CORS error in the frontend rather than the intended
+    403 on the actual GET. The preflight must come back OK with CORS headers.
     """
     response = rest_api.options(
         TREE_URL,

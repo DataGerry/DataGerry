@@ -25,6 +25,7 @@ import re
 import pytest
 
 from cmdb.framework.search.list_search import (
+    matches_search_term,
     SEARCHABLE_VALUES_FIELD,
     as_text,
     build_list_search_stages,
@@ -120,3 +121,48 @@ def test_the_cleanup_is_the_last_stage() -> None:
 
     assert '$project' in stages[-1]
     assert '$match' in stages[-2]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             matches_search_term                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestMatchesSearchTerm:
+    """The in-memory counterpart of the stages, for a collection that is not in MongoDB.
+
+    Both sides have to mean the same thing by "matches", which is the whole reason it lives beside
+    the stage builder rather than in the one manager that needs it.
+    """
+
+    @pytest.mark.parametrize('term', [None, '', '   '])
+    def test_a_blank_term_matches_everything(self, term) -> None:
+        """An unsearched listing returns everything, so an unsearched record matches"""
+        assert matches_search_term(['anything'], term) is True
+
+    def test_a_substring_matches(self) -> None:
+        """Not an exact match and not a prefix - the same as the `$regex` stage"""
+        assert matches_search_term(['base.framework.type.view'], 'framework') is True
+
+    def test_it_is_case_insensitive(self) -> None:
+        """SEARCH_REGEX_RE_FLAGS carries IGNORECASE, like the stage's 'i'"""
+        assert matches_search_term(['View Type'], 'view type') is True
+
+    def test_the_term_is_literal_text(self) -> None:
+        """`escape_search_term` is what makes a dot a dot rather than 'any character'"""
+        assert matches_search_term(['baseXframework'], 'base.framework') is False
+        assert matches_search_term(['base.framework'], 'base.framework') is True
+
+    def test_non_string_values_are_read_as_strings(self) -> None:
+        """Every searchable value goes through a string conversion on both sides"""
+        assert matches_search_term([10], '10') is True
+
+    def test_none_values_are_skipped(self) -> None:
+        """A field a record does not carry matches nothing rather than raising"""
+        assert matches_search_term([None], 'none') is False
+
+    def test_any_value_matching_is_enough(self) -> None:
+        """The stage matches the ARRAY of a record's searchable values, not each field in turn"""
+        assert matches_search_term(['no', 'nope', 'the-term'], 'term') is True
+
+    def test_nothing_matching_is_false(self) -> None:
+        """The record is not part of a searched listing"""
+        assert matches_search_term(['a', 'b'], 'zzz') is False

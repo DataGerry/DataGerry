@@ -94,7 +94,7 @@ class CmdbPort(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_cmdb_port_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_port_schema()
 
 
     #pylint: disable=R0913, R0917
@@ -110,8 +110,8 @@ class CmdbPort(CmdbDAO):
             speed: int | None = None,
             description: str | None = None,
             author_id: int | None = None,
-            creation_time: datetime = None,
-            last_edit_time: datetime = None):
+            creation_time: datetime | None = None,
+            last_edit_time: datetime | None = None) -> None:
         """
         Initialises a CmdbPort
 
@@ -127,8 +127,8 @@ class CmdbPort(CmdbDAO):
             speed (int | None): public_id of a PORT_SPEED CmdbExtendableOption
             description (str | None): Free text
             author_id (int | None): public_id of the CmdbUser who created the port
-            creation_time (datetime, optional): When the port was created. Defaults to now
-            last_edit_time (datetime, optional): When the port was last changed. Defaults to None
+            creation_time (datetime | None): When the port was created. Defaults to now
+            last_edit_time (datetime | None): When the port was last changed. Defaults to None
 
         Raises:
             CmdbPortInitError: If the CmdbPort could not be initialised
@@ -153,12 +153,12 @@ class CmdbPort(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbPort":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbPort":
         """
         Initialises a CmdbPort from a dict
 
         Args:
-            data (dict): Data with which the CmdbPort should be initialised
+            data (dict[str, Any]): Data with which the CmdbPort should be initialised
 
         Raises:
             CmdbPortInitFromDataError: If the initialisation with the given data fails
@@ -168,8 +168,8 @@ class CmdbPort(CmdbDAO):
         """
         try:
             # The audit timestamps are coerced strictly: a value that cannot be read is refused
-            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
-            # 'sometime in March' into a date built from today's day number
+            # rather than guessed - `parse(..., fuzzy=True)` would turn a note like 'sometime in March'
+            # into a date built from today's day number
             unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
             if unusable_dates:
@@ -198,7 +198,7 @@ class CmdbPort(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbPort") -> dict:
+    def to_json(cls, instance: "CmdbPort") -> dict[str, Any]:
         """
         Converts a CmdbPort into a json compatible dict
 
@@ -209,7 +209,7 @@ class CmdbPort(CmdbDAO):
             CmdbPortToJsonError: If the CmdbPort could not be converted
 
         Returns:
-            dict: Json compatible dict of the CmdbPort values
+            dict[str, Any]: Json compatible dict of the CmdbPort values
         """
         try:
             return {

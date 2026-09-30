@@ -16,28 +16,37 @@
 """
 Implementation of LocalAuthenticationProviderConfig
 """
-from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
+from typing import Any
+
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, PROVIDER_ACTIVE_KEY
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class LocalAuthenticationProviderConfig(BaseAuthProviderConfig):
     """
     Configuration class for the LocalAuthenticationProvider
 
-    This class holds the configuration settings specific to the local authentication provider, 
-    such as whether the provider is active.
+    Holds whether the local provider is active. The provider itself reports active whatever this
+    flag says - local login is the way back into an instance - so the flag is the stored setting the
+    settings page shows, not a switch that can lock anyone out
 
     Extends: BaseAuthProviderConfig
     """
 
-    def __init__(self, active: bool = None, **kwargs):
+    def __init__(self, active: bool | None = None, **kwargs: Any) -> None:
         """
         Initializes the configuration for the LocalAuthenticationProvider
 
+        A missing flag (None) reads as the class default, active. A stored config written without the
+        key would otherwise carry None, which is falsy, and be shown and re-saved as inactive
+
         Args:
-            active (bool, optional): A flag indicating whether the authentication provider is active
-            **kwargs: Any additional keyword arguments passed to the base class initialization
+            active (bool | None): Whether the provider is configured active; None means the default, True
+            **kwargs (Any): Any additional keyword arguments passed to the base class initialization
 
         Inherited Attributes:
-            active (bool): Set to True if the provider is enabled, otherwise False
+            active (bool): The resolved flag - the given value, or True when none was given
         """
+        if active is None:
+            active = self.DEFAULT_CONFIG_VALUES[PROVIDER_ACTIVE_KEY]
+
         super().__init__(active, **kwargs)

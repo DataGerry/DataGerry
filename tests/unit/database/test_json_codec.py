@@ -21,7 +21,7 @@ The BSON <-> JSON codec of the wire format. Pure tests: no Mongo, no Flask.
 Two groups matter more than the per-type arms. First, the **round trip against real
 `bson.json_util` output**, which is what the object and type managers actually feed `object_hook`:
 its relaxed spelling of a datetime is an ISO string, its canonical one a nested `{'$numberLong': …}`,
-and both used to be mishandled - the first by reading a naive timestamp as the host's LOCAL time
+and both are easy to mishandle - the first by reading a naive timestamp as the host's LOCAL time
 (every round-tripped date drifted by the server's UTC offset, invisibly on a UTC host), the second by
 calling `float()` on a dict. Second, the **timezone** tests, which set TZ explicitly, because that
 first bug cannot be seen from a UTC machine.
@@ -73,7 +73,7 @@ def test_object_hook_date_from_millis() -> None:
 def test_object_hook_date_from_isoformat() -> None:
     """A string {$date} decodes to the instant it names, UTC-aware
 
-    Until 2026-09-09 this stripped the trailing 'Z' and called astimezone(utc) on the naive result,
+    Stripping the trailing 'Z' and calling astimezone(utc) on the naive result would instead
     which read the timestamp as the HOST's local time - so the value was correct only on a UTC
     machine. The instant is pinned here for exactly that reason.
     """
@@ -195,7 +195,7 @@ class TestTheBsonRoundTrip:
     @pytest.mark.parametrize('timezone_name', ['UTC', 'Europe/Berlin', 'America/Los_Angeles'])
     def test_an_aware_datetime_survives_any_host_timezone(self, monkeypatch, timezone_name: str) -> None:
         """
-        The bug this pins: a UTC timestamp used to come back shifted by the host's offset
+        The bug this pins: a UTC timestamp coming back shifted by the host's offset
 
         With TZ=Europe/Berlin, 10:00Z round-tripped to 08:00Z - so every write that normalised a
         document moved its dates, and no test on a UTC machine could see it.
@@ -262,7 +262,7 @@ class TestTheBsonRoundTrip:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            the shapes that used to raise                                             #
+#                                           the shapes that must not raise                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestMalformedDocumentsArePassedThrough:
     """A document the codec cannot decode stays a document - it never fails the write it is part of."""
@@ -282,7 +282,7 @@ class TestMalformedDocumentsArePassedThrough:
         assert result.flags & re.MULTILINE == 0
 
     def test_a_ref_without_an_id_is_not_a_reference(self) -> None:
-        """It used to raise KeyError('$id') inside a JSON decode"""
+        """A bare data['$id'] raises KeyError inside a JSON decode"""
         document = {MongoJsonKey.REF.value: 'framework.objects'}
 
         assert object_hook(document) is document
@@ -290,7 +290,7 @@ class TestMalformedDocumentsArePassedThrough:
     @pytest.mark.parametrize('wrapped', [True, False], ids=['true', 'false'])
     def test_a_boolean_date_is_refused(self, wrapped: bool) -> None:
         """
-        `bool` is an `int` subclass, so `{'$date': True}` used to decode to 1ms past the epoch
+        `bool` is an `int` subclass, so an unguarded `{'$date': True}` decodes to 1ms past the epoch
 
         `cmdb.utils.coerce_mongo_datetime` refuses it deliberately, and this codec delegates to it -
         the two implementations of one wire format may not disagree.
@@ -308,7 +308,7 @@ class TestMalformedDocumentsArePassedThrough:
         assert object_hook(document) is document
 
     def test_a_date_only_string_is_decoded(self) -> None:
-        """'2026-09-09' used to be sliced to '2026-09-0' and raise ValueError"""
+        """A date with no time part must not be sliced to '2026-09-0' and raise ValueError"""
         result = object_hook({MongoJsonKey.DATE.value: '2026-09-09'})
 
         assert result == datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc)

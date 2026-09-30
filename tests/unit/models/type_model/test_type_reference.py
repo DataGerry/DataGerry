@@ -16,7 +16,7 @@
 """
 Unit tests for cmdb.models.type_model.type_reference
 
-What a reference field shows. The class had **no test module of its own** until 2026-09-10 - the only
+What a reference field shows. Little of the class runs outside these tests - the only
 test that touched it patched one of its methods to raise, through the renderer - and half of it was
 dead: `from_data`, `has_prefix`, `has_icon` and `has_summaries` had no caller anywhere in the
 repository (the `has_summaries` call sites in the codebase are `CmdbType`'s), which is exactly why the
@@ -30,7 +30,7 @@ Pinned here, because all three are contract rather than implementation:
 * **`object_id` 0 as the empty reference** - what the frontend hides the block on, and what the
   renderer answers for a field with no value or an unresolvable object;
 * **the line helpers**: a line without placeholders needs no filling, a line that is absent, empty or
-  not text at all needs nothing either (the check used to raise for None and the renderer worked
+  not text at all needs nothing either (a check that raises for None leaves the renderer working
   around it), and a line that does not fit its values is reported rather than half-filled.
 
 Pure tests: no Mongo, no Flask.
@@ -203,7 +203,7 @@ class TestLineRequiresFields:
         """
         Answered rather than raised
 
-        The regex used to be handed `self.line` unchecked, so a None line - the default - raised a
+        Handing the regex `self.line` unchecked lets a None line - the default - raise a
         TypeError. The renderer guarded the CALL instead, with a comment about the DEBUG logs it
         otherwise spammed.
         """
@@ -264,7 +264,7 @@ class TestFillLine:
 #                                                 the retired surface                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTheRetiredMembers:
-    """Four members had no caller anywhere and were removed on 2026-09-10."""
+    """Four members had no caller anywhere and are gone."""
 
     @pytest.mark.parametrize('member', ['from_data', 'has_prefix', 'has_icon', 'has_summaries'])
     def test_they_are_gone(self, member: str) -> None:

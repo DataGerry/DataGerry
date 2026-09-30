@@ -200,22 +200,67 @@ class TestTheBuilderProtocol:
         assert len(builder) == len(builder.query)
 
 
+CLEAR_CRITERIA: dict[str, Any] = {'public_id': 1}
+APPENDED_STAGE: dict[str, Any] = {'$limit': 1}
+
+
+class TestClear:
+    """`clear` resets the builder to the state the constructor starts from."""
+
+    def _built_builder(self) -> BaseQueryBuilder:
+        """A builder that already holds a built pipeline."""
+        builder = BaseQueryBuilder()
+        builder.build(BuilderParameters(criteria=CLEAR_CRITERIA, sort=PUBLIC_ID_FIELD, order=1))
+        return builder
+
+    def test_a_cleared_builder_holds_an_empty_list(self) -> None:
+        """`== []`, not falsiness: None is falsy too and was what `clear` used to leave behind."""
+        builder = self._built_builder()
+        builder.clear()
+
+        assert isinstance(builder.query, list)
+        assert builder.query == []  # pylint: disable=use-implicit-booleaness-not-comparison
+
+    def test_a_cleared_builder_reports_no_stages(self) -> None:
+        """`len` reads the stage list, so it has to stay a list for the length to be answerable."""
+        builder = self._built_builder()
+        builder.clear()
+
+        assert len(builder) == 0
+
+    def test_a_stage_can_be_appended_after_a_clear(self) -> None:
+        """The point of clearing is reuse - the next stage must land in a usable list."""
+        builder = self._built_builder()
+        builder.clear()
+        builder.query.append(APPENDED_STAGE)
+
+        assert builder.query == [APPENDED_STAGE]
+
+    def test_a_build_after_a_clear_matches_a_fresh_builder(self) -> None:
+        """Nothing of the cleared pipeline may leak into the next one."""
+        params = BuilderParameters(criteria=CLEAR_CRITERIA, sort=PUBLIC_ID_FIELD, order=1)
+        builder = self._built_builder()
+        builder.clear()
+
+        assert builder.build(params) == BaseQueryBuilder().build(params)
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
-#                               how a criteria becomes stages - the T148 surface                                       #
+#                                     how a criteria becomes stages                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHowCriteriaBecomesStages:
     """
-    The branch tier 2 T148 was about, and the reason the guard is not here
+    The branch a client pipeline reaches, and the reason the guard is not here
 
     A dict criteria becomes one `$match`; a **list** criteria is spliced into the aggregation
-    verbatim, stage for stage. Until 2026-09-16 that was reachable straight from `?filter=`, so a
+    verbatim, stage for stage. Unguarded that is reachable straight from `?filter=`, so a
     caller could append `$lookup` and read any collection in the database.
 
     The splice itself is deliberate and stays: the frontend builds real stages, and `objects_manager`
     hands its own `$lookup` + `$unwind` pipeline in here as criteria. What changed is upstream -
     `CollectionParameters` now refuses a client filter that is not on the allow-list, so by the time
     a client's value reaches this method it has already been checked. These tests pin the splice, not
-    the checking; `tests/unit/interface/rest_api/responses/response_parameters/test_pipeline_guard.py`
+    the checking; the guard's own unit tests
     pins that.
     """
 
@@ -246,7 +291,7 @@ class TestHowCriteriaBecomesStages:
 
     def test_the_builders_own_stages_always_follow_the_criteria(self) -> None:
         """
-        Why `$out` / `$merge` used to fail, and why that was never a guard
+        Why `$out` / `$merge` fail on their own, and why that is not a guard
 
         The pager appends `$sort` / `$skip` after the client's stages, so a write stage - which must
         be last - was rejected by MongoDB for a reason that had nothing to do with permission. A

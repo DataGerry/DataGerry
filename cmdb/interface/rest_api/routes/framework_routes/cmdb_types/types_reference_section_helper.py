@@ -23,7 +23,7 @@ nothing. These helpers are what makes that visible - who depends on a section, w
 the refusal a write path raises, and the pre-check payload the type builder reads so the UI can disable
 the action instead of explaining a 400 afterwards.
 
-Split out of `types_helper.py` on 2026-09-11: the cluster is one self-contained theme and the module had
+Split out of `types_helper.py`: the cluster is one self-contained theme and that module had
 grown past pylint's 1,500-line cap. Nothing else moved with it, so the guards a route calls
 (`guard_referenced_section_removal`, `referenced_section_field_removal_blocker`) are imported from here
 while every other type guard stays in `types_helper`
@@ -527,7 +527,7 @@ def _group_dependents_by_section(
 
     Built from ONE already-loaded result rather than by asking the database once per section: every
     dependent's own reference entries name the section they target, so the per-section map is a
-    regrouping of what the single query returned. A type with twenty sections used to cost twenty-one
+    regrouping of what the single query returned. Asked per section, a type with twenty would cost twenty-one
     queries on every type-builder page load.
 
     A dependent is listed under a section name it names even if this type has no such section - the

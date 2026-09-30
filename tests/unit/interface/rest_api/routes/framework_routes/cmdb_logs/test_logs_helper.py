@@ -14,19 +14,35 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the CmdbLog route helper ``build_object_logs_response``
+Unit tests for the CmdbLog route helpers
 
-Pure tests: no Mongo and no Flask app. The logs manager, BuilderParameters, GetMultiResponse and
-CmdbObjectLog.to_json are patched, so only the helper's own wiring is exercised - that it builds
-the BuilderParameters from the query + pagination, serializes every iterated row, forwards the
-total/url/HEAD flag to GetMultiResponse, and returns its ``make_response`` output.
+Pure tests: no Mongo and no Flask app.
+
+* ``build_object_logs_response``: the logs manager, BuilderParameters, GetMultiResponse and
+  CmdbObjectLog.to_json are patched, so only the helper's own wiring is exercised - that it builds
+  the BuilderParameters from the query + pagination, serializes every iterated row, forwards the
+  total/url/HEAD flag to GetMultiResponse, and returns its ``make_response`` output.
+* ``build_object_log_existence_query``: the pipeline shape. Whether MongoDB splits the logs the way
+  the shape promises is the functional log-route tests' job.
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 
+from cmdb.models.object_model import CmdbObject
+from cmdb.models.log_model.log_action_enum import LogAction
+from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants import (
+    LogKey,
+    LogQueryOperator,
+    MONGO_ID_KEY,
+    OBJECT_LOOKUP_FIELD,
+    OBJECT_LOOKUP_FIRST_MATCH,
+    OBJECT_LOOKUP_MAX_MATCHES,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import (
+    build_object_log_existence_query,
     build_object_logs_response,
     resolve_log_users,
 )
@@ -94,9 +110,9 @@ def test_the_body_flag_reflects_the_request_method(method: str, expected_body: b
     """
     The GetMultiResponse body flag is True for everything BUT a HEAD request
 
-    It used to be asserted the other way round: this helper derived the flag as
+    Asserted the other way round it would read: this helper derives the flag as
     `request.method == HTTP_HEAD_METHOD`, so a plain GET asked for a bodyless answer - harmless only
-    because the flag was inert. Corrected 2026-09-09, and the rule now comes from
+    which an inert flag would hide. The rule comes from
     `routes_helper.request_wants_body`.
     """
     manager = _manager_returning([])
@@ -151,3 +167,67 @@ class TestResolveLogUsers:
 
         assert result == {}
         manager.get_minimal_users_by_ids.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        build_object_log_existence_query                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+class TestObjectLogExistenceQuery:
+    """The pipeline behind ``/logs/object/exists`` (True) and ``/logs/object/notexists`` (False)."""
+
+    @staticmethod
+    def _lookup(pipeline: list[dict[str, Any]]) -> dict[str, Any]:
+        """The body of the pipeline's one ``$lookup`` stage."""
+        lookups = [stage['$lookup'] for stage in pipeline if '$lookup' in stage]
+        assert len(lookups) == 1
+        return lookups[0]
+
+    @pytest.mark.parametrize('object_exists', [True, False], ids=['exists', 'notexists'])
+    def test_only_object_logs_that_are_not_deletes_enter(self, object_exists: bool) -> None:
+        """A delete log has no object by construction; letting it in would fill /notexists with them."""
+        first_stage = build_object_log_existence_query(object_exists)[0]
+
+        assert first_stage == {'$match': {
+            LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
+            LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
+        }}
+
+    def test_the_join_matches_the_logs_object_by_public_id(self) -> None:
+        """A log names its object by `object_id`; the object carries that value as `public_id`."""
+        lookup = self._lookup(build_object_log_existence_query())
+
+        assert lookup['from'] == CmdbObject.COLLECTION
+        assert lookup['localField'] == LogKey.OBJECT_ID.value
+        assert lookup['foreignField'] == LogKey.PUBLIC_ID.value
+        assert lookup['as'] == OBJECT_LOOKUP_FIELD
+
+    def test_the_join_loads_one_id_only_document(self) -> None:
+        """Only existence matters - a full object per log would haul every page's objects into memory."""
+        lookup = self._lookup(build_object_log_existence_query())
+
+        assert lookup['pipeline'] == [
+            {'$limit': OBJECT_LOOKUP_MAX_MATCHES},
+            {'$project': {MONGO_ID_KEY: 1}},
+        ]
+
+    @pytest.mark.parametrize('object_exists', [True, False], ids=['exists', 'notexists'])
+    def test_the_split_reads_the_first_joined_element(self, object_exists: bool) -> None:
+        """The last stage decides the side: element 0 of the joined array is there exactly when the object is."""
+        last_stage = build_object_log_existence_query(object_exists)[-1]
+
+        assert last_stage == {'$match': {OBJECT_LOOKUP_FIRST_MATCH: {LogQueryOperator.EXISTS.value: object_exists}}}
+
+    def test_the_default_selects_existing_objects(self) -> None:
+        """`/logs/object/exists` calls it without an argument."""
+        assert build_object_log_existence_query() == build_object_log_existence_query(True)
+
+    def test_the_stages_run_filter_join_split(self) -> None:
+        """Filtering first keeps the per-log join off the delete logs; no `$unwind` is needed for the split."""
+        operators = [next(iter(stage)) for stage in build_object_log_existence_query()]
+
+        assert operators == ['$match', '$lookup', '$match']
+
+    def test_the_first_joined_element_path_names_the_join_field(self) -> None:
+        """The split path and the join target must name the same field, or every log lands on one side."""
+        assert OBJECT_LOOKUP_FIRST_MATCH == f'{OBJECT_LOOKUP_FIELD}.0'

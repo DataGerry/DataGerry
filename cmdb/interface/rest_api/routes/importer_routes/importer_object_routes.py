@@ -32,13 +32,13 @@ Two things about this surface are easy to get wrong:
   status code. A 4xx/5xx from this route means the request could not be processed at all
 * **The CREATE logs are best-effort.** The objects are committed before `_log_imported_objects` runs,
   so a failure there costs the audit entries and nothing else - the response still reports the objects
-  as imported, and the user is not told
+  as imported, and the user is not told. Each lost entry is logged under the ``OBJECT_LOG_LOST`` marker,
+  like every other object write
 
 The heavy lifting - parsing, mapping, per-object validation and insertion - lives in
 `cmdb.framework.importer`; the routes here resolve the format, authorise the target type, build the
 importer and map failures onto HTTP
 """
-import json
 import os
 import tempfile
 from typing import Any
@@ -49,7 +49,6 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.utils import secure_filename
 from werkzeug.exceptions import HTTPException
 
-from cmdb.database.json_codec import default
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     ObjectsManager,
@@ -61,13 +60,13 @@ from cmdb.models.object_model import CmdbObject, CmdbObjectKey
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_constants import RenderObjectInfoKey
 from cmdb.framework.importer.configs.object_importer_config import ObjectImporterConfig
 from cmdb.framework.importer.parser.base_object_parser import BaseObjectParser
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
 from cmdb.framework.importer.responses.importer_object_response import ImporterObjectResponse
+from cmdb.framework.importer.messages.import_success_message import ImportSuccessMessage
 from cmdb.framework.importer.helper.importer_helper import (
     load_parser_class,
     load_importer_class,
@@ -84,6 +83,12 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import enforce_special_type_license
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    build_object_log_data,
+    report_lost_object_log,
+    write_object_log,
+)
 from cmdb.interface.rest_api.routes.importer_routes.importer_route_utils import (
     generate_parsed_output,
     verify_import_access,
@@ -120,7 +125,7 @@ importer_object_blueprint = APIBlueprint('importer_object', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def get_object_importer(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def get_object_importer(request_user: CmdbUser) -> Response:
     """
     Retrieve a list of available object importers with their metadata
 
@@ -155,7 +160,7 @@ def get_object_importer(request_user: CmdbUser) -> Response:  # pylint: disable=
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def get_default_object_importer_config(  # pylint: disable=unused-argument
+def get_default_object_importer_config(
         importer_type: str,
         request_user: CmdbUser) -> Response:
     """
@@ -189,7 +194,7 @@ def get_default_object_importer_config(  # pylint: disable=unused-argument
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def get_default_object_parser_config(  # pylint: disable=unused-argument
+def get_default_object_parser_config(
         parser_type: str,
         request_user: CmdbUser) -> Response:
     """
@@ -223,7 +228,7 @@ def get_default_object_parser_config(  # pylint: disable=unused-argument
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
-def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def parse_objects(request_user: CmdbUser) -> Response:
     """
     Parse uploaded object data using the specified parser configuration
 
@@ -249,7 +254,9 @@ def parse_objects(request_user: CmdbUser) -> Response:  # pylint: disable=unused
         request_file: FileStorage = get_file_in_request(ImporterFormField.FILE.value)
 
         # A missing / unparsable parser config is optional and falls back to the parser's defaults
-        parser_config: dict = get_element_from_data_request(ImporterFormField.PARSER_CONFIG.value, request) or {}
+        parser_config: dict[str, Any] = get_element_from_data_request(
+            ImporterFormField.PARSER_CONFIG.value, request
+        ) or {}
 
         # Same resolution as the import route: an unsupported format is named here rather than
         # surfacing later as a misleading "check your parser configuration"
@@ -325,12 +332,14 @@ def import_objects(request_user: CmdbUser) -> Response:
         file_format = _resolve_file_format()
 
         # Load parser config (optional - falls back to the parser's defaults)
-        parser_config: dict = get_element_from_data_request(ImporterFormField.PARSER_CONFIG.value, request) or {}
+        parser_config: dict[str, Any] = get_element_from_data_request(
+            ImporterFormField.PARSER_CONFIG.value, request
+        ) or {}
         if parser_config == {}:
             LOGGER.info('No parser config was provided - using default parser config')
 
         # Check for importer config
-        importer_config_request: dict | None = get_element_from_data_request(
+        importer_config_request: dict[str, Any] | None = get_element_from_data_request(
             ImporterFormField.IMPORTER_CONFIG.value, request
         )
         if not importer_config_request:
@@ -372,14 +381,14 @@ def import_objects(request_user: CmdbUser) -> Response:
 
 
 def _resolve_import_type(
-        importer_config_request: dict,
+        importer_config_request: dict[str, Any],
         request_user: CmdbUser,
         types_manager: TypesManager) -> CmdbType:
     """
     Resolves and authorises the target CmdbType for an import
 
     Args:
-        importer_config_request (dict): The importer config payload (must carry a valid 'type_id')
+        importer_config_request (dict[str, Any]): The importer config payload (must carry a valid 'type_id')
         request_user (CmdbUser): The user performing the import
         types_manager (TypesManager): Manager used to resolve the type
 
@@ -443,7 +452,7 @@ def _resolve_file_format() -> str:
     return file_format
 
 
-def _build_importer_config(importer_config_class: type, importer_config_request: dict) -> Any:
+def _build_importer_config(importer_config_class: type, importer_config_request: dict[str, Any]) -> Any:
     """
     Instantiates the importer configuration from the request payload
 
@@ -455,7 +464,7 @@ def _build_importer_config(importer_config_class: type, importer_config_request:
 
     Args:
         importer_config_class (type): The config class registered for the file format
-        importer_config_request (dict): The importer config payload from the request
+        importer_config_request (dict[str, Any]): The importer config payload from the request
 
     Returns:
         Any: The instantiated importer configuration
@@ -479,8 +488,8 @@ def _build_importer_config(importer_config_class: type, importer_config_request:
 def _build_object_importer(
         file_format: str,
         working_file: str,
-        parser_config: dict,
-        importer_config_request: dict,
+        parser_config: dict[str, Any],
+        importer_config_request: dict[str, Any],
         objects_manager: ObjectsManager,
         request_user: CmdbUser) -> ObjectImporter:
     """
@@ -489,8 +498,8 @@ def _build_object_importer(
     Args:
         file_format (str): The uploaded file's format ('csv' or 'json')
         working_file (str): Path to the saved import file
-        parser_config (dict): Parser configuration
-        importer_config_request (dict): Importer configuration payload
+        parser_config (dict[str, Any]): Parser configuration
+        importer_config_request (dict[str, Any]): Importer configuration payload
         objects_manager (ObjectsManager): Manager used by the importer to read/insert objects
         request_user (CmdbUser): The user performing the import
 
@@ -626,7 +635,7 @@ def _render_imported_objects(
 
 
 def _log_imported_objects(
-        success_messages: list,
+        success_messages: list[ImportSuccessMessage],
         objects_manager: ObjectsManager,
         logs_manager: LogsManager,
         request_user: CmdbUser) -> None:
@@ -635,13 +644,14 @@ def _log_imported_objects(
 
     The objects are already persisted by the time this runs, so nothing here may fail the import: a
     read/render batch that blows up costs every log entry, a single failing insert costs only its own,
-    and either way the import still reports success. Nothing surfaces that to the user - the response
-    reports the objects as imported, because they are
+    and either way the import still reports success - the response reports the objects as imported,
+    because they are. Every lost entry is logged under ``OBJECT_LOG_LOST_MARKER``, one line per object
 
     Args:
-        success_messages (list): The ImportSuccessMessage entries of the imported objects. They exist
-                                 only inside the import: the response reports the imported objects as a
-                                 count, but the CREATE logs need their public_ids
+        success_messages (list[ImportSuccessMessage]): The ImportSuccessMessage entries of the imported
+                                                       objects. They exist only inside the import: the
+                                                       response reports the imported objects as a count,
+                                                       but the CREATE logs need their public_ids
         objects_manager (ObjectsManager): Manager used to re-read the imported object state
         logs_manager (LogsManager): Manager used to persist the create log
         request_user (CmdbUser): The user credited as the log author
@@ -654,9 +664,11 @@ def _log_imported_objects(
     try:
         rendered_by_id: dict[int, Any] = _render_imported_objects(public_ids, objects_manager, request_user)
     # A failed batch costs the logs, never the import - the objects are already committed
-    except Exception as err:  # pylint: disable=broad-exception-caught
-        LOGGER.error("[import_objects] Failed to render %s imported Objects for logging: %s. Type: %s",
-                     len(public_ids), err, type(err))
+    except Exception:  # pylint: disable=broad-exception-caught
+        for public_id in public_ids:
+            report_lost_object_log(
+                LogAction.CREATE, public_id, 'the imported objects could not be rendered', with_traceback=True,
+            )
 
         return
 
@@ -664,22 +676,16 @@ def _log_imported_objects(
         render_result = rendered_by_id.get(public_id)
 
         if render_result is None:
-            LOGGER.error("[import_objects] Imported Object %s could not be rendered; no ObjectLog written",
-                         public_id)
+            report_lost_object_log(LogAction.CREATE, public_id, 'the imported object could not be rendered')
             continue
 
-        try:
-            logs_manager.insert_log(
-                action=LogAction.CREATE,
-                log_type=CmdbObjectLog.__name__,
-                object_id=public_id,
-                user_id=request_user.get_public_id(),
-                user_name=request_user.get_display_name(),
-                comment='Object was imported',
-                render_state=json.dumps(render_result, default=default).encode('UTF-8'),
-                version=render_result.object_information[RenderObjectInfoKey.VERSION.value],
-            )
-        # The objects are already committed, so any logging failure is best-effort: log it and move on
-        except Exception as err:  # pylint: disable=broad-exception-caught
-            LOGGER.error("[import_objects] Failed to log imported Object %s: %s. Type: %s",
-                         public_id, err, type(err))
+        log_data: dict[str, Any] = build_object_log_data(
+            request_user,
+            public_id,
+            render_result.object_information[RenderObjectInfoKey.VERSION.value],
+            ObjectLogComment.IMPORTED.value,
+            render_result,
+        )
+
+        # The objects are already committed, so a failing entry costs only itself
+        write_object_log(logs_manager, LogAction.CREATE, log_data)

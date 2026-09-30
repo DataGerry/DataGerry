@@ -17,15 +17,16 @@
 Unit tests for cmdb.models.object_group_model
 
 Pure tests: no Mongo, no Flask. The rules shared with the two person models are pinned once in
-tests/unit/models/test_membership_models_are_null_free.py; what is pinned here belongs to the object
+the shared membership-model tests; what is pinned here belongs to the object
 group alone:
 
-  - **``group_type`` is constrained to ObjectGroupMode.** It used to be any string, and a group stored
+  - **``group_type`` is constrained to ObjectGroupMode.** Left as any string, a group stored
     with a third value is invisible to BOTH cleanup paths (objects_helper maintains the STATIC groups,
     types_helper the DYNAMIC ones), so it keeps deleted ids forever. The schema rule is the only thing
     standing between a typo and that state
   - the two indexes the cleanup paths need, and the framework registry that gets them built
-  - ``assigned_ids`` being required and non-empty, which is what makes a group always mean something
+  - ``assigned_ids`` being required and non-nullable but allowed to be empty, which is what keeps a group
+    whose members were all deleted savable
   - the option type that ties ``categories`` to the CmdbExtendableOption list, not to CmdbCategories
 """
 from typing import Any
@@ -167,16 +168,29 @@ class TestSchema:
         """A key renamed in the enum cannot leave the schema validating the old spelling."""
         assert set(get_cmdb_object_group_schema()) == {key.value for key in ObjectGroupKey}
 
-    def test_an_empty_assigned_ids_list_is_refused(self) -> None:
-        """
-        A group of nothing has no meaning, so emptying one is a deletion rather than an update
+    def test_an_empty_assigned_ids_list_is_valid(self) -> None:
+        """A group whose members were all deleted is the document the cascades leave - it must validate."""
+        validator = Validator(get_cmdb_object_group_schema())
 
-        Pinned because it is the only list key here that is NOT nullable, and the asymmetry is
-        deliberate.
+        assert validator.validate(_payload(assigned_ids=[])), validator.errors
+
+    def test_a_missing_assigned_ids_is_refused(self) -> None:
+        """Empty is legal, absent is not: the key stays required."""
+        payload = _payload()
+        payload.pop(ObjectGroupKey.ASSIGNED_IDS.value)
+        validator = Validator(get_cmdb_object_group_schema())
+
+        assert not validator.validate(payload)
+
+    def test_a_null_assigned_ids_is_refused(self) -> None:
+        """
+        The only list key here that is NOT nullable, and the asymmetry with categories is deliberate
+
+        A null would be read as "no members" by nothing - the empty list is how that is said.
         """
         validator = Validator(get_cmdb_object_group_schema())
 
-        assert not validator.validate(_payload(assigned_ids=[]))
+        assert not validator.validate(_payload(assigned_ids=None))
 
     def test_categories_accept_null(self) -> None:
         """The one nullable key: a group filed under nothing may say so."""
@@ -188,7 +202,7 @@ class TestReferenceEnums:
 
     def test_categories_are_extendable_options_of_the_object_group_type(self) -> None:
         """
-        Not CmdbCategories, which is what the schema comment used to say
+        Not CmdbCategories, whatever the name suggests
 
         The categories key holds public_ids of CmdbExtendableOptions filed under this option type, and
         deleting one of those options clears it from every group that used it.

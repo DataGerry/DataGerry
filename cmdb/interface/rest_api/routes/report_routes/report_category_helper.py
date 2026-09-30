@@ -24,7 +24,7 @@ Holds what the Create / Read / Update / Delete routes share:
 * the two write guards - a predefined CmdbReportCategory is read-only, and a category still
   referenced by a CmdbReport can not be deleted
 
-Validation helpers abort with HTTP 400 / 403 / 404 so the routes stay focused on orchestration.
+Validation helpers abort with HTTP 400 / 404 so the routes stay focused on orchestration.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -33,7 +33,6 @@ from flask import abort
 
 from cmdb.manager import ReportCategoriesManager
 
-from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 
@@ -47,6 +46,7 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     ReportCategoryKey,
     ReportKey,
 )
+from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -166,10 +166,10 @@ def abort_if_predefined(report_category: CmdbReportCategory, action: ReportCateg
         action (ReportCategoryAction): The refused operation, named in the error message
 
     Raises:
-        HTTPException: 403 when the CmdbReportCategory is predefined
+        HTTPException: 400 when the CmdbReportCategory is predefined
     """
     if report_category.predefined:
-        abort(403, CATEGORY_PREDEFINED_MSG.format(action=action.value))
+        abort(400, CATEGORY_PREDEFINED_MSG.format(action=action.value))
 
 
 def abort_if_category_in_use(report_categories_manager: ReportCategoriesManager, public_id: int) -> None:
@@ -185,14 +185,14 @@ def abort_if_category_in_use(report_categories_manager: ReportCategoriesManager,
 
     Raises:
         BaseManagerGetError: If the count itself fails (it is not wrapped as a manager-specific error)
-        HTTPException: 403 when at least one CmdbReport references the CmdbReportCategory
+        HTTPException: 400 when at least one CmdbReport references the CmdbReportCategory
     """
     reports_using_category: int = report_categories_manager.count_from_other_collection(
         CmdbReport.COLLECTION, {ReportKey.REPORT_CATEGORY_ID: public_id}
     )
 
     if reports_using_category > 0:
-        abort(403, CATEGORY_IN_USE_MSG.format(public_id=public_id))
+        abort(400, CATEGORY_IN_USE_MSG.format(public_id=public_id))
 
 
 def build_category_update_payload(
@@ -219,7 +219,7 @@ def build_category_update_payload(
         dict[str, Any]: The full document to persist
     """
     payload: dict[str, Any] = normalize_category_params(params)
-    payload[CmdbObjectKey.PUBLIC_ID] = public_id
+    pin_public_id(payload, public_id)
     payload[ReportCategoryKey.PREDEFINED] = report_category.predefined
 
     return payload

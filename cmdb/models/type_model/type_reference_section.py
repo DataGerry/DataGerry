@@ -41,7 +41,7 @@ class TypeReferenceSection(TypeSection):
         name: str,
         label: str | None = None,
         reference: TypeReferenceSectionEntry | None = None,
-        fields: list | None = None
+        fields: list[str] | None = None
     ) -> None:
         """TODO: document"""
         self.reference = reference or {}

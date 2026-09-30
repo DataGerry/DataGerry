@@ -17,9 +17,9 @@
 Functional smoke for the CmdbLocation an object write maintains
 
 An object carrying a location field owns a node in the location tree, and the object routes are what
-keep the two in step: a create places the node, an edit re-parents it, clearing the field removes it,
-and a delete takes the subtree's children with it. The rules live in ``workflows/locations.md``;
-these tests drive them through the object routes, which is where a client actually triggers them
+keep the two in step: a create places the node, an edit re-parents it, and clearing the field or
+deleting the object removes it, promoting its children onto the grandparent. These tests drive the
+rules through the object routes, which is where a client actually triggers them
 """
 from datetime import datetime, timezone
 from http import HTTPStatus

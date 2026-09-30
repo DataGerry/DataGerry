@@ -88,8 +88,7 @@ __COLLECTIONS__: list[Any] = [
     CmdbExtendableOption,
     # Not a CmdbDAO, but it exposes the same COLLECTION + get_index_keys() contract, which is all
     # CollectionValidator needs. Registered so its declared unique index on 'name' is actually
-    # built - the create route and docapi_template_routes' own docstring have always named that
-    # index as half of the name-uniqueness guarantee, and until 2026-09-01 it did not exist
+    # built - the create route relies on that index as half of the name-uniqueness guarantee
     DocapiTemplate,
     IsmsRisk,
     IsmsThreat,

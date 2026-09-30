@@ -19,10 +19,13 @@ This module contains the implementation of the ObjectsManager
 The persistence layer of ``framework.objects`` - every object read, write, delete and reference lookup
 in the product goes through it. Three rules govern the methods here:
 
-**Every write is guarded by the object's CmdbType, and the guard runs first.** ``_guard_writable_type``
+**Every write is guarded by the object's CmdbType, and the guard runs first.** ``guard_writable_type``
 is the one place that checks the type exists, is active, and that the caller's ACL grants the
 permission; insert, update and delete all call it, and ``delete_with_follow_up`` calls it *before* the
-ISMS cascade so a refused delete cannot destroy the object's risk assessments (it used to).
+ISMS cascade so a refused delete cannot destroy the object's risk assessments. It is public because a
+caller with side effects of its own must ask it too: the object delete routes remove the location node,
+the rack and port state and - in bulk - the risk assessments before the manager deletes, so they run
+the guard for every target first, and a refused delete answers 403 with nothing touched.
 
 **A read may skip what the caller cannot see, a write may not.** ``get_objects_by`` and
 ``group_objects_by_value`` drop the objects whose type ACL denies the user and return the rest, so a
@@ -31,7 +34,7 @@ the collection's. Every other method raises ``AccessDeniedError``.
 
 **The ACL is only applied when a user and a permission are passed.** Several internal callers pass
 neither on purpose (a cascade cleaning up after a delete, the CI Explorer's neighbour reads); a route
-that omits them is a bug, and the ones that do are recorded in the discussion backlog
+that omits them is a bug
 """
 from logging import Logger, getLogger
 import copy
@@ -39,12 +42,12 @@ import json
 from typing import Any
 
 from bson import json_util
-from pymongo import UpdateOne
+from pymongo.results import UpdateResult
 from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.json_codec import object_hook
-from cmdb.manager.query_builder import Builder
+from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 
@@ -52,6 +55,7 @@ from cmdb.models.object_model import (
     CmdbObject,
     CmdbObjectKey,
     CmdbObjectFieldKey,
+    ObjectWriteVerb,
 )
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
@@ -72,6 +76,7 @@ from cmdb.manager.objects_reference_helper import (
     merge_mds_references,
 )
 from cmdb.manager.objects_summary_helper import compose_summary_line
+from cmdb.manager.objects_propagation_helper import RawUpdate
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -130,7 +135,7 @@ class ObjectsManager(BaseManager):
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def _guard_writable_type(
+    def guard_writable_type(
             self,
             type_id: int,
             user: CmdbUser | None,
@@ -142,9 +147,9 @@ class ObjectsManager(BaseManager):
         Resolves an object's CmdbType and refuses the write when it may not be performed
 
         The three checks every write shares, in one place: the type has to exist, it has to be
-        active, and the user's ACL has to grant the permission. They were written out separately in
-        insert, update and delete, with three different error types for the missing type and three
-        copies of the deactivated-type message
+        active, and the user's ACL has to grant the permission. Every write method calls it; a caller
+        that has side effects of its own before the write calls it first as well, so a refused write
+        changes nothing
 
         Args:
             type_id (int): public_id of the object's CmdbType
@@ -152,7 +157,7 @@ class ObjectsManager(BaseManager):
             permission (AccessControlPermission | None): The permission required, or None
             missing_type_error (type[Exception]): The error to raise when the type is gone - each
                                                   caller reports its own operation
-            action (str): The verb for the deactivated-type message ('created', 'updated', 'removed')
+            action (str): The verb for the deactivated-type message (an `ObjectWriteVerb`)
             object_type (CmdbType | None): An already-resolved type, which a bulk caller holding a
                                            type map passes to skip one lookup per object
 
@@ -205,8 +210,8 @@ class ObjectsManager(BaseManager):
         try:
             new_object: CmdbObject = CmdbObject.from_data(data)
 
-            self._guard_writable_type(
-                new_object.type_id, user, permission, ObjectsManagerInsertError, 'created',
+            self.guard_writable_type(
+                new_object.type_id, user, permission, ObjectsManagerInsertError, ObjectWriteVerb.CREATED.value,
             )
 
             return self.insert(CmdbObject.to_json(new_object))
@@ -223,31 +228,39 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerInsertError(err) from err
 
 
-    def bulk_update_multi_data_sections(self, updated_objects: list[CmdbObject]) -> None:
+    def apply_raw_updates(self, updates: list[RawUpdate]) -> int:
         """
-        Bulk updates the multi_data_sections field for a list of updated CmdbObjects.
+        Runs a list of server-side ``update_many`` statements against ``framework.objects``, in order
+
+        What carries a CmdbType's field changes into its objects (see `objects_propagation_helper`): each
+        statement is applied inside MongoDB, so no object is read and none is written back from memory.
+        No ACL is applied - the statements are a consequence of a type or section-template write the
+        caller already authorised, and they must reach every object of the type
 
         Args:
-            updated_objects (list[CmdbObject]): Objects that have modified multi_data_sections.
+            updates (list[RawUpdate]): The statements to run
 
         Raises:
-            ObjectsManagerUpdateError: If the bulk write fails.
+            ObjectsManagerUpdateError: If a statement fails; the ones before it have been applied, and
+                each is idempotent, so running the list again completes it
+
+        Returns:
+            int: How many documents the statements modified, summed
         """
+        modified: int = 0
+
         try:
-            if not updated_objects:
-                return
-
-            operations: list[UpdateOne] = [
-                UpdateOne(
-                    {"public_id": obj.public_id},
-                    {"$set": {"multi_data_sections": obj.multi_data_sections}}
+            for raw_update in updates:
+                result: UpdateResult = self.update_many_raw(
+                    filter_query=raw_update.filter_query,
+                    update=raw_update.update,
+                    array_filters=raw_update.array_filters,
                 )
-                for obj in updated_objects
-            ]
+                modified += result.modified_count
 
-            self.bulk_write(operations)
+            return modified
         except Exception as err:
-            LOGGER.error("[bulk_update_multi_data_sections] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[apply_raw_updates] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -365,7 +378,7 @@ class ObjectsManager(BaseManager):
         direction: int = -1,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None,
-        **requirements,
+        **requirements: Any,
     ) -> list[CmdbObject]:
         """
         Retrieves a list of CmdbObjects based on the provided filters
@@ -420,10 +433,10 @@ class ObjectsManager(BaseManager):
     def group_objects_by_value(
         self,
         value: str,
-        match: dict | None = None,
+        match: dict[str, Any] | None = None,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None
-    ) -> list[dict]:
+    ) -> list[dict[str, Any]]:
         """
         Groups objects based on a specific field value and filters them by the provided criteria,
         ensuring the user has the necessary access permissions for each object.
@@ -434,7 +447,7 @@ class ObjectsManager(BaseManager):
 
         Args:
             value (str): The field by which to group the objects (e.g., 'type_id')
-            match (dict | None): Filtering criteria to apply to the documents before grouping
+            match (dict[str, Any] | None): Filtering criteria to apply to the documents before grouping
             user (CmdbUser | None): The user making the request
             permission (AccessControlPermission | None): The required permissions for the user
 
@@ -442,7 +455,7 @@ class ObjectsManager(BaseManager):
             ObjectsManagerIterationError: If the iteration fails
 
         Returns:
-            List[Dict]: A list of objects grouped by the specified field, containing the documents 
+            list[dict[str, Any]]: A list of objects grouped by the specified field, containing the documents 
                         that meet the selection criteria and pass the access control checks
         """
         try:
@@ -450,17 +463,14 @@ class ObjectsManager(BaseManager):
             aggregation_pipeline = []
 
             if match:
-                aggregation_pipeline.append({'$match': match})
+                aggregation_pipeline.append(Builder.match_(match))
 
-            aggregation_pipeline.append({
-                '$group': {
-                    '_id': f'${value}',
-                    'result': {'$first': '$$ROOT'},
-                    'count': {'$sum': 1},
-                }
-            })
+            aggregation_pipeline.append(Builder.group_(f'${value}', {
+                'result': {'$first': '$$ROOT'},
+                'count': {'$sum': 1},
+            }))
 
-            aggregation_pipeline.append({'$sort': {'count': -1}})
+            aggregation_pipeline.append(Builder.sort_('count', -1))
 
             objects = self.aggregate_objects(aggregation_pipeline)
 
@@ -581,13 +591,12 @@ class ObjectsManager(BaseManager):
 
         **The ACL is opt-in here, unlike `get_object` and `iterate_items` where it is a positional
         part of the read.** Passing `user` and `permission` narrows the result to the types the
-        caller's group may access; omitting them reads unscoped, which is what every caller did
-        before the parameters existed.
+        caller's group may access; omitting them reads unscoped.
 
         That default is deliberate rather than lazy: some readers MUST be unscoped. The IPAM
         validators check a candidate against every existing object, not only the visible ones,
         because the invariant they enforce is global - an ACL-filtered check would report an
-        overlapping CIDR as valid and the write would then accept it (see `workflows/ipam.md`).
+        overlapping CIDR as valid and the write would then accept it.
         A reader that presents data to a user should pass both; a reader that enforces an invariant
         must not.
 
@@ -647,7 +656,7 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(err) from err
 
 
-    def aggregate_objects(self, pipeline: list[dict], **kwargs) -> CommandCursor:
+    def aggregate_objects(self, pipeline: list[dict[str, Any]], **kwargs: Any) -> CommandCursor:
         """
         Executes an aggregation pipeline on the database to process and retrieve CmdbObjects
 
@@ -655,7 +664,7 @@ class ObjectsManager(BaseManager):
         and handling potential iteration errors
 
         Args:
-            pipeline (list[dict]): A list of aggregation stages to be executed on the database
+            pipeline (list[dict[str, Any]]): A list of aggregation stages to be executed on the database
             **kwargs: Additional keyword arguments to be passed to the aggregation function
 
         Raises:
@@ -704,7 +713,7 @@ class ObjectsManager(BaseManager):
             tuple[dict[int, int], int]: The type_id -> count mapping and the total object count
         """
         pipeline: list[dict[str, Any]] = [
-            {"$group": {"_id": f"${CmdbObjectKey.TYPE_ID.value}", "count": {"$sum": 1}}}
+            Builder.group_(f"${CmdbObjectKey.TYPE_ID.value}", {"count": {"$sum": 1}})
         ]
 
         cursor: CommandCursor = self.aggregate_objects(pipeline)
@@ -724,7 +733,7 @@ class ObjectsManager(BaseManager):
 
     def get_mds_references_for_object(self,
                                       referenced_object: CmdbObject,
-                                      query_filter: dict | list) -> list[dict]:
+                                      query_filter: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
         """
         Retrieves all CmdbObjects whose multi-data sections (MDS) reference a given object
 
@@ -733,14 +742,14 @@ class ObjectsManager(BaseManager):
 
         Args:
             referenced_object (CmdbObject): The CmdbObject being referenced
-            query_filter (dict | list): Additional query filters to apply in the pipeline. 
+            query_filter (dict[str, Any] | list[dict[str, Any]]): Additional query filters to apply in the pipeline. 
                                               Can be a dictionary (single filter) or a list of filters
 
         Raises:
             ObjectsManagerIterationError: If the iteration fails
 
         Returns:
-            list[dict]: A list of CmdbObjects that reference the given `referenced_object` in their 
+            list[dict[str, Any]]: A list of CmdbObjects that reference the given `referenced_object` in their 
                         multi-data sections
         """
         try:
@@ -765,14 +774,13 @@ class ObjectsManager(BaseManager):
                 query_pipeline += query_filter
 
             # Get all types which reference this type
-            query_pipeline.append({'$match': {"$and": [
-                                        {"fields.type": FieldType.REFERENCE.value},
-                                        {"fields.ref_types": object_type_id}
-                                    ]}
-                        })
+            query_pipeline.append(Builder.match_(Builder.and_([
+                {"fields.type": FieldType.REFERENCE.value},
+                {"fields.ref_types": object_type_id},
+            ])))
 
             # Filter the public_id's of these types
-            query_pipeline.append({'$project': {"public_id": 1, "_id": 0}})
+            query_pipeline.append(Builder.project_({"public_id": 1, "_id": 0}))
 
             # Get all objects of these types
             query_pipeline.append(Builder.lookup_(from_collection='framework.objects',
@@ -781,21 +789,21 @@ class ObjectsManager(BaseManager):
                                                   as_field='type_objects'))
 
             # Filter out types which don't have any objects
-            query_pipeline.append({'$match': {"type_objects.0": {"$exists": True}}})
+            query_pipeline.append(Builder.match_({"type_objects.0": {"$exists": True}}))
 
             # Spread out the arrays
             query_pipeline.append(Builder.unwind_({'path': '$type_objects'}))
 
             # Filter the objects which actually have any multi section data
-            query_pipeline.append({'$match': {"type_objects.multi_data_sections.0": {"$exists": True}}})
+            query_pipeline.append(Builder.match_({"type_objects.multi_data_sections.0": {"$exists": True}}))
 
             # Remove the public_id field
-            query_pipeline.append({'$project': {"type_objects": 1}})
+            query_pipeline.append(Builder.project_({"type_objects": 1}))
 
             # Spread out as a list
-            query_pipeline.append({'$replaceRoot': {"newRoot": '$type_objects'}})
+            query_pipeline.append(Builder.replace_root_('$type_objects'))
 
-            query_pipeline.append({'$project': {"_id": 0}})
+            query_pipeline.append(Builder.project_({"_id": 0}))
 
             results = list(self.aggregate_from_other_collection(CmdbType.COLLECTION, query_pipeline))
 
@@ -845,7 +853,7 @@ class ObjectsManager(BaseManager):
     def references(
         self,
         object_: CmdbObject,
-        criteria: dict,
+        criteria: dict[str, Any] | list[dict[str, Any]],
         limit: int,
         skip: int,
         sort: str,
@@ -864,7 +872,8 @@ class ObjectsManager(BaseManager):
 
         Args:
             object_ (CmdbObject): The CmdbObject whose references are being retrieved
-            criteria (Dict): A filter to apply when querying for references
+            criteria (dict[str, Any] | list[dict[str, Any]]): A filter (or list of pipeline stages) to apply
+                when querying for references
             limit (int): The maximum number of results to return
             skip (int): The number of results to skip (for pagination)
             sort (str): The field by which to sort the results
@@ -936,7 +945,7 @@ class ObjectsManager(BaseManager):
 
     def update_object(self,
                       public_id: int,
-                      data: CmdbObject | dict,
+                      data: CmdbObject | dict[str, Any],
                       user: CmdbUser | None = None,
                       permission: AccessControlPermission | None = None,
                       partial: bool = False) -> None:
@@ -945,7 +954,7 @@ class ObjectsManager(BaseManager):
 
         Args:
             public_id (int): public_id of the CmdbObject which should be updated
-            data: (CmdbObject | dict): The new data for the CmdbObject
+            data: (CmdbObject | dict[str, Any]): The new data for the CmdbObject
             user (CmdbUser): Request user
             permission (AccessControlPermission): ACL permission
             partial (bool): If True, `data` holds only the top-level keys to set - a targeted $set
@@ -973,7 +982,9 @@ class ObjectsManager(BaseManager):
             else:
                 type_id = instance.get('type_id')
 
-            self._guard_writable_type(type_id, user, permission, ObjectsManagerUpdateError, 'updated')
+            self.guard_writable_type(
+                type_id, user, permission, ObjectsManagerUpdateError, ObjectWriteVerb.UPDATED.value,
+            )
 
             self.update({CmdbObjectKey.PUBLIC_ID.value: public_id}, instance)
         except AccessDeniedError as err:
@@ -998,8 +1009,8 @@ class ObjectsManager(BaseManager):
             permission (AccessControlPermission | None): The required permission for deletion
             object_type (CmdbType | None): The object's already-resolved CmdbType. When given, the
                 internal type lookup is skipped - lets bulk callers that already hold a type map
-                avoid one ``get_object_type`` query per object (no functional change: the same
-                type is used for the deactivated-check and the ACL verification)
+                avoid one ``get_object_type`` query per object (the same type is used for the
+                deactivated-check and the ACL verification)
 
         Raises:
             AccessDeniedError: If the object's type is deactivated or the user lacks permission
@@ -1019,16 +1030,16 @@ class ObjectsManager(BaseManager):
             type_id = CmdbObject.from_data(to_delete_object).type_id
 
             # A caller-supplied type skips the lookup (bulk-delete N+1 avoidance)
-            self._guard_writable_type(
-                type_id, user, permission, ObjectsManagerDeleteError, 'removed', object_type,
+            self.guard_writable_type(
+                type_id, user, permission, ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, object_type,
             )
 
             return self.delete({CmdbObjectKey.PUBLIC_ID.value: public_id})
         except AccessDeniedError as err:
             raise err
         except Exception as err:
-            # One arm, one log line: the named errors used to be re-wrapped silently while everything
-            # else was logged, so the likely failures were the ones an operator could not see
+            # One arm, one log line: every failure is logged before it is re-wrapped, so the likely
+            # failures are as visible to an operator as the rest
             LOGGER.error("[delete_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerDeleteError(err) from err
 
@@ -1042,11 +1053,11 @@ class ObjectsManager(BaseManager):
         """
         Deletes a CmdbObject together with the IsmsRiskAssessments that reference it
 
-        **Access is verified before anything is deleted.** The cascade used to run first and the
+        **Access is verified before anything is deleted.** A cascade running first would leave the
         permission check second - inside ``delete_object`` - so a delete the caller was not allowed
-        to make, or one whose type had been deactivated, answered 403 with the object's risk
-        assessments and their control-measure assignments already gone. The object survived; its
-        risk history did not.
+        to make, or one whose type had been deactivated, would answer 403 with the object's risk
+        assessments and their control-measure assignments already gone. The object would survive;
+        its risk history would not.
 
         The cost of the ordering is one extra read of the object: this method resolves its type to
         run the guard, and ``delete_object`` reads it again to delete it. A refused delete that
@@ -1078,12 +1089,12 @@ class ObjectsManager(BaseManager):
         if not to_delete_object:
             return False
 
-        object_type = self._guard_writable_type(
+        object_type = self.guard_writable_type(
             CmdbObject.from_data(to_delete_object).type_id,
             user,
             permission,
             ObjectsManagerDeleteError,
-            'removed',
+            ObjectWriteVerb.REMOVED.value,
             object_type,
         )
 

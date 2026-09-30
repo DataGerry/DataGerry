@@ -25,24 +25,22 @@ something enters through the other one - a maintenance script, a PyInstaller hid
 test module that imports the lower half directly.
 
 The modules pinned here are the ones that were reachable through the
-`cmdb.models.location_model` <-> `cmdb.database.predefined_data.cmdb_data` cycle (fixed 2026-09-07 by
+`cmdb.models.location_model` <-> `cmdb.database.predefined_data.cmdb_data` cycle (broken by
 deferring the model layer's reach UP into the database layer into `validate_root_location`), plus
 `cmdb.security.acl.builder`, whose own cycle with `base_query_builder` is gone since the ACL query
 builder was rewritten, `routes/connection.py`, which needed a live app context on import until its
 database manager moved from module level into the view, and the five `cmdb.open_celium` modules, which
 cycled with `cmdb.manager` until the connector's own manager imports moved into their methods (all
-2026-09-07). `cmdb/class_schema` has its own, wider tripwire in
-tests/unit/test_class_schema_standalone_imports.py.
+the same rule), and the two `cmdb.framework.search` modules that cycled with `cmdb.manager` while
+`Builder` lived inside it. `cmdb/class_schema` has its own, wider tripwire.
 
-As of 2026-09-07 the invariant holds for **every** module: a scan of all 1,010 modules under `cmdb/`,
-each imported as the first cmdb module of a purged `sys.modules`, reports zero failures (it was 16).
-That scan is not this test - it takes ~55s, too slow to run on every suite - so what is pinned here is
-the set of modules that has actually broken, which is where a regression is most likely. Re-run the
-full scan by hand after touching a package `__init__` re-export or adding a cross-package import:
+The invariant holds for **every** module, and a pinned list alone does not show it: two
+`cmdb.framework.search` modules broke while this list did not name them. The full scan imports each of
+the ~1,100 modules under `cmdb/` as the first cmdb module of a purged `sys.modules`. It takes about a
+minute, too slow for every suite run, so it is a CI step of its own (the lint job) and runs by hand the
+same way after touching a package `__init__` re-export or adding a cross-package import:
 
-    for module in <every cmdb module>:
-        purge every sys.modules key that is 'cmdb' or starts with 'cmdb.'
-        importlib.import_module(module)
+    python -m tests.utils.first_import_scan
 
 Pure test: no Mongo, no Flask, no fixtures (one subprocess)
 """
@@ -81,6 +79,10 @@ MUST_IMPORT_FIRST: tuple[str, ...] = (
     'cmdb.open_celium.oc_api_connector',
     'cmdb.open_celium.oc_constants',
     'cmdb.open_celium.oc_helpers',
+    # Cycled with cmdb.manager while Builder lived inside it: importing the stage vocabulary loaded every
+    # manager, and rights_manager / the search pipeline builders import these two back
+    'cmdb.framework.search.list_search',
+    'cmdb.framework.search.search_reference_match',
 )
 
 # Imports each module with sys.modules purged of every cmdb entry first, which is what makes it the

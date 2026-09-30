@@ -36,6 +36,7 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'THREAT_REQUIRED_DOCUMENT_KEYS',
     'ThreatKey',
     'THREAT_IMPORT_KEYS',
 ]
@@ -56,3 +57,9 @@ class ThreatKey(BaseStrEnum):
 THREAT_IMPORT_KEYS: tuple[str, ...] = tuple(
     key.value for key in ThreatKey if key is not ThreatKey.PUBLIC_ID
 )
+
+
+# The key without which a threat means nothing: its name
+THREAT_REQUIRED_DOCUMENT_KEYS: list[str] = [
+    ThreatKey.NAME.value,
+]

@@ -20,15 +20,15 @@ Unit tests for the parameter helpers of the search routes
 without a database, and both exist because of a bug:
 
 * `_int_arg` replaces `request.args.get(name, default, int)`, which catches the `ValueError` itself
-  and answers the default - so `?limit=abc` used to be served as an ordinary search with a
+  and answers the default - so `?limit=abc` would be served as an ordinary search with a
   substituted page size, while `?limit=-1` was refused
-* `_parse_search_parameters` is shared by GET and POST. The GET branch used to skip the
+* `_parse_search_parameters` is shared by GET and POST, so the GET branch cannot skip the
   `SearchParam` construction entirely and hand raw JSON to the pipeline builder, which answered 500
   for every GET search carrying a term
 
 The request context is driven through a `BaseCmdbApp.test_request_context`, so no app, database or
 token is involved. The routes themselves are covered end-to-end in
-tests/functional/framework/test_functional_search_route.py.
+the functional search-route tests.
 """
 # pylint: disable=protected-access
 import json

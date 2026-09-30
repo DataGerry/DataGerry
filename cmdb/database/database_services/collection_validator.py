@@ -134,7 +134,7 @@ class CollectionValidator:
             LOGGER.info("Validating Collections for Database: %s!", self.db_name)
             self.init_database()
 
-            # Listed once and handed to both init steps: the two used to ask the server for the same
+            # Listed once and handed to both init steps, so the two do not ask the server for the same
             # collection names separately, on every boot of every tenant
             all_collections: list[str] = self.get_all_db_collections(self.db_name)
 
@@ -570,7 +570,7 @@ class CollectionValidator:
             collection (str): Name of the framework.locations collection
             db_name (str): Name of the database that owns the collection
             create (bool): True on first-time setup, which additionally initialises the collection's
-                public_id counter. The document write is the same either way - the flag used to
+                public_id counter. The document write is the same either way - a flag here would
                 select between two identical upserts
 
         Raises:

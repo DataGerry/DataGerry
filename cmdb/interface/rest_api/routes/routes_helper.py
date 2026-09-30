@@ -18,13 +18,16 @@ Implementation of general API route helpers
 """
 import json
 from collections.abc import Sequence
-from typing import Any
+from http import HTTPStatus
+from typing import Any, NoReturn, TypeVar
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
 
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder, find_cause
+from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.framework.search.list_search import build_list_search_stages
 from cmdb.interface.rest_api.responses.response_parameters import (
@@ -36,8 +39,15 @@ from cmdb.interface.rest_api.responses.response_parameters import (
 
 LOGGER: Logger = getLogger(__name__)
 
+ItemT = TypeVar('ItemT')
+
 # The one HTTP method that asks for a response without a payload
 HEAD_METHOD: str = 'HEAD'
+
+# Refusal (HTTP 400) for a write request whose body is present but is not a JSON object
+WRITE_PAYLOAD_NOT_AN_OBJECT_MSG: str = (
+    "The {entity} write payload must be a JSON object when it is sent as a request body!"
+)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -66,7 +76,7 @@ def get_file_in_request(file_name: str) -> FileStorage:
     return uploaded_file
 
 
-def get_element_from_data_request(element: str, _request: Request) -> dict | None:
+def get_element_from_data_request(element: str, _request: Request) -> dict[str, Any] | None:
     """
     Extracts and JSON-parses a single form field from a multipart request
 
@@ -78,7 +88,7 @@ def get_element_from_data_request(element: str, _request: Request) -> dict | Non
         _request (Request): The Flask request object carrying the form data
 
     Returns:
-        dict | None: The parsed JSON object, or None if the field is missing or not valid JSON
+        dict[str, Any] | None: The parsed JSON object, or None if the field is missing or not valid JSON
     """
     try:
         return json.loads(_request.form.to_dict()[element])
@@ -105,7 +115,7 @@ def request_wants_body(current_request: Request | None = None) -> bool:
     what makes a HEAD answer carry the status and the headers (`X-Total-Count` included) but no
     payload - and, because the payload is then never built, no serialization cost either.
 
-    It exists as one function on purpose: until 2026-09-09 the routes spelled the question inline as
+    It exists as one function on purpose: spelled inline the routes each write the question as
     `body=request.method == 'HEAD'` in six different spellings, which is the answer INVERTED (the flag
     means "send a body"), and the mistake was invisible because the flag itself was inert.
 
@@ -120,6 +130,41 @@ def request_wants_body(current_request: Request | None = None) -> bool:
     return (current_request or request).method != HEAD_METHOD
 
 
+def read_write_payload(query_params: dict[str, Any], entity_label: str) -> dict[str, Any]:
+    """
+    Reads a write payload from the request body, falling back to the query string
+
+    **The body wins, key by key.** A client may send the payload either way, and a client that sends
+    both - which the Angular report and webhook forms do, building query parameters *and* posting the
+    same object as the body - is served from the body: there the values arrive already typed, where the
+    query string can only carry text. Merging rather than choosing means neither half can go missing.
+
+    A body is optional. A body that is not a JSON object is refused rather than ignored: it was meant
+    as the payload, and silently reading the query string instead would answer 400 'missing parameter'
+    for a request whose problem is its body
+
+    Args:
+        query_params (dict[str, Any]): The query-string parameters, as the route decorator read them;
+            not modified
+        entity_label (str): What is being written (e.g. 'Report'), used in the refusal message
+
+    Raises:
+        HTTPException: 400 when a request body is present but is not a JSON object
+
+    Returns:
+        dict[str, Any]: The merged payload, still raw
+    """
+    body: Any = request.get_json(silent=True)
+
+    if body is None:
+        return dict(query_params)
+
+    if not isinstance(body, dict):
+        abort(400, WRITE_PAYLOAD_NOT_AN_OBJECT_MSG.format(entity=entity_label))
+
+    return {**query_params, **body}
+
+
 def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] | None) -> list[dict[str, Any]]:
     """
     Answers a client's ``?filter=`` as pipeline stages, as a NEW list
@@ -128,7 +173,7 @@ def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] |
     ``?search=`` term, a "which of these may I pick" rule - and the two filter shapes have to be one
     thing before it can. A plain filter document becomes a single ``$match``; a pipeline is copied.
 
-    **The copy is the point.** Routes used to append their stages to ``params.filter`` in place, and
+    **The copy is the point.** A route appending its stages to ``params.filter`` in place leaves
     the same object is handed to ``GetMultiResponse``, which echoes it back as ``parameters.filter`` -
     so the response claimed the caller had sent stages the server injected. An empty filter answers no
     stages at all rather than an empty ``$match``
@@ -145,7 +190,7 @@ def as_pipeline_criteria(request_filter: dict[str, Any] | list[dict[str, Any]] |
     if not request_filter:
         return []
 
-    return [{'$match': request_filter}]
+    return [Builder.match_(request_filter)]
 
 
 def build_searchable_builder_params(params: Any, searchable_fields: Sequence[str]) -> BuilderParameters:
@@ -155,7 +200,7 @@ def build_searchable_builder_params(params: Any, searchable_fields: Sequence[str
     The one place a list route reaches for when its table has a search box. It composes the caller's
     ``?filter=`` with the search stages and hands the rest of the pager through unchanged, so every
     table searches the same way and the set of searchable columns is declared server-side rather than
-    hard-coded in eighteen Angular components (`notes/FRONTEND_TO_BACKEND.md` **F4**).
+    hard-coded in eighteen Angular components.
 
     An absent or blank ``?search=`` adds nothing, so an unsearched listing is exactly what it was
 
@@ -199,7 +244,7 @@ def append_criteria_to_filter(
     pipeline: list[dict[str, Any]] = as_pipeline_criteria(request_filter)
 
     if criteria:
-        pipeline.append({'$match': criteria})
+        pipeline.append(Builder.match_(criteria))
 
     return pipeline
 
@@ -229,6 +274,37 @@ def pin_public_id(data: dict[str, Any], public_id: int) -> dict[str, Any]:
     data[CmdbDAO.PUBLIC_ID_KEY] = public_id
 
     return data
+
+
+def update_item_from_payload(
+        manager: Any,
+        public_id: int,
+        model_class: type[Any],
+        data: dict[str, Any],
+    ) -> dict[str, Any]:
+    """
+    Builds the model an update writes, writes it, and answers the document that was stored
+
+    ``GenericManager.update_item`` stores ``model_class.to_json(model)`` wholesale, so the model the
+    write is built from IS the stored document: answering with its serialisation costs no extra query
+    and cannot disagree with the next read. Answering with the request body instead reports a payload
+    that left out an optional key - or sent it as ``null`` - as if it had been stored that way, while the
+    model stored its empty value
+
+    Args:
+        manager (Any): The GenericManager of the model's collection
+        public_id (int): public_id of the document to update, taken from the URL
+        model_class (type[Any]): The model class the document is built with
+        data (dict[str, Any]): The validated, identity-pinned request body
+
+    Returns:
+        dict[str, Any]: The document as stored, for the update response
+    """
+    model: Any = model_class.from_data(data)
+
+    manager.update_item(public_id, model)
+
+    return model_class.to_json(model)
 
 
 def extract_public_ids(public_ids: str) -> list[int]:
@@ -301,3 +377,86 @@ def normalize_public_id_list(values: list[Any]) -> list[int]:
         normalized_ids.append(candidate)
 
     return normalized_ids
+
+
+def require_created_item(item: ItemT | None, not_readable_message: str) -> ItemT:
+    """
+    Answers the item an insert route just created, refusing with a 500 when it cannot be read back
+
+    The insert has just reported the new public_id, so a read that finds nothing is not a missing
+    resource the caller asked for - it is the server failing to see its own write. That is a 500, not
+    the 404 a lookup of a caller-supplied id would answer. The read-back may be a raw document or a
+    model instance; either is answered as it came
+
+    Args:
+        item (ItemT | None): The read-back of the created item
+        not_readable_message (str): The message of the 500
+
+    Raises:
+        werkzeug.exceptions.InternalServerError: Aborts with 500 when the item was not found
+
+    Returns:
+        ItemT: The created item
+    """
+    if not item:
+        abort(HTTPStatus.INTERNAL_SERVER_ERROR, not_readable_message)
+
+    return item
+
+
+def abort_if_duplicate(err: Exception, duplicate_message: str) -> NoReturn:
+    """
+    Answers a write refused by a unique index with the route's readable 400, and re-raises anything else
+
+    A write route pre-checks its uniqueness rule with a read, but only the unique index holds under
+    concurrency - so the manager error of the write is where a lost race shows up. It is ALSO where an
+    outage or any other failure of the write shows up, which is why the cause is looked for rather than
+    assumed: only a ``DocumentDuplicateKeyError`` somewhere in the chain is the caller's clash, and
+    everything else is re-raised for the route's generic tail to answer as the server error it is
+
+    Call it from the ``except`` of the write alone, so nothing but that write's error reaches it
+
+    Args:
+        err (Exception): The manager error the write raised
+        duplicate_message (str): What the 400 says, the same text the route's pre-check answers
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the write violated a unique index
+        Exception: ``err`` itself, unchanged, when it did not
+    """
+    if find_cause(err, DocumentDuplicateKeyError) is not None:
+        abort(HTTPStatus.BAD_REQUEST, duplicate_message)
+
+    raise err
+
+
+def abort_if_taken(
+        manager: Any,
+        criteria: dict[str, Any],
+        taken_message: str,
+        exclude_id: int | None = None) -> None:
+    """
+    Refuses a write whose unique value another stored document already holds
+
+    The readable half of a uniqueness rule that a unique index enforces: the index is what holds under
+    concurrency (its refusal is answered by ``abort_if_duplicate``), this read is what makes the ordinary
+    case say which value clashed. The value is compared as sent - exactly what the index compares - so the
+    check refuses precisely what the index would, and a stored near-twin (another case, surrounding blanks)
+    never blocks a write of its own
+
+    Args:
+        manager (Any): The manager of the collection, anything with BaseManager's ``get_one_by``
+        criteria (dict[str, Any]): The unique value(s) the write would store, e.g. ``{'name': 'Admins'}``
+        taken_message (str): What the 400 says; the same text the write's duplicate refusal answers
+        exclude_id (int | None): public_id of the document being updated, which may keep its own value.
+            Defaults to None (a create)
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when another document holds the value
+    """
+    existing: dict[str, Any] | None = manager.get_one_by(criteria)
+
+    if not existing or (exclude_id is not None and existing.get(CmdbDAO.PUBLIC_ID_KEY) == exclude_id):
+        return
+
+    abort(HTTPStatus.BAD_REQUEST, taken_message)

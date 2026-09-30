@@ -103,8 +103,9 @@ def validate_rack_field_values(candidate_object: dict[str, Any]) -> list[str]:
     Checks the values the Rack's governed fields DO carry are usable
 
     An absent value is not this function's concern (see validate_rack_required_values), so a Rackname
-    of None passes here while a Rackname of '   ' does not, and a missing height passes while 0, -4
-    and 3.5 do not
+    of None passes here while a Rackname of '   ' does not, and a missing height passes while 0, -4,
+    3.5 and anything above ``RackLimits.MAX_HEIGHT`` do not. A height is a whole number of U - 42,
+    42.0 and '42' are the same height, a half U is not one
 
     Args:
         candidate_object (dict[str, Any]): The about-to-be-saved CmdbObject document
@@ -129,6 +130,10 @@ def validate_rack_field_values(candidate_object: dict[str, Any]) -> list[str]:
         elif coerced < RackLimits.MIN_HEIGHT:
             errors.append(
                 RackValidationError.NON_POSITIVE_HEIGHT.format(minimum=RackLimits.MIN_HEIGHT, value=coerced)
+            )
+        elif coerced > RackLimits.MAX_HEIGHT:
+            errors.append(
+                RackValidationError.HEIGHT_ABOVE_MAXIMUM.format(maximum=RackLimits.MAX_HEIGHT, value=coerced)
             )
 
     return errors

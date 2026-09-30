@@ -51,7 +51,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes imp
     get_cmdb_type,
     count_objects_of_cmdb_type,
     get_location_field_usage_of_cmdb_type,
-    get_selectable_as_parent_usage_of_cmdb_type,
     update_cmdb_type,
     delete_cmdb_type,
 )
@@ -511,54 +510,13 @@ class TestLocationFieldUsage:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                   get_selectable_as_parent_usage_of_cmdb_type                                        #
+#                                get_location_field_usage_of_cmdb_type - error mapping                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestSelectableAsParentUsage:
-    """``get_selectable_as_parent_usage_of_cmdb_type`` reports whether objects of the type are placed."""
-
-    @staticmethod
-    def _call(flask_app: Flask) -> Any:
-        with flask_app.test_request_context('/selectable_as_parent_usage/7'):
-            return _unwrap(get_selectable_as_parent_usage_of_cmdb_type)(
-                public_id=TYPE_PUBLIC_ID, request_user=MagicMock(),
-            )
-
-    def test_returns_usage_payload(self, flask_app: Flask, patched_manager_provider: Any) -> None:
-        """The in_use flag, count and object public_ids are returned via DefaultResponse."""
-        del patched_manager_provider
-
-        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.build_location_usage_payload',
-                   return_value={'in_use': True, 'count': 2, 'object_public_ids': [1, 2]}), \
-             patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
-            self._call(flask_app)
-
-        payload = response_ctor.call_args.args[0]
-        assert payload['in_use'] is True
-        assert payload['count'] == 2
-        assert payload['object_public_ids'] == [1, 2]
-
-    def test_objects_error_maps_to_400(self, flask_app: Flask, patched_manager_provider: Any) -> None:
-        """An ObjectsManagerGetError maps to HTTP 400."""
-        del patched_manager_provider
-
-        with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.build_location_usage_payload', side_effect=ObjectsManagerGetError('x')), \
-             pytest.raises(HTTPException) as exc_info:
-            self._call(flask_app)
-
-        assert exc_info.value.code == HTTP_BAD_REQUEST
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          build_type_usage_response                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestTypeUsageSharedBody:
-    """Both usage pre-check routes run one shared body, so its error mapping is asserted per route."""
+class TestLocationFieldUsageErrorMapping:
+    """The location pre-check's 404 / 400 / 500 arms - it is also the selectable-as-parent pre-check."""
 
     ROUTES: list[tuple[Callable[..., Any], str]] = [
         (get_location_field_usage_of_cmdb_type, 'location-field usage'),
-        (get_selectable_as_parent_usage_of_cmdb_type, 'selectable-as-parent usage'),
     ]
 
     @staticmethod
@@ -566,7 +524,7 @@ class TestTypeUsageSharedBody:
         with flask_app.test_request_context('/usage/7'):
             return _unwrap(route)(public_id=TYPE_PUBLIC_ID, request_user=MagicMock())
 
-    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field', 'selectable_as_parent'])
+    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field'])
     def test_missing_type_404_propagates(
         self, flask_app: Flask, patched_manager_provider: Any, route: Callable[..., Any], subject: str,
     ) -> None:
@@ -579,7 +537,7 @@ class TestTypeUsageSharedBody:
 
         assert exc_info.value.code == HTTP_NOT_FOUND
 
-    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field', 'selectable_as_parent'])
+    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field'])
     def test_types_get_error_maps_to_400(
         self, flask_app: Flask, patched_manager_provider: Any, route: Callable[..., Any], subject: str,
     ) -> None:
@@ -592,7 +550,7 @@ class TestTypeUsageSharedBody:
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
-    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field', 'selectable_as_parent'])
+    @pytest.mark.parametrize('route,subject', ROUTES, ids=['location_field'])
     def test_unexpected_error_maps_to_500_naming_the_subject(
         self, flask_app: Flask, patched_manager_provider: Any, route: Callable[..., Any], subject: str,
     ) -> None:

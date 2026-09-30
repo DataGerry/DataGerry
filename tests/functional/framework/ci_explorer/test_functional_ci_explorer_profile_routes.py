@@ -21,7 +21,7 @@ delete status codes, the update-route public_id pinning, and the ``/label_field`
 route that reads its value from the request body and persists it (the regression guard for the
 missing body-injection bug). The CI Explorer graph route (``/items``) is covered separately.
 
-There was a second field route, ``/ci_explorer/tooltip/<object_id>``, until 2026-09-18 - it wrote a
+There is deliberately no second field route beside this one - a ``/ci_explorer/tooltip`` route wrote a
 CmdbObject with all four guarantees of an object edit, and its tests went with it when the route was
 removed for want of a caller.
 """
@@ -142,7 +142,7 @@ class TestProfileCrud:
         """
         The identity is server-owned (regression)
 
-        The payload's public_id used to be inserted as-is, so a client could pick a profile's id - and
+        Inserting the payload's public_id as-is lets a client pick a profile's id - and
         collide with an existing one. The frontend only sends a public_id when it EDITS, so dropping it
         on create changes nothing for it
         """
@@ -326,7 +326,7 @@ class TestErrorMapping:
         """
         A None result while re-reading the CREATED profile surfaces as 500
 
-        It used to answer 404: the profile exists at that point, so a missing-resource status told the
+        A 404 would be wrong: the profile exists at that point, so a missing-resource status tells the
         caller the opposite of what happened
         """
         monkeypatch.setattr(CiExplorerProfileManager, 'insert_item', lambda *_a, **_k: 999)

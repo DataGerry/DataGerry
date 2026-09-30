@@ -23,7 +23,7 @@ and the cloud-mode rewrite of the connector names.
 
 **The rewrite is why this module exists.** On a hosted installation every OpenCelium connector is
 registered under a `<database>_<name>` prefix so tenants cannot see each other's, and the prefix has
-to be stripped before a flowchart reaches a client. The rewrite used to sit inline in the route,
+to be stripped before a flowchart reaches a client. Inline in the route the rewrite is unreachable,
 iterating the payload as a list of dicts while the manager annotated it as a dict, subscripting the
 name unguarded, and unmapping in STRICT mode - so on a hosted installation it would have raised for a
 payload of the annotated shape, for a flowchart without the key, and for a connector name carrying no
@@ -73,7 +73,7 @@ def required_int_param_or_abort(parameter: OcLogQueryParam) -> int:
     """
     Reads a required integer query parameter, or answers 400
 
-    Absence is what is refused, **not falsiness**: `?connectionId=0` used to be reported as "not
+    Absence is what is refused, **not falsiness**: `?connectionId=0` must not be reported as "not
     provided", because the guard read the parsed value for truthiness. 0 is an id like any other as
     far as this proxy is concerned - OpenCelium decides whether it exists
 

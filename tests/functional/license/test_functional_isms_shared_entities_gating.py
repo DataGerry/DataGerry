@@ -22,7 +22,7 @@ scope). On-premise they are part of the licensed ISMS surface, so their HTTP rou
 the ISMS feature too by a blueprint-level guard - even though they keep their own top-level prefixes
 (/object_groups, /persons, /person_groups) rather than living under /isms/. With no license active
 every route (reads included) is blocked with HTTP 403, before the view runs. When ISMS is licensed,
-or in local (cloud) mode, the guard lets the request through (asserted as "no longer 403")
+or in local (cloud) mode, the guard lets the request through (asserted as "not 403")
 """
 from http import HTTPStatus
 
@@ -75,7 +75,7 @@ def test_shared_entity_write_routes_blocked_without_license(rest_api, url: str) 
 @pytest.mark.parametrize('url', GATED_READ_URLS)
 def test_shared_entity_routes_allowed_when_licensed(rest_api, monkeypatch: pytest.MonkeyPatch, url: str) -> None:
     """
-    With ISMS licensed every shared-entity route is let through (no longer 403)
+    With ISMS licensed every shared-entity route is let through (not 403)
 
     Unlocking ONLY ISMS here also pins that each of the three blueprints is keyed to
     LicenseFeature.ISMS specifically - a blueprint wired to a different feature would stay 403.
@@ -105,9 +105,9 @@ def test_shared_entity_cors_preflight_not_blocked_without_license(rest_api, url:
     A CORS preflight (OPTIONS) on a gated shared-entity route must NOT be gated even when unlicensed
 
     The browser sends an unauthenticated OPTIONS before the real cross-origin request and requires a
-    2xx on it. The blueprint guard previously aborted the preflight with 403, failing the preflight
-    so the real request never left the browser - surfacing as a CORS error in the frontend rather
-    than the intended 403 on the actual request. The preflight must come back OK with CORS headers.
+    2xx on it. A guard that aborted the preflight with 403 would fail it, so the real request would
+    never leave the browser - surfacing as a CORS error in the frontend rather than the intended
+    403 on the actual request. The preflight must come back OK with CORS headers.
     """
     response = rest_api.options(
         url,

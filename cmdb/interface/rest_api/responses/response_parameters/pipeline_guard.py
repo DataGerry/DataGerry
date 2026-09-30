@@ -16,19 +16,19 @@
 """
 The guard on the client-supplied ``?filter=`` aggregation pipeline
 
-**What a list-shaped ``?filter=`` used to be.** ``BaseQueryBuilder.__init_query`` splices every element
+**What a list-shaped ``?filter=`` is.** ``BaseQueryBuilder.__init_query`` splices every element
 of a list filter into the aggregation verbatim, and the ISMS report routes splice it into a pipeline of
-their own. Neither checked what the stages were. Verified against this code on 2026-09-16, as an
+their own. Neither checks what the stages are, which is what this guard is for, as an
 ordinary authenticated caller:
 
-* ``$lookup`` / ``$graphLookup`` / ``$unionWith`` read **any** collection in the database, and
-  ``GET /users/?filter=[…{"$lookup":{"from":"management.users",…,"as":"email"}}]`` answered **200 with
-  the stored password digest in the body** - bypassing ``to_public_json``, the method written to keep
-  that digest out of every user response
+* ``$lookup`` / ``$graphLookup`` / ``$unionWith`` read **any** collection in the database: unguarded,
+  ``GET /users/?filter=[…{"$lookup":{"from":"management.users",…,"as":"email"}}]`` answers **200 with
+  the stored password digest in the body** - bypassing ``to_public_json``, the method that keeps that
+  digest out of every user response
 * ``$function`` executes **server-side JavaScript**, and it does so from inside ``$match``/``$expr`` -
   the one stage any allow-list has to permit
-* ``$out`` / ``$merge`` were refused only because the pager appends ``$sort`` / ``$skip`` after the
-  client's stages and a write stage must be last. An ordering accident, not a guard
+* ``$out`` / ``$merge`` would fail unguarded only because the pager appends ``$sort`` / ``$skip`` after
+  the client's stages and a write stage must be last. An ordering accident, not a guard
 
 **Where the guard sits, and why not at the query builder.** The natural-looking place is
 ``__init_query``, the one funnel every list route's criteria passes through. It is the wrong place
@@ -45,10 +45,9 @@ stage is reported as a refused stage, rather than surfacing much later as the ro
 
 **Why the allow-list is not tighter.** ``$lookup`` and ``$group`` are in it only because the Angular
 frontend builds them into filters on live screens (object search, the reference tables, the
-uncategorized-types view). Removing them needs server-side routes first, tracked as tier 2 **T204** and
-**T205**; ``ALLOWED_LOOKUP_COLLECTIONS`` bounds the damage in the meantime. An allow-listed ``$lookup``
-into ``framework.objects`` still returns documents the object ACL never filters - that residue is
-**T206**
+uncategorized-types view). Removing them needs server-side routes first;
+``ALLOWED_LOOKUP_COLLECTIONS`` bounds the damage. An allow-listed ``$lookup`` into
+``framework.objects`` still returns documents the object ACL never filters
 """
 from typing import Any
 

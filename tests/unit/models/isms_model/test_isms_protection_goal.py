@@ -17,11 +17,11 @@
 Unit tests for IsmsProtectionGoal
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO, whose shared machinery has its own tests, so what is
 pinned here is what remains this model's own:
 
   - **``predefined`` is two-state, never null.** The schema takes a boolean, but the shared
-    ``from_data`` reads with ``data.get()`` - so a goal stored without the flag used to load as None
+    ``from_data`` reads with ``data.get()`` - so a goal stored without the flag would load as None
     and serialise into a document its own schema rejects. It is coerced instead, which is what the
     absence means: a goal DataGerry did not seed is user-created
   - **the three seeded goals validate against the schema they are written into**, asserted against
@@ -77,7 +77,7 @@ class TestTheKeySet:
         """
         Where the enum is defined is half the point of this migration
 
-        It used to live in the seed package beside the three goals DataGerry writes, so the model would
+        Keeping it in the seed package beside the three goals DataGerry writes makes the model
         have imported its own document shape from `cmdb.database`; the seed data imports it from here
         instead.
         """

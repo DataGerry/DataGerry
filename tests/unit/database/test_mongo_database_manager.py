@@ -27,6 +27,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from pymongo.errors import (
+    BulkWriteError,
     CollectionInvalid,
     DuplicateKeyError,
     OperationFailure,
@@ -39,6 +40,7 @@ import cmdb.database.mongo_database_manager as mdm
 from cmdb.database.mongo_database_manager import MongoDatabaseManager, is_public_id_conflict
 from cmdb.database.database_constants import (
     MAX_DUPLICATE_KEY_RETRIES,
+    MONGO_DUPLICATE_KEY_ERROR_CODE,
     MONGO_LOCK_TIMEOUT_ERROR_CODE,
 )
 from cmdb.errors.database import (
@@ -51,7 +53,10 @@ from cmdb.errors.database import (
     DatabaseNotFoundError,
     DeleteCollectionError,
     DocumentDeleteError,
+    DocumentDuplicateKeyError,
+    DocumentInsertDuplicateKeyError,
     DocumentInsertError,
+    DocumentUpdateDuplicateKeyError,
     DocumentUpdateError,
     DocumentGetError,
     DocumentAggregationError,
@@ -63,6 +68,8 @@ from cmdb.errors.database import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DB: str = 'testdb'
+# The server's code for a document that fails the collection validator - an insert failure that is no duplicate
+DOCUMENT_VALIDATION_FAILURE_CODE: int = 121
 COLL: str = 'framework.objects'
 
 
@@ -430,6 +437,31 @@ class TestInsert:
         with pytest.raises(DocumentNetworkError):
             mgr.insert(COLL, DB, {'name': 'x'})
 
+    def test_a_non_public_id_duplicate_is_the_typed_refusal(self, mgr: MongoDatabaseManager) -> None:
+        """The refusal a route recognises by type, naming the violated index and the duplicated value"""
+        _stub_collection(mgr).insert_one.side_effect = DuplicateKeyError(
+            'dup', details={'keyPattern': {'object_id': 1, 'side': 1, 'name': 1},
+                            'keyValue': {'object_id': 8802, 'side': 'single', 'name': 'Gi0/1'}},
+        )
+        mgr.get_next_public_id = MagicMock(return_value=1)
+
+        with pytest.raises(DocumentInsertDuplicateKeyError) as raised:
+            mgr.insert(COLL, DB, {'name': 'x'})
+
+        assert raised.value.key_pattern == {'object_id': 1, 'side': 1, 'name': 1}
+        assert raised.value.key_value == {'object_id': 8802, 'side': 'single', 'name': 'Gi0/1'}
+        assert isinstance(raised.value.__cause__, DuplicateKeyError)
+
+    def test_a_network_error_is_no_duplicate(self, mgr: MongoDatabaseManager) -> None:
+        """The failure the route must never report as a taken name"""
+        _stub_collection(mgr).insert_one.side_effect = NetworkTimeout('net')
+        mgr.get_next_public_id = MagicMock(return_value=1)
+
+        with pytest.raises(DocumentNetworkError) as raised:
+            mgr.insert(COLL, DB, {'name': 'x'})
+
+        assert not isinstance(raised.value, DocumentDuplicateKeyError)
+
     def test_a_non_public_id_duplicate_is_not_retried(self, mgr: MongoDatabaseManager) -> None:
         """A violated unique index other than public_id means the document itself is a duplicate.
 
@@ -486,7 +518,7 @@ class TestIsPublicIdConflict:
 
     @pytest.mark.parametrize('details', [None, {}, {'keyPattern': None}, {'keyPattern': {}}], ids=str)
     def test_an_unidentifiable_index_keeps_the_historical_retry(self, details) -> None:
-        """Pre-4.2 servers report no key pattern; with nothing to go on, the old behaviour stands."""
+        """With no key pattern to go on, the error is treated as a public_id clash and retried."""
         assert is_public_id_conflict(DuplicateKeyError('dup', details=details)) is True
 
 
@@ -505,11 +537,34 @@ class TestInsertManyAndBulk:
         assert mgr.insert_many(COLL, DB, [{'name': 'a'}, {'name': 'b'}]) == [10, 11]
 
     def test_insert_many_duplicate_error(self, mgr: MongoDatabaseManager) -> None:
-        """A duplicate key surfaces as DocumentInsertError."""
-        _stub_collection(mgr).insert_many.side_effect = DuplicateKeyError('dup')
+        """
+        A duplicate key surfaces as the typed duplicate, which is still a DocumentInsertError
 
-        with pytest.raises(DocumentInsertError):
+        An unordered insert_many reports it the way the driver really does: one BulkWriteError listing
+        each refused document with code 11000, never a DuplicateKeyError
+        """
+        _stub_collection(mgr).insert_many.side_effect = _bulk_write_error(
+            {'code': MONGO_DUPLICATE_KEY_ERROR_CODE, 'keyPattern': {'name': 1}, 'keyValue': {'name': 'a'}},
+        )
+
+        with pytest.raises(DocumentInsertDuplicateKeyError) as raised:
             mgr.insert_many(COLL, DB, [{'public_id': 1}], skip_public=True)
+
+        assert isinstance(raised.value, DocumentInsertError)
+        assert raised.value.key_pattern == {'name': 1}
+        assert raised.value.key_value == {'name': 'a'}
+
+    def test_insert_many_mixed_write_errors_are_no_duplicate(self, mgr: MongoDatabaseManager) -> None:
+        """A batch that also hit another error is the insert failure it is, not a duplicate"""
+        _stub_collection(mgr).insert_many.side_effect = _bulk_write_error(
+            {'code': MONGO_DUPLICATE_KEY_ERROR_CODE, 'keyPattern': {'name': 1}},
+            {'code': DOCUMENT_VALIDATION_FAILURE_CODE},
+        )
+
+        with pytest.raises(DocumentInsertError) as raised:
+            mgr.insert_many(COLL, DB, [{'public_id': 1}], skip_public=True)
+
+        assert not isinstance(raised.value, DocumentDuplicateKeyError)
 
     def test_insert_many_network_error(self, mgr: MongoDatabaseManager) -> None:
         """A network/timeout error surfaces as DocumentNetworkError."""
@@ -532,6 +587,19 @@ class TestInsertManyAndBulk:
         mgr.bulk_write(COLL, DB, [MagicMock(), MagicMock()])
 
         collection.bulk_write.assert_called_once()
+
+    def test_bulk_write_answers_the_modified_count_summed_over_batches(
+        self, mgr: MongoDatabaseManager, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """Each batch's modified_count is added up, so a caller can tell whether every statement landed."""
+        monkeypatch.setattr('cmdb.database.mongo_database_manager.BULK_WRITE_BATCH_SIZE', 2)
+        collection = _stub_collection(mgr)
+        collection.bulk_write.side_effect = [MagicMock(modified_count=2), MagicMock(modified_count=1)]
+
+        modified = mgr.bulk_write(COLL, DB, [MagicMock(), MagicMock(), MagicMock()])
+
+        assert modified == 3
+        assert collection.bulk_write.call_count == 2
 
     def test_bulk_write_error(self, mgr: MongoDatabaseManager) -> None:
         """A bulk-write failure surfaces as DocumentInsertError."""
@@ -733,6 +801,33 @@ class TestReadHelpers:
 
 class TestUpdateAndDeleteErrors:
     """The update/delete wrappers map failures to typed errors."""
+
+    def test_an_update_duplicate_is_the_typed_refusal(self, mgr: MongoDatabaseManager) -> None:
+        """
+        A rename onto a taken name is refused by the index at update time too
+
+        It used to be one more DocumentUpdateError, indistinguishable from an outage. It is still one to
+        every caller - and additionally the typed duplicate, with the index it violated
+        """
+        _stub_collection(mgr).update_one.side_effect = DuplicateKeyError(
+            'dup', details={'keyPattern': {'name': 1}, 'keyValue': {'name': 'Gi0/1'}},
+        )
+
+        with pytest.raises(DocumentUpdateDuplicateKeyError) as raised:
+            mgr.update(COLL, DB, {'public_id': 1}, {'name': 'Gi0/1'})
+
+        assert isinstance(raised.value, DocumentUpdateError)
+        assert raised.value.key_pattern == {'name': 1}
+        assert raised.value.key_value == {'name': 'Gi0/1'}
+
+    def test_any_other_update_failure_is_no_duplicate(self, mgr: MongoDatabaseManager) -> None:
+        """Everything else stays the plain update failure"""
+        _stub_collection(mgr).update_one.side_effect = NetworkTimeout('net')
+
+        with pytest.raises(DocumentUpdateError) as raised:
+            mgr.update(COLL, DB, {'public_id': 1}, {'name': 'x'})
+
+        assert not isinstance(raised.value, DocumentDuplicateKeyError)
 
     def test_update_error(self, mgr: MongoDatabaseManager) -> None:
         """An update failure surfaces as DocumentUpdateError."""
@@ -1076,3 +1171,53 @@ class TestRemainingBranches:
         _stub_collection(mgr)
 
         assert mgr.insert_many(COLL, DB, [{'public_id': 7, 'name': 'x'}]) == [7]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    reading a duplicate-key refusal off the driver                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _bulk_write_error(*write_errors: dict) -> BulkWriteError:
+    """A BulkWriteError shaped the way an unordered insert_many reports its refused documents."""
+    return BulkWriteError({'writeErrors': list(write_errors), 'nInserted': 0})
+
+
+class TestDuplicateKeyDetails:
+    """What the typed refusal carries, read from both shapes the driver reports it in."""
+
+    def test_a_single_write_reports_it_on_the_error(self) -> None:
+        """insert_one / update_one"""
+        err = DuplicateKeyError('dup', details={'keyPattern': {'name': 1}, 'keyValue': {'name': 'a'}})
+
+        assert mdm.duplicate_key_details(err) == ({'name': 1}, {'name': 'a'})
+
+    def test_a_bulk_write_reports_the_first_duplicate_entry(self) -> None:
+        """An entry of another code is skipped rather than read as the violated index"""
+        err = _bulk_write_error(
+            {'code': DOCUMENT_VALIDATION_FAILURE_CODE, 'keyPattern': {'other': 1}},
+            {'code': MONGO_DUPLICATE_KEY_ERROR_CODE, 'keyPattern': {'name': 1}, 'keyValue': {'name': 'b'}},
+        )
+
+        assert mdm.duplicate_key_details(err) == ({'name': 1}, {'name': 'b'})
+
+    @pytest.mark.parametrize('details', [None, {}, {'keyPattern': 'not-a-dict', 'keyValue': ['x']}],
+                             ids=['no-details', 'empty', 'unusable-shapes'])
+    def test_what_the_server_did_not_report_is_empty(self, details) -> None:
+        """A synthesised or pre-4.2 error: the refusal still carries dicts, just empty ones"""
+        assert mdm.duplicate_key_details(DuplicateKeyError('dup', details=details)) == ({}, {})
+
+    @pytest.mark.parametrize('write_errors, expected', [
+        ([{'code': MONGO_DUPLICATE_KEY_ERROR_CODE}, {'code': MONGO_DUPLICATE_KEY_ERROR_CODE}], True),
+        ([{'code': MONGO_DUPLICATE_KEY_ERROR_CODE}, {'code': DOCUMENT_VALIDATION_FAILURE_CODE}], False),
+        ([], False),
+    ], ids=['all-duplicates', 'mixed', 'none'])
+    def test_a_bulk_error_is_a_duplicate_only_when_every_refusal_is(self, write_errors, expected) -> None:
+        """A batch that hit anything else is not reported as a duplicate"""
+        assert mdm.is_duplicate_key_bulk_error(_bulk_write_error(*write_errors)) is expected
+
+    def test_the_message_names_the_collection_the_value_and_the_index(self) -> None:
+        """What the log and the trace read; the route answers its own text"""
+        message = mdm.duplicate_key_message(COLL, {'side': 1, 'name': 1}, {'name': 'a'})
+
+        assert COLL in message
+        assert "{'name': 'a'}" in message
+        assert "['name', 'side']" in message

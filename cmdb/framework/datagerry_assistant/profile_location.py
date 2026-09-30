@@ -35,11 +35,10 @@ class LocationProfile(ProfileBase):
         """
         Creates all types of the 'Location' profile (Country, City, Building, Room)
 
-        The hierarchy ends at Room: this profile no longer builds a Rack type. A Rack is the RACK
-        SpecialType created by the 'Rack View' profile (see RackProfile) - the basic Rack this profile
-        used to create carried none of the Rack View behaviour, and having two different Rack types
-        depending on which checkbox was ticked was a trap: a CmdbType's 'special_type' can never be
-        changed afterwards, so an install that got the basic one could not be moved onto the real one
+        The hierarchy ends at Room: this profile builds no Rack type. A Rack is the RACK SpecialType
+        created by the 'Rack View' profile (see RackProfile). A second, plain Rack type would carry none
+        of the Rack View behaviour, and since a CmdbType's 'special_type' can never be changed afterwards,
+        an install that got the plain one could not be moved onto the real one
 
         Returns:
             dict[str, int | None]: The shared slot map of created type ids

@@ -49,6 +49,9 @@ from cmdb.models.port_connection_model import ConnectionType, PortConnectionKey,
 from cmdb.models.port_model import PortKey
 
 from cmdb.framework.port.name_syntax_constants import PortPreviewKey
+from cmdb.framework.port.bulk_create_constants import BulkCreateFailureReason
+from cmdb.utils import find_cause
+from cmdb.errors.database import DocumentDuplicateKeyError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -61,9 +64,12 @@ class BulkCreateResult(NamedTuple):
     Attributes:
         port_ids (list[int]): public_ids of the ports that were created, in creation order
         connection_ids (list[int]): public_ids of the INTERNAL connections that were created
-        error (str | None): The reason the batch stopped, or None when it completed
+        error (str | None): The reason the batch stopped, as a BulkCreateFailureReason the user may read,
+            or None when it completed. The database's own text only goes to the log
         residual_port_ids (list[int]): Ports the rollback could not remove - empty unless it failed
         residual_connection_ids (list[int]): Connections the rollback could not remove
+        duplicate (bool): True when the write that stopped the batch was refused by a unique index - a
+            lost race against the preview, which the caller can resolve - rather than failing outright
     """
     port_ids: list[int]
     connection_ids: list[int]
@@ -72,6 +78,7 @@ class BulkCreateResult(NamedTuple):
     # leaking between results, and every call site knows what it created anyway
     residual_port_ids: list[int]
     residual_connection_ids: list[int]
+    duplicate: bool = False
 
 
     def succeeded(self) -> bool:
@@ -105,7 +112,7 @@ def create_face_ports(
         object_id: int,
         face: dict[str, Any],
         author_id: int,
-        base_candidate: dict[str, Any],
+        face_values: dict[str, Any],
         ledger: list[int]) -> list[int]:
     """
     Creates every port of one previewed face, in the order the preview listed them
@@ -133,8 +140,9 @@ def create_face_ports(
         object_id (int): public_id of the owner CmdbObject
         face (dict[str, Any]): One face of a preview, carrying its side and its names
         author_id (int): public_id of the CmdbUser creating the batch
-        base_candidate (dict[str, Any]): The field values every port of the batch shares - the select
-            fields and the description the assistant form applied to all of them
+        face_values (dict[str, Any]): The field values every port of THIS face carries - the select
+            fields and the description, already resolved for the face. A panel's two faces are not
+            the same equipment, so each is handed its own set rather than one shared over both
         ledger (list[int]): The caller's record of everything created so far. Extended with this
             face's ports whether or not the face completes
 
@@ -148,7 +156,7 @@ def create_face_ports(
     try:
         for position, name in enumerate(face[PortPreviewKey.NAMES.value]):
             candidate: dict[str, Any] = {
-                **base_candidate,
+                **face_values,
                 PortKey.OBJECT_ID.value: object_id,
                 PortKey.SIDE.value: face[PortPreviewKey.SIDE.value],
                 PortKey.NAME.value: name,
@@ -298,7 +306,7 @@ def create_batch(
         object_id: int,
         preview: dict[str, Any],
         author_id: int,
-        base_candidate: dict[str, Any] | None = None) -> BulkCreateResult:
+        values_by_side: dict[str, dict[str, Any]] | None = None) -> BulkCreateResult:
     """
     Creates every port of a preview, pairs a panel's faces, and undoes it all if anything fails
 
@@ -314,7 +322,8 @@ def create_batch(
         object_id (int): public_id of the owner CmdbObject
         preview (dict[str, Any]): The preview whose names are to be created
         author_id (int): public_id of the CmdbUser creating the batch
-        base_candidate (dict[str, Any] | None): The field values every port shares. Defaults to none
+        values_by_side (dict[str, dict[str, Any]] | None): The field values each face carries, keyed
+            by PortSide value. A face the mapping does not name is created with no field values
 
     Returns:
         BulkCreateResult: What was created, and - when something failed - what the rollback could not
@@ -331,7 +340,9 @@ def create_batch(
         # raises, and a comprehension would discard every face that had already finished
         for face in faces:
             face_port_ids.append(create_face_ports(
-                ports_manager, object_id, face, author_id, base_candidate or {}, port_ids,
+                ports_manager, object_id, face, author_id,
+                (values_by_side or {}).get(face[PortPreviewKey.SIDE.value], {}),
+                port_ids,
             ))
 
         # A panel is exactly the two-face case: its pairing is what the second face exists for
@@ -348,12 +359,18 @@ def create_batch(
             ports_manager, port_connections_manager, port_ids, connection_ids,
         )
 
+        duplicate: bool = find_cause(err, DocumentDuplicateKeyError) is not None
+        reason: BulkCreateFailureReason = (
+            BulkCreateFailureReason.NAME_TAKEN if duplicate else BulkCreateFailureReason.WRITE_FAILED
+        )
+
         return BulkCreateResult(
             port_ids=port_ids,
             connection_ids=connection_ids,
-            error=str(err),
+            error=reason.value,
             residual_port_ids=residual_ports,
             residual_connection_ids=residual_connections,
+            duplicate=duplicate,
         )
 
     return BulkCreateResult(

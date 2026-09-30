@@ -26,7 +26,7 @@ The SPA fallback view `serve_spa_fallback` lives here but is registered by `crea
 the dispatcher hands those to a different Flask app with its own error handling, and this handler is
 never consulted for them.
 
-Two rules the fallback follows, both of which it used to get wrong:
+Two rules the fallback follows, both easy to get wrong:
 
 * **Only client routes fall back.** A request for a path that names a file (anything with an
   extension) gets a real 404 instead of `index.html`. Returning HTML with a 200 for a missing
@@ -34,7 +34,7 @@ Two rules the fallback follows, both of which it used to get wrong:
   asks for a chunk that no longer exists and reports a MIME-type error rather than a 404. No Angular
   route in this application contains a dot, so the extension test does not misfire on a deep link
 * **A missing bundle says so.** If `index.html` is absent - `make webapp` never ran, or built
-  elsewhere - every request used to raise `NotFound` a second time *inside* the error handler, which
+  elsewhere - raising `NotFound` a second time *inside* the error handler leaves Flask nothing, which
   Flask cannot handle, so the whole UI host answered 500 and logged two tracebacks per request. It
   now answers 503 with a message naming the cause
 """

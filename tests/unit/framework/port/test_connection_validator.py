@@ -20,7 +20,7 @@ Only the rules the DATABASE can not hold are tested here, because only those liv
 self-connection, both ends name real ports, no cable information on an INTERNAL link, and a cable CI
 that really is a Cable. The cardinality rules - no port in two cable connections, one internal
 connection per port, one cable CI per connection - belong to the partial unique indexes and are proven
-against a real MongoDB in tests/integration/framework/test_integration_port_connections.py.
+against a real MongoDB in the integration tier.
 
 The two functions that read the database take managers and are driven with mocks; the rest is pure
 """
@@ -370,8 +370,8 @@ class TestCableCiBlockers:
         """
         Without this an arbitrary object would be stored and rendered as a cable
 
-        This is the reason SpecialType.CABLE had to exist before the connection could be written at
-        all - the reference cannot be validated against a member that does not exist.
+        The CABLE marker on the object's type is what the reference is validated against - without it
+        there is nothing to tell a cable from any other object.
         """
         objects_manager, types_manager = _managers(
             {CmdbObjectKey.PUBLIC_ID.value: CABLE_CI_ID, CmdbObjectKey.TYPE_ID.value: 4},

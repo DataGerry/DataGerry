@@ -146,11 +146,13 @@ class TestUpdateWithFollowUp:
             },
         })
 
-        impact_manager.update_with_follow_up(IMPACT_A, _impact_doc(IMPACT_A, UPDATED_BASIS_A))
+        answered = impact_manager.update_with_follow_up(IMPACT_A, _impact_doc(IMPACT_A, UPDATED_BASIS_A))
 
         stored_impact = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
-            .find_one({'public_id': IMPACT_A})
+            .find_one({'public_id': IMPACT_A}, {'_id': 0})
         assert stored_impact['calculation_basis'] == UPDATED_BASIS_A
+        # What the manager answers is the document it stored - the update route hands it to the client
+        assert answered == stored_impact
 
         risk_assessment = _risk_assessment(database_manager, database_name)
         assert risk_assessment['risk_calculation_before']['maximum_impact_id'] == IMPACT_A

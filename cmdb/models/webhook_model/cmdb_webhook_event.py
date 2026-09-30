@@ -18,6 +18,7 @@ This module contains the implementation of CmdbWebhookEvent, which is representi
 a webhook event in Datagarry
 """
 from logging import Logger, getLogger
+from datetime import datetime
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -29,11 +30,16 @@ from cmdb.class_schema.webhook_model.cmdb_webhook_event_schema import get_cmdb_w
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  CmdbWebhook - CLASS                                                 #
+#                                               CmdbWebhookEvent - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class CmdbWebhookEvent(CmdbDAO):
     """
-    Implementation of CmdbWebhookEvent
+    One webhook delivery attempt: the event payload plus the transport outcome
+
+    Written only by `webhook_helper.deliver_webhook_event`, once per attempt, successful or not.
+    `SCHEMA` describes that document (which payload fields each operation sets, the date type of
+    `event_time`, the 0 code of a delivery without a response); nothing validates it at write time,
+    `tests/unit/models/webhook_model/test_cmdb_webhook_event_schema.py` holds it to what the writer produces
 
     Extends: CmdbDAO
     """
@@ -70,32 +76,31 @@ class CmdbWebhookEvent(CmdbDAO):
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
-    #pylint: disable=R0913, R0917
     def __init__(
             self,
-            event_time,
+            event_time: datetime | None,
             operation: WebhookEventType,
             webhook_id: int,
-            object_before: dict,
-            object_after: dict,
-            changes: dict,
+            object_before: dict[str, Any] | None,
+            object_after: dict[str, Any] | None,
+            changes: dict[str, Any] | None,
             response_code: int,
             status: bool,
-            **kwargs
+            **kwargs: Any
         ) -> None:
         """
         Initializes a new instance of the CmdbWebhookEvent class, representing the result of a webhook event operation
 
         Args:
-            event_time: Timestamp when the event occurred (type can be datetime or str depending on usage)
+            event_time (datetime | None): Timestamp when the event occurred
             operation (WebhookEventType): Type of operation that triggered the webhook (e.g., create, update, delete)
             webhook_id (int): ID of the webhook configuration associated with this event
-            object_before (dict): Object state before the operation occurred
-            object_after (dict): Object state after the operation occurred
-            changes (dict): Dictionary summarizing the changes made to the object
+            object_before (dict[str, Any] | None): Object state before the operation occurred
+            object_after (dict[str, Any] | None): Object state after the operation occurred
+            changes (dict[str, Any] | None): Dictionary summarizing the changes made to the object
             response_code (int): HTTP response status code returned by the webhook endpoint
-            status (bool): Whether the webhook request was successful (True if response code was 200)
-            **kwargs: Additional fields to pass to the superclass initializer
+            status (bool): Whether the webhook request was successful (True for any 2xx response code)
+            **kwargs (Any): Additional fields to pass to the superclass initializer
         """
         self.event_time = event_time
         self.operation = operation
@@ -111,12 +116,12 @@ class CmdbWebhookEvent(CmdbDAO):
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbWebhookEvent":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbWebhookEvent":
         """
         Creates a CmdbWebhookEvent instance from a dictionary
 
         Args:
-            data (dict): Dictionary containing the event data fields
+            data (dict[str, Any]): Dictionary containing the event data fields
 
         Returns:
             CmdbWebhookEvent: A new instance populated with the provided data
@@ -135,7 +140,7 @@ class CmdbWebhookEvent(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbWebhookEvent") -> dict:
+    def to_json(cls, instance: "CmdbWebhookEvent") -> dict[str, Any]:
         """
         Serializes a CmdbWebhookEvent instance into a JSON-compatible dictionary
 
@@ -143,7 +148,7 @@ class CmdbWebhookEvent(CmdbDAO):
             instance (CmdbWebhookEvent): The event instance to serialize
 
         Returns:
-            dict: A dictionary representation of the event suitable for JSON output
+            dict[str, Any]: A dictionary representation of the event suitable for JSON output
         """
         return {
             'public_id': instance.get_public_id(),

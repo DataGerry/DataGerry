@@ -247,3 +247,13 @@ def test_nested_nodes_resolve_their_own_types() -> None:
 
     assert [a_type.public_id for a_type in root_node.types] == [TYPE_A_ID]
     assert [a_type.public_id for a_type in root_node.children[0].types] == [TYPE_B_ID]
+
+
+def test_a_stored_entry_that_is_no_type_id_is_skipped() -> None:
+    """An unhashable entry is skipped instead of breaking the whole tree; the rest resolves"""
+    category = _category(1)
+    category.types = [2, {'a': 1}, 'x', 3]
+
+    tree = CategoryTree([category], [_type(2), _type(3)])
+
+    assert [a_type.public_id for a_type in tree.tree[0].types] == [2, 3]

@@ -23,13 +23,11 @@ enforces. All enums extend BaseStrEnum so members are interchangeable with their
 values for JSON serialization, dict lookup and equality
 
 **A DataGerry token's non-registered claims are wrapped**: `iss` and `DATAGERRY` each hold
-`{'essential': True, 'value': <the actual value>}` rather than the value itself. That shape is a
-leftover of the authlib claims *specification* the generator used to hand to its validator, which
-now gets persisted as claim *data* - which is why every consumer reads
-`token['DATAGERRY']['value']['user']` and why `iss` cannot be checked by a plain claims registry.
-It is frontend- and token-compatibility contract: changing it would invalidate every token in
-circulation, so it is named here (`TokenClaim`, `TokenClaimWrapperKey`) and read through the enum
-instead of being fixed
+`{'essential': True, 'value': <the actual value>}` rather than the value itself, so every consumer
+reads `token['DATAGERRY']['value']['user']` and `iss` cannot be checked by a plain claims registry.
+The shape is a token-compatibility contract: every token already issued carries it, and a validator
+that expects plain claims refuses them. It is therefore named here (`TokenClaim`,
+`TokenClaimWrapperKey`) and read through the enums
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -66,8 +64,8 @@ class TokenClaimWrapperKey(BaseStrEnum):
     """
     The two keys of the wrapper around a `TokenClaim` value
 
-    `VALUE` carries the claim's actual content; `ESSENTIAL` is the authlib specification flag that
-    ended up in the token as data and is not read by anything
+    `VALUE` carries the claim's actual content; `ESSENTIAL` is always True and is not read by
+    anything - it is written only so the claims keep the shape issued tokens carry
     """
     ESSENTIAL = 'essential'
     VALUE = 'value'

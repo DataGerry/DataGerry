@@ -16,7 +16,7 @@
 """
 Functional tests for the ``/objects`` REST routes
 
-Split out of a single 2,381-line module on 2026-09-17. The shared seed vocabulary and the
-document builders live in ``objects_route_helpers``; the CmdbType every module needs is seeded
-by the package ``conftest``. Each test module owns the ids and builders only it uses
+The shared seed vocabulary and the document builders live in ``objects_route_helpers``; the
+CmdbType every module needs is seeded by the package ``conftest``. Each test module owns the ids
+and builders only it uses
 """

@@ -35,6 +35,9 @@ from .type_constants import (
     DG_LOCATION_FIELD_NAME,
     DEFAULT_PORT_SECTION_INDEX,
     MIN_PORT_SECTION_INDEX,
+    TEXT_VALUE_MAX_LENGTH,
+    TEXTAREA_VALUE_MAX_LENGTH,
+    FIELD_VALUE_MAX_LENGTHS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -57,4 +60,7 @@ __all__: list[str] = [
     'DG_LOCATION_FIELD_NAME',
     'DEFAULT_PORT_SECTION_INDEX',
     'MIN_PORT_SECTION_INDEX',
+    'TEXT_VALUE_MAX_LENGTH',
+    'TEXTAREA_VALUE_MAX_LENGTH',
+    'FIELD_VALUE_MAX_LENGTHS',
 ]

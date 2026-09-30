@@ -25,6 +25,7 @@ bootstrap, REST init, OpenCelium / ChatGPT connectors, etc.) returns the same ca
 `ConfigFileReader` and ignores any args passed
 """
 import os
+from typing import Any
 
 from cmdb.manager.system_manager.config_file_reader import ConfigFileReader
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -69,7 +70,7 @@ class SystemConfigReader:
     instance = None
 
 
-    def __new__(cls, config_name: str | None = None, config_location=None) -> ConfigFileReader:
+    def __new__(cls, config_name: str | None = None, config_location: str | None = None) -> ConfigFileReader:
         """
         Returns the cached `ConfigFileReader`, constructing it on the first call
 
@@ -97,7 +98,7 @@ class SystemConfigReader:
         return SystemConfigReader.instance
 
 
-    def __getattr__(self, name):
+    def __getattr__(self, name: str) -> Any:
         """
         Delegates attribute reads to the cached `ConfigFileReader`
 
@@ -116,7 +117,7 @@ class SystemConfigReader:
         return getattr(self.instance, name)
 
 
-    def __setattr__(self, name, value) -> None:
+    def __setattr__(self, name: str, value: Any) -> None:
         """
         Delegates attribute writes to the cached `ConfigFileReader`
 

@@ -44,6 +44,9 @@ from cmdb.framework.port.bulk_create import (
     roll_back,
 )
 from cmdb.framework.port.name_syntax_constants import PortPreviewKey
+from cmdb.framework.port.bulk_create_constants import BulkCreateFailureReason
+from cmdb.errors.database import DocumentInsertDuplicateKeyError
+from cmdb.errors.manager.ports_manager import PortsManagerInsertError
 from cmdb.models.port_connection_model import ConnectionType, PortConnectionKey
 from cmdb.models.port_model import PortKey, PortSide
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -514,20 +517,45 @@ class TestCreateBatch:
         assert result.has_residue()
         assert result.residual_port_ids == [101]
 
-    def test_the_error_is_carried_back(self) -> None:
-        """The caller reports WHY, not just that something went wrong"""
+    def test_a_failed_write_is_reported_as_the_servers_failure(self) -> None:
+        """
+        The caller reports WHY in words the user can read - never the database's own text
+
+        A write that simply failed is no duplicate, so the route answers it as a server error.
+        """
         ports_manager = _ports_manager()
-        ports_manager.insert_item.side_effect = RuntimeError('a duplicate name')
+        ports_manager.insert_item.side_effect = RuntimeError("E11000 in collection 'framework.ports'")
 
         result = create_batch(
             ports_manager, _connections_manager(), OBJECT_ID, _standard_preview(['1']), AUTHOR_ID,
         )
 
-        assert 'a duplicate name' in result.error
+        assert result.error == BulkCreateFailureReason.WRITE_FAILED.value
+        assert result.duplicate is False
+
+    def test_a_lost_race_is_reported_as_a_duplicate(self) -> None:
+        """A concurrent write took a previewed name: the one failure the user can resolve"""
+        refusal = DocumentInsertDuplicateKeyError('duplicate', key_pattern={PortKey.NAME.value: 1})
+        failure = PortsManagerInsertError(refusal)
+        failure.__cause__ = refusal
+
+        ports_manager = _ports_manager()
+        ports_manager.insert_item.side_effect = failure
+
+        result = create_batch(
+            ports_manager, _connections_manager(), OBJECT_ID, _standard_preview(['1']), AUTHOR_ID,
+        )
+
+        assert result.error == BulkCreateFailureReason.NAME_TAKEN.value
+        assert result.duplicate is True
 
 
 class TestBulkCreateResult:
     """The two questions a caller asks of an outcome."""
+
+    def test_a_result_is_no_duplicate_unless_it_says_so(self) -> None:
+        """The flag defaults off, so every existing construction keeps meaning 'the write failed'"""
+        assert BulkCreateResult([], [], 'boom', [], []).duplicate is False
 
     def test_a_complete_batch_succeeded_with_no_residue(self) -> None:
         """The ordinary case"""
@@ -621,3 +649,34 @@ class TestTheLedger:
         ports_manager.delete_many.assert_called_once_with(
             {PortKey.PUBLIC_ID.value: {'$in': [101, 102, 201]}},
         )
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      per-face field values on a panel                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValuesAreResolvedPerFace:
+    """A panel's two faces are not the same equipment, so each carries its own field values."""
+
+    def test_each_face_is_handed_its_own_values(self) -> None:
+        """create_batch looks the face's values up by side rather than spreading one set"""
+        manager = _ports_manager()
+
+        create_batch(manager, _connections_manager(), OBJECT_ID, _panel_preview(['F1'], ['R1']), AUTHOR_ID, {
+            PortSide.FRONT.value: {PortKey.DESCRIPTION.value: 'front side'},
+            PortSide.REAR.value: {PortKey.DESCRIPTION.value: 'rear side'},
+        })
+
+        written = {
+            call.args[0][PortKey.SIDE.value]: call.args[0][PortKey.DESCRIPTION.value]
+            for call in manager.insert_item.call_args_list
+        }
+
+        assert written == {PortSide.FRONT.value: 'front side', PortSide.REAR.value: 'rear side'}
+
+    def test_a_face_the_mapping_does_not_name_gets_no_values(self) -> None:
+        """Absent rather than guessed - the model's own defaults still apply"""
+        manager = _ports_manager()
+
+        create_batch(manager, _connections_manager(), OBJECT_ID, _standard_preview(['1']), AUTHOR_ID, {})
+
+        assert PortKey.DESCRIPTION.value not in manager.insert_item.call_args_list[0].args[0]

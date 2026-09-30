@@ -16,34 +16,44 @@
 """
 Unit tests for the webhook helper
 
-``build_webhook_payload`` is pure and ``parse_webhook_params`` needs only a request context to abort
-in. ``send_webhook_event`` orchestrates two managers (resolved via ManagerProvider) + an HTTP POST;
-both managers and requests.post are stubbed here, so nothing touches a database or the network.
+``build_webhook_payload`` is pure and ``parse_webhook_params`` needs no request context: it reads the
+merged write payload it is handed, typed (a JSON body) or text (a query string), and aborts 400.
+``send_webhook_event`` orchestrates two managers (resolved via ManagerProvider) + an HTTP POST; both
+managers and requests.post are stubbed here, so nothing touches a database or the network.
 
 Two properties are the point of this module, because both were broken and neither is visible in
 coverage (the helper was at 100% while failing them):
 
 * **isolation** - one unreachable webhook must not stop the webhooks after it, and must still be
-  logged. The delivery used to sit in a single function-level ``try``, so the first failure ended the
+  logged. A single function-level ``try`` around the delivery lets the first failure end the
   fan-out and no CmdbWebhookEvent was written for any webhook, including the one that failed.
-* **any 2xx is a delivery** - a receiver answering 204 used to be recorded with ``status`` False.
+* **any 2xx is a delivery** - a receiver answering 204 must not be recorded with ``status`` False.
 
 The dispatch is forced onto the calling thread by the autouse fixture below; the delivery code itself
 is untouched by that, only the thread it runs on.
 """
 from http import HTTPStatus
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 import requests
+from cerberus import Validator  # type: ignore
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.webhook_routes import webhook_helper
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
+    WEBHOOK_ACTIVE_DEFAULT,
+    WEBHOOK_ACTIVE_INVALID_MSG,
+    WEBHOOK_TEXT_NOT_A_STRING_MSG,
+)
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import (
+    WEBHOOK_WRITE_SCHEMA,
     build_webhook_payload,
     parse_webhook_params,
     send_webhook_event,
 )
+from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -270,7 +280,7 @@ class TestDeliveredStatus:
 
     @pytest.mark.parametrize('status_code', [200, 201, 202, 204, 299])
     def test_every_2xx_counts_as_delivered(self, monkeypatch, status_code: int) -> None:
-        """204 used to be recorded as a failure, because the check was == 200."""
+        """204 must not be recorded as a failure, which a check of == 200 would do."""
         event_manager = _StubEventManager()
         monkeypatch.setattr(webhook_helper.ManagerProvider, 'get_manager',
                             staticmethod(_manager_resolver([SimpleNamespace(public_id=1, url='http://a.test/h')],
@@ -362,8 +372,11 @@ class TestDispatch:
         assert resolved == ['WEBHOOKS']
 
 
+TARGET_URL: str = 'https://example.test/h'
+
+
 class TestParseWebhookParams:
-    """parse_webhook_params is the only validation a CmdbWebhook document gets."""
+    """parse_webhook_params validates and normalises a CmdbWebhook write, typed or text."""
 
     def test_normalises_a_valid_payload(self) -> None:
         """event_types becomes a list, active a bool, and name/url are stripped."""
@@ -375,13 +388,116 @@ class TestParseWebhookParams:
         assert params == {'name': 'Hook', 'url': 'https://example.test/h',
                           'event_types': ['CREATE', 'UPDATE'], 'active': True}
 
-    def test_active_defaults_to_false_when_absent(self) -> None:
-        """Anything that is not the string 'true' is False - unchanged behaviour, pinned."""
-        params = {'name': 'Hook', 'url': 'https://example.test/h', 'event_types': "['CREATE']"}
+    def test_a_typed_json_body_is_kept_typed(self) -> None:
+        """A JSON body sends the list and the bool themselves - they pass through unchanged"""
+        params = {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE', 'DELETE'], 'active': False}
 
         parse_webhook_params(params)
 
-        assert params['active'] is False
+        assert params == {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE', 'DELETE'],
+                          'active': False}
+
+    @pytest.mark.parametrize('params', [
+        {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE']},
+        {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE'], 'active': None},
+    ], ids=['absent', 'null'])
+    def test_active_defaults_to_true_when_left_out(self, params: dict[str, Any]) -> None:
+        """A webhook created without the flag is meant to deliver - the schema's default"""
+        parse_webhook_params(params)
+
+        assert params['active'] is WEBHOOK_ACTIVE_DEFAULT is True
+
+    @pytest.mark.parametrize('active, expected', [
+        (True, True), (False, False), ('true', True), ('false', False), (' FALSE ', False),
+    ], ids=['bool-true', 'bool-false', 'text-true', 'text-false', 'padded-upper'])
+    def test_active_accepts_a_bool_or_its_text(self, active: Any, expected: bool) -> None:
+        """A body sends a bool, a query string 'true' / 'false' - both are read exactly"""
+        params = {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE'], 'active': active}
+
+        parse_webhook_params(params)
+
+        assert params['active'] is expected
+
+    @pytest.mark.parametrize('active', ['yes', '1', 1, 0, 'maybe', ['true']],
+                             ids=['yes', 'text-one', 'int-one', 'int-zero', 'word', 'list'])
+    def test_an_unreadable_active_is_refused(self, active: Any) -> None:
+        """Read leniently, each of these used to become False and store a webhook that never fires"""
+        params = {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE'], 'active': active}
+
+        with pytest.raises(HTTPException) as raised:
+            parse_webhook_params(params)
+
+        assert raised.value.code == HTTPStatus.BAD_REQUEST
+        assert raised.value.description == WEBHOOK_ACTIVE_INVALID_MSG.format(actual=active)
+
+    @pytest.mark.parametrize('field, value', [('name', 5), ('url', ['https://e.test/h']), ('name', True)],
+                             ids=['name-int', 'url-list', 'name-bool'])
+    def test_a_name_or_url_that_is_not_text_is_refused(self, field: str, value: Any) -> None:
+        """A JSON body can send any type; only text is a name or a URL"""
+        params = {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE'], field: value}
+
+        with pytest.raises(HTTPException) as raised:
+            parse_webhook_params(params)
+
+        assert raised.value.code == HTTPStatus.BAD_REQUEST
+        assert raised.value.description == WEBHOOK_TEXT_NOT_A_STRING_MSG.format(field=field, actual=value)
+
+    @pytest.mark.parametrize('event_types', [{'CREATE': 1}, 42, [], ['CREATE', 1], [['CREATE']], ('CREATE',)],
+                             ids=['dict', 'int', 'empty', 'non-text-member', 'nested', 'tuple'])
+    def test_typed_event_types_that_are_not_a_known_list_are_refused(self, event_types: Any) -> None:
+        """The typed path is held to the same rule as the text one"""
+        params = {'name': 'Hook', 'url': TARGET_URL, 'event_types': event_types}
+
+        with pytest.raises(HTTPException) as raised:
+            parse_webhook_params(params)
+
+        assert raised.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_the_normalised_document_satisfies_the_model_schema(self) -> None:
+        """What is stored validates against CmdbWebhook.SCHEMA itself, whatever spelling came in"""
+        params = {'name': ' Hook ', 'url': TARGET_URL, 'event_types': '["UPDATE"]', 'active': 'true',
+                  'public_id': 7}
+
+        parse_webhook_params(params)
+
+        validator = Validator(CmdbWebhook.SCHEMA)
+        assert validator.validate(params), validator.errors
+
+
+class TestWebhookDocumentShape:
+    """The last step of parse_webhook_params holds the document against the write schema."""
+
+    def test_the_write_schema_is_the_document_schema_without_public_id(self) -> None:
+        """public_id is server-owned: the create route reserves it and the update route pins it"""
+        assert set(WEBHOOK_WRITE_SCHEMA) == set(CmdbWebhook.SCHEMA) - {'public_id'}
+
+    def test_a_document_the_schema_refuses_is_a_400_naming_the_field(self) -> None:
+        """A tripwire for drift: the semantic checks above always hand the schema a valid document"""
+        document = {'name': 'Hook', 'url': TARGET_URL, 'event_types': 'CREATE', 'active': True}
+
+        with pytest.raises(HTTPException) as raised:
+            webhook_helper._check_webhook_document_shape(document)  # pylint: disable=protected-access
+
+        assert raised.value.code == HTTPStatus.BAD_REQUEST
+        assert 'event_types' in raised.value.description
+
+    def test_parse_webhook_params_ends_with_the_shape_check(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The schema step is part of every write, not a function that merely exists"""
+        checked: list[dict[str, Any]] = []
+        monkeypatch.setattr(webhook_helper, '_check_webhook_document_shape', checked.append)
+        params = {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE']}
+
+        parse_webhook_params(params)
+
+        assert checked == [params]
+        assert checked[0]['active'] is True
+
+    def test_undeclared_keys_are_not_held_against_the_schema(self) -> None:
+        """A merged payload may carry the pinned public_id or a stray query parameter; from_data drops them"""
+        document = {'name': 'Hook', 'url': TARGET_URL, 'event_types': ['CREATE'], 'active': True,
+                    'public_id': 'not-an-int', 'stray': 'x'}
+
+        webhook_helper._check_webhook_document_shape(document)  # pylint: disable=protected-access
 
     @pytest.mark.parametrize('params', [
         {'url': 'https://e.test/h', 'event_types': "['CREATE']"},
@@ -397,7 +513,7 @@ class TestParseWebhookParams:
     ], ids=['no-name', 'blank-name', 'no-url', 'bad-scheme', 'no-host', 'no-event-types',
             'event-types-int', 'event-types-empty', 'event-types-unknown', 'event-types-unparsable'])
     def test_rejects_an_unusable_payload(self, params: dict) -> None:
-        """Each of these used to be accepted and stored."""
+        """Each of these must be refused rather than accepted and stored."""
         with pytest.raises(HTTPException) as raised:
             parse_webhook_params(dict(params))
 

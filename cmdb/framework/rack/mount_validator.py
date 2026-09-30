@@ -29,7 +29,13 @@ and lets the routes report every problem with a placement at once instead of one
 from typing import Any
 
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
-from cmdb.models.rack_model.rack_mount_helpers import bottom_slot_of, occupied_slots_of, top_slot_of
+from cmdb.models.rack_model.rack_mount_helpers import (
+    bottom_slot_of,
+    format_slot_ranges,
+    occupied_slot_count,
+    overlapping_slot_range,
+    top_slot_of,
+)
 
 from cmdb.utils import coerce_whole_number
 from cmdb.framework.rack.rack_constants import RackMountError, RackMountLimits
@@ -191,7 +197,7 @@ def find_slot_conflicts(
         exclude_mount_id (int | None): public_id of a mount to ignore (the one being updated)
 
     Returns:
-        list[str]: A single message naming the occupied slots and the mounts holding them, or empty
+        list[str]: A single message naming the occupied slot ranges and the mounts holding them, or empty
     """
     area = RackArea(mount[RackMountKey.AREA.value])
     competing_areas: frozenset[RackArea] = RackArea.get_conflicting_areas(area)
@@ -199,12 +205,10 @@ def find_slot_conflicts(
     if not competing_areas:
         return []
 
-    wanted: set[int] = occupied_slots_of(mount)
-
-    if not wanted:
+    if occupied_slot_count(mount) == 0:
         return []
 
-    blocked: set[int] = set()
+    blocked: list[tuple[int, int]] = []
     blocking_ids: set[int] = set()
 
     for existing in existing_mounts:
@@ -217,17 +221,17 @@ def find_slot_conflicts(
         if RackArea(existing[RackMountKey.AREA.value]) not in competing_areas:
             continue
 
-        overlap: set[int] = wanted & occupied_slots_of(existing)
+        overlap: tuple[int, int] | None = overlapping_slot_range(mount, existing)
 
         if overlap:
-            blocked |= overlap
+            blocked.append(overlap)
             blocking_ids.add(existing.get(RackMountKey.PUBLIC_ID.value))
 
     if not blocked:
         return []
 
     return [RackMountError.SLOTS_OCCUPIED.format(
-        slots=sorted(blocked),
+        slots=format_slot_ranges(blocked),
         area=area.value,
         mount_ids=sorted(mount_id for mount_id in blocking_ids if mount_id is not None),
     )]

@@ -43,7 +43,7 @@ from typing import Any
 
 from cmdb.class_schema.isms_model.isms_threat_schema import get_isms_threat_schema
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.models.isms_model.isms_threat_constants import ThreatKey
+from cmdb.models.isms_model.isms_threat_constants import ThreatKey, THREAT_REQUIRED_DOCUMENT_KEYS
 
 from cmdb.errors.models.isms_threat import (
     IsmsThreatInitError,
@@ -76,6 +76,7 @@ class IsmsThreat(CmdbDAO):
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
     KEYS = ThreatKey
+    REQUIRED_INIT_KEYS: list[str] = THREAT_REQUIRED_DOCUMENT_KEYS
     INIT_FROM_DATA_ERROR = IsmsThreatInitFromDataError
     TO_JSON_ERROR = IsmsThreatToJsonError
 

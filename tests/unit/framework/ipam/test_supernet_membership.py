@@ -16,19 +16,22 @@
 """
 Unit tests for cmdb.framework.ipam.supernet_membership
 
-Covers the pure helpers (normalize_subnet_id_list, diff_missing_ids), the DB-touching
-single-step helpers (assert_supernet_exists, load_assigned_subnets, clear_supernet_ref),
-and the unassign_subnets_from_supernet orchestrator. Mongo query shapes are pinned via
-assert_called_once_with so any future relaxation fails loudly - the clear write filter is
-checked in particular detail because it carries the TOCTOU-safety guarantee. Flask aborts
+Covers the pure helpers (normalize_subnet_id_list, diff_missing_ids, clear_supernet_ref_in_document,
+plan_subnet_detaches, build_detach_operation, is_detached_by_this_write), the DB-touching single-step
+helpers (assert_supernet_exists, load_assigned_subnets, clear_supernet_ref), and the
+unassign_subnets_from_supernet orchestrator - including what it hands to ``on_write``. Mongo query
+shapes are pinned via assert_called_once_with so any future relaxation fails loudly - the detach
+statement's filter is checked in particular detail because it carries the TOCTOU-safety guarantee. Flask aborts
 are exercised via pytest.raises(HTTPException) without needing a request context. The
 orchestrator's helpers are patched at the module path so each orchestrator test verifies
 orchestration in isolation; each helper has its own dedicated tests in this file
 """
+from datetime import datetime, timezone
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
+from pymongo import UpdateOne
 from werkzeug.exceptions import Forbidden, HTTPException, NotFound
 
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
@@ -41,12 +44,17 @@ from cmdb.models.special_type_model.ipam_constants import (
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.framework.object_edit import ObjectWrite, PlannedEdit
 from cmdb.framework.ipam.supernet_membership import (
     assert_supernet_exists,
+    build_detach_operation,
     clear_supernet_ref,
+    clear_supernet_ref_in_document,
     diff_missing_ids,
+    is_detached_by_this_write,
     load_assigned_subnets,
     normalize_subnet_id_list,
+    plan_subnet_detaches,
     unassign_subnets_from_supernet,
     verify_subnet_write_access,
 )
@@ -60,19 +68,53 @@ SUBNET_OBJECT_ID_A: int = 201
 SUBNET_OBJECT_ID_B: int = 202
 SUBNET_OBJECT_ID_C: int = 203
 
+OTHER_SUPERNET_ID: int = 999
+AUTHOR_ID: int = 1
+EDITOR_ID: int = 5
+START_VERSION: str = '1.0.0'
+PATCHED_VERSION: str = '1.0.1'
+EDIT_TIME: datetime = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+
 PATH: str = 'cmdb.framework.ipam.supernet_membership'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    FIXTURES                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _make_cmdb_object(public_id: int, type_id: int) -> dict[str, Any]:
-    """Builds a minimal CmdbObject doc with the given public_id and type_id."""
+def _supernet_ref(value: Any) -> dict[str, Any]:
+    """The dg-supernet-ref field entry of a SUBNET, holding ``value``."""
     return {
-        CmdbObjectKey.PUBLIC_ID: public_id,
-        CmdbObjectKey.TYPE_ID: type_id,
-        CmdbObjectKey.FIELDS: [],
+        CmdbObjectFieldKey.NAME.value: SubnetField.PARENT_SUPERNET.value,
+        CmdbObjectFieldKey.VALUE.value: value,
+        CmdbObjectFieldKey.TYPE.value: 'ref',
     }
+
+
+def _other_field() -> dict[str, Any]:
+    """A field entry the detach must leave alone."""
+    return {
+        CmdbObjectFieldKey.NAME.value: 'dg-subnet-name',
+        CmdbObjectFieldKey.VALUE.value: 'lan',
+        CmdbObjectFieldKey.TYPE.value: 'text',
+    }
+
+
+def _make_cmdb_object(public_id: int, type_id: int, supernet_ref: Any = SUPERNET_OBJECT_ID) -> dict[str, Any]:
+    """Builds a readable SUBNET CmdbObject doc assigned to ``supernet_ref``."""
+    return {
+        CmdbObjectKey.PUBLIC_ID.value: public_id,
+        CmdbObjectKey.TYPE_ID.value: type_id,
+        CmdbObjectKey.AUTHOR_ID.value: AUTHOR_ID,
+        CmdbObjectKey.VERSION.value: START_VERSION,
+        CmdbObjectKey.FIELDS.value: [_supernet_ref(supernet_ref), _other_field()],
+    }
+
+
+def _plans(*public_ids: int) -> dict[int, PlannedEdit]:
+    """The detach plans of fresh SUBNET documents with the given public_ids."""
+    return plan_subnet_detaches(
+        [_make_cmdb_object(public_id, SUBNET_TYPE_ID) for public_id in public_ids], SUPERNET_OBJECT_ID,
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -290,29 +332,56 @@ def test_load_assigned_subnets_queries_with_public_id_type_and_supernet_ref_filt
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              clear_supernet_ref                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_clear_supernet_ref_issues_one_update_many_raw_call() -> None:
-    """The clear is a single Mongo write, not one-update-per-id"""
-    objects_manager = MagicMock()
+def test_clear_supernet_ref_in_document_clears_only_the_entry_naming_the_supernet() -> None:
+    """The dg-supernet-ref entry loses its value; every other entry is forwarded unchanged"""
+    doc = _make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID)
 
-    clear_supernet_ref(
-        objects_manager,
-        [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B],
-        SUPERNET_OBJECT_ID,
-    )
+    cleared = clear_supernet_ref_in_document(doc, SUPERNET_OBJECT_ID)
 
-    assert objects_manager.update_many_raw.call_count == 1
+    assert cleared[CmdbObjectKey.FIELDS] == [_supernet_ref(None), _other_field()]
 
 
-def test_clear_supernet_ref_filter_pins_ids_and_current_supernet_value() -> None:
-    """Doc filter requires public_id $in AND dg-supernet-ref currently equals supernet id (TOCTOU-safe)"""
-    objects_manager = MagicMock()
-    subnet_ids = [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]
+def test_clear_supernet_ref_in_document_leaves_the_input_untouched() -> None:
+    """The caller's document is read, not rewritten - the plan needs it as the 'before' state"""
+    doc = _make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID)
 
-    clear_supernet_ref(objects_manager, subnet_ids, SUPERNET_OBJECT_ID)
+    clear_supernet_ref_in_document(doc, SUPERNET_OBJECT_ID)
 
-    call_kwargs = objects_manager.update_many_raw.call_args.kwargs
-    assert call_kwargs['filter_query'] == {
-        CmdbObjectKey.PUBLIC_ID: {'$in': subnet_ids},
+    assert doc[CmdbObjectKey.FIELDS] == [_supernet_ref(SUPERNET_OBJECT_ID), _other_field()]
+
+
+def test_clear_supernet_ref_in_document_keeps_a_reference_to_another_supernet() -> None:
+    """Only the entry naming THIS supernet is cleared, which is what the write's array filter matches"""
+    doc = _make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID, supernet_ref=OTHER_SUPERNET_ID)
+
+    cleared = clear_supernet_ref_in_document(doc, SUPERNET_OBJECT_ID)
+
+    assert cleared[CmdbObjectKey.FIELDS] == [_supernet_ref(OTHER_SUPERNET_ID), _other_field()]
+
+
+def test_plan_subnet_detaches_keys_one_plan_per_subnet_by_public_id() -> None:
+    """Every SUBNET gets a plan, found by its public_id"""
+    plans = _plans(SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B)
+
+    assert list(plans) == [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]
+
+
+def test_plan_subnet_detaches_bumps_a_patch_version_and_records_the_one_changed_field() -> None:
+    """Clearing one field is a PATCH bump, and the diff names the reference before and after"""
+    plan = _plans(SUBNET_OBJECT_ID_A)[SUBNET_OBJECT_ID_A]
+
+    assert plan.version == PATCHED_VERSION
+    assert plan.changes == {'old': [_supernet_ref(SUPERNET_OBJECT_ID)], 'new': [_supernet_ref(None)]}
+    assert plan.before.get_public_id() == SUBNET_OBJECT_ID_A
+    assert plan.before.version == START_VERSION
+
+
+def test_build_detach_operation_filter_pins_the_subnet_and_its_current_supernet() -> None:
+    """The document filter re-asserts the supernet reference, so a moved SUBNET does not match (TOCTOU)"""
+    operation: UpdateOne = build_detach_operation(SUBNET_OBJECT_ID_A, SUPERNET_OBJECT_ID, PATCHED_VERSION, {})
+
+    assert operation._filter == {  # pylint: disable=protected-access
+        CmdbObjectKey.PUBLIC_ID: SUBNET_OBJECT_ID_A,
         CmdbObjectKey.FIELDS: {
             '$elemMatch': {
                 CmdbObjectFieldKey.NAME: SubnetField.PARENT_SUPERNET,
@@ -322,27 +391,92 @@ def test_clear_supernet_ref_filter_pins_ids_and_current_supernet_value() -> None
     }
 
 
-def test_clear_supernet_ref_update_sets_value_to_none() -> None:
-    """The update sets the targeted field entry's value to None (not '' or missing)"""
-    objects_manager = MagicMock()
+def test_build_detach_operation_sets_the_reference_version_and_stamp_in_one_statement() -> None:
+    """The reference is cleared with its version bump and edit stamp - never one without the others"""
+    stamp = {CmdbObjectKey.LAST_EDIT_TIME.value: EDIT_TIME, CmdbObjectKey.EDITOR_ID.value: EDITOR_ID}
 
-    clear_supernet_ref(objects_manager, [SUBNET_OBJECT_ID_A], SUPERNET_OBJECT_ID)
+    operation: UpdateOne = build_detach_operation(SUBNET_OBJECT_ID_A, SUPERNET_OBJECT_ID, PATCHED_VERSION, stamp)
 
-    call_kwargs = objects_manager.update_many_raw.call_args.kwargs
-    assert call_kwargs['update'] == {'$set': {'fields.$[f].value': None}}
+    assert operation._doc == {'$set': {  # pylint: disable=protected-access
+        'fields.$[f].value': None,
+        CmdbObjectKey.VERSION.value: PATCHED_VERSION,
+        CmdbObjectKey.LAST_EDIT_TIME.value: EDIT_TIME,
+        CmdbObjectKey.EDITOR_ID.value: EDITOR_ID,
+    }}
 
 
-def test_clear_supernet_ref_array_filter_restricts_to_supernet_ref_field_at_current_value() -> None:
+def test_build_detach_operation_array_filter_restricts_to_the_reference_at_its_current_value() -> None:
     """Array filter pins both name and current value so only the dg-supernet-ref entry is cleared"""
-    objects_manager = MagicMock()
+    operation: UpdateOne = build_detach_operation(SUBNET_OBJECT_ID_A, SUPERNET_OBJECT_ID, PATCHED_VERSION, {})
 
-    clear_supernet_ref(objects_manager, [SUBNET_OBJECT_ID_A], SUPERNET_OBJECT_ID)
-
-    call_kwargs = objects_manager.update_many_raw.call_args.kwargs
-    assert call_kwargs['array_filters'] == [{
+    assert operation._array_filters == [{  # pylint: disable=protected-access
         'f.name': SubnetField.PARENT_SUPERNET,
         'f.value': SUPERNET_OBJECT_ID,
     }]
+
+
+def test_clear_supernet_ref_sends_the_whole_batch_as_one_bulk_write() -> None:
+    """One round trip for the batch: a single bulk_write carrying one statement per SUBNET"""
+    objects_manager = MagicMock()
+
+    clear_supernet_ref(objects_manager, _plans(SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B), SUPERNET_OBJECT_ID)
+
+    objects_manager.bulk_write.assert_called_once()
+    operations = objects_manager.bulk_write.call_args.args[0]
+    assert [op._filter[CmdbObjectKey.PUBLIC_ID] for op in operations] == [  # pylint: disable=protected-access
+        SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B,
+    ]
+    objects_manager.update_many_raw.assert_not_called()
+
+
+def test_clear_supernet_ref_writes_each_planned_version_and_credits_the_user() -> None:
+    """Every statement carries its SUBNET's planned version and the request user as editor"""
+    objects_manager = MagicMock()
+    user = MagicMock(public_id=EDITOR_ID)
+
+    clear_supernet_ref(objects_manager, _plans(SUBNET_OBJECT_ID_A), SUPERNET_OBJECT_ID, user)
+
+    update_set = objects_manager.bulk_write.call_args.args[0][0]._doc['$set']  # pylint: disable=protected-access
+    assert update_set[CmdbObjectKey.VERSION.value] == PATCHED_VERSION
+    assert update_set[CmdbObjectKey.EDITOR_ID.value] == EDITOR_ID
+    assert isinstance(update_set[CmdbObjectKey.LAST_EDIT_TIME.value], datetime)
+
+
+def test_clear_supernet_ref_answers_the_modified_count() -> None:
+    """The count is what tells the orchestrator whether a concurrent writer moved some SUBNETs"""
+    objects_manager = MagicMock()
+    objects_manager.bulk_write.return_value = 1
+
+    modified = clear_supernet_ref(objects_manager, _plans(SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B), SUPERNET_OBJECT_ID)
+
+    assert modified == 1
+
+
+def test_is_detached_by_this_write_accepts_the_planned_version_with_a_cleared_reference() -> None:
+    """The document this write produced: planned version, reference cleared"""
+    plan = _plans(SUBNET_OBJECT_ID_A)[SUBNET_OBJECT_ID_A]
+    after = {**_make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID, supernet_ref=None), 'version': PATCHED_VERSION}
+
+    assert is_detached_by_this_write(after, plan) is True
+
+
+def test_is_detached_by_this_write_rejects_a_subnet_that_kept_its_old_version() -> None:
+    """A SUBNET the write skipped was never bumped, whatever its reference holds now"""
+    plan = _plans(SUBNET_OBJECT_ID_A)[SUBNET_OBJECT_ID_A]
+    after = _make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID, supernet_ref=None)
+
+    assert is_detached_by_this_write(after, plan) is False
+
+
+def test_is_detached_by_this_write_rejects_a_subnet_that_references_a_supernet() -> None:
+    """A SUBNET that holds a supernet reference again is not in the state this write left it in"""
+    plan = _plans(SUBNET_OBJECT_ID_A)[SUBNET_OBJECT_ID_A]
+    after = {
+        **_make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID, supernet_ref=OTHER_SUPERNET_ID),
+        'version': PATCHED_VERSION,
+    }
+
+    assert is_detached_by_this_write(after, plan) is False
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -376,9 +510,10 @@ def test_unassign_subnets_from_supernet_returns_dedup_ids_and_count_on_happy_pat
         objects_manager, types_manager, SUPERNET_OBJECT_ID,
         [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B],
     )
-    clear_mock.assert_called_once_with(
-        objects_manager, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B], SUPERNET_OBJECT_ID,
-    )
+    clear_mock.assert_called_once()
+    written_plans = clear_mock.call_args.args[1]
+    assert list(written_plans) == [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]
+    assert clear_mock.call_args.args[2] == SUPERNET_OBJECT_ID
 
 
 def test_unassign_subnets_from_supernet_propagates_payload_normalization_aborts() -> None:
@@ -649,3 +784,88 @@ def test_the_cap_counts_deduplicated_ids() -> None:
         result = unassign_subnets_from_supernet(objects_manager, types_manager, SUPERNET_OBJECT_ID, ids)
 
     assert result[IpamUnassignKey.UNASSIGNED_COUNT] == IpamUnassignLimits.MAX_SUBNET_IDS
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                    the orchestrator's hand-over to on_write                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _run_detach(modified: int, on_write: Any) -> MagicMock:
+    """Runs the orchestrator for SUBNETs A and B with the write reporting ``modified``."""
+    objects_manager = MagicMock()
+    assigned_docs = [
+        _make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID),
+        _make_cmdb_object(SUBNET_OBJECT_ID_B, SUBNET_TYPE_ID),
+    ]
+
+    with patch(f'{PATH}.assert_supernet_exists'), \
+         patch(f'{PATH}.verify_subnet_write_access'), \
+         patch(f'{PATH}.load_assigned_subnets', return_value=assigned_docs), \
+         patch(f'{PATH}.clear_supernet_ref', return_value=modified), \
+         patch(f'{PATH}.hand_over_object_writes') as hand_over_mock:
+        unassign_subnets_from_supernet(
+            objects_manager, MagicMock(), SUPERNET_OBJECT_ID, [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B],
+            on_write=on_write,
+        )
+
+    return hand_over_mock
+
+
+def test_unassign_hands_every_planned_subnet_over_when_all_were_detached() -> None:
+    """A full count needs no check: every planned SUBNET was written"""
+    on_write = MagicMock()
+
+    hand_over_mock = _run_detach(modified=2, on_write=on_write)
+
+    hand_over_mock.assert_called_once()
+    plans = hand_over_mock.call_args.args[1]
+    assert list(plans) == [SUBNET_OBJECT_ID_A, SUBNET_OBJECT_ID_B]
+    assert hand_over_mock.call_args.args[2] is on_write
+    assert hand_over_mock.call_args.kwargs['is_written'] is None
+
+
+def test_unassign_filters_the_hand_over_when_the_write_skipped_subnets() -> None:
+    """A short count means a concurrent writer moved some - only this write's detaches are handed over"""
+    hand_over_mock = _run_detach(modified=1, on_write=MagicMock())
+
+    assert hand_over_mock.call_args.kwargs['is_written'] is is_detached_by_this_write
+
+
+def test_unassign_returns_the_same_envelope_whatever_on_write_is() -> None:
+    """The callback is a side channel - the response the frontend reads does not change with it"""
+    objects_manager = MagicMock()
+    objects_manager.bulk_write.return_value = 1
+    objects_manager.find_objects.return_value = []
+    assigned_docs = [_make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID)]
+
+    with patch(f'{PATH}.assert_supernet_exists'), \
+         patch(f'{PATH}.verify_subnet_write_access'), \
+         patch(f'{PATH}.load_assigned_subnets', return_value=assigned_docs):
+        result = unassign_subnets_from_supernet(
+            objects_manager, MagicMock(), SUPERNET_OBJECT_ID, [SUBNET_OBJECT_ID_A], on_write=MagicMock(),
+        )
+
+    assert result == {IpamUnassignKey.SUBNET_IDS: [SUBNET_OBJECT_ID_A], IpamUnassignKey.UNASSIGNED_COUNT: 1}
+
+
+def test_unassign_hands_the_read_back_subnet_to_on_write_end_to_end() -> None:
+    """Unpatched below the managers: on_write receives before, after and diff of the detached SUBNET"""
+    objects_manager = MagicMock()
+    objects_manager.bulk_write.return_value = 1
+    after_doc = {
+        **_make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID, supernet_ref=None),
+        CmdbObjectKey.VERSION.value: PATCHED_VERSION,
+    }
+    objects_manager.find_objects.return_value = [after_doc]
+    received: list[ObjectWrite] = []
+
+    with patch(f'{PATH}.assert_supernet_exists'), \
+         patch(f'{PATH}.verify_subnet_write_access'), \
+         patch(f'{PATH}.load_assigned_subnets', return_value=[_make_cmdb_object(SUBNET_OBJECT_ID_A, SUBNET_TYPE_ID)]):
+        unassign_subnets_from_supernet(
+            objects_manager, MagicMock(), SUPERNET_OBJECT_ID, [SUBNET_OBJECT_ID_A], on_write=received.append,
+        )
+
+    assert len(received) == 1
+    assert received[0].before.version == START_VERSION
+    assert received[0].after.version == PATCHED_VERSION
+    assert received[0].changes['new'] == [_supernet_ref(None)]

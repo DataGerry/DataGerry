@@ -304,19 +304,40 @@ def test_is_config_item_limit_reached(limit: int, count: int, expected: bool) ->
     assert _user(config_items_limit=limit).is_config_item_limit_reached(count) is expected
 
 
-@pytest.mark.parametrize('limit', [None, 0])
-def test_a_falsy_limit_is_replaced_by_the_default(limit: Any) -> None:
-    """
-    Current behaviour, pinned rather than endorsed
+def test_a_limit_of_zero_refuses_every_new_object() -> None:
+    """0 is a real limit, not "not configured": nothing may be created, not even the first object"""
+    user = _user(config_items_limit=0)
 
-    A falsy limit - an explicit 0 included - is treated as 'unset' and replaced with the default, and
-    the replacement is written back onto the instance, so this predicate mutates the user it is asked
-    about. A subscription capped at 0 config items therefore gets 1000.
-    """
+    assert user.is_config_item_limit_reached(0) is True
+    assert user.config_items_limit == 0
+
+
+def test_a_none_limit_becomes_the_default_when_the_user_is_built() -> None:
+    """None means "not configured" - the default is applied once, in the constructor"""
+    user = _user(config_items_limit=None)
+
+    assert user.config_items_limit == DEFAULT_CONFIG_ITEMS_LIMIT
+    assert user.is_config_item_limit_reached(DEFAULT_CONFIG_ITEMS_LIMIT - 1) is False
+    assert user.is_config_item_limit_reached(DEFAULT_CONFIG_ITEMS_LIMIT) is True
+
+
+@pytest.mark.parametrize('stored', [None, 0])
+def test_from_data_defaults_only_a_null_limit(stored: Any) -> None:
+    """A stored null reads as the default; a stored 0 reads as 0"""
+    user = CmdbUser.from_data(_document(**{CmdbUserKey.CONFIG_ITEMS_LIMIT.value: stored}))
+
+    expected: int = DEFAULT_CONFIG_ITEMS_LIMIT if stored is None else stored
+    assert user.config_items_limit == expected
+
+
+@pytest.mark.parametrize('limit, count', [(0, 5), (10, 3), (10, 10)])
+def test_the_check_does_not_change_the_user(limit: int, count: int) -> None:
+    """Asking the question leaves the limit exactly as it was, whatever the answer"""
     user = _user(config_items_limit=limit)
 
-    assert user.is_config_item_limit_reached(5) is False
-    assert user.config_items_limit == DEFAULT_CONFIG_ITEMS_LIMIT
+    user.is_config_item_limit_reached(count)
+
+    assert user.config_items_limit == limit
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

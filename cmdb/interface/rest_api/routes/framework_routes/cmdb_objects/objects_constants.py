@@ -22,10 +22,13 @@ the model (``CmdbObjectKey`` in ``cmdb.models.object_model``); what lives here i
 REST surface: query parameters, response keys and the routes' own limits
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.models.log_model.object_log_constants import OBJECT_LOG_LOST_MARKER
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'MAX_DASHBOARD_GROUPS',
+    'OBJECT_LOG_LOST_MARKER',
     'SINGLE_OBJECT_VIEW_MODES',
     'SINGLE_OBJECT_VIEW_INVALID_MESSAGE',
     'ObjectViewMode',
@@ -33,15 +36,37 @@ __all__: list[str] = [
     'ObjectQueryParam',
     'ObjectGroupKey',
     'BulkDeleteKey',
+    'ObjectLogComment',
 ]
 
 # Maximum number of type groups returned for the dashboard chart by the group-by route. The chart shows
 # the biggest groups only, so the route stops collecting once it has this many
 MAX_DASHBOARD_GROUPS: int = 5
 
+# The CmdbObject fields `GET /objects/group/<value>` may group by. Every group id is resolved as a CmdbType,
+# so no other field could answer
+GROUPABLE_OBJECT_FIELDS: frozenset[str] = frozenset({CmdbObjectKey.TYPE_ID.value})
+OBJECT_GROUP_FIELD_REFUSED_MESSAGE: str = "Objects can only be grouped by 'type_id', not by '{field}'!"
+
 # Joins the per-scope messages of a rejected write when several required fields are left without a
 # value (one message for the top-level fields, one per multi-data section)
 REQUIRED_FIELD_ERROR_SEPARATOR: str = ' | '
+
+# Joins the messages of a write refused for its field values (a value too long for its field kind, or
+# not matching its field's pattern), one message per field and place
+FIELD_VALUE_ERROR_SEPARATOR: str = ' | '
+
+
+
+
+class ObjectLogComment(BaseStrEnum):
+    """The comment the backend writes on a CmdbObjectLog entry it creates itself"""
+    CREATED = 'Object created'
+    DELETED = 'Object was deleted'
+    ACTIVE_CHANGED = 'Active status has changed'
+    IMPORTED = 'Object was imported'
+    SUBNET_UNASSIGNED_FROM_SUPERNET = 'Subnet unassigned from its supernet'
+    IPS_UNASSIGNED_FROM_SUBNET = 'Interface unassigned from a subnet'
 
 
 class ObjectViewMode(BaseStrEnum):

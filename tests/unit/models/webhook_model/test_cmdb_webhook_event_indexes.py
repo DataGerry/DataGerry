@@ -18,11 +18,11 @@ Unit tests for the CmdbWebhookEvent index declarations
 
 ``framework.webhookEvents`` is append-only and unbounded: one document per object write per matching
 active webhook, with no retention policy. It is also never read by public_id from the UI - the log
-table sorts by ``webhook_id`` (its default) and searches ``webhook_id`` and ``event_time``. Until
-2026-08-27 the model declared no INDEX_KEYS at all, so every page view of that table was a collection
-scan plus an in-memory sort over a collection that only grows. These tests pin the two declarations so
-they cannot be dropped unnoticed - and dropping one would not even show up in the database, because
-index reconciliation is purely additive.
+table sorts by ``webhook_id`` (its default) and searches ``webhook_id`` and ``event_time``. Without
+INDEX_KEYS every page view of that table would be a collection scan plus an in-memory sort over a
+collection that only grows. These tests pin the two declarations so they cannot be dropped unnoticed -
+and dropping one would not even show up in the database, because index reconciliation is purely
+additive.
 """
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent

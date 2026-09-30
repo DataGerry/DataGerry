@@ -24,8 +24,7 @@ It deliberately does NOT repeat the enforcement tests: `TestReportRouteRights` /
 users and groups that a user without the right is refused and that a view-only user cannot write.
 What those cannot see is a confusion between two WRITE rights - if the delete route asked for EDIT,
 a no-rights user would still get 403 and a view-only user would still get 403, so every existing
-test would pass. That is the gap this module closes, for the reports the same way
-tests/functional/webhook/test_functional_webhook_rights.py does for the webhooks
+test would pass. That is the gap this module closes for the reports
 """
 from typing import Any, Callable
 from urllib.parse import urlencode

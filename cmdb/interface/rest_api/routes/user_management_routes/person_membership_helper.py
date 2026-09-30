@@ -17,9 +17,9 @@
 Reference guards shared by the CmdbPerson and CmdbPersonGroup routes
 
 Both sides of the person / person-group membership are written by the client as a list of public_ids -
-a person names their groups, a group names its members - and both used to be stored without ever
-asking whether those ids exist. An unknown id was accepted silently: the document kept it, the
-reciprocal ``$addToSet`` matched no document, and the two sides of the membership disagreed from that
+a person names their groups, a group names its members. Stored without asking whether those ids
+exist, an unknown id would be accepted silently: the document would keep it, the reciprocal
+``$addToSet`` would match no document, and the two sides of the membership would disagree from that
 moment on, with nothing in the response to say so.
 
 ``abort_on_unknown_references`` is the guard both routes run before writing. It costs one projected

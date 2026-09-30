@@ -29,6 +29,11 @@ import pytest
 from flask import Flask
 from werkzeug.exceptions import BadRequest, HTTPException
 
+from cmdb.manager.objects_propagation_helper import (
+    build_add_field_update,
+    build_remove_undeclared_fields_update,
+)
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
     render_or_native,
     build_field_value_map,
@@ -37,11 +42,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     is_special_type_changed,
     validate_and_fill_object_fields,
     validate_required_object_fields,
+    validate_object_field_values,
     guard_object_write_license,
     guard_object_delete_license,
     to_normalized_cmdb_object,
     build_new_object_data,
-    compute_object_version,
     apply_object_update,
     sync_select_field_options,
     collect_unknown_select_values,
@@ -77,6 +82,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType, SectionType
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model import TEXT_VALUE_MAX_LENGTH
+from cmdb.framework.object_field_value_constants import FieldValueError
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    FIELD_VALUE_ERROR_SEPARATOR,
+)
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
@@ -358,6 +368,59 @@ class TestValidateRequiredObjectFields:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                          validate_object_field_values                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestValidateObjectFieldValues:
+    """validate_object_field_values refuses a write storing a value its field does not allow."""
+
+    TEXT_FIELD: str = 'a-text'
+    CODE_FIELD: str = 'a-code'
+    CODE_REGEX: str = '[A-Z]+'
+    TOO_LONG: str = 'x' * (TEXT_VALUE_MAX_LENGTH + 1)
+
+    @classmethod
+    def _type(cls) -> CmdbType:
+        """A CmdbType with a plain text field and a patterned one"""
+        fields: list[dict[str, Any]] = [
+            {'type': FieldType.TEXT.value, 'name': cls.TEXT_FIELD, 'label': 'Text'},
+            {'type': FieldType.TEXT.value, 'name': cls.CODE_FIELD, 'label': 'Code', 'regex': cls.CODE_REGEX},
+        ]
+        sections: list[dict[str, Any]] = [{
+            'type': SectionType.SECTION.value, 'name': 'information', 'label': 'Information',
+            'fields': [cls.TEXT_FIELD, cls.CODE_FIELD],
+        }]
+
+        return CmdbType.from_data(make_type_doc(6, 'value-rules-demo', fields=fields, sections=sections))
+
+    def test_valid_values_pass(self) -> None:
+        """Nothing aborts"""
+        validate_object_field_values({'fields': [{'name': self.CODE_FIELD, 'value': 'ABC'}]}, self._type())
+
+    def test_every_broken_rule_is_one_400_message(self) -> None:
+        """Both fields' messages, joined"""
+        object_data = {'fields': [
+            {'name': self.TEXT_FIELD, 'value': self.TOO_LONG}, {'name': self.CODE_FIELD, 'value': 'abc'},
+        ]}
+
+        with pytest.raises(HTTPException) as exc_info:
+            validate_object_field_values(object_data, self._type())
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == FIELD_VALUE_ERROR_SEPARATOR.join([
+            FieldValueError.TOO_LONG.format(
+                field=self.TEXT_FIELD, length=len(self.TOO_LONG), max_length=TEXT_VALUE_MAX_LENGTH,
+            ),
+            FieldValueError.PATTERN_MISMATCH.format(field=self.CODE_FIELD, regex=self.CODE_REGEX),
+        ])
+
+    def test_a_value_the_stored_object_holds_is_not_judged(self) -> None:
+        """The update passes the stored object; an unchanged value is not its business"""
+        stored = {'fields': [{'name': self.TEXT_FIELD, 'value': self.TOO_LONG}]}
+
+        validate_object_field_values(stored, self._type(), previous_object=stored)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                          guard_object_write_license                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGuardObjectWriteLicense:
@@ -489,37 +552,6 @@ class TestBuildNewObjectData:
             new_data, _ = build_new_object_data(manager, {'type_id': 5, 'active': False, 'fields': []})
 
         assert new_data['active'] is False
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                               compute_object_version                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestComputeObjectVersion:
-    """compute_object_version picks the version bump from the field-level diff size."""
-
-    @pytest.mark.parametrize('field_count,changed_count,expected_attr', [
-        (3, 1, 'VERSIONING_PATCH'),   # a single changed field is a patch
-        (3, 3, 'VERSIONING_MAJOR'),   # all fields changed is a major
-        (4, 3, 'VERSIONING_MINOR'),   # more than half (but not all) is a minor
-        (4, 2, 'VERSIONING_PATCH'),   # not >half, not all, not one -> patch
-    ])
-    def test_bump_selection(self, field_count: int, changed_count: int, expected_attr: str) -> None:
-        """The correct VERSIONING_* constant is passed to update_version for each diff size."""
-        base_fields = [{'name': f'f{i}', 'value': i} for i in range(field_count)]
-        current = _make_object(base_fields)
-
-        updated_fields = [dict(field) for field in base_fields]
-        for i in range(changed_count):
-            updated_fields[i] = {'name': f'f{i}', 'value': 1000 + i}
-        updated = _make_object(updated_fields)
-
-        updated.update_version = MagicMock(return_value='bumped')
-
-        new_version, changes = compute_object_version(current, updated)
-
-        assert new_version == 'bumped'
-        assert len(changes['new']) == changed_count
-        updated.update_version.assert_called_once_with(getattr(CmdbObject, expected_attr))
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -882,51 +914,54 @@ class TestGuardObjectsDelete:
 #                                        emit_object_state_change_events                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestRealignObjectsToType:
-    """realign_objects_to_type drops stale fields, adds missing ones, returns removed names."""
+    """
+    realign_objects_to_type hands the objects manager server-side statements - it reads no object
+
+    One pull of every name the type does not declare, then one push per declared field that only
+    matches the objects lacking it, seeded with the field's default.
+    """
 
     @staticmethod
     def _type(fields: list[dict[str, Any]], public_id: int = 1) -> SimpleNamespace:
         """A CmdbType stand-in exposing only .fields and .public_id."""
         return SimpleNamespace(fields=fields, public_id=public_id)
 
-    @staticmethod
-    def _object(field_names: list[str], public_id: int) -> MagicMock:
-        """A CmdbObject stand-in whose get_all_fields returns name-only field dicts."""
-        obj = MagicMock()
-        obj.public_id = public_id
-        obj.get_all_fields.return_value = [{'name': name} for name in field_names]
-        return obj
-
-    def test_removes_stale_and_adds_missing(self) -> None:
-        """An object with a stale field and a missing field yields one bulk write + the removed name."""
+    def test_pulls_the_undeclared_names_and_pushes_every_declared_field(self) -> None:
+        """The statements cover both halves of the drift, whatever the objects hold"""
         objects_manager = MagicMock()
-        objects_manager.get_objects_by.return_value = [self._object(['keep', 'stale'], public_id=11)]
-
         type_instance = self._type([
             {'name': 'keep', 'type': 'text'},
-            {'name': 'added', 'type': 'text', 'value': 'def'},
+            {'name': 'added', 'type': 'date', 'value': 'def'},
+        ], public_id=5)
+
+        realign_objects_to_type(objects_manager, type_instance)
+
+        objects_manager.apply_raw_updates.assert_called_once_with([
+            build_remove_undeclared_fields_update(5, ['added', 'keep']),
+            build_add_field_update(5, {'name': 'keep', 'type': 'text', 'value': None}),
+            build_add_field_update(5, {'name': 'added', 'type': 'date', 'value': 'def'}),
         ])
 
-        removed = realign_objects_to_type(objects_manager, type_instance)
-
-        assert removed == {'stale'}
-        objects_manager.bulk_write.assert_called_once()
-
-    def test_no_drift_writes_nothing(self) -> None:
-        """An object already matching the type produces no bulk write and an empty removed set."""
+    def test_reads_no_object(self) -> None:
+        """Nothing is loaded to decide the drift - the statements match what needs changing"""
         objects_manager = MagicMock()
-        objects_manager.get_objects_by.return_value = [self._object(['keep'], public_id=12)]
 
-        removed = realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
+        realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
 
-        assert removed == set()
-        objects_manager.bulk_write.assert_not_called()
+        objects_manager.get_objects_by.assert_not_called()
 
-    def test_bulk_write_failure_aborts_500(self) -> None:
-        """A bulk-write failure surfaces as a 500."""
+    def test_a_type_without_fields_only_pulls(self) -> None:
+        """With nothing declared every flat entry is stale"""
         objects_manager = MagicMock()
-        objects_manager.get_objects_by.return_value = [self._object(['stale'], public_id=13)]
-        objects_manager.bulk_write.side_effect = RuntimeError('boom')
+
+        realign_objects_to_type(objects_manager, self._type([], public_id=6))
+
+        objects_manager.apply_raw_updates.assert_called_once_with([build_remove_undeclared_fields_update(6, [])])
+
+    def test_a_failing_statement_aborts_500(self) -> None:
+        """A write failure surfaces as a 500, the route's answer for a broken re-alignment"""
+        objects_manager = MagicMock()
+        objects_manager.apply_raw_updates.side_effect = ObjectsManagerUpdateError('boom')
 
         with pytest.raises(HTTPException) as exc_info:
             realign_objects_to_type(objects_manager, self._type([{'name': 'keep', 'type': 'text'}]))
@@ -940,8 +975,8 @@ class TestRealignObjectsToType:
 class TestCleanTypeReports:
     """clean_type_reports is the route-layer wrapper: it delegates and maps failures to 500.
 
-    The stripping itself lives on ReportsManager (so the section-template removal and the database
-    updaters can reuse it) and is covered in tests/unit/manager/test_reports_manager.py.
+    The stripping itself lives on ReportsManager, so the section-template removal and the database
+    updaters can reuse it; its own tests pin what it strips.
     """
 
     def test_delegates_to_the_reports_manager(self) -> None:

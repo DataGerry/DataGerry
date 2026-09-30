@@ -19,8 +19,7 @@ Unit tests for cmdb.manager.groups_manager.GroupsManager
 Pure tests: no Mongo. The override methods (``insert_group``, ``get_group``, ``update_group``,
 ``delete_group``) and the rights-cache init are exercised against a MagicMock standing in for the
 manager instance. The one-line delegation ``iterate`` is intentionally outside the scope - it is
-covered transitively by the GenericManager unit suite and the integration tests in
-tests/integration/management
+covered transitively by the GenericManager unit suite and the management integration tests
 """
 # pylint: disable=protected-access
 from typing import Any
@@ -32,6 +31,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.groups_manager import GroupsManager, PROTECTED_GROUP_IDS
 from cmdb.models.group_model import CmdbUserGroup
 
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.manager.groups_manager import (
     GroupsManagerInitError,
     GroupsManagerInsertError,
@@ -129,6 +129,20 @@ class TestInsertGroup:
 
         with pytest.raises(GroupsManagerInsertError):
             GroupsManager.insert_group(mgr, SAMPLE_GROUP_DICT)
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentLockTimeoutError('lock timeout'),
+    ], ids=['network', 'lock-timeout'])
+    def test_a_transient_failure_is_raised_unwrapped(self, failure: Exception) -> None:
+        """Not the insert error the route answers 400: a lock timeout or an outage is no fault of the group."""
+        mgr = _mock_manager()
+        mgr.insert.side_effect = failure
+
+        with pytest.raises(type(failure)) as caught:
+            GroupsManager.insert_group(mgr, SAMPLE_GROUP_DICT)
+
+        assert caught.value is failure
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

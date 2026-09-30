@@ -17,13 +17,13 @@
 Functional smoke for the ``/isms/risk_assessments`` REST routes
 
 Covers CRUD, the ``/duplicate`` route, the enriched GET-list, the delete cascade, error -> 400
-mapping, and two regression guards from the audit: omitting ``control_measure_assignments`` must not
-500 (insert AND update), and a null ``costs_for_implementation`` is accepted (it is nullable). The
+mapping, and two guards: omitting ``control_measure_assignments`` must not 500 (insert AND
+update), and a null ``costs_for_implementation`` is accepted (it is nullable). The
 routes are ISMS-license gated, so the check is stubbed.
 
 TestStoredDateShape covers what the routes do to a date on its way through: the document ends up with
-a real BSON date while the response keeps the ``{'$date': ...}`` wrapper the frontend sends, which is
-what made that storage change invisible to the frontend.
+a real BSON date while the response keeps the ``{'$date': ...}`` wrapper the frontend sends, so the
+storage shape is invisible to the frontend.
 """
 import json
 from datetime import datetime
@@ -58,6 +58,13 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerDeleteError,
     RiskAssessmentManagerIterationError,
 )
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    RISK_ASSESSMENT_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risk_assessments'
@@ -204,10 +211,10 @@ def _insert_ra(database_manager: MongoDatabaseManager, database_name: str, publi
 
 
 class TestPostRiskAssessment:
-    """POST /isms/risk_assessments/ creates an assessment (and its regression guards)."""
+    """POST /isms/risk_assessments/ creates an assessment."""
 
     def test_creates_without_control_measure_assignments(self, rest_api) -> None:
-        """Omitting control_measure_assignments must succeed, not 500 (insert regression)."""
+        """Omitting control_measure_assignments must succeed on insert, not 500."""
         response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
@@ -470,12 +477,22 @@ class TestPutRiskAssessment:
     def test_update_without_control_measure_assignments(self, rest_api,
                                                        database_manager: MongoDatabaseManager,
                                                        database_name: str) -> None:
-        """Omitting control_measure_assignments must succeed, not 500 (the HIGH update regression)."""
+        """Omitting control_measure_assignments must succeed on update, not 500."""
         _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
 
         response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=_ra_body(RA_ID_FOR_UPDATE))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_a_body_public_id_can_not_move_the_risk_assessment(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored risk assessment in place"""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', _ra_body(MISSING_RA_ID),
+            database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name), RA_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent assessment returns 404."""
@@ -801,11 +818,16 @@ class TestErrorMapping:
 
         assert rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET)).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created assessment cannot be re-read, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(RiskAssessmentManager, 'get_item', lambda *_args, **_kwargs: None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_ASSESSMENT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""
@@ -874,7 +896,7 @@ class TestStoredDateShape:
         The route stores what MongoDB can sort, not the sub-document the frontend sends.
 
         Read straight from the collection on purpose: the response would look identical either way,
-        which is exactly why this went unnoticed.
+        so only the stored document shows the difference.
         """
         response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
         created_id = response.get_json()['raw']['public_id']
@@ -887,7 +909,7 @@ class TestStoredDateShape:
     def test_a_created_assessment_is_found_by_a_date_range_query(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Which is the whole point: before this, such a query matched nothing at all."""
+        """A range query on the stored date matches it - a {'$date'} sub-document would match nothing."""
         response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET))
         created_id = response.get_json()['raw']['public_id']
 
@@ -927,7 +949,7 @@ class TestStoredDateShape:
         """
         A database that has not run the migration yet is still served correctly.
 
-        The model reads both shapes, so the fix does not depend on the migration having run first.
+        The model reads both shapes, so serving does not depend on the migration having run first.
         """
         _insert_ra(database_manager, database_name, RA_ID_FOR_GET)
 
@@ -939,7 +961,7 @@ class TestStoredDateShape:
         """
         A date nothing can read is a 400, not a guess.
 
-        With fuzzy parsing this stored a date assembled from today's values, which then looked like a
+        Fuzzy parsing would store a date assembled from today's values, which would then look like a
         deliberate entry.
         """
         response = rest_api.post(
@@ -977,21 +999,21 @@ class TestStoredDateShape:
 
 
 class TestPinnedEnumValues:
-    """The two fields whose values were previously unconstrained."""
+    """The two fields whose values are pinned to a fixed set."""
 
     def test_an_unknown_treatment_option_returns_400(self, rest_api) -> None:
         """
         A treatment option outside TreatmentOption is refused by validation.
 
-        It used to be stored: the reports group by this field, so an unknown value became a group
-        nothing could name.
+        Stored, it would break the reports: they group by this field, so an unknown value would become
+        a group nothing could name.
         """
         response = rest_api.post(f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_treatment_option='MAYBE'))
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_a_known_treatment_option_is_accepted(self, rest_api) -> None:
-        """The four real options still pass, so the tightening does not break the form."""
+        """The four real options still pass, so the constraint does not break the form."""
         response = rest_api.post(
             f'{ROUTE_URL}/', json=_ra_body(RA_ID_FOR_GET, risk_treatment_option=TreatmentOption.REDUCE.value),
         )
@@ -1018,9 +1040,9 @@ class TestDuplicateDoesNotStoreTheTransportKey:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """
-        The insert route popped the key and the duplicate route did not.
+        The duplicate route drops the key before storing, as the insert route does.
 
-        A stored copy was then invisible in every response - the read routes answer through the model,
+        A stored copy would be invisible in every response - the read routes answer through the model,
         which only emits the keys it declares - while still sitting in the document.
         """
         _insert_ra(database_manager, database_name, RA_ID_FOR_DUPLICATE)

@@ -24,8 +24,8 @@ cascade and the mapping of every BaseManager failure onto this manager's error f
 
 The group-delete redistribution gets the most attention here, because a mistake in it is silent: a
 user left pointing at a deleted group still authenticates but is refused every right (see
-``route_utils.user_has_right``, which resolves their group to None). The same paths are pinned
-against real MongoDB in tests/integration/management/test_integration_users_manager_extra.py.
+``route_utils.user_has_right``, which resolves their group to None). The same paths also run
+against real MongoDB in the integration tier.
 """
 # pylint: disable=protected-access
 from typing import Any
@@ -40,6 +40,13 @@ from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
 
+from cmdb.utils import find_cause
+from cmdb.errors.database import (
+    DocumentDuplicateKeyError,
+    DocumentInsertDuplicateKeyError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
+)
 from cmdb.errors.manager import (
     BaseManagerDeleteError,
     BaseManagerGetError,
@@ -159,12 +166,40 @@ class TestInsertUser:
         mgr.insert.assert_called_once_with(SAMPLE_USER_DICT)
 
     def test_wraps_an_insert_failure(self) -> None:
-        """A duplicate user_name (unique index) has to surface as this manager's insert error."""
+        """A failed insert surfaces as this manager's insert error, carrying the failure itself."""
         mgr = _mock_manager()
-        mgr.insert.side_effect = RuntimeError('duplicate key')
+        failure = RuntimeError('insert failed')
+        mgr.insert.side_effect = failure
 
-        with pytest.raises(UsersManagerInsertError):
+        with pytest.raises(UsersManagerInsertError) as caught:
             UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
+
+        assert caught.value.args[0] is failure
+
+    def test_a_duplicate_user_name_is_findable_by_type_beneath_the_insert_error(self) -> None:
+        """The route's abort_if_duplicate looks for exactly this: the typed refusal in the cause chain."""
+        mgr = _mock_manager()
+        refusal = DocumentInsertDuplicateKeyError('duplicate', key_pattern={'user_name': 1})
+        mgr.insert.side_effect = refusal
+
+        with pytest.raises(UsersManagerInsertError) as caught:
+            UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
+
+        assert find_cause(caught.value, DocumentDuplicateKeyError) is refusal
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentLockTimeoutError('lock timeout'),
+    ], ids=['network', 'lock-timeout'])
+    def test_a_transient_failure_is_raised_unwrapped(self, failure: Exception) -> None:
+        """Not the insert error the route answers: a lock timeout or an outage is no fault of the user."""
+        mgr = _mock_manager()
+        mgr.insert.side_effect = failure
+
+        with pytest.raises(type(failure)) as caught:
+            UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
+
+        assert caught.value is failure
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -541,6 +576,30 @@ class TestMoveGroupMembers:
         mgr.update_many.assert_not_called()
 
 
+class TestHasGroupMembers:
+    """Whether a group still has members, asked with a limit of one."""
+
+    @pytest.mark.parametrize('count, expected', [(0, False), (1, True)], ids=['empty', 'members'])
+    def test_answers_the_limited_count(self, count: int, expected: bool) -> None:
+        """One index lookup, whatever the group's size"""
+        mgr = _mock_manager()
+        mgr.count_documents.return_value = count
+
+        assert UsersManager.has_group_members(mgr, SRC_GROUP_ID) is expected
+        mgr.count_documents.assert_called_once_with({'group_id': SRC_GROUP_ID}, limit=1)
+
+    def test_a_failed_count_is_a_get_error_carrying_the_cause(self) -> None:
+        """The route maps it to its own 400; the original error stays reachable"""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('db down')
+        mgr.count_documents.side_effect = cause
+
+        with pytest.raises(UsersManagerGetError) as exc_info:
+            UsersManager.has_group_members(mgr, SRC_GROUP_ID)
+
+        assert exc_info.value.__cause__ is cause
+
+
 class TestDeleteGroupMembers:
     """DELETE: refuse for the admin, then delete the members and their settings."""
 
@@ -597,5 +656,17 @@ class TestDeleteGroupMembers:
 
         UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
 
-        mgr.delete_many.assert_called_once_with({'group_id': SRC_GROUP_ID})
+        mgr.delete_many.assert_called_once_with({'public_id': {'$in': [USER_ID, OTHER_USER_ID]}})
         mgr._delete_user_settings.assert_called_once_with([USER_ID, OTHER_USER_ID])
+
+    def test_deletes_exactly_the_members_it_read(self) -> None:
+        """By id, not by re-running the group query - a user added in between keeps account and settings together"""
+        mgr = _mock_manager()
+        mgr.get_one_by.return_value = None
+        mgr.find.return_value = [{'public_id': USER_ID}]
+
+        UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
+
+        criteria: dict[str, Any] = mgr.delete_many.call_args.args[0]
+        assert 'group_id' not in criteria
+        assert criteria == {'public_id': {'$in': [USER_ID]}}

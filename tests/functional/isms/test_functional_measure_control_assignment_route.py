@@ -39,6 +39,11 @@ from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerDeleteError,
     ControlMeasureAssignmentManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    CONTROL_MEASURE_ASSIGNMENT_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/control_measure_assignments'
@@ -196,9 +201,8 @@ class TestGetControlMeasureAssignment:
         The other half of the reference split: a RiskAssessment pointing at one CmdbObject
 
         A RiskAssessment references EITHER a single object or an object group, and the two are
-        collected into different id sets and resolved by different managers. Only the group half was
-        exercised, so the object half - the one that reads a summary line rather than a group name -
-        had never run.
+        collected into different id sets and resolved by different managers. This covers the object
+        half - the one that reads a summary line rather than a group name.
         """
         _insert_cma(database_manager, database_name, CMA_ID_FOR_OBJECT_ENRICH,
                     risk_assessment_id=OBJECT_RISK_ASSESSMENT_ID)
@@ -240,8 +244,8 @@ class TestPutControlMeasureAssignment:
         """
         The URL owns the identity
 
-        Before the identity was pinned, the body's public_id was `$set` onto the document: the update
-        answered 202 and the row moved to the client's id, leaving the URL's id pointing at nothing.
+        A body public_id `$set` onto the document would answer 202 and move the row to the client's id,
+        leaving the URL's id pointing at nothing.
         """
         _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
         payload = _cma_payload(CMA_ID_FOR_UPDATE)
@@ -259,9 +263,9 @@ class TestPutControlMeasureAssignment:
                                                         database_manager: MongoDatabaseManager,
                                                         database_name: str) -> None:
         """
-        The identity is optional in a request body, and omitting it used to be a 500
+        The identity is optional in a request body, and omitting it is not a 500
 
-        `public_id` is not part of the request schema at all now, so a consumer that treats it as
+        `public_id` is not part of the request schema at all, so a consumer that treats it as
         server-owned - the correct assumption - gets a normal update instead of an unexplained 500.
         """
         _insert_cma(database_manager, database_name, CMA_ID_FOR_UPDATE)
@@ -351,13 +355,18 @@ class TestErrorMapping:
 
         assert rest_api.delete(f'{ROUTE_URL}/{CMA_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created assignment cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_missing_control_measure_ids', lambda *_a, **_k: [])
         monkeypatch.setattr(ControlMeasureAssignmentManager, 'insert_item', lambda *_a, **_k: CMA_ID_FOR_GET)
         monkeypatch.setattr(ControlMeasureAssignmentManager, 'get_item', lambda *_a, **_k: None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_cma_payload(CMA_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            CONTROL_MEASURE_ASSIGNMENT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created assignment surfaces as 400."""

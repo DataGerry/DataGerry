@@ -18,7 +18,7 @@ Unit tests for `as_executable_pattern`
 
 The rule is narrow on purpose: a term that compiles goes to the database as written, a term that does
 not goes as an escaped literal. These pin both halves, and - because it is the interesting boundary -
-which side of it the three terms recorded in tier 2 T187 fall on.
+which side of it the awkward terms fall on.
 """
 import re
 
@@ -58,7 +58,7 @@ def test_an_escaped_term_is_left_alone() -> None:
 
 def test_a_still_wrong_pattern_is_not_rescued() -> None:
     """
-    The rest of T187, stated as a test so the boundary is not mistaken for a full fix
+    The remaining half, stated as a test so the boundary is not mistaken for a full fix
 
     `C++` and `Data (EU)` are valid patterns, so nothing here can tell they were meant literally.
     Closing that needs the frontend to stop escaping at the same time.

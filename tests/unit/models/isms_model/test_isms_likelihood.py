@@ -17,7 +17,7 @@
 Unit tests for cmdb.models.isms_model.isms_likelihood.IsmsLikelihood
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO, whose shared machinery has its own tests, so what is
 pinned here is what remains this model's own - and most of it is about its twin:
 
   - **``IsmsImpact`` is the structural twin.** Both carry exactly public_id / name /
@@ -26,7 +26,7 @@ pinned here is what remains this model's own - and most of it is about its twin:
     nothing. Both directions are pinned below
   - **the two axes must agree on their rules.** They are the two axes of one risk matrix, and they had
     drifted: this scale refused a zero weight while the impact scale allowed it. The cross-model test
-    below is what keeps them aligned, and it is the reason the impact schema changed on 2026-09-07
+    below is what keeps them aligned, and it is the reason the impact schema reads
   - what its own schema accepts: a level created without a description round-trips as null, and the
     frontend's edit modal patches that null straight back into the form it saves
 
@@ -139,7 +139,7 @@ class TestTheTwoMatrixAxesAgree:
         The drift this audit found
 
         The likelihood schema has always said ``'min': 1e-9``; the impact schema said ``0.0`` until
-        2026-09-07, alone among the four layers with an opinion - the two frontend forms both apply
+        the same rule as the other three layers with an opinion - the two frontend forms both apply
         ``nonZeroValidator`` and the OpenAPI schema documented 1e-9.
         """
         zero_document = {'public_id': 1, 'name': NAME, 'calculation_basis': 0.0}
@@ -197,7 +197,7 @@ class TestWhatTheModelEmitsIsAcceptedBack:
         The regression: a level created without a description could not be edited
 
         The list route answers to_json, the edit modal patches that null in unchanged, and the save
-        used to come back 400 'null value not allowed'.
+        must not come back 400 'null value not allowed'.
         """
         document = _document()
         del document[LikelihoodKey.DESCRIPTION.value]
@@ -220,7 +220,7 @@ class TestRequiredDocumentKeys:
 
     @pytest.mark.parametrize('missing_key', LIKELIHOOD_REQUIRED_DOCUMENT_KEYS)
     def test_a_document_missing_one_is_refused(self, missing_key: str) -> None:
-        """A tightening: from_data used to read every key with .get and build an instance anyway."""
+        """A tightening: reading every key with .get would build an instance out of anything."""
         document = _document()
         del document[missing_key]
 
@@ -261,7 +261,7 @@ class TestKeywordOnlyInit:
             IsmsLikelihood(PUBLIC_ID, NAME, CALCULATION_BASIS)
 
     def test_a_description_is_optional(self) -> None:
-        """It was a required positional until 2026-09-07, unlike the twin's."""
+        """It is optional here, like the twin's."""
         likelihood = IsmsLikelihood(public_id = PUBLIC_ID, name = NAME,
                                     calculation_basis = CALCULATION_BASIS)
 

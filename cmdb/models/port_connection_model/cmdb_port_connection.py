@@ -130,7 +130,7 @@ class CmdbPortConnection(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_cmdb_port_connection_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_port_connection_schema()
 
 
     #pylint: disable=R0913, R0917
@@ -146,8 +146,8 @@ class CmdbPortConnection(CmdbDAO):
             cable_description: str | None = None,
             cable_ci_id: int | None = None,
             author_id: int | None = None,
-            creation_time: datetime = None,
-            last_edit_time: datetime = None):
+            creation_time: datetime | None = None,
+            last_edit_time: datetime | None = None) -> None:
         """
         Initialises a CmdbPortConnection
 
@@ -165,8 +165,8 @@ class CmdbPortConnection(CmdbDAO):
             cable_ci_id (int | None): public_id of a CABLE SpecialType CmdbObject, None when the
                                       connection inventories no cable. to_json OMITS the key then
             author_id (int | None): public_id of the CmdbUser who created the connection
-            creation_time (datetime, optional): When the connection was created. Defaults to now
-            last_edit_time (datetime, optional): When the connection was last changed. Defaults to None
+            creation_time (datetime | None): When the connection was created. Defaults to now
+            last_edit_time (datetime | None): When the connection was last changed. Defaults to None
 
         Raises:
             CmdbPortConnectionInitError: If the CmdbPortConnection could not be initialised
@@ -193,7 +193,7 @@ class CmdbPortConnection(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbPortConnection":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbPortConnection":
         """
         Initialises a CmdbPortConnection from a dict
 
@@ -204,7 +204,7 @@ class CmdbPortConnection(CmdbDAO):
         'sometime in March' into a date built from today's day number
 
         Args:
-            data (dict): Data with which the CmdbPortConnection should be initialised, edited in place
+            data (dict[str, Any]): Data with which the CmdbPortConnection should be initialised, edited in place
                 to normalise its date fields
 
         Raises:
@@ -239,7 +239,7 @@ class CmdbPortConnection(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbPortConnection") -> dict:
+    def to_json(cls, instance: "CmdbPortConnection") -> dict[str, Any]:
         """
         Converts a CmdbPortConnection into a json compatible dict
 
@@ -255,7 +255,7 @@ class CmdbPortConnection(CmdbDAO):
             CmdbPortConnectionToJsonError: If the CmdbPortConnection could not be converted
 
         Returns:
-            dict: Json compatible dict of the CmdbPortConnection values
+            dict[str, Any]: Json compatible dict of the CmdbPortConnection values
         """
         try:
             document: dict[str, Any] = {

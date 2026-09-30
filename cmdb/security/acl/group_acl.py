@@ -48,7 +48,7 @@ class GroupACL(AccessControlListSection[int]):
 
 
     @property
-    def includes(self) -> dict:
+    def includes(self) -> dict[int, Any]:
         """
         Returns the access control section dictionary with integer keys
         """

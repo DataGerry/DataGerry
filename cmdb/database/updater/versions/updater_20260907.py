@@ -25,8 +25,8 @@ do). What ended up in MongoDB was therefore a sub-document where a date belongs.
 
 A sub-document cannot be compared, sorted, range-filtered or formatted as a date, so the ISMS
 reports could only ever *project* those fields, and a ``?sort=risk_assessment_date`` on the list
-route ordered documents by a nested key instead of by time. The models now normalise the fields on
-every write path, which fixes new documents; this migration converts the ones already stored.
+route ordered documents by a nested key instead of by time. The models normalise the fields on every
+write path; this migration converts the documents already stored.
 
 **The conversion never loses data.** Only a field currently holding an object is touched, and the
 value is written back through ``$convert`` with both ``onError`` and ``onNull`` pointing at the

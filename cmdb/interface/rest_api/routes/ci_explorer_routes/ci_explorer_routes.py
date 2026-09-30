@@ -30,16 +30,14 @@ Saved profiles are deliberately GLOBAL - they carry no owner, so a profile saved
 preset every user sees. The field route writes a single key of a CmdbType through a targeted update,
 so an edit of any other field can not be overwritten by it.
 
-``/label_field`` was called ``/type_label`` until 2026-09-18. The old name read as "set a display
+``/label_field`` is deliberately not called ``/type_label``: that name reads as "set a display
 label", which is what the value is NOT: it names one of the Type's own fields, and the graph shows
-that field's value per object. The route had no caller anywhere (the type builder sends the whole
-Type through ``PUT /types/<id>``), so it was renamed rather than left misleading.
+that field's value per object.
 
-**There was a second field route, ``PUT /ci_explorer/tooltip/<object_id>``, removed 2026-09-18.** It
-wrote ``ci_explorer_tooltip`` on a CmdbObject with all four guarantees of an object edit, and nothing
-ever called it: no frontend caller, no UI to set a tooltip and none to render one. The OBJECT FIELD
-stays - it is on the model, an object create sends it, and the graph carries it inside
-``linked_object`` - so a tooltip is still writable the ordinary way, through ``PUT /objects/<id>``
+**There is deliberately no field route for the object tooltip.** Nothing sets or renders a tooltip
+through the CI Explorer. The ``ci_explorer_tooltip`` OBJECT FIELD is on the model, an object create
+sends it, and the graph carries it inside ``linked_object`` - so a tooltip is writable the ordinary
+way, through ``PUT /objects/<id>``
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -108,11 +106,12 @@ from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants imp
 )
 from cmdb.framework.ci_explorer.label_field import label_field_error, selectable_label_fields
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_helper import (
+    abort_if_profile_filters_name_unknown_ids,
     get_ci_explorer_label_schema,
     load_ci_explorer_entity,
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -133,15 +132,17 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 
     Requires the ``base.framework.ciExplorer.edit`` right. The identity is server-owned: a public_id
     carried by the payload is dropped, so a client can neither choose an id nor collide with an
-    existing profile
+    existing profile. Each filter is a list of integer ids, and every id has to name an existing
+    CmdbType / CmdbRelation - an empty filter means "no restriction"
 
     Args:
         data (CmdbCiExplorerProfile.SCHEMA): Data of the CmdbCiExplorerProfile which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the insert / re-read fails; 500
-                       when the created profile cannot be re-read, or on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when a filter names an unknown id or the
+                       insert / re-read fails; 500 when the created profile cannot be re-read, or on an
+                       unexpected failure
 
     Returns:
         InsertSingleResponse: The new CmdbCiExplorerProfile and its public_id
@@ -154,6 +155,12 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 
         # The public_id is assigned by the collection counter, never taken from the payload
         data.pop(CmdbObjectKey.PUBLIC_ID.value, None)
+
+        abort_if_profile_filters_name_unknown_ids(
+            data,
+            ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            ManagerProvider.get_manager(ManagerType.RELATIONS, request_user),
+        )
 
         result_id = ci_explorer_profile_manager.insert_item(data)
 
@@ -176,8 +183,8 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
 @ci_explorer_blueprint.route('/profile', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@ci_explorer_blueprint.parse_collection_parameters()
 @ci_explorer_blueprint.protect(auth=True, right=CiExplorerRight.VIEW.value)
+@ci_explorer_blueprint.parse_collection_parameters()
 @handle_route_errors("while retrieving CiExplorer Profiles")
 def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -282,7 +289,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         with_ipam_relations: bool = parse_bool_arg(
             request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS), default=False,
         )
-        # Q40: an unlicensed instance gets an empty source, not a 403 - the graph is a shared read
+        # An unlicensed instance gets an empty source, not a 403 - the graph is a shared read
         # surface and a refusal would break a request that is valid for every other source
         with_port_connections: bool = parse_bool_arg(
             request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS), default=False,
@@ -435,7 +442,8 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
     HTTP `PUT`/`PATCH` route to update a single CmdbCiExplorerProfile
 
     Requires the ``base.framework.ciExplorer.edit`` right. The public_id is pinned to the URL before
-    the write, so a mismatched payload can not rewrite the profile's identity
+    the write, so a mismatched payload can not rewrite the profile's identity. The filters follow the
+    create route's rules: integer ids, each naming an existing CmdbType / CmdbRelation
 
     Args:
         public_id (int): public_id of the CmdbCiExplorerProfile which should be updated
@@ -443,8 +451,9 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the lookup / update fails;
-                       404 when the profile does not exist; 500 on an unexpected failure
+        HTTPException: 403 when the user lacks the right; 400 when a filter names an unknown id or the
+                       lookup / update fails; 404 when the profile does not exist; 500 on an unexpected
+                       failure
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbCiExplorerProfile
@@ -462,13 +471,19 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
 
         if not to_update_explorer_profile:
             abort(404, f"The CiExplorer Profile with ID:{public_id} was not found!")
+        pin_public_id(data, public_id)
 
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[CmdbObjectKey.PUBLIC_ID] = public_id
+        abort_if_profile_filters_name_unknown_ids(
+            data,
+            ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+            ManagerProvider.get_manager(ManagerType.RELATIONS, request_user),
+        )
 
-        ci_explorer_profile_manager.update_item(public_id, CmdbCiExplorerProfile.from_data(data))
+        stored: dict[str, Any] = update_item_from_payload(
+            ci_explorer_profile_manager, public_id, CmdbCiExplorerProfile, data,
+        )
 
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except CiExplorerProfileManagerGetError as err:
         LOGGER.error("[update_cmdb_ci_explorer_profile] CiExplorerProfileManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the CiExplorer Profile with ID: {public_id} from the database!")

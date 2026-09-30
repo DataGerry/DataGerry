@@ -21,6 +21,11 @@ literals in the model, its Cerberus schema, the two person cascades and the Obje
 ``responsible_for_implementation_id`` alone appeared in five places, always paired with its
 ``_ref_type`` sibling, which is exactly the pair a typo would break silently.
 
+``CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS`` is what a stored document must carry to be read:
+the two ids that make it an assignment of a measure to an assessment. The schema requires every key on
+a write, but a read is kept to the identity on purpose - a list route reads every row through the
+model, so one row refused for a missing date would fail the whole page
+
 Members are the raw MongoDB keys; use ``.value`` wherever a key is needed as a dict key, a Mongo filter
 key or a projection key, so what reaches the database is a plain string
 """
@@ -29,6 +34,8 @@ from cmdb.utils import BaseStrEnum
 
 __all__: list[str] = [
     'ControlMeasureAssignmentKey',
+    'CONTROL_MEASURE_ASSIGNMENT_DATE_FIELDS',
+    'CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS',
 ]
 
 
@@ -45,3 +52,16 @@ class ControlMeasureAssignmentKey(BaseStrEnum):
     PRIORITY = 'priority'
     RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE = 'responsible_for_implementation_id_ref_type'
     RESPONSIBLE_FOR_IMPLEMENTATION_ID = 'responsible_for_implementation_id'
+
+
+# The date-typed fields every write path normalises into real BSON dates
+CONTROL_MEASURE_ASSIGNMENT_DATE_FIELDS: tuple[str, ...] = (
+    ControlMeasureAssignmentKey.PLANNED_IMPLEMENTATION_DATE.value,
+    ControlMeasureAssignmentKey.FINISHED_IMPLEMENTATION_DATE.value,
+)
+
+# The identity of an assignment: which measure, for which assessment
+CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS: list[str] = [
+    ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value,
+    ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value,
+]

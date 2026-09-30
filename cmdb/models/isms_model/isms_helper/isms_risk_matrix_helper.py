@@ -33,10 +33,10 @@ reordering.
 scales.** ``calculate_risk_matrix`` is called by all six impact and likelihood write routes (insert,
 update, delete of either). It deliberately has NO minimum-configuration guard:
 
-  - it used to require at least one IsmsRiskClass, which is not an input to the calculation at all -
+  - it must not require at least one IsmsRiskClass, which is not an input to the calculation at all -
     and since no risk-class route recalculates, configuring risk classes *last* left the matrix
     permanently empty while the config wizard reported that step complete
-  - it used to require a non-empty scale, which left a **stale** grid behind when one was emptied:
+  - it must not require a non-empty scale, which would leave a **stale** grid behind when one is emptied:
     cells naming a deleted level. Those cells can never match again - a re-added level gets a new
     public_id - so keeping them preserved nothing and hid the real state
 
@@ -203,7 +203,7 @@ def remove_deleted_risk_class_from_matrix(deleted_risk_class_id: int, request_us
     risk_matrix_manager.update_item(RISK_MATRIX_PUBLIC_ID, current_risk_matrix)
 
 
-def check_risk_classes_set_in_matrix(risk_matrix: dict) -> bool:
+def check_risk_classes_set_in_matrix(risk_matrix: dict[str, Any]) -> bool:
     """
     Checks whether every cell of the given risk matrix has an IsmsRiskClass assigned
 
@@ -212,7 +212,7 @@ def check_risk_classes_set_in_matrix(risk_matrix: dict) -> bool:
     is the one thing this cannot answer with ``all()`` alone, which is vacuously true for an empty list
 
     Args:
-        risk_matrix (dict): The IsmsRiskMatrix document, carrying its list of cells
+        risk_matrix (dict[str, Any]): The IsmsRiskMatrix document, carrying its list of cells
 
     Returns:
         bool: True if the grid has cells and each one names a risk class, otherwise False

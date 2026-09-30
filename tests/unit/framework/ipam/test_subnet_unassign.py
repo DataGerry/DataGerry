@@ -18,13 +18,16 @@ Unit tests for cmdb.framework.ipam.subnet_unassign
 
 Covers the pure helpers (normalize_ip_list, clear_subnet_ref_in_rows, clear_subnet_ref_in_owner,
 collect_present_ips), the three DB loaders (assert_subnet_exists, parse_subnet_network,
-load_interface_owners), the per-owner write helper (clear_subnet_ref_in_owners) and the
-unassign_ips_from_subnet orchestrator. The trivial diff_missing_ips helper is exercised
-implicitly through the orchestrator's validate-all-or-nothing tests. Mongo filter shapes
-are pinned via assert_called_once_with so a future refactor that loosens them fails loudly.
+load_interface_owners), the per-owner write helpers (build_owner_update, apply_unassign_to_owners,
+clear_subnet_ref_in_owners) - what each owner write carries and what is handed to ``on_write``,
+including after a failure part-way - and the unassign_ips_from_subnet orchestrator. The trivial
+diff_missing_ips helper is exercised implicitly through the orchestrator's validate-all-or-nothing
+tests. Mongo filter shapes are pinned via assert_called_once_with so a future refactor that loosens
+them fails loudly.
 Flask aborts are exercised via pytest.raises(HTTPException). For orchestrator tests the
 internal loaders are patched at the module path; each loader has its own dedicated tests
 """
+from datetime import datetime, timezone
 from ipaddress import IPv4Network, IPv6Network
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -48,10 +51,12 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.framework.object_edit import ObjectWrite
 from cmdb.framework.ipam.subnet_unassign import (
     _resolve_unassign_mode,
     apply_unassign_to_owners,
     assert_subnet_exists,
+    build_owner_update,
     clear_subnet_ref_in_owner,
     clear_subnet_ref_in_owners,
     clear_subnet_ref_in_rows,
@@ -72,6 +77,11 @@ OTHER_SUBNET_OBJECT_ID: int = 201
 OWNER_OBJECT_ID: int = 700
 OTHER_OWNER_OBJECT_ID: int = 701
 OWNER_TYPE_ID: int = 50
+AUTHOR_ID: int = 1
+EDITOR_ID: int = 5
+START_VERSION: str = '1.0.0'
+PATCHED_VERSION: str = '1.0.1'
+EDIT_TIME: datetime = datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
 
 SUBNET_RANGE: str = '10.0.0.0/24'
 SUBNET_NETWORK: IPv4Network = IPv4Network(SUBNET_RANGE)
@@ -137,6 +147,8 @@ def _make_owner(
     return {
         CmdbObjectKey.PUBLIC_ID: public_id,
         CmdbObjectKey.TYPE_ID: type_id,
+        CmdbObjectKey.AUTHOR_ID: AUTHOR_ID,
+        CmdbObjectKey.VERSION: START_VERSION,
         CmdbObjectKey.MULTI_DATA_SECTIONS: sections,
     }
 
@@ -820,3 +832,152 @@ def test_delete_subnet_rows_in_owner_keeps_sections_that_are_not_interfaces() ->
 
     assert removed == {'10.0.0.1'}
     assert new_doc[CmdbObjectKey.MULTI_DATA_SECTIONS][0] == other_section
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  what each owner write carries, and the hand-over                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _owner_with_target(public_id: int, ip: str) -> dict[str, Any]:
+    """
+    An owner whose one interface row holds ``ip`` in the subnet under test
+
+    It carries a flat field like every stored object does; ``compute_object_version`` reads an edit of
+    an object with NO fields as "every field changed" and bumps it MAJOR
+    """
+    owner = _make_owner(public_id, [_make_interface_row(subnet_ref=SUBNET_OBJECT_ID, ip=ip)])
+    owner[CmdbObjectKey.FIELDS] = [{CmdbObjectFieldKey.NAME: 'hostname', CmdbObjectFieldKey.VALUE: 'srv'}]
+
+    return owner
+
+
+def test_build_owner_update_carries_only_the_sections_version_and_stamp() -> None:
+    """Nothing but what the unassign changes, so the rest of the stored owner is left alone"""
+    owner = _owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')
+    stamp = {CmdbObjectKey.LAST_EDIT_TIME.value: EDIT_TIME, CmdbObjectKey.EDITOR_ID.value: EDITOR_ID}
+
+    update = build_owner_update(owner, PATCHED_VERSION, stamp)
+
+    assert update == {
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value: owner[CmdbObjectKey.MULTI_DATA_SECTIONS],
+        CmdbObjectKey.VERSION.value: PATCHED_VERSION,
+        CmdbObjectKey.LAST_EDIT_TIME.value: EDIT_TIME,
+        CmdbObjectKey.EDITOR_ID.value: EDITOR_ID,
+    }
+
+
+def test_apply_unassign_to_owners_writes_a_partial_update() -> None:
+    """partial=True: a targeted $set, so a concurrent edit of another part of the owner survives"""
+    objects_manager = MagicMock()
+
+    apply_unassign_to_owners(
+        objects_manager, [_owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')], SUBNET_OBJECT_ID, {'10.0.0.1'},
+        MagicMock(public_id=EDITOR_ID), IpamUnassignMode.REFERENCE,
+    )
+
+    assert objects_manager.update_object.call_args.kwargs == {'partial': True}
+    written = objects_manager.update_object.call_args.args[1]
+    assert set(written) == {
+        CmdbObjectKey.MULTI_DATA_SECTIONS.value, CmdbObjectKey.VERSION.value,
+        CmdbObjectKey.LAST_EDIT_TIME.value, CmdbObjectKey.EDITOR_ID.value,
+    }
+
+
+def test_apply_unassign_to_owners_bumps_the_version_and_credits_the_user() -> None:
+    """The owner's version is bumped in the same write, and the request user is its editor"""
+    objects_manager = MagicMock()
+
+    apply_unassign_to_owners(
+        objects_manager, [_owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')], SUBNET_OBJECT_ID, {'10.0.0.1'},
+        MagicMock(public_id=EDITOR_ID), IpamUnassignMode.REFERENCE,
+    )
+
+    written = objects_manager.update_object.call_args.args[1]
+    assert written[CmdbObjectKey.VERSION.value] == PATCHED_VERSION
+    assert written[CmdbObjectKey.EDITOR_ID.value] == EDITOR_ID
+    assert isinstance(written[CmdbObjectKey.LAST_EDIT_TIME.value], datetime)
+
+
+def test_apply_unassign_to_owners_without_a_callback_reads_nothing_back() -> None:
+    """No on_write, no read-back query: internal callers pay for nothing they do not use"""
+    objects_manager = MagicMock()
+
+    apply_unassign_to_owners(
+        objects_manager, [_owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')], SUBNET_OBJECT_ID, {'10.0.0.1'},
+        MagicMock(), IpamUnassignMode.REFERENCE,
+    )
+
+    objects_manager.find_objects.assert_not_called()
+
+
+def test_apply_unassign_to_owners_hands_every_written_owner_to_on_write() -> None:
+    """Each written owner reaches on_write with its before state, its read-back state and its diff"""
+    owner = _owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [{**owner, CmdbObjectKey.VERSION.value: PATCHED_VERSION}]
+    received: list[ObjectWrite] = []
+
+    apply_unassign_to_owners(
+        objects_manager, [owner], SUBNET_OBJECT_ID, {'10.0.0.1'}, MagicMock(), IpamUnassignMode.REFERENCE,
+        on_write=received.append,
+    )
+
+    assert len(received) == 1
+    assert received[0].before.get_public_id() == OWNER_OBJECT_ID
+    assert received[0].before.version == START_VERSION
+    assert received[0].after.version == PATCHED_VERSION
+    objects_manager.find_objects.assert_called_once_with(
+        {CmdbObjectKey.PUBLIC_ID.value: {'$in': [OWNER_OBJECT_ID]}}, as_dict=True,
+    )
+
+
+def test_apply_unassign_to_owners_skips_untouched_owners_in_the_hand_over() -> None:
+    """An owner the mode did not change was not written, so it is not handed over either"""
+    touched = _owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')
+    untouched = _owner_with_target(OTHER_OWNER_OBJECT_ID, '10.0.0.9')
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [touched]
+
+    apply_unassign_to_owners(
+        objects_manager, [touched, untouched], SUBNET_OBJECT_ID, {'10.0.0.1'}, MagicMock(),
+        IpamUnassignMode.REFERENCE, on_write=MagicMock(),
+    )
+
+    assert objects_manager.find_objects.call_args.args[0] == {CmdbObjectKey.PUBLIC_ID.value: {'$in': [OWNER_OBJECT_ID]}}
+
+
+def test_apply_unassign_to_owners_still_hands_over_the_owners_written_before_a_failure() -> None:
+    """
+    A failure part-way leaves the earlier owners written - they still get their log and webhook
+
+    The error itself still reaches the caller: the hand-over runs from a ``finally``
+    """
+    first = _owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')
+    second = _owner_with_target(OTHER_OWNER_OBJECT_ID, '10.0.0.2')
+    objects_manager = MagicMock()
+    objects_manager.update_object.side_effect = [None, HTTPException(description='denied')]
+    objects_manager.find_objects.return_value = [first]
+    received: list[ObjectWrite] = []
+
+    with pytest.raises(HTTPException):
+        apply_unassign_to_owners(
+            objects_manager, [first, second], SUBNET_OBJECT_ID, {'10.0.0.1', '10.0.0.2'}, MagicMock(),
+            IpamUnassignMode.REFERENCE, on_write=received.append,
+        )
+
+    assert [write.before.get_public_id() for write in received] == [OWNER_OBJECT_ID]
+
+
+def test_unassign_ips_from_subnet_forwards_on_write_to_the_owner_writes() -> None:
+    """The orchestrator threads the route's callback through to the per-owner write loop"""
+    subnet_doc = _make_subnet_doc(SUBNET_OBJECT_ID, SUBNET_RANGE)
+    owner = _owner_with_target(OWNER_OBJECT_ID, '10.0.0.1')
+    on_write = MagicMock()
+
+    with patch(f'{PATH}.assert_subnet_exists', return_value=subnet_doc), \
+         patch(f'{PATH}.load_interface_owners', return_value=[owner]), \
+         patch(f'{PATH}.apply_unassign_to_owners', return_value=1) as apply_mock:
+        unassign_ips_from_subnet(
+            MagicMock(), MagicMock(), SUBNET_OBJECT_ID, ['10.0.0.1'], MagicMock(), on_write=on_write,
+        )
+
+    assert apply_mock.call_args.args[-1] is on_write

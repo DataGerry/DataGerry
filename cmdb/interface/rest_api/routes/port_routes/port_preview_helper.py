@@ -37,6 +37,7 @@ from cmdb.framework.port.name_syntax_constants import (
     PortDeviceKind,
 )
 
+from cmdb.interface.rest_api.routes.port_routes.port_route_helper import enforce_bulk_port_kind
 from cmdb.interface.rest_api.routes.port_routes.port_preview_constants import (
     PREVIEW_MISSING_REAR_SYNTAX_MESSAGE,
     PREVIEW_UNKNOWN_DEVICE_KIND_MESSAGE,
@@ -146,6 +147,11 @@ def build_preview_or_abort(
         dict[str, Any]: The preview document
     """
     device_kind: str = get_device_kind_or_abort(payload)
+
+    # An object is either an ordinary device or a patch panel, never both. Refused HERE rather than
+    # at the two callers so a preview cannot offer names for a kind the creation would reject: the
+    # assistant asks for the kind first, and this is the answer to that question
+    enforce_bulk_port_kind(ports_manager, object_id, device_kind)
 
     syntax: Any = payload.get(PortPreviewRequestKey.SYNTAX.value)
     count: Any = payload.get(PortPreviewRequestKey.COUNT.value)

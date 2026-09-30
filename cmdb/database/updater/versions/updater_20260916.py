@@ -27,9 +27,9 @@ write, so two concurrent uploads can both pass it, and three of the library's ro
 declaration reach an existing database: it renames whatever duplicates accumulated and then builds the
 index.
 
-**The index could not simply be declared.** Two reasons, both fixed on 2026-09-16 alongside this
-module. The declaration named `name`, a key no GridFS document carries - a unique index over a
-uniformly-absent field would have let the collection hold exactly one file. And nothing ever built it:
+**The index cannot simply be declared.** Two reasons. A declaration naming `name`, a key no GridFS
+document carries, would be a unique index over a uniformly-absent field - letting the collection hold
+exactly one file. And nothing would build it:
 `MediaFile` is not in `__COLLECTIONS__` and cannot be, because that loop indexes a class's COLLECTION
 verbatim while `MediaFile.COLLECTION` is the GridFS *bucket* name; the documents live in
 `media.libary.files`. `CollectionValidator.init_media_library_indexes` is the step that now reconciles

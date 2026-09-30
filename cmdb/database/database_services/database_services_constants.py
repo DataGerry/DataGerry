@@ -16,9 +16,9 @@
 """
 Constants for the cmdb.database.database_services package
 
-Replaces the bare string / numeric literals previously scattered across the bootstrap and updater
-service modules. Each enum / class is scoped to a single owner: the Service Portal lookup, the
-database updater bookkeeping, and the first-boot predefined-data seeding.
+Names the string / numeric literals the bootstrap and updater service modules share. Each enum / class
+is scoped to a single owner: the Service Portal lookup, the database updater bookkeeping, and the
+first-boot predefined-data seeding.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #

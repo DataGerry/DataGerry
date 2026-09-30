@@ -416,8 +416,8 @@ class TestUpdateType:
 class TestSpecialTypeRules:
     """special_type is validated, unique and immutable across the import routes.
 
-    These run on an IPAM-licensed instance so the licence gate (covered separately in
-    test_functional_ipam_importer_gating) is out of the way and the other rules are what is exercised.
+    These run on an IPAM-licensed instance so the licence gate is out of the way and the other rules
+    are what is exercised.
     """
 
     @pytest.fixture(autouse=True)
@@ -1504,7 +1504,7 @@ class TestImportUpdateLicenceGate:
     def test_a_stored_special_type_cannot_be_updated_unlicensed(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """An upload omitting the marker used to slip past the gate - the stored type decides now."""
+        """An upload omitting the marker does not slip past the gate - the stored type decides."""
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
         types.insert_one(make_type_doc(SPECIAL_TYPE_ID, 'stored-subnet', SpecialType.SUBNET))
 
@@ -2026,7 +2026,7 @@ class TestExportImportRoundTrip:
 
 
 class TestImportUsesPortsFlag:
-    """The 'uses_ports' flag on the type-import path (Port Connectivity, step 1)."""
+    """The Port Connectivity 'uses_ports' flag on the type-import path."""
 
     def test_an_upload_omitting_the_flag_is_stored_as_false(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str
@@ -2114,7 +2114,7 @@ class TestImportPortSectionIndex:
 
     @pytest.fixture(autouse=True)
     def _ipam_licensed(self, monkeypatch: pytest.MonkeyPatch):
-        """A port-bearing type may only be imported with the IPAM licence (decision D6)"""
+        """A port-bearing type may only be imported with the IPAM licence"""
         monkeypatch.setattr(
             LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM,
         )

@@ -18,7 +18,7 @@ Implementation of all API routes for the IsmsThreats
 """
 from logging import Logger, getLogger
 from typing import Any
-from flask import request, abort
+from flask import request
 from werkzeug import Response
 
 from cmdb.manager import ThreatManager
@@ -31,12 +31,25 @@ from cmdb.models.isms_model import IsmsThreat
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    handle_manager_errors,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     bulk_delete_reporting_in_use,
+    manager_error_messages,
+    require_created_item,
 )
-from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids, request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import THREAT_LABEL, IsmsManagerErrorMessage
+from cmdb.interface.rest_api.routes.routes_helper import (
+    extract_public_ids,
+    request_wants_body,
+    pin_public_id,
+    update_item_from_payload,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -70,6 +83,10 @@ threat_blueprint = APIBlueprint('threat', __name__)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.add')
 @threat_blueprint.validate(build_write_schema(IsmsThreat.SCHEMA))
 @handle_route_errors("while creating the Threat")
+@handle_manager_errors(manager_error_messages(THREAT_LABEL, {
+    ThreatManagerInsertError: IsmsManagerErrorMessage.INSERT,
+    ThreatManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+}))
 def insert_isms_threat(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsThreat into the database
@@ -78,26 +95,22 @@ def insert_isms_threat(data: dict[str, Any], request_user: CmdbUser) -> Response
         data (IsmsThreat.SCHEMA): Data of the IsmsThreat which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the insert or the read-back of the created Threat fails, 500 when
+            the created Threat cannot be found afterwards or on an unexpected error
+
     Returns:
         InsertSingleResponse: The new IsmsThreat and its public_id
     """
-    try:
-        threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+    threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-        result_id: int = threat_manager.insert_item(data)
+    result_id: int = threat_manager.insert_item(data)
 
-        created_threat: dict = threat_manager.get_item(result_id, as_dict=True)
+    created_threat: dict[str, Any] = require_created_item(
+        threat_manager.get_item(result_id, as_dict=True), THREAT_LABEL,
+    )
 
-        if not created_threat:
-            abort(404, "Could not retrieve the created Threat from the database!")
-
-        return InsertSingleResponse(created_threat, result_id).make_response()
-    except ThreatManagerInsertError as err:
-        LOGGER.error("[insert_isms_threat] ThreatManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Could not insert the new Threat in the database!")
-    except ThreatManagerGetError as err:
-        LOGGER.error("[insert_isms_threat] ThreatManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created Threat from the database!")
+    return InsertSingleResponse(created_threat, result_id).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -106,6 +119,10 @@ def insert_isms_threat(data: dict[str, Any], request_user: CmdbUser) -> Response
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.view')
 @threat_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving Threats")
+@handle_manager_errors(manager_error_messages(THREAT_LABEL, {
+    ThreatManagerIterationError: IsmsManagerErrorMessage.ITERATE,
+}))
 def get_isms_threats(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsThreats
@@ -117,29 +134,22 @@ def get_isms_threats(params: CollectionParameters, request_user: CmdbUser) -> Re
     Returns:
         GetMultiResponse: All the IsmsThreats matching the CollectionParameters
     """
-    try:
-        body = request_wants_body()
+    body = request_wants_body()
 
-        threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+    threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[IsmsThreat] = threat_manager.iterate_items(builder_params)
-        threats_list = [IsmsThreat.to_json(threat) for threat in iteration_result.results]
+    iteration_result: IterationResult[IsmsThreat] = threat_manager.iterate_items(builder_params)
+    threats_list = [IsmsThreat.to_json(threat) for threat in iteration_result.results]
 
-        api_response = GetMultiResponse(threats_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+    api_response = GetMultiResponse(threats_list,
+                                    iteration_result.total,
+                                    params,
+                                    request.url,
+                                    body)
 
-        return api_response.make_response()
-    except ThreatManagerIterationError as err:
-        LOGGER.error("[get_isms_threats] ThreatManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Threats from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_threats] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving Threats!")
+    return api_response.make_response()
 
 
 @threat_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -147,6 +157,9 @@ def get_isms_threats(params: CollectionParameters, request_user: CmdbUser) -> Re
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.view')
 @handle_route_errors("while retrieving the Threat with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(THREAT_LABEL, {
+    ThreatManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def get_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsThreat
@@ -158,16 +171,12 @@ def get_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         GetSingleResponse: The requested IsmsThreat
     """
-    try:
-        threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+    threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-        requested_threat = get_item_or_404(threat_manager, public_id,
-                                            f"The Threat with ID:{public_id} was not found!")
+    requested_threat = get_item_or_404(threat_manager, public_id,
+                                        f"The Threat with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_threat, body=request_wants_body()).make_response()
-    except ThreatManagerGetError as err:
-        LOGGER.error("[get_isms_threat] ThreatManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Threat with ID: {public_id} from the database!")
+    return GetSingleResponse(requested_threat, body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -177,6 +186,10 @@ def get_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
 @threat_blueprint.protect(auth=True, right='base.isms.threat.edit')
 @threat_blueprint.validate(build_write_schema(IsmsThreat.SCHEMA))
 @handle_route_errors("while updating the Threat with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(THREAT_LABEL, {
+    ThreatManagerGetError: IsmsManagerErrorMessage.GET,
+    ThreatManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+}))
 def update_isms_threat(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsThreat
@@ -189,25 +202,18 @@ def update_isms_threat(public_id: int, data: dict[str, Any], request_user: CmdbU
     Returns:
         UpdateSingleResponse: The new data of the IsmsThreat
     """
-    try:
-        threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+    threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-        get_item_or_404(threat_manager, public_id,
-                        f"The Threat with ID:{public_id} was not found!", as_dict=False)
+    get_item_or_404(threat_manager, public_id,
+                    f"The Threat with ID:{public_id} was not found!", as_dict=False)
 
-        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+    # The URL owns the identity: a body public_id would otherwise be $set onto the document
 
-        pin_public_id(data, public_id)
+    pin_public_id(data, public_id)
 
-        threat_manager.update_item(public_id, IsmsThreat.from_data(data))
+    stored: dict[str, Any] = update_item_from_payload(threat_manager, public_id, IsmsThreat, data)
 
-        return UpdateSingleResponse(data).make_response()
-    except ThreatManagerGetError as err:
-        LOGGER.error("[update_isms_threat] ThreatManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Threat with ID: {public_id} from the database!")
-    except ThreatManagerUpdateError as err:
-        LOGGER.error("[update_isms_threat] ThreatManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the Threat with ID: {public_id}!")
+    return UpdateSingleResponse(stored).make_response()
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -216,6 +222,15 @@ def update_isms_threat(public_id: int, data: dict[str, Any], request_user: CmdbU
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.delete')
 @handle_route_errors("while deleting the Threat with ID: {public_id}")
+@handle_manager_errors(
+    manager_error_messages(THREAT_LABEL, {
+        ThreatManagerDeleteError: IsmsManagerErrorMessage.DELETE,
+        ThreatManagerGetError: IsmsManagerErrorMessage.GET,
+    }),
+    refusals=manager_error_messages(THREAT_LABEL, {
+        ThreatManagerRiskUsageError: IsmsManagerErrorMessage.USED_BY_RISKS,
+    }),
+)
 def delete_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsThreat
@@ -227,24 +242,14 @@ def delete_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         DeleteSingleResponse: The deleted IsmsThreat data
     """
-    try:
-        threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+    threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-        to_delete_threat = get_item_or_404(threat_manager, public_id,
-                                           f"The Threat with ID:{public_id} was not found!")
+    to_delete_threat = get_item_or_404(threat_manager, public_id,
+                                       f"The Threat with ID:{public_id} was not found!")
 
-        threat_manager.delete_with_follow_up(public_id)
+    threat_manager.delete_with_follow_up(public_id)
 
-        return DeleteSingleResponse(to_delete_threat).make_response()
-    except ThreatManagerDeleteError as err:
-        LOGGER.error("[delete_isms_threat] ThreatManagerDeleteError: %s", err, exc_info=True)
-        abort(400, f"Failed to delete the Threat with ID:{public_id}!")
-    except ThreatManagerRiskUsageError as err:
-        LOGGER.error("[delete_isms_threat] ThreatManagerRiskUsageError: %s", err)
-        abort(400, f"Threat with ID:{public_id} can not be deleted because it is used by Risks!")
-    except ThreatManagerGetError as err:
-        LOGGER.error("[delete_isms_threat] ThreatManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Threat with ID:{public_id} from the database!")
+    return DeleteSingleResponse(to_delete_threat).make_response()
 
 
 @threat_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
@@ -252,6 +257,10 @@ def delete_isms_threat(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @threat_blueprint.protect(auth=True, right='base.isms.threat.delete')
 @handle_route_errors("while bulk-deleting Threats")
+@handle_manager_errors(manager_error_messages(THREAT_LABEL, {
+    ThreatManagerGetError: IsmsManagerErrorMessage.BULK_USAGE,
+    ThreatManagerDeleteError: IsmsManagerErrorMessage.BULK_DELETE,
+}))
 def delete_many_isms_threats(public_ids: str, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to bulk-delete IsmsThreats by a comma-separated id list
@@ -269,20 +278,13 @@ def delete_many_isms_threats(public_ids: str, request_user: CmdbUser) -> Respons
     Returns:
         DefaultResponse: {'successfully': [deleted ids], 'in_use': [skipped ids still referenced]}
     """
-    try:
-        threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
+    threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-        requested_ids: list[int] = extract_public_ids(public_ids)
+    requested_ids: list[int] = extract_public_ids(public_ids)
 
-        # Partition the whole batch in one grouped query: ids a Risk still references are kept
-        in_use_ids: set[int] = threat_manager.get_used_threat_ids(requested_ids)
+    # Partition the whole batch in one grouped query: ids a Risk still references are kept
+    in_use_ids: set[int] = threat_manager.get_used_threat_ids(requested_ids)
 
-        payload: dict[str, list[int]] = bulk_delete_reporting_in_use(threat_manager, requested_ids, in_use_ids)
+    payload: dict[str, list[int]] = bulk_delete_reporting_in_use(threat_manager, requested_ids, in_use_ids)
 
-        return DefaultResponse(payload).make_response()
-    except ThreatManagerGetError as err:
-        LOGGER.error("[delete_many_isms_threats] ThreatManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to determine which Threats are still in use!")
-    except ThreatManagerDeleteError as err:
-        LOGGER.error("[delete_many_isms_threats] ThreatManagerDeleteError: %s", err, exc_info=True)
-        abort(400, "Failed to delete one of the requested Threats!")
+    return DefaultResponse(payload).make_response()

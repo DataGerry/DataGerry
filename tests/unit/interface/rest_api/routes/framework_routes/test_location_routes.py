@@ -35,7 +35,6 @@ from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes import (
     insert_cmdb_location,
     get_cmdb_locations,
-    get_cmdb_locations_tree,
     get_cmdb_location_tree_roots,
     get_cmdb_location_tree_children,
     get_cmdb_location_tree_path,
@@ -324,73 +323,6 @@ class TestGetCmdbLocations:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                               get_cmdb_locations_tree                                               #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestGetCmdbLocationsTree:
-    """``get_cmdb_locations_tree`` delegates forest assembly to ``build_location_forest``."""
-
-    @staticmethod
-    def _call(flask_app: Flask) -> Any:
-        """Drives the unwrapped handler inside a GET request context."""
-        with flask_app.test_request_context('/tree', method='GET'):
-            return _unwrap(get_cmdb_locations_tree)(params=MagicMock(), request_user=MagicMock())
-
-    def test_passes_the_canonical_documents_to_build_location_forest(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """
-        The documents the read answered are what the forest is built from
-
-        The forest needs the same canonical key set the flat list answers - each node carries the
-        ``parent`` its children are nested under - so nothing is serialised per row here either.
-        """
-        del patched_provider
-        documents = [{'public_id': 1}]
-        managers[ManagerType.LOCATIONS].iterate_location_documents.return_value = (documents, TOTAL_LOCATIONS)
-        sentinel_response = MagicMock(name='wsgi_response')
-
-        with patch(f'{ROUTE_PATH}.BuilderParameters'), \
-             patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}), \
-             patch(f'{ROUTE_PATH}.build_location_forest', return_value=['forest']) as forest_mock, \
-             patch(f'{ROUTE_PATH}.GetMultiResponse') as response_ctor:
-            response_ctor.return_value.make_response.return_value = sentinel_response
-            result = self._call(flask_app)
-
-        forest_mock.assert_called_once_with(documents)
-        assert response_ctor.call_args.args[0] == ['forest']
-        assert result is sentinel_response
-
-    def test_iteration_error_maps_to_400(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """A ``LocationsManagerIterationError`` is translated to HTTP 400."""
-        del patched_provider
-        managers[ManagerType.LOCATIONS].iterate_location_documents.side_effect = LocationsManagerIterationError(
-            'bad pipeline')
-
-        with patch(f'{ROUTE_PATH}.BuilderParameters'), \
-             patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}):
-            with pytest.raises(HTTPException) as excinfo:
-                self._call(flask_app)
-
-        assert excinfo.value.code == HTTP_BAD_REQUEST
-
-    def test_unexpected_error_maps_to_500(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """Any other exception is translated to HTTP 500."""
-        del patched_provider
-        managers[ManagerType.LOCATIONS].iterate_location_documents.side_effect = RuntimeError('boom')
-
-        with patch(f'{ROUTE_PATH}.BuilderParameters'), \
-             patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}):
-            with pytest.raises(HTTPException) as excinfo:
-                self._call(flask_app)
-
-        assert excinfo.value.code == HTTP_SERVER_ERROR
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                                   get_cmdb_location                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGetCmdbLocation:
@@ -564,7 +496,7 @@ class TestGetCmdbLocationParent:
         """
         A dangling parent reference answers 200 with None, like an object with no location at all
 
-        It used to abort 404, which gave the one outcome "there is no parent" two encodings and
+        Aborting 404 would give the one outcome "there is no parent" two encodings and
         reported a data-integrity problem as if the object did not exist.
         """
         del patched_provider
@@ -1125,7 +1057,7 @@ class TestMoveCmdbLocations:
         """
         The whole batch is validated in ONE call up front, then each target is moved
 
-        The pre-flight used to call the single-object validator once per object; it is now the batched
+        The pre-flight calls the batched validator rather than the single-object one per object - the
         ``validate_object_location_moves``, called once with every id, so the shared reads happen once.
         """
         del patched_provider

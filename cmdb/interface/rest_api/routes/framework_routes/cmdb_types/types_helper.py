@@ -34,7 +34,8 @@ from flask import abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates, plan_mds_changes
 from cmdb.manager import (
     TypesManager,
     LocationsManager,
@@ -47,7 +48,7 @@ from cmdb.manager import (
     SectionTemplatesManager,
 )
 
-from cmdb.utils import coerce_whole_number
+from cmdb.utils import Builder, coerce_whole_number
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -92,8 +93,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     REFERENCED_TYPE_DELETE_MESSAGE,
     TypeUserDataKey,
     TypeOverviewKey,
+    MATCH_STAGE_KEY,
 )
 from cmdb.security.license.license_constants import LicenseFeature
+
+from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
+from cmdb.errors.manager.types_manager import TypesManagerUpdateMDSError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -110,8 +115,8 @@ def enforce_special_type_license(request_user: CmdbUser, *special_types: Any) ->
     than by the mere presence of a marker. Used by the create/update/delete type routes so the gate
     lives in one place
 
-    Every gated member currently maps to LicenseFeature.IPAM - RACK included, as an interim decision
-    (see SpecialType.get_license_gated_types)
+    Every gated member currently maps to LicenseFeature.IPAM - RACK included (see
+    SpecialType.get_license_gated_types)
 
     Args:
         request_user (CmdbUser): The user performing the type create/edit/delete
@@ -267,8 +272,8 @@ def normalize_ci_explorer_label(data: dict[str, Any], old_type: CmdbType | None 
     * **unusable and newly set** - refused with 400, reporting which names the Type does offer
     * **unusable but UNCHANGED from the stored Type** - cleared to None instead of refused. That is
       the field-was-removed case: an update that drops the nominated field would otherwise be
-      refused over a cosmetic key, and the stale nomination has to go anyway. It also repairs a Type
-      whose nomination went stale before this rule existed, on its next save
+      refused over a cosmetic key, and the stale nomination has to go anyway. It also repairs, on its
+      next save, a Type whose stored nomination is already stale
 
     Args:
         data (dict[str, Any]): The CmdbType payload, modified in place
@@ -427,6 +432,34 @@ def special_type_is_unchanged(old_st: str | None, new_st: str | None) -> bool:
     return old_st == new_st
 
 
+def criteria_constrain_active(client_criteria: dict[str, Any] | list[dict[str, Any]]) -> bool:
+    """
+    Answers whether the client's own criteria already filter on the ``active`` field
+
+    A dict criteria does when it carries the key at its top level; a list criteria (a pipeline) does
+    when any of its ``$match`` stages carries it at the stage's top level. A condition nested deeper -
+    inside an ``$and`` / ``$or``, or a later stage the client built - is not looked for: the rule is
+    about the plain statements a caller writes, not a query parser
+
+    Args:
+        client_criteria (dict[str, Any] | list[dict[str, Any]]): The criteria as the client sent it
+
+    Returns:
+        bool: True when the client states its own ``active`` condition
+    """
+    active_key: str = TypeSchemaKey.ACTIVE.value
+
+    if isinstance(client_criteria, list):
+        return any(
+            isinstance(stage, dict)
+            and isinstance(stage.get(MATCH_STAGE_KEY), dict)
+            and active_key in stage[MATCH_STAGE_KEY]
+            for stage in client_criteria
+        )
+
+    return isinstance(client_criteria, dict) and active_key in client_criteria
+
+
 def build_type_criteria(
         client_criteria: dict[str, Any] | list[dict[str, Any]],
         active: bool) -> dict[str, Any] | list[dict[str, Any]]:
@@ -435,12 +468,18 @@ def build_type_criteria(
 
     Returns a **new** criteria; the client's own value is never mutated. That matters because the
     same object is echoed back to the caller in the response's ``parameters.filter`` block as
-    frontend contract - merging in place made the server's injected stage look like something the
-    client had sent.
+    frontend contract - merging in place would make the server's injected stage look like something
+    the client had sent.
 
-    A dict criteria is merged key-wise, a list criteria gets one appended ``$match``, and an empty
-    dict stays a dict rather than becoming a two-stage pipeline with an empty ``$match`` in it.
-    A falsy ``active`` restricts nothing and the criteria is handed back unchanged
+    **The client's own ``active`` condition wins.** ``?active=`` defaults to true, so a caller that
+    filters on ``active`` itself - ``{"active": false}`` to list inactive types - would otherwise have
+    its condition replaced (dict) or contradicted (list) by the flag and get the opposite, or nothing,
+    with a 200. When the criteria already constrain ``active`` (`criteria_constrain_active`) they are
+    handed back unchanged; the flag applies only to criteria that say nothing about it.
+
+    Otherwise a dict criteria is merged key-wise, a list criteria gets one appended ``$match``, and an
+    empty dict stays a dict rather than becoming a two-stage pipeline with an empty ``$match`` in it. A
+    falsy ``active`` restricts nothing and the criteria is handed back unchanged
 
     Args:
         client_criteria (dict[str, Any] | list[dict[str, Any]]): The criteria as the client sent it
@@ -449,7 +488,7 @@ def build_type_criteria(
     Returns:
         dict[str, Any] | list[dict[str, Any]]: The criteria to query with
     """
-    if not active:
+    if not active or criteria_constrain_active(client_criteria):
         return client_criteria
 
     if isinstance(client_criteria, list):
@@ -466,18 +505,18 @@ def normalize_type_acl(type_data: dict[str, Any]) -> None:
     hand a `CmdbType` to the manager, so they go through ``CmdbType.from_data`` -> ``to_json`` and
     always store a full ``{'activated': ..., 'groups': {'includes': {...}}}``; the start assistant
     writes that literal itself. ``POST /types/`` hands over the **raw payload**, which the manager
-    only BSON-round-trips - so a create without an ``acl`` key stored a document without one, and the
-    first edit silently added it. Two stored shapes for one meaning, decided by whether anyone had
-    edited the type.
+    only BSON-round-trips - so without this a create without an ``acl`` key would store a document
+    without one, and the first edit would silently add it: two stored shapes for one meaning, decided
+    by whether anyone had edited the type.
 
-    This applies the same normalisation the other three paths get, so a Type's stored ACL no longer
-    depends on the route it arrived through. A partial ``acl`` is completed rather than rejected: the
+    This applies the same normalisation the other three paths get, so a Type's stored ACL does not
+    depend on the route it arrived through. A partial ``acl`` is completed rather than rejected: the
     absent half is exactly what the model defaults, and ``activated`` defaults to **False**, which
     grants - access control is opt-in.
 
     Note it also **drops unknown keys inside** ``acl``, because the model reads only ``activated`` and
-    ``groups``. That is what an update has always done to the same payload; the type schema declares
-    ``acl`` as ``allow_unknown``, so only a hand-built API payload could have put anything else there
+    ``groups``. That is what an update does to the same payload; the type schema declares ``acl`` as
+    ``allow_unknown``, so only a hand-built API payload can put anything else there
 
     Args:
         type_data (dict[str, Any]): The CmdbType payload, modified in place
@@ -620,10 +659,12 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
     """
     Applies a CmdbType's multi-data-section changes to every object of that type
 
-    The manager decides and performs the changes in memory, batch by batch; the writing belongs here,
-    because a manager does not drive another manager. A field the edit added is appended to every row,
-    a field it dropped is stripped, and a **section** the edit no longer declares is removed from the
-    objects - none keeps rows of a section its type does not have
+    ``plan_mds_changes`` works out what the edit changes and ``build_mds_updates`` turns that into
+    server-side statements, which ``ObjectsManager.apply_raw_updates`` runs - no object is read. A field
+    the edit added is appended to every row lacking it, with its declared type and default value; a
+    field it dropped is stripped from every row; and a **section** the edit no longer declares is
+    removed from the objects, so none keeps rows of a section its type does not have. The statements
+    touch only those entries, so an object edit saved meanwhile is not overwritten
 
     Args:
         request_user (CmdbUser): The user performing the update
@@ -632,17 +673,20 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
 
     Raises:
         TypesManagerUpdateMDSError: If the propagation fails - the type is already written by then,
-            which is why the route reports it with its own message
-        ObjectsManagerUpdateError: If a batch of changed objects could not be written
+            which is why the route reports it with its own message. The statements before the failing
+            one are applied and each is idempotent, so the same edit saved again completes it
     """
-    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    plan: MdsChangePlan = plan_mds_changes(old_type, updated_type)
 
-    # The propagation yields the changed objects batch by batch and performs its next read only when
-    # the previous batch has been written, so neither the objects held in memory nor a single bulk
-    # write is sized by the whole type
-    for objects_to_update in types_manager.handle_multi_data_sections(old_type, updated_type):
-        objects_manager.bulk_update_multi_data_sections(objects_to_update)
+    if plan.is_empty:
+        return
+
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    try:
+        objects_manager.apply_raw_updates(build_mds_updates(old_type.public_id, plan))
+    except ObjectsManagerUpdateError as err:
+        raise TypesManagerUpdateMDSError(err) from err
 
 
 def realign_type_objects_if_fields_changed(
@@ -681,10 +725,10 @@ def realign_type_objects_if_fields_changed(
         type_id=updated_type.public_id,
     )
 
-    # Re-align every object of the type with its current field set, then strip any removed field
-    # from the type's reports once
-    removed_field_names: set[str] = realign_objects_to_type(objects_manager, updated_type)
-    clean_type_reports(reports_manager, reports_for_type, removed_field_names, updated_type)
+    # Re-align every object of the type with its current field set, then strip the fields the edit
+    # removed from the type's reports once
+    realign_objects_to_type(objects_manager, updated_type)
+    clean_type_reports(reports_manager, reports_for_type, old_field_names - new_field_names, updated_type)
 
 
 def get_objects_using_location_field(
@@ -738,9 +782,10 @@ def build_location_usage_payload(request_user: CmdbUser, target_type: CmdbType) 
     Builds the shared "is this Type's location placement in use" pre-check payload
 
     Resolves the CmdbObjects of the given CmdbType that currently store a location value and packs
-    them into the {in_use, count, object_public_ids} shape returned by the location-field-usage and
-    selectable-as-parent-usage GET routes. Both routes answer the same underlying question - are any
-    objects of this type placed in the location tree - so they share this builder
+    them into the {in_use, count, object_public_ids} shape returned by the location-field-usage GET
+    route. That one answer pre-checks both location guards on update - removing the location field and
+    turning 'selectable_as_parent' off - because both ask whether any object of the type is placed in
+    the location tree
 
     Args:
         request_user (CmdbUser): User performing the request
@@ -838,8 +883,8 @@ def uses_ports_change_blocker(
     ports panel only for a port-bearing type, so clearing the flag would leave those ports as rows
     nothing in the UI can reach - and the port create route would refuse to recreate them.
 
-    Only the true -> false transition is guarded. Turning it ON is always allowed here (step 1's
-    license guard is what governs that direction), and keeping it off is a no-op. The reason is
+    Only the true -> false transition is guarded. Turning it ON is always allowed here (the
+    license guard `enforce_uses_ports_license` governs that direction), and keeping it off is a no-op. The reason is
     returned instead of raised so both write paths can use it: the route aborts with it
     (`guard_uses_ports_change`), the type import reports it per entry
 
@@ -1435,5 +1480,5 @@ def apply_type_update_side_effects(
     apply_type_changes_to_mds(request_user, old_type, CmdbType.to_json(updated_type))
 
     # Re-align the objects' flat field set (and the type's reports) when the field names changed -
-    # this replaces the former manual "clean" step, applied automatically and only when needed
+    # applied automatically and only when needed
     realign_type_objects_if_fields_changed(request_user, old_type, updated_type)

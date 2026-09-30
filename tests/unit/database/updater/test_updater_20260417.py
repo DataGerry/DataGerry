@@ -31,7 +31,7 @@ What the queries have to say is the whole migration, so that is what is pinned h
     recorded as done
 
 The end-to-end behaviour against a real MongoDB - including the double run - is
-tests/integration/database/test_integration_updater_20260417.py, and the metadata contract is the
+its own integration test, and the metadata contract is the
 shared parametrized test in test_version_updaters
 """
 # pylint: disable=no-member  # the managers are MagicMocks, so update_many carries call_args
@@ -60,7 +60,7 @@ class TestMetadata:
         """
         It is user-facing - the runner prints it per migration
 
-        It used to claim the key was added 'to identify special CmdbTypes', which this migration does
+        A claim that the key was added 'to identify special CmdbTypes' would be wrong: this migration does
         not do: it writes the EMPTY marker, and identification happens when a special type is created.
         """
         description = build_stubbed_updater(Update20260417).description()

@@ -185,7 +185,7 @@ def get_cmdb_report_categories(params: CollectionParameters, request_user: CmdbU
         builder_params: BuilderParameters = build_searchable_builder_params(params, REPORT_CATEGORY_SEARCHABLE_FIELDS)
 
         iteration_result: IterationResult[CmdbReportCategory] = report_categories_manager.iterate_items(builder_params)
-        report_category_list: list[dict] = [CmdbReportCategory.to_json(report_category) for report_category
+        report_category_list: list[dict[str, Any]] = [CmdbReportCategory.to_json(report_category) for report_category
                                             in iteration_result.results]
 
         api_response = GetMultiResponse(report_category_list,
@@ -217,10 +217,9 @@ def update_cmdb_report_category(public_id: int, data: dict[str, Any], request_us
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 on a body failing the schema, without a usable 'name', or a failed
-                       retrieval / update; 403 when the CmdbReportCategory is predefined or the
-                       report EDIT right is missing; 404 when it does not exist; 500 on an
-                       unexpected failure
+        HTTPException: 400 on a body failing the schema, without a usable 'name', a predefined
+                       CmdbReportCategory, or a failed retrieval / update; 403 when the report EDIT
+                       right is missing; 404 when it does not exist; 500 on an unexpected failure
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbReportCategory
@@ -264,9 +263,9 @@ def delete_cmdb_report_category(public_id: int, request_user: CmdbUser) -> Respo
         request_user (CmdbUser): User which is requesting the deletion
 
     Raises:
-        HTTPException: 403 when the CmdbReportCategory is predefined, still used by CmdbReports, or
-                       the report DELETE right is missing; 404 when it does not exist; 400 on a
-                       failed retrieval / deletion; 500 on an unexpected failure
+        HTTPException: 400 when the CmdbReportCategory is predefined, still used by CmdbReports, or
+                       on a failed retrieval / deletion; 403 when the report DELETE right is missing;
+                       404 when it does not exist; 500 on an unexpected failure
 
     Returns:
         DefaultResponse: True if the CmdbReportCategory was deleted

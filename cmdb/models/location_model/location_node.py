@@ -16,9 +16,9 @@
 """
 This module contains the implementation of LocationNode
 
-A LocationNode is the in-memory tree representation of a single CmdbLocation. The
-``/locations/tree`` route builds a forest of these nodes (see ``build_location_forest`` in the
-CmdbLocation route helpers) and serializes it back to nested, JSON-compatible dicts.
+A LocationNode is the in-memory tree representation of a single CmdbLocation. The tree search
+and tree path routes build a forest of these nodes (see ``build_location_forest`` in the
+CmdbLocation route helpers) and serialize it back to nested, JSON-compatible dicts.
 """
 from typing import Any
 
@@ -32,7 +32,7 @@ class LocationNode:
     """
     Represents a node in the location tree
     """
-    def __init__(self, params: dict[str, Any]):
+    def __init__(self, params: dict[str, Any]) -> None:
         """
         Initialise a LocationNode from a CmdbLocation dict
 
@@ -57,7 +57,7 @@ class LocationNode:
             raise LocationNodeInitError(f"Missing required location key: {err}") from err
 
 
-    def get_children(self, public_id: int, locations_list: list[dict]) -> list['LocationNode']:
+    def get_children(self, public_id: int, locations_list: list[dict[str, Any]]) -> list['LocationNode']:
         """
         Recursively retrieve all children for a given location
 
@@ -68,12 +68,12 @@ class LocationNode:
 
         Args:
             public_id (int): The public ID of the parent location
-            locations_list (list[dict]): List of all location entries
+            locations_list (list[dict[str, Any]]): List of all location entries
 
         Returns:
             list[LocationNode]: A list of child LocationNode instances
         """
-        children_by_parent: dict[int, list[dict]] = {}
+        children_by_parent: dict[int, list[dict[str, Any]]] = {}
 
         for location in locations_list:
             children_by_parent.setdefault(location['parent'], []).append(location)
@@ -84,14 +84,14 @@ class LocationNode:
     def _build_children(
             self,
             public_id: int,
-            children_by_parent: dict[int, list[dict]],
+            children_by_parent: dict[int, list[dict[str, Any]]],
             visited: set[int]) -> list['LocationNode']:
         """
         Recursively builds the child LocationNodes for a parent using a prebuilt parent index
 
         Args:
             public_id (int): The public ID of the parent location
-            children_by_parent (dict[int, list[dict]]): Index mapping a parent public_id to its
+            children_by_parent (dict[int, list[dict[str, Any]]]): Index mapping a parent public_id to its
                 direct child location entries
             visited (set[int]): public_ids already expanded, used to break parent cycles
 

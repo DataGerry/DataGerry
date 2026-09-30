@@ -33,6 +33,8 @@ from cmdb.models.isms_model import IsmsRiskMatrix, IsmsImpact, IsmsLikelihood
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.risk_matrix_manager import RiskMatrixManagerGetError, RiskMatrixManagerUpdateError
+
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risk_matrix'
@@ -113,6 +115,16 @@ class TestPutRiskMatrix:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         follow_up = rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_ID}')
         assert follow_up.get_json()['result']['matrix_unit'] == UPDATED_MATRIX_UNIT
+
+    def test_a_body_public_id_can_not_move_the_risk_matrix(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored risk matrix in place"""
+        _insert_matrix(database_manager, database_name, RISK_MATRIX_ID)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{RISK_MATRIX_ID}', _risk_matrix_payload(MISSING_RISK_MATRIX_ID),
+            database_manager.get_collection(IsmsRiskMatrix.COLLECTION, database_name), RISK_MATRIX_ID,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent matrix returns 404."""

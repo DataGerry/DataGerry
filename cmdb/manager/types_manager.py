@@ -16,26 +16,13 @@
 """
 Handles interaction between the database and CmdbTypes
 
-Beyond CRUD this manager owns one piece of machinery: the **multi-data-section propagation** a type
-edit needs. A type declares which fields an MDS section has, and every object of that type stores the
-section's captured rows - so adding a field to such a section has to append an entry to every row of
-every object, removing one has to strip it, and removing the section has to drop it from the objects.
-
-The work is split three ways on purpose:
-
-* ``cmdb.manager.types_mds_helper`` decides **what** changes (pure: two type states in, a plan out)
-  and applies a plan to one object in memory
-* this manager owns the **reads**: which objects can be affected (the ones carrying at least one
-  affected section), read in batches with a projection limited to what the propagation touches
-* the **writes** belong to the caller - ``types_helper.apply_type_changes_to_mds`` hands each batch to
-  ``ObjectsManager.bulk_update_multi_data_sections``. A manager does not drive another manager, and
-  the batches are what keeps a type with many objects from becoming one unbounded bulk write
-
-`handle_multi_data_sections` is therefore a generator: it yields the changed objects batch by batch,
-and a caller that does not iterate it writes nothing.
+The manager owns the CmdbType documents only. What a type edit changes in the type's objects - the
+multi-data-section rows (`cmdb.manager.types_mds_helper`) and the flat field list - is worked out from
+the two type states by pure helpers and written by ``ObjectsManager.apply_raw_updates`` as server-side
+statements, driven by ``types_helper.apply_type_update_side_effects``: a manager does not drive another
+manager, and no object has to be read for it.
 """
 import json
-from collections.abc import Iterator
 from logging import Logger, getLogger
 from typing import Any
 from bson import json_util
@@ -46,7 +33,6 @@ from cmdb.database.json_codec import object_hook
 
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
-from cmdb.manager.types_mds_helper import MdsChangePlan, apply_plan, plan_mds_changes
 
 from cmdb.models.type_model import (
     CmdbType,
@@ -57,11 +43,6 @@ from cmdb.models.type_model import (
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.models.object_model import (
-    CmdbObject,
-    CmdbObjectKey,
-    CmdbObjectMdsKey,
-)
 
 from cmdb.framework.results import IterationResult
 from cmdb.security.acl.builder import build_permitted_types_criteria
@@ -74,25 +55,10 @@ from cmdb.errors.manager.types_manager import (
     TypesManagerInsertError,
     TypesManagerInitError,
     TypesManagerIterationError,
-    TypesManagerUpdateMDSError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# How many objects one propagation batch carries. Bounds both the documents held in memory and the
-# size of the bulk write the caller issues per batch
-MDS_PROPAGATION_BATCH_SIZE: int = 500
-
-# The only keys the MDS propagation reads or writes, plus the two CmdbObject.from_data requires.
-# MongoDB returns '_id' unless it is excluded explicitly
-MDS_OBJECT_PROJECTION: dict[str, int] = {
-    CmdbObjectKey.PUBLIC_ID.value: 1,
-    CmdbObjectKey.TYPE_ID.value: 1,
-    CmdbObjectKey.AUTHOR_ID.value: 1,
-    CmdbObjectKey.MULTI_DATA_SECTIONS.value: 1,
-    '_id': 0,
-}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 TypesManager - CLASS                                                 #
@@ -122,7 +88,7 @@ class TypesManager(BaseManager):
         try:
             super().__init__(CmdbType.COLLECTION, dbm, database)
         except Exception as err:
-            raise TypesManagerInitError(str(err)) from err
+            raise TypesManagerInitError(err) from err
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -143,7 +109,7 @@ class TypesManager(BaseManager):
             return self.insert(self._as_stored_type_dict(new_type))
         except Exception as err:
             LOGGER.error("[insert_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerInsertError(str(err)) from err
+            raise TypesManagerInsertError(err) from err
 
 
     @staticmethod
@@ -183,7 +149,7 @@ class TypesManager(BaseManager):
             return self.get_next_public_id(inc_id=True)
         except Exception as err:
             LOGGER.error("[get_new_type_public_id] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type(self, public_id: int) -> dict[str, Any] | None:
@@ -206,7 +172,7 @@ class TypesManager(BaseManager):
             return self.get_one(public_id)
         except Exception as err:
             LOGGER.error("[get_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type_instance(self, public_id: int) -> CmdbType | None:
@@ -231,7 +197,7 @@ class TypesManager(BaseManager):
             return CmdbType.from_data(target_type) if target_type else None
         except Exception as err:
             LOGGER.error("[get_type_instance] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def iterate(
@@ -255,7 +221,7 @@ class TypesManager(BaseManager):
           ACL is stored on, so the same rule is one ``$nor`` over this collection - no extra query
         * ``iterate_query`` runs a second aggregation for the total and builds it from the criteria
           alone, so a rule that lives only in the pipeline would filter the rows and leave the count
-          beside them unfiltered (the bug **T211** records for the object listing)
+          beside them unfiltered
 
         Args:
             builder_params (BuilderParameters): Filter for which CmdbTypes should be retrieved
@@ -284,7 +250,7 @@ class TypesManager(BaseManager):
 
             return iteration_result
         except Exception as err:
-            raise TypesManagerIterationError(str(err)) from err
+            raise TypesManagerIterationError(err) from err
 
 
     def find_types(self, criteria: dict[str, Any]) -> list[CmdbType]:
@@ -303,7 +269,7 @@ class TypesManager(BaseManager):
             return [CmdbType.from_data(found_type) for found_type in found_types]
         except Exception as err:
             LOGGER.error("[find_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_types_lookup(self, public_ids: list[int]) -> dict[int, CmdbType]:
@@ -352,7 +318,7 @@ class TypesManager(BaseManager):
             return [CmdbType.from_data(raw_type) for raw_type in raw_types]
         except Exception as err:
             LOGGER.error("[get_all_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_types_by(
@@ -388,101 +354,8 @@ class TypesManager(BaseManager):
             return [CmdbType.from_data(data) for data in raw_data]
         except Exception as err:
             LOGGER.error("[get_types_by] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
-
-    def get_objects_for_type(
-        self,
-        target_type_id: int,
-        section_ids: list[str] | None = None,
-        public_ids: list[int] | None = None,
-        projection: dict[str, int] | None = None,
-    ) -> list[CmdbObject]:
-        """
-        Retrieves the CmdbObjects of one CmdbType, optionally narrowed and projected
-
-        One read shape for every caller: the criteria are assembled here and handed to the base
-        manager, so nothing reaches into the database layer directly
-
-        Args:
-            target_type_id (int): The public_id of the CmdbType
-            section_ids (list[str] | None): When given, only objects carrying a multi_data_section
-                with one of these ``section_id``s are loaded. An object with none of them can not be
-                affected by an MDS change, so the fetch scales with the affected objects
-            public_ids (list[int] | None): When given, only these objects are loaded - what the
-                batched MDS propagation reads one chunk with
-            projection (dict[str, int] | None): MongoDB projection; `MDS_OBJECT_PROJECTION` is the
-                one the propagation uses, which keeps a type's `fields` out of the read entirely
-
-        Raises:
-            TypesManagerGetError: If an error occurs during the fetching or processing of the data
-
-        Returns:
-            list[CmdbObject]: The matching CmdbObjects of the type
-        """
-        try:
-            criteria: dict[str, Any] = {CmdbObjectKey.TYPE_ID.value: target_type_id}
-
-            if section_ids is not None:
-                mds_section_id_path: str = (
-                    f'{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.{CmdbObjectMdsKey.SECTION_ID.value}'
-                )
-                criteria[mds_section_id_path] = {'$in': section_ids}
-
-            if public_ids is not None:
-                criteria[CmdbObjectKey.PUBLIC_ID.value] = {'$in': public_ids}
-
-            documents: list[dict[str, Any]] = self.get_many_from_other_collection(
-                CmdbObject.COLLECTION, projection=projection, **criteria,
-            )
-
-            return [CmdbObject.from_data(document) for document in documents]
-        except Exception as err:
-            LOGGER.error("[get_objects_for_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
-
-
-    def get_object_ids_for_type(self, target_type_id: int, section_ids: list[str] | None = None) -> list[int]:
-        """
-        Retrieves the public_ids of the CmdbObjects of one CmdbType, optionally narrowed by MDS section
-
-        The first half of the batched MDS propagation: the ids are small enough to hold for a whole
-        type, and the documents are then read one batch at a time
-
-        Args:
-            target_type_id (int): The public_id of the CmdbType
-            section_ids (list[str] | None): When given, only objects carrying one of these MDS
-                ``section_id``s are reported
-
-        Raises:
-            TypesManagerGetError: If the lookup fails
-
-        Returns:
-            list[int]: The public_ids of the matching CmdbObjects
-        """
-        try:
-            criteria: dict[str, Any] = {CmdbObjectKey.TYPE_ID.value: target_type_id}
-
-            if section_ids is not None:
-                mds_section_id_path: str = (
-                    f'{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.{CmdbObjectMdsKey.SECTION_ID.value}'
-                )
-                criteria[mds_section_id_path] = {'$in': section_ids}
-
-            documents: list[dict[str, Any]] = self.get_many_from_other_collection(
-                CmdbObject.COLLECTION,
-                projection={CmdbObjectKey.PUBLIC_ID.value: 1, '_id': 0},
-                **criteria,
-            )
-
-            return [
-                document[CmdbObjectKey.PUBLIC_ID.value]
-                for document in documents
-                if isinstance(document.get(CmdbObjectKey.PUBLIC_ID.value), int)
-            ]
-        except Exception as err:
-            LOGGER.error("[get_object_ids_for_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -513,7 +386,7 @@ class TypesManager(BaseManager):
             return self.update(criteria={TypeSchemaKey.PUBLIC_ID.value: public_id}, data=update_data)
         except Exception as err:
             LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerUpdateError(str(err)) from err
+            raise TypesManagerUpdateError(err) from err
 
     def update_type_field(self, public_id: int, field: str, value: Any) -> UpdateResult:
         """
@@ -539,7 +412,7 @@ class TypesManager(BaseManager):
             return self.update(criteria={TypeSchemaKey.PUBLIC_ID.value: public_id}, data={field: value})
         except Exception as err:
             LOGGER.error("[update_type_field] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerUpdateError(str(err)) from err
+            raise TypesManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -563,7 +436,7 @@ class TypesManager(BaseManager):
             return self.delete({TypeSchemaKey.PUBLIC_ID.value: public_id})
         except Exception as err:
             LOGGER.error("[delete_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerDeleteError(str(err)) from err
+            raise TypesManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -608,7 +481,7 @@ class TypesManager(BaseManager):
             return bool(matching_type)
         except Exception as err:
             LOGGER.error("[check_special_type_exists] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type_ids_of_special_type(self, special_type: SpecialType | str) -> list[int]:
@@ -640,7 +513,7 @@ class TypesManager(BaseManager):
             ]
         except Exception as err:
             LOGGER.error("[get_type_ids_of_special_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_type_ids_with_location_field(self) -> list[int]:
@@ -669,7 +542,7 @@ class TypesManager(BaseManager):
             ]
         except Exception as err:
             LOGGER.error("[get_type_ids_with_location_field] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
+            raise TypesManagerGetError(err) from err
 
 
     def get_existing_type_ids(self, public_ids: list[int]) -> set[int]:
@@ -701,67 +574,4 @@ class TypesManager(BaseManager):
             return set(found_ids)
         except Exception as err:
             LOGGER.error("[get_existing_type_ids] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(str(err)) from err
-
-
-    def handle_multi_data_sections(
-        self,
-        old_type: CmdbType,
-        updated_type: dict[str, Any],
-    ) -> Iterator[list[CmdbObject]]:
-        """
-        Propagates a CmdbType's multi-data-section changes to its objects, batch by batch
-
-        Yields the objects it changed rather than returning them all: the caller writes each batch
-        (``ObjectsManager.bulk_update_multi_data_sections``) before the next one is read, so a type
-        with many objects costs a bounded amount of memory and a bounded bulk write instead of one of
-        each sized by the whole type. A caller that does not iterate performs no propagation at all.
-
-        Only objects carrying at least one affected section are read, and only the keys the
-        propagation touches (`MDS_OBJECT_PROJECTION`) - a type's own `fields` list, usually the bulk
-        of an object document, never enters the read
-
-        What counts as a change is decided by `cmdb.manager.types_mds_helper`: new fields are appended
-        to every row with the type they were declared with, dropped fields are stripped, and a section
-        the type no longer declares is removed from the object
-
-        Args:
-            old_type (CmdbType): The CmdbType of the objects before the edit
-            updated_type (dict[str, Any]): The updated CmdbType data
-
-        Raises:
-            TypesManagerUpdateMDSError: If the propagation fails
-
-        Yields:
-            list[CmdbObject]: The objects of one batch whose multi_data_sections changed
-        """
-        try:
-            plan: MdsChangePlan = plan_mds_changes(old_type, updated_type)
-
-            if plan.is_empty:
-                return
-
-            object_ids: list[int] = self.get_object_ids_for_type(
-                old_type.public_id, section_ids=plan.affected_section_ids,
-            )
-
-            for batch_start in range(0, len(object_ids), MDS_PROPAGATION_BATCH_SIZE):
-                batch_ids: list[int] = object_ids[batch_start:batch_start + MDS_PROPAGATION_BATCH_SIZE]
-
-                objects: list[CmdbObject] = self.get_objects_for_type(
-                    old_type.public_id,
-                    public_ids=batch_ids,
-                    projection=MDS_OBJECT_PROJECTION,
-                )
-
-                changed_objects: list[CmdbObject] = [
-                    cmdb_object for cmdb_object in objects if apply_plan(plan, cmdb_object)
-                ]
-
-                if changed_objects:
-                    yield changed_objects
-        except TypesManagerGetError as err:
-            raise TypesManagerUpdateMDSError(str(err)) from err
-        except Exception as err:
-            LOGGER.error("[handle_multi_data_sections] Exception: %s. Type: %s", err, type(err), exc_info=True)
-            raise TypesManagerUpdateMDSError(str(err)) from err
+            raise TypesManagerGetError(err) from err

@@ -14,22 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-How a CSV cell gets its type - the two layers, composed (tier 2 T163 / T164 / T165)
+How a CSV cell gets its type - the two layers, composed
 
-A cell passes through two casters on its way into an object, and the audit of 2026-09-16 was about
-the order they ran in:
+A cell passes through two casters on its way into an object, and the order they run in is what
+decides whether the value survives:
 
 1. `auto_cast`, in the **parser** (`csv_object_parser`), which sees only text and no field
 2. `_coerce_scalar_value`, in the **validator**, which knows the target field's declared `type`
 
-The second layer has always existed. The first one used to be `int()` / `float()` and ran *first*, so
-it destroyed the value before the layer that actually knows the type could look at it: `'007'` was an
-`int` by the time the TEXT field saw it and was stored as `'7'`.
+A first layer of bare `int()` / `float()` destroys the value before the layer that actually knows the
+type can look at it: `'007'` arrives at the TEXT field as an `int` and is stored as `'7'`.
 
-**This file is the proof that they now compose**, and it tests them together deliberately - each
-in isolation is already covered (`tests/unit/utils/test_cast.py`,
-`tests/unit/framework/importer/test_object_import_validator.py`), and it was the *composition* that
-was wrong, not either half.
+**This file is the proof that they compose**, and it tests them together deliberately - each half in
+isolation is already covered by its own unit tests, and the composition is what a regression breaks.
 
 The property in one line: **a value is typed by the column it lands in, never by how it is spelled.**
 """
@@ -62,7 +59,7 @@ def _import_cell(raw_text: str, field_type: FieldType) -> Any:
 
 class TestAnIdentifierKeepsItsSpelling:
     """
-    T165, the finding with the most reachable consequence
+    The case with the most reachable consequence
 
     Asset tags, serial numbers, part numbers and postcodes are exactly the columns that look numeric
     and are not, and the original spelling was gone once stored - an export would not round-trip it.
@@ -98,7 +95,7 @@ class TestAnIdentifierKeepsItsSpelling:
 
 class TestTheNonFiniteSpellings:
     """
-    T163(b) - `'nan'` / `'inf'` used to become doubles BSON stores and no query ever matches
+    `'nan'` / `'inf'` cast to doubles that BSON stores and no query ever matches
 
     `NaN != NaN` also broke the importer's own whole-row comparison, so re-importing an unchanged
     file reported every row as changed.
@@ -122,7 +119,7 @@ class TestTheNonFiniteSpellings:
 
 
 class TestTheNoneSpellings:
-    """T163(a) / T164 - erased in two spellings out of four, so capitalisation decided."""
+    """Erasing them catches two spellings out of four, so capitalisation would decide."""
 
     @pytest.mark.parametrize('raw', ['null', 'None', 'NULL', 'none'])
     def test_every_spelling_is_stored_as_written(self, raw: str) -> None:

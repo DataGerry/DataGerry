@@ -49,7 +49,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager import (
     LocationsManager,
@@ -64,8 +64,9 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
-from cmdb.models.object_model import CmdbObject, CmdbObjectKey
+from cmdb.models.object_model import CmdbObject, CmdbObjectKey, ObjectWriteVerb
 from cmdb.models.log_model.log_action_enum import LogAction
+from cmdb.models.right_model.right_constants import ObjectRightName
 from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
@@ -104,6 +105,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     MAX_DASHBOARD_GROUPS,
+    GROUPABLE_OBJECT_FIELDS,
+    OBJECT_GROUP_FIELD_REFUSED_MESSAGE,
     SINGLE_OBJECT_VIEW_MODES,
     SINGLE_OBJECT_VIEW_INVALID_MESSAGE,
     ObjectViewMode,
@@ -146,10 +149,10 @@ objects_blueprint = APIBlueprint('objects', __name__)
 @handle_db_errors
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.add')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ADD.value)
 @objects_blueprint.validate(CmdbObject.SCHEMA)
 @handle_route_errors("while creating the Object")
-def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
+def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert a CmdbObject into the database
 
@@ -161,9 +164,9 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
     select-option sync, the CREATE webhook, the cloud item count and the create log run best-effort
 
     The body is validated against ``CmdbObject.SCHEMA`` like the update route's, so a malformed
-    payload is a clean 400 here instead of an error from deeper in the pipeline. ``author_id`` was
-    already mandatory - ``CmdbObject.REQUIRED_INIT_KEYS`` demands it - so the schema only moves where
-    that is reported
+    payload is a clean 400 here instead of an error from deeper in the pipeline. ``author_id`` is
+    mandatory either way - ``CmdbObject.REQUIRED_INIT_KEYS`` demands it - so the schema only decides
+    where that is reported
 
     Args:
         data (CmdbObject.SCHEMA): The validated payload of the new CmdbObject
@@ -206,7 +209,7 @@ def insert_cmdb_object(data: dict, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving the Object with ID: {public_id}")
 def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -280,10 +283,10 @@ def get_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 
 
 @objects_blueprint.route('/', methods=['GET', 'HEAD'])
-@objects_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@objects_blueprint.parse_collection_parameters(view='native')
 @handle_route_errors("while retrieving Objects from the database")
 def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -339,7 +342,7 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
 @objects_blueprint.route('/count', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def get_cmdb_object_count(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the amount of CmdbObjects in database
@@ -372,7 +375,7 @@ def get_cmdb_object_count(request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/count/<int:type_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve the number of CmdbObjects belonging to a given CmdbType
@@ -409,7 +412,7 @@ def get_cmdb_object_for_type_count(type_id: int, request_user: CmdbUser) -> Resp
 @objects_blueprint.route('/native/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving the native Object with ID: {public_id}")
 def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -445,21 +448,30 @@ def get_native_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/group/<string:value>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Response:
     """
     Groups CmdbObjects by the given field name and returns at most the first five groups
 
     Each group is enriched with the corresponding CmdbType's label and ci_explorer_color so the
-    dashboard chart can render it directly. Honors the active-only filter when enabled
+    dashboard chart can render it directly. Honors the active-only filter when enabled. Every group id
+    is resolved as a CmdbType, so ``type_id`` is the only field that can answer - any other name is
+    refused (`GROUPABLE_OBJECT_FIELDS`) rather than grouped and then silently dropped
 
     Args:
-        value (str): The CmdbObject field name to group by (typically 'type_id')
+        value (str): The CmdbObject field name to group by; only 'type_id'
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 when ``value`` is not a groupable field
 
     Returns:
         DefaultResponse: List of group dicts (cap 5) with 'label', 'type_color' and counts
     """
+    # Checked before the try: its catch-all arm would turn this refusal into a 500
+    if value not in GROUPABLE_OBJECT_FIELDS:
+        abort(400, OBJECT_GROUP_FIELD_REFUSED_MESSAGE.format(field=value))
+
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
@@ -511,7 +523,7 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
 @objects_blueprint.route('/<int:public_id>/mds_reference', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving the MDS reference for Object with ID: {public_id}")
 def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -558,7 +570,7 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
 @objects_blueprint.route('/<int:public_id>/mds_references', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @handle_route_errors("while retrieving MDS references")
 def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -617,10 +629,10 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
 
 
 @objects_blueprint.route('/references/<int:public_id>', methods=['GET', 'HEAD'])
-@objects_blueprint.parse_collection_parameters(view='native')
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@objects_blueprint.protect(auth=True, right='base.framework.object.view')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
+@objects_blueprint.parse_collection_parameters(view='native')
 def get_cmdb_object_references(public_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Retrieves references for a given CmdbObject based on specified criteria
@@ -696,7 +708,7 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
 @objects_blueprint.route('/state/<int:public_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.activation')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ACTIVATION.value)
 def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route returning the active state of a single CmdbObject
@@ -736,17 +748,17 @@ def get_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
 @objects_blueprint.validate(CmdbObject.SCHEMA)
 @handle_route_errors("while updating Object with ID:{public_id}")
-def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Response:
+def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT` route to fully replace one or more CmdbObjects with the same payload
 
     When the 'objectIDs' query parameter is set, every listed CmdbObject is updated with the
     same payload; otherwise only the path-supplied 'public_id' is updated. Refuses any change
     of an object's special_type. IPAM invariants (subnet / vlan / interface row validation)
-    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are no longer
+    are enforced before the write. CIDR edits on SUPERNET / SUBNET objects are not
     blocked when they would push child rows outside the new range; those children surface as
     is_valid=False in the IPAM overviews instead. Computes a major / minor / patch version
     bump from the field-level diff and records an edit log per updated CmdbObject
@@ -754,7 +766,7 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
     Args:
         public_id (int): public_id of the CmdbObject; used as the only target when no
             'objectIDs' query parameter is provided
-        data (dict): The new CmdbObject payload, validated against CmdbObject.SCHEMA
+        data (dict[str, Any]): The new CmdbObject payload, validated against CmdbObject.SCHEMA
         request_user (CmdbUser): The CmdbUser making the request
 
     Returns:
@@ -807,7 +819,7 @@ def update_cmdb_object(public_id: int, data: dict, request_user: CmdbUser) -> Re
 @objects_blueprint.route('/<int:public_id>', methods=['PATCH'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.edit')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.EDIT.value)
 @handle_route_errors("while patching Object with ID:{public_id}")
 def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -882,7 +894,7 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/state/<int:public_id>', methods=['PUT'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.activation')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.ACTIVATION.value)
 @handle_route_errors("while updating Object state of ID:{public_id}")
 def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -977,19 +989,28 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
 @objects_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.DELETE.value)
 @handle_route_errors("while deleting the Object with ID: {public_id}")
 def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to remove a single CmdbObject from the database
 
-    Refuses the delete when the object is a SUPERNET / SUBNET still referenced by other IPAM
-    objects (subnets, vlans or interface rows), or when its location is the parent of other
-    locations. References from non-IPAM CmdbObjects are removed automatically after the delete
+    Authorizes first, then deletes: the object's type must exist and be active and its ACL must grant
+    the caller DELETE (`ObjectsManager.guard_writable_type`) before anything is touched, because the
+    steps that follow - the location node, the rack and port state, the risk assessments - are not
+    undone when a later check refuses. Refuses the delete when the object is a SUPERNET / SUBNET still
+    referenced by other IPAM objects (subnets, vlans or interface rows). The object's location is
+    removed and its child locations promoted onto its parent. References from non-IPAM CmdbObjects are
+    removed automatically after the delete
 
     Args:
         public_id (int): public_id of the CmdbObject to delete
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 403 when the type is deactivated or its ACL denies DELETE (nothing is changed);
+            404 when the object does not exist; 400 when an IPAM or cable guard refuses; 500 when the
+            object's type is missing or a write fails
 
     Returns:
         DefaultResponse: True after a successful delete
@@ -1006,6 +1027,12 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 
         if not to_delete_object_type:
             abort(500, f"Type of Object with ID:{public_id} not found in database!")
+
+        # Authorized before any side effect: every step below changes data a later refusal would not restore
+        objects_manager.guard_writable_type(
+            to_delete_object.get_type_id(), request_user, AccessControlPermission.DELETE,
+            ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, to_delete_object_type,
+        )
 
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
@@ -1043,7 +1070,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 @objects_blueprint.route('/delete/<string:public_ids>', methods=['DELETE'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-@objects_blueprint.protect(auth=True, right='base.framework.object.delete')
+@objects_blueprint.protect(auth=True, right=ObjectRightName.DELETE.value)
 @handle_route_errors("while deleting multiple Objects")
 # Cohesive bulk delete: location guard -> IPAM guard -> RA cascade -> per-object delete + side
 # effects -> reference scrub -> cloud count sync; the locals are inherent to the sequence
@@ -1052,15 +1079,21 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
     """
     HTTP `DELETE` route to bulk-delete CmdbObjects by a comma-separated id list
 
-    Each located target has its CmdbLocation deleted and that location's direct children promoted
-    onto its parent (their grandparent), keeping the location tree connected. The IPAM delete guard
-    is evaluated atomically up front: if any one target would orphan IPAM references, no delete
-    happens. After deleting, removes references to the deleted objects, drops them from static
-    object groups, emits a webhook + log per object, and syncs the cloud-mode item count
+    Each located target has its CmdbLocation deleted and that location's direct children promoted onto its parent
+    (their grandparent), keeping the location tree connected. Every guard is evaluated atomically up front, for
+    every target: if any one target's type is missing, its type is deactivated or its ACL denies DELETE, or it would
+    orphan IPAM references, no delete happens - not even the risk-assessment cascade, which runs for the whole
+    selection before the per-object loop. After deleting, removes references to the deleted objects, drops them from
+    static object groups, emits a webhook + log per object, and syncs the cloud-mode item count
 
     Args:
         public_ids (str): Comma-separated CmdbObject public_ids to delete
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 403 when any target's type is deactivated or its ACL denies DELETE (nothing is
+            changed); 404 when a target's type is missing; 400 when an id is malformed or an IPAM or cable
+            guard refuses; 500 when a write fails
 
     Returns:
         DefaultResponse: {'successfully': [public_id, ...]} for every CmdbObject that was deleted
@@ -1094,16 +1127,25 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
         type_map: dict[int, CmdbType] = types_manager.get_types_lookup(object_type_ids)
 
-        # Atomic guards, evaluated for EVERY target before anything is deleted: a missing type or an
-        # object that would orphan IPAM references refuses the whole selection. Checking the type inside
-        # the delete loop below would abort mid-way and leave the earlier targets already deleted
+        # Atomic guards, evaluated for EVERY target before anything is deleted: a missing type, a target
+        # the caller may not delete (deactivated type, or an ACL without DELETE) or an object that would
+        # orphan IPAM references refuses the whole selection. Checking inside the delete loop below would
+        # abort mid-way - after the risk-assessment cascade and the earlier targets' deletes
         for to_check in to_delete_objects:
-            if type_map.get(to_check.get(CmdbObjectKey.TYPE_ID.value)) is None:
+            check_type_id: int | None = to_check.get(CmdbObjectKey.TYPE_ID.value)
+            check_type: CmdbType | None = type_map.get(check_type_id)
+
+            if check_type is None:
                 abort(
                     404,
                     f"Type of Object with ID:{to_check.get(CmdbObjectKey.PUBLIC_ID.value)} "
                     'not found in database!'
                 )
+
+            objects_manager.guard_writable_type(
+                check_type_id, request_user, AccessControlPermission.DELETE,
+                ObjectsManagerDeleteError, ObjectWriteVerb.REMOVED.value, check_type,
+            )
 
         # The shared delete guard, asked ONCE for the whole selection: the per-target IPAM checks plus
         # the Cable CI check, which costs a single query for all targets together

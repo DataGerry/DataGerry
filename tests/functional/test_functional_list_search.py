@@ -16,9 +16,9 @@
 """
 Functional tests for ``?search=`` across the list routes that gained it
 
-Every table in the product has a search box, and each one used to implement it in the browser -
+Every table in the product has a search box, and each one would otherwise implement it in the browser -
 `$addFields` casting the columns it wanted, then a `$match` with an `$or` of `$regex` conditions,
-posted as ``?filter=`` (`notes/FRONTEND_TO_BACKEND.md` **F4**). One helper answers all of them now,
+posted as ``?filter=``. One helper answers all of them instead,
 so this module asks every wired route the same three questions rather than repeating a bespoke test
 per screen: does the parameter narrow, does a non-match empty the list, and does an absent term leave
 the listing alone.

@@ -37,6 +37,6 @@ class SearchParamError(SearchError):
     """
     Raised when a search parameter of the request cannot be read
 
-    The route answers 400: a parameter that cannot be parsed used to be dropped, and a search that
+    The route answers 400: a parameter that cannot be parsed must not be dropped, because a search that
     silently loses a filter returns MORE objects than the caller asked to see
     """

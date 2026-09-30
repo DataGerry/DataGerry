@@ -17,14 +17,14 @@
 Masking of the credentials stored in the `auth` settings section
 
 The authentication settings hold one secret: the LDAP **bind password**, the credential the search
-bind uses. Until 2026-09-16 every read served it in cleartext - `GET /auth/settings`,
+bind uses, and a read must not serve it in cleartext - `GET /auth/settings`,
 `GET /auth/providers/<class>` and the body the update route echoes back - because the settings are
 serialised verbatim and nothing distinguished a credential from a hostname.
 
 **Masking a value on read is only half a rule.** The update route takes the WHOLE section
 (`require_complete=True`, because an absent key and a reset to the default are indistinguishable), so
 any client that reads the settings, changes one field and sends the object back would post the mask
-where the password used to be - and write the mask as the new bind password, breaking every LDAP
+where the password belongs - and write the mask as the new bind password, breaking every LDAP
 login. Read-modify-write is the normal way to use that route, not a frontend quirk, so the two halves
 have to ship together:
 
@@ -35,7 +35,7 @@ have to ship together:
 **Which values are secret is declared by the provider that owns them** - `SECRET_CONFIG_PATHS` on the
 provider's config class - rather than listed here. A new provider carrying a credential registers it
 by declaring it, which is what keeps this module from becoming a hand-maintained registry that can
-silently fall behind (the shape `G14` records elsewhere).
+silently fall behind.
 
 Everything here works on plain documents and returns copies: the callers hand in a settings dict or a
 config dict and get a new one back, so a masked payload can never be the object a later write reads

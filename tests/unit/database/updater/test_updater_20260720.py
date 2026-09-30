@@ -18,7 +18,7 @@ Unit tests for cmdb.database.updater.versions.updater_20260720
 
 The migration pulls the retired 'base.framework.type.clean' right name out of every CmdbUserGroup.
 Its behaviour against real collections - the pull, the untouched group, the version bump and the
-double run - is tests/integration/database/test_integration_updater_20260720.py; what could not be
+double run - is its own integration test; what could not be
 reached from there is the failure tail, so that is what this module owns:
 
   - the wrapper keeps the original error as ``__cause__`` **and** as its own argument, so a caller
@@ -106,7 +106,7 @@ class TestTheFailureTail:
         """
         Both as the cause and as the wrapper's own argument
 
-        The wrapper used to be built from ``str(err)``, which reduced a pymongo error to its message;
+        Built from ``str(err)`` the wrapper reduces a pymongo error to its message;
         it now carries the error itself, so ``args[0]`` is inspectable while ``str()`` still reads the
         same.
         """

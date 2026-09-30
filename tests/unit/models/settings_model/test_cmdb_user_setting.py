@@ -17,12 +17,12 @@
 Unit tests for cmdb.models.settings_model.cmdb_user_setting
 
 The write path's model: the routes hand it a validated body, and it is the one place a setting's
-values are normalised. It had **no test module of its own** until 2026-09-09 - what little of it ran
+values are normalised. Little of it runs
 did so through the manager's integration tests, which is why its three `except` arms were uncovered
 and its `payloads` never held anything.
 
 What is pinned here: the round trip (including a NON-EMPTY payload list, which no test in the
-repository used to store), the normalisation the constructor performs, the refusals, the typed errors
+repository stores), the normalisation the constructor performs, the refusals, the typed errors
 each entry point raises, and that `to_json` refuses a foreign instance - the guard the ISMS models
 needed after two structurally identical entities serialised as each other.
 """
@@ -84,7 +84,7 @@ class TestInit:
         assert setting.setting_type is UserSettingType.GLOBAL
 
     def test_a_stored_scope_string_becomes_a_member(self) -> None:
-        """So `to_json` can always read `.value` - it used to break with AttributeError instead"""
+        """So `to_json` can always read `.value` rather than breaking with AttributeError"""
         assert CmdbUserSetting(RESOURCE, USER_ID, [], 'SERVER').setting_type is UserSettingType.SERVER
 
     def test_an_absent_payload_list_becomes_empty(self) -> None:
@@ -180,9 +180,9 @@ class TestToJson:
 
     def test_the_payload_entries_travel_unchanged(self) -> None:
         """
-        The round trip that nothing exercised before 2026-09-09
+        The round trip the stored fixtures do not exercise
 
-        Every fixture in the repository stored `payloads: []`, so the wrapper class that used to sit
+        Every fixture in the repository stores `payloads: []`, so a wrapper class sitting
         here - a dict in, the same dict out - never ran at all. It was removed; these entries are the
         client's own structures and the backend attaches no meaning to them.
         """

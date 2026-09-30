@@ -162,7 +162,7 @@ class TestTabInstancesPagination:
              'page-zero', 'page-word', 'order-unknown', 'order-word'],
     )
     def test_rejects_unusable_pagination(self, rest_api, query: str) -> None:
-        """limit=0 used to mean 'no limit' and order=desc silently sorted ascending (regression)."""
+        """limit=0 is not 'no limit' and order=desc is not a silent ascending sort - both are a 400."""
         url = f'{BASE_URL}/{MAIN_OBJ}/instances?relation_id={RELATION_ID}&role=parent&{query}'
 
         assert rest_api.get(url).status_code == HTTPStatus.BAD_REQUEST

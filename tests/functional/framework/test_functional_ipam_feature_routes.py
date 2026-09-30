@@ -21,7 +21,7 @@ family-filterable subnet options list (incl. the 400 on an invalid family token)
 overview family (main / invalid / sector / export / unassign), the supernet overview family
 (main / children / invalid / export / unassign) and the four inline pre-validation routes.
 Assertions stay at the wire-contract level (status code + envelope keys + one shape detail);
-the substantive behaviour is pinned by the framework-layer unit and integration tests
+the substantive behaviour belongs to the framework layer
 """
 from http import HTTPStatus
 from typing import Any
@@ -307,7 +307,7 @@ class TestIpamSupernetOverviewRoutes:
 
     def test_supernet_unassign_refuses_an_oversized_batch(self, rest_api):
         """
-        The batch cap answers 400 over the wire, and writes nothing (tier 2 T132, finding P1)
+        The batch cap answers 400 over the wire, and writes nothing
 
         Placed before the detaching test on purpose: it must not consume the one subnet that test
         needs, and the point of the cap is that a refused request costs no write at all.
@@ -383,11 +383,10 @@ class TestInterfaceEditDoesNotCollideWithItself:
     """
     Editing an interface row that already holds an IP must not report that IP as in use
 
-    Regression for the reported bug: the frontend pre-validates every keystroke against
-    ``POST /ipam/validate/interface``, sending the row's ``multi_data_id`` as ``row_index`` plus its
-    own object id as ``exclude_object_id``. The backend compared that id against the stored row's
-    POSITION, so the exclusion never matched - ids start at 1, positions at 0 - and the field showed
-    "IP ... is already used ... by object <itself>", which blocked the save.
+    The frontend pre-validates every keystroke against ``POST /ipam/validate/interface``, sending the
+    row's ``multi_data_id`` as ``row_index`` plus its own object id as ``exclude_object_id``. The
+    exclusion is keyed on that id, not on the stored row's POSITION - ids start at 1, positions at 0 -
+    so a mismatch would show "IP ... is already used ... by object <itself>" and block the save.
     """
 
     def _payload(self, row_index: int, exclude_object_id: int | None) -> dict[str, Any]:
@@ -415,7 +414,7 @@ class TestInterfaceEditDoesNotCollideWithItself:
         assert response.get_json() == {'valid': True, 'errors': []}
 
     def test_the_same_ip_without_the_exclusion_is_still_rejected(self, rest_api):
-        """The fix must not disable the check: without exclude_object_id the IP is still in use"""
+        """The exclusion does not disable the check: without exclude_object_id the IP is still in use"""
         response = rest_api.post(f'{VALIDATE_URL}/interface', json=self._payload(FIRST_ROW_ID, None))
 
         body = response.get_json()

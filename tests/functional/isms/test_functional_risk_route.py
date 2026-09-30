@@ -17,7 +17,7 @@
 Functional smoke for the ``/isms/risks`` REST routes
 
 Covers CRUD, the risk_type / required-field validation (invalid type and incomplete data -> 400 -
-the type is now refused by IsmsRisk.SCHEMA itself rather than by a re-check inside the routes),
+the type is refused by IsmsRisk.SCHEMA itself rather than by a re-check inside the routes),
 the manager-error -> 400 mapping, and the DELETE cascade that removes the Risk's RiskAssessments and
 their ControlMeasureAssignments. The routes are ISMS-license gated, so the check is stubbed.
 """
@@ -38,6 +38,10 @@ from cmdb.errors.manager.risk_manager import (
     RiskManagerDeleteError,
     RiskManagerIterationError,
 )
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import RISK_LABEL, IsmsManagerErrorMessage
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risks'
@@ -109,9 +113,10 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
 
 
 def _insert_risk(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> None:
-    """Inserts a minimal IsmsRisk doc directly via the collection."""
+    """Inserts a minimal IsmsRisk doc - with every key a stored risk must carry - via the collection."""
     database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
-        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [1]})
+        .insert_one({'public_id': public_id, 'name': 'Risk', 'risk_type': RiskType.THREAT, 'threats': [1],
+                     'category_id': CATEGORY_ID})
 
 
 class TestRiskWithUnsetTextFieldsCanBeSaved:
@@ -119,8 +124,8 @@ class TestRiskWithUnsetTextFieldsCanBeSaved:
     A risk whose identifier / consequences / description were never set must survive a round trip
 
     The ISMS CSV importer stores None for a blank cell, ``to_json`` emits that null, and the frontend
-    patches it straight back into the form it later saves - which the schema used to answer with
-    'null value not allowed', so an imported risk could not be edited at all.
+    patches it straight back into the form it later saves - a schema answering that with
+    'null value not allowed' would leave an imported risk impossible to edit.
     """
 
     def test_a_stored_null_is_answered_as_null_and_accepted_back(
@@ -231,6 +236,16 @@ class TestPutRisk:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_risk(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored risk in place"""
+        _insert_risk(database_manager, database_name, RISK_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{RISK_ID_FOR_UPDATE}', _risk_payload(MISSING_RISK_ID),
+            database_manager.get_collection(IsmsRisk.COLLECTION, database_name), RISK_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent risk returns 404."""
@@ -370,12 +385,17 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
         monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""

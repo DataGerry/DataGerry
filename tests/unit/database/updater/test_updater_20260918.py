@@ -23,8 +23,7 @@ One collection, one query - so what is worth pinning is the query itself: it sel
 of the key, which is what makes a re-run a no-op and what keeps a type that already carries a
 position (including one placed between the release and the migration) from being reset to 0.
 
-The end-to-end behaviour and the double run are in
-tests/integration/database/test_integration_updater_20260918.py
+The end-to-end behaviour and the double run are covered by the integration tier
 """
 import pytest
 

@@ -310,7 +310,7 @@ class TestDateValueFragments:
         assert builder._end_of_day(DAY_START) == DAY_END
 
     def test_equals_spans_the_whole_day(self) -> None:
-        """Regression: '=' used to match only objects stamped exactly at midnight."""
+        """Regression: '=' matches the whole day, not only objects stamped exactly at midnight."""
         assert _date_value_fragment(ReportQueryOperator.EQ) == {"$gte": DAY_START, "$lte": DAY_END}
 
     def test_not_equals_excludes_the_whole_day(self) -> None:
@@ -318,11 +318,11 @@ class TestDateValueFragments:
         assert _date_value_fragment(ReportQueryOperator.NE) == {"$not": {"$gte": DAY_START, "$lte": DAY_END}}
 
     def test_less_than_or_equal_includes_the_whole_day(self) -> None:
-        """Regression: '<=' used to exclude everything after 00:00:00 on the given date."""
+        """Regression: '<=' includes everything after 00:00:00 on the given date."""
         assert _date_value_fragment(ReportQueryOperator.LTE) == {"$lte": DAY_END}
 
     def test_greater_than_excludes_the_whole_day(self) -> None:
-        """Regression: '>' used to include the rest of the given date."""
+        """Regression: '>' excludes the rest of the given date."""
         assert _date_value_fragment(ReportQueryOperator.GT) == {"$gt": DAY_END}
 
     def test_greater_than_or_equal_starts_at_midnight(self) -> None:
@@ -354,7 +354,7 @@ class TestErrorPaths:
         ('operator', {"field": "txt1", "value": "x"}),
     ])
     def test_rule_missing_a_required_key_names_that_key(self, missing_key: str, rule: dict[str, Any]) -> None:
-        """Regression: every KeyError used to be reported as 'Unknown condition operator'."""
+        """Regression: a KeyError must not be reported as 'Unknown condition operator'."""
         with pytest.raises(MongoQueryBuilderBuildRulesetError, match=f"missing the '{missing_key}' key"):
             _builder_with([rule], condition="and").build()
 

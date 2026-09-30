@@ -19,7 +19,7 @@ Unit tests for the IsmsRiskMatrix helpers
 Isolated from Mongo with stub managers, so the whole module is unit-testable: the singleton self-heal
 (``ensure_default_risk_matrix``), the pure grid builders (``_generate_risk_matrix`` /
 ``_transfer_risk_classes``), the wizard's completeness check (``check_risk_classes_set_in_matrix``) and
-- new on 2026-09-07 - the **assembly** itself, ``calculate_risk_matrix``, which was the only real logic
+- the **assembly** itself, ``calculate_risk_matrix``, which is the only real logic
 gap left in ``cmdb/models/isms_model/``.
 
 Three behaviours pinned here changed that day, and each was a reachable defect:
@@ -349,7 +349,7 @@ def test_calculate_carries_an_existing_assignment_over(monkeypatch: pytest.Monke
 
 def test_calculate_runs_without_any_risk_class(monkeypatch: pytest.MonkeyPatch) -> None:
     """
-    The guard this file used to carry is gone, and no risk-class manager is consulted at all
+    No risk-class guard belongs here, and no risk-class manager is consulted at all
 
     Requiring one meant that configuring risk classes last left the grid permanently empty: the
     calculation only runs on impact and likelihood writes, so nothing came back to fill it in.

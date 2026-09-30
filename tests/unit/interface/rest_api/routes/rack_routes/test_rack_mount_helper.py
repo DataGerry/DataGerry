@@ -308,7 +308,7 @@ def test_an_object_in_no_rack_is_free_to_mount() -> None:
 
 
 def test_an_object_in_another_rack_is_not_blocked() -> None:
-    """It is offered by the picker and mounting it moves it - a second membership is no longer refused"""
+    """It is offered by the picker and mounting it moves it - a membership elsewhere is not refused"""
     other_mount = _stored_mount(public_id=OTHER_MOUNT_ID, rack_id=OTHER_RACK_ID)
 
     assert same_rack_membership_blocker(other_mount, RACK_ID, OBJECT_ID) is None

@@ -17,7 +17,7 @@
 Unit tests for IsmsImpactCategory
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO (whose shared machinery has its own tests), so what is
 pinned here is what remains this model's own:
 
   - **the nested list is never None.** A category's ``impact_descriptions`` is maintained by the impact
@@ -146,7 +146,7 @@ class TestTheDocumentRoundTrip:
         """
         The read/write asymmetry this migration closed
 
-        Such a document used to load as `impact_descriptions: None` and serialise back into something
+        Such a document must not load as `impact_descriptions: None` and serialise back into something
         the Cerberus schema rejects - a read the write path could not accept.
         """
         legacy = _document()

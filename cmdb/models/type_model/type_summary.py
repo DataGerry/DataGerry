@@ -29,18 +29,22 @@ class TypeSummary:
     """
     Contains the summary fields of CmdbType
     """
-    def __init__(self, fields: list[str] | None = None) -> None:
+    def __init__(self, fields: list[str] | list[dict[str, Any]] | None = None) -> None:
         """
         Initialises a TypeSummary
 
         Args:
-            fields (list[str] | None): Names of the CmdbType fields whose values make up an object's
-                summary line - the one-line label the frontend shows wherever an object is referenced
-                rather than opened. Order is the order they are rendered in. Defaults to no fields,
-                which is what `has_fields` answers False for and what makes the renderer fall back to
-                the object's public_id
+            fields (list[str] | list[dict[str, Any]] | None): The CmdbType fields whose values make up
+                an object's summary line - the one-line label the frontend shows wherever an object is
+                referenced rather than opened. Order is the order they are rendered in. Defaults to no
+                fields, which is what `has_fields` answers False for and what makes the renderer fall
+                back to the object's public_id
+
+        A TypeSummary holds one of two shapes. The STORED summary (`render_meta.summary`, read with
+        `from_data`) holds field NAMES; the one `CmdbType.get_summary` builds for the renderer holds the
+        resolved field DEFINITIONS (dicts), with names that no longer exist dropped
         """
-        self.fields: list[str] = fields or []
+        self.fields: list[str] | list[dict[str, Any]] = fields or []
 
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 

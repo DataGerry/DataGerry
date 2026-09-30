@@ -20,8 +20,7 @@ Pure tests: no Mongo. The manager is driven against a ``MagicMock(spec=ControlMe
 its cross-collection database collaborator (aggregate_from_other_collection) stubbed, so only the
 manager's own behavior is exercised - the grouped ``$in`` pipeline shape, the empty-input short
 circuit, and the error-wrapping into the ControlMeasureManager error hierarchy. The aggregation
-itself is pinned against real MongoDB in
-tests/integration/isms/test_integration_control_measure_manager.py.
+itself is exercised against real MongoDB by the integration tier.
 """
 from unittest.mock import MagicMock
 

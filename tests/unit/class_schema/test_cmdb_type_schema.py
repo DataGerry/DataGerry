@@ -14,12 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the section rules of cmdb.class_schema.type_model.cmdb_type_schema
+Unit tests for the section rules and the nested-summary defaults of cmdb.class_schema.type_model.cmdb_type_schema
 
 A section's kind decides how the whole stack treats it: which class builds it, whether its fields are
 multi-data fields, whether a client draws a table or a form. The schema is the only place a write can
-be stopped before that kind is stored, and it used to accept any string at all - while the type
-IMPORT refused an unknown one. These tests pin the two doors to the same answer.
+be stopped before that kind is stored, and the type IMPORT refuses an unknown one as well. These tests
+pin the two doors to the same answer.
+
+A reference field's nested summary is read by the renderer with the same defaults the schema fills in,
+so an entry written through the type route always carries `prefix` and `fields`.
 """
 import pytest
 from cerberus import Validator
@@ -27,6 +30,7 @@ from cerberus import Validator
 from cmdb.class_schema.type_model.cmdb_type_schema import get_cmdb_type_schema
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.type_constants import NESTED_SUMMARY_PREFIX_DEFAULT, NestedSummaryKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TYPE_NAME: str = 'schema-test-type'
@@ -83,3 +87,31 @@ def test_the_allowed_kinds_are_the_enum_members() -> None:
     section_schema = get_cmdb_type_schema()['render_meta']['schema']['sections']['schema']['schema']
 
     assert section_schema[SectionKey.TYPE.value]['allowed'] == [member.value for member in SectionType]
+
+
+def _normalized_summaries(entries: list[dict]) -> list[dict]:
+    """Validates a payload whose reference field carries the given nested summaries; answers them normalized."""
+    payload: dict = _type_payload(SectionType.SECTION.value)
+    payload['fields'] = [{'type': 'ref', 'name': FIELD_NAME, 'label': 'Owner', 'ref_types': [1], 'summaries': entries}]
+    validator = Validator(get_cmdb_type_schema(), purge_unknown=True)
+
+    assert validator.validate(payload) is True, validator.errors
+
+    return validator.document['fields'][0]['summaries']
+
+
+def test_a_nested_summary_gets_the_prefix_and_fields_defaults() -> None:
+    """The two optional keys are filled in, so no stored entry written here lacks them"""
+    (entry,) = _normalized_summaries([{'type_id': 1, 'line': '', 'label': 'Server', 'icon': 'fa-cube'}])
+
+    assert entry[NestedSummaryKey.PREFIX.value] is NESTED_SUMMARY_PREFIX_DEFAULT
+    assert entry[NestedSummaryKey.FIELDS.value] == []
+
+
+def test_a_nested_summary_keeps_what_it_was_sent() -> None:
+    """The defaults apply to a missing key only"""
+    (entry,) = _normalized_summaries([{'type_id': 1, 'line': '', 'label': 'Server', 'icon': 'fa-cube',
+                                       'prefix': False, 'fields': [FIELD_NAME]}])
+
+    assert entry[NestedSummaryKey.PREFIX.value] is False
+    assert entry[NestedSummaryKey.FIELDS.value] == [FIELD_NAME]

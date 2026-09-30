@@ -14,10 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-A CmdbType field's and multi-data-section's identifier cannot be renamed (gap G1)
+A CmdbType field's and multi-data-section's identifier cannot be renamed
 
 These are the three reproductions that found the bug, turned into regression tests. Before
-2026-09-15 each of them answered **202** and destroyed data without a word:
+Unguarded, each of them answers **202** and destroys data without a word:
 
   1. renaming a flat field      -> the Object's value became ``None``
   2. renaming an MDS field      -> the row's value became ``None``
@@ -142,7 +142,7 @@ def _mds_sections(objects) -> list[dict[str, Any]]:
 
 
 class TestRenamingAFlatFieldIsRefused:
-    """Reproduction 1 — a 202 and a null value before 2026-09-15."""
+    """Reproduction 1 — an accepted rename answers 202 and leaves a null value."""
 
     def test_the_rename_is_refused(self, rest_api, stored) -> None:
         """A field's name is its identifier; changing it would empty every Object's value."""
@@ -256,7 +256,7 @@ class TestWhatStaysAllowed:
         Dropping a field remains supported, and still drops the stored value
 
         That is existing, documented behaviour and deliberately NOT changed here - this guard refuses
-        renaming, not removal. See GAPS.md G1 for the residual.
+        renaming, not removal.
         """
         del stored
         payload = _read_back(rest_api)

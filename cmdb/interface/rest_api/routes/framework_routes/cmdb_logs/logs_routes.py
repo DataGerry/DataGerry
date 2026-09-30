@@ -32,7 +32,7 @@ Two properties of the underlying collection shape these routes:
       (``object_id`` + ``log_time``, and ``log_type`` + ``action``) rather than on a scan
 
 Every list route accepts the standard collection parameters. NOTE that ``filter`` is currently parsed
-but NOT applied to the query (discussion-backlog item): the frontend's log-table search therefore has
+but NOT applied to the query: the frontend's log-table search therefore has
 no effect server-side.
 """
 from logging import Logger, getLogger
@@ -47,6 +47,7 @@ from cmdb.manager import LogsManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
+from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -57,7 +58,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
     LogKey,
     LogQueryOperator,
 )
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import build_object_logs_response
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import (
+    build_object_log_existence_query,
+    build_object_logs_response,
+)
 
 from cmdb.errors.manager import BaseManagerIterationError, BaseManagerGetError, BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -125,7 +129,7 @@ def get_logs_with_existing_objects(params: CollectionParameters, request_user: C
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        query = logs_manager.query_builder.prepare_log_query()
+        query = build_object_log_existence_query()
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:
@@ -156,7 +160,7 @@ def get_logs_with_deleted_objects(params: CollectionParameters, request_user: Cm
     try:
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
-        query = logs_manager.query_builder.prepare_log_query(False)
+        query = build_object_log_existence_query(False)
 
         return build_object_logs_response(logs_manager, query, params, request, request_user)
     except BaseManagerIterationError as err:
@@ -188,7 +192,7 @@ def get_object_delete_logs(params: CollectionParameters, request_user: CmdbUser)
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
 
         query: dict[str, Any] = {
-            LogKey.LOG_TYPE.value: CmdbObjectLog.__name__,
+            LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
             LogKey.ACTION.value: LogAction.DELETE.value,
         }
 
@@ -264,13 +268,13 @@ def get_corresponding_object_log(public_id: int, request_user: CmdbUser) -> Resp
         source_object_id = selected_log.get(LogKey.OBJECT_ID.value)
 
         # The collection is shared by log_type, so a document read by public_id alone is not
-        # guaranteed to be an object log. Without this the missing key raised a KeyError into the
-        # catch-all and answered 500 instead of naming the problem
+        # guaranteed to be an object log. Without this the missing key would raise a KeyError into the
+        # catch-all and answer 500 instead of naming the problem
         if source_object_id is None:
             abort(400, f"The Log with ID:{public_id} does not belong to an Object!")
 
         query: dict[str, Any] = {
-            LogKey.LOG_TYPE.value: CmdbObjectLog.__name__,
+            LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
             LogKey.OBJECT_ID.value: source_object_id,
             LogKey.ACTION.value: LogAction.EDIT.value,
             LogQueryOperator.NOR.value: [{

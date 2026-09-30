@@ -46,7 +46,7 @@ class KeyGenerator:
     The generated keys are then stored in the application's settings via the `SettingsManager`
     """
 
-    def __init__(self, dbm: MongoDatabaseManager):
+    def __init__(self, dbm: MongoDatabaseManager) -> None:
         """
         Initializes the KeyGenerator
 

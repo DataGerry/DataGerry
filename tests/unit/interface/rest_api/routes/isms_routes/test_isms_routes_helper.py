@@ -16,24 +16,42 @@
 """
 Unit tests for the shared ISMS route helpers in isms_routes_helper.
 
-Pure tests driven against MagicMock managers: ``bulk_delete_reporting_in_use`` (delete_item reports
+Pure tests driven against MagicMock managers: ``abort_if_isms_cap_reached`` (the 400 once a bounded
+ISMS collection is full), ``bulk_delete_reporting_in_use`` (delete_item reports
 whether a document was removed) and ``update_multiple_items`` (the bulk-update orchestration that
 resolves existing ids in one batched query and reports a per-item result), plus the RiskAssessment
 required-field guard - which is where the "name every missing field at once" behaviour is asserted,
 since through HTTP the Cerberus schema already rejects four of the five before the guard is reached.
+
+Also the manager-error message helpers (``manager_error_message(s)``, which fill an entity's labels and
+leave ``{public_id}`` for the route decorator) and ``require_created_item`` (the 500 when an insert
+cannot read back its own write).
 """
+from http import HTTPStatus
 from unittest.mock import MagicMock
 
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.interface.rest_api.routes.isms_routes import isms_routes_constants
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_CAP_REACHED_MSG,
+    ISMS_LIKELIHOODS_LABEL,
+    MAX_ISMS_SCALE_ENTRIES,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
+    THREAT_LABEL,
+    VULNERABILITY_LABEL,
+    IsmsEntityLabel,
+    IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_if_isms_cap_reached,
     bulk_delete_reporting_in_use,
     get_missing_risk_assessment_fields,
     guard_required_risk_assessment_fields,
+    manager_error_message,
+    manager_error_messages,
+    require_created_item,
     update_multiple_items,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -41,7 +59,64 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
 ID_A: int = 11
 ID_B: int = 12
 ID_C: int = 13
+# The id a bool would alias in Python: True == 1
+TRUE_ALIASED_ID: int = 1
 MISSING_ID: int = 99
+
+
+PUBLIC_ID_PLACEHOLDER: str = '{public_id}'
+ENTITY_PLACEHOLDERS: tuple[str, ...] = ('{entity}', '{entities}')
+# The one verb form every failure message shares; the refusal is phrased as a rule instead
+FAILURE_PREFIX: str = 'Failed to '
+REFUSALS: frozenset[IsmsManagerErrorMessage] = frozenset({IsmsManagerErrorMessage.USED_BY_RISKS})
+# Templates addressing one stored item carry its id
+ID_TEMPLATES: frozenset[IsmsManagerErrorMessage] = frozenset({
+    IsmsManagerErrorMessage.GET,
+    IsmsManagerErrorMessage.UPDATE,
+    IsmsManagerErrorMessage.DELETE,
+    IsmsManagerErrorMessage.USED_BY_RISKS,
+})
+ALL_LABELS: list[IsmsEntityLabel] = [
+    value for value in vars(isms_routes_constants).values() if isinstance(value, IsmsEntityLabel)
+]
+
+
+class _FirstError(Exception):
+    """One manager error class."""
+
+
+class _SecondError(Exception):
+    """Another, mapped to a different template."""
+
+
+def _counting_manager(count: int) -> MagicMock:
+    """A manager whose collection holds ``count`` documents."""
+    manager = MagicMock()
+    manager.count_documents.return_value = count
+
+    return manager
+
+
+class TestAbortIfIsmsCapReached:
+    """``abort_if_isms_cap_reached`` refuses a create once the collection holds ``cap`` entries."""
+
+    @pytest.mark.parametrize('count', [MAX_ISMS_SCALE_ENTRIES, MAX_ISMS_SCALE_ENTRIES + 1], ids=['at', 'over'])
+    def test_a_full_collection_is_a_400_naming_cap_and_entity(self, count: int) -> None:
+        """A business rule, not a missing right - so 400, never 403"""
+        with pytest.raises(HTTPException) as exc_info:
+            abort_if_isms_cap_reached(_counting_manager(count), MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == ISMS_CAP_REACHED_MSG.format(cap=MAX_ISMS_SCALE_ENTRIES,
+                                                                          entity_label=ISMS_LIKELIHOODS_LABEL)
+
+    def test_one_below_the_cap_passes(self) -> None:
+        """The last free slot can still be filled"""
+        manager = _counting_manager(MAX_ISMS_SCALE_ENTRIES - 1)
+
+        abort_if_isms_cap_reached(manager, MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)  # must not raise
+
+        manager.count_documents.assert_called_once_with()
 
 
 class TestBulkDeleteReportingInUse:
@@ -159,6 +234,29 @@ class TestUpdateMultipleItems:
         by_id = {entry['public_id']: entry['status'] for entry in results}
         assert by_id == {ID_A: 'failed', ID_B: 'success'}
 
+    def test_a_bool_public_id_is_refused_although_it_equals_an_existing_id(self) -> None:
+        """True == 1, but MongoDB would not match it - so it is refused instead of reported as success"""
+        manager = _existence_manager([TRUE_ALIASED_ID])
+
+        results = update_multiple_items(manager, MagicMock(), [{'public_id': True}], "RiskClass", "tag")
+
+        assert results == [{'public_id': True, 'status': 'failed', 'message': 'Invalid public_id'}]
+        manager.update_item.assert_not_called()
+        manager.find_all.assert_not_called()
+
+    @pytest.mark.parametrize('public_id', [str(ID_A), float(ID_A), [ID_A]])
+    def test_a_public_id_that_is_not_an_integer_is_refused(self, public_id: object) -> None:
+        """Only an integer can address a stored document; anything else fails that item alone"""
+        manager = _existence_manager([ID_A, ID_B])
+
+        results = update_multiple_items(
+            manager, MagicMock(), [{'public_id': public_id}, {'public_id': ID_B}], "RiskClass", "tag"
+        )
+
+        assert [entry['status'] for entry in results] == ['failed', 'success']
+        assert results[0]['message'] == 'Invalid public_id'
+        manager.find_all.assert_called_once_with(criteria={'public_id': {'$in': [ID_B]}})
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        RiskAssessment required-field guard                                           #
@@ -263,3 +361,96 @@ class TestGuardRequiredRiskAssessmentFields:
 
         for field_name in REQUIRED_RISK_ASSESSMENT_FIELDS:
             assert field_name in err.value.description
+
+
+class TestManagerErrorTemplates:
+    """The shape every IsmsManagerErrorMessage keeps, so one rule reads the same on every route."""
+
+    @pytest.mark.parametrize('template', list(IsmsManagerErrorMessage), ids=lambda t: t.name)
+    def test_every_template_names_its_entity(self, template: IsmsManagerErrorMessage) -> None:
+        """A message that does not say which entity failed would read the same on twelve routes."""
+        assert any(placeholder in template.value for placeholder in ENTITY_PLACEHOLDERS)
+
+    @pytest.mark.parametrize('template', list(IsmsManagerErrorMessage), ids=lambda t: t.name)
+    def test_exactly_the_single_item_templates_carry_the_id(self, template: IsmsManagerErrorMessage) -> None:
+        """The id is in every message about one stored item, and in no message about several."""
+        assert (PUBLIC_ID_PLACEHOLDER in template.value) == (template in ID_TEMPLATES)
+
+    @pytest.mark.parametrize('template', list(IsmsManagerErrorMessage), ids=lambda t: t.name)
+    def test_every_failure_uses_the_one_verb_form(self, template: IsmsManagerErrorMessage) -> None:
+        """"Failed to ..." everywhere - the drift between "Could not" and "Failed to" is what this pins."""
+        assert template.value.startswith(FAILURE_PREFIX) == (template not in REFUSALS)
+
+    def test_no_two_entities_share_a_label(self) -> None:
+        """A label copied from a sibling entity would name the wrong thing in every message."""
+        singulars = [label.singular for label in ALL_LABELS]
+        plurals = [label.plural for label in ALL_LABELS]
+
+        assert len(set(singulars)) == len(singulars)
+        assert len(set(plurals)) == len(plurals)
+
+
+class TestManagerErrorMessage:
+    """Filling a template with an entity's labels, the id left for the route."""
+
+    def test_the_singular_label_is_filled_and_the_id_kept(self) -> None:
+        """``{public_id}`` survives, for handle_manager_errors to fill from the route argument."""
+        message = manager_error_message(THREAT_LABEL, IsmsManagerErrorMessage.GET)
+
+        assert THREAT_LABEL.singular in message
+        assert PUBLIC_ID_PLACEHOLDER in message
+        assert not any(placeholder in message for placeholder in ENTITY_PLACEHOLDERS)
+
+    def test_the_plural_label_is_filled(self) -> None:
+        """The list and bulk messages speak of several."""
+        message = manager_error_message(VULNERABILITY_LABEL, IsmsManagerErrorMessage.ITERATE)
+
+        assert VULNERABILITY_LABEL.plural in message
+        assert not any(placeholder in message for placeholder in ENTITY_PLACEHOLDERS)
+
+    def test_the_result_still_formats_with_the_id(self) -> None:
+        """What the decorator does with it next."""
+        message = manager_error_message(THREAT_LABEL, IsmsManagerErrorMessage.DELETE)
+
+        assert str(ID_A) in message.format(public_id=ID_A)
+
+
+class TestManagerErrorMessages:
+    """A route's whole table, one template per error class."""
+
+    def test_each_class_gets_its_own_filled_template(self) -> None:
+        """Order and pairing are kept - a swapped pair would give each class the other's message."""
+        table = manager_error_messages(THREAT_LABEL, {
+            _FirstError: IsmsManagerErrorMessage.INSERT,
+            _SecondError: IsmsManagerErrorMessage.GET_CREATED,
+        })
+
+        assert table == {
+            _FirstError: manager_error_message(THREAT_LABEL, IsmsManagerErrorMessage.INSERT),
+            _SecondError: manager_error_message(THREAT_LABEL, IsmsManagerErrorMessage.GET_CREATED),
+        }
+
+    def test_an_empty_table_stays_empty(self) -> None:
+        """Nothing is invented; handle_manager_errors refuses an empty table itself."""
+        assert not manager_error_messages(THREAT_LABEL, {})
+
+
+class TestRequireCreatedItem:
+    """The read-back of a created item: found is the answer, missing is the server's own fault."""
+
+    def test_a_found_item_is_answered(self) -> None:
+        """The document itself, untouched."""
+        item = {'public_id': ID_A}
+
+        assert require_created_item(item, THREAT_LABEL) is item
+
+    @pytest.mark.parametrize('missing', [None, {}], ids=['none', 'empty'])
+    def test_a_missing_item_is_a_500(self, missing: dict | None) -> None:
+        """Not a 404: the caller asked for nothing, the server lost sight of its own write."""
+        with pytest.raises(HTTPException) as exc_info:
+            require_created_item(missing, THREAT_LABEL)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == manager_error_message(
+            THREAT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )

@@ -36,17 +36,18 @@ class GetSingleResponse(BaseAPIResponse):
     API Response for get calls with a single resource.
     """
 
-    def __init__(self, result: dict, body: bool | None = None, projection: dict | None = None) -> None:
+    def __init__(self, result: dict[str, Any], body: bool | None = None,
+                 projection: dict[str, Any] | None = None) -> None:
         """
         Initializes the GetSingleResponse
 
         Args:
-            result (dict): The resource to answer with
+            result (dict[str, Any]): The resource to answer with
             body (bool | None): Whether to answer with a payload; False answers without one (HEAD).
                 None means yes
-            projection (dict | None): An optional client `?projection=` to trim the result with
+            projection (dict[str, Any] | None): An optional client `?projection=` to trim the result with
         """
-        self.result: dict = self.apply_projection(result, projection)
+        self.result: dict[str, Any] = self.apply_projection(result, projection)
 
         super().__init__(operation_type=OperationType.GET, body=body)
 

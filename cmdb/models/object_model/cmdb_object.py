@@ -29,13 +29,13 @@ the value on every object of the type.
 ``creation_time`` and ``version``, the update route pins the stored creation time and stamps
 ``last_edit_time`` / ``editor_id``, and PATCH refuses all of them outright. The model therefore
 reports what a document carries: an object without a creation time reads as None rather than as
-*today*, which is what it used to become - differently on every read, because the default was
+*today*, which is what a ``datetime.now()`` default makes it - differently on every read, because it is
 evaluated per call.
 
 **A timestamp is a real date whichever shape it arrives in.** Both are declared in ``DATE_FIELDS``, so
 the ``{'$date': ...}`` wrapper the frontend sends and a timestamp string from an API client are
 normalised before the document is stored, and a value that cannot be read is refused rather than
-guessed - it used to be parsed with ``fuzzy=True``, which reads 'sometime in March' as a date built
+guessed: parsed with ``fuzzy=True`` it reads 'sometime in March' as a date built
 from today's day number.
 
 **``get_value`` raises where its helper twin returns None, and that is deliberate.**
@@ -44,7 +44,7 @@ raw documents; the renderer relies on this one raising, because a summary field 
 carry has to fall back to a default rather than render an empty string. Neither is going away - see
 the note on ``get_value``.
 
-**Only the keys of ``CmdbObjectKey`` are stored.** The constructor used to accept ``**kwargs`` and
+**Only the keys of ``CmdbObjectKey`` are stored.** A constructor accepting ``**kwargs`` would
 ``setattr`` whatever else a document carried, so a drifted or misspelled key became a silent attribute
 that ``to_json`` then dropped. Unknown keys are now ignored where they arrive - which is also what
 lets the transient ``location_name`` of a create payload pass through without being stored
@@ -93,14 +93,13 @@ class CmdbObject(CmdbDAO):
     DATE_FIELDS: tuple[str, ...] = tuple(date_key.value for date_key in OBJECT_DATE_KEYS)
 
     # The keys a stored document must carry to be readable, and only those: without a type or an owner
-    # an object describes nothing, and both were already mandatory - the previous from_data read them
-    # with data['key'] and int(), so a document missing one raised there instead.
+    # an object describes nothing.
     #
-    # Everything else this list used to name (creation_time, active, version) is optional in the schema
-    # and defaulted in normalize_document. Declaring them required while defaulting them anyway is what
-    # let a document without a creation time be answered with 'now'; declaring MORE keys required would
-    # make documents unreadable that this model has always read, on the collection where that costs the
-    # most - the object list of a whole database
+    # Every other key (creation_time, active, version, ...) is optional in the schema and defaulted in
+    # normalize_document. Declaring one required while defaulting it anyway would let a document without
+    # a creation time be answered with 'now'; declaring MORE keys required would make documents
+    # unreadable that this model has always read, on the collection where that costs the most - the
+    # object list of a whole database
     REQUIRED_INIT_KEYS: list[str] = [
         CmdbObjectKey.TYPE_ID.value,
         CmdbObjectKey.AUTHOR_ID.value,
@@ -226,8 +225,8 @@ class CmdbObject(CmdbDAO):
         Called when the '/' operator is used between two CmdbObjects. Entries are compared whole, so a
         field whose value changed appears in both lists - once as it was and once as it is.
 
-        No caller uses it today; it is kept because it is public model API and its behaviour is now
-        pinned by tests, so a future differ can rely on it
+        The object version bump (``cmdb.framework.object_edit.compute_object_version``) reads its diff
+        from here, so the entries it returns are also what the change log records as ``changes``
 
         Args:
             other (CmdbObject): The CmdbObject to compare with this one

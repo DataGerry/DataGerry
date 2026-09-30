@@ -38,6 +38,8 @@ import = created + existing), ``created_objects``, ``existing_objects`` and ``in
 import io
 from csv import DictReader, Sniffer, Error
 from logging import Logger, getLogger
+from typing import Any
+
 from flask import request, abort
 from werkzeug import Response
 from werkzeug.datastructures import FileStorage
@@ -60,8 +62,9 @@ from cmdb.models.isms_model.isms_control_measure_constants import (
     ControlMeasureKey,
 )
 from cmdb.models.isms_model.isms_risk_constants import RISK_IMPORT_KEYS, RiskKey
-from cmdb.models.isms_model.isms_threat_constants import THREAT_IMPORT_KEYS
-from cmdb.models.isms_model.isms_vulnerability_constants import VULNERABILITY_IMPORT_KEYS
+from cmdb.models.isms_model.isms_threat_constants import THREAT_IMPORT_KEYS, ThreatKey
+from cmdb.models.isms_model.isms_vulnerability_constants import VULNERABILITY_IMPORT_KEYS, VulnerabilityKey
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
 from cmdb.utils import parse_import_bool
 
@@ -135,7 +138,7 @@ def import_isms_objects(target: str, request_user: CmdbUser) -> Response:
 
 # -------------------------------------------------- ISMS Importers -------------------------------------------------- #
 
-def handle_isms_import(csv_file: FileStorage, target: IsmsImportType, request_user: CmdbUser) -> dict:
+def handle_isms_import(csv_file: FileStorage, target: IsmsImportType, request_user: CmdbUser) -> dict[str, Any]:
     """
     Selects the handler for the provided csv file and starts the import workflow for it
 
@@ -145,7 +148,7 @@ def handle_isms_import(csv_file: FileStorage, target: IsmsImportType, request_us
         request_user (CmdbUser): CmdbUser requesting the import
 
     Returns:
-        dict: The results of the import
+        dict[str, Any]: The results of the import
     """
     extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(ManagerType.EXTENDABLE_OPTIONS,
                                                                                        request_user)
@@ -172,7 +175,8 @@ def import_threat_like_entities(
         csv_file: FileStorage,
         expected_headers: set[str],
         manager: GenericManager,
-        extendable_options_manager: ExtendableOptionsManager) -> dict:
+        keys: type[ThreatKey] | type[VulnerabilityKey],
+        extendable_options_manager: ExtendableOptionsManager) -> dict[str, Any]:
     """
     Imports IsmsThreats or IsmsVulnerabilities - identical CSV shape, identical rules
 
@@ -184,28 +188,29 @@ def import_threat_like_entities(
         csv_file (FileStorage): The uploaded CSV
         expected_headers (set[str]): The headers the file must carry
         manager (GenericManager): ThreatManager or VulnerabilityManager
+        keys (type[ThreatKey] | type[VulnerabilityKey]): The key enum of the entity `manager` stores.
+            The two share their key names, but they are separate entities with a history of being
+            mixed up, so each import spells its own
         extendable_options_manager (ExtendableOptionsManager): Manager for CmdbExtendableOptions
 
     Returns:
-        dict: The import result (see build_import_result)
+        dict[str, Any]: The import result (see build_import_result)
     """
     reader = read_csv_file(csv_file, expected_headers)
 
     total_rows = 0
-    invalid_rows: list[dict] = []
-    accepted_rows: list[dict] = []
+    invalid_rows: list[dict[str, Any]] = []
+    accepted_rows: list[dict[str, Any]] = []
 
     for row in reader:
         total_rows += 1
         candidate = {
-            "name": stripped_cell(row, "name"),
-            "source": stripped_cell(row, "source"),
-            "identifier": stripped_cell(row, "identifier"),
-            "description": stripped_cell(row, "description"),
+            key.value: stripped_cell(row, key.value)
+            for key in (keys.NAME, keys.SOURCE, keys.IDENTIFIER, keys.DESCRIPTION)
         }
 
         # 'name' is the only required field
-        if not candidate["name"]:
+        if not candidate[keys.NAME.value]:
             invalid_rows.append(candidate)
             continue
 
@@ -213,15 +218,16 @@ def import_threat_like_entities(
 
     # Only now, for the rows that are really being imported, are the referenced options resolved
     source_ids = resolve_extendable_options(
-        {row["source"] for row in accepted_rows if row["source"]},
+        {row[keys.SOURCE.value] for row in accepted_rows if row[keys.SOURCE.value]},
         extendable_options_manager,
         OptionType.THREAT_VULNERABILITY,
     )
 
     for candidate in accepted_rows:
-        candidate["source"] = source_ids.get(candidate["source"]) if candidate["source"] else None
+        source = candidate[keys.SOURCE.value]
+        candidate[keys.SOURCE.value] = source_ids.get(source) if source else None
 
-    created, existing = insert_new_items(accepted_rows, manager, "name")
+    created, existing = insert_new_items(accepted_rows, manager, keys.NAME.value)
 
     return build_import_result(total_rows, created, existing, invalid_rows)
 
@@ -229,7 +235,7 @@ def import_threat_like_entities(
 def handle_threats_import(
         csv_file: FileStorage,
         request_user: CmdbUser,
-        extendable_options_manager: ExtendableOptionsManager) -> dict:
+        extendable_options_manager: ExtendableOptionsManager) -> dict[str, Any]:
     """
     Handles the import of IsmsThreats
 
@@ -239,17 +245,17 @@ def handle_threats_import(
         extendable_options_manager (ExtendableOptionsManager): Manager for CmdbExtendableOptions
 
     Returns:
-        dict: Results of IsmsThreat imports
+        dict[str, Any]: Results of IsmsThreat imports
     """
     threat_manager: ThreatManager = ManagerProvider.get_manager(ManagerType.THREAT, request_user)
 
-    return import_threat_like_entities(csv_file, THREAT_HEADERS, threat_manager, extendable_options_manager)
+    return import_threat_like_entities(csv_file, THREAT_HEADERS, threat_manager, ThreatKey, extendable_options_manager)
 
 
 def handle_vulnerabilities_import(
         csv_file: FileStorage,
         request_user: CmdbUser,
-        extendable_options_manager: ExtendableOptionsManager) -> dict:
+        extendable_options_manager: ExtendableOptionsManager) -> dict[str, Any]:
     """
     Handles the import of IsmsVulnerabilities
 
@@ -259,12 +265,12 @@ def handle_vulnerabilities_import(
         extendable_options_manager (ExtendableOptionsManager): Manager for CmdbExtendableOptions
 
     Returns:
-        dict: Results of IsmsVulnerabilities imports
+        dict[str, Any]: Results of IsmsVulnerabilities imports
     """
     vulnerability_manager: VulnerabilityManager = ManagerProvider.get_manager(ManagerType.VULNERABILITY, request_user)
 
     return import_threat_like_entities(
-        csv_file, VULNERABILITY_HEADERS, vulnerability_manager, extendable_options_manager,
+        csv_file, VULNERABILITY_HEADERS, vulnerability_manager, VulnerabilityKey, extendable_options_manager,
     )
 
 
@@ -302,7 +308,7 @@ def risk_row_is_valid(risk_type: str, consequences: str | None, description: str
     return True
 
 
-def read_risk_rows(csv_file: FileStorage) -> tuple[int, list[dict], list[dict]]:
+def read_risk_rows(csv_file: FileStorage) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Reads and validates every risk row, without touching the database
 
@@ -310,14 +316,14 @@ def read_risk_rows(csv_file: FileStorage) -> tuple[int, list[dict], list[dict]]:
         csv_file (FileStorage): The uploaded CSV
 
     Returns:
-        tuple[int, list[dict], list[dict]]: (rows read, accepted candidates, rejected rows). The
+        tuple[int, list[dict[str, Any]], list[dict[str, Any]]]: (rows read, accepted candidates, rejected rows). The
             accepted candidates still carry their references as NAMES
     """
     reader = read_csv_file(csv_file, RISK_HEADERS)
 
     total_rows = 0
-    invalid_rows: list[dict] = []
-    accepted_rows: list[dict] = []
+    invalid_rows: list[dict[str, Any]] = []
+    accepted_rows: list[dict[str, Any]] = []
 
     for row in reader:
         total_rows += 1
@@ -351,7 +357,7 @@ def read_risk_rows(csv_file: FileStorage) -> tuple[int, list[dict], list[dict]]:
     return total_rows, accepted_rows, invalid_rows
 
 
-def resolve_risk_references(accepted_rows: list[dict], request_user: CmdbUser) -> None:
+def resolve_risk_references(accepted_rows: list[dict[str, Any]], request_user: CmdbUser) -> None:
     """
     Replaces the threat / vulnerability / protection-goal NAMES of the accepted rows with public_ids
 
@@ -360,7 +366,7 @@ def resolve_risk_references(accepted_rows: list[dict], request_user: CmdbUser) -
     never leaves master data behind. The rows are updated in place
 
     Args:
-        accepted_rows (list[dict]): The validated risk candidates, references still as names
+        accepted_rows (list[dict[str, Any]]): The validated risk candidates, references still as names
         request_user (CmdbUser): CmdbUser requesting the import (manager scoping)
     """
     protection_goal_manager: ProtectionGoalManager = ManagerProvider.get_manager(ManagerType.PROTECTION_GOAL,
@@ -369,28 +375,49 @@ def resolve_risk_references(accepted_rows: list[dict], request_user: CmdbUser) -
     vulnerability_manager: VulnerabilityManager = ManagerProvider.get_manager(ManagerType.VULNERABILITY,
                                                                              request_user)
 
-    bare_entity_defaults = {"source": None, "identifier": None, "description": None}
+    threats_key: str = RiskKey.THREATS.value
+    vulnerabilities_key: str = RiskKey.VULNERABILITIES.value
+    protection_goals_key: str = RiskKey.PROTECTION_GOALS.value
+
     threat_ids = resolve_named_items(
-        {name for row in accepted_rows for name in row["threats"]}, threat_manager, bare_entity_defaults,
+        {name for row in accepted_rows for name in row[threats_key]},
+        threat_manager,
+        ThreatKey,
+        _bare_entity_defaults(ThreatKey),
     )
     vulnerability_ids = resolve_named_items(
-        {name for row in accepted_rows for name in row["vulnerabilities"]},
+        {name for row in accepted_rows for name in row[vulnerabilities_key]},
         vulnerability_manager,
-        bare_entity_defaults,
+        VulnerabilityKey,
+        _bare_entity_defaults(VulnerabilityKey),
     )
     protection_goal_ids = resolve_named_items(
-        {name for row in accepted_rows for name in row["protection_goals"]},
+        {name for row in accepted_rows for name in row[protection_goals_key]},
         protection_goal_manager,
-        {"predefined": False},
+        ProtectionGoalKey,
+        {ProtectionGoalKey.PREDEFINED.value: False},
     )
 
     for candidate in accepted_rows:
-        candidate["threats"] = [threat_ids[name] for name in candidate["threats"]]
-        candidate["vulnerabilities"] = [vulnerability_ids[name] for name in candidate["vulnerabilities"]]
-        candidate["protection_goals"] = [protection_goal_ids[name] for name in candidate["protection_goals"]]
+        candidate[threats_key] = [threat_ids[name] for name in candidate[threats_key]]
+        candidate[vulnerabilities_key] = [vulnerability_ids[name] for name in candidate[vulnerabilities_key]]
+        candidate[protection_goals_key] = [protection_goal_ids[name] for name in candidate[protection_goals_key]]
 
 
-def handle_risks_import(csv_file: FileStorage, request_user: CmdbUser) -> dict:
+def _bare_entity_defaults(keys: type[ThreatKey] | type[VulnerabilityKey]) -> dict[str, Any]:
+    """
+    The document a risk import inserts for a threat or vulnerability name nobody knows yet, minus the name
+
+    Args:
+        keys (type[ThreatKey] | type[VulnerabilityKey]): The key enum of the entity being created
+
+    Returns:
+        dict[str, Any]: Every optional field of the entity, empty
+    """
+    return {keys.SOURCE.value: None, keys.IDENTIFIER.value: None, keys.DESCRIPTION.value: None}
+
+
+def handle_risks_import(csv_file: FileStorage, request_user: CmdbUser) -> dict[str, Any]:
     """
     Handles the import of IsmsRisks
 
@@ -403,7 +430,7 @@ def handle_risks_import(csv_file: FileStorage, request_user: CmdbUser) -> dict:
         request_user (CmdbUser): CmdbUser requesting the import
 
     Returns:
-        dict: Results of IsmsRisks imports
+        dict[str, Any]: Results of IsmsRisks imports
     """
     total_rows, accepted_rows, invalid_rows = read_risk_rows(csv_file)
 
@@ -421,7 +448,7 @@ def handle_risks_import(csv_file: FileStorage, request_user: CmdbUser) -> dict:
     return build_import_result(total_rows, created, existing, invalid_rows)
 
 
-def read_control_measure_rows(csv_file: FileStorage) -> tuple[int, list[dict], list[dict]]:
+def read_control_measure_rows(csv_file: FileStorage) -> tuple[int, list[dict[str, Any]], list[dict[str, Any]]]:
     """
     Reads and validates every control-measure row, without touching the database
 
@@ -432,14 +459,14 @@ def read_control_measure_rows(csv_file: FileStorage) -> tuple[int, list[dict], l
         csv_file (FileStorage): The uploaded CSV
 
     Returns:
-        tuple[int, list[dict], list[dict]]: (rows read, accepted candidates, rejected rows). The
+        tuple[int, list[dict[str, Any]], list[dict[str, Any]]]: (rows read, accepted candidates, rejected rows). The
             accepted candidates still carry 'source' / 'implementation_state' as raw strings
     """
     reader = read_csv_file(csv_file, CONTROL_MEASURE_HEADERS)
 
     total_rows = 0
-    invalid_rows: list[dict] = []
-    accepted_rows: list[dict] = []
+    invalid_rows: list[dict[str, Any]] = []
+    accepted_rows: list[dict[str, Any]] = []
 
     for row in reader:
         total_rows += 1
@@ -475,7 +502,7 @@ def read_control_measure_rows(csv_file: FileStorage) -> tuple[int, list[dict], l
 def handle_control_measures_import(
         csv_file: FileStorage,
         request_user: CmdbUser,
-        extendable_options_manager: ExtendableOptionsManager) -> dict:
+        extendable_options_manager: ExtendableOptionsManager) -> dict[str, Any]:
     """
     Handles the import of IsmsControlMeasures
 
@@ -488,37 +515,38 @@ def handle_control_measures_import(
         extendable_options_manager (ExtendableOptionsManager): Manager for CmdbExtendableOptions
 
     Returns:
-        dict: Results of IsmsControlMeasures imports
+        dict[str, Any]: Results of IsmsControlMeasures imports
     """
     total_rows, accepted_rows, invalid_rows = read_control_measure_rows(csv_file)
+    source_key: str = ControlMeasureKey.SOURCE.value
+    state_key: str = ControlMeasureKey.IMPLEMENTATION_STATE.value
 
     source_ids = resolve_extendable_options(
-        {row["source"] for row in accepted_rows if row["source"]},
+        {row[source_key] for row in accepted_rows if row[source_key]},
         extendable_options_manager,
         OptionType.CONTROL_MEASURE,
     )
     implementation_state_ids = resolve_extendable_options(
-        {row["implementation_state"] for row in accepted_rows if row["implementation_state"]},
+        {row[state_key] for row in accepted_rows if row[state_key]},
         extendable_options_manager,
         OptionType.IMPLEMENTATION_STATE,
     )
 
     for candidate in accepted_rows:
-        candidate["source"] = source_ids.get(candidate["source"]) if candidate["source"] else None
-        candidate["implementation_state"] = (
-            implementation_state_ids.get(candidate["implementation_state"])
-            if candidate["implementation_state"] else None
+        candidate[source_key] = source_ids.get(candidate[source_key]) if candidate[source_key] else None
+        candidate[state_key] = (
+            implementation_state_ids.get(candidate[state_key]) if candidate[state_key] else None
         )
 
     control_measure_manager: ControlMeasureManager = ManagerProvider.get_manager(ManagerType.CONTROL_MEASURE,
                                                                                 request_user)
-    created, existing = insert_new_items(accepted_rows, control_measure_manager, "title")
+    created, existing = insert_new_items(accepted_rows, control_measure_manager, ControlMeasureKey.TITLE.value)
 
     return build_import_result(total_rows, created, existing, invalid_rows)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-def stripped_cell(row: dict, field: str) -> str | None:
+def stripped_cell(row: dict[str, Any], field: str) -> str | None:
     """
     Reads one CSV cell as a stripped string, tolerating a missing or short row
 
@@ -527,7 +555,7 @@ def stripped_cell(row: dict, field: str) -> str | None:
     with a 500. This returns None for an absent, empty or whitespace-only cell instead
 
     Args:
-        row (dict): The CSV row
+        row (dict[str, Any]): The CSV row
         field (str): The column to read
 
     Returns:
@@ -565,7 +593,7 @@ def resolve_extendable_options(
     if not values:
         return {}
 
-    existing_options: list[dict] = extendable_options_manager.find(
+    existing_options: list[dict[str, Any]] = extendable_options_manager.find(
         criteria={
             ExtendableOptionKey.VALUE: {'$in': sorted(values)},
             ExtendableOptionKey.OPTION_TYPE: option_type,
@@ -615,7 +643,7 @@ def insert_or_reuse_extendable_option(
             ExtendableOptionKey.PREDEFINED: False,
         })
     except ExtendableOptionsManagerInsertError:
-        concurrent_option: dict | None = extendable_options_manager.get_one_by({
+        concurrent_option: dict[str, Any] | None = extendable_options_manager.get_one_by({
             ExtendableOptionKey.VALUE: value,
             ExtendableOptionKey.OPTION_TYPE: option_type,
         })
@@ -634,7 +662,8 @@ def insert_or_reuse_extendable_option(
 def resolve_named_items(
         names: set[str],
         manager: GenericManager,
-        new_item_defaults: dict) -> dict[str, int]:
+        keys: type[ThreatKey] | type[VulnerabilityKey] | type[ProtectionGoalKey],
+        new_item_defaults: dict[str, Any]) -> dict[str, int]:
     """
     Maps ISMS entity names to their public_ids, creating the ones that do not exist yet
 
@@ -645,7 +674,8 @@ def resolve_named_items(
     Args:
         names (set[str]): The distinct names referenced by the rows being imported
         manager (GenericManager): Manager of the referenced ISMS entity
-        new_item_defaults (dict): The document to insert for a missing name, minus its 'name'
+        keys (type[ThreatKey] | type[VulnerabilityKey] | type[ProtectionGoalKey]): That entity's key enum
+        new_item_defaults (dict[str, Any]): The document to insert for a missing name, minus its 'name'
 
     Returns:
         dict[str, int]: {name: public_id of the existing or created entity}
@@ -653,16 +683,19 @@ def resolve_named_items(
     if not names:
         return {}
 
-    existing_items: list[dict] = manager.find(criteria={'name': {'$in': sorted(names)}})
-    resolved: dict[str, int] = {item['name']: item['public_id'] for item in existing_items if item.get('name')}
+    name_key: str = keys.NAME.value
+    existing_items: list[dict[str, Any]] = manager.find(criteria={name_key: {'$in': sorted(names)}})
+    resolved: dict[str, int] = {
+        item[name_key]: item[keys.PUBLIC_ID.value] for item in existing_items if item.get(name_key)
+    }
 
     for name in sorted(names - set(resolved)):
-        resolved[name] = manager.insert_item({'name': name, **new_item_defaults})
+        resolved[name] = manager.insert_item({name_key: name, **new_item_defaults})
 
     return resolved
 
 
-def insert_new_items(candidates: list[dict], manager: GenericManager, identity_field: str) -> tuple[int, int]:
+def insert_new_items(candidates: list[dict[str, Any]], manager: GenericManager, identity_field: str) -> tuple[int, int]:
     """
     Inserts the candidates that are not stored yet and counts the ones that already are
 
@@ -672,7 +705,7 @@ def insert_new_items(candidates: list[dict], manager: GenericManager, identity_f
     costs one query per import instead of one per row
 
     Args:
-        candidates (list[dict]): The documents to import (already validated and reference-resolved)
+        candidates (list[dict[str, Any]]): The documents to import (already validated and reference-resolved)
         manager (GenericManager): Manager of the ISMS entity being imported
         identity_field (str): The field whose value pre-selects the comparison candidates ('name' /
             'title')
@@ -686,7 +719,7 @@ def insert_new_items(candidates: list[dict], manager: GenericManager, identity_f
     identity_values: set[str] = {
         candidate[identity_field] for candidate in candidates if candidate.get(identity_field)
     }
-    stored_by_identity: dict[str, list[dict]] = {}
+    stored_by_identity: dict[str, list[dict[str, Any]]] = {}
 
     for stored_item in manager.find(criteria={identity_field: {'$in': sorted(identity_values)}}):
         stored_by_identity.setdefault(stored_item.get(identity_field), []).append(stored_item)
@@ -710,7 +743,7 @@ def insert_new_items(candidates: list[dict], manager: GenericManager, identity_f
     return created_count, existing_count
 
 
-def build_import_result(total_rows: int, created: int, existing: int, invalid: list[dict]) -> dict:
+def build_import_result(total_rows: int, created: int, existing: int, invalid: list[dict[str, Any]]) -> dict[str, Any]:
     """
     Builds the per-target result dict every ISMS importer returns
 
@@ -718,10 +751,10 @@ def build_import_result(total_rows: int, created: int, existing: int, invalid: l
         total_rows (int): Data rows read from the CSV (valid and invalid)
         created (int): Newly inserted entities
         existing (int): Rows whose entity was already stored
-        invalid (list[dict]): The rejected rows, as far as they could be parsed
+        invalid (list[dict[str, Any]]): The rejected rows, as far as they could be parsed
 
     Returns:
-        dict: total_rows / imported_objects (= created + existing) / created_objects /
+        dict[str, Any]: total_rows / imported_objects (= created + existing) / created_objects /
             existing_objects / invalid_objects
     """
     return {
@@ -734,7 +767,7 @@ def build_import_result(total_rows: int, created: int, existing: int, invalid: l
 
 
 
-def read_csv_file(csv_file: FileStorage, expected_headers: set) -> DictReader:
+def read_csv_file(csv_file: FileStorage, expected_headers: set[str]) -> DictReader:
     """
     Extracts the data from the given csv file and checks that all required headers are present
 
@@ -745,7 +778,7 @@ def read_csv_file(csv_file: FileStorage, expected_headers: set) -> DictReader:
 
     Args:
         csv_file (FileStorage): The csv-file containing the data
-        expected_headers (set): The required headers in the csv-file
+        expected_headers (set[str]): The required headers in the csv-file
 
     Raises:
         werkzeug.exceptions.BadRequest: 400 when the file is not UTF-8, when no delimiter can be
@@ -796,13 +829,13 @@ def read_csv_file(csv_file: FileStorage, expected_headers: set) -> DictReader:
     return reader
 
 
-def parse_list_of_strings(field: str, row: dict) -> list[str]:
+def parse_list_of_strings(field: str, row: dict[str, Any]) -> list[str]:
     """
     Safely parses a CSV field expected to be a stringified list of strings
 
     Args:
         field (str): The CSV field name
-        row (dict): The CSV row as a dict
+        row (dict[str, Any]): The CSV row as a dict
 
     Returns:
         list[str]: Parsed list of strings

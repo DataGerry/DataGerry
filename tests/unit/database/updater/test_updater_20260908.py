@@ -25,9 +25,9 @@ those two states and nothing else. A document already carrying null must not mat
 rewrites the collection), and one carrying a real SpecialType member must not match under any
 circumstances - this migration must not be able to un-assign a RACK or a SUBNET.
 
-The end-to-end behaviour, the double run and the two-migration sequence are in
-tests/integration/database/test_integration_updater_20260417.py, which covers both updaters together;
-the metadata contract is the shared parametrized test in test_version_updaters
+The end-to-end behaviour, the double run and the two-migration sequence need a real collection with
+both updaters run together, so they are not asserted here; neither is the metadata contract every
+updater shares
 """
 # pylint: disable=protected-access,no-member  # the criteria builder is internal and is the
 # migration itself; the managers are MagicMocks, so update_many carries call_args
@@ -124,7 +124,7 @@ class TestTheQueriesAreTheMigration:
         assert object_criteria == Update20260908._legacy_marker_criteria(CmdbObjectKey.SPECIAL_TYPE.value)
 
     def test_null_is_what_is_written(self) -> None:
-        """The value the model, the schemas and every write path since 20260417 use."""
+        """The value the model, the schemas and every write path use."""
         updater = build_stubbed_updater(Update20260908)
 
         updater.start_update()

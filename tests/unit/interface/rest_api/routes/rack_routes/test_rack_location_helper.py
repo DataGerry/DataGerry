@@ -201,7 +201,7 @@ def test_leaving_the_rack_deletes_the_node() -> None:
     existing = {'public_id': MEMBER_NODE_ID, 'object_id': MEMBER_ID, 'parent': RACK_NODE_ID}
     locations_manager = _locations_manager(member_node=existing)
 
-    detach_member_location(MEMBER_ID, MagicMock(), MagicMock(), locations_manager)
+    detach_member_location(MEMBER_ID, MagicMock(), locations_manager)
 
     locations_manager.delete_location.assert_called_once_with(MEMBER_NODE_ID)
 
@@ -214,7 +214,7 @@ def test_leaving_the_rack_clears_the_objects_location_field() -> None:
     """
     objects_manager = MagicMock()
 
-    detach_member_location(MEMBER_ID, MagicMock(), objects_manager, _locations_manager())
+    detach_member_location(MEMBER_ID, objects_manager, _locations_manager())
 
     objects_manager.clear_location_field_for_objects.assert_called_once_with([MEMBER_ID])
 
@@ -224,7 +224,7 @@ def test_the_field_is_cleared_even_without_a_node() -> None:
     objects_manager = MagicMock()
     locations_manager = _locations_manager(member_node=None)
 
-    detach_member_location(MEMBER_ID, MagicMock(), objects_manager, locations_manager)
+    detach_member_location(MEMBER_ID, objects_manager, locations_manager)
 
     objects_manager.clear_location_field_for_objects.assert_called_once_with([MEMBER_ID])
     locations_manager.delete_location.assert_not_called()
@@ -235,7 +235,7 @@ def test_a_detach_failure_is_swallowed() -> None:
     locations_manager = _locations_manager()
     locations_manager.get_location_for_object.side_effect = RuntimeError('boom')
 
-    detach_member_location(MEMBER_ID, MagicMock(), MagicMock(), locations_manager)
+    detach_member_location(MEMBER_ID, MagicMock(), locations_manager)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            membership enumeration                                                    #
@@ -397,7 +397,7 @@ def test_a_member_moved_into_a_rack_with_a_location_is_re_attached() -> None:
 def test_removing_a_membership_detaches_the_member() -> None:
     """Leaving the rack means leaving the tree"""
     with patch(f'{HELPER_PATH}.detach_member_location') as detach:
-        handle_mount_removed(MEMBER_ID, MagicMock(), MagicMock(), MagicMock())
+        handle_mount_removed(MEMBER_ID, MagicMock(), MagicMock())
 
     detach.assert_called_once()
 
@@ -415,7 +415,7 @@ def test_detach_all_reports_the_number_of_members() -> None:
     """The mirror image"""
     with patch(f'{HELPER_PATH}.detach_member_location'):
         assert detach_all_member_locations(
-            RACK_ID, MagicMock(), MagicMock(), MagicMock(), _mounts_manager([MEMBER_ID]),
+            RACK_ID, MagicMock(), MagicMock(), _mounts_manager([MEMBER_ID]),
         ) == 1
 
 
@@ -464,7 +464,7 @@ def test_an_occupant_row_is_not_even_looked_up() -> None:
 def test_deleting_an_occupant_row_detaches_nothing(member_id: Any) -> None:
     """It never had a node to remove"""
     with patch(f'{HELPER_PATH}.detach_member_location') as detach:
-        handle_mount_removed(member_id, MagicMock(), MagicMock(), MagicMock())
+        handle_mount_removed(member_id, MagicMock(), MagicMock())
 
     detach.assert_not_called()
 

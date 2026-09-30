@@ -18,6 +18,6 @@ Unit tests for the cmdb.security.license package
 
 Pure tests for the license feature's foundational parts: the shipped crypto material and
 constants (P1), the machine fingerprint util (P3) and the dev key generator (P0). The enum
-value-contracts are pinned centrally in tests/unit/test_str_enum_value_contracts.py; these
-modules cover behaviour. No Mongo, no Flask
+value-contracts are pinned centrally in the shared str-enum contract module; these modules cover
+behaviour. No Mongo, no Flask
 """

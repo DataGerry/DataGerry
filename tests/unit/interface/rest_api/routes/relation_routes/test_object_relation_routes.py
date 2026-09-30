@@ -110,7 +110,7 @@ class TestParseTabPageParams:
     @pytest.mark.parametrize('query', ['limit=0', 'limit=-1', f'limit={MAX_TAB_PAGE_SIZE + 1}'],
                              ids=['zero', 'negative', 'above-max'])
     def test_rejects_an_out_of_range_limit(self, query: str) -> None:
-        """limit=0 used to mean 'no limit' and could dump a whole tab in one response (regression)."""
+        """limit=0 is not 'no limit': an unbounded page could dump a whole tab in one response."""
         with app.test_request_context(f'/?{query}'):
             with pytest.raises(HTTPException) as exc_info:
                 _parse_tab_page_params()

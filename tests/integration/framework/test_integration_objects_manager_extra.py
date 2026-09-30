@@ -17,8 +17,9 @@
 Integration tests for ObjectsManager methods not covered by the CRUD suite
 
 Pins, against a real MongoDB: the ISMS risk-assessment cascade on object deletion
-(delete_object_from_risk_assessment_cascade), the multi_data_sections bulk write
-(bulk_update_multi_data_sections), and the batched object lookup (get_objects_lookup)
+(delete_object_from_risk_assessment_cascade), the server-side field statements
+(apply_raw_updates, driven through the flat re-alignment), and the batched object lookup
+(get_objects_lookup)
 """
 from datetime import datetime, timezone
 from types import SimpleNamespace
@@ -29,6 +30,12 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.objects_reference_helper import merge_mds_references
+from cmdb.manager.objects_propagation_helper import (
+    build_add_field_update,
+    build_field_entry,
+    build_remove_undeclared_fields_update,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import realign_objects_to_type
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
@@ -49,6 +56,8 @@ OTHER_CMA_ID: int = 9742
 
 # Bulk MDS update ids
 MDS_OBJECT_IDS: list[int] = [9751, 9752]
+STALE_FIELD: str = 'stale-field'
+DEFAULT_VALUE: str = 'declared-default'
 
 # Lookup ids
 LOOKUP_OBJECT_IDS: list[int] = [9761, 9762]
@@ -155,36 +164,88 @@ class TestRiskAssessmentCascade:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                       bulk_update_multi_data_sections                                               #
+#                                                 apply_raw_updates                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestBulkUpdateMultiDataSections:
-    """The bulk write replaces each object's multi_data_sections in one round-trip."""
+class TestApplyRawUpdates:
+    """
+    The server-side statements a type change is carried to its objects with
+
+    Pinned against a real collection through the flat re-alignment, which issues both kinds of
+    statement: a pull of what the type does not declare and a push of what an object lacks.
+    """
 
     @pytest.fixture(autouse=True)
     def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
-        """Seeds two objects with empty multi_data_sections, removed after the test."""
+        """
+        Seeds two objects: one carrying a stale field, one missing the declared field
+
+        Removed after the test.
+        """
         objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        objects.insert_many([_object_doc(public_id, mds=[]) for public_id in MDS_OBJECT_IDS])
+        drifted: dict[str, Any] = _object_doc(MDS_OBJECT_IDS[0])
+        drifted['fields'].append({'type': 'text', 'name': STALE_FIELD, 'value': 'old'})
+        missing: dict[str, Any] = _object_doc(MDS_OBJECT_IDS[1])
+        missing['fields'] = []
+        objects.insert_many([drifted, missing])
         yield
         objects.delete_many({'public_id': {'$in': MDS_OBJECT_IDS}})
 
-    def test_bulk_update_persists_new_multi_data_sections(
+    @staticmethod
+    def _stored_fields(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> list[Any]:
+        """The flat fields list of one seeded object, as stored."""
+        return database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+            .find_one({'public_id': public_id})['fields']
+
+    @staticmethod
+    def _declared_type() -> SimpleNamespace:
+        """A type declaring only NAME_FIELD, with a default value."""
+        return SimpleNamespace(
+            public_id=TYPE_ID, fields=[{'name': NAME_FIELD, 'type': 'text', 'value': DEFAULT_VALUE}],
+        )
+
+    def test_the_realignment_drops_the_stale_and_adds_the_missing(
         self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Each object's multi_data_sections are overwritten with the supplied content."""
-        new_mds = [{'section_id': 'mds-section', 'values': [{'multi_data_id': 1, 'data': []}]}]
-        updated = [CmdbObject.from_data(_object_doc(public_id, mds=new_mds)) for public_id in MDS_OBJECT_IDS]
+        """The stale entry goes; the object without the field gets it with the declared default"""
+        realign_objects_to_type(objects_manager, self._declared_type())
 
-        objects_manager.bulk_update_multi_data_sections(updated)
+        assert self._stored_fields(database_manager, database_name, MDS_OBJECT_IDS[0]) \
+            == [{'type': 'text', 'name': NAME_FIELD, 'value': 'x'}]
+        assert self._stored_fields(database_manager, database_name, MDS_OBJECT_IDS[1]) \
+            == [{'name': NAME_FIELD, 'type': 'text', 'value': DEFAULT_VALUE}]
 
-        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
-        for public_id in MDS_OBJECT_IDS:
-            stored = objects.find_one({'public_id': public_id})
-            assert stored['multi_data_sections'] == new_mds
+    def test_an_existing_value_is_not_overwritten_by_the_default(
+        self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The push only matches objects lacking the field, so a captured value stays"""
+        realign_objects_to_type(objects_manager, self._declared_type())
 
-    def test_bulk_update_empty_list_is_noop(self, objects_manager: ObjectsManager) -> None:
-        """An empty list performs no write and does not raise."""
-        objects_manager.bulk_update_multi_data_sections([])
+        assert self._stored_fields(database_manager, database_name, MDS_OBJECT_IDS[0])[0]['value'] == 'x'
+
+    def test_a_second_run_modifies_nothing(self, objects_manager: ObjectsManager) -> None:
+        """Every statement is idempotent"""
+        type_instance = self._declared_type()
+        realign_objects_to_type(objects_manager, type_instance)
+
+        statements = [
+            build_remove_undeclared_fields_update(TYPE_ID, [NAME_FIELD]),
+            build_add_field_update(TYPE_ID, build_field_entry(type_instance.fields[0])),
+        ]
+
+        assert objects_manager.apply_raw_updates(statements) == 0
+
+    def test_the_answer_counts_the_modified_documents(self, objects_manager: ObjectsManager) -> None:
+        """One document loses its stale field, the other gains the missing one"""
+        statements = [
+            build_remove_undeclared_fields_update(TYPE_ID, [NAME_FIELD]),
+            build_add_field_update(TYPE_ID, {'name': NAME_FIELD, 'type': 'text', 'value': None}),
+        ]
+
+        assert objects_manager.apply_raw_updates(statements) == 2
+
+    def test_no_statement_is_no_write(self, objects_manager: ObjectsManager) -> None:
+        """An empty list performs no write and does not raise"""
+        assert objects_manager.apply_raw_updates([]) == 0
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

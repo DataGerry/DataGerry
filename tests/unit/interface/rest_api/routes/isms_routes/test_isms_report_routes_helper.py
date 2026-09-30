@@ -23,9 +23,9 @@ identifier order, with empty identifiers last - and must never raise when identi
 shapes are compared.
 
 ``_replace_object_ids_with_summaries`` swaps a report row's assessed-object public_id for the object's
-summary line. It exists to do two things neither of which was covered before 2026-09-07: resolve the
-whole page in **one** batched lookup rather than one per row, and label an id whose object no longer
-resolves rather than leaving a bare number in the report. It is driven here with a stub manager, since
+summary line. It does two things: resolve the whole page in **one** batched lookup rather than one
+per row, and label an id whose object no longer resolves rather than leaving a bare number in the
+report. It is driven here with a stub manager, since
 what matters is how many times it asks and what it does with the answer.
 """
 from typing import Any
@@ -69,7 +69,7 @@ def test_identifiers_sort_numerically() -> None:
 
 
 def test_heterogeneous_identifiers_do_not_raise() -> None:
-    """Mixing numeric and alphabetic identifiers must not raise a TypeError (regression)."""
+    """Mixing numeric and alphabetic identifiers must not raise a TypeError."""
     control_measures = [_cm(identifier='A'), _cm(identifier='12'), _cm(identifier='A.1'), _cm(identifier='3')]
 
     ordered = _sorted_identifiers(control_measures)
