@@ -22,8 +22,45 @@ jobs:
         echo "VERSION_PATH=$(echo ${TAG})" >> $GITHUB_ENV
         echo "VERSION_DOCKER_TAG=$(echo ${TAG})" >> $GITHUB_ENV
 
+    # CRA: SBOM of the source dependencies (requirements.txt, app/package-lock.json)
+    # generated before the build so build outputs / node_modules are not scanned
+    - name: generate SBOM (source dependencies)
+      uses: anchore/sbom-action@v0
+      with:
+        path: .
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ env.TAG }}-source.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
     - name: build DATAGERRY
       run:  BUILDVAR_VERSION=${VERSION_STRING} BUILDVAR_VERSION_EXT=${VERSION_ID} BUILDVAR_DOCKER_TAG=${VERSION_DOCKER_TAG} make -e
+
+    # CRA: SBOMs of the Docker images built by "make docker"
+    - name: generate SBOM (backend image)
+      uses: anchore/sbom-action@v0
+      with:
+        image: becongmbh/datagerry-backend:${{ env.VERSION_DOCKER_TAG }}
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ env.TAG }}-backend-image.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    - name: generate SBOM (frontend image)
+      uses: anchore/sbom-action@v0
+      with:
+        image: becongmbh/datagerry-frontend:${{ env.VERSION_DOCKER_TAG }}
+        format: cyclonedx-json
+        output-file: sbom/datagerry-${{ env.TAG }}-frontend-image.cdx.json
+        upload-artifact: false
+        upload-release-assets: false
+
+    - name: store SBOMs as workflow artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: sbom
+        path: sbom/*.cdx.json
+        if-no-files-found: error
 
     - name: copy artifacts to files.datagerry.com
       run: |
@@ -57,3 +94,34 @@ jobs:
       env:
         DOCKER_USER: ${{ secrets.DOCKER_USER }}
         DOCKER_TOKEN: ${{ secrets.DOCKER_TOKEN }}
+
+  # CRA: attach SBOMs to the GitHub release and archive them (WORM) in Azure Blob Storage.
+  # Separate job because the build container has no az / gh CLI.
+  sbom-archive:
+    needs: build
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      RELEASE_TAG: ${{ github.event.release.tag_name }}
+    steps:
+    - name: download SBOMs
+      uses: actions/download-artifact@v4
+      with:
+        name: sbom
+        path: sbom
+
+    - name: attach SBOMs to GitHub release
+      run: gh release upload "$RELEASE_TAG" sbom/*.cdx.json --clobber --repo "$GITHUB_REPOSITORY"
+      env:
+        GH_TOKEN: ${{ github.token }}
+
+    - name: archive SBOMs in Azure Blob Storage
+      run: |
+        az storage blob upload-batch \
+          --destination sbom \
+          --destination-path "datagerry/${RELEASE_TAG//\//-}" \
+          --source sbom --pattern "*.cdx.json"
+      env:
+        AZURE_STORAGE_CONNECTION_STRING: ${{ secrets.SBOM_STORAGE_CONN }}
