@@ -39,6 +39,30 @@ export const DEVICE_KIND_CHOICES: readonly DeviceKindChoice[] = [
 ];
 
 
+/** An object is a standard device or a patch panel, never both, so its existing ports rule out the other. */
+export function deviceKindChoicesFor(existingKind: PortDeviceKind | null): DeviceKindChoice[] {
+    return DEVICE_KIND_CHOICES.map((choice) => {
+        if (existingKind === PortDeviceKind.STANDARD && choice.value === PortDeviceKind.PATCH_PANEL) {
+            return {
+                ...choice,
+                disabled: true,
+                disabledReason: 'This object already has standard ports. Delete them first to make it a patch panel.'
+            };
+        }
+
+        if (existingKind === PortDeviceKind.PATCH_PANEL && choice.value === PortDeviceKind.STANDARD) {
+            return {
+                ...choice,
+                disabled: true,
+                disabledReason: 'This object is a patch panel. Delete its ports first to make it a standard device.'
+            };
+        }
+
+        return choice;
+    });
+}
+
+
 /** Empty while nothing is picked yet, which is what the preview heading then shows. */
 export function labelOfDeviceKind(kind: PortDeviceKind | null): string {
     return DEVICE_KIND_CHOICES.find((choice) => choice.value === kind)?.label ?? '';

@@ -1,9 +1,11 @@
 <fieldset>
     <legend>{{section?.label}}</legend>
     @for (field of section?.fields; track field) {
+    @if (getFieldByName(field); as fieldData) {
     <div class="object-renderInstance">
-        <cmdb-render-element [mode]="mode" [parentFormGroup]="form" [data]="getFieldByName(field)"
+        <cmdb-render-element [mode]="mode" [parentFormGroup]="form" [data]="fieldData"
             [changeForm]="changeForm" [section]="section" [objectID]=objectID [value]="getValueByName(field)" />
     </div>
+    }
     }
 </fieldset>

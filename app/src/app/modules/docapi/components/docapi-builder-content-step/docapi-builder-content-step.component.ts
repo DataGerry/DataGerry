@@ -28,6 +28,7 @@ import {
 import { CdkDragDrop } from '@angular/cdk/drag-drop';
 import { FormControl, FormGroup, Validators } from '@angular/forms';
 import { NgbModal, NgbModalOptions } from '@ng-bootstrap/ng-bootstrap';
+import { finalize, Subject, takeUntil } from 'rxjs';
 
 import { TemplateHelperService } from '../../../../settings/services/template-helper.service';
 import { CmdbMode } from '../../../../framework/modes.enum';
@@ -58,7 +59,10 @@ import { duplicateSectionById } from '../../utils/docapi-outline-duplicate.util'
 import { deleteSectionById } from '../../utils/docapi-outline-delete.util';
 import { moveItemInTree, serializeTreeToHtml } from '../../utils/docapi-outline-tree-move.util';
 import { DocapiOutlineContextMenuService } from '../../services/docapi-outline-context-menu.service';
+import { DocapiAiAssistantService } from '../../services/docapi-ai-assistant.service';
 import { PermissionService } from '../../../auth/services/permission.service';
+import { CoreWarningModalComponent } from 'src/app/core/components/dialog/core-warning-modal/core-warning-modal.component';
+import { LoaderService } from 'src/app/core/services/loader.service';
 
 interface EditorInstance {
     getBody: () => HTMLElement;
@@ -158,6 +162,11 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
         headingId: null
     };
 
+    private static readonly AI_NOT_CONFIGURED_MESSAGE =
+        'The AI Assistant is not set up for this installation. Ask an administrator to configure the ChatGPT API key and restart DataGerry.';
+    private static readonly AI_STATUS_ERROR_MESSAGE =
+        'The AI Assistant is currently unavailable. Please try again later.';
+
     private readonly headingSyncDebounceMs = 160;
     private readonly defaultPageMargins: PageMargins = { ...DEFAULT_PAGE_MARGINS };
     private readonly headingElementMap = new Map<string, HTMLElement>();
@@ -165,12 +174,16 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     private readonly modalService = inject(NgbModal);
     private readonly editorConfigService = inject(DocapiEditorConfigService);
     private readonly outlineContextMenuService = inject(DocapiOutlineContextMenuService);
+    private readonly aiAssistantService = inject(DocapiAiAssistantService);
     private readonly permissionService = inject(PermissionService);
+    private readonly loaderService = inject(LoaderService);
     private readonly cdr = inject(ChangeDetectorRef);
+    private readonly unsubscribe$ = new Subject<void>();
 
     private pageMargins: PageMargins = { ...this.defaultPageMargins };
     private headingSyncTimeout?: number;
     private editorInstance?: EditorInstance;
+    private aiAssistantStatusPending = false;
 
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -182,6 +195,8 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
     public ngOnDestroy(): void {
         this.clearHeadingSyncTimeout();
         this.headingElementMap.clear();
+        this.unsubscribe$.next();
+        this.unsubscribe$.complete();
     }
 
 
@@ -373,11 +388,7 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
                 this.scheduleHeadingSync(0);
             },
             onEditorContentChanged: () => this.scheduleHeadingSync(),
-            onAiAssistantRequested: () => this.openModalAndInsertContent(DocapiAiAssistantModalComponent, {
-                size: 'xl',
-                windowClass: 'dg-modal-window',
-                backdropClass: 'dg-modal-window-backdrop'
-            }),
+            onAiAssistantRequested: () => this.openAiAssistant(),
             onExternalObjectsRequested: () => this.openModalAndInsertContent(ExternalObjectSelectorModalComponent, {
                 size: 'xl',
                 windowClass: 'dg-modal-window',
@@ -444,6 +455,62 @@ export class DocapiBuilderContentStepComponent implements OnDestroy {
 
 
     /* ----------------------------------------------------- MODALS ---------------------------------------------------- */
+
+    /** The assistant is unusable without a server-side API key, so the state is checked before the modal opens. */
+    private openAiAssistant(): void {
+        if (this.aiAssistantStatusPending) {
+            return;
+        }
+
+        this.aiAssistantStatusPending = true;
+        this.loaderService.show();
+
+        this.aiAssistantService.isConfigured()
+            .pipe(
+                takeUntil(this.unsubscribe$),
+                finalize(() => {
+                    this.aiAssistantStatusPending = false;
+                    this.loaderService.hide();
+                })
+            )
+            .subscribe({
+                next: (configured: boolean) => {
+                    if (configured) {
+                        this.openModalAndInsertContent(DocapiAiAssistantModalComponent, {
+                            size: 'xl',
+                            windowClass: 'dg-modal-window',
+                            backdropClass: 'dg-modal-window-backdrop'
+                        });
+
+                        return;
+                    }
+
+                    this.openAiAssistantUnavailableWarning(
+                        DocapiBuilderContentStepComponent.AI_NOT_CONFIGURED_MESSAGE, 'Not configured:'
+                    );
+                },
+                error: () => this.openAiAssistantUnavailableWarning(
+                    DocapiBuilderContentStepComponent.AI_STATUS_ERROR_MESSAGE, 'Unavailable:'
+                )
+            });
+    }
+
+    private openAiAssistantUnavailableWarning(message: string, warningTitle: string): void {
+        const modalRef = this.modalService.open(CoreWarningModalComponent, {
+            size: 'md',
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
+
+        modalRef.componentInstance.title = 'AI Assistant unavailable';
+        modalRef.componentInstance.message = message;
+        modalRef.componentInstance.cancelLabel = 'Close';
+        modalRef.componentInstance.warningTitle = warningTitle;
+        modalRef.componentInstance.warningIconClass = 'fas fa-triangle-exclamation';
+
+        modalRef.result.catch(() => undefined); // Ignore dismissals
+    }
 
     private openModalAndInsertContent<T>(
         component: any,

@@ -28,8 +28,7 @@ import {
   PremiumFeatureModalComponent
 } from 'src/app/core/components/dialog/premium-feature-modal/premium-feature-modal.component';
 
-import { COMMUNITY_TIER, CurrentLicense, LicenseFeature } from '../models/license.model';
-import { remainingDays } from '../utils/license.util';
+import { COMMUNITY_TIER, LicenseEntitlements, LicenseFeature } from '../models/license.model';
 import { LicenseService } from '../services/license.service';
 import { PREMIUM_FEATURE_CONTENT } from './premium-feature.config';
 
@@ -39,9 +38,11 @@ const LICENSE_MANAGEMENT_ROUTE = '/settings/license';
 /**
  * Single source of truth for premium-feature gating.
  *
- * The active license is fetched once and cached in a signal; every gate in the app (route guards,
- * toolbox badges, the gating directives) reads from that cache instead of hitting the endpoint
- * itself. The modal stays purely presentational and all licensing logic lives here.
+ * Entitlements are fetched once from `license/entitlements` and cached in a signal; every gate in
+ * the app (route guards, toolbox badges, the gating directives) reads from that cache instead of
+ * hitting the endpoint itself. The license detail behind `license/current` is only ever loaded by
+ * the license management page. The modal stays purely presentational and all licensing logic lives
+ * here.
  */
 @Injectable({ providedIn: 'root' })
 export class PremiumFeatureService {
@@ -51,42 +52,37 @@ export class PremiumFeatureService {
   private readonly licenseService = inject(LicenseService);
 
   /**
-   * Cached license. `undefined` means "not hydrated yet", `null` means "hydrated but no valid
-   * license" (Community); an object is the verified license.
+   * Cached entitlements. `undefined` means "not hydrated yet", `null` means "hydrated but no valid
+   * license" (Community); an object is the effective entitlement set.
    */
-  private readonly license = signal<CurrentLicense | null | undefined>(undefined);
+  private readonly entitlements = signal<LicenseEntitlements | null | undefined>(undefined);
 
   /** RxJS view of the cache for the reactive consumers (guards, directives, badges). */
-  private readonly license$ = toObservable(this.license);
+  private readonly entitlements$ = toObservable(this.entitlements);
 
   /** Shared in-flight hydration request, so concurrent first-time callers trigger a single fetch. */
-  private hydration$?: Observable<CurrentLicense | null>;
+  private hydration$?: Observable<LicenseEntitlements | null>;
 
   /* --------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
   /**
    * Synchronous entitlement snapshot for passive UI (badges, structural gates, the type form).
    *
-   * Cloud is always entitled. On-premise it fails closed while the license is still unknown and
-   * treats an inactive, expired or unlicensed state as locked. Expiry is evaluated locally against
-   * the cached `endDate`, so a license lapsing mid-session is caught without another network call.
+   * Cloud is always entitled. On-premise it fails closed while the entitlements are still unknown
+   * and treats an inactive or unlicensed state as locked. `is_active` already accounts for expiry,
+   * which the endpoint evaluates server-side.
    */
   isAvailable(feature: LicenseFeature): boolean {
     if (environment.cloudMode) {
       return true;
     }
 
-    const license = this.license();
-    if (!license || !license.is_active) {
+    const entitlements = this.entitlements();
+    if (!entitlements?.is_active) {
       return false;
     }
 
-    const days = remainingDays(license.entitlement.endDate, Date.now());
-    if (days !== null && days < 0) {
-      return false;
-    }
-
-    return license.entitlement.features.includes(feature);
+    return entitlements.features.includes(feature);
   }
 
   /**
@@ -99,7 +95,7 @@ export class PremiumFeatureService {
     }
 
     return this.ensureHydrated().pipe(
-      switchMap(() => this.license$),
+      switchMap(() => this.entitlements$),
       map(() => this.isAvailable(feature)),
       distinctUntilChanged()
     );
@@ -131,7 +127,7 @@ export class PremiumFeatureService {
     }
 
     return this.ensureHydrated().pipe(
-      switchMap(() => this.license$),
+      switchMap(() => this.entitlements$),
       map(() => new Set(features.filter((feature) => !this.isAvailable(feature))))
     );
   }
@@ -148,17 +144,17 @@ export class PremiumFeatureService {
     }
 
     return this.ensureHydrated().pipe(
-      switchMap(() => this.license$),
+      switchMap(() => this.entitlements$),
       map(() => this.effectiveTier()),
       distinctUntilChanged()
     );
   }
 
   /**
-   * Forces a fresh license lookup and reseeds the cache. Called on login so the whole app starts
-   * with an up-to-date entitlement instead of waiting for the first gated access to hydrate it.
+   * Forces a fresh entitlements lookup and reseeds the cache. Called on login, and again whenever a
+   * license is imported or removed, so every gate in the app reflects the change without a reload.
    */
-  refresh(): Observable<CurrentLicense | null> {
+  refresh(): Observable<LicenseEntitlements | null> {
     if (environment.cloudMode) {
       return of(null);
     }
@@ -166,13 +162,8 @@ export class PremiumFeatureService {
     return this.startHydration();
   }
 
-  /** Seeds the cache from a freshly imported license, so gated UI updates without a re-fetch. */
-  seed(license: CurrentLicense): void {
-    this.license.set(license);
-  }
-
   /**
-   * Clears the cached entitlement after a license removal, locking gated UI immediately.
+   * Clears the cached entitlements after a license removal, locking gated UI immediately.
    */
   clear(): void {
     if (environment.cloudMode) {
@@ -180,7 +171,7 @@ export class PremiumFeatureService {
     }
 
     this.hydration$ = undefined;
-    this.license.set(null);
+    this.entitlements.set(null);
   }
 
   /** Opens the upgrade showcase for a feature directly (e.g. a locked badge click). */
@@ -192,29 +183,25 @@ export class PremiumFeatureService {
 
   /** Tier discriminator in force now, or Community when unlicensed, inactive or lapsed. */
   private effectiveTier(): string {
-    const license = this.license();
-    if (!license || !license.is_active) {
+    const entitlements = this.entitlements();
+    if (!entitlements?.is_active) {
       return COMMUNITY_TIER;
     }
 
-    const days = remainingDays(license.entitlement.endDate, Date.now());
-    if (days !== null && days < 0) {
-      return COMMUNITY_TIER;
-    }
-
-    return license.entitlement.type || COMMUNITY_TIER;
+    return entitlements.type || COMMUNITY_TIER;
   }
 
   /**
-   * Resolves once the license is known, performing a single shared fetch the first time it is needed.
-   * Already-hydrated callers resolve immediately; concurrent first-callers share one network request.
+   * Resolves once the entitlements are known, performing a single shared fetch the first time they
+   * are needed. Already-hydrated callers resolve immediately; concurrent first-callers share one
+   * network request.
    */
-  private ensureHydrated(): Observable<CurrentLicense | null> {
+  private ensureHydrated(): Observable<LicenseEntitlements | null> {
     if (environment.cloudMode) {
       return of(null);
     }
 
-    const current = this.license();
+    const current = this.entitlements();
     if (current !== undefined) {
       return of(current);
     }
@@ -222,19 +209,19 @@ export class PremiumFeatureService {
     return this.hydration$ ?? this.startHydration();
   }
 
-  /** Kicks off a shared license fetch that populates the cache; concurrent callers reuse it. */
-  private startHydration(): Observable<CurrentLicense | null> {
-    this.hydration$ = this.fetchLicense().pipe(
-      tap((license) => this.license.set(license)),
+  /** Kicks off a shared entitlements fetch that populates the cache; concurrent callers reuse it. */
+  private startHydration(): Observable<LicenseEntitlements | null> {
+    this.hydration$ = this.fetchEntitlements().pipe(
+      tap((entitlements) => this.entitlements.set(entitlements)),
       shareReplay(1)
     );
 
     return this.hydration$;
   }
 
-  /** Single point that talks to the license endpoint; a failed lookup degrades safely to Community. */
-  private fetchLicense(): Observable<CurrentLicense | null> {
-    return this.licenseService.getCurrentLicense().pipe(
+  /** Single point that talks to the entitlements endpoint; a failed lookup degrades to Community. */
+  private fetchEntitlements(): Observable<LicenseEntitlements | null> {
+    return this.licenseService.getEntitlements().pipe(
       catchError(() => of(null))
     );
   }

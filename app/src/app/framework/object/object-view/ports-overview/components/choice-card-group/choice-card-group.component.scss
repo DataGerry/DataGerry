@@ -56,4 +56,32 @@
         font-size: 0.82rem;
         line-height: 1.45;
     }
+
+    &__reason {
+        display: flex;
+        align-items: baseline;
+        gap: 0.35rem;
+        margin-top: 0.25rem;
+        color: var(--dg-label);
+        font-size: 0.78rem;
+        line-height: 1.4;
+    }
+
+    &--disabled {
+        background: var(--dg-surface);
+        cursor: not-allowed;
+
+        &:hover {
+            border-color: var(--dg-border);
+        }
+
+        .choice-card__icon {
+            color: var(--dg-faint);
+        }
+
+        .choice-card__label,
+        .choice-card__text {
+            color: var(--dg-muted);
+        }
+    }
 }

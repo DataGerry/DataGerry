@@ -33,11 +33,8 @@ import { PortConnectionState } from '../../models/port-connection.types';
 import { PortRow } from '../../models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Inputs that decide whether an optional column is part of the table. */
+/** Inputs that decide whether the actions column is part of the table. */
 const OPTIONAL_COLUMN_INPUTS = [
-    'showSideColumn',
-    'showConnectionColumn',
-    'showInterfaceColumn',
     'canEdit',
     'canDelete',
     'canConnect',
@@ -46,7 +43,7 @@ const OPTIONAL_COLUMN_INPUTS = [
 ] as const;
 
 
-/** Presentational port list. Owns the column definition only; every state change is handed upwards. */
+/** Presentational list of a standard device, one row per port. Every state change is handed upwards. */
 @Component({
     selector: 'cmdb-ports-table',
     templateUrl: './ports-table.component.html',
@@ -63,14 +60,8 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Input() public sort: Sort = { name: 'port_number', order: SortDirection.ASCENDING };
     @Input() public loading = false;
 
-    /** Patch panels are the only objects with two faces, so ordinary devices hide the side column. */
-    @Input() public showSideColumn = false;
-
-    /** Only shown once the backend reports a connection state; see `hasConnectionState`. */
-    @Input() public showConnectionColumn = false;
-
-    /** Only shown once the read route embeds the interface links; see `hasInterfaceLinks`. */
-    @Input() public showInterfaceColumn = false;
+    /** Add mode has no object yet, so it explains the empty list instead of just stating it. */
+    @Input() public emptyMessage = 'No ports to display.';
 
     /** Each gates its own action AND, together, the whole actions column. */
     @Input() public canEdit = false;
@@ -91,39 +82,35 @@ export class PortsTableComponent implements OnInit, OnChanges {
     @Output() public readonly editConnection = new EventEmitter<PortRow>();
     @Output() public readonly disconnectPort = new EventEmitter<PortRow>();
     @Output() public readonly manageInterfaces = new EventEmitter<PortRow>();
-    @Output() public readonly bulkEditPorts = new EventEmitter<PortRow[]>();
-    @Output() public readonly bulkDeletePorts = new EventEmitter<PortRow[]>();
-    @Output() public readonly bulkDisconnectPorts = new EventEmitter<PortRow[]>();
+
+    /** Not re-emitted when the rows change: whoever replaces the rows drops its own selection. */
+    @Output() public readonly selectedRowsChange = new EventEmitter<PortRow[]>();
 
     @ViewChild('nameTemplate', { static: true }) public nameTemplate: TemplateRef<unknown>;
-    @ViewChild('sideTemplate', { static: true }) public sideTemplate: TemplateRef<unknown>;
     @ViewChild('statusTemplate', { static: true }) public statusTemplate: TemplateRef<unknown>;
     @ViewChild('connectionTemplate', { static: true }) public connectionTemplate: TemplateRef<unknown>;
     @ViewChild('interfaceTemplate', { static: true }) public interfaceTemplate: TemplateRef<unknown>;
     @ViewChild('valueTemplate', { static: true }) public valueTemplate: TemplateRef<unknown>;
     @ViewChild('actionsTemplate', { static: true }) public actionsTemplate: TemplateRef<unknown>;
-    @ViewChild('bulkActionsTemplate', { static: true }) public bulkActionsTemplate: TemplateRef<unknown>;
 
     public columns: Column[] = [];
     public visibleColumns: string[] = [];
-    public bulkButtonTemplates: TemplateRef<unknown>[] = [];
 
     /** The ticked rows of the current page. The table only ever selects within the page it shows. */
     public selectedRows: PortRow[] = [];
 
-    /** Kept alongside the selection: disconnecting applies to the cabled rows, and the bar reads it. */
-    public selectedConnectedRows: PortRow[] = [];
-
     public readonly connectionState = PortConnectionState;
+
+    /** The columns the user unticked. Kept for this view only - nothing is persisted. */
+    private readonly hiddenColumnNames = new Set<string>();
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
         this.applyColumns();
-        this.bulkButtonTemplates = [this.bulkActionsTemplate];
     }
 
-    /** An optional column appears only once its input says the data or the user's rights allow it. */
+    /** The actions column appears only once the user's rights allow one of its actions. */
     public ngOnChanges(changes: SimpleChanges): void {
         // A reload builds new row objects, and the table matches a selection by identity.
         if (changes['rows']) {
@@ -155,29 +142,23 @@ export class PortsTableComponent implements OnInit, OnChanges {
         this.sortChange.emit(sort);
     }
 
+    /** The table mutates `hidden` itself; this only remembers it so a rebuild keeps the choice. */
+    public onColumnVisibilityChange(column?: Column): void {
+        if (!column) {
+            this.hiddenColumnNames.clear();
+            return;
+        }
+
+        if (column.hidden) {
+            this.hiddenColumnNames.add(column.name);
+        } else {
+            this.hiddenColumnNames.delete(column.name);
+        }
+    }
+
     public onSelectedChange(rows: PortRow[]): void {
         this.selectedRows = rows ?? [];
-        this.selectedConnectedRows = this.selectedRows.filter((row) => row.cableConnectionId != null);
-    }
-
-    public onBulkEdit(): void {
-        if (this.canEdit && this.selectedRows.length) {
-            this.bulkEditPorts.emit([...this.selectedRows]);
-        }
-    }
-
-    public onBulkDelete(): void {
-        if (this.canDelete && this.selectedRows.length) {
-            this.bulkDeletePorts.emit([...this.selectedRows]);
-        }
-    }
-
-    public onBulkDisconnect(): void {
-        const connected = this.selectedConnectedRows;
-
-        if (this.canDisconnect && connected.length) {
-            this.bulkDisconnectPorts.emit([...connected]);
-        }
+        this.selectedRowsChange.emit([...this.selectedRows]);
     }
 
     public onEditPort(row: PortRow): void {
@@ -212,11 +193,6 @@ export class PortsTableComponent implements OnInit, OnChanges {
     }
 
 
-    public get selectedCount(): number {
-        return this.selectedRows.length;
-    }
-
-
     /** A row without any permitted action shows a dash instead of an empty menu. */
     public hasRowActions(row: PortRow): boolean {
         return this.canEdit || this.canDelete || this.canViewInterfaces || this.hasConnectionActions(row);
@@ -240,13 +216,18 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
     private clearSelection(): void {
         this.selectedRows = [];
-        this.selectedConnectedRows = [];
     }
 
 
     private applyColumns(): void {
         this.columns = this.buildColumns();
+
+        // Reset restores every column, so the initial set stays the full one.
         this.visibleColumns = this.columns.map((column) => column.name);
+
+        for (const column of this.columns) {
+            column.hidden = this.hiddenColumnNames.has(column.name);
+        }
     }
 
 
@@ -265,15 +246,6 @@ export class PortsTableComponent implements OnInit, OnChanges {
                 fixed: true,
                 template: this.nameTemplate,
                 style: { 'min-width': '140px' }
-            },
-            {
-                display: 'Side',
-                name: 'side',
-                data: 'sideLabel',
-                sortable: true,
-                searchable: false,
-                template: this.sideTemplate,
-                style: { 'min-width': '90px' }
             },
             {
                 display: 'Port No.',
@@ -346,18 +318,6 @@ export class PortsTableComponent implements OnInit, OnChanges {
 
 
     private isColumnShown(name: string): boolean {
-        if (name === 'side') {
-            return this.showSideColumn;
-        }
-
-        if (name === 'connected') {
-            return this.showConnectionColumn;
-        }
-
-        if (name === 'interfaces') {
-            return this.showInterfaceColumn;
-        }
-
         if (name === 'actions') {
             return this.canEdit || this.canDelete || this.canConnect
                 || this.canEditConnection || this.canDisconnect;

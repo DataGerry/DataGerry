@@ -59,12 +59,12 @@ export enum LicenseTier {
   Corporate = 'corporate'
 }
 
-/** Human-readable tier names shown on the license card. */
+/** Display names only; backend tier keys stay core/business/corporate. */
 export const LICENSE_TIER_LABELS: Record<LicenseTier, string> = {
   [LicenseTier.Free]: 'Community',
-  [LicenseTier.Core]: 'Core',
-  [LicenseTier.Business]: 'Business',
-  [LicenseTier.Corporate]: 'Corporate'
+  [LicenseTier.Core]: 'Small',
+  [LicenseTier.Business]: 'Medium',
+  [LicenseTier.Corporate]: 'Large'
 };
 
 /**
@@ -123,6 +123,17 @@ export interface CurrentLicenseResponse {
   duration?: number;
   is_active: boolean;
   status: LicenseVerificationStatus | null;
+}
+
+/**
+ * Raw wire payload of `GET /rest/license/entitlements` — the gating-only view of the license.
+ *
+ * Carries no dates or license identity, so `is_active` is the authoritative liveness flag.
+ */
+export interface LicenseEntitlements {
+  is_active: boolean;
+  type: string;
+  features: LicenseFeature[];
 }
 
 /** Domain model the UI consumes: the verification flags plus the entitlement grouped together. */

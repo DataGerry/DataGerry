@@ -31,17 +31,19 @@ import { PortDeviceKind, PortNamePreview } from '../../models/port-bulk.types';
 import { PORT_OPTION_TYPES } from '../../models/ports-overview.types';
 import { PortService } from '../../services/port.service';
 import { EMPTY_PREVIEW_SUMMARY, PortPreviewSummary, toPreviewSummary } from '../../utils/port-preview.util';
-import { DEVICE_KIND_CHOICES, labelOfDeviceKind } from './port-device-kinds';
+import { DeviceKindChoice, deviceKindChoicesFor, labelOfDeviceKind } from './port-device-kinds';
 import { PortCreateWizardForm, PortWizardFormGroup, PortWizardTextControl } from './port-create-wizard.form';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** 0-based position of the step that previews the names and creates them. */
 const PREVIEW_STEP = 3;
 
+const TYPE_STEP = 0;
+
 
 /**
- * Creates a whole device's ports in one pass: device kind, naming, numbering, then the preview the
- * user approves before anything is written.
+ * Adds ports in one pass: device kind, count, naming, then the preview the user approves before
+ * anything is written. A count of one adds a single port, named by hand.
  *
  * Names and collisions come from the server - `name_preview` and the bulk creation run the same
  * builder, so what is approved is what is stored. Closes with `true` once the batch is in.
@@ -66,10 +68,16 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
     /** The object the ports are created on, shown as the subtitle. */
     @Input() public objectLabel = '';
 
+    /** The kind the object's existing ports already fix; null while it has none. */
+    @Input() public existingKind: PortDeviceKind | null = null;
+
     @ViewChild(WizardComponent) private wizard: WizardComponent;
 
     public readonly wizardForm = new PortCreateWizardForm();
-    public readonly deviceKinds = DEVICE_KIND_CHOICES;
+    public deviceKinds: DeviceKindChoice[] = [];
+
+    /** Set once the user tried to leave the first step without picking. */
+    public typeTouched = false;
     public readonly isLoading$ = this.loaderService.isLoading$;
 
     public statusOptions: FieldOption[] = [];
@@ -92,6 +100,7 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
     public ngOnInit(): void {
+        this.applyExistingKind();
         this.loadOptions();
 
         // A changed value invalidates the approved preview, so the last step has to ask for a new one.
@@ -112,7 +121,9 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
     public onSelectDeviceKind(kind: PortDeviceKind): void {
-        this.wizardForm.selectDeviceKind(kind);
+        if (this.deviceKinds.some((choice) => choice.value === kind && !choice.disabled)) {
+            this.wizardForm.selectDeviceKind(kind);
+        }
     }
 
 
@@ -143,6 +154,7 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
 
     public onNext(): void {
         if (!this.canLeaveCurrentStep) {
+            this.typeTouched = this.stepIndex === TYPE_STEP;
             this.wizardForm.markStepTouched(this.stepIndex);
             this.changesRef.markForCheck();
             return;
@@ -172,6 +184,11 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
 
     public get isPatchPanel(): boolean {
         return this.wizardForm.isPatchPanel;
+    }
+
+
+    public get isSingle(): boolean {
+        return this.wizardForm.isSingle;
     }
 
 
@@ -206,6 +223,11 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
     }
 
 
+    public get typeError(): string {
+        return this.typeTouched && !this.wizardForm.isStepValid(TYPE_STEP) ? 'Choose a device type.' : '';
+    }
+
+
     public get canCreate(): boolean {
         return this.namePreview !== null && !this.preview.hasCollisions && !this.previewError && !this.isCreating;
     }
@@ -222,6 +244,16 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** Disables the kind the existing ports rule out, and picks the one that is left. */
+    private applyExistingKind(): void {
+        this.deviceKinds = deviceKindChoicesFor(this.existingKind);
+
+        if (this.existingKind) {
+            this.wizardForm.selectDeviceKind(this.existingKind);
+        }
+    }
+
 
     /** One request for all three option lists, then cached by the catalog. */
     private loadOptions(): void {
@@ -304,7 +336,9 @@ export class PortCreateWizardModalComponent implements OnInit, OnDestroy {
                 next: (result) => {
                     const created = result?.total_ports ?? 0;
 
-                    this.toastService.success(`${ created } ports were successfully created!`);
+                    this.toastService.success(created === 1
+                        ? 'The port was successfully created!'
+                        : `${ created } ports were successfully created!`);
                     this.activeModal.close(true);
                 },
                 error: (err) => this.toastService.error(err?.error?.message)

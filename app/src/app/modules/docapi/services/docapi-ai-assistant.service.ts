@@ -20,6 +20,7 @@ import { HttpParams, HttpResponse } from '@angular/common/http';
 import { Observable, map } from 'rxjs';
 
 import { ApiCallService, ApiServicePrefix, httpObserveOptions } from '../../../services/api-call.service';
+import { AiAssistantStatus } from '../models/ai-assistant-status.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Injectable({
@@ -29,7 +30,19 @@ export class DocapiAiAssistantService implements ApiServicePrefix {
 
     public readonly servicePrefix: string = 'chatgpt';
 
+    private readonly statusRoute: string = 'status';
+
     constructor(private readonly api: ApiCallService) {
+    }
+
+
+    /** Reports whether the installation has a usable ChatGPT API key. */
+    public isConfigured(): Observable<boolean> {
+        const options = this.getBaseOptions();
+
+        return this.api.callGet<AiAssistantStatus>(`${this.servicePrefix}/${this.statusRoute}`, options).pipe(
+            map((apiResponse: HttpResponse<AiAssistantStatus>) => apiResponse?.body?.configured === true)
+        );
     }
 
 

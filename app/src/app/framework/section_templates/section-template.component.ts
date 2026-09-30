@@ -38,8 +38,14 @@ import { SectionTemplateListItem, isVirtualSectionTemplate } from './models/virt
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export interface GlobalTemplateCounts {
+    /** Types that claim the template; each one loses the claim. */
     'types': number,
-    'objects': number
+
+    /** Only objects whose type actually carries the section, i.e. the ones that lose fields. */
+    'objects': number,
+
+    /** False means the counts do not apply, not that nothing uses the template. */
+    'is_global': boolean
 }
 
 @Component({
@@ -106,37 +112,47 @@ export class SectionTemplateComponent implements OnInit, OnDestroy {
             return;
         }
 
+        // The counts only describe global templates, so a local one skips the round trip.
+        if (!sectionTemplate.is_global) {
+            this.openDeleteModal(sectionTemplate, null);
+            return;
+        }
+
         this.loaderService.show();
 
-        this.sectionTemplateService.getGlobalSectionTemplateCount(sectionTemplate.public_id).pipe(finalize(() => this.loaderService.hide()))
+        this.sectionTemplateService.getGlobalSectionTemplateCount<GlobalTemplateCounts>(sectionTemplate.public_id)
+            .pipe(takeUntil(this.unsubscribe), finalize(() => this.loaderService.hide()))
             .subscribe({
-                next: (response: GlobalTemplateCounts) => {
-                    let counts: GlobalTemplateCounts = response
-
-                    this.modalRef = this.modalService.open(SectionTemplateDeleteModalComponent, {
-                        size: 'lg',
-                        windowClass: 'dg-modal-window',
-                        backdropClass: 'dg-modal-window-backdrop'
-                    });
-                    this.modalRef.componentInstance.sectionTemplate = sectionTemplate;
-                    this.modalRef.componentInstance.templateCounts = counts;
-
-                    this.modalRef.result.then((sectionTemplateID: number) => {
-                        //Delete the section template
-                        if (sectionTemplateID > 0) {
-                            this.loaderService.show();
-                            this.sectionTemplateService.deleteSectionTemplate(sectionTemplateID).pipe(finalize(() => this.loaderService.hide()))
-                                .subscribe({
-                                    next: (res: any) => {
-                                        this.toastService.success("Section Template with ID " + sectionTemplateID + " deleted!");
-                                        this.getAllSectionTemplates();
-                                    },
-                                    error: (error) => this.toastService.error(error?.error?.message)
-                                });
-                        }
-                    });
-                }
+                next: (counts: GlobalTemplateCounts) => this.openDeleteModal(sectionTemplate, counts),
+                error: (error) => this.toastService.error(error?.error?.message)
             });
+    }
+
+
+    /** @param templateCounts Null when the template is not global and no counts were fetched. */
+    private openDeleteModal(sectionTemplate: SectionTemplateListItem, templateCounts: GlobalTemplateCounts | null) {
+        this.modalRef = this.modalService.open(SectionTemplateDeleteModalComponent, {
+            size: 'lg',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop'
+        });
+        this.modalRef.componentInstance.sectionTemplate = sectionTemplate;
+        this.modalRef.componentInstance.templateCounts = templateCounts;
+
+        this.modalRef.result.then((sectionTemplateID: number) => {
+            //Delete the section template
+            if (sectionTemplateID > 0) {
+                this.loaderService.show();
+                this.sectionTemplateService.deleteSectionTemplate(sectionTemplateID).pipe(finalize(() => this.loaderService.hide()))
+                    .subscribe({
+                        next: (res: any) => {
+                            this.toastService.success("Section Template with ID " + sectionTemplateID + " deleted!");
+                            this.getAllSectionTemplates();
+                        },
+                        error: (error) => this.toastService.error(error?.error?.message)
+                    });
+            }
+        });
     }
 
 

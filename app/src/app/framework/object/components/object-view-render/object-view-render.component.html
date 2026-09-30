@@ -4,16 +4,18 @@
             [mode]="mode"
             [renderForm]="renderForm"
             [renderResult]="renderResult"
+            [sectionSlot]="portsSlot"
+            [sectionSlotIndex]="portsSectionIndex"
         />
 
-        <!-- Ports are not part of the type's sections, so they are appended as one of their own. -->
-        @if (portsAvailable) {
-        <cmdb-ports-overview
-            *permissionLink="[portViewRight]"
-            [objectId]="objectId"
-            [objectLabel]="objectLabel"
-            [manageable]="true"
-        />
-        }
+        <!-- Ports are no section of the type, so the type stores the slot they take among them. -->
+        <ng-template #portsSlot>
+            <cmdb-ports-overview
+                *permissionLink="[portViewRight]"
+                [objectId]="objectId"
+                [objectLabel]="objectLabel"
+                [manageable]="true"
+            />
+        </ng-template>
     </div>
 </div>

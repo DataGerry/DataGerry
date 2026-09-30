@@ -52,6 +52,7 @@ import { IpamSupernetSubnetTableComponent } from './object-view/ipam-overview/co
 import { IpamUnassignIpModalComponent } from './object-view/ipam-overview/components/ipam-unassign-ip-modal/ipam-unassign-ip-modal.component';
 import { IpamAssignIpModalComponent } from './object-view/ipam-overview/components/ipam-assign-ip-modal/ipam-assign-ip-modal.component';
 import { PortsOverviewComponent } from './object-view/ports-overview/ports-overview.component';
+import { PatchPanelTableComponent } from './object-view/ports-overview/components/patch-panel-table/patch-panel-table.component';
 import { PortsTableComponent } from './object-view/ports-overview/components/ports-table/ports-table.component';
 import { PortFormModalComponent } from './object-view/ports-overview/components/port-form-modal/port-form-modal.component';
 import { PortBulkEditModalComponent } from './object-view/ports-overview/components/port-bulk-edit-modal/port-bulk-edit-modal.component';
@@ -141,6 +142,7 @@ import { ConnectionDetailsModalComponent } from './object-view/graph-editor/moda
         IpamAssignIpModalComponent,
         PortsOverviewComponent,
         PortsTableComponent,
+        PatchPanelTableComponent,
         PortFormModalComponent,
         PortBulkEditModalComponent,
         PortBulkDeleteModalComponent,

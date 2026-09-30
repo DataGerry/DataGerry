@@ -29,12 +29,13 @@ import {
 import { HttpResponse } from '@angular/common/http';
 import { FormControl } from '@angular/forms';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
-import { FileSaverService } from 'ngx-filesaver';
 import { Subject, finalize, takeUntil } from 'rxjs';
 import { debounceTime, distinctUntilChanged } from 'rxjs/operators';
 
 import { CoreConfirmationModalComponent } from 'src/app/core/components/dialog/confirmation/core-confirmation-modal.component';
 
+import { ExportKind } from 'src/app/core/models/export-download.model';
+import { ExportDownloadService } from 'src/app/core/services/export-download.service';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -70,7 +71,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
     private readonly toastService = inject(ToastService);
     private readonly modalService = inject(NgbModal);
     private readonly fullscreenModalService = inject(FullscreenModalService);
-    private readonly fileSaverService = inject(FileSaverService);
+    private readonly exportDownloadService = inject(ExportDownloadService);
     private readonly changesRef = inject(ChangeDetectorRef);
 
     @Input() public publicId: number | null = null;
@@ -252,12 +253,7 @@ export class IpamSupernetOverviewComponent implements OnInit, OnChanges, OnDestr
             this.toastService.error('The export response was empty.');
             return;
         }
-        this.fileSaverService.save(blob, this.buildExportFileName());
-    }
-
-    private buildExportFileName(): string {
-        const cidr = this.supernet?.cidr?.replace(/[^\w.-]+/g, '_');
-        return `supernet-overview-${cidr || this.publicId}.csv`;
+        this.exportDownloadService.save(response, { kind: ExportKind.Ipam, extension: 'csv' });
     }
 
     private applySearch(value: string): void {

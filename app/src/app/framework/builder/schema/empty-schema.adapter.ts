@@ -69,4 +69,8 @@ export class EmptySchemaAdapter implements BuilderSchemaAdapter {
     public setUsesPorts(): void {
         // Nothing to write to.
     }
+
+    public readPortSectionIndex(): number {
+        return 0;
+    }
 }

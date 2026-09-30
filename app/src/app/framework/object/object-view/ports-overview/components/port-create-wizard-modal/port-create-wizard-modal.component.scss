@@ -44,6 +44,12 @@
         text-transform: uppercase;
         letter-spacing: 0.04em;
     }
+
+    &__error {
+        margin: 0.75rem 0 0;
+        color: var(--dg-danger);
+        font-size: 0.82rem;
+    }
 }
 
 /* Step 4: what the server will create. */

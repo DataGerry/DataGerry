@@ -20,19 +20,27 @@ import { isPortsTemplateName } from 'src/app/framework/section_templates/models/
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
- * Reduces the applied ports section to the `uses_ports` flag: the builder shows it like any global
- * template, but the type stores only the flag - the ports themselves live in their own collection.
- * The flag comes from the model, not from the section, so an edit that never received the virtual
- * template (missing IPAM licence) cannot silently switch ports off.
+ * Reduces the applied ports section to the `uses_ports` flag and the `port_section_index` slot: the
+ * builder shows it like any global template, but the type stores only those two - the ports
+ * themselves live in their own collection. Both come from the model rather than from the section, so
+ * an edit that never received the virtual template (missing IPAM licence) cannot silently switch
+ * ports off or move them back to the top.
  */
 export function withPortsFlagOnly(typeInstance: CmdbType): CmdbType {
-    const payload = { ...typeInstance, uses_ports: typeInstance?.uses_ports === true } as CmdbType;
+    const usesPorts = typeInstance?.uses_ports === true;
     const sections = typeInstance?.render_meta?.sections ?? [];
-    const portsSection = sections.find(section => isPortsTemplateName(section?.name));
+    const portsIndex = sections.findIndex(section => isPortsTemplateName(section?.name));
+    const payload = {
+        ...typeInstance,
+        uses_ports: usesPorts,
+        port_section_index: usesPorts ? resolvePortSectionIndex(typeInstance, portsIndex) : 0
+    } as CmdbType;
 
-    if (!portsSection) {
+    if (portsIndex < 0) {
         return payload;
     }
+
+    const portsSection = sections[portsIndex];
 
     const portFieldNames = new Set(
         (portsSection.fields ?? []).map(field => typeof field === 'string' ? field : field?.name)
@@ -58,4 +66,20 @@ export function withPortsFlagOnly(typeInstance: CmdbType): CmdbType {
     };
 
     return payload;
+}
+
+
+/**
+ * Removing the ports section from the canvas list and putting it back at the same position are the
+ * same index, so the canvas slot is stored as it stands. Without the section on the canvas the
+ * stored slot is kept - an unlicensed edit has nothing to measure.
+ */
+function resolvePortSectionIndex(typeInstance: CmdbType, portsIndex: number): number {
+    if (portsIndex >= 0) {
+        return portsIndex;
+    }
+
+    const storedIndex = typeInstance?.port_section_index;
+
+    return Number.isInteger(storedIndex) && storedIndex >= 0 ? storedIndex : 0;
 }

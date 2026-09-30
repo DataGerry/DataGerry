@@ -1,7 +1,7 @@
 <dg-modal
   icon="fas fa-ethernet"
   eyebrow="Ports"
-  title="Create ports"
+  title="Add ports"
   [subtitle]="objectLabel"
   (dismiss)="activeModal.dismiss()">
 
@@ -22,69 +22,14 @@
         [selected]="form.controls.deviceKind.value"
         (choiceSelected)="onSelectDeviceKind($event)">
       </cmdb-choice-card-group>
+
+      @if (typeError) {
+        <p class="port-wizard__error" role="alert">{{ typeError }}</p>
+      }
     </aw-wizard-step>
 
-    <aw-wizard-step stepId="2" stepTitle="Naming" [canExit]="canExitStep"
+    <aw-wizard-step stepId="2" stepTitle="Count &amp; numbering" [canExit]="canExitStep"
       (stepEnter)="onStepEnter(1)">
-      <ng-template awWizardStepSymbol>
-        <i class="fas fa-font" aria-hidden="true"></i>
-      </ng-template>
-
-      <form [formGroup]="form" novalidate autocomplete="off">
-        @if (isPatchPanel) {
-          <p class="port-wizard__lead">
-            A panel needs two names, one per side, and they have to differ:
-            <code>&#123;prefix&#125;-F&#123;n:02&#125;</code> and
-            <code>&#123;prefix&#125;-R&#123;n:02&#125;</code> give PP1-F01 and PP1-R01.
-            <code>&#123;prefix&#125;</code> and <code>&#123;slot&#125;</code> take the values below.
-          </p>
-        } @else {
-          <p class="port-wizard__lead">
-            One name, numbered for you: <code>Gi0/&#123;n&#125;</code> gives Gi0/1, Gi0/2 -
-            <code>&#123;n:02&#125;</code> gives 01, 02. <code>&#123;prefix&#125;</code> and
-            <code>&#123;slot&#125;</code> take the values below.
-          </p>
-        }
-
-        <app-form-input
-          [label]="isPatchPanel ? 'Name of the front ports' : 'Name of the ports'"
-          [placeholder]="isPatchPanel ? 'e.g. {prefix}-F{n:02}' : 'e.g. Gi0/{n}'"
-          [required]="true"
-          [errorMessage]="errorOf('syntax')"
-          formControlName="syntax">
-        </app-form-input>
-
-        @if (isPatchPanel) {
-          <app-form-input
-            label="Name of the rear ports"
-            placeholder="e.g. {prefix}-R{n:02}"
-            [required]="true"
-            [errorMessage]="errorOf('rearSyntax')"
-            formControlName="rearSyntax">
-          </app-form-input>
-        }
-
-        <div class="row">
-          <div class="col-md-6">
-            <app-form-input
-              label="Prefix (optional)"
-              placeholder="e.g. PP1"
-              formControlName="prefix">
-            </app-form-input>
-          </div>
-          <div class="col-md-6">
-            <app-form-input
-              label="Slot (optional)"
-              placeholder="e.g. 1"
-              formControlName="slot">
-            </app-form-input>
-          </div>
-        </div>
-      </form>
-    </aw-wizard-step>
-
-    <aw-wizard-step stepId="3" stepTitle="Count &amp; numbering" [canExit]="canExitStep"
-      (stepEnter)="onStepEnter(2)">
       <ng-template awWizardStepSymbol>
         <i class="fas fa-list-ol" aria-hidden="true"></i>
       </ng-template>
@@ -92,9 +37,9 @@
       <form [formGroup]="form" novalidate autocomplete="off">
         <p class="port-wizard__lead">
           @if (isPatchPanel) {
-            Per side - a panel gets this many front and as many rear ports.
+            Per side - a panel gets this many front and as many rear ports. One adds a single pair.
           } @else {
-            How many ports, and the number to start from.
+            How many ports, and the number to start from. One adds a single port.
           }
         </p>
 
@@ -111,7 +56,7 @@
           </div>
           <div class="col-md-6">
             <app-form-input
-              label="Start counting at"
+              [label]="isSingle ? 'Port number' : 'Start counting at'"
               type="number"
               placeholder="e.g. 1"
               [required]="true"
@@ -121,7 +66,7 @@
           </div>
         </div>
 
-        <h3 class="port-wizard__subhead">Applied to every port</h3>
+        <h3 class="port-wizard__subhead">{{ isPatchPanel ? 'Front ports' : (isSingle ? 'Details' : 'Applied to every port') }}</h3>
 
         <div class="row">
           <div class="col-md-6">
@@ -162,6 +107,134 @@
           [errorMessage]="errorOf('description')"
           formControlName="description">
         </app-form-textarea>
+
+        @if (isPatchPanel) {
+          <h3 class="port-wizard__subhead">Rear ports</h3>
+          <p class="port-wizard__lead">Port type and status are copied from the front unless you pick one here.</p>
+
+          <div class="row">
+            <div class="col-md-6">
+              <app-form-select
+                label="Port type"
+                placeholder="Same as the front"
+                bindLabel="label"
+                bindValue="name"
+                [items]="portTypeOptions"
+                formControlName="rearPortType">
+              </app-form-select>
+            </div>
+            <div class="col-md-6">
+              <app-form-select
+                label="Speed"
+                placeholder="Select a speed..."
+                bindLabel="label"
+                bindValue="name"
+                [items]="speedOptions"
+                formControlName="rearSpeed">
+              </app-form-select>
+            </div>
+          </div>
+
+          <app-form-select
+            label="Status"
+            placeholder="Same as the front"
+            bindLabel="label"
+            bindValue="name"
+            [items]="statusOptions"
+            formControlName="rearStatus">
+          </app-form-select>
+
+          <app-form-textarea
+            label="Description"
+            placeholder="Optional"
+            [rows]="2"
+            [errorMessage]="errorOf('rearDescription')"
+            formControlName="rearDescription">
+          </app-form-textarea>
+        }
+      </form>
+    </aw-wizard-step>
+
+    <aw-wizard-step stepId="3" stepTitle="Naming" [canExit]="canExitStep"
+      (stepEnter)="onStepEnter(2)">
+      <ng-template awWizardStepSymbol>
+        <i class="fas fa-font" aria-hidden="true"></i>
+      </ng-template>
+
+      <form [formGroup]="form" novalidate autocomplete="off">
+        @if (isSingle) {
+          <p class="port-wizard__lead">
+            {{ isPatchPanel ? 'The names of the front and the rear port. They have to differ.' : 'The name of the port.' }}
+          </p>
+
+          <app-form-input
+            [label]="isPatchPanel ? 'Front port name' : 'Port name'"
+            [placeholder]="isPatchPanel ? 'e.g. PP1-F01' : 'e.g. Gi0/1'"
+            [required]="true"
+            [errorMessage]="errorOf('syntax')"
+            formControlName="syntax">
+          </app-form-input>
+
+          @if (isPatchPanel) {
+            <app-form-input
+              label="Rear port name"
+              placeholder="e.g. PP1-R01"
+              [required]="true"
+              [errorMessage]="errorOf('rearSyntax')"
+              formControlName="rearSyntax">
+            </app-form-input>
+          }
+        } @else {
+          @if (isPatchPanel) {
+            <p class="port-wizard__lead">
+              A panel needs two names, one per side, and they have to differ:
+              <code>&#123;prefix&#125;-F&#123;n:02&#125;</code> and
+              <code>&#123;prefix&#125;-R&#123;n:02&#125;</code> give PP1-F01 and PP1-R01.
+              <code>&#123;prefix&#125;</code> and <code>&#123;slot&#125;</code> take the values below.
+            </p>
+          } @else {
+            <p class="port-wizard__lead">
+              One name, numbered for you: <code>Gi0/&#123;n&#125;</code> gives Gi0/1, Gi0/2 -
+              <code>&#123;n:02&#125;</code> gives 01, 02. <code>&#123;prefix&#125;</code> and
+              <code>&#123;slot&#125;</code> take the values below.
+            </p>
+          }
+
+          <app-form-input
+            [label]="isPatchPanel ? 'Name of the front ports' : 'Name of the ports'"
+            [placeholder]="isPatchPanel ? 'e.g. {prefix}-F{n:02}' : 'e.g. Gi0/{n}'"
+            [required]="true"
+            [errorMessage]="errorOf('syntax')"
+            formControlName="syntax">
+          </app-form-input>
+
+          @if (isPatchPanel) {
+            <app-form-input
+              label="Name of the rear ports"
+              placeholder="e.g. {prefix}-R{n:02}"
+              [required]="true"
+              [errorMessage]="errorOf('rearSyntax')"
+              formControlName="rearSyntax">
+            </app-form-input>
+          }
+
+          <div class="row">
+            <div class="col-md-6">
+              <app-form-input
+                label="Prefix (optional)"
+                placeholder="e.g. PP1"
+                formControlName="prefix">
+              </app-form-input>
+            </div>
+            <div class="col-md-6">
+              <app-form-input
+                label="Slot (optional)"
+                placeholder="e.g. 1"
+                formControlName="slot">
+              </app-form-input>
+            </div>
+          </div>
+        }
       </form>
     </aw-wizard-step>
 
