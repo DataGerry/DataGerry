@@ -91,6 +91,10 @@ from cmdb.interface.route_utils import handle_route_errors, insert_request_user,
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    build_object_write_emitter,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -421,9 +425,10 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
 
     Each entry in the request's ``ips`` list identifies one currently-assigned IP of the subnet;
     the route locates its owner CmdbObject(s) and applies the chosen ``mode`` to the matching
-    rows, then writes each owner back through ``ObjectsManager.update_object`` so ACL, versioning
-    and post-update hooks all run per-owner. The ``mode`` is a single selection for the whole
-    request (not per IP):
+    rows, then writes each owner with a partial ``ObjectsManager.update_object`` - the owner's
+    ``multi_data_sections``, its version bump and the edit stamp; the ACL is checked per owner. Every
+    written owner then gets an EDIT change-log entry and an UPDATE webhook, both best-effort. The
+    ``mode`` is a single selection for the whole request (not per IP):
       - 'reference' (default): flip the row's ``dg-interface-subnet`` value to None - the row, its
         IP and MAC are kept; it is just detached from the subnet
       - 'row': delete the whole matching dg-ipam-interface row (this edits the owner object to
@@ -441,10 +446,11 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
     **The write phase is NOT atomic.** Once validation passes, each affected owner is written
     separately through ``ObjectsManager.update_object`` and there is no cross-owner transaction, so a
     failure part-way leaves the already-written owners unassigned while the response carries the
-    error instead of a count. The most likely trigger is object-level ACL: ``update_object`` enforces
-    UPDATE permission per owner, so a user allowed to edit some owners but not others gets the
-    allowed ones unassigned and a 403 for the first one they may not touch. Callers that need an
-    exact picture after an error must re-read the subnet overview
+    error instead of a count; those owners still get their change log and webhook. The most likely
+    trigger is object-level ACL: ``update_object`` enforces UPDATE permission per owner, so a user
+    allowed to edit some owners but not others gets the allowed ones unassigned and a 403 for the
+    first one they may not touch. Callers that need an exact picture after an error must re-read the
+    subnet overview
 
     Body:
         ips (list[str]): canonical IPv4 / IPv6 strings to unassign; must be non-empty, each
@@ -483,6 +489,7 @@ def unassign_ips_route(public_id: int, request_user: CmdbUser) -> Response:
         payload.get(IpamUnassignKey.IPS),
         request_user,
         raw_mode=payload.get(IpamUnassignKey.MODE),
+        on_write=build_object_write_emitter(request_user, ObjectLogComment.IPS_UNASSIGNED_FROM_SUBNET.value),
     )
 
     return DefaultResponse(result).make_response()

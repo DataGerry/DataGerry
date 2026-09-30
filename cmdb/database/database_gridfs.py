@@ -29,7 +29,7 @@ class DatabaseGridFS(GridFS):
 
     `Extends`: GridFS
     """
-    def __init__(self, database: Database, collection_name: str):
+    def __init__(self, database: Database, collection_name: str) -> None:
         """
         Initializes the `DatabaseGridFS` with the specified database and collection
 

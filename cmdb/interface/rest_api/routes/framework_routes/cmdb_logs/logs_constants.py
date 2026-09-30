@@ -48,6 +48,16 @@ class LogResultKey(BaseStrEnum):
 class LogQueryOperator(BaseStrEnum):
     """MongoDB operator literals used when assembling CmdbLog queries."""
     NOR = '$nor'
+    NE = '$ne'
+    EXISTS = '$exists'
+
+
+# The existence split of the object-log lists joins each log to `framework.objects` under this field.
+# The joined array holds at most one id-only document, so "the object exists" is "element 0 exists"
+OBJECT_LOOKUP_FIELD: str = 'object'
+OBJECT_LOOKUP_FIRST_MATCH: str = f'{OBJECT_LOOKUP_FIELD}.0'
+OBJECT_LOOKUP_MAX_MATCHES: int = 1
+MONGO_ID_KEY: str = '_id'
 
 
 # Query-string flag: when truthy, the object-log list ``results`` becomes ``{logs, users}`` with the

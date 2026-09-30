@@ -74,6 +74,13 @@ def _user_payload(public_id: int, first_name: str = ORIGINAL_FIRST_NAME) -> dict
     }
 
 
+def _update_payload(public_id: int, first_name: str = ORIGINAL_FIRST_NAME) -> dict[str, Any]:
+    """The same user as a PUT body: no password, which only changes through PATCH /users/<id>/password."""
+    payload = _user_payload(public_id, first_name)
+    payload.pop('password')
+    return payload
+
+
 def _user_doc(public_id: int, first_name: str = ORIGINAL_FIRST_NAME) -> dict[str, Any]:
     """Builds a complete CmdbUser doc for direct DB insertion (bypasses POST schema validation)."""
     doc = _user_payload(public_id, first_name)
@@ -179,7 +186,7 @@ class TestPutUser:
         try:
             response = rest_api.put(
                 f'{ROUTE_URL}/{USER_ID_FOR_UPDATE}',
-                json=_user_payload(USER_ID_FOR_UPDATE, UPDATED_FIRST_NAME),
+                json=_update_payload(USER_ID_FOR_UPDATE, UPDATED_FIRST_NAME),
             )
 
             assert response.status_code == HTTPStatus.ACCEPTED

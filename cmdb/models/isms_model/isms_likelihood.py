@@ -25,7 +25,7 @@ weight the risk matrix reads, and the value ``LikelihoodManager.update_with_foll
 ``likelihood_value`` in the before and after matrices of every risk assessment that names this level
 when the weight changes. It is stored as a float, greater than zero (``'min': 1e-9``, matching the
 impact scale and the frontend's ``nonZeroValidator``): a zero-weight level would flatten every risk
-using it. The model annotated it ``str`` until 2026-09-07, which was the only claim of that anywhere.
+using it.
 
 **The collection is a small fixed scale**, three to six rows in practice. That is why it declares no
 ``INDEX_KEYS`` even though the manager queries it by ``calculation_basis`` for the uniqueness
@@ -33,9 +33,9 @@ pre-check: at this size the scan is free, and the other ISMS scale entities decl
 
 **``IsmsImpact`` is its structural twin.** Both carry exactly ``public_id`` / ``name`` /
 ``calculation_basis`` / ``description``, so one serialises cleanly as the other - a mix-up produces a
-valid-looking payload rather than an error. Until this model started sharing ``CmdbDAO.to_json``,
-``IsmsLikelihood.to_json(an_impact)`` returned an impact serialised as a likelihood and said nothing;
-the shared implementation type-checks its instance, which is what closed that.
+valid-looking payload rather than an error. The shared ``CmdbDAO.to_json`` type-checks its instance,
+so ``IsmsLikelihood.to_json(an_impact)`` refuses instead of silently serialising an impact as a
+likelihood.
 
 **Its key set is closed.** ``LikelihoodKey`` names every persisted key and drives the shared
 ``CmdbDAO.from_data`` / ``to_json``; ``LIKELIHOOD_REQUIRED_DOCUMENT_KEYS`` keeps a document that lacks

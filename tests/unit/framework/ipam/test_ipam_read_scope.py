@@ -1,7 +1,7 @@
 """
 Unit tests for the ACL scoping of the IPAM reads
 
-Until 2026-09-16 every IPAM read was unscoped: a group denied the SUBNET CmdbType through `/objects`
+An unscoped IPAM read is the trap: a group denied the SUBNET CmdbType through `/objects`
 could still read a subnet's whole IP table - owner summaries and stored MACs included - through
 `/ipam/subnet/overview/<id>`, and export the same data to CSV. An ACL lives on the CmdbType, so the
 scoping is an exclusion of denied `type_id`s.
@@ -11,7 +11,7 @@ Three properties are pinned here, and the third is the one that is easy to get w
 * a **presentation** read is narrowed to the types the caller may see
 * an **invariant** read is NOT - the validators check a candidate against every existing object,
   because an ACL-filtered check would report an overlapping CIDR as valid and the write would then
-  accept it (see `workflows/ipam.md`)
+  accept it
 * a row whose carrier is denied is **masked, not dropped** - dropping it would show the address as
   free, the user would try to assign it, and the unscoped write-time check would refuse an address
   they cannot see

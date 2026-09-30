@@ -23,6 +23,7 @@ from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 
 from cmdb.models.object_relation_model import (
     CmdbObjectRelation,
@@ -81,29 +82,29 @@ def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
     definition_ref = f'${_DEFINITION_FIELD}'
 
     return [
-        {'$match': {'$or': [
+        Builder.match_(Builder.or_([
             {parent_id_field: object_id},
             {child_id_field: object_id},
-        ]}},
+        ])),
         # An instance places the object on the parent side, the child side, or (self-relation) both
-        {'$addFields': {'roles': {'$concatArrays': [
+        Builder.add_fields_({'roles': {'$concatArrays': [
             {'$cond': [{'$eq': [f'${parent_id_field}', object_id]}, [ObjectRelationRole.PARENT.value], []]},
             {'$cond': [{'$eq': [f'${child_id_field}', object_id]}, [ObjectRelationRole.CHILD.value], []]},
-        ]}}},
-        {'$unwind': '$roles'},
-        {'$group': {
-            '_id': {relation_id_key: f'${ObjectRelationKey.RELATION_ID.value}', role_key: '$roles'},
-            RelationTabKey.COUNT.value: {'$sum': 1},
-        }},
-        {'$lookup': {
-            'from': CmdbRelation.COLLECTION,
-            'localField': f'_id.{relation_id_key}',
-            'foreignField': ObjectRelationKey.PUBLIC_ID.value,
-            'as': _DEFINITION_FIELD,
-        }},
+        ]}}),
+        Builder.unwind_('$roles'),
+        Builder.group_(
+            {relation_id_key: f'${ObjectRelationKey.RELATION_ID.value}', role_key: '$roles'},
+            {RelationTabKey.COUNT.value: {'$sum': 1}},
+        ),
+        Builder.lookup_(
+            from_collection=CmdbRelation.COLLECTION,
+            local_field=f'_id.{relation_id_key}',
+            foreign_field=ObjectRelationKey.PUBLIC_ID.value,
+            as_field=_DEFINITION_FIELD,
+        ),
         # drops groups whose relation definition no longer exists
-        {'$unwind': definition_ref},
-        {'$project': {
+        Builder.unwind_(definition_ref),
+        Builder.project_({
             '_id': 0,
             relation_id_key: f'$_id.{relation_id_key}',
             role_key: role_ref,
@@ -117,9 +118,9 @@ def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
                                                    f'{definition_ref}.{RelationKey.RELATION_COLOR_PARENT.value}',
                                                    f'{definition_ref}.{RelationKey.RELATION_COLOR_CHILD.value}']},
             RelationTabKey.COUNT.value: 1,
-        }},
+        }),
         # stable order: by relation, parent tab before child tab
-        {'$sort': {relation_id_key: 1, role_key: -1}},
+        Builder.sort_({relation_id_key: 1, role_key: -1}),
     ]
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -229,7 +230,7 @@ class ObjectRelationsManager(GenericManager):
         try:
             return list(self.aggregate(build_relation_tabs_pipeline(object_id)))
         except Exception as err:
-            raise ObjectRelationsManagerIterationError(str(err)) from err
+            raise ObjectRelationsManagerIterationError(err) from err
 
 
     def get_relation_tab_instances(
@@ -288,7 +289,7 @@ class ObjectRelationsManager(GenericManager):
 
             return instances, total
         except Exception as err:
-            raise ObjectRelationsManagerIterationError(str(err)) from err
+            raise ObjectRelationsManagerIterationError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -422,24 +423,22 @@ class ObjectRelationsManager(GenericManager):
 
         # Pipeline update: keep the field values whose name is not removed, then append the new ones
         pipeline: list[dict[str, Any]] = [
-            {
-                "$set": {
-                    field_values_field: {
-                        "$concatArrays": [
-                            {
-                                "$filter": {
-                                    "input": {"$ifNull": [f"${field_values_field}", []]},
-                                    "as": "fv",
-                                    "cond": {
-                                        "$not": [{"$in": [f"$$fv.{name_key}", removed]}]
-                                    },
-                                }
-                            },
-                            new_field_entries,
-                        ]
-                    }
+            Builder.set_({
+                field_values_field: {
+                    "$concatArrays": [
+                        {
+                            "$filter": {
+                                "input": {"$ifNull": [f"${field_values_field}", []]},
+                                "as": "fv",
+                                "cond": {
+                                    "$not": [{"$in": [f"$$fv.{name_key}", removed]}]
+                                },
+                            }
+                        },
+                        new_field_entries,
+                    ]
                 }
-            }
+            })
         ]
 
         self.update_many({ObjectRelationKey.RELATION_ID.value: relation_id}, pipeline, plain=True)

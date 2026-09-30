@@ -40,6 +40,7 @@ persistent=yes
 # user-friendly hints instead of false-positive error messages.
 suggestion-mode=yes
 
+disable=E0015
 # Allow loading of arbitrary C extensions. Extensions are imported into the
 # active Python interpreter and may run arbitrary code.
 unsafe-load-any-extension=no
@@ -65,7 +66,6 @@ disable=raw-checker-failed,
         locally-disabled,
         file-ignored,
         suppressed-message,
-        useless-suppression,
         deprecated-pragma,
         use-symbolic-message-instead,
         broad-exception-caught,
@@ -75,7 +75,11 @@ disable=raw-checker-failed,
 # either give multiple identifier separated by comma (,) or put this option
 # multiple time (only on the command line, not in the configuration file where
 # it should appear only once). See also the "--disable" option for examples.
-enable=c-extension-no-member
+# useless-suppression is INFORMATIONAL (I0021): removing it from the disable list above is not
+# enough, it has to be enabled explicitly. It reports a `# pylint: disable=...` that no longer
+# suppresses anything, so a waiver cannot outlive the code that earned it
+enable=c-extension-no-member,
+       useless-suppression
 
 
 [REPORTS]
@@ -135,7 +139,12 @@ dummy-variables-rgx=_+$|(_[a-zA-Z0-9_]*[a-zA-Z0-9]+?$)|dummy|^ignored_|^unused_
 
 # Argument names that match this expression will be ignored. Default to name
 # with leading underscore.
-ignored-argument-names=_.*|^ignored_|^unused_
+# `request_user` is injected BY KEYWORD by `@insert_request_user`, the decorator that authenticates a
+# route, so a handler that never reads the user still has to accept it under exactly that name - it
+# cannot be renamed to `_request_user` and the decorator cannot be dropped. Exempting the name here
+# replaces a per-route suppression. tests/unit/test_request_user_exemption.py keeps it honest: an unread
+# `request_user` is only legal on a function that decorator wraps.
+ignored-argument-names=_.*|^ignored_|^unused_|^request_user$
 
 # Tells whether we should check for unused import in __init__ files.
 init-import=no
@@ -461,7 +470,7 @@ preferred-modules=
 max-args=8
 
 # Maximum number of attributes for a class (see R0902).
-max-attributes=15
+max-attributes=20
 
 # Maximum number of boolean expressions in an if statement (see R0916).
 max-bool-expr=5
@@ -488,7 +497,7 @@ max-statements=50
 min-public-methods=0
 
 # Maximum number of positional arguments (see R0917)
-max-positional-arguments=7
+max-positional-arguments=8
 
 [CLASSES]
 

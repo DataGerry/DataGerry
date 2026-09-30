@@ -24,16 +24,15 @@ class ConnectionRight(BaseStrEnum):
     ACL right identifiers guarding the port-connection REST routes
 
     A connection spans TWO CmdbObjects, and these rights are what governs it - **the endpoint objects'
-    own ACLs are deliberately NOT consulted** (decision Q13, 2026-09-03). The Rack precedent for a row
-    that joins two things is the same: a feature right alone.
+    own ACLs are deliberately NOT consulted**. The Rack precedent for a row that joins two things is
+    the same: a feature right alone.
 
-    That is a real trade-off and it is recorded rather than hidden. A caller holding the connection
-    rights can cable together two objects they could not open individually, and a connection read
-    tells them those two ports exist. The alternative - requiring access to both endpoints - was
-    rejected because a connection is a fact about the CABLING rather than about either device, and
-    because the "either endpoint" and "both endpoints" readings differ on exactly the patch panel this
-    feature exists for: a panel is routinely administered by a team that owns neither of the devices
-    it patches together
+    That is a real trade-off. A caller holding the connection rights can cable together two objects
+    they could not open individually, and a connection read tells them those two ports exist.
+    Requiring access to both endpoints instead does not fit, because a connection is a fact about the
+    CABLING rather than about either device, and because the "either endpoint" and "both endpoints"
+    readings differ on exactly the patch panel this feature exists for: a panel is routinely
+    administered by a team that owns neither of the devices it patches together
     """
     VIEW = 'base.framework.connection.view'
     ADD = 'base.framework.connection.add'
@@ -128,11 +127,9 @@ CONNECTION_DUPLICATE_MESSAGE: str = (
     'internal connection, and a Cable belongs to at most one connection!'
 )
 
+# Server error (HTTP 500) when a connection the insert just reported cannot be read back - the server
+# losing sight of its own write, not a missing resource the caller asked for
+CONNECTION_CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Port connection from the database!'
+
 # Prefix of the aggregated 400 the write routes build from the validator's reasons
 CONNECTION_ABORT_PREFIX: str = 'Port connection validation failed'
-
-# Substrings identifying which unique index a duplicate-key error names. The database reports the key
-# PATTERN, so the two endpoint indexes are indistinguishable from each other here - which is fine, the
-# route knows the requested connection_type and picks the message from that
-DUPLICATE_KEY_ENDPOINTS_MARKER: str = 'endpoints'
-DUPLICATE_KEY_CABLE_CI_MARKER: str = 'cable_ci_id'

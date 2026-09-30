@@ -74,15 +74,15 @@ class PageHeaderFooter:
     """
     def __init__(
         self,
-        header: dict[str, Any] = None,
-        footer: dict[str, Any] = None,
-        page_config: dict[str, Any] = None
+        header: dict[str, Any] | None = None,
+        footer: dict[str, Any] | None = None,
+        page_config: dict[str, Any] | None = None
     ) -> None:
         """
         Args:
-            header (dict[str, Any]): The template header component (activated / config / content)
-            footer (dict[str, Any]): The template footer component (activated / config / content)
-            page_config (dict[str, Any]): The template page config (margins etc.)
+            header (dict[str, Any] | None): The template header component (activated / config / content)
+            footer (dict[str, Any] | None): The template footer component (activated / config / content)
+            page_config (dict[str, Any] | None): The template page config (margins etc.)
         """
         self.header: dict[str, Any] = header or {
             ComponentKey.ACTIVATED: False,

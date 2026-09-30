@@ -16,6 +16,8 @@
 """
 Implementation of ImportSuccessMessage
 """
+from typing import Any
+
 from cmdb.framework.importer.messages.import_message import ImportMessage
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -26,13 +28,13 @@ class ImportSuccessMessage(ImportMessage):
     Extends: ImportMessage
     """
 
-    def __init__(self, public_id: int, obj: dict | None = None) -> None:
+    def __init__(self, public_id: int, obj: dict[str, Any] | None = None) -> None:
         """
         Initialises the ImportSuccessMessage
 
         Args:
             public_id (int): public_id of the new CmdbObject
-            obj (dict | None): CmdbObject instance
+            obj (dict[str, Any] | None): CmdbObject instance
         """
         self.public_id = public_id
         super().__init__(obj=obj)

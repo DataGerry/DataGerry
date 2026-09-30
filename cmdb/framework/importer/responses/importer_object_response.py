@@ -33,16 +33,18 @@ class ImporterObjectResponse:
     def __init__(
             self,
             message: str,
-            success_imports: list | None = None,
-            failed_imports: list | None = None,
+            success_imports: list[ImportSuccessMessage] | None = None,
+            failed_imports: list[ImportFailedMessage] | None = None,
         ) -> None:
         """
         Initializes the ImporterObjectResponse for a bulk object import
 
         Args:
             message (str): A human-readable summary of the import result
-            success_imports (list | None): The ImportSuccessMessage entries. Defaults to an empty list
-            failed_imports (list | None): The ImportFailedMessage entries. Defaults to an empty list
+            success_imports (list[ImportSuccessMessage] | None): The ImportSuccessMessage entries. Defaults to an
+                empty list
+            failed_imports (list[ImportFailedMessage] | None): The ImportFailedMessage entries. Defaults to an
+                empty list
         """
         self.message: str = message
         self.success_imports: list[ImportSuccessMessage] = success_imports or []

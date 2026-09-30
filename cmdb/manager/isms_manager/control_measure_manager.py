@@ -22,8 +22,10 @@ from typing import Any
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.utils import Builder
 
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 
 from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.control_measure_manager import (
@@ -43,7 +45,14 @@ class ControlMeasureManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the ControlMeasureManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsControlMeasure, CONTROL_MEASURE_MANAGER_ERRORS, database)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
@@ -58,7 +67,10 @@ class ControlMeasureManager(GenericManager):
         Returns:
             bool: True if the IsmsControlMeasure is used, False otherwise
         """
-        return self.get_one_by({'control_measure_id': public_id}, IsmsControlMeasureAssignment.COLLECTION) is not None
+        return self.get_one_by(
+            {ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value: public_id},
+            IsmsControlMeasureAssignment.COLLECTION,
+        ) is not None
 
 
     def get_used_control_measure_ids(self, public_ids: list[int]) -> set[int]:
@@ -83,8 +95,8 @@ class ControlMeasureManager(GenericManager):
             return set()
 
         pipeline: list[dict[str, Any]] = [
-            {'$match': {'control_measure_id': {'$in': public_ids}}},
-            {'$group': {'_id': '$control_measure_id'}},
+            Builder.match_({ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value: {'$in': public_ids}}),
+            Builder.group_(f'${ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value}'),
         ]
 
         try:
@@ -92,7 +104,7 @@ class ControlMeasureManager(GenericManager):
 
             return {doc['_id'] for doc in result}
         except BaseManagerIterationError as err:
-            raise ControlMeasureManagerGetError(str(err)) from err
+            raise ControlMeasureManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_used_control_measure_ids] Exception: %s. Type: %s", err, type(err))
-            raise ControlMeasureManagerGetError(str(err)) from err
+            raise ControlMeasureManagerGetError(err) from err

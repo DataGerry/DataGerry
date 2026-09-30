@@ -169,3 +169,70 @@ class RenderTypeInfoKey(BaseStrEnum):
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
     USES_PORTS = 'uses_ports'
     PORT_SECTION_INDEX = 'port_section_index'
+
+
+#: The placeholder name an external link fills with the object's own public_id rather than a field value
+EXTERNAL_LINK_OBJECT_ID_FIELD: str = 'object_id'
+
+#: How many reference hops `CmdbMultiRender.result()` resolves when a caller does not say. It also bounds
+#: how far the constructor prefetches reference-section chains, so the prefetch never loads an object
+#: the default render would not reach
+DEFAULT_RENDER_LEVEL: int = 3
+
+
+class RenderProblemKey(BaseStrEnum):
+    """
+    Enumeration of the keys of one entry in `RenderResult.render_problems`
+
+    An entry says WHERE a render answered less than the stored data holds - never why in the
+    exception's own words, which can carry internals a client has no business reading. The server
+    log carries the details
+
+    Attributes:
+        CODE: The `RenderProblemCode` naming what was lost
+        SECTION: Name of the type section the problem belongs to, or None
+        FIELD: Name of the field the problem belongs to, or None
+        EXTERNAL_LINK: Name of the external link the problem belongs to, or None
+    """
+    CODE = 'code'
+    SECTION = 'section'
+    FIELD = 'field'
+    EXTERNAL_LINK = 'external_link'
+
+
+class RenderProblemCode(BaseStrEnum):
+    """
+    Enumeration of what a degraded render lost
+
+    Each member names one kind of loss a render tolerates instead of failing. A RenderResult carrying
+    none of them is complete. The cases a render handles by design - a summary falling back to
+    '<label> #<id>' for an object saved before its type's summary changed, an external link skipped
+    because a value it needs is empty, a reference section with nothing referenced yet, a section kind
+    from a newer version rendered as a plain one - are not problems and are never reported
+
+    Attributes:
+        SECTIONS_UNREADABLE: The type's sections could not be serialised; `sections` is empty
+        REFERENCES_UNAVAILABLE: The referenced objects could not be loaded; no reference is expanded
+        FIELD_NOT_ON_TYPE: A section names a field the type does not declare; the field is left out.
+            An object storing such a field is logged under this code too, but not flagged: a render only
+            ever draws the fields the type declares, so nothing it answers is missing
+        FIELD_MERGE_FAILED: A field could not be merged; it carries its stored value, unexpanded
+        REFERENCE_INCOMPLETE: A reference could not be built; it has no line and no summaries
+        REFERENCE_LINE_UNFILLED: A reference's summary line does not fit its type; it has no line
+        REFERENCE_SECTION_UNRESOLVED: A reference section could not be built; it is left out
+        REFERENCE_SECTION_FIELD_SKIPPED: One field of a reference section could not be read; the
+            section is short by that field
+        NESTED_REFERENCE_SECTION_FAILED: A reference section nested inside another could not be
+            rendered; its fields are missing from the outer section
+        EXTERNAL_LINK_FAILED: An external link could not be filled; it is left out
+    """
+    SECTIONS_UNREADABLE = 'sections_unreadable'
+    REFERENCES_UNAVAILABLE = 'references_unavailable'
+    FIELD_NOT_ON_TYPE = 'field_not_on_type'
+    FIELD_MERGE_FAILED = 'field_merge_failed'
+    REFERENCE_INCOMPLETE = 'reference_incomplete'
+    REFERENCE_LINE_UNFILLED = 'reference_line_unfilled'
+    REFERENCE_SECTION_UNRESOLVED = 'reference_section_unresolved'
+    REFERENCE_SECTION_FIELD_SKIPPED = 'reference_section_field_skipped'
+    NESTED_REFERENCE_SECTION_FAILED = 'nested_reference_section_failed'
+    EXTERNAL_LINK_FAILED = 'external_link_failed'

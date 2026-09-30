@@ -25,7 +25,7 @@ Supersedes the former test_importer_isms_helpers.py: its parse_list_of_strings /
 carried over here, and its parse_bool cases went with that function (the module now uses the shared
 strict cmdb.utils.helpers.parse_import_bool).
 
-The route-level behaviour lives in tests/functional/isms/test_functional_isms_importer_route.py.
+The route-level behaviour is covered by the functional ISMS importer tests.
 """
 from io import BytesIO
 from typing import Any
@@ -37,6 +37,8 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.models.extendable_option_model import OptionType
 from cmdb.models.isms_model import RiskType
+from cmdb.models.isms_model.isms_threat_constants import ThreatKey
+from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 from cmdb.errors.manager.extendable_options_manager import ExtendableOptionsManagerInsertError
 from cmdb.interface.rest_api.routes.importer_routes import importer_isms_routes
 from cmdb.interface.rest_api.routes.importer_routes.importer_isms_routes import (
@@ -91,7 +93,7 @@ class TestStrippedCell:
         assert stripped_cell(row, 'name') is None
 
     def test_a_short_row_does_not_raise(self) -> None:
-        """The None DictReader fills a short row with used to raise AttributeError."""
+        """The None a DictReader fills a short row with is read as an absent cell, not an error."""
         assert stripped_cell({'name': 'R1', 'consequences': None}, 'consequences') is None
 
 
@@ -134,7 +136,7 @@ class TestReadCsvFile:
         assert next(reader)['name'] == 'T1'
 
     def test_accepts_a_utf8_bom(self) -> None:
-        """A file saved by Excel keeps a usable first header (it used to become '\\ufeffname')."""
+        """A file saved by Excel keeps a usable first header rather than '\\ufeffname'."""
         reader = read_csv_file(_csv_file(f'{THREAT_HEADER_LINE}\nT1,S,ID,D\n', 'utf-8-sig'), THREAT_HEADERS)
 
         assert next(reader)['name'] == 'T1'
@@ -164,6 +166,26 @@ class TestReadCsvFile:
             read_csv_file(_csv_file('justonecolumn\nvalue\n'), THREAT_HEADERS)
 
         assert err.value.code == 400
+
+    @pytest.mark.parametrize('body', [
+        'name;source;identifier;description\nT1;S;ID;D\n',
+        f'{THREAT_HEADER_LINE}\nT1,S,ID,D\n',
+    ], ids=['semicolon', 'comma'])
+    def test_a_file_the_sniffer_cannot_read_falls_back_to_each_delimiter(
+        self, body: str, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """
+        When sniffing fails, semicolon is tried first and comma second - each still reads the file
+
+        Sniffing is a guess over a sample and gives up on short or irregular files; the fallback is
+        what keeps such a file importable instead of refused
+        """
+        def _giving_up(_self, _sample: str, delimiters: str | None = None) -> None:
+            raise importer_isms_routes.Error(delimiters)
+
+        monkeypatch.setattr(importer_isms_routes.Sniffer, 'sniff', _giving_up)
+
+        assert next(read_csv_file(_csv_file(body), THREAT_HEADERS))['name'] == 'T1'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -289,14 +311,14 @@ class TestResolveNamedItems:
         """No references, no query."""
         manager = _manager()
 
-        assert resolve_named_items(set(), manager, {}) == {}
+        assert resolve_named_items(set(), manager, ThreatKey, {}) == {}
         manager.find.assert_not_called()
 
     def test_existing_names_are_reused_in_one_query(self) -> None:
         """One $in query resolves the whole batch."""
         manager = _manager(found=[{'name': 'T1', 'public_id': 5}])
 
-        assert resolve_named_items({'T1'}, manager, {}) == {'T1': 5}
+        assert resolve_named_items({'T1'}, manager, ThreatKey, {}) == {'T1': 5}
         manager.find.assert_called_once_with(criteria={'name': {'$in': ['T1']}})
         manager.insert_item.assert_not_called()
 
@@ -304,7 +326,7 @@ class TestResolveNamedItems:
         """A name nobody knows becomes a new entity carrying the caller's defaults."""
         manager = _manager(insert_ids=[11])
 
-        result = resolve_named_items({'New'}, manager, {'predefined': False})
+        result = resolve_named_items({'New'}, manager, ProtectionGoalKey, {'predefined': False})
 
         assert result == {'New': 11}
         manager.insert_item.assert_called_once_with({'name': 'New', 'predefined': False})

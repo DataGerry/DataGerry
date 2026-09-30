@@ -83,12 +83,12 @@ class DgServicePortalManager:
                 raise NoAccessTokenError("No base url for Service Portal provided!")
 
 
-    def get_headers(self, password: str = None) -> dict[str, str]:
+    def get_headers(self, password: str | None = None) -> dict[str, str]:
         """
         Retrieves the headers for DG-SP API calls
 
         Args:
-            password (str): Optional master password; when given it is added as ``x-master-password``
+            password (str | None): Optional master password; when given it is added as ``x-master-password``
 
         Returns:
             dict[str, str]: The headers dictionary
@@ -117,14 +117,14 @@ class DgServicePortalManager:
 
 # ---------------------------------------------------- CRUD - BASE --------------------------------------------------- #
 
-    def sp_post(self, target:str, payload: dict[str, Any], password: str = None) -> Response:
+    def sp_post(self, target:str, payload: dict[str, Any], password: str | None = None) -> Response:
         """
         Handles POST requests towards the DG ServicePortal
 
         Args:
             target (str): target URL of POST request
             payload (dict[str, Any]): payload for the POST request
-            password (str): Optional master password forwarded as the ``x-master-password`` header
+            password (str | None): Optional master password forwarded as the ``x-master-password`` header
 
         Returns:
             Response: The response for the POST request

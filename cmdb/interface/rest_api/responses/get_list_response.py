@@ -38,20 +38,20 @@ class GetListResponse(BaseAPIResponse):
     """
     def __init__(
             self,
-            results: list[dict],
+            results: list[dict[str, Any]],
             body: bool | None = None,
             params: APIParameters | None = None) -> None:
         """
         Initializes the GetListResponse
 
         Args:
-            results (list[dict]): The resources to answer with, in the order they were read
+            results (list[dict[str, Any]]): The resources to answer with, in the order they were read
             body (bool | None): Whether to answer with a payload; False answers without one (HEAD).
                 None means yes
             params (APIParameters | None): The request parameters, consulted for a `?projection=`
         """
         self.params: APIParameters | None = params
-        self.results: list[dict] = self.apply_projection(
+        self.results: list[dict[str, Any]] = self.apply_projection(
             results, params.projection if params else None,
         )
 

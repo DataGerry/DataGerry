@@ -77,7 +77,7 @@ class CmdbLocation(CmdbDAO):
 
     # The five keys a node cannot do without: without them it names no tree edge and nothing to
     # render. Enforced by the shared from_data, which refuses a document missing one instead of
-    # building an instance holding None - the shape the list routes used to answer as 'name': null.
+    # building an instance holding None, which the list routes would answer as 'name': null.
     # Every writer produces all of them (the object mirror, the POST route and the seeded root), and
     # the partial mirror update is a '$set', so no stored document loses one
     REQUIRED_INIT_KEYS: list[str] = [

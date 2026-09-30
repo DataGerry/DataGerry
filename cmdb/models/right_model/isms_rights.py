@@ -16,19 +16,16 @@
 """
 Implementation of base classes of rights for the different components used in Datagerry
 """
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
 from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class IsmsRight(BaseRight):
+class IsmsRight(DefaultLevelRight):
     """
     Base class for general ISMS rights
     """
     MIN_LEVEL = Levels.PERMISSION
     PREFIX = f'{BaseRight.PREFIX}.isms'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(level, name, description=description)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -40,9 +37,6 @@ class RiskClassRight(IsmsRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.riskClass'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class LikelihoodRight(IsmsRight):
     """
@@ -51,9 +45,6 @@ class LikelihoodRight(IsmsRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.likelihood'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class ImpactRight(IsmsRight):
@@ -64,9 +55,6 @@ class ImpactRight(IsmsRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.impact'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class ImpactCategoryRight(IsmsRight):
     """
@@ -75,9 +63,6 @@ class ImpactCategoryRight(IsmsRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.impactCategory'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class ProtectionGoalRight(IsmsRight):
@@ -88,9 +73,6 @@ class ProtectionGoalRight(IsmsRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.protectionGoal'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class RiskMatrixRight(IsmsRight):
     """
@@ -99,9 +81,6 @@ class RiskMatrixRight(IsmsRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.riskMatrix'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class ThreatRight(IsmsRight):
@@ -112,9 +91,6 @@ class ThreatRight(IsmsRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.threat'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class VulnerabilityRight(IsmsRight):
     """
@@ -123,9 +99,6 @@ class VulnerabilityRight(IsmsRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.vulnerability'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class RiskRight(IsmsRight):
@@ -136,9 +109,6 @@ class RiskRight(IsmsRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.risk'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class ControlMeasureRight(IsmsRight):
     """
@@ -147,9 +117,6 @@ class ControlMeasureRight(IsmsRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.controlMeasure'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class RiskAssessmentRight(IsmsRight):
@@ -160,9 +127,6 @@ class RiskAssessmentRight(IsmsRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.riskAssessment'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class ControlMeasureAssignmentRight(IsmsRight):
     """
@@ -171,9 +135,6 @@ class ControlMeasureAssignmentRight(IsmsRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.controlMeasureAssignment'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class IsmsReportRight(IsmsRight):
@@ -184,9 +145,6 @@ class IsmsReportRight(IsmsRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{IsmsRight.PREFIX}.report'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class IsmsImportRight(IsmsRight):
     """
@@ -195,6 +153,3 @@ class IsmsImportRight(IsmsRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.SECURE
     PREFIX = f'{IsmsRight.PREFIX}.import'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)

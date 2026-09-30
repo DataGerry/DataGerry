@@ -25,8 +25,12 @@ method under test does not need the managers.
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from markupsafe import Markup
 
+from cmdb.models.docapi_model import docapi_cache_helper
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.docapi_model.default_template_data import DefaultTemplateData
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.docapi_model.safe_object import SafeObject
@@ -38,7 +42,16 @@ MODULE: str = 'cmdb.models.docapi_model.default_template_data'
 
 def _bare() -> DefaultTemplateData:
     """Builds a DefaultTemplateData without running __init__ (no managers / database)."""
-    return DefaultTemplateData.__new__(DefaultTemplateData)
+    instance = DefaultTemplateData.__new__(DefaultTemplateData)
+    instance.request_user = Mock(name='request_user')
+
+    return instance
+
+
+@pytest.fixture(autouse=True)
+def _nothing_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The caller's group may read every type unless a test says otherwise."""
+    monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [])
 
 
 def _report_object(public_id: int = 1, fields=None, mds=None) -> SimpleNamespace:
@@ -258,6 +271,25 @@ class TestRunReportQuery:
         assert instance._run_report_query(report) == ["obj"]
         instance.objects_manager.iterate.assert_called_once()
 
+    def test_the_rows_are_read_through_the_users_read_acl(self) -> None:
+        """The report table shows the rows the reader could list - the user and READ reach iterate"""
+        instance = _bare()
+        instance.objects_manager = Mock()
+        instance.objects_manager.iterate.return_value = SimpleNamespace(results=[])
+
+        instance._run_report_query({"report_query": {"data": "{'public_id': {'$gt': 1}}"}})
+
+        _params, user, permission = instance.objects_manager.iterate.call_args.args
+        assert (user, permission) == (instance.request_user, AccessControlPermission.READ)
+
+    def test_a_report_storing_no_query_lists_nothing(self) -> None:
+        """No stored query at all reads as an empty one - not a KeyError in the middle of a document"""
+        instance = _bare()
+        instance.objects_manager = Mock()
+
+        assert instance._run_report_query({}) == []
+        instance.objects_manager.iterate.assert_not_called()
+
 
 class TestBuildReport:
     """_build_report renders a report into a table or None."""
@@ -408,6 +440,51 @@ class TestRelationTraversal:
 
         matches = mock_relation_result.call_args[0][0]
         assert matches == [20]
+
+    @pytest.mark.parametrize('side, expected', [('parent', [30]), ('child', [20])])
+    @patch(f'{MODULE}.RelationResult')
+    def test_rows_of_the_relation_not_touching_the_start_are_ignored(
+        self, mock_relation_result: Mock, side: str, expected: list[int],
+    ) -> None:
+        """Only the rows whose near end is the start object match - and only they are scoped to the hop"""
+        instance = _bare()
+        instance.object_cache = {}
+        instance.type_cache = {}
+        instance.objects_manager = Mock()
+        instance.objects_manager.find.return_value = []
+        instance.types_manager = Mock()
+        instance.template_type = DocapiTemplateType.DEFAULT
+        instance.all_object_relations = []
+        instance.object_relations = [
+            {"relation_id": 1, "relation_parent_id": 30, "relation_child_id": 10},   # 10's parent
+            {"relation_id": 1, "relation_parent_id": 10, "relation_child_id": 20},   # 10's child
+            {"relation_id": 1, "relation_parent_id": 40, "relation_child_id": 50},   # does not touch 10
+        ]
+
+        instance._relation_traversal(10, 1, side)
+
+        matches, _cache, _types, scoped = mock_relation_result.call_args[0][:4]
+        assert matches == expected
+        assert all(10 in (rel["relation_parent_id"], rel["relation_child_id"]) for rel in scoped)
+        assert len(scoped) == 1
+
+    @patch(f'{MODULE}.RelationResult')
+    def test_a_side_that_is_neither_matches_nothing(self, mock_relation_result: Mock) -> None:
+        """A direction the template grammar never produces reaches no object and scopes no relation"""
+        instance = _bare()
+        instance.object_cache = {}
+        instance.type_cache = {}
+        instance.objects_manager = Mock()
+        instance.objects_manager.find.return_value = []
+        instance.types_manager = Mock()
+        instance.template_type = DocapiTemplateType.DEFAULT
+        instance.all_object_relations = []
+        instance.object_relations = [{"relation_id": 1, "relation_parent_id": 10, "relation_child_id": 20}]
+
+        instance._relation_traversal(10, 1, 'sideways')
+
+        matches, _cache, _types, scoped = mock_relation_result.call_args[0][:4]
+        assert (matches, scoped) == ([], [])
 
     @patch(f'{MODULE}.RelationResult')
     def test_parent_matches_and_scoped(self, mock_relation_result: Mock) -> None:

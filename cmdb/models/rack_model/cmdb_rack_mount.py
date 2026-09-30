@@ -100,7 +100,7 @@ class CmdbRackMount(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_cmdb_rack_mount_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_rack_mount_schema()
 
 
     #pylint: disable=R0913, R0914, R0917
@@ -119,8 +119,8 @@ class CmdbRackMount(CmdbDAO):
             height: int | None = None,
             position: int | None = None,
             author_id: int | None = None,
-            creation_time: datetime = None,
-            last_edit_time: datetime = None):
+            creation_time: datetime | None = None,
+            last_edit_time: datetime | None = None) -> None:
         """
         Initialises a CmdbRackMount
 
@@ -143,8 +143,8 @@ class CmdbRackMount(CmdbDAO):
                                  an object is unplaced so re-placing can pre-fill it
             position (int | None): Order index within a side list or the unassigned bucket
             author_id (int | None): public_id of the CmdbUser who created the mount
-            creation_time (datetime, optional): When the mount was created. Defaults to now
-            last_edit_time (datetime, optional): When the mount was last changed. Defaults to None
+            creation_time (datetime | None): When the mount was created. Defaults to now
+            last_edit_time (datetime | None): When the mount was last changed. Defaults to None
 
         Raises:
             CmdbRackMountInitError: If the CmdbRackMount could not be initialised
@@ -172,12 +172,12 @@ class CmdbRackMount(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbRackMount":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbRackMount":
         """
         Initialises a CmdbRackMount from a dict
 
         Args:
-            data (dict): Data with which the CmdbRackMount should be initialised
+            data (dict[str, Any]): Data with which the CmdbRackMount should be initialised
 
         Raises:
             CmdbRackMountInitFromDataError: If the initialisation with the given data fails
@@ -187,8 +187,8 @@ class CmdbRackMount(CmdbDAO):
         """
         try:
             # The audit timestamps are coerced strictly: a value that cannot be read is refused
-            # rather than guessed - this used to be `parse(..., fuzzy=True)`, which turns a note like
-            # 'sometime in March' into a date built from today's day number
+            # rather than guessed - `parse(..., fuzzy=True)` would turn a note like 'sometime in March'
+            # into a date built from today's day number
             unusable_dates: list[str] = coerce_document_dates(data, cls.DATE_FIELDS)
 
             if unusable_dates:
@@ -220,7 +220,7 @@ class CmdbRackMount(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbRackMount") -> dict:
+    def to_json(cls, instance: "CmdbRackMount") -> dict[str, Any]:
         """
         Converts a CmdbRackMount into a json compatible dict
 
@@ -231,7 +231,7 @@ class CmdbRackMount(CmdbDAO):
             CmdbRackMountToJsonError: If the CmdbRackMount could not be converted
 
         Returns:
-            dict: Json compatible dict of the CmdbRackMount values
+            dict[str, Any]: Json compatible dict of the CmdbRackMount values
         """
         try:
             return {

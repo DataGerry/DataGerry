@@ -22,6 +22,11 @@ routes here are its CRUD surface, each guarded by the matching ``base.framework.
 data to a third-party URL, so who may create or edit one is an authorisation question, not only an
 API-level one
 
+The two write routes read their payload from the JSON body; a key the body leaves out is read from
+the query string instead (``read_write_payload``), so a client that only sends query parameters keeps
+working. ``parse_webhook_params`` then validates and normalises it and holds the result against
+``CmdbWebhook.SCHEMA``
+
 The deliveries these webhooks produce are the CmdbWebhookEvents served by ``webhook_event_routes``
 """
 from logging import Logger, getLogger
@@ -29,7 +34,6 @@ from typing import Any
 
 from flask import abort, request
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -38,13 +42,18 @@ from cmdb.manager import WebhooksManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse, UpdateSingleResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WebhookRight
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WEBHOOK_ENTITY_LABEL, WebhookRight
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import parse_webhook_params
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import (
+    pin_public_id,
+    read_write_payload,
+    request_wants_body,
+    update_item_from_payload,
+)
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.webhooks_manager import (
@@ -67,44 +76,41 @@ webhook_blueprint = APIBlueprint('webhooks', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @webhook_blueprint.protect(auth=True, right=WebhookRight.ADD.value)
 @webhook_blueprint.parse_request_parameters()
+@handle_route_errors("while creating the Webhook")
 def create_webhook(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to create a CmdbWebhook
 
-    Requires the ``base.framework.webhook.add`` right. The public_id is server-owned: it is reserved
-    from the collection counter, so a payload can not choose it. The parameters arrive as query args
-    rather than as a validated JSON body (see the request-schema decision in the backlog), so
-    ``CmdbWebhook.SCHEMA`` never runs and ``parse_webhook_params`` is the whole of the validation -
-    it is what refuses a webhook with no URL, an unusable scheme or an unknown event type
+    Requires the ``base.framework.webhook.add`` right. The payload is the JSON body, with the query
+    string filling any key the body leaves out; ``parse_webhook_params`` validates and normalises it
+    (a missing ``active`` becomes True). The public_id is server-owned: it is reserved from the
+    collection counter, so a payload can not choose it
 
     Args:
-        params (dict): CmdbWebhook parameters, incl. the ``event_types`` list
+        params (dict): The query-string parameters; a JSON body overrides them key by key
         request_user (CmdbUser): The authenticated user issuing the request
 
     Returns:
         DefaultResponse: public_id of the created CmdbWebhook
 
     Raises:
-        HTTPException: 400 when the parameters are malformed or the insert fails; 403 when the user
-            lacks the right; 500 on an unexpected error
+        HTTPException: 400 when the payload is malformed or the insert fails; 403 when the user lacks
+            the right; 500 on an unexpected error
     """
+    webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
+
+    payload: dict[str, Any] = read_write_payload(params, WEBHOOK_ENTITY_LABEL)
+    parse_webhook_params(payload)
+
     try:
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
+        payload['public_id'] = webhooks_manager.get_next_public_id(inc_id=True)
 
-        parse_webhook_params(params)
-        params['public_id'] = webhooks_manager.get_next_public_id(inc_id=True)
-
-        new_webhook_id = webhooks_manager.insert_item(CmdbWebhook.from_data(params))
-
-        return DefaultResponse(new_webhook_id).make_response()
-    except HTTPException as http_err:
-        raise http_err
+        new_webhook_id = webhooks_manager.insert_item(CmdbWebhook.from_data(payload))
     except WebhooksManagerInsertError as err:
         LOGGER.error("[create_webhook] WebhooksManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to create the Webhook in the database!")
-    except Exception as err:
-        LOGGER.error("[create_webhook] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal error occured while creating the Webhook!")
+
+    return DefaultResponse(new_webhook_id).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -112,6 +118,7 @@ def create_webhook(params: dict[str, Any], request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @webhook_blueprint.protect(auth=True, right=WebhookRight.VIEW.value)
+@handle_route_errors("while retrieving the Webhook with ID: {public_id}")
 def get_webhook(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route to retrieve a single CmdbWebhook
@@ -129,23 +136,18 @@ def get_webhook(public_id: int, request_user: CmdbUser) -> Response:
         HTTPException: 403 when the user lacks the right; 404 when no CmdbWebhook carries the
             public_id; 400 when the retrieval fails; 500 on an unexpected error
     """
+    webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
+
     try:
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
-
         requested_webhook = webhooks_manager.get_item(public_id, as_dict=True)
-
-        if not requested_webhook:
-            abort(404, f"The Webhook with ID: {public_id} was not found!")
-
-        return DefaultResponse(requested_webhook).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except WebhooksManagerGetError as err:
         LOGGER.error("[get_webhook] WebhooksManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve Webhook with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[get_webhook] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal error occured while retrieving the Webhook with ID:{public_id}!")
+
+    if not requested_webhook:
+        abort(404, f"The Webhook with ID: {public_id} was not found!")
+
+    return DefaultResponse(requested_webhook).make_response()
 
 
 @webhook_blueprint.route('/', methods=['GET', 'HEAD'])
@@ -153,6 +155,7 @@ def get_webhook(public_id: int, request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @webhook_blueprint.protect(auth=True, right=WebhookRight.VIEW.value)
 @webhook_blueprint.parse_collection_parameters()
+@handle_route_errors("while iterating the Webhooks")
 def get_webhooks(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a paged list of CmdbWebhooks
@@ -170,29 +173,25 @@ def get_webhooks(params: CollectionParameters, request_user: CmdbUser) -> Respon
         HTTPException: 403 when the user lacks the right; 400 when the iteration fails; 500 on an
             unexpected error
     """
+    webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
+
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+
     try:
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
-
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
-
         iteration_result: IterationResult[CmdbWebhook] = webhooks_manager.iterate_items(builder_params)
-        webhook_list: list[dict[str, Any]] = [CmdbWebhook.to_json(webhook) for webhook in iteration_result.results]
-
-        api_response = GetMultiResponse(webhook_list,
-                                        total=iteration_result.total,
-                                        params=params,
-                                        url=request.url,
-                                        body=request_wants_body())
-
-        return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except WebhooksManagerIterationError as err:
         LOGGER.error("[get_webhooks] WebhooksManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to iterate Webhooks!")
-    except Exception as err:
-        LOGGER.error("[get_webhooks] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal error occured while iterating the Webhooks!")
+
+    webhook_list: list[dict[str, Any]] = [CmdbWebhook.to_json(webhook) for webhook in iteration_result.results]
+
+    api_response = GetMultiResponse(webhook_list,
+                                    total=iteration_result.total,
+                                    params=params,
+                                    url=request.url,
+                                    body=request_wants_body())
+
+    return api_response.make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -201,57 +200,49 @@ def get_webhooks(params: CollectionParameters, request_user: CmdbUser) -> Respon
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @webhook_blueprint.protect(auth=True, right=WebhookRight.EDIT.value)
 @webhook_blueprint.parse_request_parameters()
+@handle_route_errors("while updating the Webhook with ID: {public_id}")
 def update_webhook(public_id: int, params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a CmdbWebhook
 
-    Requires the ``base.framework.webhook.edit`` right. The public_id is pinned to the URL before the
-    write, so a mismatched payload can not rewrite the CmdbWebhook's identity, and the parameters go
-    through the same ``parse_webhook_params`` validation as on create
-
-    The response is serialised from the instance that was just written rather than read back: a
-    CmdbWebhook has no server-computed field, and ``update_item`` stores exactly
-    ``CmdbWebhook.to_json(instance)``, so the two are the same document and the extra read was pure
-    latency
+    Requires the ``base.framework.webhook.edit`` right. The payload is read like on create - the JSON
+    body, with the query string filling any key the body leaves out - and goes through the same
+    ``parse_webhook_params`` validation. The public_id is pinned to the URL before the write, so a
+    mismatched payload can not rewrite the CmdbWebhook's identity. Both methods replace the whole
+    document: a key the payload leaves out is not kept from the stored webhook
 
     Args:
         public_id (int): public_id of the CmdbWebhook which should be updated
-        params (dict): The updated CmdbWebhook parameters
+        params (dict): The query-string parameters; a JSON body overrides them key by key
         request_user (CmdbUser): The authenticated user issuing the request
 
     Returns:
-        UpdateSingleResponse: Response with the updated CmdbWebhook
+        UpdateSingleResponse: Response with the CmdbWebhook as stored
 
     Raises:
         HTTPException: 403 when the user lacks the right; 404 when no CmdbWebhook carries the
-            public_id; 400 when the parameters are malformed or the update fails; 500 on an
-            unexpected error
+            public_id; 400 when the payload is malformed or the update fails; 500 on an unexpected
+            error
     """
+    webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
+
+    payload: dict[str, Any] = pin_public_id(read_write_payload(params, WEBHOOK_ENTITY_LABEL), public_id)
+    parse_webhook_params(payload)
+
     try:
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
-
-        # Pin the identity to the URL so a mismatched body cannot rewrite the Webhook's public_id
-        params['public_id'] = public_id
-        parse_webhook_params(params)
-
         if not webhooks_manager.get_item(public_id):
             abort(404, f"The Webhook with ID: {public_id} was not found!")
-
-        updated_webhook = CmdbWebhook.from_data(params)
-        webhooks_manager.update_item(public_id, updated_webhook)
-
-        return UpdateSingleResponse(CmdbWebhook.to_json(updated_webhook)).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except WebhooksManagerGetError as err:
         LOGGER.error("[update_webhook] WebhooksManagerGetError: %s", err, exc_info=True)
         abort(400, f"Could not retrieve Webhook with ID: {public_id}!")
+
+    try:
+        stored_webhook = update_item_from_payload(webhooks_manager, public_id, CmdbWebhook, payload)
     except WebhooksManagerUpdateError as err:
         LOGGER.error("[update_webhook] WebhooksManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Could not update Webhook with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_webhook] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal error occured while updating the Webhook with ID: {public_id}!")
+
+    return UpdateSingleResponse(stored_webhook).make_response()
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -259,6 +250,7 @@ def update_webhook(public_id: int, params: dict[str, Any], request_user: CmdbUse
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @webhook_blueprint.protect(auth=True, right=WebhookRight.DELETE.value)
+@handle_route_errors("while deleting the Webhook with ID: {public_id}")
 def delete_webhook(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a CmdbWebhook
@@ -266,8 +258,8 @@ def delete_webhook(public_id: int, request_user: CmdbUser) -> Response:
     Requires the ``base.framework.webhook.delete`` right. The CmdbWebhookEvents already produced by
     this webhook are left in place: they are a delivery log, not children of the definition
 
-    Registered WITHOUT a trailing slash, like the other ``/<public_id>`` routes here. It used to carry
-    one, which made the frontend's slash-less call take a 308 redirect first
+    Registered WITHOUT a trailing slash, like the other ``/<public_id>`` routes here. The frontend calls
+    it slash-less, so a trailing slash would cost that call a 308 redirect first
 
     Args:
         public_id (int): public_id of the CmdbWebhook which should be deleted
@@ -280,25 +272,21 @@ def delete_webhook(public_id: int, request_user: CmdbUser) -> Response:
         HTTPException: 403 when the user lacks the right; 404 when no CmdbWebhook carries the
             public_id; 400 when the deletion fails; 500 on an unexpected error
     """
+    webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
+
     try:
-        webhooks_manager: WebhooksManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS, request_user)
-
         to_delete_webhook = webhooks_manager.get_item(public_id, as_dict=True)
-
-        if not to_delete_webhook:
-            abort(404, f"The Webhook with ID: {public_id} was not found!")
-
-        ack: bool = webhooks_manager.delete_item(public_id)
-
-        return DefaultResponse(ack).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except WebhooksManagerGetError as err:
         LOGGER.error("[delete_webhook] WebhooksManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve Webhook with ID: {public_id}!")
+
+    if not to_delete_webhook:
+        abort(404, f"The Webhook with ID: {public_id} was not found!")
+
+    try:
+        ack: bool = webhooks_manager.delete_item(public_id)
     except WebhooksManagerDeleteError as err:
         LOGGER.error("[delete_webhook] WebhooksManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete Webhook with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[delete_webhook] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal error occured while deleting the Webhook with ID: {public_id}!")
+
+    return DefaultResponse(ack).make_response()

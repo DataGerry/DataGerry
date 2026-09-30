@@ -17,6 +17,7 @@
 Provides all Log relevant classes
 """
 from .log_interaction_enum import LogInteraction
+from .object_log_constants import ObjectLogKey
 from .object_relation_log_constants import (
     OBJECT_RELATION_LOG_DATE_KEYS,
     ObjectRelationLogKey,
@@ -26,6 +27,7 @@ from .cmdb_object_relation_log import CmdbObjectRelationLog
 
 __all__: list[str] = [
     'LogInteraction',
+    'ObjectLogKey',
     'CmdbObjectRelationLog',
     'ObjectRelationLogKey',
     'OBJECT_RELATION_LOG_DATE_KEYS',

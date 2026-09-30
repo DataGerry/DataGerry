@@ -32,6 +32,16 @@ __all__: list[str] = [
     'WEBHOOK_ALLOWED_URL_SCHEMES',
     'WEBHOOK_DISPATCH_MAX_WORKERS',
     'WEBHOOK_DISPATCH_THREAD_PREFIX',
+    'WEBHOOK_ENTITY_LABEL',
+    'WEBHOOK_ACTIVE_DEFAULT',
+    'WEBHOOK_ACTIVE_INVALID_MSG',
+    'WEBHOOK_TEXT_NOT_A_STRING_MSG',
+    'WEBHOOK_FIELD_REQUIRED_MSG',
+    'WEBHOOK_URL_SCHEME_MSG',
+    'WEBHOOK_URL_NO_HOST_MSG',
+    'WEBHOOK_EVENT_TYPES_INVALID_MSG',
+    'WEBHOOK_EVENT_TYPES_NOT_A_LIST_MSG',
+    'WEBHOOK_EVENT_TYPES_UNKNOWN_MSG',
 ]
 
 #: Seconds to wait for a webhook target before giving up on one delivery
@@ -54,6 +64,37 @@ WEBHOOK_ALLOWED_URL_SCHEMES: frozenset[str] = frozenset({'http', 'https'})
 #: Size of the shared pool that delivers webhooks off the request thread, and its thread-name prefix
 WEBHOOK_DISPATCH_MAX_WORKERS: int = 4
 WEBHOOK_DISPATCH_THREAD_PREFIX: str = 'webhook-dispatch'
+
+#: What a CmdbWebhook write is called in the shared refusal of a body that is not a JSON object
+WEBHOOK_ENTITY_LABEL: str = 'Webhook'
+
+#: The ``active`` flag a CmdbWebhook gets when the write leaves it out - the document schema's default.
+#: A webhook created without the flag is meant to deliver, not to be stored switched off
+WEBHOOK_ACTIVE_DEFAULT: bool = True
+
+#: Refusal (HTTP 400) for an ``active`` that is neither a bool nor the text 'true' / 'false'
+WEBHOOK_ACTIVE_INVALID_MSG: str = "The 'active' flag of a Webhook must be true or false, not {actual!r}!"
+
+#: Refusal (HTTP 400) for a ``name`` / ``url`` a JSON body sent as something other than text
+WEBHOOK_TEXT_NOT_A_STRING_MSG: str = "The '{field}' of a Webhook must be text, not {actual!r}!"
+
+#: Refusal (HTTP 400) for a missing or blank ``name`` / ``url``
+WEBHOOK_FIELD_REQUIRED_MSG: str = "The '{field}' of a Webhook is required!"
+
+#: Refusal (HTTP 400) for a ``url`` whose scheme is outside ``WEBHOOK_ALLOWED_URL_SCHEMES``
+WEBHOOK_URL_SCHEME_MSG: str = "The 'url' of a Webhook must use one of these schemes: {allowed}!"
+
+#: Refusal (HTTP 400) for a ``url`` without a host
+WEBHOOK_URL_NO_HOST_MSG: str = "The 'url' of a Webhook must contain a host!"
+
+#: Refusal (HTTP 400) for an ``event_types`` that is missing or not a parsable literal
+WEBHOOK_EVENT_TYPES_INVALID_MSG: str = "Invalid or missing 'event_types' for the Webhook!"
+
+#: Refusal (HTTP 400) for an ``event_types`` that is not a non-empty list
+WEBHOOK_EVENT_TYPES_NOT_A_LIST_MSG: str = "The 'event_types' of a Webhook must be a non-empty list!"
+
+#: Refusal (HTTP 400) for an ``event_types`` naming values that are not WebhookEventTypes
+WEBHOOK_EVENT_TYPES_UNKNOWN_MSG: str = "Unknown Webhook event types: {unknown}! Allowed: {allowed}"
 
 
 class WebhookRight(BaseStrEnum):

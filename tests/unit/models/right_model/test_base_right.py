@@ -22,6 +22,11 @@ particular that a raw int equal to a level's value is refused: since Python 3.12
 answers value lookups too, so the membership test the setter used to do accepted `50` and then failed
 on `level.value` with an AttributeError instead of InvalidLevelRightError.
 
+`DefaultLevelRight` is how every catalogue right is built: name first, and a level left out taken from
+the class (`DEFAULT_LEVEL`, else `MIN_LEVEL`). It replaced 53 constructors that each only rebound the
+default, so what it has to keep is exactly what they did - pinned here on sample classes, and for every
+real right class in `test_all_rights.py`.
+
 The other half is the name/label contract. `__init__` prefixes the caller's name with the subclass
 PREFIX, and those qualified names are what CmdbUserGroup stores and what
 `APIBlueprint.protect(right=...)` names, so the prefixing is part of the authorisation contract and
@@ -31,7 +36,7 @@ from typing import Any
 
 import pytest
 
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
 from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
 
@@ -178,3 +183,66 @@ class TestToDict:
     def test_description_defaults_to_none(self) -> None:
         """A right created without a description serialises it as None."""
         assert BaseRight.to_dict(BaseRight(Levels.NOTSET, RIGHT_NAME))['description'] is None
+
+
+class FamilyRight(DefaultLevelRight):
+    """A right family root: defaults to its own minimum."""
+    MIN_LEVEL = Levels.PERMISSION
+    PREFIX = NESTED_PREFIX
+
+
+class NarrowedFamilyRight(FamilyRight):
+    """A family member that narrows the minimum without declaring a constructor."""
+    MIN_LEVEL = Levels.PROTECTED
+
+
+class ElevatedDefaultRight(FamilyRight):
+    """A family member whose default sits above its minimum."""
+    MIN_LEVEL = Levels.PROTECTED
+    DEFAULT_LEVEL = Levels.SECURE
+
+
+class NotsetDefaultRight(DefaultLevelRight):
+    """A right whose minimum is NOTSET - the one level whose value is falsy."""
+    MIN_LEVEL = Levels.NOTSET
+    DEFAULT_LEVEL = Levels.PROTECTED
+
+
+class TestDefaultLevelRight:
+    """DefaultLevelRight builds a right name-first and fills a missing level from the class"""
+
+    def test_a_missing_level_is_the_class_minimum(self) -> None:
+        """Without DEFAULT_LEVEL, the class's own MIN_LEVEL"""
+        assert FamilyRight(RIGHT_NAME).level is Levels.PERMISSION
+
+    def test_a_narrowed_minimum_is_the_subclass_default(self) -> None:
+        """Read from the class the right is built from, not the family root"""
+        assert NarrowedFamilyRight(RIGHT_NAME).level is Levels.PROTECTED
+
+    def test_default_level_wins_over_the_minimum(self) -> None:
+        """A class may default above its minimum"""
+        assert ElevatedDefaultRight(RIGHT_NAME).level is Levels.SECURE
+        assert ElevatedDefaultRight.default_level() is Levels.SECURE
+
+    def test_an_explicit_level_wins_over_every_default(self) -> None:
+        """The second positional argument is the level, as the catalogue passes it"""
+        assert ElevatedDefaultRight(RIGHT_NAME, Levels.PROTECTED).level is Levels.PROTECTED
+
+    def test_an_explicit_notset_is_not_mistaken_for_a_missing_level(self) -> None:
+        """NOTSET is falsy; only None means 'use the default'"""
+        assert NotsetDefaultRight(RIGHT_NAME, Levels.NOTSET).level is Levels.NOTSET
+        assert NotsetDefaultRight(RIGHT_NAME).level is Levels.PROTECTED
+
+    def test_the_level_is_still_validated(self) -> None:
+        """The setter's bounds run for an explicit level as before"""
+        with pytest.raises(MinLevelRightError):
+            NarrowedFamilyRight(RIGHT_NAME, Levels.PERMISSION)
+
+    def test_the_name_is_prefixed_and_the_description_kept(self) -> None:
+        """The BaseRight contract is unchanged underneath"""
+        right = FamilyRight(RIGHT_NAME, description=DESCRIPTION)
+
+        assert right.name == f'{NESTED_PREFIX}.{RIGHT_NAME}'
+        assert right.description == DESCRIPTION
+        assert right.label == f'object.{RIGHT_NAME}'
+

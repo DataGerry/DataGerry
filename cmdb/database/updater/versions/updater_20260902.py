@@ -21,7 +21,7 @@ identity - two options with the same pair are the same entry listed twice. Nothi
 the collection declared a single NON-unique index on `option_type`. The REST create/update routes do
 check (`extendable_options_helper.option_value_exists`), but that check is a read followed by a
 write, so it cannot stop two concurrent requests, the ISMS CSV importer resolves values through its
-own read-then-insert without the check at all, and installations older than 2026-07-06 had no check
+own read-then-insert without the check at all, and an older installation has no check
 whatsoever. This migration de-duplicates whatever accumulated and rebuilds the index as unique.
 
 The rebuild is needed because index reconciliation is name-based and purely additive (see

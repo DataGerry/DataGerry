@@ -19,7 +19,7 @@ Unit tests for the CmdbPortConnection route guards
 Pure tests: the managers are mocks and every helper is called inside a Flask request context, because
 they abort.
 
-Since 2026-09-09 the unassigned-cable picker's three helpers are here too: which cables to hide (and
+The unassigned-cable picker's three helpers are here too: which cables to hide (and
 why the edited connection's own cable is not one of them), the picker's default sort key, and the
 batched CmdbType-label read of one page.
 
@@ -47,15 +47,23 @@ from cmdb.models.port_connection_model import (
     CABLE_VIEW_KEY,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.errors.database import DocumentInsertDuplicateKeyError
+from cmdb.errors.manager.port_connections_manager import (
+    PortConnectionsManagerGetError,
+    PortConnectionsManagerInsertError,
+)
 from cmdb.models.type_model import TypeSchemaKey
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import collect_port_ids
 from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route_constants import (
+    CONNECTION_CABLE_CI_IN_USE_MESSAGE,
+    CONNECTION_DUPLICATE_MESSAGE,
     ConnectionRequestKey,
     ConnectionRight,
 )
 from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route_helper import (
     CABLE_NAME_SORT,
     build_cable_info,
+    cable_ci_in_use_message,
     build_cable_usage_payload,
     build_connection_candidate,
     collect_claimed_cable_ci_ids,
@@ -591,16 +599,68 @@ class TestBuildingTheDocument:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          the database's own refusal                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
+HOLDER_CONNECTION_ID: int = 6399
+
+
+def _duplicate(key: str, value: Any = PORT_A) -> Exception:
+    """A manager error around the typed refusal of the index on `key`, as the real chain builds it."""
+    refusal = DocumentInsertDuplicateKeyError('duplicate', key_pattern={key: 1}, key_value={key: value})
+
+    try:
+        raise refusal
+    except DocumentInsertDuplicateKeyError as err:
+        try:
+            raise PortConnectionsManagerInsertError(err) from err
+        except PortConnectionsManagerInsertError as wrapped:
+            return wrapped
+
+
+def _holder_manager(holder: dict[str, Any] | None = None, fails: bool = False) -> MagicMock:
+    """A connections manager whose cable-CI lookup answers `holder`, or fails."""
+    manager = MagicMock()
+
+    if fails:
+        manager.get_connection_by_cable_ci.side_effect = PortConnectionsManagerGetError('down')
+    else:
+        manager.get_connection_by_cable_ci.return_value = holder
+
+    return manager
+
+
+class TestCableCiInUseMessage:
+    """The race path's message for a taken Cable - the pre-check's own words, best-effort."""
+
+    def test_the_holder_is_named_like_the_pre_check_names_it(self) -> None:
+        """Read once, only on the race path: the Cable and the connection now holding it."""
+        manager = _holder_manager({PortConnectionKey.PUBLIC_ID.value: HOLDER_CONNECTION_ID})
+
+        message = cable_ci_in_use_message(manager, CABLE_CI_ID)
+
+        assert message == CONNECTION_CABLE_CI_IN_USE_MESSAGE.format(
+            cable_ci_id=CABLE_CI_ID, public_id=HOLDER_CONNECTION_ID,
+        )
+        manager.get_connection_by_cable_ci.assert_called_once_with(CABLE_CI_ID)
+
+    @pytest.mark.parametrize('cable_ci_id, manager', [
+        (None, _holder_manager({PortConnectionKey.PUBLIC_ID.value: HOLDER_CONNECTION_ID})),
+        (CABLE_CI_ID, _holder_manager(None)),
+        (CABLE_CI_ID, _holder_manager(fails=True)),
+    ], ids=['not-reported', 'holder-gone-again', 'read-fails'])
+    def test_what_cannot_name_the_holder_falls_back_to_the_general_rule(self, cable_ci_id, manager) -> None:
+        """Never an error about the error: the general collision message instead."""
+        assert cable_ci_in_use_message(manager, cable_ci_id) == CONNECTION_DUPLICATE_MESSAGE
+
+
 class TestDuplicateKeyAbort:
-    """The arm that actually holds under concurrency."""
+    """The arm that actually holds under concurrency - and only for a duplicate."""
 
     def test_an_endpoints_duplicate_reports_the_cable_wording(self, ctx) -> None:
         """The message a losing concurrent create receives has to be the actionable one"""
-        error = Exception("Duplicate key error ... (index on ['endpoints'])")
-
         with pytest.raises(HTTPException) as raised:
-            duplicate_key_abort(error, ConnectionType.CABLE.value, [PORT_A, PORT_B])
+            duplicate_key_abort(_duplicate(PortConnectionKey.ENDPOINTS.value), ConnectionType.CABLE.value,
+                                [PORT_A, PORT_B], _holder_manager())
 
+        assert raised.value.code == HTTP_BAD_REQUEST
         assert 'cable connection' in raised.value.description
 
     def test_an_endpoints_duplicate_reports_the_internal_wording(self, ctx) -> None:
@@ -609,39 +669,67 @@ class TestDuplicateKeyAbort:
 
         The route knows which connection_type it was writing, which is what picks the message.
         """
-        error = Exception("Duplicate key error ... (index on ['endpoints'])")
-
         with pytest.raises(HTTPException) as raised:
-            duplicate_key_abort(error, ConnectionType.INTERNAL.value, [PORT_A, PORT_B])
+            duplicate_key_abort(_duplicate(PortConnectionKey.ENDPOINTS.value), ConnectionType.INTERNAL.value,
+                                [PORT_A, PORT_B], _holder_manager())
 
         assert 'internal connection' in raised.value.description
 
-    def test_a_cable_ci_duplicate_reports_the_cable_ci_rule(self, ctx) -> None:
-        """A different index, a different mistake"""
-        error = Exception("Duplicate key error ... (index on ['cable_ci_id'])")
+    def test_a_cable_ci_duplicate_names_the_cable_and_its_holder(self, ctx) -> None:
+        """The pre-check's own message, on the create and on the update alike."""
+        manager = _holder_manager({PortConnectionKey.PUBLIC_ID.value: HOLDER_CONNECTION_ID})
 
         with pytest.raises(HTTPException) as raised:
-            duplicate_key_abort(error, ConnectionType.CABLE.value, [PORT_A, PORT_B])
+            duplicate_key_abort(_duplicate(PortConnectionKey.CABLE_CI_ID.value, CABLE_CI_ID),
+                                ConnectionType.CABLE.value, [PORT_A, PORT_B], manager)
+
+        assert raised.value.code == HTTP_BAD_REQUEST
+        assert raised.value.description == CONNECTION_CABLE_CI_IN_USE_MESSAGE.format(
+            cable_ci_id=CABLE_CI_ID, public_id=HOLDER_CONNECTION_ID,
+        )
+
+    def test_a_cable_ci_duplicate_whose_holder_is_gone_states_the_rule(self, ctx) -> None:
+        """Best-effort naming: the general rule still tells the caller what went wrong."""
+        with pytest.raises(HTTPException) as raised:
+            duplicate_key_abort(_duplicate(PortConnectionKey.CABLE_CI_ID.value, CABLE_CI_ID),
+                                ConnectionType.CABLE.value, [PORT_A, PORT_B], _holder_manager(None))
 
         assert 'Cable belongs to at most one connection' in raised.value.description
 
-    def test_an_unrecognised_duplicate_falls_back_rather_than_guessing(self, ctx) -> None:
-        """
-        Stating all three rules beats naming the wrong one
-
-        The driver's message format is not a contract, so a change to it must degrade into a usable
-        answer rather than a confident lie.
-        """
+    def test_an_unrecognised_index_falls_back_rather_than_guessing(self, ctx) -> None:
+        """Stating all three rules beats naming the wrong one"""
         with pytest.raises(HTTPException) as raised:
-            duplicate_key_abort(Exception('something else entirely'), ConnectionType.CABLE.value, None)
+            duplicate_key_abort(_duplicate('some_future_key'), ConnectionType.CABLE.value, None, _holder_manager())
 
         assert raised.value.code == HTTP_BAD_REQUEST
         assert 'at most one cable' in raised.value.description
 
-    def test_it_always_aborts(self, ctx) -> None:
-        """Declared NoReturn, so the create route's except arm can not fall through to a None response"""
-        with pytest.raises(HTTPException):
-            duplicate_key_abort(Exception('x'), ConnectionType.CABLE.value, [PORT_A, PORT_B])
+    def test_an_endpoints_duplicate_without_known_endpoints_falls_back(self, ctx) -> None:
+        """The slot message names a port; with none known, the general rule is stated instead"""
+        with pytest.raises(HTTPException) as raised:
+            duplicate_key_abort(_duplicate(PortConnectionKey.ENDPOINTS.value), ConnectionType.CABLE.value, None,
+                                _holder_manager())
+
+        assert 'at most one cable' in raised.value.description
+
+    @pytest.mark.parametrize('error', [
+        PortConnectionsManagerInsertError('the database is unreachable'),
+        PortConnectionsManagerInsertError("text naming 'endpoints' and 'cable_ci_id' is not a duplicate"),
+    ], ids=['outage', 'text-that-looks-like-a-duplicate'])
+    def test_anything_but_a_duplicate_is_re_raised(self, ctx, error: Exception) -> None:
+        """
+        Never "that slot is taken" for a write that simply failed
+
+        Recognised by type, not by message: a failure whose text happens to name an index key is still
+        re-raised for the route's generic 500 - and nothing is read to name a holder.
+        """
+        manager = _holder_manager()
+
+        with pytest.raises(PortConnectionsManagerInsertError) as raised:
+            duplicate_key_abort(error, ConnectionType.CABLE.value, [PORT_A, PORT_B], manager)
+
+        assert raised.value is error
+        manager.get_connection_by_cable_ci.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

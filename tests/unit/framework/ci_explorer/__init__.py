@@ -17,5 +17,5 @@
 Unit tests for the cmdb.framework.ci_explorer package
 
 Each test module mirrors the framework module it exercises; orchestrator integration is
-covered by tests/functional/framework/ci_explorer/test_functional_ci_explorer_nodes_edges.py
+covered by the functional tier
 """

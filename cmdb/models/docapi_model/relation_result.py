@@ -17,6 +17,7 @@
 This module contains the RelationResult class used to traverse object relations inside DocAPI templates.
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
 
@@ -48,10 +49,10 @@ class RelationResult:
     def __init__(
         self,
         object_ids: list[int],
-        object_cache: dict[int, dict],
-        type_cache: dict[int, dict],
-        object_relations: list[dict],        # scoped (for relation_fields)
-        all_object_relations: list[dict],    # global (for traversal)
+        object_cache: dict[int, dict[str, Any]],
+        type_cache: dict[int, dict[str, Any]],
+        object_relations: list[dict[str, Any]],        # scoped (for relation_fields)
+        all_object_relations: list[dict[str, Any]],    # global (for traversal)
         request_user: CmdbUser,
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
@@ -135,6 +136,7 @@ class RelationResult:
             self.type_cache,
             self.objects_manager,
             self.types_manager,
+            self.request_user,
         )
 
         return RelationResult(

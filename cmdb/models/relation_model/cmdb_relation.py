@@ -59,7 +59,7 @@ class CmdbRelation(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_cmdb_relation_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_relation_schema()
 
     #pylint: disable=R0913, R0917
     def __init__(
@@ -70,13 +70,13 @@ class CmdbRelation(CmdbDAO):
             child_type_ids: list[int],
             relation_name_parent: str,
             relation_name_child: str,
-            description: str = None,
-            relation_icon_parent: str  = None,
-            relation_color_parent: str  = None,
-            relation_icon_child: str  = None,
-            relation_color_child: str  = None,
-            sections: list[TypeFieldSection] = None,
-            fields: list[dict] = None
+            description: str | None = None,
+            relation_icon_parent: str | None = None,
+            relation_color_parent: str | None = None,
+            relation_icon_child: str | None = None,
+            relation_color_child: str | None = None,
+            sections: list[TypeFieldSection] | None = None,
+            fields: list[dict[str, Any]] | None = None
         ) -> None:
         """
         Initialises a CmdbRelation
@@ -88,13 +88,13 @@ class CmdbRelation(CmdbDAO):
             child_type_ids (list[int]): public_ids of allowed child CmdbTypes
             relation_name_parent (str): Name of parent to child relation
             relation_name_child (str): Name of child to parent relation
-            description (str, optional): General description of the Relation. Defaults to None
-            relation_icon_parent (str, optional): Icon of the parent to child relation. Defaults to None
-            relation_color_parent (str, optional): Color of the parent to child relation. Defaults to None
-            relation_icon_child (str, optional): Icon of the child to parent relation. Defaults to None
-            relation_color_child (str, optional): Color of the child to parent relation. Defaults to None
-            sections (list[dict], optional): all sections of CmdbRelation. Defaults to None
-            fields (list[dict], optional): fields of CmdbRelation. Defaults to None
+            description (str | None): General description of the Relation. Defaults to None
+            relation_icon_parent (str | None): Icon of the parent to child relation. Defaults to None
+            relation_color_parent (str | None): Color of the parent to child relation. Defaults to None
+            relation_icon_child (str | None): Icon of the child to parent relation. Defaults to None
+            relation_color_child (str | None): Color of the child to parent relation. Defaults to None
+            sections (list[TypeFieldSection] | None): all sections of CmdbRelation. Defaults to None
+            fields (list[dict[str, Any]] | None): fields of CmdbRelation. Defaults to None
 
         Raises:
             CmdbRelationInitError: When the CmdbRelation could not be initialised
@@ -120,12 +120,12 @@ class CmdbRelation(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbRelation":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbRelation":
         """
         Initialises a CmdbRelation from a dict
 
         Args:
-            data (dict): Data with which the CmdbRelation should be initialised
+            data (dict[str, Any]): Data with which the CmdbRelation should be initialised
 
         Raises:
             CmdbRelationInitFromDataError: If the initialisation with the given data fails
@@ -158,7 +158,7 @@ class CmdbRelation(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbRelation") -> dict:
+    def to_json(cls, instance: "CmdbRelation") -> dict[str, Any]:
         """
         Converts a CmdbRelation into a json compatible dict
 
@@ -169,7 +169,7 @@ class CmdbRelation(CmdbDAO):
             CmdbRelationToJsonError: If the CmdbRelation could not be converted to a json compatible dict
 
         Returns:
-            dict: Json compatible dict of the CmdbRelation values
+            dict[str, Any]: Json compatible dict of the CmdbRelation values
         """
         try:
             return {

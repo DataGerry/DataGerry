@@ -16,12 +16,11 @@
 """
 Unit tests for the CmdbExtendableOption validation schema
 
-The schema is the write contract of the create and update routes, and it had no test of its own: it
-appeared in the suite only as the decorator the functional route tests happened to pass through.
-Validated here through the same Validator the blueprint builds (``purge_unknown=True``), because
-what the routes receive is `validator.document`, not the raw body - which is also why the
-`public_id` question matters: a key the schema declares is NOT purged, and until 2026-09-10 the
-create route inserted it, letting a client choose an option's id.
+The schema is the write contract of the create and update routes. Validated here through the same
+Validator the blueprint builds (``purge_unknown=True``), because what the routes receive is
+`validator.document`, not the raw body - which is also why the `public_id` question matters: a key
+the schema declares is NOT purged, so a create route that inserted it would let a client choose an
+option's id.
 """
 from typing import Any
 

@@ -17,10 +17,10 @@
 Unit tests for cmdb.models.log_model.cmdb_object_relation_log
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
+from CmdbDAO, whose shared machinery has its own tests, so what is
 pinned here is what belongs to the audit entry itself:
 
-  - **nothing is invented.** The constructor used to default ``creation_time`` to ``datetime.now()``,
+  - **nothing is invented.** A constructor defaulting ``creation_time`` to ``datetime.now()`` would
     so an entry that did not carry one reported *today*, differently on every read - on the one
     collection whose entire content is "when did this happen"
   - **nothing is refused either.** The model declares no ``REQUIRED_INIT_KEYS``, deliberately and
@@ -59,7 +59,7 @@ CHILD_ID: int = 200
 AUTHOR_ID: int = 1
 AUTHOR_NAME: str = 'Ada Lovelace'
 
-# 2020-09-13 12:26:40 UTC in the three shapes a timestamp reaches the model in
+# One instant in the three shapes a timestamp reaches the model in
 STAMP_MILLIS: int = 1600000000000
 STAMP: datetime = datetime(2020, 9, 13, 12, 26, 40, tzinfo=timezone.utc)
 STAMP_STRING: str = '2020-09-13T12:26:40Z'
@@ -95,7 +95,7 @@ class TestNothingIsInvented:
 
     def test_an_entry_without_a_timestamp_reports_none(self) -> None:
         """
-        The constructor used to answer datetime.now() here, on every read
+        A datetime.now() default here would be evaluated on every read
 
         On an audit trail that is the worst possible default: the entry looks freshly written, the
         value changes each time it is fetched, and nothing about it looks wrong.
@@ -177,7 +177,7 @@ class TestTheTimestamp:
 
     def test_an_unreadable_timestamp_is_refused(self) -> None:
         """
-        'sometime in March 2020' used to parse into a date built from today's day number
+        'sometime in March 2020' parses, fuzzily, into a date built from today's day number
 
         The one thing worth refusing on this model: a wrong date in an audit trail is indistinguishable
         from a right one.

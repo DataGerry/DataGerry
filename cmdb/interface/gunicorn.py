@@ -28,6 +28,7 @@ server in isolation without taking the WebCmdbService process down through the s
 path. The nested process is kept on `self._webserver_proc` for `_shutdown` to reach
 """
 import multiprocessing
+from types import FrameType
 
 import cmdb
 
@@ -73,7 +74,7 @@ class WebCmdbService(AbstractCmdbService):
         self._webserver_proc: multiprocessing.Process | None = None
 
 
-    def _run(self):
+    def _run(self) -> None:
         """
         Builds the composite WSGI app, starts gunicorn in a child process and waits for it
 
@@ -114,7 +115,7 @@ class WebCmdbService(AbstractCmdbService):
         self._webserver_proc.join()
 
 
-    def _shutdown(self, signum, frame):
+    def _shutdown(self, signum: int | None, frame: FrameType | None) -> None:
         """
         SIGTERM handler: terminates the nested gunicorn process, then defers to `stop`
 
@@ -125,10 +126,10 @@ class WebCmdbService(AbstractCmdbService):
         shutdown event and `sys.exit(0)`s the process
 
         Args:
-            signum: Signal number when invoked as a signal handler (unused); kept for the
-                `signal.signal` callback signature
-            frame: Current stack frame when invoked as a signal handler (unused); kept for
-                the `signal.signal` callback signature
+            signum (int | None): Signal number when invoked as a signal handler, None when `start()`
+                calls it (unused); kept for the `signal.signal` callback signature
+            frame (FrameType | None): Current stack frame when invoked as a signal handler (unused); kept
+                for the `signal.signal` callback signature
         """
         if self._webserver_proc is not None and self._webserver_proc.is_alive():
             self._webserver_proc.terminate()

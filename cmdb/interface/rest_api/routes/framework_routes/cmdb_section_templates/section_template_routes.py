@@ -33,7 +33,6 @@ from logging import Logger, getLogger
 from typing import Any
 from flask import request, abort
 from werkzeug import Response
-from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
@@ -60,6 +59,9 @@ from cmdb.interface.route_utils import handle_route_errors, insert_request_user,
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
+    guard_template_fields,
+    require_text,
+    strip_unknown_template_keys,
     require_params,
     guard_section_template_update,
     parse_json_fields,
@@ -119,6 +121,10 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             request_user
         )
 
+        # Everything outside the write keys is dropped: the model takes **kwargs and the manager
+        # inserts its __dict__, so an extra parameter would become a stored document key
+        params = strip_unknown_template_keys(params)
+
         require_params(params, [
             SectionTemplateKey.NAME,
             SectionTemplateKey.LABEL,
@@ -128,7 +134,8 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             SectionTemplateKey.FIELDS,
         ])
 
-        template_name: str = params[SectionTemplateKey.NAME]
+        template_name: str = require_text(params[SectionTemplateKey.NAME], SectionTemplateKey.NAME.value)
+        require_text(params[SectionTemplateKey.LABEL], SectionTemplateKey.LABEL.value)
         existing_template: dict[str, Any] | None = section_templates_manager.get_one_by(
             {SectionTemplateKey.NAME: template_name},
         )
@@ -152,6 +159,10 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         params[SectionTemplateKey.IS_GLOBAL] = coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
         params[SectionTemplateKey.PREDEFINED] = False
         params[SectionTemplateKey.FIELDS] = parse_json_fields(params[SectionTemplateKey.FIELDS])
+
+        # The fields are inlined into every consuming CmdbType, so an entry that could not be a type
+        # field would become an unusable field on all of them
+        guard_template_fields(params[SectionTemplateKey.FIELDS])
 
         created_section_template_id: int = section_templates_manager.insert_section_template(params)
 
@@ -300,9 +311,6 @@ def get_global_section_template_count(public_id: int, request_user: CmdbUser) ->
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.VIEW.value)
 @requires_feature(LicenseFeature.IPAM)
 def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
-    # request_user is not read here but must be in the signature: insert_request_user injects it and
-    # requires_feature reads it out of kwargs to resolve the active license
-    # pylint: disable=unused-argument
     """
     HTTP `GET`/`HEAD` route to retrieve the VIRTUAL section templates
 
@@ -312,10 +320,14 @@ def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
     each of those matters.
 
     Gated per route rather than per blueprint, because the rest of this blueprint is not a licensed
-    surface: `dg-virtual-tpl-ports` belongs to Port Connectivity, which is gated behind IPAM
+    surface: `dg-virtual-tpl-ports` belongs to Port Connectivity, which is gated behind IPAM. For the
+    same reason it is ``ApiLevel.LOCKED`` where its siblings are ``ADMIN``: a stored section template is
+    schema the cloud API may manage, while this route serves a feature, and feature surfaces are
+    frontend only
 
     Args:
-        request_user (CmdbUser): CmdbUser requesting this data
+        request_user (CmdbUser): CmdbUser requesting this data; not read here -
+            `requires_feature` reads it from the injected kwargs to resolve the active license
 
     Raises:
         HTTPException: 403 when the user lacks the right or the IPAM license; 500 on an unexpected
@@ -340,6 +352,7 @@ def get_virtual_cmdb_section_templates(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @section_template_blueprint.protect(auth=True, right=SectionTemplateRight.EDIT.value)
 @section_template_blueprint.parse_request_parameters()
+@handle_route_errors("while updating the SectionTemplate")
 def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     Updates a CmdbSectionTemplate and propagates the change to consuming types and objects
@@ -348,7 +361,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
     The name is required and immutable: it is the key consuming types reference the template by, so the
     propagation is keyed on it. Requiring it is what makes the propagation unconditional - a payload
-    without a name used to be accepted, written, and then propagated to nobody, reporting success
+    without a name would be accepted, written, and then propagated to nobody, reporting success
 
     The immutability rules live in ``guard_section_template_update``; the write and the propagation are
     two steps, so a propagation failure is reported as a partial application (the template is already
@@ -375,6 +388,8 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             request_user
         )
 
+        params = strip_unknown_template_keys(params)
+
         require_params(params, [
             SectionTemplateKey.PUBLIC_ID,
             SectionTemplateKey.NAME,
@@ -385,10 +400,14 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             SectionTemplateKey.FIELDS,
         ])
 
+        require_text(params[SectionTemplateKey.NAME], SectionTemplateKey.NAME.value)
+        require_text(params[SectionTemplateKey.LABEL], SectionTemplateKey.LABEL.value)
+
         params[SectionTemplateKey.PUBLIC_ID] = coerce_public_id(params[SectionTemplateKey.PUBLIC_ID])
         params[SectionTemplateKey.PREDEFINED] = coerce_bool(params[SectionTemplateKey.PREDEFINED])
         params[SectionTemplateKey.IS_GLOBAL] = coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
         params[SectionTemplateKey.FIELDS] = parse_json_fields(params[SectionTemplateKey.FIELDS])
+        guard_template_fields(params[SectionTemplateKey.FIELDS])
 
         public_id = params[SectionTemplateKey.PUBLIC_ID]
         current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
@@ -413,17 +432,12 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
             )
 
         return UpdateSingleResponse(True).make_response()
-    except HTTPException as http_err:
-        raise http_err
     except SectionTemplatesManagerGetError as err:
         LOGGER.error("[update_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve SectionTemplate with ID: {public_id}!")
     except SectionTemplatesManagerUpdateError as err:
         LOGGER.error("[update_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to update SectionTemplate with ID: {public_id}!")
-    except Exception as err:
-        LOGGER.error("[update_section_template] Exception: %s, Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error occured while updating SectionTemplate with ID: {public_id}!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -437,8 +451,8 @@ def delete_section_template(public_id: int, request_user: CmdbUser) -> Response:
     Deletes a CmdbSectionTemplate by its public_id
 
     Requires the ``base.framework.sectionTemplate.delete`` right. Registered WITHOUT a trailing slash,
-    which is the form the frontend calls and the one its sibling read route uses - the slash-only
-    registration answered every delete with a 308 first
+    which is the form the frontend calls and the one its sibling read route uses - a slash-only
+    registration would answer every delete with a 308 first
 
     A predefined template is refused. For a global one the section is cleaned out of every consuming
     type and their objects BEFORE the document goes, because the cleanup is keyed on the template that

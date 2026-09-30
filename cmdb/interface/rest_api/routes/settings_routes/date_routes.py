@@ -24,6 +24,7 @@ from werkzeug import Response
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager
 from cmdb.settings.date_settings import DateSettingsDAO
+from cmdb.settings.date_settings_constants import DATE_SETTINGS_SECTION
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.settings_routes.date_helper import build_date_settings
@@ -54,7 +55,9 @@ def get_date_settings(request_user: CmdbUser) -> Response:
     """
     settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-    date_settings = settings_manager.get_all_values_from_section('date', DateSettingsDAO.__DEFAULT_SETTINGS__)
+    date_settings = settings_manager.get_all_values_from_section(
+        DATE_SETTINGS_SECTION, DateSettingsDAO.__DEFAULT_SETTINGS__
+    )
 
     date_settings = build_date_settings(date_settings)
 
@@ -86,9 +89,9 @@ def update_date_settings(request_user: CmdbUser) -> Response:
 
     new_date_settings_instance = build_date_settings(new_date_settings_values)
 
-    update_result = settings_manager.write(_id='date', data=new_date_settings_instance.__dict__)
+    update_result = settings_manager.write(_id=DATE_SETTINGS_SECTION, data=new_date_settings_instance.to_json())
 
     if update_result.acknowledged:
-        return DefaultResponse(settings_manager.get_section('date')).make_response()
+        return DefaultResponse(settings_manager.get_section(DATE_SETTINGS_SECTION)).make_response()
 
     abort(400, 'Could not update the DateSettings')

@@ -26,6 +26,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
+from cmdb.framework.rack.rack_constants import RackLimits, RackValidationError
 from cmdb.framework.importer.helper.object_import_validator import (
     parse_import_bool,
     normalize_and_validate_object,
@@ -39,6 +40,9 @@ from cmdb.framework.importer.helper.object_import_validator import (
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.type_model import TEXT_VALUE_MAX_LENGTH
+from cmdb.framework.object_field_value_constants import FieldValueError
+from cmdb.framework.object_field_value_rules import FieldValueRule, build_field_value_rules
 
 
 IMPORTER_ID: int = 7  # the importing user these tests run as; author_id is forced from it
@@ -57,7 +61,7 @@ def _normalize(working_object, special_type, type_context=None) -> list:
 
 def _ctx(clearable=None, type_map=None, required_top=None, required_mds=None,
          top_defaults=None, mds_defaults=None, field_options=None, new_select_options=None,
-         predefined_select=None) -> ImportTypeContext:
+         predefined_select=None, field_value_rules=None) -> ImportTypeContext:
     """Builds an ImportTypeContext with only the parts a test needs (others default empty)."""
     return ImportTypeContext(
         clearable_reference_fields=clearable or set(),
@@ -69,6 +73,7 @@ def _ctx(clearable=None, type_map=None, required_top=None, required_mds=None,
         field_options=field_options if field_options is not None else {},
         predefined_select_fields=predefined_select if predefined_select is not None else {},
         new_select_options=new_select_options if new_select_options is not None else {},
+        field_value_rules=field_value_rules or {},
     )
 
 
@@ -411,6 +416,14 @@ class TestBuildImportTypeContext:
         assert context.required_top_level == {'host'}
         assert context.required_mds_by_section == {'nics': {'nic'}}
 
+    def test_derives_the_field_value_rules(self) -> None:
+        """Every text field gets its kind's cap; the reference field has no rule"""
+        context = build_import_type_context(self._type_instance())
+
+        assert context.field_value_rules == {
+            name: FieldValueRule(max_length=TEXT_VALUE_MAX_LENGTH) for name in ('host', 'nic', 'note')
+        }
+
     def test_collects_field_defaults_split_top_level_and_mds(self) -> None:
         """Defaults come from the field's `value`; MDS fields are grouped per section, not top-level."""
         context = build_import_type_context(self._type_instance())
@@ -715,6 +728,41 @@ class TestBackfillFromType:
         assert not _normalize({'fields': []}, None, context)
 
 
+class TestBackfillFillsEmptyValues:
+    """A present but empty value takes the default too - the create-time rule the REST insert shares."""
+
+    @pytest.mark.parametrize('empty', [None, ''], ids=['null', 'empty-string'])
+    def test_a_present_empty_value_takes_the_default(self, empty) -> None:
+        """Not only an absent field"""
+        obj = {'fields': [{'name': 'note', 'value': empty}]}
+
+        assert not _normalize(obj, None, _ctx(type_map={'note': 'text'}, top_defaults={'note': 'n/a'}))
+        assert obj['fields'][0]['value'] == 'n/a'
+
+    def test_a_present_empty_row_value_takes_the_default(self) -> None:
+        """Inside a carried MDS row as well"""
+        obj = {'fields': [], 'multi_data_sections': [
+            {'section_id': 'nics', 'values': [{'multi_data_id': 1, 'data': [{'name': 'speed', 'value': ''}]}]},
+        ]}
+
+        assert not _normalize(obj, None, _ctx(type_map={'speed': 'text'}, mds_defaults={'nics': {'speed': '1G'}}))
+        assert obj['multi_data_sections'][0]['values'][0]['data'][0]['value'] == '1G'
+
+    def test_the_context_holds_only_usable_defaults(self) -> None:
+        """A default breaking its own regex is not offered to the fill"""
+        type_instance = MagicMock()
+        type_instance.get_fields.return_value = [
+            {'name': 'code', 'type': 'text', 'regex': '[A-Z]+', 'value': 'abc'},
+            {'name': 'owner', 'type': 'ref', 'value': 7},
+            {'name': 'note', 'type': 'text', 'value': 'n/a'},
+        ]
+        type_instance.get_sections.return_value = []
+
+        context = build_import_type_context(type_instance)
+
+        assert context.top_level_field_defaults == {'code': None, 'owner': None, 'note': 'n/a'}
+
+
 class TestRequiredFieldsRule:
     """A required field left without a value rejects the object (top-level and per MDS row)."""
 
@@ -862,6 +910,19 @@ class TestRackValueRules:
         assert len(errors) == 1
         assert 'Height' in errors[0]
 
+    @pytest.mark.parametrize('height', [RackLimits.MAX_HEIGHT + 1, str(RackLimits.MAX_HEIGHT + 1)])
+    def test_a_height_above_the_cap_is_rejected(self, height) -> None:
+        """An import is held to the same maximum as a REST write - a CSV carries it as a string."""
+        errors = _normalize(self._rack_object(height=height), SpecialType.RACK, _ctx())
+
+        assert errors == [RackValidationError.HEIGHT_ABOVE_MAXIMUM.format(
+            maximum=RackLimits.MAX_HEIGHT, value=RackLimits.MAX_HEIGHT + 1,
+        )]
+
+    def test_the_cap_itself_is_importable(self) -> None:
+        """The maximum is a valid height."""
+        assert not _normalize(self._rack_object(height=RackLimits.MAX_HEIGHT), SpecialType.RACK, _ctx())
+
     def test_a_whitespace_only_name_is_rejected(self) -> None:
         """The generic required check treats '   ' as present, so the value rule catches it."""
         errors = _normalize(self._rack_object(name='   '), SpecialType.RACK, _ctx())
@@ -899,3 +960,47 @@ class TestRackValueRules:
     def test_a_non_rack_object_is_unaffected(self) -> None:
         """The rules apply to the Rack special type only."""
         assert not _normalize(self._rack_object(name='  ', height=0), None, _ctx())
+
+
+class TestFieldValueRulesOnImport:
+    """The object write's value rules apply to an imported object too."""
+
+    CODE_REGEX: str = '[A-Z]+'
+
+    def _context(self) -> ImportTypeContext:
+        """A context with a patterned text field 'code' and a plain text field 'host'."""
+        type_fields: list[dict] = [
+            {'name': 'code', 'type': 'text', 'regex': self.CODE_REGEX},
+            {'name': 'host', 'type': 'text'},
+        ]
+
+        return _ctx(type_map={'code': 'text', 'host': 'text'}, field_value_rules=build_field_value_rules(type_fields))
+
+    def test_a_value_over_the_cap_rejects_the_object(self) -> None:
+        """The same cap as on POST /objects/"""
+        obj = {'fields': [{'name': 'host', 'value': 'x' * (TEXT_VALUE_MAX_LENGTH + 1)}]}
+
+        assert FieldValueError.TOO_LONG.format(
+            field='host', length=TEXT_VALUE_MAX_LENGTH + 1, max_length=TEXT_VALUE_MAX_LENGTH,
+        ) in _normalize(obj, None, self._context())
+
+    def test_a_value_breaking_the_pattern_rejects_the_object(self) -> None:
+        """A field's regex binds an import as it binds the form"""
+        obj = {'fields': [{'name': 'code', 'value': 'abc'}]}
+
+        assert FieldValueError.PATTERN_MISMATCH.format(field='code', regex=self.CODE_REGEX) \
+            in _normalize(obj, None, self._context())
+
+    def test_valid_values_pass(self) -> None:
+        """Nothing to report"""
+        obj = {'fields': [{'name': 'code', 'value': 'ABC'}, {'name': 'host', 'value': 'h'}]}
+
+        assert not _normalize(obj, None, self._context())
+
+    def test_a_context_built_without_rules_checks_nothing(self) -> None:
+        """The namedtuple's default: an older caller's context judges no value"""
+        context = ImportTypeContext(*([set(), {}, set(), {}, {}, {}, {}, {}, {}]))
+        obj = {'fields': [{'name': 'host', 'value': 'x' * (TEXT_VALUE_MAX_LENGTH + 1)}]}
+
+        assert context.field_value_rules == {}
+        assert not _normalize(obj, None, context)

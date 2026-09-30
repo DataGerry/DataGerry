@@ -26,8 +26,7 @@ existing table machinery works unchanged. The assignability rules are appended a
 stages behind the caller's own filter, so no `?filter=` can widen the result past them
 
 **No object ACL is applied**, which is the feature-wide rule: a rack route checks rack rights and never
-object rights. Whether a picker in particular should honour the object READ ACL is discussion-backlog
-item #122
+object rights - the picker included, although it lists objects
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -49,7 +48,7 @@ from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.utils import is_truthy_query_arg
+from cmdb.utils import Builder, is_truthy_query_arg
 
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -77,10 +76,10 @@ rack_assignable_blueprint = APIBlueprint('rack_assignable', __name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 @rack_assignable_blueprint.route('/<int:rack_id>/assignable_objects/', methods=['GET', 'HEAD'])
-@rack_assignable_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @rack_assignable_blueprint.protect(auth=True, right=RackRight.VIEW.value)
+@rack_assignable_blueprint.parse_collection_parameters()
 @handle_route_errors("while listing the objects assignable to the Rack")
 def get_assignable_objects(params: CollectionParameters, rack_id: int, request_user: CmdbUser) -> Response:
     """
@@ -95,8 +94,8 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
     An object held by a DIFFERENT rack is offered, with `assigned_rack_id` / `assigned_rack_name` naming
     that rack: mounting it moves it. `?only_unmounted=true` narrows the list to the objects in no rack
 
-    Guarded by the Rack's view right: this is a question, not a change. No object ACL is applied - see
-    discussion-backlog item #122
+    Guarded by the Rack's view right: this is a question, not a change. No object ACL is applied (see
+    the module docstring)
 
     Args:
         params (CollectionParameters): Filtering, sorting and pagination parameters
@@ -136,7 +135,7 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
         params.filter = append_criteria_to_filter(params.filter, criteria)
 
         if fetch_only_active_objects():
-            params.filter.append({'$match': {CmdbObjectKey.ACTIVE.value: {'$eq': True}}})
+            params.filter.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {'$eq': True}}))
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 

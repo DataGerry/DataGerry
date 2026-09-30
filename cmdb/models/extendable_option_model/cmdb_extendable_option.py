@@ -76,7 +76,7 @@ class CmdbExtendableOption(CmdbDAO):
 
     # The two keys a document must carry to be an option at all: without them it names neither a
     # dropdown nor an entry in it. Read through the shared from_data, which refuses such a document
-    # instead of building an instance whose value is None - the shape the list route used to answer
+    # instead of building an instance whose value is None - a shape no list route should answer
     # as 'value': null
     REQUIRED_INIT_KEYS: list[str] = [
         ExtendableOptionKey.VALUE.value,
@@ -88,7 +88,7 @@ class CmdbExtendableOption(CmdbDAO):
         # guarantee. The create and update routes check first (extendable_options_helper.
         # option_value_exists), but that is a read-then-write, and the ISMS CSV importer resolves
         # values through its own read-then-insert - so before this index concurrent writers could
-        # (and on installations older than 2026-07-06, without any check at all, did) leave two
+        # (and, without any check at all, would) leave two
         # identical entries in the same dropdown.
         #
         # Compound with option_type FIRST, so it is also a usable index for every 'all options of

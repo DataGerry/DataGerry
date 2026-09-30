@@ -18,7 +18,7 @@ Functional smoke for the ``/persons`` REST routes
 
 Covers the route-layer concerns on top of the PersonsManager integration suite: HTTP status codes,
 schema validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400 mapping, and
-the reciprocal group-membership sync on update (including the remove-a-group regression that used to
+the reciprocal group-membership sync on update (including the remove-a-group case that would
 crash with 'CmdbPerson not subscriptable').
 """
 from http import HTTPStatus
@@ -38,6 +38,7 @@ from cmdb.errors.manager.persons_manager import (
     PersonsManagerDeleteError,
     PersonsManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/persons'
@@ -211,7 +212,7 @@ class TestPutPerson:
 
     def test_removing_a_group_syncs_membership(self, rest_api,
                                               database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Dropping a group on update pulls the person out of that group (regression: used to 500)."""
+        """Dropping a group on update pulls the person out of that group, rather than answering 500."""
         _insert_person(database_manager, database_name, PERSON_ID_FOR_UPDATE, groups=[GROUP_ID_A, GROUP_ID_B])
         _insert_group(database_manager, database_name, GROUP_ID_A, group_members=[PERSON_ID_FOR_UPDATE])
         _insert_group(database_manager, database_name, GROUP_ID_B, group_members=[PERSON_ID_FOR_UPDATE])
@@ -377,7 +378,7 @@ class TestTheDocumentTheApiHandsOutCanBeSentBack:
 
     def test_a_person_created_without_the_optional_keys_round_trips(self, rest_api) -> None:
         """
-        Create, read, and put the read document straight back: the sequence that used to be a 400
+        Create, read, and put the read document straight back: the sequence most at risk of a 400
 
         The client has no partial update, so this is what every edit in the UI does. The model wrote
         null for the keys the payload omitted, and its own schema then refused them with
@@ -431,7 +432,7 @@ class TestUnknownGroupReferences:
         """
         400 naming the id, instead of a stored membership the group side knows nothing about
 
-        The reciprocal '$addToSet' matches no document for an unknown id, so the two sides used to
+        The reciprocal '$addToSet' matches no document for an unknown id, so the two sides would
         disagree with nothing reported.
         """
         response = rest_api.post(f'{ROUTE_URL}/', json=_person_payload(PERSON_ID_FOR_GET, groups=[MISSING_PERSON_ID]))
@@ -472,7 +473,7 @@ class TestUnknownGroupReferences:
 
 
 class TestDeleteCleansTheGroupSide:
-    """The half of the cascade that used to live in this route."""
+    """The half of the cascade that belongs to the manager rather than this route."""
 
     def test_deleting_a_person_removes_them_from_every_group(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -493,3 +494,31 @@ class TestDeleteCleansTheGroupSide:
 
         assert _group_members(database_manager, database_name, GROUP_ID_A) == []
         assert _group_members(database_manager, database_name, GROUP_ID_B) == [12345]
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /persons/<id> answers the Person as stored, not the request body."""
+
+    def test_omitted_optional_keys_come_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """phone_number / email / groups left out of the body are stored empty - and answered empty."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_UPDATE)
+        payload = {'display_name': 'Renamed', 'first_name': 'First', 'last_name': 'Last'}
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}', payload)
+
+        assert result == stored
+        assert (result['phone_number'], result['email'], result['groups']) == ('', '', [])
+
+    def test_null_optional_keys_come_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A key sent as null is stored as its empty value, and the response says so."""
+        _insert_person(database_manager, database_name, PERSON_ID_FOR_UPDATE)
+        payload = {**_person_payload(PERSON_ID_FOR_UPDATE), 'phone_number': None, 'groups': None}
+
+        result, stored = put_and_read_back(rest_api, f'{ROUTE_URL}/{PERSON_ID_FOR_UPDATE}', payload)
+
+        assert result == stored
+        assert (result['phone_number'], result['groups']) == ('', [])

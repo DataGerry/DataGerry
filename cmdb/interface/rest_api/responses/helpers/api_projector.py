@@ -30,6 +30,7 @@ it does not push the projection into the database query. See the module consumer
 (`GetSingleResponse` / `GetListResponse` / `GetMultiResponse`) for where it is invoked.
 """
 from logging import Logger, getLogger
+from typing import Any
 
 from cmdb.interface.rest_api.responses.helpers.api_projection import APIProjection
 
@@ -46,27 +47,27 @@ class APIProjector:
     Projects API response document(s) onto the fields selected by an `APIProjection`
     """
 
-    def __init__(self, data: dict | list[dict], projection: APIProjection | None = None) -> None:
+    def __init__(self, data: dict[str, Any] | list[dict[str, Any]], projection: APIProjection | None = None) -> None:
         """
         Stores the source data and the projection to apply
 
         Args:
-            data (dict | list[dict]): The already-fetched result document, or a list of them
+            data (dict[str, Any] | list[dict[str, Any]]): The already-fetched result document, or a list of them
             projection (APIProjection | None): The projection to apply. When None, `project`
                 returns the data unchanged
         """
-        self.__output: dict | list[dict] | None = None
-        self.__data: dict | list[dict] = data
+        self.__output: dict[str, Any] | list[dict[str, Any]] | None = None
+        self.__data: dict[str, Any] | list[dict[str, Any]] = data
         self.__projection: APIProjection | None = projection
 
 
     @property
-    def project(self) -> dict | list[dict]:
+    def project(self) -> dict[str, Any] | list[dict[str, Any]]:
         """
         Returns the projected data, computing it once and caching the result
 
         Returns:
-            dict | list[dict]: The projected document, or list of projected documents, matching
+            dict[str, Any] | list[dict[str, Any]]: The projected document, or list of projected documents, matching
                 the shape of the input data
         """
         if self.__output is None:
@@ -75,12 +76,12 @@ class APIProjector:
         return self.__output
 
 
-    def __project_output(self) -> dict | list[dict]:
+    def __project_output(self) -> dict[str, Any] | list[dict[str, Any]]:
         """
         Generates the output from the API result or results
 
         Returns:
-            dict | list[dict]: The input data unchanged when no projection is set, otherwise the
+            dict[str, Any] | list[dict[str, Any]]: The input data unchanged when no projection is set, otherwise the
                 projected document(s) matching the shape of the input data
         """
         if not self.__projection:
@@ -93,7 +94,7 @@ class APIProjector:
 
 
     @staticmethod
-    def element_includes(include_key: str, element: dict) -> dict:
+    def element_includes(include_key: str, element: dict[str, Any]) -> dict[str, Any]:
         """
         Extracts a single (possibly dotted) include key from a document
 
@@ -103,10 +104,10 @@ class APIProjector:
 
         Args:
             include_key (str): The include key, either a plain key or a dotted path
-            element (dict): The document (or nested sub-document) to read from
+            element (dict[str, Any]): The document (or nested sub-document) to read from
 
         Returns:
-            dict: A dict holding only the resolved key and its (recursively projected) value
+            dict[str, Any]: A dict holding only the resolved key and its (recursively projected) value
 
         Raises:
             APIProjectionInclusionError: If any segment of the key is missing from the element
@@ -135,15 +136,15 @@ class APIProjector:
         return {key: APIProjector.element_includes(rest, value)}
 
 
-    def __parse_element(self, data: dict) -> dict:
+    def __parse_element(self, data: dict[str, Any]) -> dict[str, Any]:
         """
         Projects a single document according to the projection's includes/excludes
 
         Args:
-            data (dict): The document to project
+            data (dict[str, Any]): The document to project
 
         Returns:
-            dict: The projected document. The input `data` is never mutated
+            dict[str, Any]: The projected document. The input `data` is never mutated
 
         Raises:
             TypeError: If `data` is not a dict
@@ -152,7 +153,7 @@ class APIProjector:
             raise TypeError('Project elements must be a dict!')
 
         if self.__projection.has_includes:
-            element = {}
+            element: dict[str, Any] = {}
             for include in self.__projection.includes:
                 try:
                     element.update(self.element_includes(include, data))

@@ -20,13 +20,13 @@ The two REST routes of the object search
   objects a regex term matches, split into active / inactive / total
 * `GET|POST /rest/search/` - the search itself. Both methods carry the SAME payload, a JSON array of
   search parameters (`SearchParamKey` objects): POST in its body, GET in `?query=`. Both are turned
-  into `SearchParam` objects before they reach the pipeline builder - until 2026-09-14 the GET branch
-  skipped that step and handed the raw JSON to the builder, which answered **500** for every GET
-  search carrying an actual term
+  into `SearchParam` objects before they reach the pipeline builder - skipping that step and handing
+  the raw JSON to the builder answers **500** for every GET search carrying an actual term
 
-Both routes build their pipeline with the request user and READ permission, so the ACL filter is in
-the aggregation before it reaches the database. Neither checks an ACL *right*, which is recorded in
-the discussion backlog rather than changed here.
+Both routes ask for `SearchRight.VIEW` - the object-view right every object read asks for - so a group
+that may not open an object cannot read it, or count it, through the search box either. Both then build
+their pipeline with the request user and READ permission, so the type ACL is in the aggregation before
+it reaches the database: the right decides whether a caller may search at all, the ACL what they find.
 
 Request parameters are strict: a non-numeric `?limit=` / `?skip=` or an unrecognised `?resolve=` is a
 400, not a silently substituted default. Werkzeug's `request.args.get(..., type=int)` does the
@@ -44,7 +44,7 @@ from cmdb.manager.query_builder import QuickSearchPipelineBuilder, SearchPipelin
 from cmdb.manager import ObjectsManager
 
 from cmdb.framework.search.search_param import SearchParam
-from cmdb.framework.search.search_constants import QuickSearchCountKey, SearchQueryKey
+from cmdb.framework.search.search_constants import QuickSearchCountKey, SearchQueryKey, SearchRight
 
 from cmdb.errors.framework_search import SearchParamError
 from cmdb.framework.search.searcher_framework import SearcherFramework
@@ -114,8 +114,8 @@ def _parse_search_parameters(raw_query: str) -> list[SearchParam]:
 
     Shared by both methods on purpose: GET carries the payload in `?query=` and POST in its body, but
     it is the same array of `SearchParamKey` objects and it has to become the same
-    `list[SearchParam]`. Handing the raw JSON to `SearchPipelineBuilder` instead - which is what the
-    GET branch used to do - makes it read `.search_form` off plain strings and raise `AttributeError`
+    `list[SearchParam]`. Handing the raw JSON to `SearchPipelineBuilder` instead makes it read
+    `.search_form` off plain strings and raise `AttributeError`
 
     Args:
         raw_query (str): The request's JSON payload
@@ -134,20 +134,22 @@ def _parse_search_parameters(raw_query: str) -> list[SearchParam]:
 @search_blueprint.route('/quick/count/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@search_blueprint.protect(auth=True)
+@search_blueprint.protect(auth=True, right=SearchRight.VIEW.value)
 @handle_route_errors("while processing quick search results")
 def quick_search_result_counter(request_user: CmdbUser) -> Response:
     """
     Aggregates and returns quick search result counts (active, inactive, total) for the given user
 
     Backs the search bar's live counter, so it runs on every keystroke: one aggregation, and the
-    pipeline carries the ACL filter for the requesting user
+    pipeline carries the ACL filter for the requesting user. Requires ``SearchRight.VIEW``, like every
+    object read - a count of objects the caller may not open is a read of them too
 
     Args:
         request_user (CmdbUser): The user making the request. Used for permission and access control
 
     Raises:
-        HTTPException: 400 when the aggregation fails, 500 on an unexpected error
+        HTTPException: 403 without ``SearchRight.VIEW``; 400 when the aggregation fails, 500 on an
+                       unexpected error
 
     Returns:
         Response: A Response containing the quick search result counts
@@ -159,13 +161,15 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
                                         str)
     builder = QuickSearchPipelineBuilder()
     only_active: bool = fetch_only_active_objects()
-    pipeline: list[dict] = builder.build(search_term=search_term,
-                                         user=request_user,
-                                         permission=AccessControlPermission.READ,
-                                         active_flag=only_active)
 
     try:
-        result: list[dict] = list(objects_manager.aggregate_objects(pipeline=pipeline))
+        # Inside the try: building the pipeline already queries - it collects the objects the term
+        # finds to match their referrers - so a term MongoDB refuses fails here, and is a 400 either way
+        pipeline: list[dict[str, Any]] = builder.build(search_term=search_term,
+                                                       user=request_user,
+                                                       permission=AccessControlPermission.READ,
+                                                       active_flag=only_active)
+        result: list[dict[str, Any]] = list(objects_manager.aggregate_objects(pipeline=pipeline))
     except ObjectsManagerIterationError as err:
         LOGGER.error('[quick_search_result_counter] ObjectsManagerIterationError: %s', err, exc_info=True)
         abort(400, "Failed to aggregate Objects for quick search result")
@@ -179,6 +183,7 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
 @search_blueprint.route('/', methods=['GET', 'POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@search_blueprint.protect(auth=True, right=SearchRight.VIEW.value)
 @handle_route_errors("while processing the search request")
 def search_framework(request_user: CmdbUser) -> Response:
     """
@@ -189,23 +194,23 @@ def search_framework(request_user: CmdbUser) -> Response:
     means every match (the pager convention of this API), `?skip=` pages through them and
     `?resolve=true` renders referenced CmdbObjects instead of their ids.
 
-    The criteria are built with the request user and READ permission, so the pipeline the searcher
-    runs is ACL-filtered before it reaches the database.
+    Requires ``SearchRight.VIEW``, the right every object read asks for. The criteria are then built
+    with the request user and READ permission, so the pipeline the searcher runs is ACL-filtered
+    before it reaches the database.
 
-    Two behaviours here were wrong for a long time and are worth knowing:
+    Two failure modes this route has to avoid:
 
-    * until 2026-09-09 every error in the search block answered **204 with an empty body**, which a
-      client cannot tell apart from "nothing matched" - and which turned an unusable `?limit=0` into
-      a silently empty page
-    * until 2026-09-14 the GET branch never built `SearchParam` objects, so any GET search carrying
-      an actual term answered **500**; only `?query={}` worked, which is the only form the tests sent
+    * an error in the search block answering **204 with an empty body**, which a client cannot tell
+      apart from "nothing matched" - and which turns an unusable `?limit=0` into a silently empty page
+    * the GET branch not building `SearchParam` objects, which answers **500** for any GET search
+      carrying an actual term and leaves only `?query={}` working
 
     Args:
         request_user (CmdbUser): The user making the request, used for permission checks and data access
 
     Raises:
-        HTTPException: 400 when the parameters or the search itself are unusable, 500 on an
-                       unexpected error
+        HTTPException: 403 without ``SearchRight.VIEW``; 400 when the parameters or the search itself
+                       are unusable, 500 on an unexpected error
 
     Returns:
         Response: A Response object carrying the rendered page, the total and the per-type groups
@@ -246,10 +251,10 @@ def search_framework(request_user: CmdbUser) -> Response:
         searcher = SearcherFramework(objects_manager)
         builder = SearchPipelineBuilder()
 
-        query: list[dict] = builder.build(search_parameters,
-                                          user=request_user,
-                                          permission=AccessControlPermission.READ,
-                                          active_flag=only_active)
+        query: list[dict[str, Any]] = builder.build(search_parameters,
+                                                    user=request_user,
+                                                    permission=AccessControlPermission.READ,
+                                                    active_flag=only_active)
 
         result: Any = searcher.aggregate(
             pipeline=query,

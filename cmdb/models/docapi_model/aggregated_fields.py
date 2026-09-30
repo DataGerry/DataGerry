@@ -16,6 +16,7 @@
 """
 This module contains the AggregatedFields class used to expose relation-aggregated fields to templates.
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -28,10 +29,10 @@ class AggregatedFields:
     A RelationResult may cover many objects; indexing this container by a field name returns the
     non-empty values of that field across all of them, joined into a single comma-separated string.
     """
-    def __init__(self, field_dicts: list[dict]) -> None:
+    def __init__(self, field_dicts: list[dict[str, Any]]) -> None:
         """
         Args:
-            field_dicts (list[dict]): One name->value field mapping per object/edge to aggregate
+            field_dicts (list[dict[str, Any]]): One name->value field mapping per object/edge to aggregate
         """
         self._field_dicts = field_dicts
 

@@ -37,5 +37,12 @@ class RiskMatrixManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the RiskMatrixManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsRiskMatrix, RISK_MATRIX_MANAGER_ERRORS, database)

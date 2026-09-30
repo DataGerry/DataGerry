@@ -66,6 +66,9 @@ from cmdb.interface.rest_api.responses import (
     DeleteSingleResponse,
 )
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import RelationRight
+from cmdb.interface.rest_api.routes.relation_routes.relation_structure_helper import (
+    guard_relation_structure,
+)
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     apply_relation_update,
     cascade_relation_update,
@@ -145,12 +148,17 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
 
         validate_relation_type_ids(types_manager, data)
 
+        # The sections only REFERENCE the fields the flat list declares, and the update diff reads
+        # those names straight onto every dependent CmdbObjectRelation - so a payload that breaks the
+        # pairing is not merely unrenderable, it propagates
+        guard_relation_structure(data)
+
         # The identity is server-owned: never let the payload choose the new public_id
         data.pop(RelationKey.PUBLIC_ID.value, None)
 
         result_id: int = relations_manager.insert_relation(data)
 
-        created_relation: dict | None = relations_manager.get_relation(result_id)
+        created_relation: dict[str, Any] | None = relations_manager.get_relation(result_id)
 
         if created_relation:
             return InsertSingleResponse(created_relation, result_id).make_response()
@@ -242,7 +250,7 @@ def get_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
             request_user
         )
 
-        requested_relation: dict | None = relations_manager.get_relation(public_id)
+        requested_relation: dict[str, Any] | None = relations_manager.get_relation(public_id)
 
         if requested_relation:
             return GetSingleResponse(requested_relation, body=request_wants_body()).make_response()
@@ -302,6 +310,10 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
             abort(404, f"The Relation with ID:{public_id} was not found!")
 
         validate_relation_type_ids(types_manager, data)
+
+        # An update writes the whole document, so it can introduce the same inconsistency a create
+        # can - and here the diff it feeds is what reaches the dependent CmdbObjectRelations
+        guard_relation_structure(data)
 
         relation, changed_fields = apply_relation_update(public_id, data, to_update_relation, relations_manager)
 

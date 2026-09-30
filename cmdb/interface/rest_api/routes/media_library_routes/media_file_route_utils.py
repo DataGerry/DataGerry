@@ -21,15 +21,17 @@ the three steps the upload / update routes are otherwise made of - reading the r
 is already stored, and building the metadata to persist
 """
 import json
+from collections.abc import Iterator
 from typing import Any
 from logging import Logger, getLogger
 
 from flask import abort, request
 from werkzeug.wrappers import Request
 from werkzeug.datastructures import FileStorage
+from gridfs.grid_file import GridOut
 
 from cmdb.manager import MediaFilesManager
-from cmdb.manager.query_builder import Builder
+from cmdb.utils import Builder
 
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     MediaFileKey,
@@ -68,10 +70,9 @@ def validate_upload_metadata(metadata: dict[str, Any]) -> None:
     Refuses upload metadata that carries a key the media library does not declare
 
     The metadata of an upload is client-supplied and is stored as the file's metadata sub-document, so
-    only the keys MediaFileMetadataKey names may appear in it. An undeclared key used to reach the
-    manager and fail the write there, which answered a database-flavoured 400 for what is a request
-    problem - and left the content already streamed into GridFS behind. It is refused here instead,
-    naming the key
+    only the keys MediaFileMetadataKey names may appear in it. An undeclared key reaching the manager
+    would fail the write there, answering a database-flavoured 400 for what is a request problem - and
+    leaving the content already streamed into GridFS behind. It is refused here instead, naming the key
 
     Args:
         metadata (dict[str, Any]): The metadata as it arrived with the request
@@ -88,20 +89,31 @@ def validate_upload_metadata(metadata: dict[str, Any]) -> None:
         abort(400, f"The metadata carries unknown key(s): {', '.join(sorted(unknown_keys))}!")
 
 
-def generate_metadata_filter(element: str, _request: Request | None = None, params: dict | None = None) -> dict:
+def generate_metadata_filter(
+    element: str,
+    _request: Request | None = None,
+    params: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """
     Generates a MongoDB filter query based on provided metadata either from request or parameters
+
+    Each metadata key becomes a ``metadata.<key>`` condition; a ``reference`` matches any of the given
+    ids. **An empty metadata object means different things on the two paths:** read from a request
+    (the single read, the download, the upload), ``{}`` counts as "none given" - it falls back to the
+    form part of the same name and, when that is absent too, answers 400. Passed in as ``params`` (the
+    list route), ``{}`` is simply no condition and matches every file. Every frontend caller sends at
+    least ``folder`` or ``parent``, so only an API client meets either case
 
     Args:
         element (str): The metadata key in the request or parameters
         _request (Request | None): Flask request containing the metadata in query/form
-        params (dict | None): Direct dictionary containing metadata
+        params (dict[str, Any] | None): Direct dictionary containing metadata
 
     Raises:
         HTTPException: 400 if metadata cannot be generated
 
     Returns:
-        dict: A MongoDB filter dictionary ready for querying
+        dict[str, Any]: A MongoDB filter dictionary ready for querying
     """
     filter_metadata = {}
 
@@ -129,7 +141,7 @@ def generate_metadata_filter(element: str, _request: Request | None = None, para
         abort(400, "Metadata was not provided!")
 
 
-def generate_collection_parameters(params: CollectionParameters) -> dict:
+def generate_collection_parameters(params: CollectionParameters) -> dict[str, Any]:
     """
     Builds a MongoDB aggregation filter for file collections based on search and metadata parameters
 
@@ -137,7 +149,7 @@ def generate_collection_parameters(params: CollectionParameters) -> dict:
         params (CollectionParameters): The collection parameters including optional filters
 
     Returns:
-        dict: A MongoDB query filter based on search term or metadata
+        dict[str, Any]: A MongoDB query filter based on search term or metadata
     """
     search = params.optional.get(MediaFileRequestKey.SEARCH_TERM.value)
     param = json.loads(params.optional[MediaFileRequestKey.METADATA.value])
@@ -162,7 +174,12 @@ def generate_collection_parameters(params: CollectionParameters) -> dict:
     return generate_metadata_filter(MediaFileRequestKey.METADATA.value, params=param)
 
 
-def create_attachment_name(name: str, index: int, metadata: dict, media_files_manager: MediaFilesManager) -> str:
+def create_attachment_name(
+    name: str,
+    index: int,
+    metadata: dict[str, Any],
+    media_files_manager: MediaFilesManager,
+) -> str:
     """
     Recursively generates a unique attachment file name if a file with the same name already exists.
     Adds a prefix like 'copy_(index)_' to the filename.
@@ -170,7 +187,7 @@ def create_attachment_name(name: str, index: int, metadata: dict, media_files_ma
     Args:
         name (str): Original file name
         index (int): Copy index counter
-        metadata (dict): Metadata for querying existing files
+        metadata (dict[str, Any]): Metadata for querying existing files
         media_files_manager (MediaFilesManager): Media file manager to check for existing files
 
     Returns:
@@ -187,7 +204,7 @@ def create_attachment_name(name: str, index: int, metadata: dict, media_files_ma
 
         return name
     except Exception as err:
-        raise MediaFileManagerGetError(str(err)) from err
+        raise MediaFileManagerGetError(err) from err
 
 
 def recursive_delete_filter(
@@ -257,7 +274,7 @@ def get_reference_attachment_or_abort() -> dict[str, Any]:
 
     The parameter says whether the write only re-points a reference, in which case the filename is left
     alone. It is required - the frontend always sends it - so a missing or malformed value is a client
-    error rather than the TypeError / JSONDecodeError it used to raise on the way to a 500
+    error rather than a TypeError / JSONDecodeError on the way to a 500
 
     Raises:
         HTTPException: 400 when the parameter is absent or is not a JSON object
@@ -373,3 +390,27 @@ def build_updated_file_data(
     stored_file[MediaFileKey.METADATA.value][MediaFileMetadataKey.AUTHOR_ID.value] = author_id
 
     return stored_file
+
+
+def stream_grid_file(grid_out: GridOut) -> Iterator[bytes]:
+    """
+    Yields a stored media file's content one GridFS chunk at a time
+
+    What the download route answers with, so a file of any size costs one chunk of memory rather than
+    its whole size. Closes the file once the last chunk has been sent, or when the client goes away
+    and the generator is closed early
+
+    Args:
+        grid_out (GridOut): The open file (`MediaFilesManager.open_file`)
+
+    Yields:
+        bytes: The next chunk of the content; nothing for an empty file
+    """
+    try:
+        chunk: bytes = grid_out.readchunk()
+
+        while chunk:
+            yield chunk
+            chunk = grid_out.readchunk()
+    finally:
+        grid_out.close()

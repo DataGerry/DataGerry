@@ -18,7 +18,7 @@ Implementation of BuilderParameters
 """
 from typing import Any
 
-from .builder import Builder
+from cmdb.utils import Builder
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BuilderParameters - CLASS                                              #
@@ -32,16 +32,16 @@ class BuilderParameters:
     """
 
     def __init__(self,
-                 criteria: dict | list[dict],
+                 criteria: dict[str, Any] | list[dict[str, Any]],
                  limit: int = 0,
                  skip: int = 0,
                  sort: str = 'public_id',
-                 order: int = 1):
+                 order: int = 1) -> None:
         """
         Initializes the BuilderParameters
 
         Args:
-            criteria (dict | list[dict]): The filtering criteria for the query
+            criteria (dict[str, Any] | list[dict[str, Any]]): The filtering criteria for the query
             limit (int, optional): The maximum number of results to return. Defaults to 0 (no limit)
             skip (int, optional): The number of results to skip for pagination. Defaults to 0
             sort (str, optional): The field to sort by. Defaults to 'public_id'
@@ -54,7 +54,7 @@ class BuilderParameters:
         self.order = order
 
 
-    def __repr__(self):
+    def __repr__(self) -> str:
         """
         Returns a string representation of the BuilderParameters instance
 
@@ -98,12 +98,12 @@ class BuilderParameters:
         self.criteria = {**self.criteria, **condition}
 
 
-    def get_criteria(self) -> dict | list[dict]:
+    def get_criteria(self) -> dict[str, Any] | list[dict[str, Any]]:
         """
         Retrieves the filtering criteria
 
         Returns:
-            dict | list[dict]: The criteria used for filtering the query
+            dict[str, Any] | list[dict[str, Any]]: The criteria used for filtering the query
         """
         return self.criteria
 

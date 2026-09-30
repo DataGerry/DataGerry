@@ -19,7 +19,7 @@ Unit tests for the CmdbLocation route helpers
 ``resolve_location_name`` is exercised with ObjectsManager / RenderList / CmdbObject patched at
 the helper module path - no Mongo and no rendering pipeline runs, only the name-derivation
 branching. ``build_location_forest`` is exercised against the real ``LocationNode`` (pure logic)
-to pin the flat-list -> nested-forest assembly the ``/locations/tree`` route delegates to.
+to pin the flat-list -> nested-forest assembly the tree search and tree path routes delegate to.
 """
 from typing import Any
 from unittest.mock import MagicMock, patch

@@ -191,7 +191,8 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], 
         request_user (CmdbUser): CmdbUser requesting this data
 
     Returns:
-        UpdateSingleResponse: With update result of the new updated user setting.
+        UpdateSingleResponse: The stored CmdbUserSetting - ``resource``, ``user_id``, ``payloads`` and
+            ``setting_type``, the shape the list read answers
     """
     try:
         user_settings_manager: UserSettingsManager = ManagerProvider.get_manager(ManagerType.USER_SETTINGS,
@@ -202,14 +203,16 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], 
         data[UserSettingKey.RESOURCE.value] = resource
 
         to_update_user_setting = user_settings_manager.get_user_setting(user_id, resource)
+        user_setting: CmdbUserSetting = CmdbUserSetting.from_data(data)
 
         # If it does not exist, create it
         if not to_update_user_setting:
             user_settings_manager.insert_item(data)
         else:
-            user_settings_manager.update_user_setting(user_id, resource, CmdbUserSetting.from_data(data))
+            user_settings_manager.update_user_setting(user_id, resource, user_setting)
 
-        return UpdateSingleResponse(data).make_response()
+        # The setting as the model reads it - the same four keys the list read answers
+        return UpdateSingleResponse(CmdbUserSetting.to_json(user_setting)).make_response()
     except UserSettingsManagerGetError as err:
         LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserSetting for resource: '{resource}' from the database!")

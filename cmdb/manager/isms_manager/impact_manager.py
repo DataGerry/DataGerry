@@ -27,6 +27,8 @@ from cmdb.manager.isms_manager.isms_manager_helper import load_impact_calculatio
 
 from cmdb.models.isms_model import IsmsImpact, IsmsRiskAssessment
 from cmdb.models.isms_model.risk_calculation_constants import RiskCalculationKey, RISK_CALCULATION_MATRIX_KEYS
+from cmdb.models.isms_model.isms_impact_constants import ImpactKey
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 
 from cmdb.errors.manager.impact_manager import IMPACT_MANAGER_ERRORS, ImpactManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,11 +45,18 @@ class ImpactManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the ImpactManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, IsmsImpact, IMPACT_MANAGER_ERRORS, database)
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> None:
+    def update_with_follow_up(self, public_id: int, new_data: dict[str, Any]) -> dict[str, Any]:
         """
         Updates an IsmsImpact and propagates the new calculation_basis to every affected
         IsmsRiskAssessment.
@@ -59,8 +68,12 @@ class ImpactManager(GenericManager):
         Args:
             public_id (int): The public_id of the Impact to update
             new_data (dict[str, Any]): The new data for the Impact
+
+        Returns:
+            dict[str, Any]: The Impact document as stored
         """
-        self.update_item(public_id, IsmsImpact.from_data(new_data))
+        impact: IsmsImpact = IsmsImpact.from_data(new_data)
+        self.update_item(public_id, impact)
 
         # Find IsmsRiskAssessments where this Impact is used
         affected_risk_assessments: list[dict[str, Any]] = self.dbm.find(
@@ -72,7 +85,7 @@ class ImpactManager(GenericManager):
         # Preload every Impact's calculation_basis once (a small, fixed set) so the recompute loop
         # below does not issue a lookup per Impact per RiskAssessment
         basis_by_id: dict[int, float | None] = load_impact_calculation_basis(self.dbm, self.db_name)
-        basis_by_id[public_id] = new_data['calculation_basis']
+        basis_by_id[public_id] = new_data[ImpactKey.CALCULATION_BASIS.value]
 
         updates: list[UpdateOne] = []
 
@@ -85,10 +98,15 @@ class ImpactManager(GenericManager):
                 update_fields[f'{matrix_key.value}.{RiskCalculationKey.MAXIMUM_IMPACT_ID.value}'] = max_id
                 update_fields[f'{matrix_key.value}.{RiskCalculationKey.MAXIMUM_IMPACT_VALUE.value}'] = max_value
 
-            updates.append(UpdateOne({'public_id': risk_assessment['public_id']}, {'$set': update_fields}))
+            updates.append(UpdateOne(
+                {RiskAssessmentKey.PUBLIC_ID.value: risk_assessment[RiskAssessmentKey.PUBLIC_ID.value]},
+                {'$set': update_fields},
+            ))
 
         if updates:
             self.dbm.bulk_write(IsmsRiskAssessment.COLLECTION, self.db_name, updates)
+
+        return IsmsImpact.to_json(impact)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -138,9 +156,9 @@ class ImpactManager(GenericManager):
             bool: True if calculation_basis exists, else false
         """
         try:
-            result = self.get_one_by({'calculation_basis': calculation_basis})
+            result = self.get_one_by({ImpactKey.CALCULATION_BASIS.value: calculation_basis})
 
             return bool(result)
         except Exception as err:
             LOGGER.error("[impact_calculation_basis_exists] Exception: %s. Type: %s", err, type(err))
-            raise ImpactManagerGetError(str(err)) from err
+            raise ImpactManagerGetError(err) from err

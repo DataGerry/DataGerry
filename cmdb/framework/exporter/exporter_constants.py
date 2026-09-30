@@ -30,7 +30,7 @@ EXPORT_FILENAME_TIMESTAMP_FMT: str = '%Y_%m_%d-%H_%M_%S'
 EXPORT_FILENAME_PART_SEPARATOR: str = '_'
 
 # What was exported - the export kinds name themselves so an object export, a type export and a rendered
-# document taken in the same second are no longer indistinguishable
+# document taken in the same second stay distinguishable
 EXPORT_KIND_OBJECTS: str = 'objects'
 EXPORT_KIND_TYPES: str = 'types'
 EXPORT_KIND_DOCUMENT: str = 'document'

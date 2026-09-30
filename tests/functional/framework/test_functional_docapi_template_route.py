@@ -18,18 +18,17 @@ Functional smoke for the ``/docapi/template`` (and ``/docs/template``) REST rout
 
 The document-generator feature is license-gated, so each test enables it by stubbing
 ``LicenseService.has_feature``. Covers the create round-trip, the list envelope, the 404s on a
-missing id (get / update / delete), and the render 404 when the template is missing (regression:
-this used to surface as a 500 because get_template crashed on a missing id and the route's
-guard was unreachable).
+missing id (get / update / delete), and the render 404 when the template is missing (get_template
+must not crash on a missing id, or the route's guard is unreachable and the caller sees a 500).
 
-Since 2026-08-25 also: a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and
-the update response is a JSON document rather than a model repr. The PDF render pipeline itself is covered by
-test_integration_docapi_document_generation; here only the route's own error mapping is.
+Also pinned: a failed read is a 400 rather than a 404, a malformed searchfilter is a 400, and the
+update response is a JSON document rather than a model repr. The PDF render pipeline itself has its
+own integration coverage; here only the route's own error mapping is.
 
 The by-name read is a name-availability check rather than a fetch, so it answers 200 with ``null`` for
-an unused name (it briefly 404'd there, which made the frontend read "free" off an error). Since
-2026-08-27 the name is also IMMUTABLE on update: a PUT carrying any other name than the stored one is a
-400, even when that name is free - which is what makes the availability check answer a lasting question.
+an unused name, rather than an error the frontend would have to read "free" off. The name is also
+IMMUTABLE on update: a PUT carrying any other name than the stored one is a 400, even when that name
+is free - which is what makes the availability check answer a lasting question.
 """
 from http import HTTPStatus
 from typing import Any
@@ -63,9 +62,11 @@ TPL_ID_FOR_GET: int = 80001
 TPL_ID_FOR_UPDATE: int = 80002
 TPL_ID_FOR_DELETE: int = 80003
 MISSING_TPL_ID: int = 80900
+TPL_ID_FOR_PICKER: int = 80005
+PICKER_TYPE_ID: int = 80950
 MISSING_OBJECT_ID: int = 80901
 
-ALL_TPL_IDS: list[int] = [TPL_ID_FOR_GET, TPL_ID_FOR_UPDATE, TPL_ID_FOR_DELETE]
+ALL_TPL_IDS: list[int] = [TPL_ID_FOR_GET, TPL_ID_FOR_UPDATE, TPL_ID_FOR_DELETE, TPL_ID_FOR_PICKER]
 CREATE_TEMPLATE_NAME: str = 'tpl-functional-create'
 UPDATED_TEMPLATE_DATA: str = '<p>updated</p>'
 
@@ -168,7 +169,7 @@ class TestGetSingle:
                 .delete_one({'public_id': TPL_ID_FOR_GET})
 
     def test_get_missing_returns_404(self, rest_api) -> None:
-        """A missing template id returns 404 (regression: get_template used to crash on None)."""
+        """A missing template id returns 404, rather than get_template crashing on the None."""
         response = rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -195,7 +196,7 @@ class TestUpdate:
                 .delete_one({'public_id': TPL_ID_FOR_UPDATE})
 
     def test_update_missing_returns_404(self, rest_api) -> None:
-        """Updating a non-existent template returns 404 (regression: used to be success-shaped)."""
+        """Updating a non-existent template returns 404, not a success-shaped response."""
         response = rest_api.put(f'{CRUD_URL}/', json=_template_payload(MISSING_TPL_ID))
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -218,7 +219,7 @@ class TestDelete:
                 .delete_one({'public_id': TPL_ID_FOR_DELETE})
 
     def test_delete_missing_returns_404(self, rest_api) -> None:
-        """Deleting a non-existent template returns 404 (regression: used to be success-shaped)."""
+        """Deleting a non-existent template returns 404, not a success-shaped response."""
         response = rest_api.delete(f'{CRUD_URL}/{MISSING_TPL_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -278,7 +279,7 @@ class TestRender:
     """GET /docapi/template/<id>/render/<object_id>."""
 
     def test_render_missing_template_returns_404(self, rest_api) -> None:
-        """Rendering a missing template returns 404 (regression: previously a 500)."""
+        """Rendering a missing template returns 404."""
         response = rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}/render/{MISSING_OBJECT_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
@@ -323,7 +324,7 @@ class TestErrorMapping:
         assert rest_api.get(LIST_URL).status_code == HTTPStatus.BAD_REQUEST
 
     def test_searchfilter_get_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A DocapiTemplatesManagerGetError on the searchfilter route surfaces as 404."""
+        """A DocapiTemplatesManagerGetError on the searchfilter route surfaces as 400."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_templates_by',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
@@ -331,14 +332,14 @@ class TestErrorMapping:
         assert rest_api.get(f'{CRUD_URL}/by/{search}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_get_single_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A DocapiTemplatesManagerGetError on get-single surfaces as 404."""
+        """A DocapiTemplatesManagerGetError on get-single surfaces as 400."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_template',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
         assert rest_api.get(f'{CRUD_URL}/{MISSING_TPL_ID}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_get_by_name_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A DocapiTemplatesManagerGetError on the name route surfaces as 404."""
+        """A DocapiTemplatesManagerGetError on the name route surfaces as 400."""
         monkeypatch.setattr(DocapiTemplatesManager, 'get_template_by_name',
                             _raise(DocapiTemplatesManagerGetError('boom')))
 
@@ -435,10 +436,10 @@ class TestNameIsImmutable:
                                                       database_manager: MongoDatabaseManager,
                                                       database_name: str) -> None:
         """
-        The response carries the template as a document (regression)
+        The response carries the template as a document
 
-        It used to hand out the model instance itself, which only serialised by falling back to bson's
-        default encoder.
+        Handing out the model instance itself only serialises by falling back to bson's default
+        encoder.
         """
         _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
         try:
@@ -465,11 +466,60 @@ class TestUnusedNameIsOk:
 
 
 class TestSearchfilterGuard:
-    """The searchfilter travels in the URL, so it has to be checked."""
+    """
+    The searchfilter travels in the URL and reaches MongoDB as the query document, so it is checked
+
+    Only an equality match on a declared template key gets through. `$where` and `$expr` + `$function`
+    run JavaScript on the database server, so a refused filter must also never reach the read.
+    """
 
     def test_malformed_searchfilter_returns_400(self, rest_api) -> None:
-        """A filter that is not JSON is a client error - a JSONDecodeError -> 500 before."""
+        """A filter that is not JSON is a client error, not a JSONDecodeError surfacing as a 500."""
         assert rest_api.get(f'{CRUD_URL}/by/not-json').status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('search', [
+        {'$where': 'sleep(1000) || true'},
+        {'$expr': {'$function': {'body': 'function() { return true }', 'args': [], 'lang': 'js'}}},
+        {'template_parameters': {'$where': 'true'}},
+        {'name': {'$regex': '.*'}},
+        {'template_data': 'x'},
+        {'limit': 1},
+    ], ids=['where', 'function', 'nested-where', 'regex', 'undeclared-key', 'manager-parameter'])
+    @pytest.mark.parametrize('minimal', ['false', 'true'])
+    def test_a_filter_that_is_not_an_equality_match_is_refused_before_the_read(
+        self, rest_api, monkeypatch, search: dict[str, Any], minimal: str,
+    ) -> None:
+        """Both read paths answer 400 and the manager is never asked."""
+        calls: list[dict[str, Any]] = []
+
+        def _spy(_self, **requirements: Any) -> list[Any]:
+            calls.append(requirements)
+            return []
+
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_templates_by', _spy)
+        monkeypatch.setattr(DocapiTemplatesManager, 'get_minimal_templates_by', _spy)
+
+        response = rest_api.get(f"{CRUD_URL}/by/{quote(json.dumps(search), safe='')}?minimal={minimal}")
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert not calls
+
+    def test_the_frontend_picker_filter_finds_its_template(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """`{"template_parameters": {"type": <id>}}` with minimal=true - the object view's document picker."""
+        payload: dict[str, Any] = _template_payload(TPL_ID_FOR_PICKER)
+        payload['template_parameters'] = {'type': PICKER_TYPE_ID}
+        database_manager.get_collection(DocapiTemplate.COLLECTION, database_name).insert_one(payload)
+        try:
+            search = quote(json.dumps({'template_parameters': {'type': PICKER_TYPE_ID}}))
+            response = rest_api.get(f'{CRUD_URL}/by/{search}?minimal=true')
+
+            assert response.status_code == HTTPStatus.OK
+            assert [row['public_id'] for row in response.get_json()] == [TPL_ID_FOR_PICKER]
+        finally:
+            database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)\
+                .delete_one({'public_id': TPL_ID_FOR_PICKER})
 
 
 class TestHttpExceptionPassThrough:
@@ -524,8 +574,7 @@ RENDER_NAME_FIELD: str = 'dg-name'
 PDF_MAGIC: bytes = b'%PDF'
 
 # A rendered document is named like every other export: `<timestamp>_document_<template>-<object>.pdf`,
-# built by cmdb.framework.exporter.export_filename_helper. Before 2026-09-21 every render of every
-# template answered with the one name `output.pdf`
+# built by cmdb.framework.exporter.export_filename_helper - so two renders never share a filename
 RENDERED_FILENAME_PATTERN: str = (
     r'attachment; filename="\d{4}_\d{2}_\d{2}-\d{2}_\d{2}_\d{2}_document_render-'
     + str(RENDER_OBJECT_ID)

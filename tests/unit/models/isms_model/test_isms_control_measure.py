@@ -24,9 +24,9 @@ Pure tests: no Mongo, no Flask. The model is a flat ten-key document with the IS
   - ``is_applicable`` is normalised to a boolean, because the Statement of Applicability has two
     answers and the schema still accepts a null on write
   - each failure converts into the model's own error type. Those three ``except`` arms were the whole
-    coverage gap of this file before 2026-09-07; they now live once on ``CmdbDAO``, and this model
+    coverage gap this file could carry; they live once on ``CmdbDAO``, and this model
     declares ``KEYS`` plus its two error types instead of carrying its own copy of the triple
-    (tests/unit/models/test_cmdb_dao_shared_document.py owns the shared machinery)
+    (the shared machinery has its own tests)
   - the signature is keyword-only, which it has to be: ``CmdbDAO.__new__`` looks for ``public_id`` in
     ``**kwargs`` and runs before ``__init__``, so a positional call has never been able to work. It
     still raises ``RequiredInitKeyNotFoundError: A required InitKey is missing: public_id!`` - what the
@@ -209,14 +209,8 @@ class TestKeywordOnlyInit:
                                IMPLEMENTATION_STATE_ID)
 
     def test_the_keyword_call_populates_every_attribute(self) -> None:
-        """The optional fields keep their documented defaults."""
-        measure = IsmsControlMeasure(
-            public_id = PUBLIC_ID,
-            title = TITLE,
-            control_measure_type = ControlMeasureType.CONTROL.value,
-            source = SOURCE_ID,
-            implementation_state = IMPLEMENTATION_STATE_ID,
-        )
+        """Every required key must be given, though None is a value; is_applicable keeps its default."""
+        measure = IsmsControlMeasure(**_REQUIRED_KWARGS)
 
         assert measure.get_public_id() == PUBLIC_ID
         assert measure.title == TITLE
@@ -226,6 +220,28 @@ class TestKeywordOnlyInit:
         assert measure.reason is None
         assert measure.is_applicable is False
 
+    @pytest.mark.parametrize('missing', ['identifier', 'chapter', 'description', 'reason'])
+    def test_leaving_out_a_required_key_is_refused(self, missing: str) -> None:
+        """The schema requires the key, so the model does too - on construction as on a read."""
+        kwargs = {key: value for key, value in _REQUIRED_KWARGS.items() if key != missing}
+
+        with pytest.raises(RequiredInitKeyNotFoundError, match=missing):
+            IsmsControlMeasure(**kwargs)
+
+
+# Every key the model requires, the optional texts as None - the shape the CSV importer writes for blank cells
+_REQUIRED_KWARGS: dict = {
+    'public_id': PUBLIC_ID,
+    'title': TITLE,
+    'control_measure_type': ControlMeasureType.CONTROL.value,
+    'source': SOURCE_ID,
+    'implementation_state': IMPLEMENTATION_STATE_ID,
+    'identifier': None,
+    'chapter': None,
+    'description': None,
+    'reason': None,
+}
+
 
 class TestErrorArms:
     """Each of the three except arms converts its failure into the model's own error type."""
@@ -233,13 +249,7 @@ class TestErrorArms:
     def test_init_error_on_an_unusable_public_id(self) -> None:
         """CmdbDAO.__init__ casts public_id with int(), which a None cannot survive."""
         with pytest.raises(IsmsControlMeasureInitError):
-            IsmsControlMeasure(
-                public_id = None,
-                title = TITLE,
-                control_measure_type = ControlMeasureType.CONTROL.value,
-                source = SOURCE_ID,
-                implementation_state = IMPLEMENTATION_STATE_ID,
-            )
+            IsmsControlMeasure(**{**_REQUIRED_KWARGS, 'public_id': None})
 
     def test_init_from_data_error_on_an_empty_document(self) -> None:
         """An empty dict has no public_id, so the inner InitError is rewrapped by from_data."""

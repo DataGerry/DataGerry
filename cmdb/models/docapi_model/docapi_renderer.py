@@ -59,7 +59,7 @@ class DocApiRenderer:
         self.objects_manager: ObjectsManager = objects_manager
 
 
-    def render_object_template(self, request_user: CmdbUser = None) -> BytesIO:
+    def render_object_template(self, request_user: CmdbUser | None = None) -> BytesIO:
         """
         Renders a document by applying the provided DocapiTemplate to a CmdbObject
 

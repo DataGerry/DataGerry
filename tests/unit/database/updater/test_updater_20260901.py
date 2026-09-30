@@ -20,9 +20,8 @@ Covers the two jobs in isolation with a stubbed database manager: the missing-op
 whole of the option half's re-run safety (the collection has no unique index to fall back on), the
 narrowed read, the backfill's query shape, and start_update's orchestration + error wrapping.
 
-The end-to-end behaviour against a real MongoDB - including the double run - is covered by
-tests/integration/database/test_integration_updater_20260901.py, and the metadata contract by the
-shared parametrized test in test_version_updaters
+The end-to-end behaviour against a real MongoDB - including the double run - is covered by the
+integration tier, and the metadata contract by the shared parametrized updater test
 """
 from unittest.mock import MagicMock, patch
 

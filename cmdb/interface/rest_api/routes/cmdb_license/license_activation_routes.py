@@ -64,7 +64,7 @@ ACTIVATION_REQUEST_MIME_TYPE: str = 'text/plain'
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @license_activation_blueprint.protect(auth=True, right=ACTIVATION_VIEW_RIGHT)
 @handle_route_errors("while generating the license activation request")
-def get_license_activation_request(request_user: CmdbUser):
+def get_license_activation_request(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route generating an offline activation request
 

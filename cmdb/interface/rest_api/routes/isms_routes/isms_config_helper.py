@@ -17,6 +17,7 @@
 Pure helper logic for the ISMS configuration-status route
 """
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    IsmsConfigStatusKey,
     MIN_CONFIGURED_RISK_CLASSES,
     MIN_CONFIGURED_LIKELIHOODS,
     MIN_CONFIGURED_IMPACTS,
@@ -53,9 +54,11 @@ def build_isms_config_status(
     impacts_ready: bool = impact_amount >= MIN_CONFIGURED_IMPACTS
 
     return {
-        'risk_classes': risk_classes_ready,
-        'likelihoods': likelihoods_ready,
-        'impacts': impacts_ready,
-        'impact_categories': impact_category_amount >= MIN_CONFIGURED_IMPACT_CATEGORIES,
-        'risk_matrix': risk_matrix_classes_set and risk_classes_ready and likelihoods_ready and impacts_ready,
+        IsmsConfigStatusKey.RISK_CLASSES.value: risk_classes_ready,
+        IsmsConfigStatusKey.LIKELIHOODS.value: likelihoods_ready,
+        IsmsConfigStatusKey.IMPACTS.value: impacts_ready,
+        IsmsConfigStatusKey.IMPACT_CATEGORIES.value: impact_category_amount >= MIN_CONFIGURED_IMPACT_CATEGORIES,
+        IsmsConfigStatusKey.RISK_MATRIX.value: (
+            risk_matrix_classes_set and risk_classes_ready and likelihoods_ready and impacts_ready
+        ),
     }

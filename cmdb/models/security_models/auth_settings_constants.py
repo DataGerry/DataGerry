@@ -16,7 +16,7 @@
 """
 Keys and defaults of the stored `auth` settings section
 
-One source of truth for the three places that used to spell these strings by hand: this model,
+One source of truth for the three places that would otherwise spell these strings by hand: this model,
 `AuthModule` (which normalises the section against the installed providers) and the auth routes
 """
 from cmdb.utils import BaseStrEnum
@@ -32,7 +32,7 @@ AUTH_SETTINGS_ID: str = 'auth'
 #: Default token lifetime **in minutes** - `TokenGenerator.get_expire_time` feeds it to
 #: `timedelta(minutes=...)`, so this is one full day.
 #:
-#: It was 1400 (23h20m) until 2026-09-14, which was a typo for 1440 rather than a deliberate value:
+#: Note 1400 (23h20m) is a typo for it rather than a deliberate value:
 #: nothing referenced 23h20m and the surrounding code disagreed with it everywhere it was repeated.
 #: Only the DEFAULT changed - an `auth` section that already stores a lifetime keeps it, because that
 #: is an administrator's setting and not ours to rewrite

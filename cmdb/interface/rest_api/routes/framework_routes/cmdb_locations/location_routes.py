@@ -21,7 +21,7 @@ object_id it belongs to, the parent node it hangs under, and the object's type m
 Every route is guarded by a ``base.framework.location.*`` right (see ``LocationRight``) on top of
 ``ApiLevel.ADMIN``
 
-Four things govern a change here:
+Five things govern a change here:
 
 * **The mirror must not desync.** A placement lives in two places - the CmdbLocation node's ``parent``
   and the owning object's location field - and every write route updates both. `LocationsManager` owns
@@ -32,9 +32,9 @@ Four things govern a change here:
   a drag off it ends one. A new write route needs both, not one.
 * **The tree is read lazily.** ``/tree/roots`` + ``/tree/<id>/children`` walk one level at a time,
   ``/tree/path/<id>`` opens straight to a node and ``/tree/search`` returns a pruned forest; each node
-  carries ``has_children`` so the frontend can offer an expand without fetching the subtree. ``/tree``
-  is the older eager route that returns the whole forest and is still used by the frontend. Every level
-  is name-ordered by the manager (case-insensitive, public_id as tie-break), so no route sorts.
+  carries ``has_children`` so the frontend can offer an expand without fetching the subtree. No route
+  returns the whole forest in one response. Every level is name-ordered by the manager
+  (case-insensitive, public_id as tie-break), so no route sorts.
 * **The synthetic root is reachable here.** It is a CmdbLocation like any other, and it carries the
   ``object_id`` sentinel 0 - so ``DELETE /0/object`` addresses the root. ``delete_location`` refuses it
   (400); no route may work around that, because promoting the root's children onto its own ``parent``
@@ -216,8 +216,8 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        # Canonical documents straight from the read: both list routes only pass the result on as
-        # JSON, so hydrating a CmdbLocation per row and converting it back was two objects per node
+        # Canonical documents straight from the read: the route only passes the result on as JSON,
+        # so hydrating a CmdbLocation per row and converting it back would be two objects per node
         location_list, total = locations_manager.iterate_location_documents(builder_params)
 
         api_response = GetMultiResponse(location_list,
@@ -229,54 +229,6 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
         return api_response.make_response()
     except LocationsManagerIterationError as err:
         LOGGER.error("[get_cmdb_locations] LocationsManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Locations from the database!")
-
-
-@location_blueprint.route('/tree', methods=['GET', 'HEAD'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right=LocationRight.VIEW.value)
-@location_blueprint.parse_collection_parameters()
-@handle_route_errors("while requesting the Location tree")
-def get_cmdb_locations_tree(params: CollectionParameters, request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET`/`HEAD` route to return all CmdbLocations as a location tree
-
-    Requires the ``base.framework.location.view`` right. This is the EAGER tree - it returns the whole
-    forest in one response, unlike the lazy ``/tree/roots`` + ``/tree/<id>/children`` pair. Its nodes
-    carry no ``has_children`` flag, because a fully nested forest already shows what has children
-
-    Args:
-        params (CollectionParameters): params for location tree (excluding root location)
-        request_user (CmdbUser): User requesting the data
-
-    Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the iteration fails; 500 on an
-            unexpected error
-
-    Returns:
-        Response: The CmdbLocations as a nested tree (GetMultiResponse)
-    """
-    try:
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
-
-        # See the flat list route: documents, not models - and the forest is built from the same
-        # canonical key set either way
-        location_list, total = locations_manager.iterate_location_documents(builder_params)
-
-        packed_locations: list[dict[str, Any]] = build_location_forest(location_list)
-
-        api_response = GetMultiResponse(packed_locations,
-                                        total=total,
-                                        params=params,
-                                        url=request.url,
-                                        body=request_wants_body())
-
-        return api_response.make_response()
-    except LocationsManagerIterationError as err:
-        LOGGER.error("[get_cmdb_locations_tree] LocationsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Locations from the database!")
 
 
@@ -543,7 +495,7 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response
     Requires the ``base.framework.location.view`` right
 
     "There is no parent" is a successful answer, not a 404: the route returns 200 with ``null`` both
-    when the object has no location at all and when its location's parent node is missing. It used to
+    when the object has no location at all and when its location's parent node is missing. It must not
     404 for the second case only, so the same outcome had two encodings - and a dangling ``parent``
     reference (a data-integrity problem) was reported to the caller as if the object did not exist
 
@@ -657,7 +609,7 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
             move or the write fails; 500 on an unexpected error
 
     Returns:
-        Response: Echo of the submitted payload after the update (UpdateSingleResponse)
+        Response: The CmdbLocation node as stored after the update (UpdateSingleResponse)
     """
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
@@ -677,7 +629,7 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
 
         # Reject an invalid new parent (missing / not selectable-as-parent / cycle) before writing
         validate_object_location_change(object_id, parent, locations_manager)
-        # ... and the Rack rules, which this route used to skip entirely
+        # ... and the Rack rules, which this route may not skip
         guard_rack_location_change(request_user, object_id, parent, locations_manager)
 
         location_update_params[LocationKey.NAME.value] = resolve_location_name(
@@ -696,7 +648,9 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
             request_user, object_id, parent, objects_manager, types_manager, locations_manager,
         )
 
-        return UpdateSingleResponse(data).make_response()
+        # The write is a partial $set whose name is resolved server-side, so the stored node is read back
+        # rather than echoing the request: that read is the only thing that knows the full document
+        return UpdateSingleResponse(locations_manager.get_location_for_object(object_id)).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_location_for_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the linked Object from the database!")

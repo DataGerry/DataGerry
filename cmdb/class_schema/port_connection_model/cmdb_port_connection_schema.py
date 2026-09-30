@@ -28,6 +28,9 @@ NOT express, because a per-field schema cannot:
   - that an INTERNAL connection carries no cable info - the per-type field rule, also the validator's
   - that a connection describes its cable inline OR by reference and never both - the validator's too
 
+The four free-text cable fields are capped at TEXT_VALUE_MAX_LENGTH, the cap every CmdbType text field
+has - the description included, which the connection form holds to the same size
+
 ``get_cmdb_port_connection_write_schema`` derives the REQUEST body's schema from the document's. It
 exists because the two are not the same thing: a request may not carry the server-owned keys at all,
 and the two identity keys are deliberately left UNTYPED there, so the connection validator keeps
@@ -56,6 +59,7 @@ def get_cmdb_port_connection_schema() -> dict[str, Any]:
         PortConnectionKey,
         ENDPOINT_COUNT,
     )
+    from cmdb.models.type_model.type_constants import TEXT_VALUE_MAX_LENGTH
 
     return {
         PortConnectionKey.PUBLIC_ID.value: {  # public_id of the CmdbPortConnection
@@ -75,6 +79,7 @@ def get_cmdb_port_connection_schema() -> dict[str, Any]:
         },
         PortConnectionKey.CABLE_NAME.value: {  # Free text naming the cable
             'type': 'string',
+            'maxlength': TEXT_VALUE_MAX_LENGTH,
             'nullable': True,
             'required': False,
         },
@@ -85,16 +90,19 @@ def get_cmdb_port_connection_schema() -> dict[str, Any]:
         },
         PortConnectionKey.CABLE_LENGTH.value: {  # TEXT on purpose - '5 m', '2.5 m' (concept section 18)
             'type': 'string',
+            'maxlength': TEXT_VALUE_MAX_LENGTH,
             'nullable': True,
             'required': False,
         },
         PortConnectionKey.CABLE_COLOR.value: {  # Free text for v1, not a '#RRGGBB' value
             'type': 'string',
+            'maxlength': TEXT_VALUE_MAX_LENGTH,
             'nullable': True,
             'required': False,
         },
         PortConnectionKey.CABLE_DESCRIPTION.value: {  # Free text; the frontend renders it as a textarea
             'type': 'string',
+            'maxlength': TEXT_VALUE_MAX_LENGTH,
             'nullable': True,
             'required': False,
         },

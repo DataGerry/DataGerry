@@ -101,6 +101,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     validate_placement_or_abort,
     validate_shape_or_abort,
 )
+from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -505,7 +506,7 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         assign_position_if_needed(rack_mounts_manager, candidate)
 
         # The identity, the kind, the membership and the authorship are never taken from the body
-        candidate[RackMountKey.PUBLIC_ID.value] = mount_id
+        pin_public_id(candidate, mount_id)
         candidate[RackMountKey.RACK_ID.value] = rack_id
         candidate[RackMountKey.KIND.value] = kind
 
@@ -581,7 +582,6 @@ def delete_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
         # had a node, so the hook refuses the id rather than the route testing the kind here
         handle_mount_removed(
             mount.get(RackMountKey.OBJECT_ID.value),
-            request_user,
             objects_manager,
             ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user),
         )

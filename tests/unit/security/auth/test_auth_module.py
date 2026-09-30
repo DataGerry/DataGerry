@@ -35,7 +35,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 from cmdb.models.security_models import DEFAULT_TOKEN_LIFETIME
 from cmdb.security.auth.auth_module import (
     PROVIDER_CLASS_NAME_KEY,
@@ -44,9 +44,10 @@ from cmdb.security.auth.auth_module import (
     AuthModule,
 )
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
-from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, PROVIDER_ACTIVE_KEY
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
+from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
 from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerInsertError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -142,7 +143,7 @@ def fixture_cmdb_app():
     """Provides a request context so current_app.cloud_mode is readable.
 
     Deliberately NOT named 'app_context': that name belongs to the session-scoped autouse fixture in
-    tests/fixtures/fixture_rest_api, and shadowing it leaves the session without an app context.
+    the REST API fixture, and shadowing it leaves the session without an app context.
     """
     app = BaseCmdbApp(__name__)
     app.cloud_mode = False
@@ -193,13 +194,13 @@ class TestInitSettings:
         assert appended[PROVIDER_CLASS_NAME_KEY] == LDAP_PROVIDER_NAME
 
     def test_the_appended_entry_is_resolvable_afterwards(self) -> None:
-        """The topped-up entry can be read back by name (it used to raise KeyError 'class_name')."""
+        """The topped-up entry can be read back by name, rather than raising KeyError 'class_name'."""
         module = _module([_stub_entry(LOCAL_PROVIDER_NAME)])
 
         assert isinstance(module.settings.get_provider_settings(LDAP_PROVIDER_NAME), dict)
 
     def test_a_second_module_over_the_same_section_still_works(self) -> None:
-        """Re-normalising an already topped-up section does not break (the old malformed entry did)."""
+        """Re-normalising an already topped-up section does not break (a malformed entry would)."""
         settings = _settings([_stub_entry(LOCAL_PROVIDER_NAME)])
 
         AuthModule(dict(settings), MagicMock(), MagicMock())
@@ -286,7 +287,7 @@ class TestProviderRegistry:
         assert AuthModule.unregister_provider(_StubProvider) is False
 
     def test_the_registry_does_not_mutate_the_shipped_baseline(self) -> None:
-        """register_provider must not extend the pre-installed list (they used to be the same object)."""
+        """register_provider must not extend the pre-installed list, which one shared object would."""
         AuthModule.register_provider(_StubProvider)
 
         # pylint: disable=protected-access
@@ -333,7 +334,7 @@ class TestProviderRegistry:
             is _ExternalStubProvider.PASSWORD_ABLE
 
     def test_internals_and_external_are_split_by_the_flag(self) -> None:
-        """The two accessors filter on EXTERNAL_PROVIDER (they used to both return everything)."""
+        """The two accessors filter on EXTERNAL_PROVIDER rather than both returning everything."""
         internals = AuthModule.get_installed_internals()
         external = AuthModule.get_installed_external()
 
@@ -389,7 +390,7 @@ class TestProviderBuilders:
         assert 'No settings entry for provider' in caplog.text
 
     def test_get_provider_returns_an_instance_carrying_the_stored_config(self) -> None:
-        """The configured provider really gets the stored values (it used to always get the defaults)."""
+        """The configured provider really gets the stored values rather than the defaults."""
         module = _module([
             _stub_entry(LOCAL_PROVIDER_NAME),
             {PROVIDER_CLASS_NAME_KEY: LDAP_PROVIDER_NAME, PROVIDER_CONFIG_KEY: {
@@ -441,7 +442,6 @@ class TestLogin:
 
         return AuthModule(
             _settings([
-                _stub_entry(LOCAL_PROVIDER_NAME, active=False),
                 _stub_entry(LDAP_PROVIDER_NAME, active=False),
                 _stub_entry('_StubProvider', active=active),
             ], enable_external=enable_external),
@@ -451,9 +451,16 @@ class TestLogin:
 
     @staticmethod
     def _user(authenticator: str) -> MagicMock:
-        """A stored CmdbUser stand-in naming its provider."""
+        """
+        A stored CmdbUser stand-in naming its provider
+
+        It carries no local password, like every user an external provider provisions. The local
+        provider is always part of the sweep, so this is what makes it refuse the login cleanly and
+        leave the provider under test to decide
+        """
         user = MagicMock()
         user.authenticator = authenticator
+        user.password = None
 
         return user
 
@@ -468,15 +475,40 @@ class TestLogin:
         assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
 
     # pylint: disable=unused-argument
-    def test_the_lookup_lower_cases_the_user_name_on_premise(self, cmdb_app) -> None:
-        """On-premise the stored user is resolved by a lower-cased user_name."""
+    def test_a_name_stored_as_typed_is_found_by_the_first_read(self, cmdb_app) -> None:
+        """On-premise a user name is stored as it was created - 'TestUser' finds 'TestUser' directly"""
         module = self._module_with_stub()
         _reset_stub(_StubProvider, result=self._user('_StubProvider'))
         module.users_manager.get_user_by.return_value = self._user('_StubProvider')
 
         module.login('TestUser', PASSWORD)
 
-        assert module.users_manager.get_user_by.call_args.args[0] == {'user_name': 'testuser'}
+        assert [call.args[0] for call in module.users_manager.get_user_by.call_args_list] == [
+            {CmdbUserKey.USER_NAME.value: 'TestUser'},
+        ]
+
+    def test_a_miss_as_typed_is_retried_lower_cased(self, cmdb_app) -> None:
+        """'TESTUSER' finds 'testuser' on the primary path, not only through the fallback sweep"""
+        module = self._module_with_stub()
+        stored = self._user('_StubProvider')
+        _reset_stub(_StubProvider, result=stored)
+        module.users_manager.get_user_by.side_effect = [None, stored]
+
+        assert module.login('TESTUSER', PASSWORD) is stored
+        assert [call.args[0] for call in module.users_manager.get_user_by.call_args_list] == [
+            {CmdbUserKey.USER_NAME.value: 'TESTUSER'}, {CmdbUserKey.USER_NAME.value: 'testuser'},
+        ]
+        assert len(_StubProvider.calls) == 1
+
+    def test_surrounding_whitespace_is_stripped_before_the_lookup(self, cmdb_app) -> None:
+        """A pasted trailing space finds the user"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+        module.users_manager.get_user_by.return_value = self._user('_StubProvider')
+
+        module.login(f' {USER_NAME} ', PASSWORD)
+
+        assert module.users_manager.get_user_by.call_args.args[0] == {CmdbUserKey.USER_NAME.value: USER_NAME}
 
     def test_cloud_mode_resolves_the_user_by_email(self, cmdb_app) -> None:
         """In cloud mode the login is looked up as an email."""
@@ -487,7 +519,7 @@ class TestLogin:
 
         module.login(USER_EMAIL, PASSWORD)
 
-        assert module.users_manager.get_user_by.call_args.args[0] == {'email': USER_EMAIL}
+        assert module.users_manager.get_user_by.call_args.args[0] == {CmdbUserKey.EMAIL.value: USER_EMAIL}
 
     def test_an_unknown_user_falls_back_to_the_provider_sweep(self, cmdb_app) -> None:
         """No stored user: every active provider is tried so an external one can provision it."""
@@ -524,7 +556,6 @@ class TestLogin:
         AuthModule.register_provider(_ExternalStubProvider)
         module = AuthModule(
             _settings([
-                _stub_entry(LOCAL_PROVIDER_NAME, active=False),
                 _stub_entry(LDAP_PROVIDER_NAME, active=False),
                 _stub_entry('_ExternalStubProvider', active=True),
             ], enable_external=False),
@@ -549,6 +580,17 @@ class TestLogin:
             module.login(USER_NAME, PASSWORD)
 
         assert _StubProvider.calls == []
+
+    def test_the_sweep_never_builds_an_inactive_provider(self, cmdb_app) -> None:
+        """Activity is asked of the class, so an inactive provider's config never reaches a constructor."""
+        module = self._module_with_stub(active=False)
+        module.users_manager.get_user_by.return_value = None
+
+        with patch.object(AuthModule, 'build_provider_instance', wraps=module.build_provider_instance) as build:
+            with pytest.raises(AuthenticationError):
+                module.login(USER_NAME, PASSWORD)
+
+        assert _StubProvider not in [call.args[0] for call in build.call_args_list]
 
     def test_the_sweep_continues_after_a_rejected_credential(self, cmdb_app) -> None:
         """A provider that rejects the credentials does not end the sweep."""
@@ -582,3 +624,70 @@ class TestLogin:
             module.login(USER_NAME, PASSWORD)
 
         assert err.value.__cause__ is not None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           THE LOCAL PROVIDER'S ACTIVE FLAG                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+GONE_PROVIDER_NAME: str = 'GoneProvider'
+
+
+class TestLocalProviderActiveFlag:
+    """Local login cannot be switched off - not by a missing flag, and not by a stored False."""
+    # the app context is needed for current_app.cloud_mode, the app object itself is not
+    # pylint: disable=unused-argument
+
+    @staticmethod
+    def _module_with_local_config(local_config: dict[str, Any]) -> AuthModule:
+        """A module whose section stores the given local config, with the LDAP provider switched off."""
+        return _module([
+            {PROVIDER_CLASS_NAME_KEY: LOCAL_PROVIDER_NAME, PROVIDER_CONFIG_KEY: local_config},
+            _stub_entry(LDAP_PROVIDER_NAME, active=False),
+        ])
+
+    @staticmethod
+    def _stranded_user() -> MagicMock:
+        """A local user whose `authenticator` names a provider that is no longer installed."""
+        user = MagicMock()
+        user.authenticator = GONE_PROVIDER_NAME
+
+        return user
+
+    def test_a_stored_config_without_the_flag_is_normalised_to_active(self) -> None:
+        """This is the section GET /auth/settings serves - it used to answer `active: null`."""
+        module = self._module_with_local_config({})
+
+        assert module.settings.get_provider_settings(LOCAL_PROVIDER_NAME)[PROVIDER_ACTIVE_KEY] is True
+
+    @pytest.mark.parametrize('local_config', [{}, {PROVIDER_ACTIVE_KEY: None}, {PROVIDER_ACTIVE_KEY: False}],
+                             ids=['missing', 'null', 'false'])
+    def test_the_sweep_tries_the_local_provider_whatever_its_flag(
+        self, cmdb_app, local_config: dict[str, Any],
+    ) -> None:
+        """The primary attempt fails on the unknown provider; the sweep must still reach local login."""
+        module = self._module_with_local_config(local_config)
+        user = self._stranded_user()
+        module.users_manager.get_user_by.return_value = user
+
+        with patch.object(LocalAuthenticationProvider, 'authenticate', return_value=user) as authenticate:
+            assert module.login(USER_NAME, PASSWORD) is user
+
+        authenticate.assert_called_once_with(USER_NAME, PASSWORD)
+
+
+class TestIsActiveFor:
+    """The one activity rule both halves of a login follow."""
+
+    @pytest.mark.parametrize('active', [True, False])
+    def test_by_default_the_config_decides(self, active: bool) -> None:
+        """A provider that does not override the rule is as active as its configuration."""
+        assert _StubProvider.is_active_for(_StubConfig(active=active)) is active
+
+    @pytest.mark.parametrize('active', [True, False])
+    def test_a_built_ldap_provider_answers_what_its_class_does(self, active: bool) -> None:
+        """LDAP's `is_active` delegates, so the primary attempt and the sweep cannot disagree."""
+        config = LdapAuthenticationProviderConfig(
+            **{**LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES, PROVIDER_ACTIVE_KEY: active}
+        )
+
+        assert LdapAuthenticationProvider(config=config).is_active() is LdapAuthenticationProvider.is_active_for(config)

@@ -31,7 +31,7 @@ so this model defines neither
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey
+from cmdb.models.isms_model.isms_risk_class_constants import RiskClassKey, RISK_CLASS_REQUIRED_DOCUMENT_KEYS
 
 from cmdb.class_schema.isms_model.isms_risk_class_schema import get_isms_risk_class_schema
 
@@ -55,6 +55,7 @@ class IsmsRiskClass(CmdbDAO):
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
     KEYS = RiskClassKey
+    REQUIRED_INIT_KEYS: list[str] = RISK_CLASS_REQUIRED_DOCUMENT_KEYS
     INIT_FROM_DATA_ERROR = IsmsRiskClassInitFromDataError
     TO_JSON_ERROR = IsmsRiskClassToJsonError
 

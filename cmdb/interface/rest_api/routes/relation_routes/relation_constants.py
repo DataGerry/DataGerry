@@ -51,6 +51,35 @@ MAX_TAB_PAGE_SIZE: int = 1000
 SORT_DIRECTIONS: tuple[int, ...] = (1, -1)
 
 
+# Refusals (HTTP 400) for a CmdbRelation payload that is not internally consistent. A relation
+# declares every field once in its flat `fields` list and its sections only REFERENCE those names, so
+# three ways of writing one make the relation unusable without anything else noticing:
+#
+# * a section naming a field the relation does not declare renders nothing for that entry - and, unlike
+#   a CmdbType, is PROPAGATED: `get_added_and_removed_fields` reads the names out of the sections and
+#   writes what it finds onto every dependent CmdbObjectRelation
+# * two fields sharing one name make every read of that name ambiguous, and an ObjectRelation keys its
+#   stored values by the name alone
+# * two sections sharing one name collide wherever a section is addressed by it
+#
+# The SHAPE of both halves is `CmdbRelation.SCHEMA`'s job - a list of non-blank strings, and a known
+# FieldType. These are the rules a Cerberus schema cannot express, because each spans two keys
+RELATION_SECTION_FIELD_UNKNOWN_MESSAGE: str = (
+    "A section can only show fields this Relation declares. Unknown in {section_name}: {unknown}. "
+    "Add the fields to the Relation, or remove them from the section."
+)
+
+RELATION_DUPLICATE_FIELD_IDENTIFIER_MESSAGE: str = (
+    "A field's name is its identifier and has to be unique within the Relation. Used more than once: "
+    "{duplicates}."
+)
+
+RELATION_DUPLICATE_SECTION_IDENTIFIER_MESSAGE: str = (
+    "A section's name is its identifier and has to be unique within the Relation. Used more than "
+    "once: {duplicates}."
+)
+
+
 class RelationRight(BaseStrEnum):
     """
     ACL right identifiers guarding the CmdbRelation REST routes

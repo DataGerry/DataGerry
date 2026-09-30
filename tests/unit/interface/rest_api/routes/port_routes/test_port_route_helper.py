@@ -54,7 +54,15 @@ from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper impor
     read_assignable_lookups,
     get_interface_row_or_abort,
 )
+from cmdb.framework.port.name_syntax_constants import PortDeviceKind
+from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
+    build_values_by_side,
+    rear_select_payload,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
+    current_port_kind,
+    port_kind_blocker,
+    port_kind_of_side,
     build_port_candidate,
     with_connected_flag,
     enforce_port_name_available,
@@ -986,3 +994,111 @@ class TestBulkActionHelpers:
 
         assert read_ports_by_id(manager, []) == {}
         manager.find.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  the device kind                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestPortKind:
+    """An object is an ordinary device or a patch panel, and its ports are what say which."""
+
+    @pytest.mark.parametrize('side, expected', [
+        (PortSide.SINGLE.value, PortDeviceKind.STANDARD.value),
+        (PortSide.FRONT.value, PortDeviceKind.PATCH_PANEL.value),
+        (PortSide.REAR.value, PortDeviceKind.PATCH_PANEL.value),
+        (None, PortDeviceKind.STANDARD.value),
+        ('nonsense', PortDeviceKind.STANDARD.value),
+    ])
+    def test_the_kind_follows_the_side(self, side, expected: str) -> None:
+        """Panel-ness is derived from the side and from nothing else, missing values read as SINGLE"""
+        assert port_kind_of_side(side) == expected
+
+    def test_an_object_without_ports_has_no_kind_yet(self) -> None:
+        """Which is what leaves it free to become either"""
+        assert current_port_kind([]) is None
+
+    def test_the_kind_comes_from_the_ports_it_holds(self) -> None:
+        """One port is enough to decide it - they cannot disagree, that is the whole rule"""
+        assert current_port_kind([{'side': PortSide.REAR.value}]) == PortDeviceKind.PATCH_PANEL.value
+
+    def test_a_free_object_accepts_any_side(self) -> None:
+        """Nothing to conflict with"""
+        assert port_kind_blocker([], PortSide.FRONT.value) is None
+
+    @pytest.mark.parametrize('stored, requested', [
+        (PortSide.SINGLE.value, PortSide.SINGLE.value),
+        (PortSide.FRONT.value, PortSide.REAR.value),
+        (PortSide.REAR.value, PortSide.FRONT.value),
+    ])
+    def test_the_same_kind_is_allowed(self, stored: str, requested: str) -> None:
+        """FRONT and REAR are one kind - a panel needs both faces"""
+        existing = [{'object_id': 7, 'side': stored}]
+
+        assert port_kind_blocker(existing, requested) is None
+
+    @pytest.mark.parametrize('stored, requested', [
+        (PortSide.SINGLE.value, PortSide.FRONT.value),
+        (PortSide.SINGLE.value, PortSide.REAR.value),
+        (PortSide.FRONT.value, PortSide.SINGLE.value),
+        (PortSide.REAR.value, PortSide.SINGLE.value),
+    ])
+    def test_the_other_kind_is_refused(self, stored: str, requested: str) -> None:
+        """Both directions, both panel faces"""
+        existing = [{'object_id': 7, 'side': stored}]
+
+        assert port_kind_blocker(existing, requested) is not None
+
+    def test_the_refusal_names_the_object_and_the_way_out(self) -> None:
+        """A caller has to learn which object, what it is, and that deleting is the only switch"""
+        blocker = port_kind_blocker([{'object_id': 8802, 'side': PortSide.FRONT.value}], PortSide.SINGLE.value)
+
+        assert '8802' in blocker
+        assert 'patch panel' in blocker
+        assert 'Delete all of its existing ports first' in blocker
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   per-face field values of a bulk create                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestPerFacePortValues:
+    """The unprefixed keys are both faces' values; a `rear_*` key overrides one for the rear."""
+
+    def test_without_rear_keys_every_face_gets_the_same(self) -> None:
+        """A panel described once still means the same on both sides"""
+        resolved = build_values_by_side({'description': 'both faces'})
+
+        assert resolved[PortSide.FRONT.value] == resolved[PortSide.REAR.value]
+        assert resolved[PortSide.SINGLE.value] == {'description': 'both faces'}
+
+    def test_a_rear_key_replaces_only_that_field(self) -> None:
+        """The rest of the rear face keeps the shared value rather than being emptied"""
+        resolved = build_values_by_side({
+            'status': 3, 'description': 'shared', 'rear_description': 'rear only',
+        })
+
+        assert resolved[PortSide.REAR.value] == {'status': 3, 'description': 'rear only'}
+        assert resolved[PortSide.FRONT.value] == {'status': 3, 'description': 'shared'}
+
+    def test_the_front_face_never_sees_a_rear_value(self) -> None:
+        """`rear_*` means the rear face, not "the other value" """
+        resolved = build_values_by_side({'speed': 11, 'rear_speed': 12})
+
+        assert resolved[PortSide.FRONT.value] == {'speed': 11}
+        assert resolved[PortSide.REAR.value] == {'speed': 12}
+
+    def test_an_omitted_key_is_left_out_rather_than_nulled(self) -> None:
+        """So the model's own defaults still apply, the same rule the shared values follow"""
+        resolved = build_values_by_side({'rear_description': 'only this'})
+
+        assert resolved[PortSide.FRONT.value] == {}
+        assert resolved[PortSide.REAR.value] == {'description': 'only this'}
+
+    def test_the_rear_select_values_are_projected_for_the_validator(self) -> None:
+        """Under the unprefixed names, so `enforce_select_values` judges them by the same rule"""
+        projected = rear_select_payload({'rear_status': 4, 'rear_speed': 12, 'rear_description': 'x'})
+
+        assert projected == {'status': 4, 'speed': 12, 'description': 'x'}
+
+    def test_nothing_is_projected_when_no_rear_value_is_set(self) -> None:
+        """An unprefixed-only body asks the validator nothing extra"""
+        assert rear_select_payload({'status': 3}) == {}

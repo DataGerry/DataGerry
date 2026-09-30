@@ -21,7 +21,7 @@ version-updater pattern. Asserts that each of the three backfills is one server-
 filtered on the missing property (no document is loaded for the two constant backfills), that the
 per-type color read is filtered AND projected, that a type document without a public_id is skipped
 with a warning instead of silently, and that the version bump comes last. The metadata contract
-(creation_date / description) is covered by the shared parametrized test in test_version_updaters
+(creation_date / description) is covered by the shared parametrized updater test
 """
 import re
 from typing import Any
@@ -115,7 +115,7 @@ class TestBackfillObjectTooltips:
         )
 
     def test_loads_no_document(self) -> None:
-        """The objects collection is never read (it used to be loaded in full)."""
+        """The objects collection is never read - the backfill is a single update_many."""
         updater = _new_updater()
 
         updater.backfill_object_tooltips()

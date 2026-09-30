@@ -19,13 +19,11 @@ Unit tests for cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_l
 Each handler is unwrapped past its decorator chain and driven inside a BaseCmdbApp
 test_request_context with OcConnectionLogManager patched at the route module path - no external
 OpenCelium HTTP, no Mongo. The app runs on-premise (cloud_mode/local_mode False), so the cloud
-unmap branch in oc_get_flowcharts is skipped. The AUTOMATIONS 403 gate is covered by the functional
-automations-gating suite.
+unmap branch in oc_get_flowcharts is skipped. The AUTOMATIONS 403 gate is not asserted here.
 
 These pin the handler glue: the manager call, the success payload, the query-param validation aborts
-(missing loopIndex / connectionId / schedulerId / status) and the per-error abort mapping. They
-exercise handler LOGIC only - they do not assert blueprint route registration (see the audit note on
-the unregistered DELETE route).
+(missing loopIndex / connectionId / schedulerId / status) and the per-error abort mapping. The
+handler tests exercise LOGIC only; blueprint route registration is asserted separately at the end.
 """
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -90,8 +88,8 @@ def fixture_patched_manager(log_manager: MagicMock) -> Any:
     """
     Patches the manager factory the routes call
 
-    The construction moved into `oc_connection_log_helper.build_connection_log_manager` when the six
-    identical copies were extracted, so the routes' collaborator is that factory - patching
+    The routes build their manager through `oc_connection_log_helper.build_connection_log_manager`,
+    so the routes' collaborator is that factory - patching
     `OcConnectionLogManager` at this module path would let the real manager be built (and read the
     OpenCelium config).
     """
@@ -193,7 +191,7 @@ class TestGetFlowcharts:
 
     def test_hosted_cloud_strips_the_tenant_prefix(self, log_manager, patched_manager) -> None:
         """
-        The branch that had never been executed
+        The hosted-cloud branch
 
         On a hosted installation every connector is registered as `<database>_<name>` so tenants
         cannot see each other's, and the prefix is not the customer's to read.
@@ -212,10 +210,10 @@ class TestGetFlowcharts:
 
     def test_hosted_cloud_survives_a_dict_payload(self, log_manager, patched_manager) -> None:
         """
-        The shape the manager's annotation claimed
+        The shape the manager's annotation declares
 
-        Iterated as a list of dicts, a dict yields its keys - so this payload raised a TypeError,
-        i.e. a 500 for every hosted request, and no test had ever reached the branch.
+        Iterated as a list of dicts, a dict yields its keys - so this payload must not be treated as
+        a list, or it raises a TypeError, i.e. a 500 for every hosted request.
         """
         del patched_manager
         log_manager.get_flowcharts.return_value = {'connectorName': 'db_customer_MySQL'}
@@ -304,7 +302,7 @@ class TestGetLogList:
         """
         0 counts as provided
 
-        The guard read the parsed id for truthiness, so `?connectionId=0` answered "was not
+        A guard reading the parsed id for truthiness would answer `?connectionId=0` with "was not
         provided" - the wrong mistake to send a caller looking for. Whether the id exists is
         OpenCelium's to answer.
         """
@@ -400,7 +398,7 @@ class TestGetLogList:
 # ----------------------------------------------------- oc_delete_logs ----------------------------------------------- #
 
 class TestDeleteLogs:
-    """``oc_delete_logs`` deletes the execution logs (handler logic; route registration not asserted)."""
+    """``oc_delete_logs`` deletes the execution logs (handler logic only)."""
 
     def test_returns_delete_result(self, flask_app, log_manager, patched_manager) -> None:
         """The manager's delete result is returned with 200."""
@@ -428,14 +426,14 @@ class TestDeleteLogs:
 # --------------------------------------------------- route registration --------------------------------------------- #
 
 class TestRouteRegistration:
-    """The blueprint registers every documented route (guards the previously missing DELETE decorator)."""
+    """The blueprint registers every documented route."""
 
     def test_every_route_is_registered(self) -> None:
         """
-        All six, not only the one that was once missing its decorator
+        All six, not only the DELETE route
 
-        This file shipped an unregistered DELETE route before - a missing '@' - so the whole map is
-        asserted rather than the one rule that broke.
+        A route decorator missing its '@' leaves the handler unregistered without any error, so the
+        whole map is asserted rather than a single rule.
         """
         app = Flask(__name__)
         app.register_blueprint(oc_connection_log_blueprint)
@@ -452,7 +450,7 @@ class TestRouteRegistration:
         } <= registered
 
     def test_delete_logs_route_is_registered(self) -> None:
-        """``DELETE /connections/logs/<int:target_id>`` is registered on the blueprint (the '@' was missing)."""
+        """``DELETE /connections/logs/<int:target_id>`` is registered on the blueprint exactly once."""
         app = Flask(__name__)
         app.register_blueprint(oc_connection_log_blueprint)
 

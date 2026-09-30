@@ -28,7 +28,7 @@ Four things are worth the tests above the rest:
     of its own cannot end up highlighted as if the user had searched for it
   - a failure while reading them costs the highlighting and nothing else: the page is still answered
   - the facet document is read defensively (`next(iter(...), {})`), because the alternative - the
-    `[0]` this file used to do - is an IndexError inside a route
+    `[0]` an unguarded reader does - is an IndexError inside a route
   - `?resolve=` reaches the renderer. It was accepted by the route, passed in as `**kwargs` and
     dropped on the floor, so reference resolution could not be switched on at all
 """
@@ -214,7 +214,7 @@ class TestReadingTheFacetResult:
         `$facet` always emits exactly one document carrying all three keys
 
         This is the guard for the day that stops being true: reading it defensively answers an empty
-        page, where the `[0]` and `['data']` this file used to do raised inside a route.
+        page, where an unguarded `[0]` and `['data']` raise inside a route.
         """
         del render_list
         searcher, _ = _searcher({})
@@ -255,7 +255,7 @@ class TestTheRendering:
         """
         The route's ``?resolve=true``
 
-        It used to arrive as an ignored `**kwargs` entry, so reference resolution was unreachable.
+        Arriving as an ignored `**kwargs` entry leaves reference resolution unreachable.
         """
         searcher, _ = _searcher()
 
@@ -331,7 +331,7 @@ class TestTheResultMetadata:
         """
         Computed from the paging, not from the cursor
 
-        `alive` used to be read off the CommandCursor AFTER it had been drained, so it was always
+        `alive` read off the CommandCursor AFTER it has been drained is always
         False - a value that is computed has to be true even while nothing serializes it.
         """
         del render_list

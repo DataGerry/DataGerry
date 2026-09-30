@@ -16,7 +16,7 @@
 """
 Request options and manager bundle for the CI Explorer graph builder
 
-``build_ci_explorer_graph`` used to take thirteen positional parameters - eight primitives and five
+``build_ci_explorer_graph`` would otherwise take thirteen positional parameters - eight primitives and five
 managers - which is why it carried three pylint suppressions and why a test of one scenario needed
 thirteen arguments. The two frozen dataclasses here split that list along the seam it already had:
 what the caller asked for, and what the builder may read it from.

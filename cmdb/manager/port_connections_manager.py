@@ -88,7 +88,7 @@ class PortConnectionsManager(GenericManager):
         try:
             return self.find(criteria={PortConnectionKey.ENDPOINTS.value: port_id})
         except Exception as err:
-            raise PortConnectionsManagerGetError(str(err)) from err
+            raise PortConnectionsManagerGetError(err) from err
 
 
     def get_connection_of_port_by_type(self, port_id: int, connection_type: str) -> dict[str, Any] | None:
@@ -116,7 +116,7 @@ class PortConnectionsManager(GenericManager):
                 PortConnectionKey.CONNECTION_TYPE.value: connection_type,
             })
         except Exception as err:
-            raise PortConnectionsManagerGetError(str(err)) from err
+            raise PortConnectionsManagerGetError(err) from err
 
 
     def get_connection_by_cable_ci(self, cable_ci_id: int) -> dict[str, Any] | None:
@@ -138,7 +138,7 @@ class PortConnectionsManager(GenericManager):
         try:
             return self.get_one_by({PortConnectionKey.CABLE_CI_ID.value: cable_ci_id})
         except Exception as err:
-            raise PortConnectionsManagerGetError(str(err)) from err
+            raise PortConnectionsManagerGetError(err) from err
 
 
     def get_connections_by_cable_cis(self, cable_ci_ids: list[int]) -> list[dict[str, Any]]:
@@ -167,7 +167,7 @@ class PortConnectionsManager(GenericManager):
         try:
             return self.find(criteria={PortConnectionKey.CABLE_CI_ID.value: {'$in': cable_ci_ids}})
         except Exception as err:
-            raise PortConnectionsManagerGetError(str(err)) from err
+            raise PortConnectionsManagerGetError(err) from err
 
 
     def get_assigned_cable_ci_ids(self) -> list[int]:
@@ -195,7 +195,7 @@ class PortConnectionsManager(GenericManager):
                 if isinstance(cable_ci_id, int)
             ]
         except Exception as err:
-            raise PortConnectionsManagerGetError(str(err)) from err
+            raise PortConnectionsManagerGetError(err) from err
 
 
     def get_connections_of_ports(self, port_ids: list[int]) -> list[dict[str, Any]]:
@@ -221,7 +221,7 @@ class PortConnectionsManager(GenericManager):
         try:
             return self.find(criteria={PortConnectionKey.ENDPOINTS.value: {'$in': port_ids}})
         except Exception as err:
-            raise PortConnectionsManagerGetError(str(err)) from err
+            raise PortConnectionsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -253,7 +253,7 @@ class PortConnectionsManager(GenericManager):
         try:
             self.update({PortConnectionKey.PUBLIC_ID.value: public_id}, update)
         except Exception as err:
-            raise PortConnectionsManagerUpdateError(str(err)) from err
+            raise PortConnectionsManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -282,4 +282,4 @@ class PortConnectionsManager(GenericManager):
                 {PortConnectionKey.ENDPOINTS.value: {'$in': port_ids}},
             ).deleted_count
         except Exception as err:
-            raise PortConnectionsManagerDeleteError(str(err)) from err
+            raise PortConnectionsManagerDeleteError(err) from err

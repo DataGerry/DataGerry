@@ -60,7 +60,7 @@ from cmdb.errors.manager.extendable_options_manager import (
     ExtendableOptionsManagerDeleteError,
     ExtendableOptionsManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, update_item_from_payload, pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -264,13 +264,13 @@ def update_cmdb_extendable_option(public_id: int, data: dict[str, Any], request_
                                data.get(ExtendableOptionKey.OPTION_TYPE),
                                exclude_id=public_id):
             abort(400, f"An Option with the value already exists: {data.get(ExtendableOptionKey.VALUE)}")
+        pin_public_id(data, public_id)
 
-        # Pin the identity to the URL: a payload public_id can never rewrite the document's id
-        data[ExtendableOptionKey.PUBLIC_ID] = public_id
+        stored: dict[str, Any] = update_item_from_payload(
+            extendable_options_manager, public_id, CmdbExtendableOption, data,
+        )
 
-        extendable_options_manager.update_item(public_id, CmdbExtendableOption.from_data(data))
-
-        return UpdateSingleResponse(data).make_response()
+        return UpdateSingleResponse(stored).make_response()
     except ExtendableOptionsManagerGetError as err:
         LOGGER.error("[update_cmdb_extendable_option] ExtendableOptionsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ExtendableOption with ID: {public_id} from the database!")

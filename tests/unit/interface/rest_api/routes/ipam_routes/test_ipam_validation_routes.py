@@ -72,7 +72,7 @@ def fixture_flask_app() -> Flask:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                    the id coercion these routes now share                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
-# The routes used to carry their own `_coerce_optional_int`; it was a third copy of the project-wide
+# The routes carry no `_coerce_optional_int` of their own; that would be a third copy of the project-wide
 # `coerce_whole_number` and disagreed with the others on booleans. These cases are the ones that
 # matter to an IPAM id specifically - the caster's own behaviour is covered in the utils suite
 @pytest.mark.parametrize('value, expected', [
@@ -443,7 +443,7 @@ def test_validate_interface_route_aborts_400_for_an_unusable_exclude_id(flask_ap
 @pytest.mark.parametrize('raw', [True, False])
 def test_validate_vlan_route_aborts_400_for_a_boolean_subnet_id(flask_app: Flask, raw: bool) -> None:
     """
-    `subnet_id: true` used to validate against object 1
+    `subnet_id: true` must not validate against object 1
 
     bool is an int subclass, so the route's own `int(value)` accepted it and the `is None` guard
     never fired - the customer got a confident answer about a subnet they never named.

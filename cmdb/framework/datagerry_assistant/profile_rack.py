@@ -38,7 +38,7 @@ class RackProfile(ProfileBase):
     The profile creates the RACK SpecialType from the canonical SchemaProvider blueprint, which is
     what makes the Rack View usable out-of-the-box: the view is rendered for objects of the type
     carrying the RACK marker. This is the assistant's only Rack type - the location profile stops at
-    Room and no longer builds a plain one of its own, so nothing else fills the RACK_ID slot.
+    Room and builds no plain one of its own, so nothing else fills the RACK_ID slot.
     """
 
     CREATED_SPECIAL_TYPES: frozenset[SpecialType] = frozenset({SpecialType.RACK})

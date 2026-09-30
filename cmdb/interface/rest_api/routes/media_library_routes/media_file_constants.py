@@ -22,14 +22,25 @@ They are re-exported here so a route reads its keys from one module
 """
 from cmdb.utils import BaseStrEnum
 from cmdb.framework.media_library.media_file_keys import MediaFileKey, MediaFileMetadataKey
+from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'DOWNLOAD_MIMETYPE',
+    'UNPAGED_LIMIT',
     'MediaFileRight',
     'MediaFileRequestKey',
     'MediaFileKey',
     'MediaFileMetadataKey',
 ]
+
+# The list route's page size when the request names none: every match. The attachment dialogs and the
+# object's attachment badge send no limit and need the whole list; a client that pages says so
+UNPAGED_LIMIT: int = 0
+
+# What a download is answered as, whatever the stored mime type - the browser saves it rather than
+# rendering it
+DOWNLOAD_MIMETYPE: str = 'application/octet-stream'
 
 
 class MediaFileRight(BaseStrEnum):
@@ -41,8 +52,8 @@ class MediaFileRight(BaseStrEnum):
     the borrowing is visible in one place - whether the library should get its own rights is a filed
     decision, and this enum is where that change would land
     """
-    VIEW = 'base.framework.object.view'
-    EDIT = 'base.framework.object.edit'
+    VIEW = ObjectRightName.VIEW.value
+    EDIT = ObjectRightName.EDIT.value
 
 
 class MediaFileRequestKey(BaseStrEnum):

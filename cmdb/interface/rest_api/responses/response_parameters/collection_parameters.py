@@ -16,19 +16,19 @@
 """
 Implementation of CollectionParameters - the pager of every list route
 
-The values are validated HERE rather than left to MongoDB. They used not to be, and every bad pager
-value therefore failed inside the aggregation and was reported by the route's
-``except …IterationError`` arm: ``?page=0`` answered *"Failed to retrieve Objects from the database!"*,
-blaming the database for a client's page number. A rejection raised from this module becomes an HTTP 400
-instead, because the ``parse_*_parameters`` decorators abort 400 on anything raised out of ``from_data``
+The values are validated HERE rather than left to MongoDB. Left to MongoDB, every bad pager value
+fails inside the aggregation and is reported by the route's ``except …IterationError`` arm: ``?page=0``
+would answer *"Failed to retrieve Objects from the database!"*, blaming the database for a client's page
+number. A rejection raised from this module becomes an HTTP 400 instead, because the
+``parse_*_parameters`` decorators abort 400 on anything raised out of ``from_data``
 
-Two rules behind the validation:
+Three rules behind the validation:
 
 * **A page below 1 is clamped, not refused.** A caller asking for page 0 is asking for the start of the
-  collection, and the frontend does send ``page: 0`` in one place. It previously produced a negative
-  ``$skip`` and a 400.
+  collection, and the frontend does send ``page: 0`` in one place. Passed through, it would produce a
+  negative ``$skip`` and a 400.
 * **A limit or order that has no meaning is refused.** ``limit`` may be ``0`` (unlimited) or positive;
-  a negative page size is nonsense and used to be accepted and echoed back to the frontend. ``order``
+  a negative page size is nonsense and must not be accepted and echoed back to the frontend. ``order``
   may only be ``1`` or ``-1``, the two values ``$sort`` accepts
 * **The filter is checked against an allow-list.** A list-shaped ``filter`` is spliced into the
   aggregation verbatim by everything downstream, so this constructor is the last point at which it is
@@ -36,13 +36,13 @@ Two rules behind the validation:
   called, because this is where the client's value enters
 
 Naming: what the query string calls ``filter`` is called ``criteria`` from the constructor inward, which
-is what ``get_builder_params`` already handed to ``BuilderParameters``. The wire keys are unchanged in
-both directions - ``?filter=`` on the way in and ``filter`` in the echoed ``parameters`` block - because
-they are frontend contract; only the constructor parameter is renamed, which also stops it shadowing the
-``filter`` builtin. The mapping happens in the constructor rather than in a ``from_data`` override, so
-the JSON parsing of ``filter`` can stay in ``APIParameters.from_data``, which has to see the value under
-its wire name. The attribute stays ``self.filter``: it is read and mutated at ~28 call sites across six
-modules, so renaming that too is recorded as a separate decision rather than folded in here
+is what ``get_builder_params`` hands to ``BuilderParameters``. The wire key is ``filter`` in both
+directions - ``?filter=`` on the way in and ``filter`` in the echoed ``parameters`` block - because it is
+frontend contract; only the constructor parameter is named ``criteria``, which also keeps it from
+shadowing the ``filter`` builtin. The mapping happens in the constructor rather than in a ``from_data``
+override, so the JSON parsing of ``filter`` can stay in ``APIParameters.from_data``, which has to see the
+value under its wire name. The attribute keeps the wire name, ``self.filter``, which call sites across
+several modules read and mutate
 """
 from typing import Any
 
@@ -61,14 +61,14 @@ from cmdb.interface.rest_api.responses.response_parameters.response_parameters_c
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def _coerce_limit(limit: Any) -> int:
+def _coerce_limit(limit: int | str | None) -> int:
     """
     Coerces the ``limit`` query value to an int, refusing a negative page size
 
     ``0`` is kept as-is: it means "no limit" and the frontend relies on it
 
     Args:
-        limit (Any): The raw ``limit`` value, a string when it came from the query parser
+        limit (int | str | None): The raw ``limit`` value, a string when it came from the query parser
 
     Raises:
         ValueError: When the value is not an integer or is negative; the ``parse_*_parameters``
@@ -88,12 +88,12 @@ def _coerce_limit(limit: Any) -> int:
     return coerced
 
 
-def _coerce_order(order: Any) -> int:
+def _coerce_order(order: int | str | None) -> int:
     """
     Coerces the ``order`` query value to an int, refusing anything but ascending / descending
 
     Args:
-        order (Any): The raw ``order`` value, a string when it came from the query parser
+        order (int | str | None): The raw ``order`` value, a string when it came from the query parser
 
     Raises:
         ValueError: When the value is not an integer or is not 1 / -1
@@ -112,15 +112,15 @@ def _coerce_order(order: Any) -> int:
     return coerced
 
 
-def _coerce_page(page: Any) -> int:
+def _coerce_page(page: int | str | None) -> int:
     """
     Coerces the ``page`` query value to an int, clamping anything below the first page
 
     A caller asking for page 0 or a negative page is asking for the start of the collection, so the
-    value is clamped rather than refused - it used to produce a negative ``$skip``
+    value is clamped rather than refused, because it would otherwise produce a negative ``$skip``
 
     Args:
-        page (Any): The raw ``page`` value, a string when it came from the query parser
+        page (int | str | None): The raw ``page`` value, a string when it came from the query parser
 
     Raises:
         ValueError: When the value is not an integer at all
@@ -144,30 +144,36 @@ class CollectionParameters(APIParameters):
 
     def __init__(
         self,
-        query_string: str = None,
-        limit: int = None,
-        sort: str = DEFAULT_SORT,
-        order: int = SORT_ASCENDING,
-        page: int = None,
-        criteria: list[dict] | dict = None,
+        query_string: str | None = None,
+        limit: int | str | None = None,
+        sort: str | None = DEFAULT_SORT,
+        order: int | str | None = SORT_ASCENDING,
+        page: int | str | None = None,
+        criteria: list[dict[str, Any]] | dict[str, Any] | None = None,
         **kwargs: Any
     ) -> None:
         """
         Constructor of the CollectionParameters
 
         Every value may arrive as a string from the query parser, so each is coerced and validated
-        here; see the module docstring for why a bad value has to be rejected at this layer
+        here - which is why the pager parameters accept ``str`` as well as their stored type, while the
+        attributes they end up in are always ``int`` / ``str``. A value that cannot be converted raises
+        ``ValueError``, which the ``parse_*_parameters`` decorators answer with HTTP 400; see the module
+        docstring for why a bad value has to be rejected at this layer
 
         Args:
             query_string (str | None): The raw http query string. Can be used when the parsed
                 parameters are not enough
-            limit (int | None): The max number of resources returned (pageSize). 0 means unlimited.
-                Defaults to DEFAULT_LIMIT
-            sort (str): The query element used as the sort id (nested resources are possible via a dot)
-            order (int): The sort direction, 1 (ascending) or -1 (descending)
-            page (int | None): The current page; (limit * (page - 1)) elements are skipped. Clamped to
-                FIRST_PAGE
-            criteria (list[dict] | dict | None): A generic query filter based on
+            limit (int | str | None): The max number of resources returned (pageSize). 0 means
+                unlimited. Text from the query string is converted; None or '' is DEFAULT_LIMIT
+            sort (str | None): The query element used as the sort id (nested resources are possible via
+                a dot). None or '' is DEFAULT_SORT
+            order (int | str | None): The sort direction, 1 (ascending) or -1 (descending). Text from the
+                query string is converted; None or '' is ascending
+            page (int | str | None): The current page; (limit * (page - 1)) elements are skipped. Text
+                from the query string is converted; None or '' is FIRST_PAGE, a lower page is clamped to
+                it
+            criteria (list[dict[str, Any]] | dict[str, Any] | None): A generic query filter based on
                 https://docs.mongodb.com/compass/master/query/filter/ - the query string calls this
                 ``filter``, which is the name it keeps on the wire and on the attribute
             **kwargs (Any): Additional optional parameters, forwarded to APIParameters. The wire key
@@ -197,7 +203,7 @@ class CollectionParameters(APIParameters):
         # aggregation verbatim, so this is the boundary at which it stops being arbitrary
         assert_client_filter_is_allowed(criteria)
 
-        self.filter: list[dict] | dict = criteria or {}
+        self.filter: list[dict[str, Any]] | dict[str, Any] = criteria or {}
 
         super().__init__(query_string=query_string, **kwargs)
 

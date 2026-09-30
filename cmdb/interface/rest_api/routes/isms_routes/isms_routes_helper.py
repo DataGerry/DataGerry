@@ -24,9 +24,19 @@ from flask import abort
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.interface.rest_api.routes import routes_helper
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    BULK_ITEM_INVALID_ID_MSG,
+    BULK_ITEM_MISSING_ID_MSG,
+    BULK_ITEM_NOT_FOUND_MSG,
+    BULK_ITEM_UPDATE_FAILED_MSG,
+    BulkItemResultKey,
+    BulkItemStatus,
     ISMS_BULK_DELETE_DELETED_KEY,
+    ISMS_CAP_REACHED_MSG,
     ISMS_BULK_DELETE_IN_USE_KEY,
+    IsmsEntityLabel,
+    IsmsManagerErrorMessage,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -65,6 +75,115 @@ def get_item_or_404(
     return item
 
 
+class _KeepUnfilledPlaceholders(dict):
+    """A format mapping that answers an unknown placeholder with the placeholder itself"""
+
+    def __missing__(self, key: str) -> str:
+        """
+        Keeps a placeholder this mapping does not fill, for a later formatting pass
+
+        Args:
+            key (str): The placeholder's name
+
+        Returns:
+            str: The placeholder as written, ``{key}``
+        """
+        return f'{{{key}}}'
+
+
+def manager_error_message(label: IsmsEntityLabel, template: IsmsManagerErrorMessage) -> str:
+    """
+    Fills an ISMS manager-error template with an entity's labels
+
+    Only ``{entity}`` and ``{entities}`` are filled. Every other placeholder - ``{public_id}`` - stays in
+    the result, for ``handle_manager_errors`` to fill from the route's argument
+
+    Args:
+        label (IsmsEntityLabel): The entity the route serves
+        template (IsmsManagerErrorMessage): The operation's message template
+
+    Returns:
+        str: The template with the entity's labels filled in
+    """
+    return template.value.format_map(
+        _KeepUnfilledPlaceholders(entity=label.singular, entities=label.plural)
+    )
+
+
+def manager_error_messages(
+        label: IsmsEntityLabel,
+        templates: dict[type[Exception], IsmsManagerErrorMessage]) -> dict[type[Exception], str]:
+    """
+    Builds a route's ``handle_manager_errors`` table from its entity and one template per error class
+
+    Args:
+        label (IsmsEntityLabel): The entity the route serves
+        templates (dict[type[Exception], IsmsManagerErrorMessage]): Error class -> operation template
+
+    Returns:
+        dict[type[Exception], str]: Error class -> message, ``{public_id}`` still unfilled
+    """
+    return {
+        error_class: manager_error_message(label, template)
+        for error_class, template in templates.items()
+    }
+
+
+def require_created_item(item: dict[str, Any] | None, label: IsmsEntityLabel) -> dict[str, Any]:
+    """
+    Answers the item an ISMS insert route just created, refusing with a 500 when it cannot be read back
+
+    ``routes_helper.require_created_item`` with the entity's own message
+    (``IsmsManagerErrorMessage.GET_CREATED``)
+
+    Args:
+        item (dict[str, Any] | None): The read-back of the created item
+        label (IsmsEntityLabel): The entity the route serves
+
+    Raises:
+        werkzeug.exceptions.InternalServerError: Aborts with 500 when the item was not found
+
+    Returns:
+        dict[str, Any]: The created item
+    """
+    return routes_helper.require_created_item(
+        item, manager_error_message(label, IsmsManagerErrorMessage.GET_CREATED),
+    )
+
+
+def abort_if_isms_cap_reached(manager: GenericManager, cap: int, entity_label: str) -> None:
+    """
+    Refuses the create of an ISMS entry once its collection already holds ``cap`` entries
+
+    The bounded ISMS scales (Likelihoods, Impacts) and the RiskClasses are kept small so the risk matrix
+    stays readable. Reaching the cap is a business rule, not an authorisation decision - the caller holds
+    the right, the collection is simply full - so the refusal is a 400
+
+    Args:
+        manager (GenericManager): Manager of the collection the create would add to
+        cap (int): Maximum number of entries the collection may hold
+        entity_label (str): Plural entity name used in the message (e.g. "Likelihoods")
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the collection already holds ``cap`` entries
+    """
+    if manager.count_documents() >= cap:
+        abort(400, ISMS_CAP_REACHED_MSG.format(cap=cap, entity_label=entity_label))
+
+
+def _is_item_public_id(value: Any) -> bool:
+    """
+    Answers whether a bulk item's public_id can address a stored document
+
+    Args:
+        value (Any): The item's ``public_id`` as sent
+
+    Returns:
+        bool: True for an integer that is not a bool
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
 def update_multiple_items(
         manager: GenericManager,
         model: Type[CmdbDAO],
@@ -77,6 +196,10 @@ def update_multiple_items(
     Shared by the ISMS ``PUT``/``PATCH`` ``/multiple`` bulk-update routes. The set of existing
     public_ids is resolved in a single batched query rather than one existence read per item, then
     each item is updated on its own so a single failure does not abort the rest.
+
+    Each item is addressed by its own ``public_id``, which must be an integer. A bool is refused too:
+    ``True == 1`` in Python, so it would pass the existence check against id 1, while MongoDB does not
+    match a boolean against the stored integer and the update would write nothing yet report success.
 
     Args:
         manager (GenericManager): Manager whose items are updated
@@ -94,43 +217,45 @@ def update_multiple_items(
     if not isinstance(data, list):
         abort(400, f"The request body must be a list of {item_label}s!")
 
+    id_key: str = BulkItemResultKey.PUBLIC_ID.value
+
     # Resolve which requested ids exist in one batched query instead of a per-item existence read
     requested_ids: list[int] = [
-        item["public_id"] for item in data
-        if isinstance(item, dict) and item.get("public_id") is not None
+        item[id_key] for item in data
+        if isinstance(item, dict) and _is_item_public_id(item.get(id_key))
     ]
     existing_ids: set[int] = {
-        doc["public_id"] for doc in manager.find_all(criteria={"public_id": {"$in": requested_ids}})
+        doc[id_key] for doc in manager.find_all(criteria={id_key: {"$in": requested_ids}})
     } if requested_ids else set()
 
     results: list[dict[str, Any]] = []
 
     for item in data:
-        public_id = item.get("public_id") if isinstance(item, dict) else None
+        public_id = item.get(id_key) if isinstance(item, dict) else None
 
         if public_id is None:
-            results.append({"public_id": None, "status": "failed", "message": "Missing public_id"})
+            results.append(_bulk_item_failure(None, BULK_ITEM_MISSING_ID_MSG))
+            continue
+
+        if not _is_item_public_id(public_id):
+            results.append(_bulk_item_failure(public_id, BULK_ITEM_INVALID_ID_MSG))
             continue
 
         if public_id not in existing_ids:
-            results.append({
-                "public_id": public_id,
-                "status": "failed",
-                "message": f"{item_label} ID:{public_id} not found",
-            })
+            results.append(_bulk_item_failure(
+                public_id, BULK_ITEM_NOT_FOUND_MSG.format(item_label=item_label, public_id=public_id),
+            ))
             continue
 
         try:
             manager.update_item(public_id, model.from_data(item))
-            results.append({"public_id": public_id, "status": "success"})
+            results.append({id_key: public_id, BulkItemResultKey.STATUS.value: BulkItemStatus.SUCCESS.value})
         except Exception as err:
             LOGGER.error("[%s] Failed to update %s ID %s: %s. Type: %s",
                          log_tag, item_label, public_id, err, type(err))
-            results.append({
-                "public_id": public_id,
-                "status": "failed",
-                "message": f"Failed to update {item_label} ID: {public_id}",
-            })
+            results.append(_bulk_item_failure(
+                public_id, BULK_ITEM_UPDATE_FAILED_MSG.format(item_label=item_label, public_id=public_id),
+            ))
 
     return results
 
@@ -214,3 +339,21 @@ def guard_required_risk_assessment_fields(data: dict[str, Any]) -> None:
 
     if missing_fields:
         abort(400, f"The RiskAssessment is missing required field(s): {', '.join(missing_fields)}!")
+
+
+def _bulk_item_failure(public_id: Any, message: str) -> dict[str, Any]:
+    """
+    Builds the per-item entry of a bulk update that did not go through
+
+    Args:
+        public_id (Any): The item's id as sent, or None when it carried none
+        message (str): Why the item failed
+
+    Returns:
+        dict[str, Any]: `{public_id, status: 'failed', message}`
+    """
+    return {
+        BulkItemResultKey.PUBLIC_ID.value: public_id,
+        BulkItemResultKey.STATUS.value: BulkItemStatus.FAILED.value,
+        BulkItemResultKey.MESSAGE.value: message,
+    }

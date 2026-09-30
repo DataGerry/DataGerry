@@ -19,18 +19,18 @@ Implementation of all API routes for handling CmdbPortConnections
 These routes are the only way a connection is written. Five invariants hold across them:
 
 1. **The connection rights alone govern the surface.** A connection spans two CmdbObjects, and unlike
-   the /ports routes these do NOT additionally check either endpoint object's ACL - decision Q13,
-   taken 2026-09-03, following the Rack-mount precedent for a row that joins two things. The
-   trade-off is recorded on `ConnectionRight` rather than hidden: a caller holding these rights can
-   cable together two objects they could not open individually.
+   the /ports routes these do NOT additionally check either endpoint object's ACL, following the
+   Rack-mount precedent for a row that joins two things. The trade-off is documented on
+   `ConnectionRight`: a caller holding these rights can cable together two objects they could not
+   open individually.
 2. **The endpoints and the connection type are immutable.** An update writes cable information only;
    a re-cable is a delete plus a create. Moving an endpoint would drop the row onto a port whose
    cardinality slot was never checked for it.
 3. **The identity and the audit fields are server-owned.** Neither write route's schema declares
    `public_id` or the three audit fields, and the validator purges what it does not declare, so a body
    carrying one never reaches the handler; `author_id` / `creation_time` / `last_edit_time` are stamped
-   from the request. The schema types the cable half - before it, a CSV-shaped number reached the
-   database as the value of a field the document schema declares a string - while `endpoints` and
+   from the request. The schema types the cable half - without it, a CSV-shaped number would reach
+   the database as the value of a field the document schema declares a string - while `endpoints` and
    `connection_type` are left untyped for the connection validator, whose messages name what is wrong.
 4. **The cardinality rules are the DATABASE's.** A port holds at most one cable and at most one
    internal connection, no pair repeats, and a cable CI belongs to one connection - all four held by
@@ -45,9 +45,9 @@ These routes are the only way a connection is written. Five invariants hold acro
    from the connection otherwise, so a client renders both storage modes with the same code and never
    reads a value that is null for half the connections. An INTERNAL connection answers `cable: null`.
 
-`§35`'s rule holds by construction: every route here touches exactly the connection it addresses, and
-the delete cascades are scoped to the ports actually being removed - resolving or deleting one
-connection never removes another.
+Resolving or deleting one connection never removes another, and that holds by construction: every
+route here touches exactly the connection it addresses, and the delete cascades are scoped to the
+ports actually being removed.
 
 The whole surface is gated behind the licensed IPAM feature (see init_rest_api), like /ports and
 /racks: `uses_ports` cannot be turned on without that licence either
@@ -64,6 +64,7 @@ from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.port_connection_model import PortConnectionKey, sort_endpoints
@@ -106,9 +107,11 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     append_criteria_to_filter,
     fetch_only_active_objects,
     request_wants_body,
+    require_created_item,
 )
 
 from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route_constants import (
+    CONNECTION_CREATED_NOT_READABLE_MESSAGE,
     ConnectionParam,
     ConnectionRequestKey,
     ConnectionRight,
@@ -174,8 +177,10 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
     Raises:
         HTTPException: 400 when the body fails the schema, the shape is invalid, an endpoint's slot of
                        this kind is taken, the cable CI is already used, or the body describes its
-                       cable both inline and by reference; 404 when the created connection cannot be
-                       read back; 500 on an unexpected error
+                       cable both inline and by reference - the slot and cable rules by the pre-checks
+                       or, under a concurrent create, by the unique indexes; 500 when the write fails for
+                       any other reason, when the created connection cannot be read back, or on an
+                       unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbPortConnection, with its resolved cable block, and its
@@ -211,17 +216,16 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
 
         new_id: int = port_connections_manager.insert_item(candidate)
 
-        created: dict[str, Any] | None = port_connections_manager.get_item(new_id, as_dict=True)
-
-        if not created:
-            abort(404, 'Could not retrieve the created Port connection from the database!')
+        created: dict[str, Any] = require_created_item(
+            port_connections_manager.get_item(new_id, as_dict=True), CONNECTION_CREATED_NOT_READABLE_MESSAGE,
+        )
 
         return InsertSingleResponse(with_cable_view(created, request_user), new_id).make_response()
     except PortConnectionsManagerInsertError as err:
         # The partial unique indexes are what stop two concurrent creates, and they are the only thing
         # that can: every check above is a read followed by a write
         LOGGER.error("[insert_cmdb_port_connection] PortConnectionsManagerInsertError: %s", err, exc_info=True)
-        duplicate_key_abort(err, connection_type, endpoints)
+        duplicate_key_abort(err, connection_type, endpoints, port_connections_manager)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #
@@ -307,9 +311,9 @@ def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) 
     """
     HTTP `GET`/`HEAD` route to retrieve every CmdbPortConnection of one CmdbObject's CmdbPorts
 
-    What an object view needs to show the cabling of a device in one request. Without it a client had
-    to read the object's ports and then ask per port, so a 48-port switch cost 49 round trips for a
-    question two indexed reads answer.
+    What an object view needs to show the cabling of a device in one request. Without it a client would
+    have to read the object's ports and then ask per port, so a 48-port switch would cost 49 round trips
+    for a question two indexed reads answer.
 
     An object with no ports, or with none of them connected, answers with an empty list - "nothing is
     cabled here" is a normal state. The OBJECT not existing is a 404, because that is a different
@@ -320,7 +324,7 @@ def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) 
 
     **On the ACL**: this route is keyed by an object, so the object's own READ permission is checked
     exactly as `/ports/object/<id>` checks it - the caller is asking what is attached to *that device*.
-    What decision Q13 governs is the PEER end: the returned connections may name ports of objects the
+    What the connection-rights rule governs is the PEER end: the returned connections may name ports of objects the
     caller cannot read, and their ids are not filtered out, because a connection is a fact about the
     cabling rather than about either device
 
@@ -418,10 +422,10 @@ def get_cable_usage_of_object(object_id: int, request_user: CmdbUser) -> Respons
         abort(400, f'Failed to determine the Port connection usage of the Cable with ID: {object_id}!')
 
 @port_connection_blueprint.route('/cables/unassigned/', methods=['GET', 'HEAD'])
-@port_connection_blueprint.parse_collection_parameters()
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
+@port_connection_blueprint.parse_collection_parameters()
 @handle_route_errors("while listing the assignable Cables")
 def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
@@ -439,8 +443,8 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
     except that `sort` defaults to the cable name instead of the public_id
 
     Guarded by the connection view right, like every read here: this is a question, not a change. The
-    candidates' own ACLs are not applied - Q13's rule for this surface, and the same trade-off the
-    Rack's assignable-objects picker documents
+    candidates' own ACLs are not applied - the connection-rights rule of this surface, and the same
+    trade-off the Rack's assignable-objects picker documents
 
     Args:
         params (CollectionParameters): Filtering, sorting and pagination parameters
@@ -476,10 +480,10 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
         )
 
         if search_criteria:
-            params.filter.append({'$match': search_criteria})
+            params.filter.append(Builder.match_(search_criteria))
 
         if fetch_only_active_objects():
-            params.filter.append({'$match': {CmdbObjectKey.ACTIVE.value: {'$eq': True}}})
+            params.filter.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {'$eq': True}}))
 
         params.sort = resolve_cable_sort(params.sort)
 
@@ -540,48 +544,55 @@ def update_cmdb_port_connection(public_id: int, data: dict[str, Any], request_us
 
     Raises:
         HTTPException: 400 when the body fails the schema, the payload changes an immutable field, the
-                       cable CI is already used, a cable field is set on an INTERNAL connection, or the
-                       body describes its cable both inline and by reference; 404 when the connection
-                       does not exist; 500 on an unexpected error
+                       cable CI is already used (by the pre-check or, under a concurrent claim, by the
+                       unique index - the same message naming the holder), a cable field is set on an
+                       INTERNAL connection, or the body describes its cable both inline and by reference;
+                       404 when the connection does not exist; 500 when the write fails for any other
+                       reason, or on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbPortConnection, with its resolved cable block
     """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+        ManagerType.PORT_CONNECTIONS, request_user)
+
+    stored: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
+
+    refuse_identity_change(stored, data)
+
+    # The stored type decides which fields are allowed, not the payload's: the type is immutable,
+    # so a body that omits it must be judged by what the connection actually IS
+    connection_type: str = stored.get(PortConnectionKey.CONNECTION_TYPE.value)
+
+    enforce_connection_shape(
+        ManagerProvider.get_manager(ManagerType.PORTS, request_user),
+        objects_manager, types_manager, connection_type,
+        {**data, ConnectionRequestKey.ENDPOINTS.value: stored.get(PortConnectionKey.ENDPOINTS.value)},
+    )
+    enforce_cable_ci_free(
+        port_connections_manager, data.get(ConnectionRequestKey.CABLE_CI_ID.value),
+        exclude_id=public_id,
+    )
+
+    cable_info: dict[str, Any] = build_cable_info(data)
+    cable_info[PortConnectionKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
+
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
-            ManagerType.PORT_CONNECTIONS, request_user)
-
-        stored: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
-
-        refuse_identity_change(stored, data)
-
-        # The stored type decides which fields are allowed, not the payload's: the type is immutable,
-        # so a body that omits it must be judged by what the connection actually IS
-        connection_type: str = stored.get(PortConnectionKey.CONNECTION_TYPE.value)
-
-        enforce_connection_shape(
-            ManagerProvider.get_manager(ManagerType.PORTS, request_user),
-            objects_manager, types_manager, connection_type,
-            {**data, ConnectionRequestKey.ENDPOINTS.value: stored.get(PortConnectionKey.ENDPOINTS.value)},
-        )
-        enforce_cable_ci_free(
-            port_connections_manager, data.get(ConnectionRequestKey.CABLE_CI_ID.value),
-            exclude_id=public_id,
-        )
-
-        cable_info: dict[str, Any] = build_cable_info(data)
-        cable_info[PortConnectionKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
-
         port_connections_manager.replace_connection(public_id, cable_info)
-
-        updated: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
-
-        return UpdateSingleResponse(with_cable_view(updated, request_user)).make_response()
     except PortConnectionsManagerUpdateError as err:
+        # The partial unique index on cable_ci_id is what stops two concurrent claims of one Cable - the
+        # only index an update can reach, its endpoints being immutable. Its refusal is answered with the
+        # pre-check's own message; any other failure of the write is the server's (500)
         LOGGER.error("[update_cmdb_port_connection] PortConnectionsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f'Failed to update the Port connection with ID: {public_id}!')
+        duplicate_key_abort(
+            err, connection_type, stored.get(PortConnectionKey.ENDPOINTS.value), port_connections_manager,
+        )
+
+    updated: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
+
+    return UpdateSingleResponse(with_cable_view(updated, request_user)).make_response()
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - DELETE                                                      #
@@ -635,9 +646,9 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
     HTTP `DELETE` route to resolve several CmdbPortConnections of one CmdbObject's ports at once
 
     The body is ``{'connection_ids': [...]}``, and the ids are CONNECTIONS, never ports - that is what
-    makes resolving **granular** (§34). A patch-panel pair carries a front connection, a rear
+    makes resolving **granular**. A patch-panel pair carries a front connection, a rear
     connection and an internal pairing; only an id per connection can express "the internal one, and
-    nothing else", so §35's rule that **resolving one connection never deletes another** is structural
+    nothing else", so the rule that **resolving one connection never deletes another** is structural
     here rather than something the code has to remember.
 
     Scoped to the object whose table the selection was made in: every id must have at least ONE
@@ -670,8 +681,8 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
             payload, BulkActionRequestKey.CONNECTION_IDS.value,
         )
 
-        # No object ACL, deliberately: a connection is governed by the connection rights alone
-        # (decision Q13), and it belongs to neither of the two devices it joins. The object here is
+        # No object ACL, deliberately: a connection is governed by the connection rights alone,
+        # and it belongs to neither of the two devices it joins. The object here is
         # the SCOPE of the selection, not its owner
         get_selected_connections_or_abort(
             port_connections_manager, ports_manager, object_id, connection_ids,

@@ -211,6 +211,87 @@ class TestPostObjectRelation:
         _purge_object_relation(database_manager, database_name, response.get_json()['result_id'])
 
 
+class TestTheServerOwnedFieldsOnCreate:
+    """
+    The identity and the two timestamps are the server's, whatever the body says
+
+    Both were filed as gaps and both are closed by mechanisms that landed elsewhere - the identity by
+    `build_write_schema`, which derives the request contract from the document one and drops
+    `public_id` (the validator purges unknown keys, so it cannot reach the route at all), and the
+    timestamps by the schema's `anyof_type`, which accepts the three shapes a date arrives in.
+    Nothing pinned either on the CREATE side, which is how the gap entry went stale unnoticed.
+    """
+
+    def test_a_forged_public_id_is_dropped(self, rest_api, database_manager: MongoDatabaseManager,
+                                           database_name: str) -> None:
+        """The update route pins the id to the URL; the create route has no URL to pin it to"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_object_relation_payload(FORGED_PUBLIC_ID))
+        created_id = response.get_json()['result_id']
+
+        try:
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+            assert created_id != FORGED_PUBLIC_ID
+            assert database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)\
+                .count_documents({'public_id': FORGED_PUBLIC_ID}) == 0
+        finally:
+            _purge_object_relation(database_manager, database_name, created_id)
+
+    @pytest.mark.parametrize('creation_time', [
+        '2026-09-23T10:00:00Z',
+        {'$date': 1600000000000},
+        None,
+    ], ids=['an ISO string', 'the {$date} wrapper', 'null'])
+    def test_every_accepted_timestamp_shape_is_normalised(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+        creation_time: Any,
+    ) -> None:
+        """
+        A client may send any of the three, and the stored value is a real datetime either way
+
+        The ISO string is the one an API client sends and the wrapper is what the frontend sends. The
+        value is overwritten by the server's own stamp regardless - what is pinned here is that none
+        of the three is REFUSED, which a stricter rule would do to two of them.
+        """
+        payload = {**_object_relation_payload(), 'creation_time': creation_time}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+        created_id = response.get_json()['result_id']
+
+        try:
+            assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+            stored = database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)\
+                .find_one({'public_id': created_id})
+
+            assert isinstance(stored['creation_time'], datetime)
+        finally:
+            _purge_object_relation(database_manager, database_name, created_id)
+
+    def test_a_timestamp_that_is_no_date_shape_is_refused(self, rest_api) -> None:
+        """The rule is datetime-aware, not 'anything goes': a number is none of the three shapes"""
+        response = rest_api.post(
+            f'{ROUTE_URL}/', json={**_object_relation_payload(), 'creation_time': 42},
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_the_last_edit_time_is_cleared_whatever_the_body_sends(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A relation that was never edited reports None, so the frontend can tell the two apart"""
+        payload = {**_object_relation_payload(), 'last_edit_time': '2026-09-23T10:00:00Z'}
+
+        response = rest_api.post(f'{ROUTE_URL}/', json=payload)
+        created_id = response.get_json()['result_id']
+
+        try:
+            stored = database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)\
+                .find_one({'public_id': created_id})
+
+            assert stored['last_edit_time'] is None
+        finally:
+            _purge_object_relation(database_manager, database_name, created_id)
+
+
 class TestGetObjectRelation:
     """GET /object_relations/<id> and GET /object_relations/ envelopes."""
 
@@ -499,7 +580,7 @@ class TestDeleteObjectRelation:
     def test_delete_many_rejects_unusable_ids(self, rest_api, target_ids: list[Any],
                                               database_manager: MongoDatabaseManager,
                                               database_name: str) -> None:
-        """A JSON `true` used to normalise to public_id 1 and delete a relation (regression)."""
+        """A JSON `true` must not normalise to public_id 1 and delete a relation."""
         _insert_object_relation_doc(database_manager, database_name, OR_ID_FOR_BULK_A)
         try:
             response = rest_api.post(f'{ROUTE_URL}/delete/many', json={'target_ids': target_ids})
@@ -750,7 +831,7 @@ class TestTheTimestampsAreServerOwned:
         """
         A relation that has just been created has never been edited
 
-        The create route used to leave this key to the body, so a client could claim an edit that
+        Leaving this key to the body lets a client claim an edit that
         never happened - and backdate it by years.
         """
         payload = _object_relation_payload()
@@ -811,12 +892,12 @@ class TestTheTimestampsAreServerOwned:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """
-        The fuzzy parser used to read 'sometime in March 2020' as a real date built from today
+        A fuzzy parser reads 'sometime in March 2020' as a real date built from today
 
         It cannot be reached through either write route any more, and for a better reason than
         validation: the update pins the stored creation_time over whatever the body said, and the
         create stamps its own. The refusal itself is pinned where it IS reachable - a direct
-        from_data, in tests/unit/models/object_relation_model. What this test guards is that the
+        from_data, in its own unit tests. What this test guards is that the
         stored value is the seeded one, i.e. that the pin happens before the model reads the payload.
         """
         _insert_object_relation_doc(database_manager, database_name, OR_ID_FOR_UPDATE)

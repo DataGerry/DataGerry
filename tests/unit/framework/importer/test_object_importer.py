@@ -17,20 +17,27 @@
 Unit tests for cmdb.framework.importer.importers.object_importer
 
 DB-free: the importer methods run on a MagicMock-typed ``self`` with ``current_app`` / the portal-sync
-helper patched at the module path. Covers the batch loop (``_import``: success/reject/failure routing,
-an unexpected per-object error failing only that object, start_element + max_elements bounds,
-one-sync-per-batch), the public_id / overwrite resolution (``_resolve_public_id`` +
+helper patched at the module path - except the ConfigItem-limit tests, which use a real importer
+over a mocked ObjectsManager so the count it keeps across rows is the real one.
+
+Covers the batch loop (``_import``: success/reject/failure routing, an unexpected per-object error
+failing only that object, start_element + max_elements bounds, one-sync-per-batch), the public_id / overwrite resolution (``_resolve_public_id`` +
 ``_check_overwrite_compatibility``, which read the stored object as the DOCUMENT the manager returns)
 and the per-object write (``_import_single_object``: new-id assignment, overwrite of an already
-resolved existing object, and the cloud ConfigItem limit).
+resolved existing object, and the cloud ConfigItem limit: the user's own rule, 0 as a literal limit,
+one count per import kept current by the import's inserts and overwrites).
 """
+from itertools import count
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cmdb.framework.importer.importers.object_importer import ObjectImporter
+from cmdb.models.user_model import CmdbUser
 from cmdb.framework.importer.helper.object_import_validator import ImportTypeContext
+from cmdb.framework.object_field_value_rules import FieldValueRule
+from cmdb.models.type_model import TEXT_VALUE_MAX_LENGTH
 from cmdb.errors.manager.objects_manager import (
     ObjectsManagerGetError,
     ObjectsManagerGetTypeError,
@@ -42,6 +49,11 @@ from cmdb.errors.manager.objects_manager import (
 # pylint: disable=protected-access
 
 PATH: str = 'cmdb.framework.importer.importers.object_importer'
+NEW_OBJECT_FIRST_ID: int = 100
+OVERWRITTEN_ID: int = 7
+LIMIT: int = 10
+ROWS_IN_ONE_IMPORT: int = 3
+FREE_SLOTS: int = 2
 
 
 def _existing_object(type_id: int, public_id: int = 5) -> dict:
@@ -74,7 +86,7 @@ class TestToProvidedJson:
         """It returns a deep copy so later coercion of the entry can't mutate the report snapshot."""
         entry = {'active': True, 'fields': [{'name': 'f', 'value': 'v'}]}
 
-        result = ObjectImporter._to_provided_json(MagicMock(), entry)  # pylint: disable=protected-access
+        result = ObjectImporter._to_provided_json(MagicMock(), entry)
 
         assert result == entry
         assert result is not entry
@@ -91,7 +103,7 @@ class TestGenerateObjects:
         mock_self.generate_object.side_effect = lambda entry, *a, **k: ('g', entry)
         parsed = SimpleNamespace(entries=['e1', 'e2'])
 
-        result = ObjectImporter._generate_objects(mock_self, parsed)  # pylint: disable=protected-access
+        result = ObjectImporter._generate_objects(mock_self, parsed)
 
         assert result == [(('p', 'e1'), ('g', 'e1')), (('p', 'e2'), ('g', 'e2'))]
 
@@ -107,7 +119,7 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(3), None)  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, _candidates(3), None)
 
         assert result.success_imports == ['s1', 's2']
         assert result.failed_imports == ['f1']
@@ -123,7 +135,7 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(3), None)  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, _candidates(3), None)
 
         assert result.success_imports == ['s1', 's2']  # the objects around it still got written
         assert len(result.failed_imports) == 1
@@ -138,7 +150,7 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, [({'public_id': 242}, {})], None)  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, [({'public_id': 242}, {})], None)
 
         assert result.failed_imports[0].failed_object == {'public_id': 242}
 
@@ -150,9 +162,9 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = True
-            ObjectImporter._import(mock_self, _candidates(2), None)  # pylint: disable=protected-access
+            ObjectImporter._import(mock_self, _candidates(2), None)
 
-        mock_self._sync_config_item_count.assert_called_once()  # pylint: disable=protected-access
+        mock_self._sync_config_item_count.assert_called_once()
 
     def test_no_sync_when_nothing_was_written(self) -> None:
         """No config-item sync runs when every candidate failed."""
@@ -162,9 +174,9 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = True
-            ObjectImporter._import(mock_self, _candidates(1), None)  # pylint: disable=protected-access
+            ObjectImporter._import(mock_self, _candidates(1), None)
 
-        mock_self._sync_config_item_count.assert_not_called()  # pylint: disable=protected-access
+        mock_self._sync_config_item_count.assert_not_called()
 
     def test_start_element_skips_leading_objects(self) -> None:
         """start_element offsets the first processed object."""
@@ -174,10 +186,10 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(3), None)  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, _candidates(3), None)
 
         assert len(result.success_imports) == 1
-        assert mock_self._process_candidate.call_count == 1  # pylint: disable=protected-access
+        assert mock_self._process_candidate.call_count == 1
 
     def test_max_elements_limits_the_batch(self) -> None:
         """max_elements caps the number of processed candidates (count, not absolute index)."""
@@ -187,10 +199,10 @@ class TestImportBatch:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import(mock_self, _candidates(5), None)  # pylint: disable=protected-access
+            result = ObjectImporter._import(mock_self, _candidates(5), None)
 
         assert len(result.success_imports) == 2
-        assert mock_self._process_candidate.call_count == 2  # pylint: disable=protected-access
+        assert mock_self._process_candidate.call_count == 2
 
 
 class TestProcessCandidate:
@@ -204,11 +216,11 @@ class TestProcessCandidate:
         mock_self._import_single_object.return_value = 42
 
         with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            success, failure = ObjectImporter._process_candidate(  # pylint: disable=protected-access
+            success, failure = ObjectImporter._process_candidate(
                 mock_self, {'p': 1}, {'o': 1}, None, None)
 
         assert failure is None and success is not None
-        mock_self._import_single_object.assert_called_once_with({'o': 1}, None)  # pylint: disable=protected-access
+        mock_self._import_single_object.assert_called_once_with({'o': 1}, None)
 
     def test_the_resolved_existing_object_is_handed_to_the_write(self) -> None:
         """The object being overwritten is read once and passed on, not looked up again."""
@@ -219,10 +231,10 @@ class TestProcessCandidate:
         mock_self._import_single_object.return_value = 7
 
         with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            ObjectImporter._process_candidate(  # pylint: disable=protected-access
+            ObjectImporter._process_candidate(
                 mock_self, {'p': 1}, {'o': 1}, None, None)
 
-        mock_self._import_single_object.assert_called_once_with({'o': 1}, existing)  # pylint: disable=protected-access
+        mock_self._import_single_object.assert_called_once_with({'o': 1}, existing)
 
     def test_validation_error_is_rejected(self) -> None:
         """A validation error rejects the object and skips the write."""
@@ -230,12 +242,12 @@ class TestProcessCandidate:
         mock_self._provided_field_names.return_value = set()
 
         with patch(f'{PATH}.normalize_and_validate_object', return_value=['bad']):
-            success, failure = ObjectImporter._process_candidate(  # pylint: disable=protected-access
+            success, failure = ObjectImporter._process_candidate(
                 mock_self, {'p': 1}, {}, None, None)
 
         assert success is None
         assert failure.errors == ['bad']
-        mock_self._import_single_object.assert_not_called()  # pylint: disable=protected-access
+        mock_self._import_single_object.assert_not_called()
 
     def test_public_id_error_is_rejected(self) -> None:
         """An overwrite-incompatibility error from _resolve_public_id rejects the object."""
@@ -244,12 +256,12 @@ class TestProcessCandidate:
         mock_self._resolve_public_id.return_value = ('incompatible', None)
 
         with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            success, failure = ObjectImporter._process_candidate(  # pylint: disable=protected-access
+            success, failure = ObjectImporter._process_candidate(
                 mock_self, {'p': 1}, {}, None, None)
 
         assert success is None
         assert failure.errors == ['incompatible']
-        mock_self._import_single_object.assert_not_called()  # pylint: disable=protected-access
+        mock_self._import_single_object.assert_not_called()
 
     def test_write_error_is_rejected(self) -> None:
         """An ObjectsManager* error from the write becomes a failed import."""
@@ -259,7 +271,7 @@ class TestProcessCandidate:
         mock_self._import_single_object.side_effect = ObjectsManagerInsertError("boom")
 
         with patch(f'{PATH}.normalize_and_validate_object', return_value=[]):
-            success, failure = ObjectImporter._process_candidate(  # pylint: disable=protected-access
+            success, failure = ObjectImporter._process_candidate(
                 mock_self, {'p': 1}, {}, None, None)
 
         assert success is None
@@ -276,7 +288,7 @@ class TestProvidedFieldNames:
             'multi_data_sections': [{'section_id': 's', 'values': [{'data': [{'name': 'c'}]}]}],
         }
 
-        assert ObjectImporter._provided_field_names(obj) == {'a', 'b', 'c'}  # pylint: disable=protected-access
+        assert ObjectImporter._provided_field_names(obj) == {'a', 'b', 'c'}
 
 
 class TestResolvePublicId:
@@ -286,8 +298,8 @@ class TestResolvePublicId:
         """An object without a public_id resolves to (no error, nothing to overwrite)."""
         mock_self = MagicMock()
 
-        assert ObjectImporter._resolve_public_id(mock_self, {'fields': []}, set()) == (None, None)  # pylint: disable=protected-access
-        mock_self._check_overwrite_compatibility.assert_not_called()  # pylint: disable=protected-access
+        assert ObjectImporter._resolve_public_id(mock_self, {'fields': []}, set()) == (None, None)
+        mock_self._check_overwrite_compatibility.assert_not_called()
         mock_self.objects_manager.get_object.assert_not_called()
 
     def test_overwrite_off_strips_the_public_id(self) -> None:
@@ -296,7 +308,7 @@ class TestResolvePublicId:
         mock_self.get_config.return_value = _run_config(overwrite_public=False)
         obj = {'public_id': 5, 'fields': []}
 
-        assert ObjectImporter._resolve_public_id(mock_self, obj, set()) == (None, None)  # pylint: disable=protected-access
+        assert ObjectImporter._resolve_public_id(mock_self, obj, set()) == (None, None)
         assert 'public_id' not in obj  # stripped
         mock_self.objects_manager.get_object.assert_not_called()  # nothing to read - it is a new object
 
@@ -307,9 +319,9 @@ class TestResolvePublicId:
         mock_self.objects_manager.get_object.return_value = None
         obj = {'public_id': 5}
 
-        assert ObjectImporter._resolve_public_id(mock_self, obj, {'a'}) == (None, None)  # pylint: disable=protected-access
+        assert ObjectImporter._resolve_public_id(mock_self, obj, {'a'}) == (None, None)
         assert obj['public_id'] == 5
-        mock_self._check_overwrite_compatibility.assert_not_called()  # pylint: disable=protected-access
+        mock_self._check_overwrite_compatibility.assert_not_called()
 
     def test_overwrite_on_delegates_to_compatibility_check(self) -> None:
         """With overwrite enabled the public_id is kept and the compatibility check drives the result."""
@@ -320,11 +332,11 @@ class TestResolvePublicId:
         mock_self._check_overwrite_compatibility.return_value = 'ERR'
         obj = {'public_id': 5}
 
-        result = ObjectImporter._resolve_public_id(mock_self, obj, {'a'})  # pylint: disable=protected-access
+        result = ObjectImporter._resolve_public_id(mock_self, obj, {'a'})
 
         assert result == ('ERR', existing)
         assert obj['public_id'] == 5  # kept for the overwrite
-        mock_self._check_overwrite_compatibility.assert_called_once_with(5, existing, {'a'})  # pylint: disable=protected-access
+        mock_self._check_overwrite_compatibility.assert_called_once_with(5, existing, {'a'})
 
     def test_the_existing_object_is_read_exactly_once(self) -> None:
         """The overwrite target is read here and handed on, so the write does not repeat the query."""
@@ -333,7 +345,7 @@ class TestResolvePublicId:
         mock_self.objects_manager.get_object.return_value = {'public_id': 5, 'type_id': 9}
         mock_self._check_overwrite_compatibility.return_value = None
 
-        _, existing = ObjectImporter._resolve_public_id(mock_self, {'public_id': 5}, set())  # pylint: disable=protected-access
+        _, existing = ObjectImporter._resolve_public_id(mock_self, {'public_id': 5}, set())
 
         assert existing == {'public_id': 5, 'type_id': 9}
         mock_self.objects_manager.get_object.assert_called_once_with(5)
@@ -345,7 +357,7 @@ class TestResolvePublicId:
         mock_self.objects_manager.get_object.side_effect = ObjectsManagerGetError("db down")
 
         with pytest.raises(ObjectsManagerGetError):
-            ObjectImporter._resolve_public_id(mock_self, {'public_id': 5}, set())  # pylint: disable=protected-access
+            ObjectImporter._resolve_public_id(mock_self, {'public_id': 5}, set())
 
 
 class TestOverwriteCompatibility:
@@ -357,7 +369,7 @@ class TestOverwriteCompatibility:
         mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = [
             {'name': 'a'}, {'name': 'b'}]
 
-        assert ObjectImporter._check_overwrite_compatibility(  # pylint: disable=protected-access
+        assert ObjectImporter._check_overwrite_compatibility(
             mock_self, 5, _existing_object(9), {'a'}) is None
 
     def test_the_type_is_resolved_from_the_stored_documents_type_id(self) -> None:
@@ -365,7 +377,7 @@ class TestOverwriteCompatibility:
         mock_self = MagicMock()
         mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = [{'name': 'a'}]
 
-        ObjectImporter._check_overwrite_compatibility(mock_self, 5, _existing_object(9), {'a'})  # pylint: disable=protected-access
+        ObjectImporter._check_overwrite_compatibility(mock_self, 5, _existing_object(9), {'a'})
 
         mock_self.objects_manager.get_object_type.assert_called_once_with(9)
 
@@ -374,7 +386,7 @@ class TestOverwriteCompatibility:
         mock_self = MagicMock()
         mock_self.objects_manager.get_object_type.return_value.get_fields.return_value = [{'name': 'a'}]
 
-        result = ObjectImporter._check_overwrite_compatibility(  # pylint: disable=protected-access
+        result = ObjectImporter._check_overwrite_compatibility(
             mock_self, 5, _existing_object(9), {'a', 'b'})
 
         assert result is not None and 'b' in result
@@ -384,7 +396,7 @@ class TestOverwriteCompatibility:
         mock_self = MagicMock()
         mock_self.objects_manager.get_object_type.return_value = None
 
-        result = ObjectImporter._check_overwrite_compatibility(  # pylint: disable=protected-access
+        result = ObjectImporter._check_overwrite_compatibility(
             mock_self, 5, _existing_object(9), {'a'})
 
         assert result == 'Cannot overwrite object 5: its type (ID:9) does not exist'
@@ -395,7 +407,7 @@ class TestOverwriteCompatibility:
         mock_self.objects_manager.get_object_type.side_effect = ObjectsManagerGetTypeError("db down")
 
         with pytest.raises(ObjectsManagerGetTypeError):
-            ObjectImporter._check_overwrite_compatibility(mock_self, 5, _existing_object(9), {'a'})  # pylint: disable=protected-access
+            ObjectImporter._check_overwrite_compatibility(mock_self, 5, _existing_object(9), {'a'})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -413,7 +425,7 @@ class TestImportSingleObject:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import_single_object(mock_self, obj)  # pylint: disable=protected-access
+            result = ObjectImporter._import_single_object(mock_self, obj)
 
         assert result == 500
         assert obj['public_id'] == 500
@@ -428,7 +440,7 @@ class TestImportSingleObject:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import_single_object(  # pylint: disable=protected-access
+            result = ObjectImporter._import_single_object(
                 mock_self, obj, {'public_id': 7, 'creation_time': 'ORIGINAL'})
 
         assert result == 7
@@ -444,7 +456,7 @@ class TestImportSingleObject:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            ObjectImporter._import_single_object(  # pylint: disable=protected-access
+            ObjectImporter._import_single_object(
                 mock_self, {'public_id': 7}, {'public_id': 7})
 
         mock_self.objects_manager.get_object.assert_not_called()
@@ -456,7 +468,7 @@ class TestImportSingleObject:
 
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
-            result = ObjectImporter._import_single_object(mock_self, obj, None)  # pylint: disable=protected-access
+            result = ObjectImporter._import_single_object(mock_self, obj, None)
 
         assert result == 9
         mock_self.objects_manager.delete_with_follow_up.assert_not_called()
@@ -472,7 +484,7 @@ class TestImportSingleObject:
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = True
             with pytest.raises(ObjectsManagerInsertError):
-                ObjectImporter._import_single_object(mock_self, {})  # pylint: disable=protected-access
+                ObjectImporter._import_single_object(mock_self, {})
 
         mock_self.objects_manager.insert_object.assert_not_called()
 
@@ -484,12 +496,12 @@ class TestImportSingleObject:
         with patch(f'{PATH}.current_app') as current_app:
             current_app.cloud_mode = False
             with pytest.raises(ObjectsManagerDeleteError):
-                ObjectImporter._import_single_object(  # pylint: disable=protected-access
+                ObjectImporter._import_single_object(
                     mock_self, {'public_id': 3}, {'public_id': 3})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                          _sync_config_item_count                                                    #
+#                                                   _import_for_type                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class TestImportForType:
@@ -521,6 +533,10 @@ class TestImportForType:
             field_options={},
             predefined_select_fields={},
             new_select_options={},
+            field_value_rules={
+                'host': FieldValueRule(max_length=TEXT_VALUE_MAX_LENGTH),
+                'note': FieldValueRule(max_length=TEXT_VALUE_MAX_LENGTH),
+            },
         )
         mock_self._resolve_predefined_select_fields.assert_called_once_with(type_instance)
         mock_self._import.assert_called_once_with(['cand'], 'SUBNET', expected_context)
@@ -600,24 +616,102 @@ class TestAbstractMethods:
             ObjectImporter.start_import(MagicMock())
 
 
+def _limit_importer(stored_count: int, limit: int | None) -> ObjectImporter:
+    """
+    A real ObjectImporter over a mocked ObjectsManager, for the ConfigItem-limit bookkeeping
+
+    Built without __init__ (which needs a file and a parser); only the attributes the limit path reads
+    are set. The request user is a real CmdbUser, so the rule under test is the model's own
+    """
+    importer: ObjectImporter = ObjectImporter.__new__(ObjectImporter)
+    importer.objects_manager = MagicMock()
+    importer.objects_manager.count_documents.return_value = stored_count
+    importer.objects_manager.get_new_object_public_id.side_effect = count(NEW_OBJECT_FIRST_ID)
+    importer.request_user = CmdbUser(public_id=1, user_name='importer', active=True,
+                                     config_items_limit=limit)
+    importer._object_count = None
+
+    return importer
+
+
+def _import_new(importer: ObjectImporter) -> int:
+    """Imports one new object (no public_id) in cloud mode through the real per-object write"""
+    with patch(f'{PATH}.current_app') as current_app:
+        current_app.cloud_mode = True
+        return importer._import_single_object({})
+
+
 class TestConfigItemLimit:
-    """The cloud ConfigItem limit check compares the object count against the user's limit."""
+    """The import asks the user's own limit rule, against a count it reads once per import"""
 
-    def test_limit_reached_when_count_at_limit(self) -> None:
-        """At or above the user's limit the check reports True."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.count_documents.return_value = 10
-        user = SimpleNamespace(config_items_limit=10)
+    def test_the_check_asks_the_users_rule(self) -> None:
+        """At the limit the check reports True, below it False - the same answer the object route gets"""
+        at_limit = _limit_importer(stored_count=LIMIT, limit=LIMIT)
+        below_limit = _limit_importer(stored_count=LIMIT - 1, limit=LIMIT)
 
-        assert ObjectImporter.check_config_item_limit_reached(mock_self, user) is True
+        assert at_limit.check_config_item_limit_reached(at_limit.request_user) is True
+        assert below_limit.check_config_item_limit_reached(below_limit.request_user) is False
 
-    def test_limit_not_reached_below_limit(self) -> None:
-        """Below the user's limit the check reports False."""
-        mock_self = MagicMock()
-        mock_self.objects_manager.count_documents.return_value = 3
-        user = SimpleNamespace(config_items_limit=10)
+    def test_a_limit_of_zero_refuses_the_first_row(self) -> None:
+        """0 is a literal limit on the import too - the object route and the import refuse alike"""
+        importer = _limit_importer(stored_count=0, limit=0)
 
-        assert ObjectImporter.check_config_item_limit_reached(mock_self, user) is False
+        with pytest.raises(ObjectsManagerInsertError):
+            _import_new(importer)
+
+        importer.objects_manager.insert_object.assert_not_called()
+
+    def test_a_missing_limit_gets_the_default_instead_of_a_type_error(self) -> None:
+        """A null limit reaches the check as the default, so the comparison never meets a None"""
+        importer = _limit_importer(stored_count=0, limit=None)
+
+        _import_new(importer)
+
+        importer.objects_manager.insert_object.assert_called_once()
+
+    def test_the_count_is_read_once_per_import(self) -> None:
+        """Three rows, one count_documents - the import keeps the number current itself"""
+        importer = _limit_importer(stored_count=0, limit=LIMIT)
+
+        for _ in range(ROWS_IN_ONE_IMPORT):
+            _import_new(importer)
+
+        importer.objects_manager.count_documents.assert_called_once_with()
+
+    def test_the_rows_inserted_by_the_import_use_up_the_budget(self) -> None:
+        """With two free slots the first two rows are written and the third is refused"""
+        importer = _limit_importer(stored_count=LIMIT - FREE_SLOTS, limit=LIMIT)
+
+        for _ in range(FREE_SLOTS):
+            _import_new(importer)
+        with pytest.raises(ObjectsManagerInsertError):
+            _import_new(importer)
+
+        assert importer.objects_manager.insert_object.call_count == FREE_SLOTS
+
+    def test_an_overwrite_at_the_limit_is_allowed_and_leaves_the_count_unchanged(self) -> None:
+        """Replacing an object deletes before it inserts, so it never uses up budget"""
+        importer = _limit_importer(stored_count=LIMIT, limit=LIMIT)
+        importer._stored_object_count()
+
+        with patch(f'{PATH}.current_app') as current_app:
+            current_app.cloud_mode = True
+            importer._import_single_object(
+                {'public_id': OVERWRITTEN_ID}, {'public_id': OVERWRITTEN_ID})
+
+        importer.objects_manager.insert_object.assert_called_once()
+        assert importer._object_count == LIMIT
+
+    def test_a_write_before_the_first_count_is_not_tracked(self) -> None:
+        """Outside cloud mode nothing counts; the first real count then reads the database afresh"""
+        importer = _limit_importer(stored_count=FREE_SLOTS, limit=LIMIT)
+
+        with patch(f'{PATH}.current_app') as current_app:
+            current_app.cloud_mode = False
+            importer._import_single_object({})
+
+        assert importer._object_count is None
+        assert importer._stored_object_count() == FREE_SLOTS
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -633,7 +727,7 @@ class TestSyncConfigItemCount:
         mock_self.objects_manager.count_documents.return_value = 42
 
         with patch(f'{PATH}.handle_sync_config_item_count') as sync:
-            ObjectImporter._sync_config_item_count(mock_self)  # pylint: disable=protected-access
+            ObjectImporter._sync_config_item_count(mock_self)
 
         sync.assert_called_once_with(mock_self.request_user, 42)
 
@@ -642,7 +736,7 @@ class TestSyncConfigItemCount:
         mock_self = MagicMock()
 
         with patch(f'{PATH}.handle_sync_config_item_count', side_effect=RuntimeError("boom")):
-            ObjectImporter._sync_config_item_count(mock_self)  # pylint: disable=protected-access  # must not raise
+            ObjectImporter._sync_config_item_count(mock_self)  # must not raise
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -657,7 +751,7 @@ class TestResolveTargetType:
         mock_self = MagicMock()
         mock_self.target_type = 'THE TYPE'
 
-        assert ObjectImporter.resolve_target_type(mock_self) == 'THE TYPE'  # pylint: disable=protected-access
+        assert ObjectImporter.resolve_target_type(mock_self) == 'THE TYPE'
         mock_self.objects_manager.get_object_type.assert_not_called()
 
     def test_it_falls_back_to_reading_the_type(self) -> None:

@@ -21,6 +21,9 @@ into the shared caches, and that nothing is fetched when both caches are already
 """
 from unittest.mock import Mock
 
+import pytest
+
+from cmdb.models.docapi_model import docapi_cache_helper
 from cmdb.models.docapi_model.docapi_cache_helper import cache_objects_and_types
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -29,6 +32,15 @@ TYPE_ID: str = 'type_id'
 
 SERVER_TYPE: int = 10
 APP_TYPE: int = 20
+
+# The user the document is built for; its denied types are stubbed per test
+REQUEST_USER: Mock = Mock(name='request_user')
+
+
+@pytest.fixture(autouse=True)
+def _nothing_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The caller's group may read every type unless a test says otherwise."""
+    monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [])
 
 
 def _managers(objects: list[dict], types: list[dict]) -> tuple[Mock, Mock]:
@@ -52,7 +64,7 @@ class TestCacheObjectsAndTypes:
             [{PUBLIC_ID: APP_TYPE}],
         )
 
-        cache_objects_and_types([2], object_cache, type_cache, objects_manager, types_manager)
+        cache_objects_and_types([2], object_cache, type_cache, objects_manager, types_manager, REQUEST_USER)
 
         assert object_cache == {2: {PUBLIC_ID: 2, TYPE_ID: APP_TYPE}}
         assert type_cache == {APP_TYPE: {PUBLIC_ID: APP_TYPE}}
@@ -64,7 +76,7 @@ class TestCacheObjectsAndTypes:
         type_cache = {SERVER_TYPE: {PUBLIC_ID: SERVER_TYPE}}
         objects_manager, types_manager = _managers([], [])
 
-        cache_objects_and_types([1], object_cache, type_cache, objects_manager, types_manager)
+        cache_objects_and_types([1], object_cache, type_cache, objects_manager, types_manager, REQUEST_USER)
 
         objects_manager.find.assert_not_called()
         types_manager.find.assert_not_called()
@@ -78,7 +90,7 @@ class TestCacheObjectsAndTypes:
             [{PUBLIC_ID: SERVER_TYPE}, {PUBLIC_ID: APP_TYPE}],
         )
 
-        cache_objects_and_types([2], object_cache, type_cache, objects_manager, types_manager)
+        cache_objects_and_types([2], object_cache, type_cache, objects_manager, types_manager, REQUEST_USER)
 
         types_manager.find.assert_called_once()
         assert set(type_cache) == {SERVER_TYPE, APP_TYPE}
@@ -89,6 +101,53 @@ class TestCacheObjectsAndTypes:
         type_cache = {}
         objects_manager, types_manager = _managers([{PUBLIC_ID: 2}], [])
 
-        cache_objects_and_types([2], object_cache, type_cache, objects_manager, types_manager)
+        cache_objects_and_types([2], object_cache, type_cache, objects_manager, types_manager, REQUEST_USER)
 
         types_manager.find.assert_not_called()
+
+
+DENIED_TYPE: int = 30
+
+
+class TestTheCallersAcl:
+    """Only objects of types the caller may READ enter the cache."""
+
+    def test_the_denied_types_are_excluded_from_the_object_query(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The object query carries the caller's denied types - a hidden object never reaches the cache"""
+        monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [DENIED_TYPE])
+        objects_manager, types_manager = _managers([], [])
+
+        cache_objects_and_types([2], {}, {}, objects_manager, types_manager, REQUEST_USER)
+
+        criteria: dict = objects_manager.find.call_args.kwargs['criteria']
+        assert criteria == {PUBLIC_ID: {'$in': [2]}, TYPE_ID: {'$nin': [DENIED_TYPE]}}
+
+    def test_nothing_denied_leaves_the_query_plain(self) -> None:
+        """A group that may read every type costs no extra condition"""
+        objects_manager, types_manager = _managers([], [])
+
+        cache_objects_and_types([2], {}, {}, objects_manager, types_manager, REQUEST_USER)
+
+        assert objects_manager.find.call_args.kwargs['criteria'] == {PUBLIC_ID: {'$in': [2]}}
+
+    def test_the_denied_types_are_resolved_for_read(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A document only reads, so READ is the permission asked"""
+        asked: list = []
+        monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids',
+                            lambda user, permission: asked.append((user, permission)) or [])
+        objects_manager, types_manager = _managers([], [])
+
+        cache_objects_and_types([2], {}, {}, objects_manager, types_manager, REQUEST_USER)
+
+        assert asked == [(REQUEST_USER, docapi_cache_helper.AccessControlPermission.READ)]
+
+    def test_a_warm_cache_resolves_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Nothing missing, nothing asked - not even the denied types"""
+        asked: list = []
+        monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids',
+                            lambda user, permission: asked.append(user) or [])
+        objects_manager, types_manager = _managers([], [])
+
+        cache_objects_and_types([2], {2: {PUBLIC_ID: 2}}, {}, objects_manager, types_manager, REQUEST_USER)
+
+        assert not asked

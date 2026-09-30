@@ -75,7 +75,7 @@ class XmlExportFormat(BaseExporterFormat):
     ACTIVE = True
 
 
-    def export(self, data: list[RenderResult], *args) -> str:
+    def export(self, data: list[RenderResult], *args: Any) -> str:
         """
         Exports the given objects as a formatted XML string
 
@@ -101,7 +101,7 @@ class XmlExportFormat(BaseExporterFormat):
         return xml_string
 
 
-    def _get_export_settings(self, args: tuple, data: list[RenderResult]) -> tuple[list[str], list[str], str]:
+    def _get_export_settings(self, args: tuple[Any, ...], data: list[RenderResult]) -> tuple[list[str], list[str], str]:
         """
         Resolves the header, columns and view for the export from the request args
 
@@ -111,7 +111,7 @@ class XmlExportFormat(BaseExporterFormat):
         view (a render view is only honoured when it explicitly selects the columns).
 
         Args:
-            args (tuple): The positional export args; `args[0]` (if present) is the options dict
+            args (tuple[Any, ...]): The positional export args; `args[0]` (if present) is the options dict
             data (list[RenderResult]): The list of objects to be exported
 
         Returns:
@@ -235,13 +235,13 @@ class XmlExportFormat(BaseExporterFormat):
                 cmdb_object_meta_id.text = str(obj.object_information.get(head, ''))
 
 
-    def _add_field_data(self, cmdb_object: ET.Element, obj_fields_dict: dict, columns: list[str]) -> None:
+    def _add_field_data(self, cmdb_object: ET.Element, obj_fields_dict: dict[str, Any], columns: list[str]) -> None:
         """
         Adds field elements to the XML structure
 
         Args:
             cmdb_object (ET.Element): The parent XML element
-            obj_fields_dict (dict): Dictionary of object fields and their values
+            obj_fields_dict (dict[str, Any]): Dictionary of object fields and their values
             columns (list[str]): List of field names to be included
         """
         cmdb_object_fields = ET.SubElement(cmdb_object, XML_FIELDS_TAG)

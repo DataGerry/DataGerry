@@ -18,6 +18,7 @@ Implementation of JsonObjectImporter
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
+from typing import Any
 
 from cmdb.manager import ObjectsManager
 
@@ -44,7 +45,7 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
     """Object importer for JSON"""
 
     def __init__(self,
-                 file=None,
+                 file: Any = None,
                  config: JsonObjectImporterConfig | None = None,
                  parser: JsonObjectParser | None = None,
                  objects_manager: ObjectsManager | None = None,
@@ -69,19 +70,19 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         )
 
 
-    def generate_object(self, entry: dict, *args, **kwargs) -> dict:
+    def generate_object(self, entry: dict[str, Any], *args: Any, **kwargs: Any) -> dict[str, Any]:
         """
         Creates a native CmdbObject dict from a parsed JSON entry
 
         Args:
-            entry (dict): A single parsed object from the JSON file
+            entry (dict[str, Any]): A single parsed object from the JSON file
 
         Returns:
-            dict: The generated object dict ready for import
+            dict[str, Any]: The generated object dict ready for import
         """
-        map_properties: dict = self.config.get_mapping().get(JsonMappingKey.PROPERTIES.value)
+        map_properties: dict[str, str] = self.config.get_mapping().get(JsonMappingKey.PROPERTIES.value)
 
-        working_object: dict = {
+        working_object: dict[str, Any] = {
             CmdbObjectKey.TYPE_ID.value: self.config.get_type_id(),
             CmdbObjectKey.FIELDS.value: [],
             CmdbObjectKey.VERSION.value: DEFAULT_OBJECT_VERSION,
@@ -105,18 +106,23 @@ class JsonObjectImporter(ObjectImporter, JSONContent):
         return working_object
 
 
-    def _map_element(self, prop: str, entry: dict, working: dict, map_properties: dict) -> dict:
+    def _map_element(
+            self,
+            prop: str,
+            entry: dict[str, Any],
+            working: dict[str, Any],
+            map_properties: dict[str, str]) -> dict[str, Any]:
         """
         Copies one mapped property value from the entry onto the working object
 
         Args:
             prop (str): The target property name on the object
-            entry (dict): The parsed source entry
-            working (dict): The object being built (mutated in place)
-            map_properties (dict): The property mapping (target property -> source key)
+            entry (dict[str, Any]): The parsed source entry
+            working (dict[str, Any]): The object being built (mutated in place)
+            map_properties (dict[str, str]): The property mapping (target property -> source key)
 
         Returns:
-            dict: The working object
+            dict[str, Any]: The working object
         """
         if map_properties:
             source_key = map_properties.get(prop)

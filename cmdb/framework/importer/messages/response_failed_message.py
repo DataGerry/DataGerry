@@ -26,7 +26,7 @@ class ResponseFailedMessage:
     """Message wrapper for failed objects (serialized to JSON via its ``__dict__``)"""
 
     def __init__(self, error_message: Any, status: int, public_id: int | None = None,
-                 obj: dict | None = None) -> None:
+                 obj: dict[str, Any] | None = None) -> None:
         """
         Initialises the ResponseFailedMessage
 
@@ -35,7 +35,7 @@ class ResponseFailedMessage:
                 serializes as readable text rather than an empty object
             status (int): The HTTP-like status code describing the failure
             public_id (int | None): The public_id that failed, if known
-            obj (dict | None): The object dict that failed
+            obj (dict[str, Any] | None): The object dict that failed
         """
         self.status: int = status
         self.public_id: int | None = public_id

@@ -16,6 +16,7 @@
 """
 Implementation of ImportFailedMessage
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class ImportFailedMessage:
@@ -26,14 +27,14 @@ class ImportFailedMessage:
     provided it, plus every reason it could not be imported.
     """
 
-    def __init__(self, failed_object: dict, errors: list[str]) -> None:
+    def __init__(self, failed_object: dict[str, Any], errors: list[str]) -> None:
         """
         Initialises the ImportFailedMessage
 
         Args:
-            failed_object (dict): The object as provided by the user (a JSON entry, or a CSV row
+            failed_object (dict[str, Any]): The object as provided by the user (a JSON entry, or a CSV row
                 transformed to a JSON object)
             errors (list[str]): The reasons the object was rejected or failed to import
         """
-        self.failed_object: dict = failed_object
+        self.failed_object: dict[str, Any] = failed_object
         self.errors: list[str] = errors

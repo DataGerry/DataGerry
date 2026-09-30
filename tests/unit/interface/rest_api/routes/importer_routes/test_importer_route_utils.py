@@ -136,8 +136,8 @@ class TestVerifyImportAccessUsesTheSharedRule:
     """
     The import guard asks the shared ACL builder, not a query of its own
 
-    It used to carry a fourth hand-rolled copy of the rule, which read an `acl` with no `activated`
-    key differently from the model (tier 2 T208). These pin that the criteria it sends is the shared
+    A fourth hand-rolled copy of the rule here would read an `acl` with no `activated` key
+    differently from the model. These pin that the criteria it sends is the shared
     one, asked for all three permissions at once.
     """
 

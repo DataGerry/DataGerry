@@ -17,12 +17,11 @@
 Unit tests for cmdb.models.cmdb_versioning.Versioning
 
 Pure tests: no Mongo, no Flask. The value object behind every CmdbObject's and CmdbType's version
-string, and until this sweep no test module named it.
+string.
 
-What is pinned here is semantic versioning itself, because the class did not implement it: a minor
-bump left the patch component alone - against what its own docstring promised - and a major bump left
-both. A series of edits therefore produced strings like 1.5.7, where the patch count belonged to a
-minor version two releases old
+What is pinned here is semantic versioning itself: a minor bump resets the patch component, and a
+major bump resets both. Without the resets a series of edits would produce strings like 1.5.7, where
+the patch count belongs to a minor version two releases old
 """
 import pytest
 

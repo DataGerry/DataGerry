@@ -13,3 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Shared test helpers used across the test tiers
+
+Builders for the documents the suites seed, the authenticated Flask test client, the shared assertion
+for update routes, and the cloud-mode switch the functional suites use to drive a hosted-cloud request
+"""

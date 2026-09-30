@@ -102,7 +102,7 @@ class CmdbCachedUser(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbCachedUserInitError(str(err)) from err
+            raise CmdbCachedUserInitError(err) from err
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
@@ -144,7 +144,7 @@ class CmdbCachedUser(CmdbDAO):
                 creation_time = data[CachedUserKey.CREATION_TIME],
             )
         except Exception as err:
-            raise CmdbCachedUserInitFromDataError(str(err)) from err
+            raise CmdbCachedUserInitFromDataError(err) from err
 
 
     @classmethod
@@ -179,4 +179,4 @@ class CmdbCachedUser(CmdbDAO):
                 CachedUserKey.CREATION_TIME: instance.creation_time,
             }
         except Exception as err:
-            raise CmdbCachedUserToJsonError(str(err)) from err
+            raise CmdbCachedUserToJsonError(err) from err

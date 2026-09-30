@@ -22,7 +22,7 @@ nominating ``hostname`` draws nodes reading ``db-01``, ``web-02``, … The read 
 ``nodes.resolve_title``; this module is the write side, so the nomination cannot point at something
 that will never resolve.
 
-Two ways a nomination is unusable, and both used to be storable:
+Two ways a nomination is unusable, and both are refused on write:
 
 * **it names no field of the Type at all** - a typo, a display label sent instead of a field name, or
   a field that has since been removed. Every node of the Type then renders "Label not selected",
@@ -31,7 +31,7 @@ Two ways a nomination is unusable, and both used to be storable:
   ``fields`` list, so ``resolve_title`` WOULD find it - but the per-row data lives in
   ``multi_data_sections``, and that flat entry carries none of it. The nodes would show a blank or a
   stale single value rather than the rows. The frontend's picker excludes MDS fields for exactly this
-  reason; the backend now agrees.
+  reason, and the backend enforces the same rule.
 
 A field the Type declares but assigns to no section IS accepted. The frontend only offers fields it
 can show in a section, but an unassigned field still resolves on the object, and refusing it here

@@ -40,6 +40,13 @@ PUBLIC_ID_FIELD: str = "public_id"
 MONGO_ERROR_KEY_PATTERN: str = "keyPattern"
 MONGO_ERROR_KEY_VALUE: str = "keyValue"
 
+# The server's error code for a unique-index violation (E11000), and the keys a BulkWriteError's
+# 'details' dict reports it under: an unordered insert_many raises one BulkWriteError listing every
+# refused document under 'writeErrors', each with its own 'code' / 'keyPattern' / 'keyValue'
+MONGO_DUPLICATE_KEY_ERROR_CODE: int = 11000
+MONGO_WRITE_ERRORS_KEY: str = "writeErrors"
+MONGO_ERROR_CODE_KEY: str = "code"
+
 # Name of the database handling caches
 DG_CACHE_DB = "dg_caches"
 

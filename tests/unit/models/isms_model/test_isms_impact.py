@@ -17,20 +17,18 @@
 Unit tests for cmdb.models.isms_model.isms_impact.IsmsImpact
 
 Pure tests: no Mongo, no Flask. The model declares ``KEYS`` and inherits ``from_data`` / ``to_json``
-from CmdbDAO (tests/unit/models/test_cmdb_dao_shared_document.py owns that machinery), so what is
-pinned here is what remains this model's own - and this one had two behaviours worth keeping that a
-naive migration would have dropped:
+from CmdbDAO, whose shared machinery has its own tests, so what is pinned here is what remains this
+model's own - and this one carries two behaviours a naive migration would drop:
 
   - **``IsmsLikelihood`` is its structural twin.** Both carry exactly public_id / name /
-    calculation_basis / description, so one serialises cleanly as the other. This model used to be the
-    only ISMS entity with an isinstance guard in its own ``to_json``; the check now lives in the shared
-    implementation, and the test below is the reason it had to
+    calculation_basis / description, so one serialises cleanly as the other. The isinstance guard that
+    catches the mix-up lives in the shared implementation, and the test below is the reason it has to
   - **it read its required keys with ``data['key']``**, so a document missing one was an error rather
     than an instance holding None. ``REQUIRED_INIT_KEYS`` is what keeps that after the migration
 
 Plus what its own schema accepts: an impact created without a description round-trips as null, and the
-frontend's edit modal patches that null straight back into the form it saves - which the schema used to
-answer with 'null value not allowed'.
+frontend's edit modal patches that null straight back into the form it saves, which the schema has to
+accept rather than answer with 'null value not allowed'.
 
 ``COLLECTION`` is pinned as the document's identity, and the deliberate ABSENCE of ``INDEX_KEYS`` with
 it, since the reason (a bounded scale collection) is easy to forget
@@ -103,9 +101,8 @@ class TestNotMistakenForItsTwin:
         """
         Without the check this returns a likelihood serialised as an impact, and says nothing
 
-        The check used to live in this model's own to_json and is now in CmdbDAO's, so every model
-        sharing the pair is protected - which is also why this test lives here, on the model that
-        needed it first.
+        The check lives in CmdbDAO's to_json, so every model sharing the pair is protected - and this
+        test lives here, on the model that needs it most.
         """
         likelihood = IsmsLikelihood(public_id = 9, name = 'Rare', calculation_basis = 1.0,
                                     description = 'Unlikely')
@@ -151,8 +148,8 @@ class TestWhatTheModelEmitsIsAcceptedBack:
         """
         The regression: an impact created through the API without a description could not be edited
 
-        The list route answers to_json, the edit modal patches that null in unchanged, and the save
-        used to come back 400 'null value not allowed'.
+        The list route answers to_json and the edit modal patches that null in unchanged, so a schema
+        refusing it answers the save with 400 'null value not allowed'.
         """
         document = _document()
         del document[ImpactKey.DESCRIPTION.value]
@@ -167,7 +164,7 @@ class TestCalculationBasisIsANumber:
     """It is the weight the risk matrix multiplies, not a label."""
 
     def test_the_schema_refuses_a_string(self) -> None:
-        """The model annotated it `str` until 2026-09-07 - the only claim of that anywhere."""
+        """Nothing else in the stack claims this field is a string."""
         assert ImpactKey.CALCULATION_BASIS.value in _validate(_document(calculation_basis='3')).errors
 
     def test_the_schema_refuses_a_negative_weight(self) -> None:
@@ -178,9 +175,9 @@ class TestCalculationBasisIsANumber:
         """
         A zero-weight level would flatten every risk that uses it
 
-        This schema accepted 0.0 until 2026-09-07 - alone among the four layers with an opinion: the
-        likelihood scale (the other axis of the same matrix) has always said ``'min': 1e-9``, both
-        frontend forms apply ``nonZeroValidator``, and the OpenAPI schema documented 1e-9. The
+        All four layers with an opinion agree: the likelihood scale (the other axis of the same
+        matrix) says ``'min': 1e-9``, both frontend forms apply ``nonZeroValidator``, and the OpenAPI
+        schema documents 1e-9. The
         ``isms_likelihood.py`` audit is what identified which layer was wrong.
         """
         assert ImpactKey.CALCULATION_BASIS.value in _validate(_document(calculation_basis=0.0)).errors
@@ -191,7 +188,7 @@ class TestCalculationBasisIsANumber:
 
 
 class TestRequiredDocumentKeys:
-    """The strictness that data['key'] used to provide, kept across the migration."""
+    """The strictness a bare data['key'] provides, kept across the migration."""
 
     def test_the_required_keys_are_the_name_and_the_weight(self) -> None:
         """public_id is CmdbDAO's own business; a description is optional by design."""
@@ -202,7 +199,7 @@ class TestRequiredDocumentKeys:
 
     @pytest.mark.parametrize('missing_key', IMPACT_REQUIRED_DOCUMENT_KEYS)
     def test_a_document_missing_one_is_refused(self, missing_key: str) -> None:
-        """It used to raise a KeyError from data['key']; now the message names what is missing."""
+        """The message names what is missing, rather than raising a KeyError from data['key']."""
         document = _document()
         del document[missing_key]
 

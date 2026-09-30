@@ -36,13 +36,16 @@ from cmdb.security.license.verification import LicenseVerificationResult
 from cmdb.interface.rest_api.routes.cmdb_license.license_constants import (
     ACTIVATE_LICENSE_ROUTE,
     CURRENT_LICENSE_ROUTE,
+    LICENSE_ENTITLEMENTS_ROUTE,
     CurrentLicenseResponseKey,
+    LicenseEntitlementsResponseKey,
     LicenseUploadKey,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CURRENT_URL: str = f'/license{CURRENT_LICENSE_ROUTE}'
 ACTIVATE_URL: str = f'/license{ACTIVATE_LICENSE_ROUTE}'
+ENTITLEMENTS_URL: str = f'/license{LICENSE_ENTITLEMENTS_ROUTE}'
 RESULT_KEY: str = 'result'
 
 
@@ -181,3 +184,139 @@ def test_activate_returns_500_on_unexpected_error(rest_api, monkeypatch: pytest.
     response = rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
 
     assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          GET entitlements                                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_entitlements_on_the_free_default(rest_api) -> None:
+    """With no license active the route answers inactive, on the free tier, with no features"""
+    response = rest_api.get(ENTITLEMENTS_URL)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json[RESULT_KEY] == {
+        LicenseEntitlementsResponseKey.IS_ACTIVE.value: False,
+        LicenseEntitlementsResponseKey.TYPE.value: LicenseTier.FREE.value,
+        LicenseEntitlementsResponseKey.FEATURES.value: [],
+    }
+
+
+def test_entitlements_report_an_active_license(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+    """An activated license is reported active, with its tier and exactly the features it grants"""
+    _force_valid(monkeypatch, LicenseTier.BUSINESS.value, features=['isms', 'ipam'])
+    rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    response = rest_api.get(ENTITLEMENTS_URL)
+
+    assert response.status_code == HTTPStatus.OK
+    assert response.json[RESULT_KEY] == {
+        LicenseEntitlementsResponseKey.IS_ACTIVE.value: True,
+        LicenseEntitlementsResponseKey.TYPE.value: LicenseTier.BUSINESS.value,
+        LicenseEntitlementsResponseKey.FEATURES.value: ['isms', 'ipam'],
+    }
+
+
+@pytest.mark.parametrize('tier', [LicenseTier.CORE.value, LicenseTier.BUSINESS.value,
+                                  LicenseTier.CORPORATE.value])
+def test_entitlements_report_each_tier(rest_api, monkeypatch: pytest.MonkeyPatch, tier: str) -> None:
+    """The tier is what a screen names the plan by, so every one of them has to come through"""
+    _force_valid(monkeypatch, tier)
+    rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    assert rest_api.get(ENTITLEMENTS_URL).json[RESULT_KEY][
+        LicenseEntitlementsResponseKey.TYPE.value] == tier
+
+
+def test_an_expired_license_reports_the_free_tier(rest_api, monkeypatch) -> None:
+    """A lapsed license degrades to Community, and the tier says so rather than the old plan"""
+    _force_valid(monkeypatch, LicenseTier.BUSINESS.value, features=['isms'])
+    rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    expired = LicenseVerificationResult(LicenseVerificationStatus.EXPIRED)
+    monkeypatch.setattr(svc_module, 'verify_license', lambda *args, **kwargs: expired)
+
+    body = rest_api.get(ENTITLEMENTS_URL).json[RESULT_KEY]
+
+    assert body[LicenseEntitlementsResponseKey.IS_ACTIVE.value] is False
+    assert body[LicenseEntitlementsResponseKey.TYPE.value] == LicenseTier.FREE.value
+
+
+def test_entitlements_carry_nothing_that_identifies_the_license(rest_api, monkeypatch) -> None:
+    """Three keys and no more - no id, no subscription, no binding HMAC, no dates
+
+    The tier IS answered: it names the plan a screen shows and identifies no license. Everything
+    that does identify one stays on the right-gated /current route.
+    """
+    entitlement = LicenseEntitlement(
+        hmac='super-secret-binding-hmac',
+        license_type=LicenseTier.BUSINESS.value,
+        start_date=1700000000000,
+        end_date=1900000000000,
+        sub_id='sub-4711',
+        license_id='lic-0815',
+        features=['isms'],
+    )
+    result = LicenseVerificationResult(LicenseVerificationStatus.VALID, entitlement)
+    monkeypatch.setattr(svc_module, 'verify_license', lambda *args, **kwargs: result)
+    rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    response = rest_api.get(ENTITLEMENTS_URL)
+    body = response.get_data(as_text=True)
+
+    assert set(response.json[RESULT_KEY]) == {
+        LicenseEntitlementsResponseKey.IS_ACTIVE.value,
+        LicenseEntitlementsResponseKey.TYPE.value,
+        LicenseEntitlementsResponseKey.FEATURES.value,
+    }
+    for secret in ('super-secret-binding-hmac', 'sub-4711', 'lic-0815', '1700000000000', '1900000000000'):
+        assert secret not in body
+
+
+def test_entitlements_agree_with_the_current_license_route(rest_api, monkeypatch) -> None:
+    """The two routes read one state, so their is_active and features cannot drift apart"""
+    _force_valid(monkeypatch, LicenseTier.BUSINESS.value, features=['isms', 'ipam'])
+    rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    entitlements = rest_api.get(ENTITLEMENTS_URL).json[RESULT_KEY]
+    current = rest_api.get(CURRENT_URL).json[RESULT_KEY]
+
+    assert entitlements[LicenseEntitlementsResponseKey.IS_ACTIVE.value] == \
+        current[CurrentLicenseResponseKey.IS_ACTIVE.value]
+    assert entitlements[LicenseEntitlementsResponseKey.FEATURES.value] == current['features']
+    assert entitlements[LicenseEntitlementsResponseKey.TYPE.value] == current['type']
+
+
+def test_an_expired_license_is_not_active_and_grants_nothing(rest_api, monkeypatch) -> None:
+    """Expiry is already inside is_active: a lapsed license reports inactive on the free features"""
+    _force_valid(monkeypatch, LicenseTier.BUSINESS.value, features=['isms', 'ipam'])
+    rest_api.post(ACTIVATE_URL, json={LicenseUploadKey.BLOB.value: 'any-blob'})
+
+    expired = LicenseVerificationResult(LicenseVerificationStatus.EXPIRED)
+    monkeypatch.setattr(svc_module, 'verify_license', lambda *args, **kwargs: expired)
+
+    response = rest_api.get(ENTITLEMENTS_URL)
+
+    assert response.json[RESULT_KEY] == {
+        LicenseEntitlementsResponseKey.IS_ACTIVE.value: False,
+        LicenseEntitlementsResponseKey.TYPE.value: LicenseTier.FREE.value,
+        LicenseEntitlementsResponseKey.FEATURES.value: [],
+    }
+
+
+def test_entitlements_require_authentication(rest_api) -> None:
+    """No ACL right is required, but a token is"""
+    response = rest_api.get(ENTITLEMENTS_URL, environ_overrides={'HTTP_AUTHORIZATION': ''})
+
+    assert response.status_code == HTTPStatus.UNAUTHORIZED
+
+
+def test_entitlements_hidden_in_non_on_premise_mode(rest_api, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Like every license route, it is a 404 outside the on-premise version
+
+    Local mode rather than cloud mode, for the same reason the current-license test uses it: cloud
+    mode makes `insert_request_user` read a `database` claim the test client's token does not carry,
+    so the request would be refused 401 before the guard is reached.
+    """
+    monkeypatch.setattr(rest_api.application, 'local_mode', True)
+
+    assert rest_api.get(ENTITLEMENTS_URL).status_code == HTTPStatus.NOT_FOUND

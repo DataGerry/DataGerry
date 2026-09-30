@@ -92,7 +92,7 @@ class ExtendableOptionsManager(GenericManager):
                 if isinstance(option.get(ExtendableOptionKey.VALUE.value), str)
             ]
         except (BaseManagerGetError, Exception) as err:
-            raise ExtendableOptionsManagerGetError(str(err)) from err
+            raise ExtendableOptionsManagerGetError(err) from err
 
 
     def get_option_values_by_id(self, option_types: list[str]) -> dict[str, dict[int, str]]:
@@ -145,7 +145,7 @@ class ExtendableOptionsManager(GenericManager):
 
             return value_maps
         except Exception as err:
-            raise ExtendableOptionsManagerGetError(str(err)) from err
+            raise ExtendableOptionsManagerGetError(err) from err
 
 
     def iterate_option_documents(self, builder_params: BuilderParameters) -> tuple[list[dict[str, Any]], int]:
@@ -172,4 +172,4 @@ class ExtendableOptionsManager(GenericManager):
         try:
             return self.iterate_query(builder_params)
         except Exception as err:
-            raise ExtendableOptionsManagerIterationError(str(err)) from err
+            raise ExtendableOptionsManagerIterationError(err) from err

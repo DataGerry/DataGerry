@@ -16,7 +16,7 @@
 """
 Unit tests for CmdbAuthSettings, the stored `auth` settings section
 
-The section decides how every login works, and until 2026-09-14 nothing validated it in either
+The section decides how every login works, and it has to be validated in either
 direction - `AuthModule` splatted the stored document into the constructor and the update route
 splatted a client payload. These tests pin what that cost:
 
@@ -29,7 +29,7 @@ splatted a client payload. These tests pin what that cost:
 * `_id` travelled in the write payload, so a client-supplied one made MongoDB refuse the whole update
 
 No database and no app context: the model is pure. The route behaviour on top of it is covered in
-tests/functional/test_functional_auth_login_route.py.
+the functional login-route tests.
 """
 from typing import Any
 
@@ -117,7 +117,7 @@ class TestFromDataRejectsBadInput:
     """Validation is the reason from_data exists - the constructor could not do it."""
 
     def test_an_unknown_key_is_refused(self) -> None:
-        """It used to be a TypeError from signature binding, which the route reported as a 500."""
+        """A TypeError from signature binding here would be reported by the route as a 500."""
         with pytest.raises(AuthSettingsInitError):
             CmdbAuthSettings.from_data({'bogus': 1})
 
@@ -199,7 +199,7 @@ class TestRequireComplete:
         """
         Omitting one silently blanks it
 
-        A payload without `providers` used to reset the list to empty - deleting the configured LDAP
+        A payload without `providers` must not reset the list to empty - that deletes the configured LDAP
         provider - because an absent key and a reset to the default are indistinguishable.
         """
         payload = _complete_payload()
@@ -266,12 +266,12 @@ class TestGetProviderSettings:
         assert settings.get_provider_settings(LOCAL_PROVIDER) == LOCAL_CONFIG
 
     def test_an_unknown_provider_is_none_not_an_exception(self, settings: CmdbAuthSettings) -> None:
-        """It used to raise StopIteration, which the one caller had to catch to fall back."""
+        """A bare next() raises StopIteration, which the one caller would have to catch to fall back."""
         assert settings.get_provider_settings('NoSuchProvider') is None
 
     def test_a_malformed_entry_does_not_break_the_lookup(self, settings: CmdbAuthSettings) -> None:
         """
-        An entry with no `class_name` used to raise KeyError, and nothing caught it
+        An entry with no `class_name` must not raise KeyError, because nothing catches it
 
         That shape is what a historical AuthModule bug wrote into this list, so a lookup must walk
         past it rather than fail on it - including for a provider listed AFTER the bad entry.

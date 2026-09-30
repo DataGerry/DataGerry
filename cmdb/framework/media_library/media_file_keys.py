@@ -97,7 +97,7 @@ MEDIA_FILE_PARENT_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadata
 # same pair the upload/update routes check before falling back to a 'copy_(n)_' rename
 MEDIA_FILE_FILENAME_PARENT_INDEX_NAME: str = 'filename_parent'
 
-# Name of the index this model declared until 2026-09-16: a UNIQUE index over 'name', a key no GridFS
-# document carries. It was never built anywhere (the class was not registered for reconciliation), so
-# it exists only in a database whose collection was somehow created from that declaration
+# Name of a legacy UNIQUE index over 'name', a key no GridFS document carries. Nothing builds it, so it
+# exists only in a database whose collection was created from an older model declaration; the database
+# updater drops it when it finds it
 LEGACY_MEDIA_FILE_NAME_INDEX_NAME: str = 'name'

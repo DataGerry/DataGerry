@@ -23,6 +23,7 @@ from typing import Any
 from collections.abc import MutableMapping
 from pymongo.database import Database
 from pymongo.errors import (
+    BulkWriteError,
     PyMongoError,
     CollectionInvalid,
     DuplicateKeyError,
@@ -44,6 +45,9 @@ from cmdb.database.database_constants import (
     PUBLIC_ID_FIELD,
     MONGO_ERROR_KEY_PATTERN,
     MONGO_ERROR_KEY_VALUE,
+    MONGO_DUPLICATE_KEY_ERROR_CODE,
+    MONGO_WRITE_ERRORS_KEY,
+    MONGO_ERROR_CODE_KEY,
     BULK_WRITE_BATCH_SIZE,
     KEEPALIVE_PING_INTERVAL_SECONDS,
     MONGO_LOCK_TIMEOUT_ERROR_CODE,
@@ -62,7 +66,9 @@ from cmdb.errors.database import (
     DeleteCollectionError,
     DocumentDeleteError,
     DocumentInsertError,
+    DocumentInsertDuplicateKeyError,
     DocumentUpdateError,
+    DocumentUpdateDuplicateKeyError,
     DocumentGetError,
     DocumentAggregationError,
     GetCollectionError,
@@ -102,6 +108,76 @@ def is_public_id_conflict(err: DuplicateKeyError) -> bool:
         return True
 
     return set(key_pattern) == {PUBLIC_ID_FIELD}
+
+
+def duplicate_key_details(err: DuplicateKeyError | BulkWriteError) -> tuple[dict[str, Any], dict[str, Any]]:
+    """
+    Reads which unique index a refused write violated, and with which value
+
+    A single-document write reports it on the error itself; an unordered ``insert_many`` reports one
+    entry per refused document under ``writeErrors`` - the first duplicate-key entry is the one named
+
+    Args:
+        err (DuplicateKeyError | BulkWriteError): The error the driver raised
+
+    Returns:
+        tuple[dict[str, Any], dict[str, Any]]: The violated index's key pattern and the duplicated key
+            value, each empty when the server did not report it
+    """
+    details: dict[str, Any] = err.details or {}
+
+    if isinstance(err, BulkWriteError):
+        details = next(
+            (write_error for write_error in details.get(MONGO_WRITE_ERRORS_KEY) or []
+             if write_error.get(MONGO_ERROR_CODE_KEY) == MONGO_DUPLICATE_KEY_ERROR_CODE),
+            {},
+        )
+
+    key_pattern: Any = details.get(MONGO_ERROR_KEY_PATTERN)
+    key_value: Any = details.get(MONGO_ERROR_KEY_VALUE)
+
+    return (
+        key_pattern if isinstance(key_pattern, dict) else {},
+        key_value if isinstance(key_value, dict) else {},
+    )
+
+
+def is_duplicate_key_bulk_error(err: BulkWriteError) -> bool:
+    """
+    Answers whether every document an unordered bulk insert refused was refused as a duplicate
+
+    Only then is the batch's failure a duplicate: a batch that also hit a validation or any other
+    error is reported as the insert failure it is
+
+    Args:
+        err (BulkWriteError): The error the driver raised
+
+    Returns:
+        bool: True when there are write errors and every one carries the duplicate-key code
+    """
+    write_errors: list[dict[str, Any]] = (err.details or {}).get(MONGO_WRITE_ERRORS_KEY) or []
+
+    return bool(write_errors) and all(
+        write_error.get(MONGO_ERROR_CODE_KEY) == MONGO_DUPLICATE_KEY_ERROR_CODE for write_error in write_errors
+    )
+
+
+def duplicate_key_message(collection: str, key_pattern: dict[str, Any], key_value: dict[str, Any]) -> str:
+    """
+    The log- and trace-facing text of a duplicate-key refusal
+
+    Args:
+        collection (str): The collection the write addressed
+        key_pattern (dict[str, Any]): The violated index's keys
+        key_value (dict[str, Any]): The duplicated value
+
+    Returns:
+        str: E.g. ``Duplicate key error in collection 'x': {'name': 'a'} already exists (index on ['name'])``
+    """
+    return (
+        f"Duplicate key error in collection '{collection}': {key_value} already exists "
+        f"(index on {sorted(key_pattern)})"
+    )
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             MongoDatabaseManager - CLASS                                             #
@@ -247,7 +323,7 @@ class MongoDatabaseManager:
         if self._keepalive_thread and self._keepalive_thread.is_alive():
             return
 
-        def _keepalive():
+        def _keepalive() -> None:
             # The loop itself carries no logic and cannot be exercised from a test - it never returns.
             # Everything that can fail lives in _keepalive_once, which is called directly instead
             while True:
@@ -361,7 +437,7 @@ class MongoDatabaseManager:
             return collection_name
         except Exception as err:
             if isinstance(err, CollectionInvalid):
-                raise CollectionAlreadyExistsError(str(err)) from err
+                raise CollectionAlreadyExistsError(err) from err
 
             raise DatabaseConnectionError(f"Failed to create collection '{collection_name}': {err}") from err
 
@@ -384,7 +460,7 @@ class MongoDatabaseManager:
             return self.connector.get_database(self.target_database(db_name))[name]
         except Exception as err:
             LOGGER.error("[get_collection] '%s' Exception: %s. Type: %s", name, err, type(err))
-            raise GetCollectionError(str(err)) from err
+            raise GetCollectionError(err) from err
 
 
     @retry_operation
@@ -565,10 +641,12 @@ class MongoDatabaseManager:
                         # exists in its OptionType. Retrying with a new public_id cannot help, and
                         # doing it anyway would consume MAX_DUPLICATE_KEY_RETRIES ids from the
                         # counter before failing with an error blaming the public_id
-                        raise DocumentInsertError(
-                            f"Duplicate key error in collection '{collection}': "
-                            f"{(err.details or {}).get(MONGO_ERROR_KEY_VALUE)} already exists "
-                            f"(index on {sorted((err.details or {}).get(MONGO_ERROR_KEY_PATTERN, {}))})"
+                        key_pattern, key_value = duplicate_key_details(err)
+
+                        raise DocumentInsertDuplicateKeyError(
+                            duplicate_key_message(collection, key_pattern, key_value),
+                            key_pattern=key_pattern,
+                            key_value=key_value,
                         ) from err
 
                     LOGGER.debug(
@@ -641,8 +719,21 @@ class MongoDatabaseManager:
 
             return [doc["public_id"] for doc in data]
 
-        except DuplicateKeyError as err:
-            raise DocumentInsertError(f"Duplicate public_id detected in insert_many: {err}") from err
+        except BulkWriteError as err:
+            # An unordered insert_many never raises DuplicateKeyError: every refused document is listed
+            # in one BulkWriteError, the duplicates by their code
+            if not is_duplicate_key_bulk_error(err):
+                raise DocumentInsertError(
+                    f"Failed to insert many documents into collection '{collection}': {err}"
+                ) from err
+
+            key_pattern, key_value = duplicate_key_details(err)
+
+            raise DocumentInsertDuplicateKeyError(
+                duplicate_key_message(collection, key_pattern, key_value),
+                key_pattern=key_pattern,
+                key_value=key_value,
+            ) from err
 
         except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure) as net_err:
             raise DocumentNetworkError(f"Network/timeout error while inserting documents: {net_err}") from net_err
@@ -654,9 +745,12 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def bulk_write(self, collection: str, db_name: str, operations: list[Any]) -> None:
+    def bulk_write(self, collection: str, db_name: str, operations: list[Any]) -> int:
         """
         Performs a bulk write operation on the specified collection.
+
+        The operations are sent unordered in batches of ``BULK_WRITE_BATCH_SIZE``; each operation is
+        atomic on its own document, the batch as a whole is not
 
         Args:
             collection (str): Name of the database collection.
@@ -665,11 +759,18 @@ class MongoDatabaseManager:
 
         Raises:
             DocumentInsertError: If bulk write fails.
+
+        Returns:
+            int: How many documents the operations modified, summed over the batches
         """
+        modified: int = 0
+
         try:
             for i in range(0, len(operations), BULK_WRITE_BATCH_SIZE):
                 batch = operations[i:i + BULK_WRITE_BATCH_SIZE]
-                self.get_collection(collection, db_name).bulk_write(batch, ordered=False)
+                modified += self.get_collection(collection, db_name).bulk_write(batch, ordered=False).modified_count
+
+            return modified
         except Exception as err:
             raise DocumentInsertError(f"Failed bulk write in collection '{collection}': {err}") from err
 
@@ -818,6 +919,14 @@ class MongoDatabaseManager:
             result = self.get_collection(collection, db_name).update_one(criteria, update_data, *args, **kwargs)
 
             return result
+        except DuplicateKeyError as err:
+            key_pattern, key_value = duplicate_key_details(err)
+
+            raise DocumentUpdateDuplicateKeyError(
+                duplicate_key_message(collection, key_pattern, key_value),
+                key_pattern=key_pattern,
+                key_value=key_value,
+            ) from err
         except Exception as err:
             LOGGER.error("[update] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to update document in '{collection}': {err}") from err

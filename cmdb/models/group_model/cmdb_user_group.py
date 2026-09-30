@@ -52,7 +52,7 @@ class CmdbUserGroup(CmdbDAO):
         name: str,
         label: str | None = None,
         rights: list[BaseRight] | None = None,
-    ):
+    ) -> None:
         """
         Initialises a CmdbUserGroup
 

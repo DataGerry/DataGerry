@@ -26,6 +26,8 @@ The tree is built at import time and never mutated, so adding a right means addi
 nothing else; `RightsManager` and `GroupsManager` flatten it for lookup, and
 `RightsManager.tree_to_json` serialises it with the nesting preserved for the frontend's rights picker.
 """
+from typing import Any
+
 from cmdb.models.right_model.levels_enum import Levels
 from cmdb.models.right_model.import_rights import ImportRight, ImportObjectRight, ImportTypeRight
 from cmdb.models.right_model.base_right import BaseRight
@@ -469,7 +471,7 @@ ALL_RIGHTS = (
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
-def flat_rights_tree(right_tree: tuple | list) -> list[BaseRight]:
+def flat_rights_tree(right_tree: tuple[Any, ...] | list[Any]) -> list[BaseRight]:
     """
     Flattens a nested right tree into a flat list of rights
 
@@ -478,7 +480,7 @@ def flat_rights_tree(right_tree: tuple | list) -> list[BaseRight]:
     `RightsManager.flat_tree` delegates to it
 
     Args:
-        right_tree (tuple | list): A nested structure containing rights
+        right_tree (tuple[Any, ...] | list[Any]): A nested structure containing rights
 
     Returns:
         list[BaseRight]: A flat list containing all rights

@@ -81,7 +81,7 @@ def _connector_invoker_name(template: dict[str, Any], connector_key: str) -> Any
 
     The payload is OpenCelium's: `connection`, the connector block and its `invoker` may each be
     absent OR explicitly null, and a bare `.get(key, {})` chain raises AttributeError on the null
-    case - which used to surface as a 500 for the whole template list
+    case - which would otherwise surface as a 500 for the whole template list
 
     Args:
         template (dict[str, Any]): One business template as OpenCelium answered it
@@ -111,7 +111,7 @@ def filter_datagerry_templates(
     Keeps the business templates that name the given invoker on either side of their connection
 
     Answers a LIST in every case, including for the `None` the manager returns when OpenCelium
-    replies with an empty body - the route used to hand that null straight to the frontend on one of
+    replies with an empty body, and that null must not reach the frontend on one of
     the two list routes while the other answered `[]`
 
     Args:

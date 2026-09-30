@@ -51,7 +51,7 @@ from typing import Any
 
 from cmdb.class_schema.isms_model.isms_risk_schema import get_isms_risk_schema
 from cmdb.models.cmdb_dao import CmdbDAO
-from cmdb.models.isms_model.isms_risk_constants import RiskKey
+from cmdb.models.isms_model.isms_risk_constants import RiskKey, RISK_REQUIRED_DOCUMENT_KEYS
 
 from cmdb.errors.models.isms_risk import (
     IsmsRiskInitError,
@@ -78,8 +78,8 @@ class IsmsRisk(CmdbDAO):
         },
         # The three reference lists are multikey indexes, and each one answers the delete guard of the
         # entity it points at: delete_isms_item_if_unused_by_risk looks up this collection by the
-        # field before letting a ProtectionGoal / Threat / Vulnerability go. protection_goals was
-        # missing until 2026-09-07, so that one guard scanned every risk on every delete
+        # field before letting a ProtectionGoal / Threat / Vulnerability go. Without the index that
+        # guard scans every risk on every delete
         {
             'keys': [(RiskKey.PROTECTION_GOALS.value, CmdbDAO.DAO_ASCENDING)],
             'name': RiskKey.PROTECTION_GOALS.value,
@@ -103,10 +103,11 @@ class IsmsRisk(CmdbDAO):
         },
     ]
 
-    SCHEMA: dict = get_isms_risk_schema()
+    SCHEMA: dict[str, Any] = get_isms_risk_schema()
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither
     KEYS = RiskKey
+    REQUIRED_INIT_KEYS: list[str] = RISK_REQUIRED_DOCUMENT_KEYS
     INIT_FROM_DATA_ERROR = IsmsRiskInitFromDataError
     TO_JSON_ERROR = IsmsRiskToJsonError
 

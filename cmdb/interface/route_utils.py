@@ -21,9 +21,10 @@ import base64
 import functools
 import inspect
 import json
+from http import HTTPStatus
 from logging import Logger, getLogger
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 import requests
 from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
 from flask import request, abort, current_app, has_request_context
@@ -31,6 +32,7 @@ from werkzeug._internal import _wsgi_decoding_dance
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database.database_services import CollectionValidator, DatabaseUpdater
+from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     UsersManager,
     GroupsManager,
@@ -42,12 +44,13 @@ from cmdb.manager import (
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.security.auth.login_name import normalize_login_email, strip_login
 from cmdb import __title__
 from cmdb.security.token.validator import TokenValidator
 from cmdb.security.token.token_constants import TokenClaim, TokenClaimWrapperKey
 from cmdb.security.token.generator import TokenGenerator
 
-from cmdb.models.user_model import CmdbUser
+from cmdb.models.user_model import CmdbUser, CmdbUserKey
 
 from cmdb.errors.security import (
     TokenValidationError,
@@ -58,7 +61,12 @@ from cmdb.errors.security import (
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.database import SetDatabaseError, DocumentNetworkError, DocumentLockTimeoutError
+from cmdb.errors.database import (
+    SetDatabaseError,
+    DocumentNetworkError,
+    DocumentLockTimeoutError,
+    TRANSIENT_DATABASE_ERRORS,
+)
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -66,6 +74,18 @@ from cmdb.errors.open_celium import AuthError
 LOGGER: Logger = getLogger(__name__)
 
 DEFAULT_MIME_TYPE = 'application/json'
+
+# The refusal every authentication path answers for a CmdbUser whose `active` flag is false. Only ever
+# shown to a caller who has proven the password or holds a valid token, so it reveals nothing new
+USER_DEACTIVATED_MESSAGE: str = 'This user account is deactivated!'
+
+AUTHORIZATION_HEADER: str = 'Authorization'
+
+# Prefix of an `Authorization` header carrying HTTP Basic credentials (e.g. "Basic dXNlcjpwYXNz")
+BASIC_AUTH_HEADER_PREFIX: str = f'{AuthMethod.BASIC.value} '
+
+# The cloud API-key header a subscription's external automation sends next to its Basic credentials
+API_KEY_HEADER: str = 'x-api-key'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -80,9 +100,8 @@ def get_cached_user_manager() -> CachedUserManager:
     mode, which the login path (`validate_with_service_portal`) cannot supply: nobody is authenticated
     yet. That is why `ManagerType` carries no entry for it
 
-    Called from the login path, the /setup routes and the OpenCelium routes, all of which had this
-    one-liner written out; it is here so that a change of mind about how the cache is reached is one
-    edit rather than eighteen
+    Called from the login path, the /setup routes and the OpenCelium routes; keeping it in one place
+    makes a change to how the cache is reached one edit rather than one per caller
 
     Returns:
         CachedUserManager: A manager bound to this process' database handle and the cache database
@@ -90,72 +109,38 @@ def get_cached_user_manager() -> CachedUserManager:
     return CachedUserManager(current_app.database_manager)
 
 
-def user_has_right(required_right: str, request_user: CmdbUser | None = None) -> bool:
+def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
     """
-    Determine whether a user has the specified access right
+    Determine whether a user holds the specified access right
 
-    This function checks whether the user has the given `required_right` either via:
-    - A provided `CmdbUser` object (typically used in cloud API contexts), or
-    - A token extracted from the request's Authorization header in non-cloud or Open Source mode
+    The user is the one `insert_request_user` resolved for the request - `APIBlueprint.protect` runs
+    below it and hands it in, so nothing here reads the token or the user again. The right is held
+    directly or through an extended (wildcard) right of the user's group. A user whose group no longer
+    exists authenticates but holds no right
 
-    The function supports both basic and extended rights and includes handling for token validation
-    and user/group resolution based on application mode (cloud or local).
+    A failure to READ the group is not answered here: it propagates, so a database outage is reported
+    as one instead of as a missing right
 
     Args:
         required_right (str): The permission/right to verify
-        request_user (CmdbUser | None): The user object (if already available). If not provided,
-                                           the user will be determined via the Authorization token
-
-    Returns:
-        bool: True if the user has the required right (or extended right), False otherwise
+        request_user (CmdbUser): The authenticated user of the request
 
     Raises:
-        Exception: If the token is missing or invalid (401 Unauthorized)
+        BaseManagerInitError | GroupsManagerGetError: When the user's group could not be read, or a
+            cloud user carries no database to read it from
+
+    Returns:
+        bool: True if the user's group holds the right or an extended right of it, False otherwise
     """
-    # Check right for cloud api routes
-    if request_user:
-        return validate_right_cloud_api(required_right, request_user)
+    # The provider binds the user's tenant database in cloud mode only - a manager given a database
+    # uses it in every mode, and an on-premise user carries the model's default name
+    groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+    group = groups_manager.get_group(request_user.group_id)
 
-    # OpenSource check for rights
-    with current_app.app_context():
-        users_manager = UsersManager(current_app.database_manager)
-        groups_manager = GroupsManager(current_app.database_manager)
-
-    auth_header = request.headers.get('Authorization')
-    if not auth_header:
-        abort(401, "No Authorization header provided!")
-
-    token = parse_authorization_header(auth_header)
-
-    try:
-        decrypted_token = decode_request_token(token)
-    except TokenKeyMaterialError as err:
-        LOGGER.error("[user_has_right] TokenKeyMaterialError: %s", err, exc_info=True)
-        abort(500, "The token could not be verified because of a server-side key problem!")
-    except TokenValidationError as err:
-        LOGGER.debug("[user_has_right] Error: %s", err)
-        abort(401, "Invalid token!")
-
-    try:
-        user_claim = token_user_claim(decrypted_token)
-        user_id = user_claim['public_id']
-
-        if current_app.cloud_mode:
-            database = user_claim['database']
-            users_manager = UsersManager(current_app.database_manager, database)
-            groups_manager = GroupsManager(current_app.database_manager, database)
-
-        user = users_manager.get_user(user_id)
-        group = groups_manager.get_group(user.group_id)
-        right_status = group.has_right(required_right)
-
-        if not right_status:
-            right_status = group.has_extended_right(required_right)
-
-        return right_status
-
-    except Exception:
+    if group is None:
         return False
+
+    return group.has_right(required_right) or group.has_extended_right(required_right)
 
 
 def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -189,6 +174,55 @@ def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
+def format_route_message(
+        signature: inspect.Signature,
+        message: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any]) -> str:
+    """
+    Fills a route's message template with the arguments the route was called with
+
+    Bound to the route's signature, so a placeholder is filled whether the caller passed the value
+    positionally or by keyword - the shared route bodies do the former. A template the arguments cannot
+    fill is answered as it is: a broken error message must not replace the error it reports
+
+    Args:
+        signature (inspect.Signature): Signature of the route the arguments belong to
+        message (str): The template, e.g. ``"while retrieving the Subnet with ID: {public_id}"``
+        args (tuple[Any, ...]): The positional arguments of the call
+        kwargs (dict[str, Any]): The keyword arguments of the call
+
+    Returns:
+        str: The filled message, or the template unchanged when it cannot be filled
+    """
+    try:
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+
+        return message.format(**bound.arguments)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return message
+
+
+def _keep_route_signature(wrapper: Callable[..., Any], signature: inspect.Signature) -> None:
+    """
+    Drops a route wrapper's ``__wrapped__`` link while keeping the route's own signature on it
+
+    ``functools.wraps`` copies the name and docstring (the log labels read the former) and sets a
+    ``__wrapped__`` link. The link is deliberately dropped: the route tests unwrap a handler to call it
+    without auth, and following the link would unwrap the error mapping with it - every "an error maps
+    to 400 / 500" test would then see the raw exception instead. The signature is pinned in its place,
+    because ``inspect.signature`` of the wrapper is otherwise ``(*args, **kwargs)`` and an error
+    decorator stacked above could no longer fill its message from the route's arguments
+
+    Args:
+        wrapper (Callable[..., Any]): The wrapper returned by a route error decorator
+        signature (inspect.Signature): Signature of the function the wrapper wraps
+    """
+    del wrapper.__wrapped__
+    wrapper.__signature__ = signature
+
+
 def handle_route_errors(message: str) -> Callable[..., Any]:
     """
     Owns a route's generic error tail: re-raise an HTTPException, map anything else to a 500
@@ -198,28 +232,30 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
     aborting 500. Written out, that is ~300 copies of six lines whose only per-route content is the
     message; written here, a route says what it was doing and stops repeating how to fail
 
-    The message is a TEMPLATE formatted with the route's own keyword arguments, so the per-route text
-    survives the move: ``"while retrieving the Subnet with ID: {public_id}"`` reads the handler's
-    ``public_id``. A placeholder the route does not take is left as it is rather than raising - a
-    broken error message must not replace the error
+    The message is a TEMPLATE formatted with the route's own arguments (see ``format_route_message``),
+    so the per-route text stays per route: ``"while retrieving the Subnet with ID: {public_id}"`` reads
+    the handler's ``public_id``
 
-    What it deliberately does NOT do is own the arms in between. A route that maps its manager's
-    errors to 400s keeps those ``except`` clauses: they are the route's rules, not its plumbing
+    What it deliberately does NOT do is own the arms in between. A route that maps its manager's errors
+    to 400s states those rules with ``handle_manager_errors``, stacked directly below this decorator so
+    its aborts pass through the HTTPException arm here
 
     Args:
-        message (str): What the route was doing, as a template over its keyword arguments
+        message (str): What the route was doing, as a template over its arguments
 
     Returns:
         Callable[..., Any]: The decorator
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        signature: inspect.Signature = inspect.signature(func)
+
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return func(*args, **kwargs)
             except HTTPException:
                 raise
-            except (DocumentLockTimeoutError, DocumentNetworkError):
+            except TRANSIENT_DATABASE_ERRORS:
                 # A TRANSIENT database failure is not an internal error: `@handle_db_errors` maps it to
                 # 423 / 503 so the caller knows to retry, and it only ever sees what escapes this
                 # wrapper. Claiming it here would make that a flat 500 instead
@@ -229,22 +265,105 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
                     "[%s] Exception: %s. Type: %s", func.__name__, err, type(err).__name__, exc_info=True,
                 )
 
-                try:
-                    # Bound to the signature, so a placeholder is filled whether the caller passed the
-                    # value positionally or by keyword - the shared route bodies do the former
-                    bound = inspect.signature(func).bind(*args, **kwargs)
-                    bound.apply_defaults()
-                    detail: str = message.format(**bound.arguments)
-                except (KeyError, IndexError, TypeError, ValueError):
-                    detail = message
+                detail: str = format_route_message(signature, message, args, kwargs)
 
-                abort(500, f"An internal server error occured {detail}!")
+                abort(HTTPStatus.INTERNAL_SERVER_ERROR, f"An internal server error occured {detail}!")
 
-        # `functools.wraps` copies the name and docstring (the log label reads the former), but the
-        # `__wrapped__` link it also sets is deliberately dropped: the route tests unwrap a handler to
-        # call it without auth, and following the link would unwrap the error tail with it - every
-        # "an unexpected error is a 500" test would then see the raw exception instead
-        del wrapper.__wrapped__
+        _keep_route_signature(wrapper, signature)
+
+        return wrapper
+
+    return decorator
+
+
+def closest_listed_error_class(
+        error_classes: Collection[type[Exception]],
+        err: Exception) -> type[Exception] | None:
+    """
+    Picks the listed class a raised error belongs to, the most specific one winning
+
+    The error's own class is looked up first, then its bases in method resolution order, so a mapping
+    that lists both a base class and one of its subclasses answers the subclass with its own entry
+
+    Args:
+        error_classes (Collection[type[Exception]]): The listed error classes
+        err (Exception): The raised error
+
+    Returns:
+        type[Exception] | None: The closest listed class, None when the error is none of them
+    """
+    for error_class in type(err).__mro__:
+        if error_class in error_classes:
+            return error_class
+
+    return None
+
+
+def handle_manager_errors(
+        failures: dict[type[Exception], str],
+        refusals: dict[type[Exception], str] | None = None) -> Callable[..., Any]:
+    """
+    Maps the manager errors a route names onto a 400 with that route's message
+
+    The typed arms that sat between a route's body and its generic tail - ``except XxxManagerGetError:
+    log; abort(400, "...")`` - are one table per route: an error class and what to say about it. This
+    decorator holds that table, so the route states its rules without repeating how to answer them
+
+    ``failures`` are manager operations that went wrong; they are logged as errors with the traceback.
+    ``refusals`` are business rules a manager enforced (e.g. "still used by a Risk"): the request was
+    understood and declined, so they are logged as warnings without a traceback. Both answer 400. The
+    messages are templates over the route's arguments, filled like ``handle_route_errors``' message
+
+    Stack it directly below ``handle_route_errors``: its aborts are HTTPExceptions, which that decorator
+    hands through untouched, and every error it does not name still reaches that decorator's 500
+
+    Args:
+        failures (dict[type[Exception], str]): Error class -> message, logged as an error
+        refusals (dict[type[Exception], str] | None): Error class -> message, logged as a warning
+
+    Raises:
+        ValueError: When no error class is given at all, or one class is listed as both
+
+    Returns:
+        Callable[..., Any]: The decorator
+    """
+    refusals = refusals or {}
+
+    if not failures and not refusals:
+        raise ValueError("handle_manager_errors needs at least one error class to map!")
+
+    overlap: list[str] = sorted(error_class.__name__ for error_class in set(failures) & set(refusals))
+
+    if overlap:
+        raise ValueError(f"Error classes listed as both failure and refusal: {overlap}")
+
+    messages: dict[type[Exception], str] = {**failures, **refusals}
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        signature: inspect.Signature = inspect.signature(func)
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except Exception as err:
+                error_class: type[Exception] | None = closest_listed_error_class(messages, err)
+
+                # Not one of this route's rules: the generic tail above decides what it is
+                if error_class is None:
+                    raise
+
+                if error_class in refusals:
+                    LOGGER.warning("[%s] %s: %s", func.__name__, type(err).__name__, err)
+                else:
+                    LOGGER.error("[%s] %s: %s", func.__name__, type(err).__name__, err, exc_info=True)
+
+                abort(
+                    HTTPStatus.BAD_REQUEST,
+                    format_route_message(signature, messages[error_class], args, kwargs),
+                )
+
+        _keep_route_signature(wrapper, signature)
 
         return wrapper
 
@@ -289,7 +408,7 @@ def handle_oc_errors(context: str = "") -> Callable[..., Any]:
     return decorator
 
 
-def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: disable=unused-argument
+def parse_assistant_parameters(**optional: Any) -> Callable[..., Any]:  # pylint: disable=unused-argument
     # '**optional' is an extensibility placeholder, matching the other parameter decorators
     """
     Decorator to parse and extract query parameters from an HTTP request
@@ -297,15 +416,17 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
     Returns a decorator that:
     - Extracts query parameters from the current request (via `request.args.to_dict()`)
     - Injects them as the FIRST positional argument of the decorated function
-    - Forwards any remaining positional/keyword arguments (e.g. a `request_user` injected by an
-      inner decorator) unchanged
+    - Forwards any remaining positional/keyword arguments (e.g. the `request_user` the
+      authentication decorators above it injected) unchanged
 
-    Used only by the DataGerry assistant route. It lived on the former `RootBlueprint` as a
-    classmethod; it is a plain request decorator like the others here, so it belongs with them rather
-    than on a blueprint type
+    Like every parser it sits BELOW the authentication decorators, so it reads the request of a
+    caller who has already been identified
+
+    Used only by the DataGerry assistant route. It is a plain request decorator like the others here,
+    so it lives with them rather than on a blueprint type
 
     Args:
-        **optional: Placeholder for optional keyword arguments (currently unused)
+        **optional (Any): Placeholder for optional keyword arguments (currently unused)
 
     Returns:
         Callable: A decorator that injects parsed request parameters into the decorated function
@@ -314,8 +435,8 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
         @functools.wraps(func)
         def _decorate(*args: Any, **kwargs: Any) -> Any:
             # `to_dict` cannot raise: Werkzeug has already parsed the query string by the time a view
-            # runs, and it tolerates duplicate keys and embedded null bytes. The try/except that used
-            # to wrap this - and its documented 400 - could therefore never fire
+            # runs, and it tolerates duplicate keys and embedded null bytes. A try/except around this
+            # - and a 400 for it - could therefore never fire
             location_args = request.args.to_dict()
 
             return func(location_args, *args, **kwargs)
@@ -323,6 +444,54 @@ def parse_assistant_parameters(**optional) -> Callable[..., Any]:  # pylint: dis
         return _decorate
 
     return _parse
+
+
+def request_uses_basic_auth() -> bool:
+    """
+    Whether the current request authenticates with HTTP Basic credentials
+
+    The scheme is matched case-insensitively: `parse_authorization_header` lowercases it before
+    accepting it, so a lowercase "basic " header authenticates too
+
+    Returns:
+        bool: True if the `Authorization` header carries the Basic scheme
+    """
+    auth_header: str | None = request.headers.get(AUTHORIZATION_HEADER)
+
+    return bool(auth_header) and auth_header.lower().startswith(BASIC_AUTH_HEADER_PREFIX.lower())
+
+
+def request_authenticates_by_api_key() -> bool:
+    """
+    Whether `verify_api_access`, not `insert_request_user`, authenticates the current request
+
+    In cloud mode an `x-api-key` request with HTTP Basic credentials is checked against the Service
+    Portal by `verify_api_access`, which also resolves and injects the request user. The key alone
+    decides nothing: with a Bearer token the request is resolved from the token like any other
+
+    Returns:
+        bool: True for a cloud-mode request carrying an `x-api-key` header and Basic credentials
+    """
+    return bool(current_app.cloud_mode) and API_KEY_HEADER in request.headers and request_uses_basic_auth()
+
+
+def refuse_inactive_user(user: CmdbUser) -> None:
+    """
+    Refuses a CmdbUser whose account is deactivated
+
+    The one spelling of the rule, shared by the login and by every request: a user stored with
+    `active: false` gets no token and cannot use one issued before. It runs only after the caller has
+    authenticated - the password verified or the token decoded - so a caller without either never
+    learns whether the account exists or is deactivated
+
+    Args:
+        user (CmdbUser): The authenticated user
+
+    Raises:
+        HTTPException: 401 when the account is deactivated
+    """
+    if not user.active:
+        abort(401, USER_DEACTIVATED_MESSAGE)
 
 
 def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
@@ -333,8 +502,15 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     retrieves the user based on the token contents, and adds the `request_user` keyword argument
     to the wrapped function. It supports both cloud and non-cloud modes
 
-    In cloud mode, requests with an `x-api-key` header are assumed to have already been authenticated
-    via a different mechanism and are passed through without further token validation
+    In cloud mode, an `x-api-key` request with HTTP Basic credentials is authenticated by
+    `verify_api_access` instead, which injects the request user, so it is passed through without token
+    validation (see `request_authenticates_by_api_key`). An `x-api-key` next to a Bearer token is
+    resolved from the token like any other request
+
+    Once the user is resolved, a deactivated account is refused, and then the licence gates are
+    enforced (`license_guard.enforce_request_licenses`): the feature of a gated blueprint and, for
+    HTTP Basic credentials, the REST API feature. Running them here - after authentication - is what
+    keeps the licence state from a caller without valid credentials
 
     Args:
         func (Callable): The route function to decorate
@@ -344,17 +520,18 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
     Raises:
         werkzeug.exceptions.HTTPException: Returns a 401 Unauthorized error if token validation fails
-                                           or the user cannot be resolved.
+                                           or the user cannot be resolved, and a 403 when a feature
+                                           the request needs is not licensed.
     """
     @functools.wraps(func)
     def get_request_user(*args: Any, **kwargs: Any) -> Any:
         with current_app.app_context():
             users_manager: UsersManager = UsersManager(current_app.database_manager)
-        try:
-            # If the request comes from API then the request_user will be set in verify_api_access - method
-            if current_app.cloud_mode and "x-api-key" in request.headers:
-                return func(*args, **kwargs)
+        # Outside the try below: an error raised by the route is the route's, not a token failure
+        if request_authenticates_by_api_key():
+            return func(*args, **kwargs)
 
+        try:
             auth_header = request.headers.get('Authorization')
             if not auth_header:
                 abort(401, "No Authorization header provided!")
@@ -388,18 +565,29 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
                 kwargs.update({'request_user': user})
             else:
                 abort(401, "Invalid user!")
+        except HTTPException as http_err:
+            raise http_err
         except ValueError:
             abort(401)
         except Exception as err:
             LOGGER.error("[insert_request_user] User Exception: %s, Type: %s", err, type(err))
             abort(401)
 
+        # Read on every request, so a deactivation takes effect on the token's next use
+        refuse_inactive_user(kwargs['request_user'])
+
+        # Only an authenticated caller learns whether a feature is licensed. Deferred: the routes
+        # package imports this module, so a module-level import of the guard is a cycle
+        # pylint: disable-next=import-outside-toplevel
+        from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_request_licenses
+        enforce_request_licenses(kwargs['request_user'], request_uses_basic_auth())
+
         return func(*args, **kwargs)
 
     return get_request_user
 
 
-def verify_api_access(*, required_api_level: ApiLevel | None = None):
+def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable[..., Any]:
     """
     Decorator to verify API access based on authentication method and required API level
 
@@ -411,11 +599,11 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
     - If authentication fails or an error occurs, the request is aborted with a 400 status
 
     Returns:
-        function: A decorated function with API access control
+        Callable[..., Any]: A decorator applying API access control to the decorated function
     """
-    def decorator(func):
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)
-        def wrapper(*args: Any, **kwargs: Any):
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
             if not current_app.cloud_mode:
                 return func(*args, **kwargs)
 
@@ -437,10 +625,12 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None):
                         set_admin_user(user_instance, user_instance['subscriptions'][0])
                         user_model = retrieve_user(user_instance, user_instance['subscriptions'][0]['database'])
 
-                        if user_model:
-                            kwargs.update({'request_user': user_model})
-                        else:
+                        if not user_model:
                             abort(403, "User not found!")
+
+                        # The portal accepted the credentials; this tenant's own flag still decides
+                        refuse_inactive_user(user_model)
+                        kwargs.update({'request_user': user_model})
 
                     if not __check_api_level(user_instance, required_api_level):
                         abort(403, "No permission for this action!")
@@ -463,7 +653,7 @@ def __get_x_api_key() -> str | None:
     Returns:
         str | None: The value of the 'x-api-key' header if present, otherwise None
     """
-    x_api_key: str | None = request.headers.get('x-api-key')
+    x_api_key: str | None = request.headers.get(API_KEY_HEADER)
 
     return x_api_key
 
@@ -566,8 +756,8 @@ def __check_api_level(
 
 
 # Per-request caches. Accepting a token costs a settings read of the RSA key document plus an RSA
-# signature verification, and up to three decorators of one route each used to redo the whole chain:
-# a single GET was measured at 4 TokenValidator constructions, 4 decodes and 12 reads of the key
+# signature verification, and up to three decorators of one route each would redo the whole chain -
+# a single GET costing 4 TokenValidator constructions, 4 decodes and 12 reads of the key
 # document. The header parse (which for a bearer token also VALIDATES it, see _validate_bearer) and
 # the decode are therefore memoised for the duration of the request
 _PARSED_TOKEN_CACHE_KEY: str = 'dg_parsed_authorization_headers'
@@ -638,8 +828,8 @@ def token_user_claim(claims: dict[str, Any]) -> dict[str, Any]:
     """
     Reads the acting user's data out of a token's claims
 
-    The `DATAGERRY` claim is wrapped - `{'essential': True, 'value': {...}}` - so every consumer
-    used to spell `claims['DATAGERRY']['value']['user']` by hand. See `token_constants` for why the
+    The `DATAGERRY` claim is wrapped - `{'essential': True, 'value': {...}}` - so without this every
+    consumer spells `claims['DATAGERRY']['value']['user']` by hand. See `token_constants` for why the
     wrapper exists and why it stays
 
     Args:
@@ -654,7 +844,7 @@ def token_user_claim(claims: dict[str, Any]) -> dict[str, Any]:
     return claims[TokenClaim.DATAGERRY.value][TokenClaimWrapperKey.VALUE.value]['user']
 
 
-def parse_authorization_header(header):
+def parse_authorization_header(header: str | None) -> str | None:
     """
     Parses the HTTP Auth Header to a JWT Token
 
@@ -662,11 +852,11 @@ def parse_authorization_header(header):
     freshly generated JWT; a bearer token is validated and returned unchanged. Anything else yields None
 
     Args:
-        header: Authorization header of the HTTP Request
+        header (str | None): Authorization header of the HTTP Request
     Examples:
         request.headers['Authorization'] or something same
     Returns:
-        Valid JWT token, or None when the header is missing/unsupported or authentication fails
+        str | None: Valid JWT token, or None when the header is missing/unsupported or authentication fails
     """
     if not header:
         return None
@@ -704,7 +894,9 @@ def _authenticate_basic(auth_info: str) -> str | None:
     Authenticates Basic credentials and exchanges them for a freshly generated JWT
 
     Decodes the ``email:password`` pair, resolves the target database (via the service portal in
-    cloud mode), logs in through the AuthModule and returns a new JWT for the authenticated user
+    cloud mode), logs in through the AuthModule and returns a new JWT for the authenticated user. In
+    cloud mode the AuthModule is given the email the portal answered with, so a login typed in another
+    case finds the tenant user it belongs to
 
     Args:
         auth_info (str): The base64-encoded ``email:password`` portion of a Basic Authorization header
@@ -716,7 +908,7 @@ def _authenticate_basic(auth_info: str) -> str | None:
         username, password = base64.b64decode(auth_info).split(b":", 1)
 
         with current_app.app_context():
-            username = username.decode("utf-8")
+            username = strip_login(username.decode("utf-8"))
             password = password.decode("utf-8")
 
             db_name = None
@@ -725,6 +917,10 @@ def _authenticate_basic(auth_info: str) -> str | None:
 
                 if not user_data:
                     return None
+
+                # The tenant user is stored under the address the portal answers with, whatever spelling
+                # the caller typed - the login route and the x-api-key path look it up the same way
+                username = user_data.get(CmdbUserKey.EMAIL.value) or username
 
                 if current_app.local_mode:
                     # Test API only with user with 1 subscription
@@ -754,7 +950,8 @@ def _authenticate_basic(auth_info: str) -> str | None:
             if current_app.cloud_mode:
                 token_payload['user']['database'] = user_instance.database
 
-            return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
+            # The token lifetime is the tenant's own setting: db_name is the tenant database in cloud mode
+            return TokenGenerator(current_app.database_manager, db_name).generate_token(payload=token_payload)
     except SetDatabaseError as err:
         LOGGER.error("[_authenticate_basic] SetDatabaseError: %s", err)
         return None
@@ -782,7 +979,7 @@ def _validate_bearer(auth_info: str) -> str | None:
 
         # The claims are what every decorator of the route is about to ask for; handing them to the
         # request cache here means the token is decoded ONCE per request instead of once per
-        # decorator (measured: 4 decodes and 12 key reads for a single GET before this)
+        # decorator
         cache = _request_cache(_DECODED_TOKEN_CACHE_KEY)
 
         if cache is not None:
@@ -801,38 +998,6 @@ def _validate_bearer(auth_info: str) -> str | None:
 
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #
 
-def validate_right_cloud_api(required_right: str, request_user: CmdbUser) -> bool:
-    """
-    Validate whether the user has the required rights in a cloud-based API
-
-    This function checks if the given user has the necessary permissions within their group.
-    It first verifies if the user has the direct right and then checks for extended rights
-
-    Args:
-        required_right (str): The permission right to be validated
-        request_user (CmdbUser): The user whose rights need to be validated
-
-    Returns:
-        bool: 
-            - `True` if the user has the required right or an extended right
-            - `False` if the user lacks the required permissions or an error occurs
-    """
-    with current_app.app_context():
-        groups_manager = GroupsManager(current_app.database_manager, request_user.database)
-
-    try:
-        group = groups_manager.get_group(request_user.group_id)
-        right_status = group.has_right(required_right)
-
-        if not right_status:
-            right_status = group.has_extended_right(required_right)
-
-        return right_status
-    except Exception as err:
-        LOGGER.debug("[validate_right_cloud_api] Exception: %s, Type: %s", err, type(err))
-        return False
-
-
 def check_user_in_service_portal(
     email: str,
     password: str,
@@ -841,6 +1006,7 @@ def check_user_in_service_portal(
 ) -> dict[str, Any] | None:
     """Check if a user exists in the service portal
 
+    The email is normalised first (stripped and lower-cased), whatever spelling the caller submitted.
     This function verifies user credentials in two modes:
     - **Local mode**: Loads test users from a JSON file and verifies credentials
     - **Cloud mode**: Validates user credentials via the service portal
@@ -861,6 +1027,10 @@ def check_user_in_service_portal(
     Returns:
         dict | None: A dictionary representing the user if authentication is successful, otherwise None
     """
+    # Every cloud entry point funnels through here, so the portal and the user cache always see the
+    # same spelling of one address - see cmdb.security.auth.login_name
+    email = normalize_login_email(email)
+
     if current_app.local_mode:
         return _load_local_test_user(email, password)
 
@@ -966,8 +1136,8 @@ def _sync_api_cached_user(
 
     if user_exists_in_cache:
         # A cached entry whose password is the current HMAC only lacked this api_key (frontend-first
-        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a legacy plaintext
-        # password from before the hashing fix), so drop it and fall through to recreate it correctly.
+        # then API case) - just stamp the key. Otherwise the entry is stale (e.g. a plaintext password
+        # rather than its HMAC), so drop it and fall through to recreate it correctly.
         if _cached_password_is_current(cached_user_manager, security_manager, email, password):
             cached_user_manager.update_cached_user_api_key(email, target_db, x_api_key)
             return
@@ -1003,7 +1173,7 @@ def _cached_password_is_current(
     Reports whether the cached user's stored password is the current HMAC of the login password
 
     Used to distinguish a still-valid cached entry (only missing an api_key) from a stale one that must
-    be rewritten - e.g. a legacy entry stored with a plaintext password before the hashing fix.
+    be rewritten - e.g. an entry still holding a plaintext password rather than its HMAC.
 
     Args:
         cached_user_manager (CachedUserManager): The cached-user store
@@ -1094,7 +1264,9 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
     Ensures an admin user exists for a subscription's database (cloud mode)
 
     Creates the admin user in the subscription's database when it is missing; otherwise updates the
-    existing user's database, api_level and config_items_limit from the subscription
+    existing user's database, api_level and config_items_limit from the subscription. Both numbers
+    are converted with int() once, before either branch, so a created and an updated user store the
+    same type - a string limit on the user would make every later limit check fail with a TypeError
 
     Args:
         user_data (dict[str, Any]): The portal user data (email, user_name, password)
@@ -1102,17 +1274,22 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
 
     Raises:
         UsersManagerGetError: If reading the existing user fails
-        UsersManagerInsertError: If creating/updating the admin user fails
+        UsersManagerInsertError: If creating/updating the admin user fails, including a subscription
+            whose api_level or config_item_limit is not a number
     """
     with current_app.app_context():
         users_manager = UsersManager(current_app.database_manager, subscription['database'])
         scm = SecurityManager(current_app.database_manager, subscription['database'])
 
     try:
+        api_level: int = int(subscription['api_level'])
+        config_items_limit: int = int(subscription['config_item_limit'])
         admin_user_from_db = None
 
         try:
-            admin_user_from_db = users_manager.get_user_by({'email': user_data['email']})
+            admin_user_from_db = users_manager.get_user_by(
+                {CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]}
+            )
         except UsersManagerGetError:
             pass
 
@@ -1120,11 +1297,11 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
             admin_user = CmdbUser(
                 public_id = users_manager.get_next_public_id(inc_id=True),
                 user_name = user_data['user_name'],
-                email = user_data['email'],
+                email = user_data[CmdbUserKey.EMAIL.value],
                 database = subscription['database'],
                 active = True,
-                api_level = int(subscription['api_level']),
-                config_items_limit = int(subscription['config_item_limit']),
+                api_level = api_level,
+                config_items_limit = config_items_limit,
                 group_id = 1,
                 registration_time = datetime.now(timezone.utc),
                 password = scm.generate_hmac(user_data['password']),
@@ -1132,9 +1309,9 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
 
             users_manager.insert_user(admin_user)
         else: # Update the database, api-level and config_items_limit of user
-            admin_user_from_db.api_level = subscription['api_level']
+            admin_user_from_db.api_level = api_level
             admin_user_from_db.database = subscription['database']
-            admin_user_from_db.config_items_limit = subscription['config_item_limit']
+            admin_user_from_db.config_items_limit = config_items_limit
 
             users_manager.update_user(admin_user_from_db.get_public_id(), admin_user_from_db)
 
@@ -1162,7 +1339,7 @@ def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
         users_manager = UsersManager(current_app.database_manager, database)
 
     try:
-        return users_manager.get_user_by({'email': user_data['email']})
+        return users_manager.get_user_by({CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]})
     except UsersManagerGetError as err:
         LOGGER.debug("[retrieve_user] Exception: %s, Type: %s", err, type(err))
         return None
@@ -1178,7 +1355,7 @@ def validate_subscription_user(
     Validates user credentials against the DataGerry service portal
 
     Posts the credentials (and optionally the API key) to the portal's auth endpoint and returns the
-    portal's user payload on success. The endpoint switched to ``/datagerry/auth/subscription`` when an
+    portal's user payload on success. The endpoint switches to ``/datagerry/auth/subscription`` when an
     ``x_api_key`` is supplied
 
     Args:
@@ -1234,6 +1411,6 @@ def validate_subscription_user(
             err_msg: str = response.text
         raise InvalidCloudUserError(err_msg)
     except requests.exceptions.Timeout as err:
-        raise RequestTimeoutError(str(err)) from err
+        raise RequestTimeoutError(err) from err
     except requests.exceptions.RequestException as err:
-        raise RequestError(str(err)) from err
+        raise RequestError(err) from err

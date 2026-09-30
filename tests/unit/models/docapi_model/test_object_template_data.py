@@ -24,12 +24,17 @@ tested on instances built without __init__ side effects.
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
+import pytest
+
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData, DG_LOCATION_FIELD_NAME
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.docapi_model.reference_result import ReferenceResult
 from cmdb.models.type_model.field_type_enum import FieldType
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.security import AccessDeniedError
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.models.docapi_model import object_template_data as otd_module
 from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -284,3 +289,59 @@ class TestInit:
 
         assert instance.modern_templates is True
         assert instance.get_template_data()["fields"]["h"] == "v"
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  _resolve_reference                                                  #
+# -------------------------------------------------------------------------------------------------------------------- #
+REFERENCED_ID: int = 55
+
+
+class TestResolveReference:
+    """A referenced object is read for the requesting user, and only what they may read is resolved."""
+
+    def test_the_object_is_read_through_the_users_read_acl(self) -> None:
+        """The user and READ reach get_object - an unfiltered read put hidden objects into documents"""
+        instance = _make()
+        instance.objects_manager.get_object.side_effect = AccessDeniedError('denied')
+
+        instance._resolve_reference(REFERENCED_ID, 2)
+
+        instance.objects_manager.get_object.assert_called_once_with(
+            REFERENCED_ID, instance.request_user, AccessControlPermission.READ, as_dict=False,
+        )
+
+    def test_a_denied_object_resolves_to_none(self) -> None:
+        """Rendered blank, exactly like a missing object - none of its values reach the document"""
+        instance = _make()
+        instance.objects_manager.get_object.side_effect = AccessDeniedError('denied')
+
+        assert instance._resolve_reference(REFERENCED_ID, 2) is None
+
+    def test_a_missing_object_resolves_to_none(self) -> None:
+        """get_object answers None for an id that does not exist - it is not rendered"""
+        instance = _make()
+        instance.objects_manager.get_object.return_value = None
+
+        assert instance._resolve_reference(REFERENCED_ID, 2) is None
+
+    def test_a_failed_read_resolves_to_none(self) -> None:
+        """An outage on one reference costs that reference, not the document"""
+        instance = _make()
+        instance.objects_manager.get_object.side_effect = ObjectsManagerGetError('boom')
+
+        assert instance._resolve_reference(REFERENCED_ID, 2) is None
+
+    def test_a_readable_object_is_rendered_for_the_user_and_extracted(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The referenced object is rendered for the same user and extracted one level shallower"""
+        instance = _make()
+        referenced = Mock(name='referenced_object')
+        instance.objects_manager.get_object.return_value = referenced
+        render = Mock(name='render')
+        renderer = Mock(return_value=Mock(result=Mock(return_value=render)))
+        monkeypatch.setattr(otd_module, 'CmdbMultiRender', renderer)
+        instance.extract_object_data = Mock(return_value={'public_id': REFERENCED_ID})
+
+        assert instance._resolve_reference(REFERENCED_ID, 2) == {'public_id': REFERENCED_ID}
+        renderer.assert_called_once_with([referenced], instance.request_user)
+        instance.extract_object_data.assert_called_once_with(render, 1)

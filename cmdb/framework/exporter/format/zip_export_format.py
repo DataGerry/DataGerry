@@ -16,8 +16,10 @@
 """
 Implementation of ZipExportFormat
 """
+from collections.abc import Iterator
 from logging import Logger, getLogger
 from itertools import groupby
+from typing import Any
 import io
 import zipfile
 
@@ -54,7 +56,7 @@ class ZipExportFormat(BaseExporterFormat):
     ACTIVE = True
 
 
-    def export(self, data: list[RenderResult], *args) -> io.BytesIO:
+    def export(self, data: list[RenderResult], *args: Any) -> io.BytesIO:
         """
         Exports the objects as a ZIP archive with one inner file per type
 
@@ -89,7 +91,7 @@ class ZipExportFormat(BaseExporterFormat):
         return zipped_file
 
 
-    def _load_inner_format(self, options: dict) -> BaseExporterFormat:
+    def _load_inner_format(self, options: dict[str, Any]) -> BaseExporterFormat:
         """
         Loads and instantiates the inner export format named by the `classname` option
 
@@ -97,7 +99,7 @@ class ZipExportFormat(BaseExporterFormat):
         this format runs (`exporter_helper.resolve_export_format`), so the dynamic load is safe here.
 
         Args:
-            options (dict): The export options dict carrying the `classname` of the inner format
+            options (dict[str, Any]): The export options dict carrying the `classname` of the inner format
 
         Returns:
             BaseExporterFormat: The instantiated inner export format
@@ -108,7 +110,7 @@ class ZipExportFormat(BaseExporterFormat):
 
 
     @staticmethod
-    def _group_by_type(data: list[RenderResult]):
+    def _group_by_type(data: list[RenderResult]) -> Iterator[tuple[int, Iterator[RenderResult]]]:
         """
         Groups the objects by their type id (sorted by type id, without mutating the input)
 
@@ -116,7 +118,8 @@ class ZipExportFormat(BaseExporterFormat):
             data (list[RenderResult]): The objects to be exported
 
         Returns:
-            An iterator of `(type_id, objects_iterator)` pairs, one per type
+            Iterator[tuple[int, Iterator[RenderResult]]]: An iterator of `(type_id, objects_iterator)` pairs,
+            one per type
         """
         ordered = sorted(data, key=lambda obj: obj.type_information[TYPE_INFO_ID_KEY])
 
@@ -140,7 +143,7 @@ class ZipExportFormat(BaseExporterFormat):
 
 
     @staticmethod
-    def _to_bytes_or_str(content) -> str | bytes:
+    def _to_bytes_or_str(content: str | bytes | io.StringIO | io.BytesIO) -> str | bytes:
         """
         Normalizes an inner format's export output into something writable into the archive
 
@@ -148,7 +151,7 @@ class ZipExportFormat(BaseExporterFormat):
         the latter is read out via `getvalue()`.
 
         Args:
-            content: The inner format's export output
+            content (str | bytes | io.StringIO | io.BytesIO): The inner format's export output
 
         Returns:
             str | bytes: The archive-writable payload

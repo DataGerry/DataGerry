@@ -53,18 +53,18 @@ class CmdbWebhook(CmdbDAO):
             self,
             name:str,
             url: str,
-            event_types: list,
+            event_types: list[str],
             active: bool,
-            **kwargs):
+            **kwargs: Any) -> None:
         """
         Initializes a new instance of the CmdbWebhook class, representing a webhook configuration
 
         Args:
             name (str): Human-readable name of the webhook
             url (str): URL endpoint where the webhook will send events
-            event_types (list): List of WebhookEventType values that the webhook listens for
+            event_types (list[str]): List of WebhookEventType values that the webhook listens for
             active (bool): Whether the webhook is currently active and should receive events
-            **kwargs: Additional fields to pass to the superclass initializer
+            **kwargs (Any): Additional fields to pass to the superclass initializer
         """
         self.name = name
         self.url = url
@@ -76,17 +76,17 @@ class CmdbWebhook(CmdbDAO):
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbWebhook":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbWebhook":
         """
         Creates a CmdbWebhook instance from a dict
 
         Reads every field with ``.get()``, so a missing key yields None rather than raising. The
-        required fields are therefore NOT enforced here: ``CmdbWebhook.SCHEMA`` marks ``name``, ``url``
-        and ``event_types`` required but is never applied, so the guarantee comes from
-        ``webhook_helper.parse_webhook_params`` on the create and update routes
+        required fields are therefore NOT enforced here: the create and update routes run the payload
+        through ``webhook_helper.parse_webhook_params`` first, which validates and normalises it and
+        holds the result against ``CmdbWebhook.SCHEMA``
 
         Args:
-            data (dict): Data with which the CmdbWebhook should be instantiated
+            data (dict[str, Any]): Data with which the CmdbWebhook should be instantiated
 
         Returns:
             CmdbWebhook: CmdbWebhook instance with the given data
@@ -101,7 +101,7 @@ class CmdbWebhook(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbWebhook") -> dict:
+    def to_json(cls, instance: "CmdbWebhook") -> dict[str, Any]:
         """
         Converts a CmdbWebhook into a json compatible dict
 
@@ -113,7 +113,7 @@ class CmdbWebhook(CmdbDAO):
             instance (CmdbWebhook): The CmdbWebhook which should be converted
 
         Returns:
-            dict: Json dict of the CmdbWebhook values
+            dict[str, Any]: Json dict of the CmdbWebhook values
         """
         return {
             'public_id': instance.get_public_id(),

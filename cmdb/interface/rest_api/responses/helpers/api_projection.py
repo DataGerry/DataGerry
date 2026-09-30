@@ -29,6 +29,7 @@ include and exclude key sets are derived once at construction; includes and excl
 independently and `APIProjector` decides how to combine them.
 """
 from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -41,19 +42,19 @@ class APIProjection:
     Wrapper around the `projection` query parameter, exposing its include and exclude keys
     """
 
-    def __init__(self, projection: dict | list | None = None) -> None:
+    def __init__(self, projection: dict[str, Any] | list[str] | None = None) -> None:
         """
         Normalizes the projection and derives its include/exclude key sets
 
         Args:
-            projection (dict | list | None): Either a MongoDB-style ``{field: 1|0}`` mapping, a
+            projection (dict[str, Any] | list[str] | None): Either a MongoDB-style ``{field: 1|0}`` mapping, a
                 list of field names (treated as an all-includes projection), or None (empty
                 projection). A truthy flag marks an include, a falsy flag marks an exclude
         """
         if isinstance(projection, list):
             projection = dict.fromkeys(projection, 1)
 
-        self.projection: dict = projection or {}
+        self.projection: dict[str, Any] = projection or {}
         self.__includes: list[str] = self.__select_keys(self.projection, include=True)
         self.__excludes: list[str] = self.__select_keys(self.projection, include=False)
 
@@ -105,7 +106,7 @@ class APIProjection:
 # -------------------------------------------------- STATIC METHODS -------------------------------------------------- #
 
     @staticmethod
-    def __select_keys(projection: dict, include: bool) -> list[str]:
+    def __select_keys(projection: dict[str, Any], include: bool) -> list[str]:
         """
         Selects the projection keys on one side of the include/exclude split
 
@@ -113,7 +114,7 @@ class APIProjection:
         set and none is silently dropped: a truthy flag is an include, a falsy flag is an exclude.
 
         Args:
-            projection (dict): The normalized projection mapping (field name -> flag)
+            projection (dict[str, Any]): The normalized projection mapping (field name -> flag)
             include (bool): True to return the include keys (truthy flags), False to return the
                 exclude keys (falsy flags)
 

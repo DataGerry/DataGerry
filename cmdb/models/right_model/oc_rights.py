@@ -16,19 +16,16 @@
 """
 Implementation of rights regarding OpenCelium interaction
 """
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
 from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class OpenCeliumRight(BaseRight):
+class OpenCeliumRight(DefaultLevelRight):
     """
     Base class for general OpenCelium rights
     """
     MIN_LEVEL = Levels.PERMISSION
     PREFIX = f'{BaseRight.PREFIX}.openCelium'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None) -> None:
-        super().__init__(level, name, description=description)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -40,9 +37,6 @@ class OcConnectorRight(OpenCeliumRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX: str = f'{OpenCeliumRight.PREFIX}.connector'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None) -> None:
-        super().__init__(name, level, description=description)
-
 
 class OcConnectionRight(OpenCeliumRight):
     """
@@ -51,6 +45,3 @@ class OcConnectionRight(OpenCeliumRight):
     MIN_LEVEL = Levels.PROTECTED
     MAX_LEVEL = Levels.DANGER
     PREFIX: str = f'{OpenCeliumRight.PREFIX}.connection'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None) -> None:
-        super().__init__(name, level, description=description)

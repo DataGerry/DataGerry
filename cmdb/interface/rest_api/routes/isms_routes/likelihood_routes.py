@@ -28,13 +28,29 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsLikelihood
 from cmdb.models.isms_model.isms_helper import calculate_risk_matrix
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
+from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    MAX_ISMS_SCALE_ENTRIES,
+    ISMS_LIKELIHOODS_LABEL,
+    LIKELIHOOD_LABEL,
+    IsmsManagerErrorMessage,
+)
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.route_utils import (
+    handle_manager_errors,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_if_isms_cap_reached,
+    get_item_or_404,
+    manager_error_messages,
+    require_created_item,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -52,7 +68,7 @@ from cmdb.errors.manager.likelihood_manager import (
     LikelihoodManagerDeleteError,
     LikelihoodManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -69,7 +85,7 @@ def _coerce_calculation_basis(data: dict[str, Any]) -> None:
         data (dict[str, Any]): The request body holding the calculation_basis to normalise
     """
     try:
-        data['calculation_basis'] = float(f"{float(data['calculation_basis']):.2f}")
+        data[LikelihoodKey.CALCULATION_BASIS.value] = float(f"{float(data[LikelihoodKey.CALCULATION_BASIS.value]):.2f}")
     except Exception:
         abort(400, "The calculation basis is either not provided or could not be converted to a float!")
 
@@ -81,6 +97,10 @@ def _coerce_calculation_basis(data: dict[str, Any]) -> None:
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.add')
 @likelihood_blueprint.validate(build_write_schema(IsmsLikelihood.SCHEMA))
 @handle_route_errors("while creating the Likelihood")
+@handle_manager_errors(manager_error_messages(LIKELIHOOD_LABEL, {
+    LikelihoodManagerInsertError: IsmsManagerErrorMessage.INSERT,
+    LikelihoodManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+}))
 def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsLikelihood into the database
@@ -89,37 +109,31 @@ def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Resp
         data (IsmsLikelihood.SCHEMA): Data of the IsmsLikelihood which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the insert or the read-back of the created Likelihood fails, 500 when
+            the created Likelihood cannot be found afterwards or on an unexpected error
+
     Returns:
         InsertSingleResponse: The new IsmsLikelihood and its public_id
     """
-    try:
-        likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
+    likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        # There is a Limit of MAX_ISMS_SCALE_ENTRIES Likelihood classes
-        if likelihood_manager.count_documents() >= MAX_ISMS_SCALE_ENTRIES:
-            abort(403, f"Only a maximum of {MAX_ISMS_SCALE_ENTRIES} Likelihoods can be created!")
+    abort_if_isms_cap_reached(likelihood_manager, MAX_ISMS_SCALE_ENTRIES, ISMS_LIKELIHOODS_LABEL)
 
-        _coerce_calculation_basis(data)
+    _coerce_calculation_basis(data)
 
-        if likelihood_manager.likelihood_calculation_basis_exists(data['calculation_basis']):
-            abort(400, "The calculation basis is already used by another Likelihood!")
+    if likelihood_manager.likelihood_calculation_basis_exists(data[LikelihoodKey.CALCULATION_BASIS.value]):
+        abort(400, "The calculation basis is already used by another Likelihood!")
 
-        result_id: int = likelihood_manager.insert_item(data)
+    result_id: int = likelihood_manager.insert_item(data)
 
-        created_likelihood: dict = likelihood_manager.get_item(result_id, as_dict=True)
+    created_likelihood: dict[str, Any] = require_created_item(
+        likelihood_manager.get_item(result_id, as_dict=True), LIKELIHOOD_LABEL,
+    )
 
-        if not created_likelihood:
-            abort(404, "Could not retrieve the created Likelihood from the database!")
+    calculate_risk_matrix(request_user)
 
-        calculate_risk_matrix(request_user)
-
-        return InsertSingleResponse(created_likelihood, result_id).make_response()
-    except LikelihoodManagerInsertError as err:
-        LOGGER.error("[insert_isms_likelihood] LikelihoodManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Could not insert the new Likelihood in the database!")
-    except LikelihoodManagerGetError as err:
-        LOGGER.error("[insert_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created Likelihood from the database!")
+    return InsertSingleResponse(created_likelihood, result_id).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -128,6 +142,10 @@ def insert_isms_likelihood(data: dict[str, Any], request_user: CmdbUser) -> Resp
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.view')
 @likelihood_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving Likelihoods")
+@handle_manager_errors(manager_error_messages(LIKELIHOOD_LABEL, {
+    LikelihoodManagerIterationError: IsmsManagerErrorMessage.ITERATE,
+}))
 def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsLikelihoods
@@ -139,29 +157,22 @@ def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser) -
     Returns:
         GetMultiResponse: All the IsmsLikelihoods matching the CollectionParameters
     """
-    try:
-        body = request_wants_body()
+    body = request_wants_body()
 
-        likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
+    likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[IsmsLikelihood] = likelihood_manager.iterate_items(builder_params)
-        likelihood_list = [IsmsLikelihood.to_json(likelihood) for likelihood in iteration_result.results]
+    iteration_result: IterationResult[IsmsLikelihood] = likelihood_manager.iterate_items(builder_params)
+    likelihood_list = [IsmsLikelihood.to_json(likelihood) for likelihood in iteration_result.results]
 
-        api_response = GetMultiResponse(likelihood_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+    api_response = GetMultiResponse(likelihood_list,
+                                    iteration_result.total,
+                                    params,
+                                    request.url,
+                                    body)
 
-        return api_response.make_response()
-    except LikelihoodManagerIterationError as err:
-        LOGGER.error("[get_isms_likelihoods] LikelihoodManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve Likelihood from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_likelihoods] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving Likelihoods!")
+    return api_response.make_response()
 
 
 @likelihood_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -169,6 +180,9 @@ def get_isms_likelihoods(params: CollectionParameters, request_user: CmdbUser) -
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.view')
 @handle_route_errors("while retrieving the Likelihood with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(LIKELIHOOD_LABEL, {
+    LikelihoodManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsLikelihood
@@ -180,16 +194,12 @@ def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         GetSingleResponse: The requested IsmsLikelihood
     """
-    try:
-        likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
+    likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        requested_likelihood = get_item_or_404(likelihood_manager, public_id,
-                                               f"The Likelihood with ID:{public_id} was not found!")
+    requested_likelihood = get_item_or_404(likelihood_manager, public_id,
+                                           f"The Likelihood with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_likelihood, body=request_wants_body()).make_response()
-    except LikelihoodManagerGetError as err:
-        LOGGER.error("[get_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Likelihood with ID: {public_id} from the database!")
+    return GetSingleResponse(requested_likelihood, body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -199,6 +209,10 @@ def get_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.edit')
 @likelihood_blueprint.validate(build_write_schema(IsmsLikelihood.SCHEMA))
 @handle_route_errors("while updating the Likelihood with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(LIKELIHOOD_LABEL, {
+    LikelihoodManagerGetError: IsmsManagerErrorMessage.GET,
+    LikelihoodManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+}))
 def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsLikelihood
@@ -211,41 +225,35 @@ def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: C
     Returns:
         UpdateSingleResponse: The new data of the IsmsLikelihood
     """
-    try:
-        likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
+    likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        to_update_likelihood = get_item_or_404(likelihood_manager, public_id,
-                                               f"The Likelihood with ID:{public_id} was not found!",
-                                               as_dict=False)
+    to_update_likelihood = get_item_or_404(likelihood_manager, public_id,
+                                           f"The Likelihood with ID:{public_id} was not found!",
+                                           as_dict=False)
 
-        _coerce_calculation_basis(data)
+    _coerce_calculation_basis(data)
 
-        basis_changed = round(data['calculation_basis'], 2) != round(to_update_likelihood.calculation_basis, 2)
+    new_basis = data[LikelihoodKey.CALCULATION_BASIS.value]
+    basis_changed = round(new_basis, 2) != round(to_update_likelihood.calculation_basis, 2)
 
-        # A changed basis must not collide with another Likelihood's basis (insert enforces the same rule)
-        if basis_changed and likelihood_manager.likelihood_calculation_basis_exists(data['calculation_basis']):
-            abort(400, "The calculation basis is already used by another Likelihood!")
+    # A changed basis must not collide with another Likelihood's basis (insert enforces the same rule)
+    if basis_changed and likelihood_manager.likelihood_calculation_basis_exists(new_basis):
+        abort(400, "The calculation basis is already used by another Likelihood!")
 
-        # The URL owns the identity: a body public_id would otherwise be $set onto the document, and
-        # both branches below build the model from this payload
-        pin_public_id(data, public_id)
+    # The URL owns the identity: a body public_id would otherwise be $set onto the document, and
+    # both branches below build the model from this payload
+    pin_public_id(data, public_id)
 
-        # If the calculation_basis changed, also update IsmsRiskAssessments
-        if basis_changed:
-            likelihood_manager.update_with_follow_up(public_id, data)
-        else:
-            likelihood_manager.update_item(public_id, IsmsLikelihood.from_data(data))
+    # If the calculation_basis changed, also update IsmsRiskAssessments
+    if basis_changed:
+        stored: dict[str, Any] = likelihood_manager.update_with_follow_up(public_id, data)
+    else:
+        stored = update_item_from_payload(likelihood_manager, public_id, IsmsLikelihood, data)
 
-        # Calculate the RiskMatrix
-        calculate_risk_matrix(request_user)
+    # Calculate the RiskMatrix
+    calculate_risk_matrix(request_user)
 
-        return UpdateSingleResponse(data).make_response()
-    except LikelihoodManagerGetError as err:
-        LOGGER.error("[update_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Likelihood with ID: {public_id} from the database!")
-    except LikelihoodManagerUpdateError as err:
-        LOGGER.error("[update_isms_likelihood] LikelihoodManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the Likelihood with ID: {public_id}!")
+    return UpdateSingleResponse(stored).make_response()
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -254,6 +262,10 @@ def update_isms_likelihood(public_id: int, data: dict[str, Any], request_user: C
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @likelihood_blueprint.protect(auth=True, right='base.isms.likelihood.delete')
 @handle_route_errors("while deleting the Likelihood with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(LIKELIHOOD_LABEL, {
+    LikelihoodManagerDeleteError: IsmsManagerErrorMessage.DELETE,
+    LikelihoodManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def delete_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsLikelihood
@@ -265,24 +277,17 @@ def delete_isms_likelihood(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         DeleteSingleResponse: The deleted IsmsLikelihood data
     """
-    try:
-        likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
+    likelihood_manager: LikelihoodManager = ManagerProvider.get_manager(ManagerType.LIKELIHOOD, request_user)
 
-        to_delete_likelihood = get_item_or_404(likelihood_manager, public_id,
-                                               f"The Likelihood with ID:{public_id} was not found!")
+    to_delete_likelihood = get_item_or_404(likelihood_manager, public_id,
+                                           f"The Likelihood with ID:{public_id} was not found!")
 
-        if likelihood_manager.is_likelihood_used(public_id):
-            abort(400, "The Likelihood is used by a RiskAssessment and is therefore not deletable!")
+    if likelihood_manager.is_likelihood_used(public_id):
+        abort(400, "The Likelihood is used by a RiskAssessment and is therefore not deletable!")
 
-        likelihood_manager.delete_item(public_id)
+    likelihood_manager.delete_item(public_id)
 
-        # Calculate the RiskMatrix
-        calculate_risk_matrix(request_user)
+    # Calculate the RiskMatrix
+    calculate_risk_matrix(request_user)
 
-        return DeleteSingleResponse(to_delete_likelihood).make_response()
-    except LikelihoodManagerDeleteError as err:
-        LOGGER.error("[delete_isms_likelihood] LikelihoodManagerDeleteError: %s", err, exc_info=True)
-        abort(400, f"Failed to delete the Likelihood with ID:{public_id}!")
-    except LikelihoodManagerGetError as err:
-        LOGGER.error("[delete_isms_likelihood] LikelihoodManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the Likelihood with ID:{public_id} from the database!")
+    return DeleteSingleResponse(to_delete_likelihood).make_response()

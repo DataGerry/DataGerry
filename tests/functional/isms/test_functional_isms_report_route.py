@@ -209,7 +209,7 @@ class TestIsmsReports:
 
     def test_risk_matrix_report_reports_the_unconfigured_state(self, rest_api) -> None:
         """
-        The test database has no IsmsRiskMatrix, and since 2026-09-09 the report says so
+        The test database has no IsmsRiskMatrix, and the report says so
 
         `configured: false` is what distinguishes "the config wizard has not run" from "the matrix is
         configured and nothing has been assessed against it" - both answered three empty grids before.
@@ -229,7 +229,7 @@ class TestIsmsReports:
         """
         A report that cannot be built from the stored data is a 400, not a 500
 
-        Every failure behind it used to reach the route's blanket handler.
+        Every failure behind it otherwise reaches the route's blanket handler.
         """
         def _fail(*_args, **_kwargs):
             raise RiskMatrixReportError('unusable configuration')
@@ -340,8 +340,8 @@ class TestIsmsReports:
         The SOA rows are raw documents, not model instances
 
         ``IsmsControlMeasure.from_data`` never runs over them, so the route normalises the answer
-        itself - otherwise a document written before the insert route started normalising renders as an
-        empty cell in the report while a stored False renders as "No".
+        itself - otherwise a legacy document holding a null renders as an empty cell in the report
+        while a stored False renders as "No".
         """
         measures = database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)
         measures.insert_one({'public_id': SOA_LEGACY_NULL_CM_ID, 'title': 'SOA legacy CM',
@@ -461,7 +461,7 @@ class TestIsmsReports:
     def test_risk_assessments_without_search_returns_both(self, rest_api,
                                                           database_manager: MongoDatabaseManager,
                                                           database_name: str) -> None:
-        """Without a search term both seeded assessments are returned (no filtering regression)."""
+        """Without a search term both seeded assessments are returned (nothing is filtered out)."""
         risk_ids, ra_ids = _seed_search_assessments(database_manager, database_name)
         try:
             titles = [row['risk_title'] for row in
@@ -560,9 +560,9 @@ class TestReportFilterShapes:
     Both filter shapes the API documents reach the reports without a 500
 
     ``CollectionParameters`` types ``?filter=`` as ``dict | list[dict]`` and the rest of the backend
-    reads it that way, but the report routes used to wrap it unconditionally in ``{"$match": ...}`` -
-    so a list produced ``{"$match": [...]}``, which MongoDB rejects. A documented filter shape answered
-    500 until 2026-09-07.
+    reads it that way, so the report routes must not wrap it unconditionally in ``{"$match": ...}`` -
+    a list would produce ``{"$match": [...]}``, which MongoDB rejects, and a documented filter shape
+    would answer 500.
     """
 
     @pytest.mark.parametrize('report', ['risk_treatment_plan', 'risk_assessments'])
@@ -574,7 +574,7 @@ class TestReportFilterShapes:
 
     @pytest.mark.parametrize('report', ['risk_treatment_plan', 'risk_assessments'])
     def test_a_list_filter_is_accepted(self, rest_api, report: str) -> None:
-        """The shape that used to 500: the caller sends pipeline stages instead of a query."""
+        """The shape that most easily 500s: the caller sends pipeline stages instead of a query."""
         stages = [{'$match': {'risk_treatment_option': 'AVOID'}}]
         query = urlencode({'filter': json.dumps(stages), 'limit': 10})
 
@@ -585,7 +585,7 @@ class TestReportFilterShapes:
 
 
 class TestReportErrorMapping:
-    """Report routes map an unexpected aggregation failure to 500."""
+    """Report routes map a manager read failure to 400 and any other failure to 500."""
 
     def test_risk_assessments_report_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error during the risk-assessments report aggregation surfaces as 500."""
@@ -596,19 +596,18 @@ class TestReportErrorMapping:
 
         assert rest_api.get(f'{ROUTE_URL}/risk_assessments').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_risk_treatment_plan_iteration_error_returns_500(self, rest_api, monkeypatch) -> None:
+    def test_risk_treatment_plan_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """
-        The route's typed arm: a manager iteration failure has its own handler and its own message
+        A manager iteration failure is the report's typed arm: 400, as on every ISMS list route
 
-        It is distinct from the generic arm above - that one logs with exc_info, this one does not,
-        because a RiskAssessmentManagerIterationError already names what failed.
+        Anything the route does not name is the generic arm above and stays a 500.
         """
         def _raise_iteration_error(*_args, **_kwargs):
             raise RiskAssessmentManagerIterationError('no iteration')
 
         monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _raise_iteration_error)
 
-        assert rest_api.get(f'{ROUTE_URL}/risk_treatment_plan').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert rest_api.get(f'{ROUTE_URL}/risk_treatment_plan').status_code == HTTPStatus.BAD_REQUEST
 
     def test_risk_matrix_report_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """The RiskMatrix report has no pagination and no aggregation, so its builder is what can fail."""

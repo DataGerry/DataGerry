@@ -22,12 +22,13 @@ managers, TokenValidator/TokenGenerator, AuthModule, ``requests`` and ``os.geten
 module path - no Mongo, no service-portal HTTP. The ``cloud_mode`` / ``local_mode`` flags on the app
 select the branch under test.
 
-These pin: the rights checks (``user_has_right`` / ``validate_right_cloud_api``),
+These pin: the rights check (``user_has_right``, on the user it is handed),
 the error-mapping decorators (``handle_db_errors`` 503/423, ``handle_oc_errors`` 500s), the
 request-user injection / API-access decorators, the Authorization-header parsing and Basic/Bearer
 authentication, the service-portal check with its cache-sync helpers, and the small DB/user helpers.
 """
 # pylint: disable=protected-access  # these tests intentionally exercise module-private helpers
+import base64
 import inspect
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -35,7 +36,7 @@ from typing import Any, Callable
 from unittest.mock import MagicMock, patch, mock_open
 
 import pytest
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import Forbidden, HTTPException
 
 from flask import abort
 
@@ -61,9 +62,11 @@ from cmdb.errors.security import (
 )
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.open_celium import AuthError
+from cmdb.errors.manager.groups_manager import GroupsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.route_utils'
+LICENSE_GUARD_PATH: str = 'cmdb.interface.rest_api.routes.cmdb_license.license_guard'
 
 # Module-level aliases for the double-underscore module functions (avoids name-mangling inside classes)
 _get_x_api_key: Callable[..., Any] = getattr(ru, '__get_x_api_key')
@@ -73,8 +76,11 @@ _check_api_level: Callable[..., Any] = getattr(ru, '__check_api_level')
 
 # Base64 of "user@test.com:secret"
 BASIC_CREDENTIALS: str = 'dXNlckB0ZXN0LmNvbTpzZWNyZXQ='
+TYPED_EMAIL: str = ' User@Test.COM '
+NORMALISED_EMAIL: str = 'user@test.com'
 BASIC_HEADER: str = f'Basic {BASIC_CREDENTIALS}'
 BEARER_HEADER: str = 'Bearer sometoken'
+API_KEY_BASIC_HEADERS: dict[str, str] = {'Authorization': BASIC_HEADER, 'x-api-key': 'k'}
 
 DECODED_TOKEN: dict[str, Any] = {
     'DATAGERRY': {'value': {'user': {'public_id': 42, 'database': 'cloud_db'}}}
@@ -173,8 +179,8 @@ class TestHandleRouteErrors:
         423 / 503 must survive the generic tail
 
         `@handle_db_errors` maps a lock timeout and a network failure to statuses that tell the caller
-        to retry, and it only sees what escapes this wrapper - the routes used to re-raise them by hand
-        for exactly that reason (tier 2 T135/T185).
+        to retry, and it only sees what escapes this wrapper - which is why the routes must not
+        swallow them.
         """
         @ru.handle_route_errors('while doing the thing')
         def route():
@@ -197,6 +203,204 @@ class TestHandleRouteErrors:
 
         assert route.__name__ == 'route'
         assert not hasattr(route, '__wrapped__')
+
+
+class _ManagerFailure(Exception):
+    """A manager operation that went wrong."""
+
+
+class _SpecificManagerFailure(_ManagerFailure):
+    """A narrower failure, listed with a message of its own."""
+
+
+class _ManagerRefusal(Exception):
+    """A business rule the manager enforced."""
+
+
+FAILURE_MESSAGE: str = 'Failed to read the Thing with ID: {public_id}!'
+SPECIFIC_FAILURE_MESSAGE: str = 'Failed to read the specific Thing with ID: {public_id}!'
+REFUSAL_MESSAGE: str = 'The Thing with ID: {public_id} is still used!'
+ROUTE_ID: int = 42
+
+
+class TestFormatRouteMessage:
+    """The template filling both route error decorators share."""
+
+    @staticmethod
+    def _route(public_id: int, subject: str = 'the default subject') -> None:
+        """A route signature with a defaulted parameter."""
+        del public_id, subject
+
+    def test_keyword_and_positional_arguments_fill_alike(self) -> None:
+        """The shared route bodies call positionally; Flask calls by keyword."""
+        signature = inspect.signature(self._route)
+
+        assert ru.format_route_message(signature, 'ID {public_id}', (ROUTE_ID,), {}) == f'ID {ROUTE_ID}'
+        assert ru.format_route_message(signature, 'ID {public_id}', (), {'public_id': ROUTE_ID}) == f'ID {ROUTE_ID}'
+
+    def test_a_defaulted_parameter_fills_too(self) -> None:
+        """apply_defaults: a placeholder over a parameter the caller left out still reads its default."""
+        signature = inspect.signature(self._route)
+
+        assert ru.format_route_message(signature, '{subject}', (ROUTE_ID,), {}) == 'the default subject'
+
+    @pytest.mark.parametrize('args, kwargs, template', [
+        ((ROUTE_ID,), {}, 'while doing {nothing_the_route_takes}'),
+        ((), {}, 'while reading {public_id}'),
+        ((ROUTE_ID,), {}, 'while reading {0}'),
+        ((ROUTE_ID,), {}, 'while reading {public_id'),
+    ], ids=['unknown-placeholder', 'unbindable-call', 'positional-placeholder', 'malformed-template'])
+    def test_an_unfillable_template_is_answered_as_it_is(self, args: tuple, kwargs: dict, template: str) -> None:
+        """A broken error message must not replace the error it reports."""
+        assert ru.format_route_message(inspect.signature(self._route), template, args, kwargs) == template
+
+
+class TestClosestListedErrorClass:
+    """Which listed class a raised error answers to."""
+
+    def test_the_errors_own_class(self) -> None:
+        """An exact match."""
+        assert ru.closest_listed_error_class({_ManagerFailure}, _ManagerFailure()) is _ManagerFailure
+
+    def test_a_listed_base_class_catches_a_subclass(self) -> None:
+        """A subclass nobody listed answers to its listed base."""
+        assert ru.closest_listed_error_class({_ManagerFailure}, _SpecificManagerFailure()) is _ManagerFailure
+
+    def test_the_most_specific_listed_class_wins(self) -> None:
+        """Listing base and subclass answers the subclass with its own entry, whatever the order."""
+        listed = [_ManagerFailure, _SpecificManagerFailure]
+
+        assert ru.closest_listed_error_class(listed, _SpecificManagerFailure()) is _SpecificManagerFailure
+
+    def test_an_unlisted_error(self) -> None:
+        """None: the error is not one of the route's rules."""
+        assert ru.closest_listed_error_class({_ManagerFailure}, RuntimeError()) is None
+
+
+class TestHandleManagerErrors:
+    """
+    A route's manager-error table: each listed error is a 400 with the route's own message
+
+    Failures log as errors with the traceback, refusals as warnings without it. Everything the table does
+    not name - an abort, an unexpected error - passes through untouched for the generic tail above it.
+    """
+
+    @staticmethod
+    def _decorate(raised: Exception | None = None):
+        """A route taking a public_id, raising `raised`, under a table with one failure and one refusal."""
+        @ru.handle_manager_errors(
+            {_ManagerFailure: FAILURE_MESSAGE, _SpecificManagerFailure: SPECIFIC_FAILURE_MESSAGE},
+            refusals={_ManagerRefusal: REFUSAL_MESSAGE},
+        )
+        def route(public_id: int):
+            del public_id
+            if raised is not None:
+                raise raised
+            return 'ok'
+
+        return route
+
+    def test_a_route_that_succeeds_answers_as_it_did(self) -> None:
+        """The table only matters when something is raised."""
+        assert self._decorate()(public_id=ROUTE_ID) == 'ok'
+
+    @pytest.mark.parametrize('raised, template', [
+        (_ManagerFailure('boom'), FAILURE_MESSAGE),
+        (_SpecificManagerFailure('boom'), SPECIFIC_FAILURE_MESSAGE),
+        (_ManagerRefusal('used'), REFUSAL_MESSAGE),
+    ], ids=['failure', 'specific-failure', 'refusal'])
+    def test_a_listed_error_is_a_400_with_its_own_message(self, raised: Exception, template: str) -> None:
+        """The message is the listed one, filled from the route's argument."""
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            self._decorate(raised)(ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == template.format(public_id=ROUTE_ID)
+
+    def test_a_failure_is_logged_as_an_error_with_the_traceback(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A failed operation is something to investigate."""
+        with _app().test_request_context(), pytest.raises(HTTPException):
+            self._decorate(_ManagerFailure('boom'))(ROUTE_ID)
+
+        record = next(r for r in caplog.records if r.name == MODULE_PATH)
+        assert record.levelname == 'ERROR'
+        assert record.exc_info is not None
+
+    def test_a_refusal_is_logged_as_a_warning_without_one(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A declined request is the rule working, not a fault."""
+        with _app().test_request_context(), pytest.raises(HTTPException):
+            self._decorate(_ManagerRefusal('used'))(ROUTE_ID)
+
+        record = next(r for r in caplog.records if r.name == MODULE_PATH)
+        assert record.levelname == 'WARNING'
+        assert not record.exc_info
+
+    def test_an_unlisted_error_passes_through_raw(self) -> None:
+        """Not this table's business: the generic tail decides what it is."""
+        with pytest.raises(RuntimeError):
+            self._decorate(RuntimeError('boom'))(ROUTE_ID)
+
+    def test_an_abort_keeps_its_own_status(self) -> None:
+        """A route's own abort is not a manager error."""
+        with _app().test_request_context(), pytest.raises(Forbidden) as exc_info:
+            self._decorate(Forbidden())(ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.FORBIDDEN
+
+    def test_an_empty_table_is_refused(self) -> None:
+        """A decorator that maps nothing is a mistake at the route, not a no-op."""
+        with pytest.raises(ValueError):
+            ru.handle_manager_errors({})
+
+    def test_a_class_listed_as_both_failure_and_refusal_is_refused(self) -> None:
+        """It could be logged only one way."""
+        with pytest.raises(ValueError):
+            ru.handle_manager_errors({_ManagerFailure: FAILURE_MESSAGE}, refusals={_ManagerFailure: REFUSAL_MESSAGE})
+
+    def test_the_wrapper_keeps_the_routes_signature_but_not_its_wrapped_link(self) -> None:
+        """No `__wrapped__` for the route tests to unwrap past; the signature for the decorator above."""
+        route = self._decorate()
+
+        assert route.__name__ == 'route'
+        assert not hasattr(route, '__wrapped__')
+        assert list(inspect.signature(route).parameters) == ['public_id']
+
+
+class TestTheTwoErrorDecoratorsStacked:
+    """The order every route uses: handle_route_errors above handle_manager_errors."""
+
+    @staticmethod
+    def _route(raised: Exception):
+        """A route under both decorators, both messages templated over its public_id."""
+        @ru.handle_route_errors('while reading the Thing with ID: {public_id}')
+        @ru.handle_manager_errors({_ManagerFailure: FAILURE_MESSAGE})
+        def route(public_id: int):
+            del public_id
+            raise raised
+
+        return route
+
+    def test_a_listed_error_is_the_manager_tables_400(self) -> None:
+        """The 400 is an HTTPException, which the generic tail hands through."""
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            self._route(_ManagerFailure('boom'))(public_id=ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    def test_anything_else_is_the_generic_500_with_its_placeholder_filled(self) -> None:
+        """
+        The generic tail fills `{public_id}` through the manager wrapper
+
+        Without the signature the inner wrapper pins, the tail would see `(*args, **kwargs)`, fail to
+        bind, and answer the unfilled template.
+        """
+        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+            self._route(RuntimeError('boom'))(public_id=ROUTE_ID)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == (
+            f'An internal server error occured while reading the Thing with ID: {ROUTE_ID}!'
+        )
 
 
 class TestGetCachedUserManager:
@@ -239,98 +443,63 @@ class TestGetCachedUserManager:
 
 
 class TestUserHasRight:
-    """``user_has_right`` resolves rights either from a passed user or the Authorization token."""
+    """``user_has_right`` checks the request user's group - the user is handed in, never re-read."""
 
-    def test_delegates_to_cloud_api_when_request_user_given(self) -> None:
-        """A provided request_user short-circuits to validate_right_cloud_api."""
-        user = SimpleNamespace(database='db', group_id=1)
-        with patch(f'{MODULE_PATH}.validate_right_cloud_api', return_value=True) as mocked:
+    @staticmethod
+    def _check(group: Any, user: Any = None) -> tuple[bool, MagicMock]:
+        """Runs user_has_right with the provided GroupsManager answering `group`; answers it and the provider."""
+        user = user or SimpleNamespace(group_id=3, database=None)
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_group.return_value = group
             with _app().test_request_context():
-                assert ru.user_has_right('base.right', user) is True
-        mocked.assert_called_once_with('base.right', user)
+                return ru.user_has_right('base.right', user), get_manager
 
-    def test_missing_authorization_header_aborts_401(self) -> None:
-        """No Authorization header aborts with 401."""
-        with patch(f'{MODULE_PATH}.UsersManager'), patch(f'{MODULE_PATH}.GroupsManager'):
-            with _app().test_request_context():
-                with pytest.raises(HTTPException) as exc_info:
-                    ru.user_has_right('base.right')
-        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
-
-    def test_invalid_token_aborts_401(self) -> None:
-        """A token that fails validation aborts with 401."""
-        with patch(f'{MODULE_PATH}.UsersManager'), patch(f'{MODULE_PATH}.GroupsManager'), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
-            tv_cls.return_value.decode_token.side_effect = TokenValidationError('bad')
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
-                with pytest.raises(HTTPException) as exc_info:
-                    ru.user_has_right('base.right')
-        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
-
-    def test_key_material_failure_aborts_500(self) -> None:
-        """
-        A server-side key problem is not a bad credential
-
-        401 would tell the frontend the session ended and log the user out over an installation
-        problem their token had nothing to do with.
-        """
-        with patch(f'{MODULE_PATH}.UsersManager'), patch(f'{MODULE_PATH}.GroupsManager'), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.decode_request_token', side_effect=TokenKeyMaterialError('no key')):
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
-                with pytest.raises(HTTPException) as exc_info:
-                    ru.user_has_right('base.right')
-        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
-
-    def test_returns_true_when_group_has_right(self) -> None:
-        """A group holding the right returns True."""
-        users_manager = MagicMock()
-        groups_manager = MagicMock()
+    def test_a_group_holding_the_right_grants_it(self) -> None:
+        """The direct right is enough; the extended check is not asked"""
         group = MagicMock()
         group.has_right.return_value = True
-        users_manager.get_user.return_value = SimpleNamespace(group_id=7)
-        groups_manager.get_group.return_value = group
 
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
-            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
-                assert ru.user_has_right('base.right') is True
+        granted, _ = self._check(group)
 
-    def test_falls_back_to_extended_right_and_cloud_branch(self) -> None:
-        """When the direct right is missing, the extended right is checked (cloud_mode branch)."""
-        users_manager = MagicMock()
-        groups_manager = MagicMock()
+        assert granted is True
+        group.has_extended_right.assert_not_called()
+
+    def test_an_extended_right_grants_it(self) -> None:
+        """A wildcard right of a parent segment counts"""
         group = MagicMock()
         group.has_right.return_value = False
         group.has_extended_right.return_value = True
-        users_manager.get_user.return_value = SimpleNamespace(group_id=7)
-        groups_manager.get_group.return_value = group
 
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
-            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
-                assert ru.user_has_right('base.right') is True
-        group.has_extended_right.assert_called_once_with('base.right')
+        assert self._check(group)[0] is True
 
-    def test_returns_false_on_lookup_exception(self) -> None:
-        """Any exception during user/group resolution returns False."""
-        users_manager = MagicMock()
-        users_manager.get_user.side_effect = RuntimeError('boom')
+    def test_neither_right_refuses(self) -> None:
+        """No direct and no extended right"""
+        group = MagicMock()
+        group.has_right.return_value = False
+        group.has_extended_right.return_value = False
 
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.GroupsManager'), \
-             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
-             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
-            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
-                assert ru.user_has_right('base.right') is False
+        assert self._check(group)[0] is False
+
+    def test_a_user_whose_group_is_gone_holds_no_right(self) -> None:
+        """A deleted group resolves to None: authenticated, but refused every right"""
+        assert self._check(None)[0] is False
+
+    def test_the_groups_manager_comes_from_the_provider_for_this_user(self) -> None:
+        """ManagerProvider picks the database: the user's tenant in cloud mode, the process's own otherwise"""
+        user = SimpleNamespace(group_id=3, database='test')
+
+        _, get_manager = self._check(MagicMock(), user)
+
+        get_manager.assert_called_once_with(ManagerType.GROUPS, user)
+        get_manager.return_value.get_group.assert_called_once_with(3)
+
+    def test_a_failed_group_read_propagates(self) -> None:
+        """An outage is not answered as a missing right - protect maps it to a 500"""
+        with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
+            get_manager.return_value.get_group.side_effect = GroupsManagerGetError('db down')
+            with _app().test_request_context():
+                with pytest.raises(GroupsManagerGetError):
+                    ru.user_has_right('base.right', SimpleNamespace(group_id=3, database=None))
 
 
 # ================================================== handle_db_errors ================================================ #
@@ -409,12 +578,42 @@ class TestInsertRequestUser:
     """``insert_request_user`` injects the resolved user as ``request_user``."""
 
     def test_cloud_api_key_passes_through(self) -> None:
-        """In cloud mode an x-api-key request skips token validation entirely."""
+        """In cloud mode an x-api-key request with Basic credentials is left to verify_api_access."""
         handler = MagicMock(return_value='done')
-        with patch(f'{MODULE_PATH}.UsersManager'):
-            with _app(cloud_mode=True).test_request_context(headers={'x-api-key': 'k'}):
+        with patch(f'{MODULE_PATH}.UsersManager'), \
+             patch(f'{MODULE_PATH}.parse_authorization_header') as parse:
+            with _app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
                 assert ru.insert_request_user(handler)() == 'done'
         handler.assert_called_once()
+        parse.assert_not_called()
+
+    def test_an_error_of_the_route_on_the_api_key_path_is_not_a_token_failure(self) -> None:
+        """The route's own error reaches the caller - it is not turned into 'Token could not be validated!'"""
+        handler = MagicMock(side_effect=RuntimeError('the route failed'))
+        with patch(f'{MODULE_PATH}.UsersManager'):
+            with _app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
+                with pytest.raises(RuntimeError):
+                    ru.insert_request_user(handler)()
+
+    def test_an_api_key_next_to_a_bearer_token_is_resolved_from_the_token(self) -> None:
+        """The key alone decides nothing: the token's user is injected as for any other request"""
+        users_manager = MagicMock()
+        user = SimpleNamespace(public_id=42, active=True)
+        users_manager.get_user.return_value = user
+        captured: dict[str, Any] = {}
+
+        def _handler(**kwargs: Any) -> str:
+            captured.update(kwargs)
+            return 'ran'
+
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
+            headers: dict[str, str] = {'Authorization': BEARER_HEADER, ru.API_KEY_HEADER: 'k'}
+            with _app(cloud_mode=True).test_request_context(headers=headers):
+                assert ru.insert_request_user(_handler)() == 'ran'
+        assert captured['request_user'] is user
 
     def test_missing_header_aborts_401(self) -> None:
         """A request without an Authorization header aborts with 401."""
@@ -459,7 +658,7 @@ class TestInsertRequestUser:
     def test_injects_user_and_calls_handler(self) -> None:
         """A resolved user is injected as request_user (cloud_mode db branch)."""
         users_manager = MagicMock()
-        user = SimpleNamespace(public_id=42)
+        user = SimpleNamespace(public_id=42, active=True)
         users_manager.get_user.return_value = user
         captured: dict[str, Any] = {}
 
@@ -488,6 +687,101 @@ class TestInsertRequestUser:
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+
+    def test_missing_user_keeps_its_message(self) -> None:
+        """The 'Invalid user!' refusal reaches the caller rather than being replaced by a bare 401"""
+        users_manager = MagicMock()
+        users_manager.get_user.return_value = None
+
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
+            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(lambda **_: None)()
+        assert exc_info.value.description == 'Invalid user!'
+
+    def test_a_deactivated_user_is_refused_and_the_handler_never_runs(self) -> None:
+        """A valid token for a user stored with active: false is a 401 - deactivation revokes tokens"""
+        users_manager = MagicMock()
+        users_manager.get_user.return_value = SimpleNamespace(public_id=42, active=False)
+        handler = MagicMock()
+
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
+            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(handler)()
+
+        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+        assert exc_info.value.description == ru.USER_DEACTIVATED_MESSAGE
+        handler.assert_not_called()
+
+    @staticmethod
+    def _run_resolving(user: Any, handler: Any, enforce: MagicMock) -> None:
+        """Runs insert_request_user on-premise for a token resolving to `user`, the licence enforcement mocked"""
+        users_manager = MagicMock()
+        users_manager.get_user.return_value = user
+
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls, \
+             patch(f'{LICENSE_GUARD_PATH}.enforce_request_licenses', enforce):
+            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
+            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                ru.insert_request_user(handler)()
+
+    def test_the_licences_are_enforced_for_the_resolved_user_before_the_handler(self) -> None:
+        """Enforcement sees the authenticated user, and runs before the route body"""
+        user = SimpleNamespace(public_id=42, active=True)
+        order: list[str] = []
+        enforce = MagicMock(side_effect=lambda *_args: order.append('licence'))
+
+        self._run_resolving(user, lambda **_: order.append('handler'), enforce)
+
+        enforce.assert_called_once_with(user, False)
+        assert order == ['licence', 'handler']
+
+    def test_a_licence_refusal_stops_the_handler(self) -> None:
+        """The 403 from the enforcement is the answer - the route body never runs"""
+        handler = MagicMock()
+        enforce = MagicMock(side_effect=Forbidden('The ISMS feature requires a valid license!'))
+
+        with pytest.raises(HTTPException) as exc_info:
+            self._run_resolving(SimpleNamespace(public_id=42, active=True), handler, enforce)
+
+        assert exc_info.value.code == HTTPStatus.FORBIDDEN
+        handler.assert_not_called()
+
+    def test_a_deactivated_user_is_refused_before_the_licences_are_asked(self) -> None:
+        """The account's state is decided first, so a deactivated caller learns nothing about the licence"""
+        enforce = MagicMock()
+
+        with pytest.raises(HTTPException) as exc_info:
+            self._run_resolving(SimpleNamespace(public_id=42, active=False), MagicMock(), enforce)
+
+        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+        enforce.assert_not_called()
+
+    @pytest.mark.parametrize('headers', [{}, {'Authorization': BEARER_HEADER}], ids=['no header', 'bad token'])
+    def test_an_unauthenticated_caller_never_reaches_the_licences(self, headers: dict[str, str]) -> None:
+        """A 401 without a token or with one that does not validate - the licence is never consulted"""
+        enforce = MagicMock()
+
+        with patch(f'{MODULE_PATH}.UsersManager'), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls, \
+             patch(f'{LICENSE_GUARD_PATH}.enforce_request_licenses', enforce):
+            tv_cls.return_value.decode_token.side_effect = TokenValidationError('bad')
+            with _app().test_request_context(headers=headers):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(MagicMock())()
+
+        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+        enforce.assert_not_called()
 
     def test_user_value_error_aborts_401(self) -> None:
         """A ValueError while resolving the user aborts with 401."""
@@ -533,7 +827,7 @@ class TestVerifyApiAccess:
     def test_basic_success_injects_user(self) -> None:
         """A valid Basic login resolves the admin user and injects request_user."""
         user_instance = {'subscriptions': [{'database': 'db', 'api_level': 1}], 'api_level': 1}
-        user_model = SimpleNamespace(public_id=1)
+        user_model = SimpleNamespace(public_id=1, active=True)
         captured: dict[str, Any] = {}
 
         def _handler(**kwargs: Any) -> str:
@@ -547,6 +841,23 @@ class TestVerifyApiAccess:
             with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 assert ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(_handler)() == 'ran'
         assert captured['request_user'] is user_model
+
+    def test_a_deactivated_api_key_user_is_refused_and_the_handler_never_runs(self) -> None:
+        """The portal accepted the credentials, the tenant stored the account deactivated: 401"""
+        user_instance = {'subscriptions': [{'database': 'db', 'api_level': 1}], 'api_level': 1}
+        handler = MagicMock()
+
+        with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=user_instance), \
+             patch(f'{MODULE_PATH}.set_admin_user'), \
+             patch(f'{MODULE_PATH}.retrieve_user', return_value=SimpleNamespace(public_id=1, active=False)), \
+             patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
+            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(handler)()
+
+        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+        assert exc_info.value.description == ru.USER_DEACTIVATED_MESSAGE
+        handler.assert_not_called()
 
     def test_basic_user_not_found_aborts_403(self) -> None:
         """When retrieve_user returns nothing the request aborts with 403."""
@@ -575,7 +886,7 @@ class TestVerifyApiAccess:
         user_instance = {'subscriptions': [{'database': 'db', 'api_level': 1}], 'api_level': 1}
         with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=user_instance), \
              patch(f'{MODULE_PATH}.set_admin_user'), \
-             patch(f'{MODULE_PATH}.retrieve_user', return_value=SimpleNamespace(public_id=1)), \
+             patch(f'{MODULE_PATH}.retrieve_user', return_value=SimpleNamespace(public_id=1, active=True)), \
              patch(f'{MODULE_PATH}.__check_api_level', return_value=False):
             with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
@@ -844,7 +1155,7 @@ class TestTokenUserClaim:
     """Reading the acting user out of the wrapped DataGerry claim."""
 
     def test_the_user_payload_is_answered(self) -> None:
-        """Four call sites used to spell claims['DATAGERRY']['value']['user'] by hand"""
+        """Four call sites would otherwise spell claims['DATAGERRY']['value']['user'] by hand"""
         assert ru.token_user_claim(DECODED_TOKEN)['public_id'] == DECODED_TOKEN['DATAGERRY']['value']['user'][
             'public_id'
         ]
@@ -914,6 +1225,38 @@ class TestAuthenticateBasic:
              patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user):
             with _app(cloud_mode=True, local_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt'
+
+    def test_cloud_logs_in_with_the_address_the_portal_answered_with(self) -> None:
+        """The tenant user is stored under the portal's address, whatever spelling was typed"""
+        user = MagicMock()
+        portal_user = {'database': 'the_db', 'email': NORMALISED_EMAIL}
+        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
+        with self._patches(login_result=user), \
+             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user) as portal:
+            with _app(cloud_mode=True, local_mode=False).test_request_context():
+                ru._authenticate_basic(credentials)
+
+            assert ru.AuthModule.return_value.login.call_args.args == (NORMALISED_EMAIL, 'secret')
+        assert portal.call_args.args[0] == TYPED_EMAIL.strip()
+
+    def test_a_portal_answer_without_an_email_keeps_the_typed_login(self) -> None:
+        """Nothing better to go by - the stripped login is used"""
+        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
+        with self._patches(login_result=MagicMock()), \
+             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value={'database': 'the_db'}):
+            with _app(cloud_mode=True, local_mode=False).test_request_context():
+                ru._authenticate_basic(credentials)
+
+            assert ru.AuthModule.return_value.login.call_args.args[0] == TYPED_EMAIL.strip()
+
+    def test_on_premise_the_login_is_stripped(self) -> None:
+        """The case is AuthModule's to try; the whitespace is removed here"""
+        credentials: str = base64.b64encode(b' Admin :secret').decode('utf-8')
+        with self._patches(login_result=MagicMock()):
+            with _app(cloud_mode=False).test_request_context():
+                ru._authenticate_basic(credentials)
+
+            assert ru.AuthModule.return_value.login.call_args.args == ('Admin', 'secret')
 
     def test_login_exception_returns_none(self) -> None:
         """An exception raised by AuthModule.login yields None."""
@@ -1009,45 +1352,6 @@ class TestValidateBearer:
                     ru._validate_bearer('sometoken')
 
 
-# =============================================== validate_right_cloud_api =========================================== #
-
-class TestValidateRightCloudApi:
-    """``validate_right_cloud_api`` resolves a right from the request user's group."""
-
-    def _user(self) -> SimpleNamespace:
-        """A minimal cloud request user."""
-        return SimpleNamespace(database='db', group_id=1)
-
-    def test_direct_right_true(self) -> None:
-        """A group holding the right returns True."""
-        groups_manager = MagicMock()
-        group = MagicMock()
-        group.has_right.return_value = True
-        groups_manager.get_group.return_value = group
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app().test_request_context():
-                assert ru.validate_right_cloud_api('base.right', self._user()) is True
-
-    def test_extended_right_true(self) -> None:
-        """A group with only the extended right returns True."""
-        groups_manager = MagicMock()
-        group = MagicMock()
-        group.has_right.return_value = False
-        group.has_extended_right.return_value = True
-        groups_manager.get_group.return_value = group
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app().test_request_context():
-                assert ru.validate_right_cloud_api('base.right', self._user()) is True
-
-    def test_exception_returns_false(self) -> None:
-        """An exception during resolution returns False."""
-        groups_manager = MagicMock()
-        groups_manager.get_group.side_effect = RuntimeError('boom')
-        with patch(f'{MODULE_PATH}.GroupsManager', return_value=groups_manager):
-            with _app().test_request_context():
-                assert ru.validate_right_cloud_api('base.right', self._user()) is False
-
-
 # ============================================ check_user_in_service_portal ========================================== #
 
 class TestCheckUserInServicePortal:
@@ -1059,6 +1363,25 @@ class TestCheckUserInServicePortal:
             with _app(local_mode=True).test_request_context():
                 assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x'}
         loader.assert_called_once_with('x', 'p')
+
+    def test_the_email_is_normalised_before_the_local_loader(self) -> None:
+        """Stripped and lower-cased, whatever the caller submitted"""
+        with patch(f'{MODULE_PATH}._load_local_test_user', return_value=None) as loader:
+            with _app(local_mode=True).test_request_context():
+                ru.check_user_in_service_portal(TYPED_EMAIL, 'p')
+        loader.assert_called_once_with(NORMALISED_EMAIL, 'p')
+
+    def test_the_cache_and_the_portal_see_the_normalised_email(self) -> None:
+        """One address is one cache entry - the unique cache index compares case-sensitively"""
+        cached_mgr = MagicMock()
+        cached_mgr.cached_user_exists.return_value = False
+        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
+             patch(f'{MODULE_PATH}.SecurityManager'), \
+             patch(f'{MODULE_PATH}.validate_subscription_user', return_value={}) as portal:
+            with _app(local_mode=False).test_request_context():
+                ru.check_user_in_service_portal(TYPED_EMAIL, 'p', 'key', api_key_required=True)
+        cached_mgr.cached_user_exists.assert_called_once_with(NORMALISED_EMAIL)
+        portal.assert_called_once_with(NORMALISED_EMAIL, 'p', 'key', True)
 
     def test_api_key_required_without_key_returns_none(self) -> None:
         """When an API key is required but absent, None is returned early."""
@@ -1446,6 +1769,49 @@ class TestSetAdminUser:
         users_manager.update_user.assert_called_once()
         assert existing.database == 'db'
 
+    # The portal's numbers as strings: both branches have to convert them to int
+    STRING_SUBSCRIPTION: dict[str, Any] = {'database': 'db', 'api_level': '1', 'config_item_limit': '10'}
+
+    def test_the_update_path_stores_integers_for_string_numbers(self) -> None:
+        """An updated user carries int api_level / config_items_limit, so the limit check can compare"""
+        users_manager = MagicMock()
+        existing = MagicMock()
+        users_manager.get_user_by.return_value = existing
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.SecurityManager'):
+            with _app().test_request_context():
+                ru.set_admin_user(self.USER_DATA, self.STRING_SUBSCRIPTION)
+
+        assert existing.config_items_limit == self.SUBSCRIPTION['config_item_limit']
+        assert existing.api_level == self.SUBSCRIPTION['api_level']
+        assert isinstance(existing.config_items_limit, int)
+
+    def test_the_create_path_stores_integers_for_string_numbers(self) -> None:
+        """The created user gets the same types the update path writes"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
+        users_manager.get_next_public_id.return_value = 1
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.SecurityManager'):
+            with _app().test_request_context():
+                ru.set_admin_user(self.USER_DATA, self.STRING_SUBSCRIPTION)
+
+        created = users_manager.insert_user.call_args.args[0]
+        assert created.config_items_limit == self.SUBSCRIPTION['config_item_limit']
+        assert created.api_level == self.SUBSCRIPTION['api_level']
+
+    def test_a_non_numeric_limit_is_refused_before_any_write(self) -> None:
+        """The conversion runs before either branch, so a bad value writes nothing and names the failure"""
+        users_manager = MagicMock()
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.SecurityManager'):
+            with _app().test_request_context():
+                with pytest.raises(UsersManagerInsertError):
+                    ru.set_admin_user(self.USER_DATA, {**self.SUBSCRIPTION, 'config_item_limit': 'lots'})
+
+        users_manager.insert_user.assert_not_called()
+        users_manager.update_user.assert_not_called()
+
     def test_get_error_treated_as_absent_and_creates(self) -> None:
         """A UsersManagerGetError while reading the existing user is swallowed; the user is created."""
         users_manager = MagicMock()
@@ -1544,20 +1910,28 @@ class TestValidateSubscriptionUser:
                     ru.validate_subscription_user('x', 'p')
 
     def test_timeout_raises_request_timeout(self) -> None:
-        """A request timeout raises RequestTimeoutError."""
+        """A request timeout raises RequestTimeoutError, carrying the timeout itself."""
+        failure = ru.requests.exceptions.Timeout('slow')
+
         with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', side_effect=ru.requests.exceptions.Timeout('slow')):
+             patch(f'{MODULE_PATH}.requests.post', side_effect=failure):
             with _app().test_request_context():
-                with pytest.raises(RequestTimeoutError):
+                with pytest.raises(RequestTimeoutError) as caught:
                     ru.validate_subscription_user('x', 'p')
 
+        assert caught.value.args[0] is failure
+
     def test_request_exception_raises_request_error(self) -> None:
-        """A generic request exception raises RequestError."""
+        """A generic request exception raises RequestError, carrying the exception itself."""
+        failure = ru.requests.exceptions.RequestException('down')
+
         with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', side_effect=ru.requests.exceptions.RequestException('down')):
+             patch(f'{MODULE_PATH}.requests.post', side_effect=failure):
             with _app().test_request_context():
-                with pytest.raises(RequestError):
+                with pytest.raises(RequestError) as caught:
                     ru.validate_subscription_user('x', 'p')
+
+        assert caught.value.args[0] is failure
 
 
 # ============================================ parse_assistant_parameters ============================================ #
@@ -1565,7 +1939,7 @@ class TestParseAssistantParameters:
     """
     The decorator behind the assistant route: query parameters as the first positional argument
 
-    Its `try/except Exception -> abort(400)` was removed on 2026-09-14. Werkzeug has already parsed
+    It carries no `try/except Exception -> abort(400)` of its own. Werkzeug has already parsed
     the query string by the time a view runs and `to_dict` tolerates duplicate keys and embedded null
     bytes, so the arm - and the 400 its docstring promised - could never fire.
     """
@@ -1615,3 +1989,54 @@ class TestParseAssistantParameters:
             return location_args
 
         assert _named_view.__name__ == '_named_view'
+
+
+# ================================================= refuse_inactive_user ============================================= #
+
+class TestRefuseInactiveUser:
+    """The one spelling of the deactivation rule"""
+
+    def test_an_active_user_passes(self) -> None:
+        """Nothing is raised, nothing is returned"""
+        with _app().test_request_context():
+            assert ru.refuse_inactive_user(SimpleNamespace(active=True)) is None
+
+    def test_a_deactivated_user_is_a_401_naming_the_reason(self) -> None:
+        """401 with the explicit message - the caller has already authenticated"""
+        with _app().test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                ru.refuse_inactive_user(SimpleNamespace(active=False))
+
+        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+        assert exc_info.value.description == ru.USER_DEACTIVATED_MESSAGE
+
+
+# ============================================ request_uses_basic_auth =============================================== #
+
+@pytest.mark.parametrize(('header', 'expected'), [
+    (BASIC_HEADER, True),
+    (BASIC_HEADER.lower(), True),
+    (BEARER_HEADER, False),
+    (None, False),
+], ids=['Basic', 'lowercase basic', 'Bearer', 'no header'])
+def test_request_uses_basic_auth(header: str | None, expected: bool) -> None:
+    """The scheme is matched case-insensitively, as parse_authorization_header accepts it"""
+    headers: dict[str, str] = {ru.AUTHORIZATION_HEADER: header} if header else {}
+
+    with _app().test_request_context(headers=headers):
+        assert ru.request_uses_basic_auth() is expected
+
+
+# ======================================== request_authenticates_by_api_key ========================================== #
+
+@pytest.mark.parametrize(('cloud_mode', 'headers', 'expected'), [
+    (True, API_KEY_BASIC_HEADERS, True),
+    (True, {'Authorization': BEARER_HEADER, 'x-api-key': 'k'}, False),
+    (True, {'Authorization': BASIC_HEADER}, False),
+    (True, {'x-api-key': 'k'}, False),
+    (False, API_KEY_BASIC_HEADERS, False),
+], ids=['cloud key+Basic', 'cloud key+Bearer', 'cloud Basic only', 'cloud key only', 'on-premise key+Basic'])
+def test_request_authenticates_by_api_key(cloud_mode: bool, headers: dict[str, str], expected: bool) -> None:
+    """Only a cloud request pairing the key with Basic credentials is left to verify_api_access"""
+    with _app(cloud_mode=cloud_mode).test_request_context(headers=headers):
+        assert ru.request_authenticates_by_api_key() is expected

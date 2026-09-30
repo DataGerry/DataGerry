@@ -52,24 +52,25 @@ class ImproveObject:
 
     def __init__(
             self,
-            entry: dict,
+            entry: dict[int | str, Any],
             field_entries: list[MapEntry],
-            possible_fields: list[dict],
+            possible_fields: list[dict[str, Any]],
         ) -> None:
         """
         Initializes the ImproveObject
 
         Args:
-            entry (dict): The raw imported entry keyed by source column/value identifier
+            entry (dict[int | str, Any]): The raw imported entry, keyed by CSV column index (int) or by
+                source field name (str)
             field_entries (list[MapEntry]): Mappings for object fields
-            possible_fields (list[dict]): The target type's field definitions (each with 'name'/'type')
+            possible_fields (list[dict[str, Any]]): The target type's field definitions (each with 'name'/'type')
         """
         self.entry = entry
         self.field_entries = field_entries
         self.possible_fields = possible_fields
 
 
-    def improve_entry(self) -> dict:
+    def improve_entry(self) -> dict[int | str, Any]:
         """
         Converts the entry's field values to their appropriate types
 
@@ -79,7 +80,7 @@ class ImproveObject:
         (``parse_import_bool``), not here.
 
         Returns:
-            dict: The same entry, with improved values
+            dict[int | str, Any]: The same entry, with improved values
         """
         for entry_field in self.field_entries:
             matching_field = next(

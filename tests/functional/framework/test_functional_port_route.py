@@ -18,8 +18,9 @@ Functional tests for the ``/ports`` REST routes
 
 Covers the whole surface over HTTP: create / read single / read per object / update / delete, plus the
 four invariants the routes exist to hold - the owner's Type must declare ``uses_ports``, the identity
-and audit fields are server-owned, ``object_id`` and ``side`` are immutable after creation, and a port
-name is unique per face of an object (both through the pre-check and through the unique index, which
+and audit fields are server-owned, ``object_id`` and ``side`` are immutable after creation, an object
+is either an ordinary device or a patch panel and never both, and a port name is unique per face of an
+object (both through the pre-check and through the unique index, which
 is the half that covers concurrent writes).
 
 Note the test database never goes through CollectionValidator, so its collections carry no declared
@@ -36,7 +37,12 @@ from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
 from cmdb.models.port_connection_model import CmdbPortConnection, ConnectionType, PortConnectionKey
-from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_CONNECTED_KEY,
+    PORT_CREATED_NOT_READABLE_MESSAGE,
+    PORT_NAME_TAKEN_MESSAGE,
+)
+from cmdb.errors.database import DocumentInsertError, DocumentNetworkError, DocumentUpdateError
 from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -66,6 +72,7 @@ SPEED_OPTION_ID: int = 9841
 
 NAME_FIELD: str = 'dg-name'
 PORT_NAME: str = 'Gi0/1'
+OTHER_PORT_NAME: str = 'Gi0/2'
 
 ALL_TYPE_IDS: list[int] = [PORT_TYPE_ID, PLAIN_TYPE_ID]
 ALL_OBJECT_IDS: list[int] = [OWNER_OBJECT_ID, PLAIN_OBJECT_ID, SECOND_OWNER_OBJECT_ID]
@@ -77,9 +84,9 @@ def _ipam_licensed(monkeypatch: pytest.MonkeyPatch):
     """
     Licenses IPAM so the gated /ports surface is reachable
 
-    Port Connectivity is gated behind LicenseFeature.IPAM by decision D6 - a Type cannot declare
-    `uses_ports` without it either - so every /ports route needs the feature unlocked here. That the
-    gate really blocks the surface is asserted in tests/functional/license/.
+    Port Connectivity is gated behind LicenseFeature.IPAM - a Type cannot declare `uses_ports` without
+    it either - so every /ports route needs the feature unlocked here. That the gate really blocks the
+    surface is asserted by the license tests.
     """
     monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.IPAM)
 
@@ -327,8 +334,38 @@ class TestCreatePort:
         response = _create(rest_api)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'already exists' in response.get_json()['message']
+        # The resolved values, word for word the pre-check's message: the body named no side, and the
+        # race message used to print that as the 'None' side
+        assert response.get_json()['message'] == PORT_NAME_TAKEN_MESSAGE.format(
+            name=PORT_NAME, side=PortSide.SINGLE.value, object_id=OWNER_OBJECT_ID,
+        )
         assert indexed_ports.count_documents({PortKey.NAME.value: PORT_NAME}) == 1
+
+    def test_a_rename_only_the_index_catches_is_the_same_400(self, rest_api, indexed_ports,
+                                                             monkeypatch) -> None:
+        """
+        The update half of the race: a rename onto a name a concurrent write just stored
+
+        It used to answer a generic "Failed to update the Port" that named neither the cause nor the
+        field. Now it is the same readable refusal the create gives, and the port keeps its name.
+        """
+        renamed_id: int = _create(rest_api, name=OTHER_PORT_NAME).get_json()['result_id']
+        indexed_ports.insert_one({
+            PortKey.PUBLIC_ID.value: 9851,
+            PortKey.OBJECT_ID.value: OWNER_OBJECT_ID,
+            PortKey.SIDE.value: PortSide.SINGLE.value,
+            PortKey.NAME.value: PORT_NAME,
+        })
+        monkeypatch.setattr(PortsManager, 'get_port_by_name', lambda *_a, **_k: None)
+
+        response = rest_api.put(f'{ROUTE_URL}/{renamed_id}', json=_port_payload(name=PORT_NAME))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == PORT_NAME_TAKEN_MESSAGE.format(
+            name=PORT_NAME, side=PortSide.SINGLE.value, object_id=OWNER_OBJECT_ID,
+        )
+        assert indexed_ports.find_one({PortKey.PUBLIC_ID.value: renamed_id})[PortKey.NAME.value] \
+            == OTHER_PORT_NAME
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -604,11 +641,36 @@ class TestErrorMapping:
     400 tells the caller their request was wrong when it was not.
     """
 
-    def test_create_retrieval_of_the_created_port_failing_is_404(self, rest_api, monkeypatch) -> None:
-        """The insert worked but the read-back did not, so the response would be empty."""
+    def test_create_retrieval_of_the_created_port_failing_is_500(self, rest_api, monkeypatch) -> None:
+        """The insert worked but the read-back did not: the server lost its own write, not a 404."""
         monkeypatch.setattr(PortsManager, 'get_item', lambda *_a, **_k: None)
 
-        assert _create(rest_api).status_code == HTTPStatus.NOT_FOUND
+        response = _create(rest_api)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == PORT_CREATED_NOT_READABLE_MESSAGE
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentInsertError('Operation failure: document failed validation'),
+    ], ids=['outage', 'other-insert-failure'])
+    def test_a_create_that_fails_for_any_other_reason_is_never_a_taken_name(
+            self, rest_api, monkeypatch, failure: Exception) -> None:
+        """
+        Only the unique index's refusal is the caller's clash
+
+        The database write is failed for real, below every manager, so the whole chain runs: an outage
+        and any other insert failure are the server's - a 500 - and never "that name already exists".
+        An outage is left unwrapped all the way up and answered by Flask's catch-all, so the test runs
+        with exception propagation off, as production does.
+        """
+        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
+        monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(failure))
+
+        response = _create(rest_api)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'already exists' not in response.get_json()['message']
 
     def test_create_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Not a 400: nothing is wrong with the request."""
@@ -641,13 +703,28 @@ class TestErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/object/{OWNER_OBJECT_ID}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_update_manager_error_is_400(self, rest_api, monkeypatch) -> None:
-        """A failed write is reported as a bad request."""
+    def test_an_update_that_fails_for_any_reason_but_a_duplicate_is_500(self, rest_api, monkeypatch) -> None:
+        """
+        A failed write that is no duplicate says nothing about the request
+
+        It used to be a 400 - telling the client its request was bad when the database was the problem.
+        Failed below every manager, so the whole chain runs.
+        """
+        new_id = _create(rest_api).get_json()['result_id']
+        monkeypatch.setattr(MongoDatabaseManager, 'update', _raiser(DocumentUpdateError('connection lost')))
+
+        response = rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload())
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'already exists' not in response.get_json()['message']
+
+    def test_a_manager_update_error_without_a_duplicate_is_500(self, rest_api, monkeypatch) -> None:
+        """The manager error alone is not a duplicate: only a typed refusal in its chain is."""
         new_id = _create(rest_api).get_json()['result_id']
         monkeypatch.setattr(PortsManager, 'update_item', _raiser(PortsManagerUpdateError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload()).status_code \
-            == HTTPStatus.BAD_REQUEST
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_update_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:
         """Anything else is a server error."""
@@ -975,3 +1052,75 @@ class TestConnectedFlag:
         port = rest_api.get(f'{ROUTE_URL}/{new_id}').get_json()['result']
 
         assert port[PORT_CONNECTED_KEY] is False
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        DEVICE KIND - ports XOR panel ports                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestAnObjectIsOneKindOfDevice:
+    """An object has ordinary ports or patch-panel ports, never both.
+
+    A device's ports are SINGLE; a panel's are FRONT and REAR, paired by an INTERNAL connection.
+    Mixing them on one object describes a thing that does not exist, and every consumer asking
+    "is this a panel?" reads the side of whichever port it looks at first. The kind is not switched
+    by editing - the only way out of one is to delete every port of it.
+    """
+
+    def test_a_panel_port_is_refused_on_a_device(self, rest_api) -> None:
+        """The object already has a SINGLE port, so a FRONT one would make it two things at once"""
+        assert _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED
+
+        response = _create(rest_api, name='F1', side=PortSide.FRONT.value)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'patch panel' in response.get_json()['message']
+
+    def test_a_device_port_is_refused_on_a_panel(self, rest_api) -> None:
+        """And the same the other way round"""
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+        response = _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'ordinary device' in response.get_json()['message']
+
+    def test_the_refusal_names_the_way_out(self, rest_api) -> None:
+        """The only way to change kind is to delete what is there, so the message says so"""
+        _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value)
+
+        message = _create(rest_api, name='F1', side=PortSide.FRONT.value).get_json()['message']
+
+        assert 'Delete all of its existing ports first' in message
+
+    def test_both_panel_faces_live_on_one_object(self, rest_api) -> None:
+        """FRONT and REAR are the SAME kind - a panel needs both"""
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+        assert _create(rest_api, name='R1', side=PortSide.REAR.value).status_code == HTTPStatus.CREATED
+
+    def test_more_ports_of_the_same_kind_are_fine(self, rest_api) -> None:
+        """The rule is about the kind, not about the number"""
+        assert _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED
+        assert _create(rest_api, name='Gi0/2', side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED
+
+    def test_an_object_without_ports_may_become_either(self, rest_api) -> None:
+        """Nothing is decided until the first port exists"""
+        assert _create(rest_api, object_id=SECOND_OWNER_OBJECT_ID, name='F1',
+                       side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+    def test_deleting_every_port_frees_the_object(self, rest_api) -> None:
+        """The documented way to switch kind, end to end"""
+        created = _create(rest_api, name='Gi0/1', side=PortSide.SINGLE.value)
+        port_id = created.get_json()['result_id']
+
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.BAD_REQUEST
+
+        assert rest_api.delete(f'{ROUTE_URL}/{port_id}').status_code == HTTPStatus.ACCEPTED
+
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+    def test_another_object_is_judged_on_its_own_ports(self, rest_api) -> None:
+        """The rule is per object - one device being a panel says nothing about the next"""
+        assert _create(rest_api, name='F1', side=PortSide.FRONT.value).status_code == HTTPStatus.CREATED
+
+        assert _create(rest_api, object_id=SECOND_OWNER_OBJECT_ID, name='Gi0/1',
+                       side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED

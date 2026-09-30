@@ -28,11 +28,11 @@ the other, so every write has to sync the counterpart - see
 ``PersonGroupsManager.update_person_in_groups`` and its twin in ``PersonsManager``.
 
 **The optional keys are never null.** ``group_members`` defaults to the empty list and ``email`` to the
-empty string, coerced in the constructor. A stored ``group_members: null`` used to be reachable (the
-model wrote it whenever the key was absent from the payload) and it broke two things at once: the
-update route read it as ``set(None)`` and answered 500, and the Cerberus schema types the key ``list``,
-so the document could not be sent back unchanged either. The schema accepts null on the wire, the
-model turns it into the empty value, and ``updater_20260909`` converged the documents already stored.
+empty string, coerced in the constructor. A stored ``group_members: null`` would break two things at
+once: the update route would read it as ``set(None)`` and answer 500, and the Cerberus schema types the
+key ``list``, so the document could not be sent back unchanged either. The schema accepts null on the
+wire, the model turns it into the empty value, and ``updater_20260909`` converts documents stored with
+a null.
 
 **A group referenced by ISMS is nulled out, not orphaned.** Deleting one clears the reference fields of
 every IsmsRiskAssessment and IsmsControlMeasureAssignment that points at it *as a group*, and removes

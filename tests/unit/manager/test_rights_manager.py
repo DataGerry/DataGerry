@@ -152,7 +152,7 @@ class TestInit:
         'base.isms.import.add',
     ])
     def test_new_rights_are_registered(self, right_name: str) -> None:
-        """The Report / IPAM / Location / ISMS-import rights created for the permissions sweep resolve."""
+        """The Report / IPAM / Location / ISMS-import rights resolve."""
         manager = RightsManager()
 
         assert manager.get_right(right_name) is not None
@@ -215,11 +215,44 @@ class TestIterateRights:
         assert len(result.results) == TOTAL_FIXTURE_RIGHTS
 
     def test_out_of_range_skip_returns_empty_page_without_error(self, manager: RightsManager) -> None:
-        """A skip beyond the end yields an empty page (regression: used to raise IndexError -> 500)"""
+        """A skip beyond the end yields an empty page, not an IndexError surfacing as a 500"""
         result = manager.iterate_rights(limit=PAGE_LIMIT, skip=OUT_OF_RANGE_SKIP, sort='name', order=ORDER_ASC)
 
         assert result.results == []
         assert result.total == TOTAL_FIXTURE_RIGHTS
+
+    def test_a_search_narrows_the_results(self, manager: RightsManager) -> None:
+        """The term is matched against name, label and description"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search='.a')
+
+        assert [right.name for right in result.results] == [f'{RIGHT_PREFIX}a']
+
+    def test_a_searched_total_counts_matches_not_the_catalogue(self, manager: RightsManager) -> None:
+        """A pager built on the total has to offer the pages that exist"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search='.a')
+
+        assert result.total == 1
+
+    def test_a_search_is_applied_before_the_page_is_cut(self, manager: RightsManager) -> None:
+        """Narrow first, then sort, then slice - otherwise a page could come back empty by accident"""
+        result = manager.iterate_rights(limit=1, skip=0, sort='name', order=ORDER_ASC, search=RIGHT_PREFIX)
+
+        assert len(result.results) == 1
+        assert result.total == TOTAL_FIXTURE_RIGHTS
+
+    @pytest.mark.parametrize('search', [None, '', '   '])
+    def test_a_blank_search_returns_every_right(self, manager: RightsManager, search) -> None:
+        """An unsearched listing is the full, unfiltered list"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search=search)
+
+        assert result.total == TOTAL_FIXTURE_RIGHTS
+
+    def test_a_search_matching_nothing_is_an_empty_page(self, manager: RightsManager) -> None:
+        """Not an error, and the total says so too"""
+        result = manager.iterate_rights(limit=NO_LIMIT, skip=0, sort='name', order=ORDER_ASC, search='zzz')
+
+        assert result.results == []
+        assert result.total == 0
 
     def test_total_is_always_the_full_count(self, manager: RightsManager) -> None:
         """The reported total reflects all rights, not just the returned page"""

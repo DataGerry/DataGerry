@@ -38,6 +38,7 @@ from cmdb.errors.manager.user_settings_manager import (
     UserSettingsManagerDeleteError,
     UserSettingsManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USER_ID: int = 96601
@@ -508,3 +509,24 @@ class TestReadShapes:
         rest_api.post(f'{_settings_url()}/', json=body)
 
         assert rest_api.get(f'{_settings_url()}/').get_json()['results'][0]['payloads'] == []
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /users/<id>/settings/<resource> answers the setting in the shape the list read uses."""
+
+    @pytest.mark.parametrize('seeded', [False, True], ids=['created by the PUT', 'updated by the PUT'])
+    def test_the_response_is_the_listed_setting(self, rest_api, seeded: bool) -> None:
+        """Both branches answer the four keys the list read answers for the same setting."""
+        if seeded:
+            rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A, setting_type='GLOBAL'))
+
+        response = rest_api.put(
+            f'{_settings_url()}/{RESOURCE_A}', json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS),
+        )
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        listed = [
+            setting for setting in rest_api.get(f'{_settings_url()}/').get_json()['results']
+            if setting['resource'] == RESOURCE_A
+        ]
+        assert [response.get_json()['result']] == listed

@@ -20,7 +20,7 @@ The unit tests pin every query with mocked managers; these run the whole migrati
 collections seeded with a pre-migration baseline: three CmdbTypes (a plain one, one carrying a
 multi-data-section, one whose schema declares no field at all) and objects holding untyped entries,
 already-typed entries, entries stored with a null / empty type, entries the schema no longer declares,
-and - the shape that used to abort the whole migration - a multi-data-section without a 'values' array
+and - the shape that could abort the whole migration - a multi-data-section without a 'values' array
 plus a row without a 'data' array.
 
 Covered end to end: the backfill writes the schema's field type onto absent / null / empty entries in
@@ -159,7 +159,7 @@ def fixture_seeded_baseline(database_manager: MongoDatabaseManager, database_nam
                 {'multi_data_id': 2, 'data': [_field(NAME_FIELD, 'row-2', 'text')]},
             ],
         }]),
-        # a section without 'values' and a row without 'data' - used to abort the whole migration
+        # a section without 'values' and a row without 'data' - the shapes that abort a naive migration
         _object_doc(MALFORMED_MDS_OBJECT_ID, MDS_TYPE_ID, [_field(NAME_FIELD, 'host-c')], mds=[
             {'section_id': MDS_SECTION_ID, 'values': [
                 {'multi_data_id': 1, 'data': [_field(NAME_FIELD, 'row-ok')]},

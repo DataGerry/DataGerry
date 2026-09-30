@@ -26,7 +26,7 @@ object payload which the route then hands to the shared `apply_object_update` pi
 exactly the same invariants, versioning, events and side effects as a full update. Nothing in this
 module writes to the database.
 
-Split out of `objects_helper.py` on 2026-09-11, with the side-effect cluster, when that module passed
+Split out of `objects_helper.py`, with the side-effect cluster, because that module passed
 pylint's 1,500-line cap. The group is closed: nothing here calls back into the write pipelines
 """
 import copy
@@ -388,7 +388,7 @@ def build_patched_object_data(
         current_object (CmdbObject): The stored CmdbObject being patched
         patch_data (dict[str, Any]): The validated patch payload
         valid_mds_section_ids (set[str]): The MDS section_ids declared by the object's type,
-            used to allow first-row-add into a section the object has no container for yet
+            would allow first-row-add into a section the object has no container for yet
 
     Returns:
         dict[str, Any]: The merged full-object payload

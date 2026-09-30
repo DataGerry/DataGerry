@@ -20,8 +20,7 @@ Pure tests: no Mongo. The manager is driven against a ``MagicMock(spec=ThreatMan
 cross-collection database collaborator (aggregate_from_other_collection) stubbed, so only the
 manager's own behavior is exercised - the array-membership ``$in``/``$unwind``/``$group`` pipeline
 shape, the empty-input short circuit, and the error-wrapping into the ThreatManager error hierarchy.
-The aggregation itself is pinned against real MongoDB in
-tests/integration/isms/test_integration_threat_vulnerability_delete.py.
+The aggregation itself is exercised against real MongoDB by the integration tier.
 """
 from unittest.mock import MagicMock
 

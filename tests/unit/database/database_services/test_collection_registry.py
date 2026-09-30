@@ -27,13 +27,12 @@ implicitly by the first write, carrying no index but '_id_'. Every index the mod
 one included - then simply does not exist, in production, while every unit test still passes because
 the test database never goes through CollectionValidator at all.
 
-That is not a hypothetical. It was live twice: `CmdbPort` when the ports collection was added
-(2026-09-01, caught during the step), and `DocapiTemplate`, whose unique index on 'name' had never
-been built although the create route's own docstring names it as half of the name-uniqueness
-guarantee.
+The gap is easy to open: adding a new collection without registering it is enough, and a model such as
+`DocapiTemplate`, whose create route relies on the unique index on 'name' for half of its
+name-uniqueness guarantee, would lose that guarantee without any test noticing.
 
 The other registry tests in this folder monkeypatch FRAMEWORK_CLASSES to fakes, which is right for
-testing the validator's behaviour and is exactly why nothing was checking its CONTENT. This module
+testing the validator's behaviour and is exactly why they cannot check its CONTENT. This module
 checks the content, and discovers the models by walking the packages rather than from a list - a
 hardcoded list would need the same maintenance the registries need, and would fail the same way.
 
@@ -57,7 +56,7 @@ from cmdb.models.user_management_constants import __COLLECTIONS__ as USER_MANAGE
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # The packages a collection-owning model may live in. cmdb/models holds the domain entities;
-# cmdb/framework holds the two older ones that predate that split (DocapiTemplate, MediaFile)
+# cmdb/framework holds the two that live outside it (DocapiTemplate, MediaFile)
 SEARCHED_PACKAGES: tuple[Any, ...] = (cmdb.models, cmdb.framework)
 
 # Models that own a collection but must NOT be registered, each with the reason. Anything else
@@ -68,8 +67,7 @@ EXEMPT_FROM_REGISTRATION: dict[type, str] = {
         "MediaFile.COLLECTION ('media.libary') is a GridFS BUCKET name, not a collection: the file "
         "documents live in 'media.libary.files' and carry 'filename', not 'name'. Registering it "
         "would create an empty 'media.libary' collection and a unique index on a field nothing "
-        "stores. Its INDEX_KEYS is therefore unbuildable as declared - see the note in the module "
-        "docstring of the media library sweep"
+        "stores. Its INDEX_KEYS is therefore unbuildable as declared"
     ),
 }
 

@@ -40,11 +40,11 @@ answered by POST /racks/<id>/mounts/validate - which runs the very checks the wr
 offer something the write would refuse
 """
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Callable
 
 from cmdb.models.object_model.cmdb_object_helpers import extract_field_value
 from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey, RackMountKind
-from cmdb.models.rack_model.rack_mount_helpers import occupied_slots_of
+from cmdb.models.rack_model.rack_mount_helpers import occupied_slot_count
 from cmdb.models.special_type_model.rack_constants import RackField
 
 from cmdb.framework.rack.rack_constants import RackOverviewKey
@@ -106,7 +106,7 @@ def build_mount_row(
     }
 
 
-def sort_key_for_area(area: RackArea):
+def sort_key_for_area(area: RackArea) -> Callable[[dict[str, Any]], tuple[int, int]]:
     """
     Returns the sort key a bucket of the given area is ordered by
 
@@ -118,7 +118,7 @@ def sort_key_for_area(area: RackArea):
         area (RackArea): The area whose bucket is being sorted
 
     Returns:
-        Callable: A key function for sorted()
+        Callable[[dict[str, Any]], tuple[int, int]]: A key function for sorted()
     """
     if area in RackArea.get_main_areas():
         return lambda row: (
@@ -263,7 +263,7 @@ def build_occupants_legend(mounts: list[dict[str, Any]]) -> list[dict[str, Any]]
             continue
 
         counts[kind] = counts.get(kind, 0) + 1
-        slots[kind] = slots.get(kind, 0) + len(occupied_slots_of(mount))
+        slots[kind] = slots.get(kind, 0) + occupied_slot_count(mount)
 
     return [
         {

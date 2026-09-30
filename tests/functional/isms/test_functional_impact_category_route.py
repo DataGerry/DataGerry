@@ -38,6 +38,13 @@ from cmdb.errors.manager.impact_category_manager import (
     ImpactCategoryManagerDeleteError,
     ImpactCategoryManagerIterationError,
 )
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    IMPACT_CATEGORY_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/impact_categories'
@@ -152,6 +159,16 @@ class TestPutImpactCategory:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
 
+    def test_a_body_public_id_can_not_move_the_impact_category(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored impact category in place"""
+        _insert_category(database_manager, database_name, CATEGORY_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}', _category_payload(MISSING_CATEGORY_ID),
+            database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name), CATEGORY_ID_FOR_UPDATE,
+        )
+
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent category returns 404."""
         assert rest_api.put(f'{ROUTE_URL}/{MISSING_CATEGORY_ID}',
@@ -261,13 +278,16 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(ImpactCategoryManager, 'insert_item', lambda *_a, **_k: CATEGORY_ID_FOR_GET)
         monkeypatch.setattr(ImpactCategoryManager, 'get_item', lambda *_a, **_k: None)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_category_payload(CATEGORY_ID_FOR_GET))
-        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            IMPACT_CATEGORY_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""

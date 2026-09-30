@@ -61,3 +61,26 @@ class TestRenderResultToJson:
         result = RenderResult()
 
         assert result.to_json() == vars(result)
+
+
+class TestRenderProblems:
+    """`render_problems` - how a caller tells a degraded render from a complete one."""
+
+    def test_a_new_result_carries_no_problems(self) -> None:
+        """The default is complete: an empty list, never a missing key"""
+        assert RenderResult().to_json()['render_problems'] == []
+
+    def test_each_result_has_its_own_list(self) -> None:
+        """Two results do not share the list, so a problem recorded on one stays on it"""
+        first, second = RenderResult(), RenderResult()
+
+        first.render_problems.append({})
+
+        assert second.render_problems == []
+
+    def test_the_text_form_counts_the_problems(self) -> None:
+        """The debugging representation says how many problems the render carries"""
+        result = RenderResult()
+        result.render_problems.append({})
+
+        assert 'render_problems=1 items' in str(result)

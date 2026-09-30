@@ -67,7 +67,7 @@ class TestJsonGenerateObject:
         assert result['fields'] == []
 
     def test_author_id_is_left_to_the_validator(self) -> None:
-        """The importer no longer stamps author_id - normalize_and_validate_object forces it later."""
+        """The importer does not stamp author_id - normalize_and_validate_object forces it later."""
         mock_self = _mock_json_self({'properties': {}})
 
         result = JsonObjectImporter.generate_object(mock_self, {'fields': []}, fields=[])
@@ -104,7 +104,7 @@ class TestJsonGenerateObject:
         result = JsonObjectImporter.generate_object(mock_self, entry, fields=[{'name': 'flag', 'type': 'checkbox'}])
 
         # both fields kept (unknown 'ghost' is rejected later by normalization, not dropped here);
-        # 'flag' is NOT bool-coerced here - Rule 7 does that in the validator
+        # 'flag' is NOT bool-coerced here - the validator does that
         assert [field['name'] for field in result['fields']] == ['flag', 'ghost']
         flag = next(field for field in result['fields'] if field['name'] == 'flag')
         assert flag['value'] == 'true'
@@ -278,7 +278,7 @@ class TestCsvGenerateObject:
         result = CsvObjectImporter._build_object_fields(mock_self, [], [foreign], {'col_owner': 'bob'}, set())
 
         assert result == [{'name': 'owner', 'value': None}]
-        # the retired ref_name lookup must not touch the database
+        # there is no ref_name lookup, so the database must not be touched
         mock_self.objects_manager.get_objects_by.assert_not_called()
 
     def test_construction_sets_file_type(self) -> None:

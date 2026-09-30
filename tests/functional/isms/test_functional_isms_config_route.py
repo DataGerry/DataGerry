@@ -85,10 +85,10 @@ def test_status_reports_an_empty_risk_matrix_as_unfinished(
     """
     A grid with no cells is not a finished risk-matrix step
 
-    ``all([])`` is vacuously true, so ``check_risk_classes_set_in_matrix`` used to answer True for an
-    empty grid. With every scale at its minimum that reached the wizard as
+    ``all([])`` is vacuously true, so an unguarded ``check_risk_classes_set_in_matrix`` would answer
+    True for an empty grid. With every scale at its minimum that would reach the wizard as
     ``'risk_matrix': True`` - the step reported complete for a matrix nothing can be evaluated
-    against. The scale-minimum guard in build_isms_config_status is what masked it here, so this
+    against. The scale-minimum guard in build_isms_config_status would mask it here, so this
     asserts the flag directly against an empty grid.
     """
     matrix_collection = database_manager.get_collection(IsmsRiskMatrix.COLLECTION, database_name)

@@ -36,12 +36,12 @@ from cmdb.models.location_model.location_constants import CmdbLocationDefault, L
 
 LOGGER: Logger = getLogger(__name__)
 
-def validate_root_location(tested_location: dict) -> bool:
+def validate_root_location(tested_location: dict[str, Any]) -> bool:
     """
     Checks if a given location holds valid root location data
 
     Args:
-        tested_location (dict): location data which should be tested
+        tested_location (dict[str, Any]): location data which should be tested
 
     Returns:
         (bool): Returns boolean if the given dict has valid root location data

@@ -16,23 +16,24 @@
 """
 Functional tests for Rack View feature-gating over HTTP
 
-The Rack View is gated behind ``LicenseFeature.IPAM`` as an INTERIM decision: a Rack is not an IPAM
-type (``SpecialType.get_ipam_types`` still excludes it) and the feature is expected to get a
-``LicenseFeature`` of its own later. Until then the gate covers four surfaces, all asserted here:
+The Rack View is gated behind ``LicenseFeature.IPAM``, although a Rack is not an IPAM type
+(``SpecialType.get_ipam_types`` excludes it). The gate covers four surfaces:
 
 * the dedicated ``/racks`` surface - both blueprints, reads included, blocked by a blueprint guard
   before the view runs
 * creating / editing a RACK CmdbType
 * writing / deleting a Rack CmdbObject
 * the start assistant's ``rack-profile``, which bypasses every route guard because it writes through
-  the managers directly - covered in tests/unit/.../test_special_helper.py, at the ``feature_locked``
-  seam: ``request_has_feature`` caches per request on ``flask.g``, which leaks across the
-  session-scoped app context, so that half cannot be asserted reliably from here
+  the managers directly - gated at the ``feature_locked`` seam, which is not asserted here:
+  ``request_has_feature`` caches per request on ``flask.g``, which leaks across the session-scoped
+  app context, so that half cannot be asserted reliably over HTTP
 
-The ``/racks`` cases are also the regression guard for a trap in the wiring: ``gate_blueprint``
+The first three are asserted here.
+
+The ``/racks`` cases also guard a trap in the wiring: ``gate_blueprint``
 installs a ``before_request`` hook and Flask runs a blueprint's deferred setup at registration time,
 so gating a blueprint that is *already registered* silently does nothing. These tests fail if the
-rack blueprints are ever registered before the gate loop again.
+rack blueprints are registered before the gate loop.
 """
 from http import HTTPStatus
 from typing import Any
@@ -177,10 +178,10 @@ def test_rack_mount_write_blocked_without_license(rest_api) -> None:
 @pytest.mark.parametrize('url', GATED_READ_URLS)
 @pytest.mark.usefixtures('seeded_rack')
 def test_rack_read_routes_reachable_once_licensed(rest_api, monkeypatch: pytest.MonkeyPatch, url: str) -> None:
-    """With IPAM licensed the blueprint guard lets the request through - it is no longer a 403
+    """With IPAM licensed the blueprint guard lets the request through - it is not a 403
 
-    Also the regression guard for the registration-order trap: a gate installed after the blueprint
-    was registered would never fire, and the unlicensed tests above would fail instead of these.
+    Also guards the registration-order trap: a gate installed after the blueprint was registered
+    would never fire, and the unlicensed tests above would fail instead of these.
     """
     _license_ipam(monkeypatch)
 

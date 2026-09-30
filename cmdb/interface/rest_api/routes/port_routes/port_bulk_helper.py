@@ -26,7 +26,7 @@ from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 
 from cmdb.models.port_connection_model import PortConnectionKey
-from cmdb.models.port_model import PortKey
+from cmdb.models.port_model import PortKey, PortSide
 
 from cmdb.framework.port.bulk_action_constants import (
     BULK_ACTION_ABORT_PREFIX,
@@ -54,6 +54,16 @@ SHARED_PORT_REQUEST_KEYS: tuple[PortRequestKey, ...] = (
     PortRequestKey.DESCRIPTION,
 )
 
+# The rear face's own value for each of those four, keyed by the shared key it overrides. A panel's
+# rear ports are not the same equipment as its front ports - a different port type and speed is the
+# normal case, not the exception - so the assistant asks for both and the request carries both
+REAR_PORT_REQUEST_KEYS: dict[PortRequestKey, PortRequestKey] = {
+    PortRequestKey.STATUS: PortRequestKey.REAR_STATUS,
+    PortRequestKey.PORT_TYPE: PortRequestKey.REAR_PORT_TYPE,
+    PortRequestKey.SPEED: PortRequestKey.REAR_SPEED,
+    PortRequestKey.DESCRIPTION: PortRequestKey.REAR_DESCRIPTION,
+}
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def build_shared_port_values(payload: dict[str, Any]) -> dict[str, Any]:
@@ -74,6 +84,73 @@ def build_shared_port_values(payload: dict[str, Any]) -> dict[str, Any]:
         PortKey[key.name].value: payload[key.value]
         for key in SHARED_PORT_REQUEST_KEYS
         if payload.get(key.value) is not None
+    }
+
+
+def build_rear_port_values(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Reads the rear face's own field values out of a bulk-create body
+
+    Only the four `REAR_*` keys, translated to the port document's own key names - so the result is
+    mergeable over `build_shared_port_values` without either side knowing about the other. A key the
+    body omits is left out rather than written as null, which is what makes the shared value the
+    default instead of being erased by an absent override
+
+    Args:
+        payload (dict[str, Any]): The request body
+
+    Returns:
+        dict[str, Any]: The rear-only field values, empty when the body sets none
+    """
+    return {
+        PortKey[shared.name].value: payload[rear.value]
+        for shared, rear in REAR_PORT_REQUEST_KEYS.items()
+        if payload.get(rear.value) is not None
+    }
+
+
+def build_values_by_side(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    """
+    Resolves the field values each face of a batch will carry
+
+    The unprefixed keys are the values for **every** face; the `REAR_*` keys override them for the
+    rear one. Resolved here rather than in the creation so the framework layer is handed finished
+    values per face and never has to know the request's vocabulary
+
+    Args:
+        payload (dict[str, Any]): The request body
+
+    Returns:
+        dict[str, dict[str, Any]]: The field values keyed by PortSide value, one entry per side
+    """
+    shared: dict[str, Any] = build_shared_port_values(payload)
+    rear: dict[str, Any] = build_rear_port_values(payload)
+
+    return {
+        PortSide.SINGLE.value: shared,
+        PortSide.FRONT.value: shared,
+        PortSide.REAR.value: {**shared, **rear},
+    }
+
+
+def rear_select_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """
+    Projects the rear face's select values onto the unprefixed keys
+
+    So `enforce_select_values` - which knows which option list each of the three select fields draws
+    from - validates the rear values by the same rule as the front ones, without growing a second
+    spelling of that rule
+
+    Args:
+        payload (dict[str, Any]): The request body
+
+    Returns:
+        dict[str, Any]: The rear values under their unprefixed key names, empty when none are set
+    """
+    return {
+        shared.value: payload[rear.value]
+        for shared, rear in REAR_PORT_REQUEST_KEYS.items()
+        if payload.get(rear.value) is not None
     }
 
 

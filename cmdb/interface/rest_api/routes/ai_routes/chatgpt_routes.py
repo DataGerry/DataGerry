@@ -93,7 +93,7 @@ def send_chatgpt_message(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @requires_feature(LicenseFeature.DOCUMENT_GENERATOR)
 @handle_route_errors("while checking whether ChatGPT is configured")
-def get_chatgpt_status(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def get_chatgpt_status(request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route reporting whether ChatGPT is configured
 

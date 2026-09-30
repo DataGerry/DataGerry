@@ -455,3 +455,47 @@ class TestErrorMapping:
 
         assert preview[PortPreviewKey.FACES.value][0][PortPreviewKey.COLLISIONS.value][
             PortCollisionKey.EXISTING.value] == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        DEVICE KIND - the object is one thing                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestThePreviewRefusesTheOtherKind:
+    """A preview never offers names a creation would then reject.
+
+    The kind is the assistant's FIRST question, so the refusal belongs at that question rather than
+    at save - the customer should not name eight ports and only then learn the object is a panel.
+    """
+
+    def test_a_panel_preview_is_refused_on_a_device(self, rest_api, ports) -> None:
+        """The object already carries a SINGLE port"""
+        ports.insert_one({'public_id': 7701, 'object_id': OWNER_OBJECT_ID, 'side': 'single', 'name': 'Gi0/1'})
+
+        response = _preview(rest_api, device_kind=PortDeviceKind.PATCH_PANEL.value,
+                            syntax='F{n}', rear_syntax='R{n}', count=2)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'patch panel' in response.get_json()['message']
+
+    def test_a_device_preview_is_refused_on_a_panel(self, rest_api, ports) -> None:
+        """And the other way round"""
+        ports.insert_one({'public_id': 7702, 'object_id': OWNER_OBJECT_ID, 'side': 'front', 'name': 'F1'})
+
+        response = _preview(rest_api, device_kind=PortDeviceKind.STANDARD.value, syntax='Gi0/{n}', count=2)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'ordinary device' in response.get_json()['message']
+
+    def test_the_matching_kind_still_previews(self, rest_api, ports) -> None:
+        """The guard may not cost the ordinary case"""
+        ports.insert_one({'public_id': 7703, 'object_id': OWNER_OBJECT_ID, 'side': 'front', 'name': 'F1'})
+
+        response = _preview(rest_api, device_kind=PortDeviceKind.PATCH_PANEL.value,
+                            syntax='F{n}', rear_syntax='R{n}', count=2)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_an_object_without_ports_previews_either_kind(self, rest_api) -> None:
+        """Nothing is decided until the first port exists"""
+        assert _preview(rest_api, device_kind=PortDeviceKind.STANDARD.value,
+                        syntax='Gi0/{n}', count=2).status_code == HTTPStatus.OK

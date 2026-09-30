@@ -41,7 +41,6 @@ import cmdb
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.config import app_config, config_name_for_mode
 from cmdb.interface.custom_converters import RegexConverter
-from cmdb.interface.rest_api.routes.cmdb_license.license_guard import enforce_rest_api_license
 from cmdb.interface.rest_api.responses.error_handlers import http_exception
 
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
@@ -97,10 +96,6 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     # Angular app is developed in - reads none and falls back to naming downloads itself
     CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count', 'Content-Disposition'])
 
-    # Lock the external REST API (HTTP Basic auth) behind the REST_API license feature. On-premise
-    # only; a no-op in cloud/local mode. The UI (login + Bearer JWT) is unaffected.
-    app.before_request(enforce_rest_api_license)
-
     app.config.from_object(app_config[config_name_for_mode(cmdb.__MODE__)])
 
     # The mount point belongs to whoever knows it. DispatcherMiddleware mounts this app at /rest,
@@ -134,7 +129,7 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     return app
 
 
-def register_converters(app: BaseCmdbApp):
+def register_converters(app: BaseCmdbApp) -> None:
     """
     Registers the ``regex`` URL converter on the Flask app's URL map
 

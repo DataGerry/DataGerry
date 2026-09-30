@@ -37,11 +37,17 @@ from werkzeug.exceptions import HTTPException
 from cmdb.models.group_model import GroupDeleteMode, GroupKey, ADMIN_GROUP_ID, MASTER_RIGHT_NAME
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
     resolve_move_target,
+    abort_if_members_would_be_stranded,
     ensure_admin_group_keeps_master_right,
+)
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
+    GROUP_MEMBERS_NEED_ACTION_MSG,
+    GROUP_MOVE_TARGET_IS_SOURCE_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TARGET_GROUP_ID: int = 42
+SOURCE_GROUP_ID: int = 77
 NON_ADMIN_GROUP_ID: int = 4711
 OTHER_RIGHT_NAME: str = 'base.framework.object.view'
 
@@ -57,7 +63,7 @@ def test_non_move_action_returns_none_without_lookup() -> None:
     """DELETE (any non-MOVE action) resolves to None and never looks a group up."""
     manager = _manager()
 
-    assert resolve_move_target(manager, GroupDeleteMode.DELETE, TARGET_GROUP_ID) is None
+    assert resolve_move_target(manager, GroupDeleteMode.DELETE, TARGET_GROUP_ID, SOURCE_GROUP_ID) is None
     manager.get_group.assert_not_called()
 
 
@@ -65,7 +71,7 @@ def test_none_action_returns_none_without_lookup() -> None:
     """A missing action (plain delete) resolves to None and never looks a group up."""
     manager = _manager()
 
-    assert resolve_move_target(manager, None, None) is None
+    assert resolve_move_target(manager, None, None, SOURCE_GROUP_ID) is None
     manager.get_group.assert_not_called()
 
 
@@ -74,7 +80,7 @@ def test_move_without_target_id_aborts_400() -> None:
     manager = _manager()
 
     with pytest.raises(HTTPException) as exc_info:
-        resolve_move_target(manager, GroupDeleteMode.MOVE, None)
+        resolve_move_target(manager, GroupDeleteMode.MOVE, None, SOURCE_GROUP_ID)
 
     assert exc_info.value.code == HTTPStatus.BAD_REQUEST
     manager.get_group.assert_not_called()
@@ -85,10 +91,57 @@ def test_move_with_missing_target_aborts_404() -> None:
     manager = _manager(target=None)
 
     with pytest.raises(HTTPException) as exc_info:
-        resolve_move_target(manager, GroupDeleteMode.MOVE, TARGET_GROUP_ID)
+        resolve_move_target(manager, GroupDeleteMode.MOVE, TARGET_GROUP_ID, SOURCE_GROUP_ID)
 
     assert exc_info.value.code == HTTPStatus.NOT_FOUND
     manager.get_group.assert_called_once_with(TARGET_GROUP_ID)
+
+
+def test_move_into_the_group_being_deleted_aborts_400() -> None:
+    """The members would land in a group that is gone the moment the delete completes"""
+    manager = _manager(target=MagicMock())
+
+    with pytest.raises(HTTPException) as exc_info:
+        resolve_move_target(manager, GroupDeleteMode.MOVE, SOURCE_GROUP_ID, SOURCE_GROUP_ID)
+
+    assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+    assert exc_info.value.description == GROUP_MOVE_TARGET_IS_SOURCE_MSG.format(public_id=SOURCE_GROUP_ID)
+    manager.get_group.assert_not_called()
+
+
+def _users_manager(has_members: bool) -> MagicMock:
+    """A stub UsersManager answering whether the group has members."""
+    users_manager = MagicMock()
+    users_manager.has_group_members.return_value = has_members
+    return users_manager
+
+
+def test_no_action_with_members_aborts_400() -> None:
+    """They would keep a group_id that resolves to nothing - refused, naming the group and the choices"""
+    with pytest.raises(HTTPException) as exc_info:
+        abort_if_members_would_be_stranded(_users_manager(True), SOURCE_GROUP_ID, None)
+
+    assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+    assert exc_info.value.description == GROUP_MEMBERS_NEED_ACTION_MSG.format(public_id=SOURCE_GROUP_ID)
+
+
+def test_no_action_for_an_empty_group_passes() -> None:
+    """Nobody to strand"""
+    users_manager = _users_manager(False)
+
+    abort_if_members_would_be_stranded(users_manager, SOURCE_GROUP_ID, None)
+
+    users_manager.has_group_members.assert_called_once_with(SOURCE_GROUP_ID)
+
+
+@pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, GroupDeleteMode.DELETE], ids=lambda action: action.value)
+def test_an_action_needs_no_member_check(action: GroupDeleteMode) -> None:
+    """Either mode says what happens to the members, so nothing is counted"""
+    users_manager = _users_manager(True)
+
+    abort_if_members_would_be_stranded(users_manager, SOURCE_GROUP_ID, action)
+
+    users_manager.has_group_members.assert_not_called()
 
 
 def test_valid_move_returns_target_group() -> None:
@@ -96,7 +149,7 @@ def test_valid_move_returns_target_group() -> None:
     target_group = MagicMock(name='target_group')
     manager = _manager(target=target_group)
 
-    assert resolve_move_target(manager, GroupDeleteMode.MOVE, TARGET_GROUP_ID) is target_group
+    assert resolve_move_target(manager, GroupDeleteMode.MOVE, TARGET_GROUP_ID, SOURCE_GROUP_ID) is target_group
     manager.get_group.assert_called_once_with(TARGET_GROUP_ID)
 
 

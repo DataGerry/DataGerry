@@ -17,8 +17,8 @@
 Unit tests for build_date_settings (date_helper).
 
 The helper turns a settings dictionary into a DateSettingsDAO while ignoring persistence keys such
-as the stored MongoDB '_id'. This is the fix for the crash where a stored 'date' section (which
-carries '_id') could not be splatted back into DateSettingsDAO.
+as the stored MongoDB '_id', so a stored 'date' section (which carries '_id') can be splatted back
+into DateSettingsDAO.
 """
 import pytest
 
@@ -40,7 +40,7 @@ def test_builds_dao_from_plain_dict() -> None:
 
 
 def test_ignores_stored_id_key() -> None:
-    """A stored section carrying '_id' is accepted (regression: previously raised TypeError)."""
+    """A stored section carrying '_id' is accepted rather than raising TypeError."""
     stored_section = {'_id': 'date', 'date_format': DATE_FORMAT, 'timezone': TIMEZONE}
 
     dao = build_date_settings(stored_section)

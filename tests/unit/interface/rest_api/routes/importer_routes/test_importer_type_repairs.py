@@ -32,6 +32,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
     TypeImportError,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import (
+    clear_invalid_field_defaults,
     strip_uploaded_public_id,
     apply_type_defaults,
     apply_port_section_index_default,
@@ -875,3 +876,25 @@ class TestResolveGlobalTemplates:
 
         assert resolve_global_templates(section_templates, []) == {}
         assert not section_templates.queries
+
+
+class TestClearInvalidFieldDefaults:
+    """An uploaded default its own field refuses is dropped, not the entry."""
+
+    def test_an_unusable_default_is_dropped_and_named(self) -> None:
+        """The field and its rules stay; only the default goes"""
+        entry: dict[str, Any] = {TypeSchemaKey.FIELDS.value: [
+            {'type': 'text', 'name': 'code', 'regex': '[A-Z]+', 'value': 'abc'},
+            {'type': 'text', 'name': 'note', 'value': 'kept'},
+        ]}
+
+        assert clear_invalid_field_defaults(entry) == ['code']
+        assert entry[TypeSchemaKey.FIELDS.value][0] == {'type': 'text', 'name': 'code', 'regex': '[A-Z]+', 'value': None}
+        assert entry[TypeSchemaKey.FIELDS.value][1]['value'] == 'kept'
+
+    @pytest.mark.parametrize('entry', [None, 'x', {}, {TypeSchemaKey.FIELDS.value: 'x'},
+                                       {TypeSchemaKey.FIELDS.value: ['not-a-field']}],
+                             ids=['none', 'string', 'no-fields', 'fields-not-a-list', 'malformed-field'])
+    def test_a_malformed_entry_is_left_to_the_rules(self, entry: Any) -> None:
+        """Nothing to repair; the structural rules report the shape"""
+        assert clear_invalid_field_defaults(entry) == []

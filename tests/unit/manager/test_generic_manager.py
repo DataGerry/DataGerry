@@ -29,6 +29,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.manager.generic_manager'
@@ -389,7 +390,7 @@ def test_normalize_dates_raises_on_an_unreadable_date() -> None:
 
 def test_insert_item_normalizes_a_raw_document_s_dates() -> None:
     """
-    The write path that takes a dict is the one that used to store the wrapper.
+    The write path that takes a dict is where a raw `{'$date': …}` wrapper would otherwise be stored.
 
     Both ISMS insert routes hand the validated payload straight to insert_item, so this is where the
     shape has to be settled.
@@ -520,3 +521,70 @@ def test_find_existing_public_ids_wraps_failure_in_get_exception() -> None:
 
     with pytest.raises(_GetErr):
         GenericManager.find_existing_public_ids(mgr, [1])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the wrapped error is the exception itself                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('delegate, operation, expected', [
+    ('insert', lambda mgr: GenericManager.insert_item(mgr, RAW_DOC), _InsertErr),
+    ('insert_many', lambda mgr: GenericManager.insert_many_items(mgr, [RAW_DOC]), _InsertErr),
+    ('get_one', lambda mgr: GenericManager.get_item(mgr, PUBLIC_ID), _GetErr),
+    ('find', lambda mgr: GenericManager.find_existing_public_ids(mgr, [PUBLIC_ID]), _GetErr),
+    ('iterate_query', lambda mgr: GenericManager.iterate_items(mgr, MagicMock()), _IterateErr),
+    ('update', lambda mgr: GenericManager.update_item(mgr, PUBLIC_ID, RAW_DOC), _UpdateErr),
+    ('delete', lambda mgr: GenericManager.delete_item(mgr, PUBLIC_ID), _DeleteErr),
+], ids=['insert_item', 'insert_many_items', 'get_item', 'find_existing_public_ids', 'iterate_items',
+        'update_item', 'delete_item'])
+def test_every_operation_wraps_the_failure_itself(delegate: str, operation, expected: type[Exception]) -> None:
+    """
+    args[0] is the original error, not its text
+
+    `__cause__` would pass under both shapes - it is the traceback. What a caller branches on is the
+    wrapper's argument, so that is what is asserted: a database error stays a database error.
+    """
+    mgr = _mock_manager()
+    failure = RuntimeError('boom')
+    getattr(mgr, delegate).side_effect = failure
+
+    with pytest.raises(expected) as caught:
+        operation(mgr)
+
+    assert caught.value.args[0] is failure
+    assert str(caught.value) == str(failure)
+
+
+def test_init_wraps_the_failure_itself() -> None:
+    """The init wrapper carries the setup error too, not an 'Initialization error: ...' string."""
+    exceptions: dict[str, type[Exception]] = {**EXCEPTIONS, 'init': _InitErr}
+
+    with pytest.raises(_InitErr) as caught:
+        GenericManager(None, _StubModel, exceptions)
+
+    assert isinstance(caught.value.args[0], Exception)
+    assert caught.value.__cause__ is caught.value.args[0]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                               a transient database failure is not the document's fault                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('failure', [
+    DocumentNetworkError('connection lost'),
+    DocumentLockTimeoutError('lock timeout'),
+], ids=['network', 'lock-timeout'])
+@pytest.mark.parametrize('delegate, operation', [
+    ('insert', lambda mgr: GenericManager.insert_item(mgr, RAW_DOC)),
+    ('insert_many', lambda mgr: GenericManager.insert_many_items(mgr, [RAW_DOC])),
+], ids=['insert_item', 'insert_many_items'])
+def test_a_transient_failure_is_raised_unwrapped(delegate: str, operation, failure: Exception) -> None:
+    """
+    Not the manager's insert error: the route layer answers it as a server error (423 / 503), where the
+    insert error would be the route's 400 - and on the Port routes, "that name is taken"
+    """
+    mgr = _mock_manager()
+    getattr(mgr, delegate).side_effect = failure
+
+    with pytest.raises(type(failure)) as caught:
+        operation(mgr)
+
+    assert caught.value is failure

@@ -20,10 +20,10 @@ Covers the read + delete routes over the GenericManager-backed WebhooksEventMana
 codes, the 404 on a missing id, and the manager-error -> 400 / 500 mappings. WebhookEvents are
 created internally (on object changes), so these routes are read/delete only.
 
-Since 2026-08-27 the DELETE route no longer carries a trailing slash its GET sibling lacked, so the
-frontend's slash-less call is served directly instead of through a 308. Added at the same time: the
-per-route error tails no test reached (the get-single 500, and the delete route's own read-failure arm
-plus its 500) and the HTTPException pass-through the list route was missing.
+The DELETE route carries no trailing slash, matching its GET sibling, so the frontend's slash-less
+call is served directly instead of through a 308. Also covered: the per-route error tails (the
+get-single 500, and the delete route's own read-failure arm plus its 500) and the list route's
+HTTPException pass-through.
 """
 from http import HTTPStatus
 from typing import Any
@@ -123,11 +123,11 @@ class TestDeleteWebhookEvent:
                                            database_manager: MongoDatabaseManager,
                                            database_name: str) -> None:
         """
-        The slash-less form is served directly, not via a redirect (regression)
+        The slash-less form is served directly, not via a redirect
 
-        The route was registered as ``/<public_id>/`` while its GET sibling had no slash, so the
-        frontend's slash-less DELETE (``webhookLog.service.ts``) took a 308 first. Same defect the
-        webhook routes had.
+        Registered as ``/<public_id>/`` while its GET sibling has no slash, the route would make the
+        frontend's slash-less DELETE (``webhookLog.service.ts``) take a 308 first. The webhook routes
+        follow the same rule.
         """
         _insert_event(database_manager, database_name, EVENT_ID_FOR_DELETE)
 

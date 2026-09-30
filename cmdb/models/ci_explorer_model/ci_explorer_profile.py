@@ -16,6 +16,7 @@
 """
 Implementation of CmdbCiExplorerProfile in DataGerry
 """
+from typing import Any
 from logging import Logger, getLogger
 
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -42,7 +43,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
     """
     COLLECTION = "framework.ciExplorerProfile"
 
-    SCHEMA: dict = get_cmdb_ci_explorer_profile_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_ci_explorer_profile_schema()
 
 
     def __init__(
@@ -84,12 +85,12 @@ class CmdbCiExplorerProfile(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbCiExplorerProfile":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbCiExplorerProfile":
         """
         Initialises a CmdbCiExplorerProfile from a dict
 
         Args:
-            data (dict): Data with which the CmdbCiExplorerProfile should be initialised
+            data (dict[str, Any]): Data with which the CmdbCiExplorerProfile should be initialised
 
         Raises:
             CmdbCiExplorerProfileInitFromDataError: If the initialisation with the given data fails
@@ -111,7 +112,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbCiExplorerProfile") -> dict:
+    def to_json(cls, instance: "CmdbCiExplorerProfile") -> dict[str, Any]:
         """
         Converts a CmdbCiExplorerProfile into a json compatible dict
 
@@ -122,7 +123,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
             CmdbCiExplorerProfileToJsonError: If CmdbCiExplorerProfile could not be converted to a json compatible dict
 
         Returns:
-            dict: Json compatible dict of the CmdbCiExplorerProfile values
+            dict[str, Any]: Json compatible dict of the CmdbCiExplorerProfile values
         """
         try:
             return {

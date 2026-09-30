@@ -22,6 +22,9 @@ objects and their types), and the public_id / fields / relation_fields terminals
 """
 from unittest.mock import Mock, patch
 
+import pytest
+
+from cmdb.models.docapi_model import docapi_cache_helper
 from cmdb.models.docapi_model.relation_result import RelationResult
 from cmdb.models.docapi_model.relation_side_enum import RelationSide
 from cmdb.models.docapi_model.aggregated_fields import AggregatedFields
@@ -44,6 +47,13 @@ APP_TYPE: int = 20
 REL_HOSTS: int = 100
 REL_OTHER: int = 200
 TEMPLATE_TYPE: str = 'OBJECT'
+
+
+
+@pytest.fixture(autouse=True)
+def _nothing_denied(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The caller's group may read every type unless a test says otherwise."""
+    monkeypatch.setattr(docapi_cache_helper, 'resolve_denied_type_ids', lambda _user, _permission: [])
 
 
 def _edge(relation_id: int, parent_id: int, child_id: int, field_values: list[dict] = None) -> dict:

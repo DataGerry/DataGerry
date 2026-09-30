@@ -28,6 +28,7 @@ from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.group_model import CmdbUserGroup, PROTECTED_GROUP_IDS
 from cmdb.framework.results import IterationResult
 
+from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS
 from cmdb.errors.manager.groups_manager import (
     GROUPS_MANAGER_ERRORS,
     GroupsManagerInitError,
@@ -63,7 +64,8 @@ class GroupsManager(GenericManager):
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            database (str): Name of the database to which the ``dbm`` should connect. Only used in cloud mode
+            database (str): Name of the database to which the ``dbm`` should connect. Used whenever it is
+                given, in every mode - pass one only in cloud mode (``ManagerProvider`` does)
 
         Raises:
             GroupsManagerInitError: If the manager (or the right-tree cache) could not be initialised
@@ -89,7 +91,8 @@ class GroupsManager(GenericManager):
             group (CmdbUserGroup | dict[str, Any]): Raw dict or model instance of the CmdbUserGroup to create
 
         Raises:
-            GroupsManagerInsertError: When the CmdbUserGroup could not be inserted
+            GroupsManagerInsertError: When the CmdbUserGroup could not be inserted. The two TRANSIENT_DATABASE_ERRORS
+                are raised unwrapped
 
         Returns:
             int: The public_id of the inserted CmdbUserGroup
@@ -99,6 +102,10 @@ class GroupsManager(GenericManager):
                 group = CmdbUserGroup.to_json(group, True)
 
             return self.insert(group)
+        except TRANSIENT_DATABASE_ERRORS:
+            # A lock timeout or a lost connection is no fault of the CmdbUserGroup: left unwrapped for the route
+            # layer to answer as a server error, not as the insert's 400
+            raise
         except Exception as err:
             LOGGER.error("[insert_group] Exception: %s. Type: %s", err, type(err))
             raise GroupsManagerInsertError(err) from err

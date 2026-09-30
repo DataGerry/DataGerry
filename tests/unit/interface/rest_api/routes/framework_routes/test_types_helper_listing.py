@@ -21,19 +21,21 @@ The three functions the two listing routes call before they query: ``build_type_
 ``?uncategorized=`` resolved against the CategoriesManager) and ``prepare_builder_parameters``, which
 composes them into the BuilderParameters.
 
-Split out of ``test_types_helper`` on 2026-09-17, when that module went past pylint's 1,500-line cap.
 They are one subject: what a **read** hands to the query. Everything about a type **write** - the
-guards, the side effects, the ACL normalisation - stayed behind.
+guards, the side effects, the ACL normalisation - is tested in ``test_types_helper``.
 """
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
 
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     build_category_criteria,
     build_type_criteria,
+    criteria_constrain_active,
     prepare_builder_parameters,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -94,6 +96,39 @@ def test_build_type_criteria_does_not_mutate_the_list_it_was_given() -> None:
     build_type_criteria(client_criteria, True)
 
     assert client_criteria == [{'$match': {'name': 'x'}}]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                   the client's own `active` condition wins                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+ACTIVE: str = TypeSchemaKey.ACTIVE.value
+
+
+@pytest.mark.parametrize('criteria', [
+    {ACTIVE: False},
+    {ACTIVE: False, 'name': 'x'},
+    [{'$match': {ACTIVE: False}}],
+    [{'$match': {'name': 'x'}}, {'$match': {ACTIVE: False}}],
+], ids=['dict', 'dict with more keys', 'list', 'list, later stage'])
+def test_criteria_that_name_active_are_handed_back_unchanged(criteria: Any) -> None:
+    """The flag defaults to true - applying it here would replace or contradict what the client asked"""
+    assert build_type_criteria(criteria, True) == criteria
+
+
+@pytest.mark.parametrize('criteria, expected', [
+    ({ACTIVE: False}, True),
+    ({'name': 'x'}, False),
+    ({}, False),
+    ([{'$match': {ACTIVE: True}}], True),
+    ([{'$match': {'name': 'x'}}], False),
+    ([{'$project': {ACTIVE: 1}}], False),
+    ([{'$match': {'$and': [{ACTIVE: False}]}}], False),
+    ([], False),
+], ids=['dict', 'dict without', 'empty dict', 'list match', 'list without', 'project is not a condition',
+        'nested condition is not looked for', 'empty list'])
+def test_criteria_constrain_active(criteria: Any, expected: bool) -> None:
+    """Top-level statements only: a dict key, or a key of a $match stage"""
+    assert criteria_constrain_active(criteria) is expected
 
 def test_prepare_builder_parameters_passes_the_merged_criteria_to_the_builder() -> None:
     """The merged criteria replaces the criteria the pager handed over."""

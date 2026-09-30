@@ -48,7 +48,7 @@ class ReportsManager(GenericManager):
 
     Extends: GenericManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Initializes the ReportsManager
 
@@ -117,4 +117,4 @@ class ReportsManager(GenericManager):
             return len(report_ops)
         except Exception as err:
             LOGGER.error("[strip_removed_fields_from_reports] Error: %s. Type: %s", err, type(err))
-            raise ReportsManagerUpdateError(str(err)) from err
+            raise ReportsManagerUpdateError(err) from err

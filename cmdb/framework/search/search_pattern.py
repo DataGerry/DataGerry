@@ -26,11 +26,11 @@ does not is sent as an escaped literal, so every term is answerable. It is the q
 the executed patterns back out of the pipeline - the two together are why a search for `[unclosed`
 both runs and highlights what it matched.
 
-**Python's `re` is the gate, and it is close to MongoDB's PCRE but not identical.** Measured on
-Python 3.12: `*`, `[unclosed` and `a**` are refused by both, while `C++` compiles in both (possessive
-quantifiers have been valid `re` syntax since 3.11). So this rule turns a **refused** query into an
+**Python's `re` is the gate, and it is close to MongoDB's PCRE but not identical.** On Python 3.12:
+`*`, `[unclosed` and `a**` are refused by both, while `C++` compiles in both (possessive quantifiers
+are valid `re` syntax since 3.11). So this rule turns a **refused** query into an
 answerable one; it does not turn a valid-but-surprising pattern into a literal. `C++` still matches
-`CCC`, and that half needs the frontend to stop escaping at the same time - tier 2 **T187**.
+`CCC`, and that half needs the frontend to stop escaping at the same time.
 
 The fallback is applied to the TEXT form only, never to REGEX: there a caller has asked for a pattern,
 and a second engine's opinion of it must not silently change what they meant. Where the two engines

@@ -41,6 +41,8 @@ from logging import Logger, getLogger
 from flask import current_app
 
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
+from cmdb.security.auth.login_name import login_lookup_queries
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
 from cmdb.models.user_model import CmdbUser
 
@@ -49,11 +51,6 @@ from cmdb.errors.provider import AuthenticationError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# CmdbUser fields a login is looked up by: the user name on premise, the email in cloud mode (where the
-# login form submits an email address)
-USER_NAME_FIELD: str = 'user_name'
-EMAIL_FIELD: str = 'email'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          LocalAuthenticationProvider - CLASS                                         #
@@ -141,11 +138,10 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
         """
         Reads the CmdbUser a login is for, by email in cloud mode and by user name on premise
 
-        User names are stored exactly as they were created, so the submitted value is tried as given and
-        only then - if nothing matched - as its lower-case form. `AuthModule.login` lower-cases the name
-        before it reaches its primary provider but NOT in its fallback loop, so without that second try
-        the same credentials would work through one path and fail through the other. The extra read only
-        happens for a name that is not already lower-case and that matched nothing
+        The lookups come from ``login_lookup_queries``, the rule ``AuthModule.resolve_user`` follows too:
+        the login stripped and tried as given, then - on premise, where user names are stored exactly as
+        they were created - its lower-case form. The second read only happens for a name that is not
+        already lower-case and that matched nothing
 
         Args:
             user_name (str): The submitted user name, or the email address in cloud mode
@@ -156,15 +152,13 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
         Returns:
             CmdbUser | None: The stored CmdbUser, or None when no user matches
         """
-        if current_app.cloud_mode:
-            return self._read_user_by({EMAIL_FIELD: user_name})
+        for query in login_lookup_queries(user_name, current_app.cloud_mode):
+            user: CmdbUser | None = self._read_user_by(query)
 
-        user = self._read_user_by({USER_NAME_FIELD: user_name})
+            if user:
+                return user
 
-        if user or user_name == user_name.lower():
-            return user
-
-        return self._read_user_by({USER_NAME_FIELD: user_name.lower()})
+        return None
 
 
     def _read_user_by(self, query: dict[str, str]) -> CmdbUser | None:
@@ -189,22 +183,32 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             return self.users_manager.get_user_by(query)
         except UsersManagerGetError as err:
             LOGGER.error('[_read_user_by] Could not read the CmdbUser to authenticate: %s', err)
-            raise AuthenticationError(str(err)) from err
+            raise AuthenticationError(err) from err
+
+
+    @classmethod
+    def is_active_for(cls, config: BaseAuthProviderConfig) -> bool:
+        """
+        Answers active for every configuration
+
+        Pinned by design: local login is the way back into an instance, so it must not be possible to
+        switch off the only provider that never depends on an external system. The configuration's
+        `active` flag is still stored and shown on the settings page; neither half of a login reads it
+
+        Args:
+            config (BaseAuthProviderConfig): The configuration the provider is, or would be, built from
+
+        Returns:
+            bool: Always True
+        """
+        return True
 
 
     def is_active(self) -> bool:
         """
         Checks if the local authentication provider is active
 
-        Pinned to True by design: local login is the way back into an instance, so it must not be
-        possible to switch off the only provider that never depends on an external system.
-
-        NOTE the provider's configuration does carry an `active` flag, and `AuthModule.login` reads it in
-        its fallback loop (where it filters on the CONFIG, not on the provider) - so a local provider
-        configured inactive is skipped there while the primary path, which asks this method, still accepts
-        it.
-
         Returns:
-            bool: Always returns True, indicating that the local authentication provider is active
+            bool: Always True - see `is_active_for`
         """
-        return True
+        return self.is_active_for(self.config)

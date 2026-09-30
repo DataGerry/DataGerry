@@ -46,7 +46,7 @@ class BaseMediaFile:
     INDEX_KEYS = []
 
 
-    def __init__(self, **kwargs) -> None:
+    def __init__(self, **kwargs: Any) -> None:
         """
         Initialize a BaseMediaFile instance with dynamic attributes
 

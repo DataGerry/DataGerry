@@ -53,7 +53,8 @@ def get_cmdb_category_schema() -> dict[str, Any]:
         },
         'types': {  # public_ids of assigned CmdbTypes to this CmdbCategory
             'type': 'list',
-            'default': []
+            'default': [],
+            'schema': {'type': 'integer', 'min': 1},
         },
         'meta': {  # Additional information about the CmdbCategory
             'type': 'dict',

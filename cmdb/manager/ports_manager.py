@@ -88,7 +88,64 @@ class PortsManager(GenericManager):
                       (PortKey.NAME.value, self.model.DAO_ASCENDING)],
             )
         except (BaseManagerGetError, Exception) as err:
-            raise PortsManagerGetError(str(err)) from err
+            raise PortsManagerGetError(err) from err
+
+
+    def get_ports_of_objects(self, object_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves every CmdbPort of several CmdbObjects in one query
+
+        The read behind a view that draws more than one object at a time: asking per object would be
+        one query per node. Ordered the way the frontend lists them - by owner, then port number, then
+        name - so a caller can group without re-sorting
+
+        Args:
+            object_ids (list[int]): public_ids of the owner CmdbObjects; an empty list reads nothing
+
+        Raises:
+            PortsManagerGetError: If the CmdbPorts could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The ports of those objects, empty when they have none
+        """
+        if not object_ids:
+            return []
+
+        try:
+            return self.find(
+                criteria={PortKey.OBJECT_ID.value: {'$in': object_ids}},
+                sort=[(PortKey.OBJECT_ID.value, self.model.DAO_ASCENDING),
+                      (PortKey.PORT_NUMBER.value, self.model.DAO_ASCENDING),
+                      (PortKey.NAME.value, self.model.DAO_ASCENDING)],
+            )
+        except (BaseManagerGetError, Exception) as err:
+            raise PortsManagerGetError(err) from err
+
+
+    def get_ports_by_ids(self, port_ids: list[int]) -> list[dict[str, Any]]:
+        """
+        Retrieves several CmdbPorts by their public_ids in one query
+
+        The read behind naming what a page of cables ends on: the far end of a connection is a port
+        id, and the ports it names belong to other CmdbObjects. One indexed '$in' answers the whole
+        page, where asking per port would be one query per cable
+
+        Args:
+            port_ids (list[int]): public_ids of the CmdbPorts to read; an empty list reads nothing
+
+        Raises:
+            PortsManagerGetError: If the CmdbPorts could not be retrieved
+
+        Returns:
+            list[dict[str, Any]]: The ports that exist, in no guaranteed order
+        """
+        if not port_ids:
+            return []
+
+        try:
+            return self.find(criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}})
+        except (BaseManagerGetError, Exception) as err:
+            raise PortsManagerGetError(err) from err
 
 
     def get_port_by_name(self, object_id: int, side: str, name: str) -> dict[str, Any] | None:
@@ -117,7 +174,7 @@ class PortsManager(GenericManager):
                 PortKey.NAME.value: name,
             })
         except (BaseManagerGetError, Exception) as err:
-            raise PortsManagerGetError(str(err)) from err
+            raise PortsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -139,4 +196,4 @@ class PortsManager(GenericManager):
         try:
             return self.delete_many({PortKey.OBJECT_ID.value: object_id}).deleted_count
         except (BaseManagerDeleteError, Exception) as err:
-            raise PortsManagerDeleteError(str(err)) from err
+            raise PortsManagerDeleteError(err) from err

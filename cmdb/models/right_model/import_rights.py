@@ -16,19 +16,17 @@
 """
 Implementation of all Importer Rights
 """
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
 from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class ImportRight(BaseRight):
+class ImportRight(DefaultLevelRight):
     """
     Base class for Importer rights
     """
     MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{BaseRight.PREFIX}.import'
-
-    def __init__(self, name: str, level: Levels = Levels.SECURE, description: str = None):
-        super().__init__(level, name, description=description)
+    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ImportObjectRight(ImportRight):
@@ -37,9 +35,7 @@ class ImportObjectRight(ImportRight):
     """
     MIN_LEVEL = Levels.PROTECTED
     PREFIX = f'{ImportRight.PREFIX}.object'
-
-    def __init__(self, name: str, level: Levels = Levels.SECURE, description: str = None):
-        super().__init__(name, level, description=description)
+    DEFAULT_LEVEL = Levels.SECURE
 
 
 class ImportTypeRight(ImportRight):
@@ -48,6 +44,3 @@ class ImportTypeRight(ImportRight):
     """
     MIN_LEVEL = Levels.SECURE
     PREFIX = f'{ImportRight.PREFIX}.type'
-
-    def __init__(self, name: str, level: Levels = Levels.SECURE, description: str = None):
-        super().__init__(name, level, description=description)

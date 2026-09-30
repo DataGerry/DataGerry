@@ -17,6 +17,7 @@
 Rights, request keys and refusal messages of the Port REST routes
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.framework.port.name_syntax_constants import PortDeviceKind
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class PortRight(BaseStrEnum):
@@ -44,7 +45,14 @@ class PortRequestKey(BaseStrEnum):
     another face's name space, where its name may already be taken.
 
     The audit fields and PUBLIC_ID are absent on purpose: they are server-owned and stamped from the
-    request, never read from the payload
+    request, never read from the payload.
+
+    The REAR_* keys belong to the BULK CREATE of a patch panel alone. A panel's two faces are created
+    from one request, and its rear ports are not the same equipment as its front ports - a rear face
+    is typically a different port type and speed - so the four field values are settable per face.
+    The unprefixed key is the value for BOTH faces and a REAR_* key overrides it for the rear, the
+    same shape `syntax` / `rear_syntax` already uses for the name syntax. A single create takes no
+    REAR_* key: it writes one port, whose own face is named by SIDE
     """
     OBJECT_ID = 'object_id'
     SIDE = 'side'
@@ -54,6 +62,10 @@ class PortRequestKey(BaseStrEnum):
     PORT_TYPE = 'port_type'
     SPEED = 'speed'
     DESCRIPTION = 'description'
+    REAR_STATUS = 'rear_status'
+    REAR_PORT_TYPE = 'rear_port_type'
+    REAR_SPEED = 'rear_speed'
+    REAR_DESCRIPTION = 'rear_description'
 
 
 # Response-only key carrying the derived "is this Port connected" flag.
@@ -79,11 +91,30 @@ PORT_TYPE_NOT_PORT_BEARING_MESSAGE: str = (
     "The Type of CmdbObject ID:{object_id} does not use ports. Enable 'uses_ports' on the Type first!"
 )
 
+# Refusal (HTTP 400) when a write would give an object ports of the kind it is not. A CmdbObject is
+# either an ordinary device (PortSide.SINGLE ports) or a patch panel (FRONT/REAR ports), never both,
+# and the kind is not switched by editing: the only way out of one kind is to delete every port of it
+PORT_KIND_CONFLICT_MESSAGE: str = (
+    "CmdbObject ID:{object_id} already has {current} ports, so it can not also have {requested} "
+    "ports. Delete all of its existing ports first to change what it is."
+)
+
+# How the two kinds are named in that refusal - what the user sees, not the stored side values
+PORT_KIND_LABELS: dict[str, str] = {
+    PortDeviceKind.STANDARD.value: 'ordinary device',
+    PortDeviceKind.PATCH_PANEL.value: 'patch panel',
+}
+
+
 # Refusal (HTTP 400) when the name is already taken on this face of this object. The unique index is
 # what guarantees it; this message is what makes the common case readable
 PORT_NAME_TAKEN_MESSAGE: str = (
     "A Port named '{name}' already exists on the '{side}' side of CmdbObject ID:{object_id}!"
 )
+
+# Server error (HTTP 500) when a Port the insert just reported cannot be read back - the server losing
+# sight of its own write, not a missing resource the caller asked for
+PORT_CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Port from the database!'
 
 # Refusal (HTTP 400) when a select field names a CmdbExtendableOption that does not exist, or one from
 # the wrong list - a PORT_TYPE id in the speed field would otherwise be stored and rendered as a speed

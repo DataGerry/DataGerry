@@ -16,10 +16,10 @@
 """
 Document keys of an IsmsRiskAssessment
 
-The keys of the ``isms.riskAssessment`` documents, named once. They were previously spelled out as
-bare literals in four independent places - the model's ``from_data``, its ``to_json``, its
-``INDEX_KEYS`` and the Cerberus schema - plus the route layer's required-field tuple, so a renamed
-or mistyped key showed up as a silently missing value rather than as an error.
+The keys of the ``isms.riskAssessment`` documents, named once. The model's ``from_data``, its
+``to_json``, its ``INDEX_KEYS``, the Cerberus schema and the route layer's required-field tuple all
+read them from here, so a renamed or mistyped key fails as an error instead of showing up as a
+silently missing value.
 
 Members are the raw MongoDB keys; use ``.value`` wherever a key is needed as a dict key, a Mongo
 filter key or a projection key, so what reaches the database is a plain string.
@@ -73,6 +73,16 @@ RISK_ASSESSMENT_DATE_KEYS: tuple[RiskAssessmentKey, ...] = (
     RiskAssessmentKey.FINISHED_IMPLEMENTATION_DATE,
     RiskAssessmentKey.AUDIT_DONE_DATE,
 )
+
+# What a stored assessment must carry to be read: the risk it assesses and the object or group it
+# assesses it for. The schema requires every key on a write, but a read is kept to that identity on
+# purpose - a list route reads every row through the model, so one row refused for a missing audit
+# field would fail the whole page
+RISK_ASSESSMENT_REQUIRED_DOCUMENT_KEYS: list[str] = [
+    RiskAssessmentKey.RISK_ID.value,
+    RiskAssessmentKey.OBJECT_ID_REF_TYPE.value,
+    RiskAssessmentKey.OBJECT_ID.value,
+]
 
 # Transport-only key of the write payloads: the frontend sends the assessment's ControlMeasure
 # assignments alongside it, but they are documents of their own collection. Every write route pops it

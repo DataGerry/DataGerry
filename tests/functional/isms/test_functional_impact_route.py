@@ -18,7 +18,7 @@ Functional smoke for the ``/isms/impacts`` REST routes
 
 Covers the route-layer concerns on top of the ImpactManager suites: HTTP status codes, schema
 validation, the GET envelopes, the 404 on a missing id, the manager-error -> 400 mapping, and the
-ISMS-specific branches - the max-6 limit (403), the calculation_basis float coercion and uniqueness
+ISMS-specific branches - the max-6 limit (400), the calculation_basis float coercion and uniqueness
 (400 on insert and on a colliding update), and the 400 when deleting an Impact referenced by a
 RiskAssessment. The routes are ISMS-license gated, so the license check is stubbed.
 """
@@ -38,7 +38,14 @@ from cmdb.models.isms_model import (
     IsmsRiskMatrix,
 )
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import MAX_ISMS_SCALE_ENTRIES
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ISMS_CAP_REACHED_MSG,
+    ISMS_IMPACTS_LABEL,
+    MAX_ISMS_SCALE_ENTRIES,
+    IMPACT_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from cmdb.errors.manager.impact_manager import (
     ImpactManagerInsertError,
     ImpactManagerGetError,
@@ -46,6 +53,7 @@ from cmdb.errors.manager.impact_manager import (
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
 )
+from tests.utils.update_response import put_and_read_back, assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/impacts'
@@ -126,7 +134,7 @@ class TestImpactWithoutADescriptionCanBeSaved:
 
     ``description`` is optional, so a POST that omits it stores nothing; the list route answers
     ``to_json``, which emits every declared key, so the frontend receives ``description: null`` and its
-    edit modal patches that straight into the form it later saves. The schema used to refuse the null
+    edit modal patches that straight into the form it later saves, so the schema must accept the null
     with 'null value not allowed', so such an impact could not be edited at all.
     """
 
@@ -163,7 +171,7 @@ class TestTheRiskMatrixIsRegeneratedWithoutRiskClasses:
     """
     Creating an impact builds the grid even when no IsmsRiskClass exists yet
 
-    ``calculate_risk_matrix`` used to require at least one risk class - which is not an input to the
+    ``calculate_risk_matrix`` must not require at least one risk class - which is not an input to the
     calculation - and no risk-class route recalculates, so configuring risk classes LAST left the grid
     permanently empty while the config wizard reported that step complete.
     """
@@ -242,16 +250,20 @@ class TestPostImpact:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    def test_limit_reached_returns_403(self, rest_api,
+    def test_limit_reached_returns_400(self, rest_api,
                                       database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Creating an Impact beyond the MAX_ISMS_SCALE_ENTRIES limit returns 403."""
+        """Creating an Impact beyond the MAX_ISMS_SCALE_ENTRIES limit is refused with 400."""
         for index, impact_id in enumerate(LIMIT_IMPACT_IDS):
             _insert_impact(database_manager, database_name, impact_id, basis=float(index))
 
         response = rest_api.post(f'{ROUTE_URL}/',
                                  json=_impact_payload(LIMIT_EXTRA_ID, basis=float(MAX_ISMS_SCALE_ENTRIES)))
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == ISMS_CAP_REACHED_MSG.format(cap=MAX_ISMS_SCALE_ENTRIES,
+                                                                          entity_label=ISMS_IMPACTS_LABEL)
+        stored = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)
+        assert stored.find_one({'public_id': LIMIT_EXTRA_ID}) is None
 
 
 class TestGetImpact:
@@ -296,6 +308,16 @@ class TestPutImpact:
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         assert rest_api.get(f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}').get_json()['result']['name'] == 'Renamed'
+
+    def test_a_body_public_id_can_not_move_the_impact(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored impact in place"""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}', _impact_payload(MISSING_IMPACT_ID),
+            database_manager.get_collection(IsmsImpact.COLLECTION, database_name), IMPACT_ID_FOR_UPDATE,
+        )
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """Updating a non-existent impact returns 404."""
@@ -395,13 +417,16 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{IMPACT_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(ImpactManager, 'insert_item', lambda *_a, **_k: IMPACT_ID_FOR_GET)
         monkeypatch.setattr(ImpactManager, 'get_item', lambda *_a, **_k: None)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_impact_payload(IMPACT_ID_FOR_GET))
-        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            IMPACT_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""
@@ -477,3 +502,35 @@ class TestErrorMapping:
                                 json=_impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_OTHER))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /isms/impacts/<id> answers the Impact as stored, on both of its write paths."""
+
+    def test_an_omitted_description_comes_back_as_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Unchanged basis - the plain update: a description left out is answered as the model stores it."""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+
+        result, stored = put_and_read_back(
+            rest_api, f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}',
+            _impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_DEFAULT, 'Renamed'),
+        )
+
+        assert result == stored
+        assert 'description' in result
+
+    def test_a_changed_basis_answers_the_stored_document_too(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """Changed basis - the write that also rewrites the risk assessments answers the same way."""
+        _insert_impact(database_manager, database_name, IMPACT_ID_FOR_UPDATE)
+
+        result, stored = put_and_read_back(
+            rest_api, f'{ROUTE_URL}/{IMPACT_ID_FOR_UPDATE}',
+            _impact_payload(IMPACT_ID_FOR_UPDATE, BASIS_OTHER, 'Renamed'),
+        )
+
+        assert result == stored
+        assert result['calculation_basis'] == BASIS_OTHER

@@ -21,7 +21,7 @@ One GridFS file document of the media library. Instances are built straight from
 them to the snake_case attributes the routes read; `to_json` turns one back into the body the read
 routes answer with.
 
-**The index findings recorded here were resolved on 2026-09-16.** `INDEX_KEYS` used to declare a
+**The index contract.** A bare `INDEX_KEYS` declaring a
 unique index over `name`, a key no GridFS document carries, and nothing ever built it: `MediaFile` is
 absent from `framework/constants.__COLLECTIONS__` and cannot be added to it, because that loop indexes
 a class's COLLECTION verbatim while `MediaFile.COLLECTION` is the GridFS *bucket* name. The tests
@@ -193,7 +193,7 @@ class TestGetIndexKeys:
     """
     The declared indexes, combined with the base's `public_id` index
 
-    Called on every boot since 2026-09-16: `CollectionValidator.init_media_library_indexes` asks the
+    Called on every boot: `CollectionValidator.init_media_library_indexes` asks the
     class for them and reconciles them onto `media.libary.files`, the collection GridFS keeps the file
     documents in.
     """

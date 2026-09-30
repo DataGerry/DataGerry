@@ -47,7 +47,11 @@ from cmdb.models.port_connection_model import (
     ENDPOINTS_INDEX_NAME,
     ENDPOINTS_INTERNAL_INDEX_NAME,
 )
-from cmdb.class_schema.port_connection_model import get_cmdb_port_connection_schema
+from cmdb.class_schema.port_connection_model import (
+    get_cmdb_port_connection_schema,
+    get_cmdb_port_connection_write_schema,
+)
+from cmdb.models.type_model import TEXT_VALUE_MAX_LENGTH
 from cmdb.errors.models.cmdb_port_connection import (
     CmdbPortConnectionInitError,
     CmdbPortConnectionInitFromDataError,
@@ -462,6 +466,15 @@ class TestSchema:
         """'5 m' and '2.5 m' are the notations the concept keeps verbatim"""
         assert get_cmdb_port_connection_schema()[
             PortConnectionKey.CABLE_LENGTH.value]['type'] == 'string'
+
+    @pytest.mark.parametrize('key', [
+        PortConnectionKey.CABLE_NAME, PortConnectionKey.CABLE_LENGTH,
+        PortConnectionKey.CABLE_COLOR, PortConnectionKey.CABLE_DESCRIPTION,
+    ], ids=lambda key: key.value)
+    def test_the_free_text_cable_fields_share_the_text_cap(self, key: PortConnectionKey) -> None:
+        """The cap every CmdbType text field has - on the document and on the request body it derives"""
+        assert get_cmdb_port_connection_schema()[key.value]['maxlength'] == TEXT_VALUE_MAX_LENGTH
+        assert get_cmdb_port_connection_write_schema()[key.value]['maxlength'] == TEXT_VALUE_MAX_LENGTH
 
     def test_the_cable_ci_reference_is_not_nullable(self) -> None:
         """

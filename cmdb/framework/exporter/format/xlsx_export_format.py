@@ -17,6 +17,7 @@
 Implementation of XlsxExportFormat
 """
 from logging import Logger, getLogger
+from typing import Any
 from io import BytesIO
 from collections import namedtuple
 import re
@@ -72,7 +73,7 @@ class XlsxExportFormat(BaseExporterFormat):
     ACTIVE = True
 
 
-    def export(self, data: list[RenderResult], *args) -> bytes:
+    def export(self, data: list[RenderResult], *args: Any) -> bytes:
         """
         Exports a list of RenderResult objects as an XLSX file
 
@@ -91,7 +92,7 @@ class XlsxExportFormat(BaseExporterFormat):
         return buffer.getvalue()
 
 
-    def create_xls_object(self, data: list[RenderResult], args: tuple) -> Workbook:
+    def create_xls_object(self, data: list[RenderResult], args: tuple[Any, ...]) -> Workbook:
         """
         Creates an XLSX workbook with the provided data
 
@@ -102,7 +103,7 @@ class XlsxExportFormat(BaseExporterFormat):
 
         Args:
             data (list[RenderResult]): The objects to be exported
-            args (tuple): The positional export args; `args[0]` (if present) is the options dict
+            args (tuple[Any, ...]): The positional export args; `args[0]` (if present) is the options dict
 
         Returns:
             Workbook: The created XLSX workbook
@@ -233,7 +234,7 @@ class XlsxExportFormat(BaseExporterFormat):
         return regular_columns, mds_layout, mds_columns
 
 
-    def _resolve_settings(self, args: tuple) -> '_SheetSettings':
+    def _resolve_settings(self, args: tuple[Any, ...]) -> '_SheetSettings':
         """
         Resolves the shared per-export settings from the export args
 
@@ -243,7 +244,7 @@ class XlsxExportFormat(BaseExporterFormat):
         flag and the resolved location-name map are read from the options too.
 
         Args:
-            args (tuple): The positional export args; `args[0]` (if present) is the options dict
+            args (tuple[Any, ...]): The positional export args; `args[0]` (if present) is the options dict
 
         Returns:
             _SheetSettings: The bundled (header, metadata_columns, view, human_readable, location_names)

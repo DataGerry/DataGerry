@@ -36,7 +36,7 @@ class UpdateMultiResponse(BaseAPIResponse):
     """
     API Response for update call of multiple resources
     """
-    def __init__(self, results: list[dict], failed: list[ResponseFailedMessage] | None = None) -> None:
+    def __init__(self, results: list[dict[str, Any]], failed: list[ResponseFailedMessage] | None = None) -> None:
         """
         Initialises the UpdateMultiResponse
 
@@ -44,7 +44,7 @@ class UpdateMultiResponse(BaseAPIResponse):
             results: Updated resources
             failed: Failed data update
         """
-        self.results: list[dict] = results
+        self.results: list[dict[str, Any]] = results
         self.failed: list[ResponseFailedMessage] = failed or []
         super().__init__(operation_type=OperationType.UPDATE)
 

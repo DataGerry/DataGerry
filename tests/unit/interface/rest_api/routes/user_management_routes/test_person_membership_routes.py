@@ -25,10 +25,10 @@ rules being pinned are the ones that must hold on both sides.
 
   - **the membership diff is null-safe.** ``set(document.get(key, []))`` returns None for a stored
     null, and ``set(None)`` raises inside the route's try block - reported as a 500 that named
-    nothing. Documents written before updater_20260909 can still carry that null
+    nothing. A database that has not run updater_20260909 can still carry that null
   - **an unknown reference is refused before anything is written**, rather than stored and then
     mirrored into no document
-  - **the delete route makes exactly one call.** The reciprocal cleanup moved into the manager's
+  - **the delete route makes exactly one call.** The reciprocal cleanup lives in the manager's
     cascade, so the route must not repeat it - and must not be the only place it happens
   - the error tails: which manager error becomes a 400, and that anything else becomes a 500
 """
@@ -219,7 +219,7 @@ class TestUnknownReferencesAreRefused:
         400 before the write, rather than a stored id nothing mirrors
 
         The reciprocal '$addToSet' silently matches no document for an unknown id, so the two sides
-        disagreed from that moment with nothing in the response to say so.
+        would disagree from that moment with nothing in the response to say so.
         """
         patcher, managers = _patched_managers(side)
         managers.counterpart.find_existing_public_ids.return_value = set()
@@ -274,13 +274,13 @@ class TestUnknownReferencesAreRefused:
 
 @pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)
 class TestMembershipDiff:
-    """What the update route computes, including from a document written before the fix."""
+    """What the update route computes, including from a document that stores a null membership."""
 
     def test_a_stored_null_membership_is_read_as_empty(self, side: _Side, flask_app: Flask) -> None:
         """
-        The 500 this sweep was scheduled for: set(None) raised inside the route's try block
+        A stored null is not a 500: set(None) would raise inside the route's try block
 
-        A document written before updater_20260909 can still carry the null, so the route stays
+        A database that has not run updater_20260909 can still carry the null, so the route stays
         defensive rather than trusting the migration alone.
         """
         patcher, managers = _patched_managers(side)
@@ -351,10 +351,10 @@ class TestDeleteIsOneManagerCall:
 
     def test_delegates_the_whole_cascade(self, side: _Side, flask_app: Flask) -> None:
         """
-        delete_with_follow_up now removes the entity from the counterpart collection itself
+        delete_with_follow_up removes the entity from the counterpart collection itself
 
-        The route used to make that second call, which is why deleting through any other path left
-        the membership behind.
+        Were that second call made by the route, deleting through any other path would leave the
+        membership behind.
         """
         patcher, managers = _patched_managers(side)
         managers.own.get_item.return_value = {'public_id': PUBLIC_ID}
@@ -531,8 +531,8 @@ class TestErrorMapping:
         """
         The cascade's own error, which reaches the route only because the manager wraps it
 
-        Before this sweep the person cascades raised whatever pymongo raised, and the route answered
-        500 for a failure its ObjectGroup twin reported as a 400.
+        Unwrapped, a raw pymongo error would make the route answer 500 for a failure its ObjectGroup
+        twin reports as a 400.
         """
         patcher, managers = _patched_managers(side)
         managers.own.get_item.return_value = {'public_id': PUBLIC_ID}

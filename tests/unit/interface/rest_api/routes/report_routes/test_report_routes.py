@@ -40,6 +40,7 @@ from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
 from cmdb.models.reports_model.report_constants import ReportQueryKey
+from cmdb.models.reports_model.report_query import eval_stored_report_query
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     PREVIEW_LIMIT,
     PREVIEW_PARAM,
@@ -49,6 +50,11 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
+    coerce_report_id,
+    guard_report_conditions,
+    guard_report_name,
+    guard_report_selected_fields,
+    parse_report_json_param,
     abort_if_report_category_missing,
     abort_if_ref_section_fields,
     build_report_create_payload,
@@ -56,7 +62,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     build_report_query,
     build_report_update_payload,
     collect_condition_field_names,
-    eval_report_query,
     load_report_or_404,
     normalize_report_params,
     parse_boolean_param,
@@ -159,6 +164,106 @@ def _valid_params(**overrides: Any) -> dict[str, Any]:
     return params
 
 
+# ---------------------------------------- the write payload's shape checks ---------------------------------------- #
+#
+# The values arrive either already typed (a JSON body) or as text (a query string), so each is read
+# through its own coercion before it is judged. What these pin is that a wrong SHAPE is a 400: read
+# as a rule tree and as a set of names further down the write, a non-dict `conditions` and a non-list
+# `selected_fields` raise AttributeError / TypeError out of the route, and the two wrong shapes that
+# do NOT raise are stored as a document the CmdbReport schema rejects.
+
+@pytest.mark.parametrize('raw, expected', [('7', 7), (7, 7), (' 7 ', 7), ('-3', -3)])
+def test_an_id_is_read_from_text_or_from_a_number(raw: Any, expected: int) -> None:
+    """A query string carries it as text and a JSON body as a number; both end up an int"""
+    assert coerce_report_id(raw, 'type_id') == expected
+
+
+@pytest.mark.parametrize('raw', ['abc', '', '2.5', None, [], {}, 2.5])
+def test_an_unreadable_id_maps_to_400(raw: Any) -> None:
+    """Anything that is not a whole number is the caller's mistake, not a 500"""
+    with pytest.raises(HTTPException) as exc_info:
+        coerce_report_id(raw, 'type_id')
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('raw', [True, False])
+def test_a_bool_is_not_an_id(raw: Any) -> None:
+    """`bool` is an `int` subclass, so True would otherwise resolve to the Type with public_id 1"""
+    with pytest.raises(HTTPException) as exc_info:
+        coerce_report_id(raw, 'type_id')
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+def test_a_json_param_is_parsed_from_text_and_passed_through_otherwise() -> None:
+    """A query string carries JSON text; a body carries the value itself"""
+    assert parse_report_json_param('{"a": 1}') == {'a': 1}
+    assert parse_report_json_param({'a': 1}) == {'a': 1}
+    assert parse_report_json_param([1]) == [1]
+
+
+def test_unparseable_json_maps_to_400() -> None:
+    """Only a query-string payload can reach this - a body is parsed before it is read"""
+    with pytest.raises(HTTPException) as exc_info:
+        parse_report_json_param('{not json')
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('conditions', [{'condition': 'and', 'rules': []}, {}, None])
+def test_a_rule_tree_or_nothing_is_accepted(conditions: Any) -> None:
+    """None means 'no conditions', which is what an absent tree already resolves to"""
+    guard_report_conditions(conditions)
+
+
+@pytest.mark.parametrize('conditions', ['hello', [1, 2], 5, True])
+def test_conditions_that_are_not_a_rule_tree_map_to_400(conditions: Any) -> None:
+    """`collect_condition_field_names` reads `.get` off it, so anything else is an AttributeError 500"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_conditions(conditions)
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('selected_fields', [[], ['text-a'], ['text-a', 'text-b']])
+def test_a_list_of_field_names_is_accepted(selected_fields: Any) -> None:
+    """Including an empty one: a report under construction selects nothing yet"""
+    guard_report_selected_fields(selected_fields)
+
+
+@pytest.mark.parametrize('selected_fields', [{'a': 1}, 7, 'text-a', None])
+def test_selected_fields_that_are_not_a_list_map_to_400(selected_fields: Any) -> None:
+    """A dict is the shape that survives `set(...)` and would be stored as the report's columns"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_selected_fields(selected_fields)
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('entry', [1, {'x': 2}, None, '', '   '])
+def test_a_selected_field_that_is_not_a_name_maps_to_400(entry: Any) -> None:
+    """An unhashable entry is a TypeError inside `set(...)`, and a blank one names no field"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_selected_fields(['text-a', entry])
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+@pytest.mark.parametrize('name', ['', '   ', None, 7, []])
+def test_a_report_without_a_usable_name_maps_to_400(name: Any) -> None:
+    """The name is what every list and the run view identify the report by"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_report_name(name)
+
+    assert exc_info.value.code == HTTP_BAD_REQUEST
+
+
+def test_a_usable_name_is_accepted() -> None:
+    """Surrounding whitespace is tolerated - only a blank name is refused"""
+    guard_report_name(' My Report ')
+
+
 # ------------------------------------------------- normalize_report_params ------------------------------------------ #
 
 def test_normalize_report_params_coerces_types() -> None:
@@ -212,7 +317,7 @@ def test_normalize_report_params_missing_required_maps_to_400(missing_key: str) 
 
 
 def test_normalize_report_params_ignores_a_missing_predefined() -> None:
-    """'predefined' is no longer a request parameter, so its absence is not an error."""
+    """'predefined' is not a request parameter, so its absence is not an error."""
     params = _valid_params()
     del params['predefined']
 
@@ -429,22 +534,6 @@ def test_passes_when_type_has_no_ref_section_fields() -> None:
     abort_if_ref_section_fields(report_type, ['text-a', 'linked-section'], None)  # must not raise
 
 
-# ------------------------------------------------- eval_report_query ------------------------------------------------ #
-
-def test_eval_report_query_rebuilds_dict_with_datetime() -> None:
-    """A stored query string is evaluated back into a dict, including datetime() calls."""
-    result = eval_report_query("{'field': 'x', 'when': datetime.datetime(2024, 11, 26)}")
-
-    assert result['field'] == 'x'
-    assert result['when'] == datetime(2024, 11, 26)
-
-
-def test_eval_report_query_is_sandboxed_against_builtins() -> None:
-    """The locked-down namespace removes builtins, so a builtin call cannot execute (NameError)."""
-    with pytest.raises(NameError):
-        eval_report_query("__import__('os').system('echo pwned')")
-
-
 # ------------------------------------------------- build_report_query ----------------------------------------------- #
 
 def test_build_report_query_wraps_serialized_query_under_data() -> None:
@@ -458,15 +547,15 @@ def test_build_report_query_wraps_serialized_query_under_data() -> None:
     assert result == {ReportQueryKey.DATA: str(built)}
 
 
-def test_build_report_query_round_trips_through_eval_report_query() -> None:
-    """A built query (datetime values and all) survives the str-store / eval-load round-trip."""
+def test_build_report_query_round_trips_through_the_stored_query_reader() -> None:
+    """A built query (datetime values and all) survives the str-store / shared-reader round-trip."""
     built: dict[str, Any] = {'fields': {'$elemMatch': {'name': 'd', 'value': {'$gte': datetime(2024, 11, 26)}}}}
 
     with patch(f'{HELPER_PATH}.MongoDBQueryBuilder') as builder_cls:
         builder_cls.return_value.build.return_value = built
         stored = build_report_query({'condition': 'and', 'rules': []}, MagicMock())
 
-    assert eval_report_query(stored[ReportQueryKey.DATA]) == built
+    assert eval_stored_report_query(stored[ReportQueryKey.DATA]) == built
 
 
 # ------------------------------------------------- resolve_report_query --------------------------------------------- #

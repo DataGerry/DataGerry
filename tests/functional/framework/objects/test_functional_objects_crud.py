@@ -58,6 +58,7 @@ from tests.functional.framework.objects.objects_route_helpers import (
     object_doc,
     object_payload,
 )
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class TestPostObject:
@@ -126,7 +127,7 @@ class TestPostObject:
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
     def test_a_misTyped_field_list_is_refused_at_the_boundary(self, rest_api) -> None:
-        """`fields` must be a list; a string used to travel further into the pipeline before failing."""
+        """`fields` must be a list; a string would travel further into the pipeline before failing."""
         response = rest_api.post(f'{ROUTE_URL}/', json={
             'type_id': TYPE_ID, 'author_id': 1, 'fields': 'not-a-list',
         })
@@ -210,6 +211,26 @@ class TestPutObject:
             assert stored_value == UPDATED_VALUE
         finally:
             drop_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+
+    def test_a_body_public_id_can_not_move_the_object(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The URL addresses the object; a body naming another public_id leaves it in place"""
+        insert_object_doc(database_manager, database_name, OBJECT_ID_FOR_UPDATE, ORIGINAL_VALUE)
+        try:
+            payload = object_payload(MISSING_OBJECT_ID, UPDATED_VALUE)
+            payload['version'] = UPDATE_VERSION
+
+            assert_body_public_id_cannot_move(
+                rest_api, f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}', payload,
+                database_manager.get_collection(CmdbObject.COLLECTION, database_name), OBJECT_ID_FOR_UPDATE,
+            )
+        finally:
+            drop_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE)
+            drop_object(database_manager, database_name, MISSING_OBJECT_ID)
 
 
 class TestPatchObject:
@@ -613,7 +634,7 @@ class TestBulkDeleteIsAtomic:
         objects.delete_many({'public_id': {'$in': [OBJECT_ID_FOR_DELETE, self.ORPHAN_ID]}})
 
     def test_nothing_is_deleted_when_one_type_is_missing(self, rest_api, database_manager, database_name) -> None:
-        """The type check now runs in the up-front guard; it used to abort mid-loop (regression)."""
+        """The type check runs in the up-front guard rather than aborting mid-loop."""
         response = rest_api.delete(f'{ROUTE_URL}/delete/{OBJECT_ID_FOR_DELETE},{self.ORPHAN_ID}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND

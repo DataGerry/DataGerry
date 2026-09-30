@@ -16,7 +16,7 @@
 """
 Unit tests for the SPA host app (`cmdb.interface.net_app`) and its blueprint
 
-The whole package was at 0% coverage until 2026-09-14, purely because nothing imported it. It needs
+The package needs
 no database, no token and no frontend build: `index.html`, `_static/favicon.ico` and
 `_static/browserconfig.xml` are tracked in git (only the compiled bundle is gitignored), so
 `create_app().test_client()` answers every route here.
@@ -24,13 +24,13 @@ no database, no token and no frontend build: `index.html`, `_static/favicon.ico`
 The behaviours under test, in the order they matter:
 
 * **the fallback distinguishes a client route from a file.** Answering a missing `.js` chunk with
-  `index.html` and a 200 used to be the post-deploy failure mode - the browser gets HTML where it
+  `index.html` and a 200 is the post-deploy failure mode to avoid - the browser gets HTML where it
   asked for a script and reports a MIME error instead of a 404
 * **a missing bundle is a 503, not a 500.** `send_static_file` raising inside the 404 handler is an
   exception Flask cannot handle, so every URL answered 500 and logged two tracebacks per request
 * **cache lifetimes differ by file.** `index.html` names the content-hashed chunks, so it must not
   be cached; the chunks themselves may be
-* **config selection**, which used to diverge between this factory and `create_rest_api`
+* **config selection**, which must not diverge between this factory and `create_rest_api`
 """
 from http import HTTPStatus
 from unittest.mock import patch
@@ -93,7 +93,7 @@ class TestCreateApp:
         assert 'static' not in endpoints
 
     def test_is_mounted_at_the_root_not_at_the_api(self) -> None:
-        """APPLICATION_ROOT used to be inherited as '/rest/' - the OTHER app's mount point."""
+        """APPLICATION_ROOT must not be inherited as '/rest/' - the OTHER app's mount point."""
         assert create_app().config['APPLICATION_ROOT'] == SPA_APPLICATION_ROOT
 
     def test_registers_the_spa_fallback_for_404(self) -> None:
@@ -122,7 +122,7 @@ class TestConfigSelection:
         ('INFO', ProductionConfig),
     ], ids=str)
     def test_every_variant_is_reachable_from_this_factory(self, mode: str, expected: type) -> None:
-        """TestingConfig used to be dead here: create_app had no TESTING branch, create_rest_api did."""
+        """TestingConfig is live here: create_app needs the TESTING branch create_rest_api has."""
         with patch.object(cmdb, '__MODE__', mode):
             app = create_app()
 
@@ -219,7 +219,7 @@ class TestMissingBundle:
 
     @pytest.mark.parametrize('url', ['/', '/deep/link'], ids=['root', 'fallback'])
     def test_answers_503_instead_of_raising(self, client, url: str) -> None:
-        """Raising inside the 404 handler leaves Flask no handler left: it used to be a 500."""
+        """Raising inside the 404 handler leaves Flask no handler left, which would answer 500."""
         with patch.object(app_pages, 'send_static_file', side_effect=NotFound()):
             response = client.get(url)
 

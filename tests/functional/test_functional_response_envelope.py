@@ -23,7 +23,7 @@ contract. The unit tests pin the classes; these pin what actually leaves the ser
 The `HEAD` assertions are the reason this module exists. 28 routes asked for a bodyless answer with
 the flag INVERTED, and the flag itself was inert (`body or True`), so a HEAD request built and
 serialized its whole payload and then relied on werkzeug to drop it. Both halves were fixed on
-2026-09-09; a regression on either would be invisible without these tests, because werkzeug still
+a regression on either would be invisible without these tests, because werkzeug still
 drops the body afterwards.
 
 The users routes are used because `conftest` seeds exactly one CmdbUser, so the counts are known
@@ -78,7 +78,7 @@ class TestCollectionEnvelope:
         `?projection=` is applied to what leaves the server
 
         The frontend sends it (`type.service.ts`), the projector helpers were fully covered, and the
-        three lines wiring the two together were not tested at all until 2026-09-09.
+        three lines wiring the two together are easy to leave untested.
         """
         response = rest_api.get(f'{USERS_URL}/?projection={dumps({"public_id": 1})}')
 

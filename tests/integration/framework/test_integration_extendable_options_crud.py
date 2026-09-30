@@ -25,7 +25,7 @@ Its three own reads are pinned here too, because what they answer depends on the
 rather than on the model: the value snapshot (`get_option_values`), the public_id -> value lookup a
 report resolves labels through (`get_option_values_by_id`), and the raw documents the list route
 sends (`iterate_option_documents`). Also pinned: a model read back through `get_item` really does
-carry the stored values - the model shares `CmdbDAO.from_data` / `to_json` since 2026-09-10.
+carry the stored values - the model shares `CmdbDAO.from_data` / `to_json`.
 """
 from typing import Any
 

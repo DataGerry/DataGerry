@@ -18,6 +18,7 @@ Implementation of JsonExportFormat
 """
 from logging import Logger, getLogger
 import json
+from typing import Any
 
 from cmdb.database.json_codec import default
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
@@ -54,7 +55,7 @@ class JsonExportFormat(BaseExporterFormat):
     ACTIVE = True
 
 
-    def export(self, data: list[RenderResult], *args) -> str:
+    def export(self, data: list[RenderResult], *args: Any) -> str:
         """
         Exports a list of RenderResult objects as a JSON-formatted string
 
@@ -63,7 +64,7 @@ class JsonExportFormat(BaseExporterFormat):
 
         Args:
             data (list[RenderResult]): The objects to export
-            *args: Optional export parameters dict (`view`, `metadata`)
+            *args (Any): Optional export parameters dict (`view`, `metadata`)
 
         Returns:
             str: A JSON string of the exported objects (identity header, fields and MDS)
@@ -99,7 +100,7 @@ class JsonExportFormat(BaseExporterFormat):
         return json.dumps(output, default=default, ensure_ascii=False, indent=2)
 
 
-    def _create_output_element(self, obj: RenderResult, header: list[str]) -> dict:
+    def _create_output_element(self, obj: RenderResult, header: list[str]) -> dict[str, Any]:
         """
         Creates the identity part of an output element from the header
 
@@ -108,7 +109,7 @@ class JsonExportFormat(BaseExporterFormat):
             header (list[str]): The identity column names to include
 
         Returns:
-            dict: The identity fields keyed by header name (`public_id` -> object_id, `type_label` from
+            dict[str, Any]: The identity fields keyed by header name (`public_id` -> object_id, `type_label` from
                   the type information, everything else from the object information)
         """
         output_element = {}
@@ -124,17 +125,17 @@ class JsonExportFormat(BaseExporterFormat):
         return output_element
 
 
-    def _get_fields(self, obj: RenderResult, columns: list[dict], view: str) -> list[dict]:
+    def _get_fields(self, obj: RenderResult, columns: list[dict[str, Any]], view: str) -> list[dict[str, Any]]:
         """
         Serializes the object's fields for the given view
 
         Args:
             obj (RenderResult): The object being exported
-            columns (list[dict]): The field definitions to serialize
+            columns (list[dict[str, Any]]): The field definitions to serialize
             view (str): The export view passed to the field summary renderer
 
         Returns:
-            list[dict]: One `{name, value}` dict per field
+            list[dict[str, Any]]: One `{name, value}` dict per field
         """
         fields = []
 

@@ -32,6 +32,7 @@ Two properties of that payload are frontend contract:
   up as (see `fill_line` - the renderer clears it and reports).
 """
 import re
+from typing import Any
 
 from cmdb.models.type_model.type_reference_key_enum import TypeReferenceKey
 
@@ -65,7 +66,7 @@ class TypeReference:
             line: str | None = None,
             prefix: bool = False,
             icon: str | None = None,
-            summaries: list | None = None,
+            summaries: list[dict[str, Any]] | None = None,
         ) -> None:
         """
         Initialises a TypeReference
@@ -83,12 +84,12 @@ class TypeReference:
                                frontend show the label / id / summaries instead
             prefix (bool): Whether the summary configuration asks for a prefixed label
             icon (str | None): Icon class of that CmdbType
-            summaries (list | None): The referenced object's summary fields. None becomes an empty list
+            summaries (list[dict[str, Any]] | None): The referenced object's summary fields. None becomes an empty list
         """
         self.type_id: int = type_id
         self.object_id: int = object_id
         self.type_label: str = type_label or ''
-        self.summaries: list = summaries or []
+        self.summaries: list[dict[str, Any]] = summaries or []
         self.line: str | None = line
         self.icon: str | None = icon
         self.prefix: bool = bool(prefix)
@@ -117,7 +118,7 @@ class TypeReference:
 
 
     @classmethod
-    def to_json(cls, instance: "TypeReference") -> dict[str, str | int | bool | list | None]:
+    def to_json(cls, instance: "TypeReference") -> dict[str, str | int | bool | list[dict[str, Any]] | None]:
         """
         Returns a TypeReference as JSON representation
 
@@ -128,7 +129,8 @@ class TypeReference:
             instance (TypeReference): TypeReference which should be transformed
 
         Returns:
-            dict: JSON representation of the given TypeReference
+            dict[str, str | int | bool | list[dict[str, Any]] | None]: JSON representation of the given
+                TypeReference
         """
         return {
             TypeReferenceKey.TYPE_ID.value: instance.type_id,
@@ -164,12 +166,12 @@ class TypeReference:
         return SUMMARY_LINE_PLACEHOLDER_PATTERN.search(self.line) is not None
 
 
-    def fill_line(self, inputs: list) -> None:
+    def fill_line(self, inputs: list[str]) -> None:
         """
         Fills the summary line's placeholders with the referenced object's summary values
 
         Args:
-            inputs (list): The summary values, in the order the line's placeholders expect them
+            inputs (list[str]): The summary values, in the order the line's placeholders expect them
 
         Raises:
             CmdbTypeReferenceLineFillError: If the line and the values do not fit - too few values

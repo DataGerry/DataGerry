@@ -30,6 +30,11 @@ DEFAULT_OBJECT_VERSION: str = '1.0.0'
 # one object's data can never discard the objects around it
 UNEXPECTED_OBJECT_IMPORT_ERROR: str = 'Unexpected error while importing this object: {detail}'
 
+# How the stored-object count an import keeps for the ConfigItem limit moves per write: up by one for
+# every inserted CmdbObject, down by one for every CmdbObject an overwrite deletes
+OBJECT_INSERTED_COUNT_DELTA: int = 1
+OBJECT_DELETED_COUNT_DELTA: int = -1
+
 # Reported by every object parser for a file that parsed correctly but carries no entry to import - a
 # header-only CSV or an empty JSON list. The routes turn it into one 400 naming that reason, so the two
 # formats answer the same way

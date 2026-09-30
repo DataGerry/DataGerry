@@ -17,13 +17,12 @@
 Constants of the IsmsRiskMatrix: its singleton id, its document keys and the keys of one matrix cell
 
 ``RiskMatrixKey`` names the document's three top-level keys and drives the shared ``CmdbDAO``
-``from_data`` / ``to_json``. It lived in the seed package's ``predefined_data_constants`` module
-until 2026-09-11, next to the seeded default - which meant the MODEL layer imported its own document
-shape from the database-seeding package, the wrong way round. The seed data now imports it from here,
-which is the normal direction: predefined data builds model documents.
+``from_data`` / ``to_json``. It lives in the model layer rather than next to the seeded default, so the
+MODEL layer never imports its own document shape from the database-seeding package. The seed data
+imports it from here, which is the normal direction: predefined data builds model documents.
 
-``RiskMatrixCellKey`` names the keys *inside* a cell - spelled as bare literals in all four risk-matrix
-helpers, the Cerberus schema, the report builder and the report routes' aggregations before that.
+``RiskMatrixCellKey`` names the keys *inside* a cell - shared by all four risk-matrix helpers, the
+Cerberus schema, the report builder and the report routes' aggregations.
 
 ``UNASSIGNED_RISK_CLASS_ID`` is the value a cell carries while no IsmsRiskClass is assigned to it. It
 is 0 rather than null because the whole grid is written at once: a freshly generated cell and a cell

@@ -20,9 +20,17 @@ Every constructor is a stateless staticmethod returning one plain dict, so these
 emitted shape - which is what makes the aggregation pipelines built on top of them safe to refactor.
 The abstract contract is pinned too: Builder itself must not be instantiable.
 """
+import re
+
 import pytest
 
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils.builder import (
+    Builder,
+    SORT_ORDER_DUPLICATED_MSG,
+    SORT_ORDER_INVALID_MSG,
+    SORT_ORDER_MISSING_MSG,
+    SORT_SPECIFICATION_EMPTY_MSG,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 FIELD: str = 'fields.value'
@@ -140,7 +148,7 @@ class TestRegex:
         assert Builder.regex_(FIELD, SEARCH_TERM)[FIELD]['$options'] == 'ims'
 
     def test_default_options_exclude_the_extended_flag(self) -> None:
-        """Regression: the default used to be 'imsx', and 'x' makes the engine ignore unescaped
+        """Regression: a default of 'imsx' lets 'x' make the engine ignore unescaped
         whitespace in the pattern - so a search for 'Data Center' silently matched nothing."""
         assert 'x' not in Builder.regex_(FIELD, SEARCH_TERM)[FIELD]['$options']
 
@@ -243,6 +251,73 @@ class TestLookup:
 
         assert stage['$lookup']['as'] == 'type_objects'
 
+    def test_a_plain_join_carries_no_pipeline_key(self) -> None:
+        """Without a pipeline the stage stays the plain equality join every other caller builds."""
+        stage = Builder.lookup_('framework.types', 'type_id', 'public_id', 'type')
+
+        assert 'pipeline' not in stage['$lookup']
+
+    def test_a_pipeline_rides_along_with_the_equality_match(self) -> None:
+        """The concise form: localField / foreignField still decide the match, the pipeline trims it."""
+        sub_pipeline = [{'$limit': 1}, {'$project': {'_id': 1}}]
+
+        stage = Builder.lookup_('framework.objects', 'object_id', 'public_id', 'object', pipeline=sub_pipeline)
+
+        assert stage == {
+            '$lookup': {
+                'from': 'framework.objects',
+                'localField': 'object_id',
+                'foreignField': 'public_id',
+                'as': 'object',
+                'pipeline': sub_pipeline,
+            }
+        }
+
+    def test_an_empty_pipeline_is_kept(self) -> None:
+        """`[]` is a pipeline the caller asked for; only None means "no pipeline"."""
+        stage = Builder.lookup_('framework.types', 'type_id', 'public_id', 'type', pipeline=[])
+
+        assert stage['$lookup']['pipeline'] == []
+
+
+class TestCorrelatedLookup:
+    """The pipeline form of $lookup: let-bound variables and a sub-pipeline."""
+
+    def test_shape(self) -> None:
+        """The four arguments map onto Mongo's from / let / pipeline / as"""
+        sub_pipeline: list[dict] = [{'$match': {'$expr': {'$in': ['$public_id', '$$refs']}}}]
+
+        assert Builder.correlated_lookup_('framework.objects', {'refs': '$fields.value'}, sub_pipeline, 'hits') == {
+            '$lookup': {
+                'from': 'framework.objects',
+                'let': {'refs': '$fields.value'},
+                'pipeline': sub_pipeline,
+                'as': 'hits',
+            }
+        }
+
+    def test_it_carries_no_local_or_foreign_field(self) -> None:
+        """Mixing the two forms is a different join - the constructor never emits the equality keys"""
+        stage = Builder.correlated_lookup_('framework.objects', {}, [], 'hits')['$lookup']
+
+        assert 'localField' not in stage and 'foreignField' not in stage
+
+
+class TestUnset:
+    """$unset removes the named fields and keeps the rest."""
+
+    def test_shape(self) -> None:
+        """The field list is passed through as Mongo's array form"""
+        assert Builder.unset_(['working', 'other']) == {'$unset': ['working', 'other']}
+
+    def test_the_callers_list_is_copied(self) -> None:
+        """A tuple or a list the caller keeps mutating ends up as a list of its own"""
+        fields: list[str] = ['working']
+        stage = Builder.unset_(fields)
+        fields.append('other')
+
+        assert stage == {'$unset': ['working']}
+
 
 class TestGraphLookup:
     """$graphLookup follows one edge recursively; the location tree is built on it."""
@@ -286,6 +361,63 @@ class TestSort:
         """Anything else is rejected rather than passed to Mongo."""
         with pytest.raises(ValueError):
             Builder.sort_('public_id', order)
+
+    def test_a_specification_keeps_its_key_order(self) -> None:
+        """The first key sorts and each later one breaks ties, so the order of the keys is the contract."""
+        stage = Builder.sort_({'value': -1, 'public_id': 1})
+
+        assert stage == {'$sort': {'value': -1, 'public_id': 1}}
+        assert list(stage['$sort']) == ['value', 'public_id']
+
+    def test_a_specification_is_copied(self) -> None:
+        """A caller reusing its dict must not see the stage change underneath it, nor the other way round."""
+        specification = {'value': -1}
+        stage = Builder.sort_(specification)
+        specification['public_id'] = 1
+
+        assert stage == {'$sort': {'value': -1}}
+
+    @pytest.mark.parametrize('specification', [{'value': 0}, {'value': 1, 'public_id': 2}, {'value': 'desc'}])
+    def test_every_order_in_a_specification_is_validated(self, specification: dict) -> None:
+        """One bad direction anywhere in the specification refuses the whole stage."""
+        with pytest.raises(ValueError, match=re.escape(SORT_ORDER_INVALID_MSG)):
+            Builder.sort_(specification)
+
+    def test_a_single_field_needs_its_order(self) -> None:
+        """The order is optional only because a specification carries its own."""
+        with pytest.raises(ValueError, match=re.escape(SORT_ORDER_MISSING_MSG)):
+            Builder.sort_('public_id')
+
+    def test_a_specification_takes_no_separate_order(self) -> None:
+        """Two places for one order would let them disagree."""
+        with pytest.raises(ValueError, match=re.escape(SORT_ORDER_DUPLICATED_MSG)):
+            Builder.sort_({'public_id': 1}, 1)
+
+    def test_an_empty_specification_is_refused(self) -> None:
+        """MongoDB refuses an empty $sort at run time; the constructor refuses it where it is built."""
+        with pytest.raises(ValueError, match=re.escape(SORT_SPECIFICATION_EMPTY_MSG)):
+            Builder.sort_({})
+
+
+class TestFieldStages:
+    """$addFields, $set and $replaceRoot - each wraps exactly what it was given."""
+
+    def test_add_fields(self) -> None:
+        """The expression map is the stage's body, unchanged."""
+        fields = {'_sort_value': {'$toLower': '$name'}}
+
+        assert Builder.add_fields_(fields) == {'$addFields': fields}
+
+    def test_set(self) -> None:
+        """`$set` stays `$set`: the alias a caller wrote is the stage it gets."""
+        fields = {'status': 'done'}
+
+        assert Builder.set_(fields) == {'$set': fields}
+
+    @pytest.mark.parametrize('new_root', ['$type_objects', {'$mergeObjects': ['$a', '$b']}], ids=['path', 'expression'])
+    def test_replace_root(self, new_root) -> None:
+        """The new root sits under `newRoot`, whether a path or an expression."""
+        assert Builder.replace_root_(new_root) == {'$replaceRoot': {'newRoot': new_root}}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -18,7 +18,7 @@ Unit tests for the concrete API response classes
 
 One class per operation, and what each one answers - its status code, its payload keys and its
 headers - is a **frontend contract**: `app/src/app/services/models/api-response.ts` declares the keys
-and four Angular services read `X-Total-Count`. Nothing pinned any of it until 2026-09-09, so a
+and four Angular services read `X-Total-Count`. Little else pins any of it, so a
 renamed key or a changed status code passed the whole backend suite.
 
 The three Get* classes additionally carry the `?projection=` wiring (the frontend sends it from
@@ -96,7 +96,7 @@ class TestGetSingleResponse:
         assert ResponseKey.TIME.value in payload
 
     def test_a_projection_trims_the_result(self) -> None:
-        """The wiring the frontend's `?projection=` reaches - untested until 2026-09-09"""
+        """The wiring the frontend's `?projection=` reaches"""
         response = GetSingleResponse(DOCUMENT, projection={'name': 1})
 
         assert _payload(response)[ResponseKey.RESULT.value] == {'name': 'server'}
@@ -294,7 +294,7 @@ class TestDefaultResponse:
 
     def test_a_bodyless_response_serializes_nothing(self) -> None:
         """
-        The HEAD case, which this class ignored until 2026-09-10
+        The HEAD case, which this class has to answer without a body
 
         The envelope sweep taught the three Get* classes to answer HEAD without building the
         payload; DefaultResponse kept serializing it for werkzeug to throw away.

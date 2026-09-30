@@ -19,11 +19,11 @@ Implementation of SearchPipelineBuilder
 Turns the search bar's parameters into the aggregation that answers `GET|POST /rest/search/`. The
 **stage order is the contract**, because each stage narrows the stream the next one sees:
 
-1. the reference stages (`SearchReferencesPipelineBuilder`), which make a referenced object's fields
-   searchable as if they were the object's own - they must come first, since every filter below
-   matches against `fields.value`;
+1. a `$sort` on `public_id`, so the page the facet cuts is stable;
 2. `active`, when the caller asked for active objects only;
-3. one `$match` per TEXT / REGEX parameter;
+3. one `$match` per TEXT / REGEX parameter, matching the object's own field values OR the values of
+   an object it references (`framework/search/search_reference_match.py`: only reference rows count,
+   and only referenced objects the caller may read);
 4. the TYPE parameters - collected into one `$or` when they are disjunctive (the default), otherwise
    one `$match` each, which is AND;
 5. the CATEGORY parameters, resolved into the type ids of the matching categories;
@@ -38,11 +38,11 @@ out of the pipeline (`get_regex_pipes_values`) to highlight the matching fields 
 escapes the term before sending it (`search-bar.component.ts`), so the UI behaves literally - but an
 API client posting `searchForm: "text"` gets regex semantics: `Data (EU)` does not match itself.
 Aligning the two ends fully needs the frontend to stop escaping at the same time (escaping every TEXT
-term here would double-escape what it already escaped), so it stays recorded as tier 2 **T187**.
+term here would double-escape what it already escaped), so the two ends stay as they are.
 
-**One of its three symptoms is closed as of 2026-09-17:** a TEXT term that is not a usable pattern is
-matched as a literal instead of being handed to the database to refuse, so `*` and `[unclosed` answer
-results rather than a 400. It needed no frontend change, because every term the search bar sends is
+**One symptom of that is closed here:** a TEXT term that is not a usable pattern is matched as a
+literal instead of being handed to the database to refuse, so `*` and `[unclosed` answer results
+rather than a 400. It needs no frontend change, because every term the search bar sends is
 escaped and therefore always compiles - the fallback can only fire for a term the UI never produces.
 The other two symptoms remain and are the half the two ends have to change together: `C++` and
 `Data (EU)` are both **valid** patterns, so nothing here can tell that they were meant literally.
@@ -51,13 +51,13 @@ from logging import Logger, getLogger
 from typing import Any, TYPE_CHECKING
 
 from cmdb.manager.query_builder.pipeline_builder import PipelineBuilder
-from cmdb.manager.query_builder.search_references_pipeline_builder import SearchReferencesPipelineBuilder
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.framework.search.search_param import SearchParam
 from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS, SearchFormType
 from cmdb.framework.search.search_pattern import as_executable_pattern
+from cmdb.framework.search.search_reference_match import build_text_term_stages
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.acl.builder import build_acl_pipeline
 
@@ -65,13 +65,12 @@ if TYPE_CHECKING:
     # Imported for type checking only - importing at module level would create a circular import
     # (cmdb.manager -> query_builder -> this module -> cmdb.manager), which is why this builder is
     # exported from the query_builder package while resolving its managers lazily inside build()
-    from cmdb.manager import CategoriesManager
+    from cmdb.manager import CategoriesManager, ObjectsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-# The field every search parameter matches against: the flattened field values of an object, with a
-# referenced object's own fields folded in by the reference stages
+# The field every search parameter matches against: the flattened values of an object's own fields
 SEARCH_VALUE_FIELD: str = 'fields.value'
 
 # The pipeline key holding a regex, read back out of a built pipeline to highlight the hits
@@ -91,12 +90,12 @@ class SearchPipelineBuilder(PipelineBuilder):
         PipelineBuilder: The base class for building aggregation query pipelines
     """
 
-    def __init__(self, pipeline: list[dict] | None = None):
+    def __init__(self, pipeline: list[dict[str, Any]] | None = None) -> None:
         """
         Initializes the SearchPipelineBuilder
 
         Args:
-            pipeline (list[dict] | None): An ALREADY BUILT search pipeline to work on - what
+            pipeline (list[dict[str, Any]] | None): An ALREADY BUILT search pipeline to work on - what
                 `SearcherFramework` hands in so it can read the search patterns back out and append
                 its facet. `build()` does not extend it: it assembles a complete pipeline of its own
                 (see that method). Defaults to an empty pipeline
@@ -111,19 +110,23 @@ class SearchPipelineBuilder(PipelineBuilder):
         These are the patterns the search matched with, and the search result highlights each hit's
         fields against them - so a pattern missed here silently costs the highlighting of one search
         parameter. Walks dicts and lists all the way down, because a `$match` may nest its
-        expressions under `$or` / `$and` several levels deep
+        expressions under `$or` / `$and` several levels deep. A pattern is answered once even where the
+        pipeline carries it twice - a broad term's reference join matches it inside the join and again
+        outside - since highlighting a field twice for one pattern shows nothing new
 
         Returns:
-            list[str]: The regex values, in the order the stages carry them
+            list[str]: The regex values, in the order the stages first carry them
         """
-        return [value for pipe in self.pipeline for value in _extract_values(REGEX_OPERATOR, pipe)]
+        values: list[str] = [value for pipe in self.pipeline for value in _extract_values(REGEX_OPERATOR, pipe)]
+
+        return list(dict.fromkeys(values))
 
 
     def build(self,
               params: list[SearchParam],
               user: CmdbUser | None = None,
               permission: AccessControlPermission | None = None,
-              active_flag: bool = False) -> list[dict]:
+              active_flag: bool = False) -> list[dict[str, Any]]:
         # A search pipeline is inherently branchy (text / type / category / publicID / permission stages)
         # pylint: disable=arguments-differ
         """
@@ -142,7 +145,7 @@ class SearchPipelineBuilder(PipelineBuilder):
             active_flag (bool): Whether to restrict the search to active objects. Defaults to False
 
         Returns:
-            list[dict]: The aggregation stages, ACL filtering included when a user and a permission
+            list[dict[str, Any]]: The aggregation stages, ACL filtering included when a user and a permission
                 were given
         """
         # Imported lazily to avoid a circular import at module load (see the TYPE_CHECKING note above)
@@ -150,36 +153,46 @@ class SearchPipelineBuilder(PipelineBuilder):
         from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
         categories_manager: CategoriesManager = ManagerProvider.get_manager(ManagerType.CATEGORIES, user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, user)
 
-        # The reference stages open the pipeline: every filter below matches against fields.value,
-        # which is what they fold a referenced object's own fields into
-        self.pipeline = SearchReferencesPipelineBuilder().build()
+        # Resolved once: the text stages restrict the referenced objects by it, and the hits are
+        # restricted by it last
+        acl_stages: list[dict[str, Any]] = build_acl_pipeline(user, permission) if user and permission else []
+
+        self.pipeline = [self.sort_(CmdbObjectKey.PUBLIC_ID.value, 1)]
 
         if active_flag:
             self.add_pipe(self.match_({CmdbObjectKey.ACTIVE.value: {'$eq': True}}))
 
-        self._add_text_stages(params)
+        self._add_text_stages(params, objects_manager, acl_stages)
         self._add_type_stages(params)
         self._add_category_stages(params, categories_manager)
         self._add_public_id_stages(params)
 
         # LAST: the ACL filter has to be in the pipeline before the caller appends its facet
-        if user and permission:
-            self.pipeline = [*self.pipeline, *build_acl_pipeline(user, permission)]
+        self.pipeline = [*self.pipeline, *acl_stages]
 
         return self.pipeline
 
 
-    def _add_text_stages(self, params: list[SearchParam]) -> None:
+    def _add_text_stages(
+            self,
+            params: list[SearchParam],
+            objects_manager: 'ObjectsManager',
+            acl_stages: list[dict[str, Any]]) -> None:
         """
-        Adds one regex `$match` per TEXT or REGEX parameter
+        Adds the stages of every TEXT or REGEX parameter - one `$match` each, as a rule
+
+        Each parameter keeps the objects whose own field values match it OR that reference a readable
+        object whose own values match it (`build_text_term_stages`). Several parameters are AND: one
+        may be satisfied by the object itself and another through a reference.
 
         Both forms are matched as regular expressions - see the module docstring for what that means
-        for a client that does not escape a TEXT term. The one difference, since 2026-09-17, is that
-        a TEXT term which is **not a usable pattern** is matched as a literal rather than handed to
+        for a client that does not escape a TEXT term. The one difference is that a TEXT term which
+        is **not a usable pattern** is matched as a literal rather than handed to
         the database to refuse (`as_executable_pattern`): a search box must not answer 400 because
-        somebody typed `*`. A term that *is* a usable pattern is still executed as one, which is the
-        rest of T187. A REGEX term is passed through untouched, because there the caller asked
+        somebody typed `*`. A term that *is* a usable pattern is still executed as one.
+        A REGEX term is passed through untouched, because there the caller asked
         for a pattern and a stricter engine's opinion of it must not silently change their query.
 
         The parameters keep the order they were sent in - consecutive `$match` stages commute, but
@@ -187,6 +200,8 @@ class SearchPipelineBuilder(PipelineBuilder):
 
         Args:
             params (list[SearchParam]): The search parameters to read the text forms from
+            objects_manager (ObjectsManager): Collects the referenced objects each term matches
+            acl_stages (list[dict[str, Any]]): The caller's access-control stages; empty for none
         """
         for param in _params_of(params, SearchFormType.TEXT, SearchFormType.REGEX):
             pattern: str = param.search_text
@@ -194,9 +209,11 @@ class SearchPipelineBuilder(PipelineBuilder):
             if param.search_form == SearchFormType.TEXT:
                 pattern = as_executable_pattern(pattern)
 
-            self.add_pipe(self.match_(
-                self.regex_(SEARCH_VALUE_FIELD, pattern, SEARCH_REGEX_FLAGS)
-            ))
+            value_condition: dict[str, Any] = self.regex_(SEARCH_VALUE_FIELD, pattern, SEARCH_REGEX_FLAGS)
+
+            self.pipeline = [
+                *self.pipeline, *build_text_term_stages(objects_manager, value_condition, acl_stages),
+            ]
 
 
     def _add_type_stages(self, params: list[SearchParam]) -> None:
@@ -210,7 +227,7 @@ class SearchPipelineBuilder(PipelineBuilder):
         Args:
             params (list[SearchParam]): The search parameters to read the type forms from
         """
-        disjunction_query: list[dict] = []
+        disjunction_query: list[dict[str, Any]] = []
 
         for param in _params_of(params, SearchFormType.TYPE):
             type_ids = param.settings.get('types', []) if param.settings else []
@@ -236,7 +253,7 @@ class SearchPipelineBuilder(PipelineBuilder):
         The categories are resolved by their LABEL, matched against the parameter's search text - the
         type ids the parameter also carries under `settings['categories']` are not used, which is
         recorded rather than changed here. All category parameters are resolved in ONE query: a
-        search carrying several category tags used to cost a query per tag
+        search carrying several category tags therefore costs one query, not one per tag
 
         Args:
             params (list[SearchParam]): The search parameters to read the category forms from

@@ -18,6 +18,7 @@ This module contains the implementation of the LogsManager
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
+from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -46,20 +47,20 @@ class LogsManager(BaseManager):
     Extends: BaseManager
     """
 
-    def __init__(self, dbm: MongoDatabaseManager, database: str = None):
+    def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
         """
         Initializes the LogsManager on the logs collection (CmdbMetaLog.COLLECTION)
 
         Args:
             dbm (MongoDatabaseManager): Active database manager instance used for all queries
-            database (str, optional): Target database name. Required in cloud mode to select the
+            database (str | None): Target database name. Required in cloud mode to select the
                                       tenant database; defaults to the manager's configured database
         """
         super().__init__(CmdbMetaLog.COLLECTION, dbm, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
-    def insert_log(self, action: LogAction, log_type: str, **kwargs) -> int:
+    def insert_log(self, action: LogAction, log_type: str, **kwargs: Any) -> int:
         """
         Creates a new log entry in the database
 
@@ -96,15 +97,15 @@ class LogsManager(BaseManager):
 
     def iterate(self,
                 builder_params: BuilderParameters,
-                user: CmdbUser = None,
-                permission: AccessControlPermission = None) -> IterationResult[CmdbObjectLog]:
+                user: CmdbUser | None = None,
+                permission: AccessControlPermission | None = None) -> IterationResult[CmdbObjectLog]:
         """
         Runs an aggregation over the logs collection and binds the rows to CmdbObjectLog
 
         Args:
             builder_params (BuilderParameters): Match filter / aggregation pipeline plus pagination
-            user (CmdbUser, optional): User requesting this action, used for ACL-aware querying
-            permission (AccessControlPermission, optional): Permission checked for the user when set
+            user (CmdbUser | None): User requesting this action, used for ACL-aware querying
+            permission (AccessControlPermission | None): Permission checked for the user when set
 
         Raises:
             BaseManagerIterationError: If the aggregation or the IterationResult assembly fails

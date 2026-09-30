@@ -19,7 +19,7 @@ Deriving a REQUEST schema from a document schema
 Every schema under ``cmdb.class_schema`` describes a stored DOCUMENT: it is the contract a document in
 the collection satisfies, and a stored document validating against its own schema is a property the
 model tests assert. A request body is a different contract - it must not carry the keys the server
-owns - and the two used to be the same dict, so ``APIBlueprint.validate`` admitted a client-chosen
+owns - and as one dict the two let ``APIBlueprint.validate`` admit a client-chosen
 ``public_id`` on every write route that validated a document schema.
 
 ``build_write_schema`` derives the request contract from the document one, so a field's type stays

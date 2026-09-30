@@ -50,7 +50,7 @@ class BaseExportWriter:
     through a chosen export format into a downloadable Flask Response
     """
 
-    def __init__(self, export_format: BaseExporterFormat, export_config: ExporterConfig):
+    def __init__(self, export_format: BaseExporterFormat, export_config: ExporterConfig) -> None:
         """
         Initialises the BaseExportWriter
 
@@ -168,7 +168,7 @@ class BaseExportWriter:
         return type_names
 
 
-    def _resolve_location_names(self) -> dict:
+    def _resolve_location_names(self) -> dict[int, str]:
         """
         Resolves the names of every location referenced by a location field across the export data
 
@@ -177,7 +177,7 @@ class BaseExportWriter:
         failure is logged and degrades to an empty map so it never fails the export.
 
         Returns:
-            dict: A `{location public_id: location name}` map (empty when there are no locations)
+            dict[int, str]: A `{location public_id: location name}` map (empty when there are no locations)
         """
         location_ids = {
             field.get(FieldKey.VALUE.value)

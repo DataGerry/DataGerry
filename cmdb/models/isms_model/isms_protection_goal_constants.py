@@ -19,11 +19,10 @@ Document keys of an IsmsProtectionGoal
 The keys of the ``isms.protectionGoal`` documents, named once, and the driver of the shared
 ``CmdbDAO`` ``from_data`` / ``to_json``.
 
-``ProtectionGoalKey`` lived in the seed package's ``predefined_data_constants`` module until
-2026-09-11, beside the three goals DataGerry seeds - which meant the MODEL layer would have imported
-its own document shape from the database-seeding package. The seed data now imports it from here, the
-normal direction: predefined data builds model documents. (``RiskMatrixKey`` moved for the same reason
-the sweep before this one.)
+``ProtectionGoalKey`` lives in the model layer rather than beside the three goals DataGerry seeds, so
+the MODEL layer never imports its own document shape from the database-seeding package. The seed data
+imports it from here, the normal direction: predefined data builds model documents. (``RiskMatrixKey``
+follows the same rule.)
 
 ``PROTECTION_GOAL_REQUIRED_DOCUMENT_KEYS`` is what a stored document must carry. ``predefined`` is
 deliberately absent from it: the shared ``from_data`` reads with ``data.get()``, and a goal written

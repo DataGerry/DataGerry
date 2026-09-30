@@ -16,20 +16,17 @@
 """
 Implementation of UserManagementRight
 """
-from cmdb.models.right_model.base_right import BaseRight
+from cmdb.models.right_model.base_right import BaseRight, DefaultLevelRight
 from cmdb.models.right_model.levels_enum import Levels
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class UserManagementRight(BaseRight):
+class UserManagementRight(DefaultLevelRight):
     """
     Base class UserManagement rights
     """
     MIN_LEVEL = Levels.SECURE
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{BaseRight.PREFIX}.user-management'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(level, name, description=description)
 
 
 class UserRight(UserManagementRight):
@@ -40,9 +37,6 @@ class UserRight(UserManagementRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{UserManagementRight.PREFIX}.user'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class GroupRight(UserManagementRight):
     """
@@ -51,9 +45,6 @@ class GroupRight(UserManagementRight):
     MIN_LEVEL = Levels.SECURE
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{UserManagementRight.PREFIX}.group'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
 
 
 class PersonRight(UserManagementRight):
@@ -64,9 +55,6 @@ class PersonRight(UserManagementRight):
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{UserManagementRight.PREFIX}.person'
 
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)
-
 
 class PersonGroupRight(UserManagementRight):
     """
@@ -75,6 +63,3 @@ class PersonGroupRight(UserManagementRight):
     MIN_LEVEL = Levels.SECURE
     MAX_LEVEL = Levels.DANGER
     PREFIX = f'{UserManagementRight.PREFIX}.personGroup'
-
-    def __init__(self, name: str, level: Levels = MIN_LEVEL, description: str = None):
-        super().__init__(name, level, description=description)

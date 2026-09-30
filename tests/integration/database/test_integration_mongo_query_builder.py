@@ -230,19 +230,19 @@ class TestDateDayGranularity:
     """A date rule carries only a day, so every comparison spans that whole day."""
 
     def test_equals_matches_the_whole_day(self, collection) -> None:
-        """Regression: '=' used to match only an object stamped exactly at midnight."""
+        """Regression: '=' matches the whole day, not only an object stamped exactly at midnight."""
         assert _date_matched_ids(collection, 'd1', '=', TARGET_DAY) == {
             OBJ_SAME_DAY_AFTERNOON, OBJ_SAME_DAY_MIDNIGHT, OBJ_NO_TEXT_ENTRY,
         }
 
     def test_less_than_or_equal_includes_the_whole_day(self, collection) -> None:
-        """Regression: '<=' used to drop everything after 00:00:00 on the given date."""
+        """Regression: '<=' keeps everything after 00:00:00 on the given date."""
         assert _date_matched_ids(collection, 'd1', '<=', TARGET_DAY) == {
             OBJ_SAME_DAY_AFTERNOON, OBJ_SAME_DAY_MIDNIGHT, OBJ_NO_TEXT_ENTRY,
         }
 
     def test_greater_than_excludes_the_whole_day(self, collection) -> None:
-        """Regression: '>' used to still return the rest of the given date."""
+        """Regression: '>' excludes the rest of the given date."""
         assert _date_matched_ids(collection, 'd1', '>', TARGET_DAY) == {OBJ_NEXT_DAY}
 
     def test_greater_than_or_equal_starts_at_midnight(self, collection) -> None:

@@ -17,9 +17,13 @@
 Implementation of BaseAuthProviderConfig
 """
 from logging import Logger, getLogger
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The key of a provider config that switches the provider on or off
+PROVIDER_ACTIVE_KEY: str = 'active'
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              AuthProviderConfig - CLASS                                              #
@@ -38,7 +42,7 @@ class BaseAuthProviderConfig:
     """
 
     DEFAULT_CONFIG_VALUES = {
-        'active': True
+        PROVIDER_ACTIVE_KEY: True
     }
 
     # Paths into DEFAULT_CONFIG_VALUES whose value is a credential and must never leave the backend.
@@ -47,7 +51,7 @@ class BaseAuthProviderConfig:
     # masks these on read and restores them on a write that sends the mask back unchanged
     SECRET_CONFIG_PATHS: tuple[tuple[str, ...], ...] = ()
 
-    def __init__(self, active: bool, **kwargs):
+    def __init__(self, active: bool, **kwargs: Any) -> None:
         """
         Initializes the configuration for an authentication provider
 

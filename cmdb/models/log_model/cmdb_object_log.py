@@ -18,6 +18,7 @@ Implementation of CmdbObjectLog
 """
 from logging import Logger, getLogger
 from datetime import datetime
+from typing import Any
 
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
@@ -34,44 +35,53 @@ class CmdbObjectLog(CmdbMetaLog):
     """
     Implementation of CmdbObjectLog, a log entry recording a change made to a CmdbObject
 
+    Written only through `LogsManager.insert_log`, best-effort after the object write. `SCHEMA` describes
+    that stored entry (the `changes` shape per action, `render_state` as bytes, `user_name` as the display
+    name); nothing validates it at write time -
+    `tests/unit/models/log_model/test_cmdb_object_log_schema.py` holds it to what the writer produces
+
     Extends: CmdbMetaLog
     """
 
-    SCHEMA: dict = get_cmdb_object_log_schema()
+    SCHEMA: dict[str, Any] = get_cmdb_object_log_schema()
 
     UNKNOWN_USER_STRING = 'Unknown'
 
     #pylint: disable=R0913, R0917
     def __init__(self,
                  public_id: int,
-                 log_type, log_time: datetime,
+                 log_type: str | None,
+                 log_time: datetime,
                  action: LogAction,
                  action_name: str,
                  object_id: int,
-                 version,
+                 version: str | None,
                  user_id: int,
-                 user_name: str = None,
-                 changes: list = None,
-                 comment: str = None,
-                 render_state = None):
+                 user_name: str | None = None,
+                 changes: dict[str, Any] | list[Any] | None = None,
+                 comment: str | None = None,
+                 render_state: bytes | str | None = None) -> None:
         """
         Initializes a new instance of the CmdbObjectLog class,
         representing a log entry for changes made to a CMDB object.
 
         Args:
             public_id (int): Unique identifier for the log entry
-            log_type: Type or category of the log (custom type expected)
+            log_type (str | None): Type or category of the log
             log_time (datetime): Timestamp when the log entry was created
             action (LogAction): Enum representing the type of action performed (e.g., create, update, delete)
             action_name (str): Human-readable name of the action
             object_id (int): ID of the CMDB object the log entry is associated with
-            version: Version identifier of the object (exact type depends on implementation)
+            version (str | None): Version identifier of the object (e.g. '1.0.1')
             user_id (int): ID of the user who performed the action
             user_name (str | None): Name of the user who performed the action. Defaults to an "unknown"
                                        string if not provided
-            changes (list | None): List detailing the specific changes made to the object
+            changes (dict[str, Any] | list[Any] | None): The specific changes made to the object - the
+                field-level diff dict of an edit, `{'old': bool, 'new': bool}` of an activation change; an
+                entry without one (create, delete) stores an empty list
             comment (str | None): Additional comments or notes regarding the log entry
-            render_state (Any | None): Optional rendering state or snapshot of the object at the time of the log
+            render_state (bytes | str | None): Optional serialized render snapshot of the object at the time
+                of the log (JSON-encoded bytes)
         """
         self.object_id = object_id
         self.version = version
@@ -91,7 +101,7 @@ class CmdbObjectLog(CmdbMetaLog):
 
 
     @classmethod
-    def from_data(cls, data: dict) -> "CmdbObjectLog":
+    def from_data(cls, data: dict[str, Any]) -> "CmdbObjectLog":
         """Create a instance of CmdbType from database values"""
         return cls(
             public_id=data.get('public_id'),
@@ -110,7 +120,7 @@ class CmdbObjectLog(CmdbMetaLog):
 
 
     @classmethod
-    def to_json(cls, instance: "CmdbObjectLog") -> dict:
+    def to_json(cls, instance: "CmdbObjectLog") -> dict[str, Any]:
         """
         Convert a type instance to json conform data
         """

@@ -88,6 +88,10 @@ LINK_FOREIGN_INTERFACE_MESSAGE: str = (
     "object's own interfaces - CmdbObject ID:{interface_object_id} is a different one!"
 )
 
+# Server error (HTTP 500) when a link the insert just reported cannot be read back - the server losing
+# sight of its own write, not a missing resource the caller asked for
+LINK_CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Port interface link from the database!'
+
 # Refusal (HTTP 400) when this port is already linked to this interface row. The unique index is what
 # guarantees it; this message is what makes the common case readable
 LINK_ALREADY_EXISTS_MESSAGE: str = (

@@ -25,8 +25,8 @@ extra keys also passes, which is the walk's direction and worth pinning as behav
 leaving to be rediscovered.
 
 The database-layer import inside the function is deliberate (it is the model layer reaching UP, and
-importing it at module level made every module that reaches the database services unimportable on its
-own - see tests/unit/test_standalone_module_imports.py); calling the function is what proves the
+importing it at module level would make every module that reaches the database services unimportable
+on its own); calling the function is what proves the
 deferred import resolves.
 
 ``to_location_document`` and ``sort_locations_by_name`` are the two helpers the LocationsManager's

@@ -18,10 +18,11 @@ Unit tests for cmdb.framework.rack.mount_validator
 
 Pure, no database. **A mount is anchored at its start_slot and extends DOWNWARD** - slot 1 is the bottom
 of the rack, so a 3U mount at 25 occupies 25, 24 and 23. Covers the area check, the per-area shape rules
-(a main area needs geometry, a side does not), the fit inside the rack at BOTH ends, and the overlap rules - including the two that are easy to
-get wrong: a FULL_DEPTH mount blocks the front AND the back because it occupies the same U range in
-both views, and the mount being moved must be excluded from its own comparison or re-slotting would
-always collide with where it currently is
+(a main area needs geometry, a side does not), the fit inside the rack at BOTH ends, and the overlap
+rules - including the two that are easy to get wrong: a FULL_DEPTH mount blocks the front AND the back
+because it occupies the same U range in both views, and the mount being moved must be excluded from
+its own comparison or re-slotting would always collide with where it currently is. The overlap is
+computed on the two ends of each range, so its cost does not depend on how tall the mounts are
 """
 from typing import Any
 
@@ -233,7 +234,7 @@ def test_overlapping_ranges_in_the_same_area_conflict() -> None:
     errors = find_slot_conflicts(_mount(RackArea.FRONT.value, start_slot=10, height=2), existing)
 
     assert len(errors) == 1
-    assert '[9, 10]' in errors[0]
+    assert 'U9-U10' in errors[0]
     assert '[5]' in errors[0]
 
 
@@ -319,7 +320,7 @@ def test_a_malformed_existing_mount_blocks_nothing() -> None:
 
 
 def test_several_conflicting_mounts_are_all_named() -> None:
-    """One message lists every contested slot and every mount holding one"""
+    """One message names every contested range and every mount holding one"""
     existing = [
         _mount(RackArea.FRONT.value, start_slot=1, height=1, public_id=5),
         _mount(RackArea.FULL_DEPTH.value, start_slot=3, height=1, public_id=6),
@@ -327,7 +328,7 @@ def test_several_conflicting_mounts_are_all_named() -> None:
 
     errors = find_slot_conflicts(_mount(RackArea.FRONT.value, start_slot=3, height=3), existing)
 
-    assert '[1, 3]' in errors[0]
+    assert 'U1, U3' in errors[0]
     assert '[5, 6]' in errors[0]
 
 # -------------------------------------------------------------------------------------------------------------------- #

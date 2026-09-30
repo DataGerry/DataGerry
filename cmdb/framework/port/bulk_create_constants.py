@@ -43,6 +43,17 @@ class BulkResidueKey(BaseStrEnum):
     CONNECTION_IDS = 'connection_ids'
 
 
+class BulkCreateFailureReason(BaseStrEnum):
+    """
+    Why a batch stopped, as the refusal tells the user - never the database's own text
+
+    The one a caller can act on is a duplicate: a concurrent write took a name the preview had shown as
+    free, so opening the preview again shows the collision. Every other failure of a write is the server's
+    """
+    NAME_TAKEN = 'a Port name was taken by a concurrent write in the meantime - open the preview again'
+    WRITE_FAILED = 'the database could not store every Port'
+
+
 class BulkCreateError(BaseStrEnum):
     """
     Messages reported when a bulk creation is refused or fails part-way

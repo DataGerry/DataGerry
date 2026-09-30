@@ -31,6 +31,7 @@ from typing import Any
 from flask import abort
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.utils import Builder
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,
@@ -777,7 +778,7 @@ def _count_used_ips_per_subnet(
     subnet_ref_key: str = InterfaceField.SUBNET.value
 
     pipeline: list[dict[str, Any]] = [
-        {'$match': {
+        Builder.match_({
             CmdbObjectKey.MULTI_DATA_SECTIONS: {
                 '$elemMatch': {
                     CmdbObjectMdsKey.SECTION_ID: IpamSection.INTERFACE,
@@ -793,12 +794,12 @@ def _count_used_ips_per_subnet(
                     },
                 },
             },
-        }},
-        {'$unwind': f'${mds_key}'},
-        {'$match': {f'{mds_key}.{CmdbObjectMdsKey.SECTION_ID.value}': IpamSection.INTERFACE}},
-        {'$unwind': f'${rows_path}'},
+        }),
+        Builder.unwind_(f'${mds_key}'),
+        Builder.match_({f'{mds_key}.{CmdbObjectMdsKey.SECTION_ID.value}': IpamSection.INTERFACE}),
+        Builder.unwind_(f'${rows_path}'),
         # Per-row match: the row must reference one of the subnets AND carry a non-empty IP
-        {'$match': {
+        Builder.match_({
             data_path: {'$all': [
                 {'$elemMatch': {
                     CmdbObjectFieldKey.NAME: InterfaceField.SUBNET,
@@ -809,14 +810,11 @@ def _count_used_ips_per_subnet(
                     CmdbObjectFieldKey.VALUE: {'$type': 'string', '$ne': ''},
                 }},
             ]},
-        }},
-        {'$project': {
+        }),
+        Builder.project_({
             subnet_ref_key: field_value_expr(InterfaceField.SUBNET, data_path),
-        }},
-        {'$group': {
-            '_id': f'${subnet_ref_key}',
-            IpamOverviewKey.COUNT: {'$sum': 1},
-        }},
+        }),
+        Builder.group_(f'${subnet_ref_key}', {IpamOverviewKey.COUNT: {'$sum': 1}}),
     ]
 
     for row in objects_manager.aggregate_objects(pipeline):

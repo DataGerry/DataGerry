@@ -210,8 +210,8 @@ class TestPostReport:
     def test_unsupported_condition_operator_returns_400(self, rest_api) -> None:
         """A condition the query builder cannot translate is caller-fixable input, so 400 not 500.
 
-        Regression: no caller caught MongoDBQueryBuilderError by name, so every unbuildable
-        condition tree fell through to the generic handler and answered 500.
+        MongoDBQueryBuilderError has to be caught by name; otherwise every unbuildable condition tree
+        falls through to the generic handler and answers 500.
         """
         params = _report_params()
         params['conditions'] = json.dumps(
@@ -545,8 +545,8 @@ class TestDeleteReport:
     ) -> None:
         """The URL the frontend calls matches the route directly - no 308 round-trip.
 
-        The DELETE route used to be the only report route registered WITH a trailing slash, so the
-        slash-less URL the Angular service calls fell through to it as a redirect.
+        Were the DELETE route registered WITH a trailing slash, the slash-less URL the Angular service
+        calls would reach it only through a redirect.
         """
         _reports(database_manager, database_name).insert_one(_report_doc(REPORT_ID_FOR_DELETE))
         try:

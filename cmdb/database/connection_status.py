@@ -26,7 +26,7 @@ class ConnectionStatus:
     ConnectionStatus represents the status of the connection to the database
     """
 
-    def __init__(self, connected: bool, message: str = 'No message given'):
+    def __init__(self, connected: bool, message: str = 'No message given') -> None:
         """
         Initialises the ConnectionStatus attributes
 

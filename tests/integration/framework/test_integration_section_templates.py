@@ -304,12 +304,12 @@ def test_cleanup_global_template_strips_type_and_objects(
 def test_cleanup_global_template_strips_the_types_reports(
     manager: SectionTemplatesManager, collections: Any, reports: Any,
 ) -> None:
-    """The teardown also cleans the reports, which used to be left pointing at deleted fields
+    """The teardown also cleans the reports, so none is left pointing at deleted fields
 
     Deleting a global template rewrites the consuming type directly through
     types_manager.update_type, so the type-update route's realignment never runs. Without the
-    cleanup here every report of the type kept selecting and filtering on field names that no longer
-    existed, with a stale report_query nothing would rebuild.
+    cleanup here every report of the type would keep selecting and filtering on field names that no
+    longer exist, with a stale report_query nothing would rebuild.
     """
     types, objects = collections
     _seed_flat_type(types, objects)

@@ -19,6 +19,8 @@ Constants for the object search of DataGerry
 import re
 
 from cmdb.utils import BaseStrEnum
+from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.right_model.right_constants import ObjectRightName
 # -------------------------------------------------------------------------------------------------------------------- #
 
 #: Flag string handed to `bson.Regex` for every search pattern: case-insensitive, multi-line, and
@@ -28,6 +30,39 @@ SEARCH_REGEX_FLAGS: str = 'ims'
 #: The `re` module equivalent of `SEARCH_REGEX_FLAGS`, used when a malformed pattern falls back to a
 #: literal (escaped) match. Both must stay in sync so a fallback behaves like a successful compile
 SEARCH_REGEX_RE_FLAGS: int = re.IGNORECASE | re.MULTILINE | re.DOTALL
+
+
+#: The stored field kinds whose value is another CmdbObject's public_id. Only a row of one of these kinds
+#: makes an object findable through what it references - a number field whose value happens to equal
+#: some object's id is a number, not a reference
+REFERENCE_FIELD_KINDS: tuple[str, ...] = (
+    FieldType.REFERENCE.value,
+    FieldType.REF_SECTION.value,
+    FieldType.LOCATION.value,
+)
+
+#: The most referenced-object ids a search term is matched through as a plain `$in` list. The list
+#: travels inside the aggregation command, which MongoDB caps at 16 MB; this many ids stay well below
+#: it. A term matching more objects than this is joined in the database instead - slower, same answer
+MAX_REFERENCED_MATCH_IDS: int = 100_000
+
+#: Working field of that database-side join; removed again before the documents leave the stage
+REFERENCED_MATCH_FIELD: str = '__dg_referenced_match'
+
+
+class SearchRight(BaseStrEnum):
+    """
+    ACL right identifiers guarding the search REST routes
+
+    A search answers rendered CmdbObjects - or, for the quick count, how many there are - so it asks for
+    the right every object read asks for. Anything weaker would let a group that may not open an object
+    read it through the search box. The value mirrors ObjectRight('view') in the right model; a value
+    that does not exist there denies every caller, which is why it is written down once here
+
+    Attributes:
+        VIEW: Both search routes - the object search and the quick-search count
+    """
+    VIEW = ObjectRightName.VIEW.value
 
 
 class SearchResultKey(BaseStrEnum):

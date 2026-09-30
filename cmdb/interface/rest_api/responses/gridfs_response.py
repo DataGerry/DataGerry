@@ -23,20 +23,21 @@ library uses to carry a page of GridFS files plus the total, with no `make_respo
 It is constructed in `media_files_manager`, which is why the manager layer currently imports from
 `cmdb.interface` - an upward dependency
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class GridFsResponse:
     """
     Represents a response object for GridFS queries
     """
-    def __init__(self, result, total: int = None) -> None:
+    def __init__(self, result: list[dict[str, Any]], total: int | None = None) -> None:
         """
         Initializes a GridFsResponse instance
         
         Args:
-            result (list): The list of results retrieved
-            total (int, optional): The total number of available items. Defaults to 0
+            result (list[dict[str, Any]]): The list of results retrieved
+            total (int | None): The total number of available items. Defaults to 0
         """
-        self.result = result
+        self.result: list[dict[str, Any]] = result
         self.count: int = len(result)
         self.total: int = total or 0

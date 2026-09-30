@@ -23,7 +23,7 @@ the route glue (input validation, status-code mapping, ordering of manager calls
 The update not-found / immutable-property cases pin the bug fix that made those aborts surface as
 their intended 404 / 400 instead of being swallowed into 500
 
-Since 2026-08-25 also: the template NAME is required and immutable (it is the key consuming types
+Also pinned: the template NAME is required and immutable (it is the key consuming types
 reference it by, so a rename would orphan every one of them and the propagation would silently apply to
 nobody), the 'fields' payload has to be a list of objects, and a failure in the second half of either
 write path is reported as a partial application
@@ -171,12 +171,14 @@ def test_create_normalizes_booleans_and_fields_before_insert(
     mgr.get_next_public_id.return_value = TEMPLATE_PUBLIC_ID
 
     with patch(f'{ROUTE_PATH}.DefaultResponse'):
-        _call_create(flask_app, _create_params(is_global='true', fields='[{"name": "f"}]'))
+        _call_create(flask_app, _create_params(
+            is_global='true', fields='[{"name": "f", "label": "F", "type": "text"}]',
+        ))
 
     inserted = mgr.insert_section_template.call_args.args[0]
     assert inserted['is_global'] is True
     assert inserted['predefined'] is False
-    assert inserted['fields'] == [{"name": "f"}]
+    assert inserted['fields'] == [{"name": "f", "label": "F", "type": "text"}]
 
 
 @pytest.mark.parametrize('missing_key', ['name', 'label', 'type', 'is_global', 'predefined', 'fields'])
@@ -562,7 +564,7 @@ def test_update_requires_the_name(flask_app: Flask, mgr: MagicMock, patched_mana
     """
     A payload without a name is refused (regression)
 
-    It used to be accepted and written, and handle_section_template_changes then read the name off the
+    Accepting and writing it leaves handle_section_template_changes reading the name off the
     payload, found none, and returned - so the update reported success while no consuming type was
     touched.
     """
@@ -699,7 +701,7 @@ def test_get_single_returns_the_template_document(flask_app: Flask, mgr: MagicMo
     """
     The read hands out the template as a document, not the model instance
 
-    It used to pass the instance into DefaultResponse, which only serialised through the response
+    Passing the instance into DefaultResponse only serialises through the response
     encoder's fallback.
     """
     del patched_manager_provider
@@ -802,7 +804,13 @@ def test_update_read_error_maps_to_400(flask_app: Flask, mgr: MagicMock,
 
 def test_update_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
                                              patched_manager_provider: Any) -> None:
-    """An unmapped failure while writing is a 500 naming the id."""
+    """
+    An unmapped failure while writing is a 500
+
+    The message does not name the id: the route's tail is `@handle_route_errors`, whose template is
+    formatted over the route's KEYWORD arguments, and this route takes its public_id from the payload
+    rather than from the URL. The 400s below it still name it, because they are the route's own.
+    """
     del patched_manager_provider
     mgr.get_section_template.return_value = _stored_template(predefined=False, type='section')
     mgr.update_section_template.side_effect = RuntimeError('boom')
@@ -811,7 +819,7 @@ def test_update_unexpected_error_maps_to_500(flask_app: Flask, mgr: MagicMock,
         _call_update(flask_app, _update_params())
 
     assert excinfo.value.code == HTTP_SERVER_ERROR
-    assert str(TEMPLATE_PUBLIC_ID) in excinfo.value.description
+    assert 'SectionTemplate' in excinfo.value.description
 
 
 def test_delete_read_error_maps_to_400(flask_app: Flask, mgr: MagicMock,

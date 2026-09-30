@@ -27,8 +27,8 @@ permissions mean **all** of them. An absent parameter means READ; an empty or un
 refused, because an empty ``$all`` matches nothing and would silently hide every ACL-carrying type.
 
 ``category`` and ``uncategorized`` are the server-side replacement for the ``$lookup`` pipelines the
-Angular app used to post as ``?filter=`` to ask "types in category N" and "types in no category"
-(tracked as **F3**). They are mutually exclusive - asking for both is a contradiction rather than an
+Angular app would otherwise post as ``?filter=`` to ask "types in category N" and "types in no
+category". They are mutually exclusive - asking for both is a contradiction rather than an
 empty result, so it is refused here, where a ValueError becomes an HTTP 400.
 
 Note ``to_dict`` here is currently DEAD: ``GetMultiResponse`` calls ``CollectionParameters.to_dict``

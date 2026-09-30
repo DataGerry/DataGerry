@@ -22,6 +22,7 @@ from typing import Any, Iterable
 from cmdb.utils import coerce_document_dates
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.query_builder import BuilderParameters
 
@@ -42,7 +43,8 @@ class GenericManager(BaseManager):
     Wraps BaseManager with a concrete model class and a per-operation exception map, exposing typed
     item-level CRUD (insert_item / get_item / iterate_items / update_item / delete_item). Domain
     managers subclass it and pass their model and exception mapping; a failure in any operation is
-    wrapped in the matching exception from that map
+    wrapped in the matching exception from that map. The wrapper carries the original error itself as
+    its argument, not its text, so a caller can tell a database failure from a model error by type
 
     A model that declares DATE_FIELDS also opts into date normalisation on the write paths that take
     a raw dict: those keys are coerced into real BSON dates before the document is stored, so a
@@ -76,7 +78,7 @@ class GenericManager(BaseManager):
             self.exceptions: dict[str, type[Exception]] = exceptions
             super().__init__(model.COLLECTION, dbm, database)
         except Exception as err:
-            raise exceptions.get("init", Exception)(f"Initialization error: {err}") from err
+            raise exceptions.get("init", Exception)(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -142,7 +144,8 @@ class GenericManager(BaseManager):
 
         Raises:
             Exception: The configured 'insert' exception if the insertion fails, including a date
-                field that could not be read
+                field that could not be read. The two TRANSIENT_DATABASE_ERRORS are raised unwrapped:
+                a lock timeout or a lost connection is no fault of the document
 
         Returns:
             int: The public_id of the created document
@@ -155,9 +158,11 @@ class GenericManager(BaseManager):
                 self._normalize_document(document)
 
             return self.insert(document)
+        except TRANSIENT_DATABASE_ERRORS:
+            raise
         except Exception as err:
             LOGGER.error("[insert_item] Exception: %s. Type: %s", err, type(err))
-            raise self.exceptions.get("insert", Exception)(f"Insertion error: {err}") from err
+            raise self.exceptions.get("insert", Exception)(err) from err
 
 
     def insert_many_items(self, documents: list[dict[str, Any]]) -> list[int]:
@@ -173,7 +178,8 @@ class GenericManager(BaseManager):
 
         Raises:
             Exception: The configured 'insert' exception if the insertion fails, including a date
-                field that could not be read
+                field that could not be read. The two TRANSIENT_DATABASE_ERRORS are raised unwrapped:
+                a lock timeout or a lost connection is no fault of the document
 
         Returns:
             list[int]: The public_ids of the created documents
@@ -184,9 +190,11 @@ class GenericManager(BaseManager):
                 self._normalize_document(document)
 
             return self.insert_many(documents)
+        except TRANSIENT_DATABASE_ERRORS:
+            raise
         except Exception as err:
             LOGGER.error("[insert_many_items] Exception: %s. Type: %s", err, type(err))
-            raise self.exceptions.get("insert", Exception)(f"Insertion error: {err}") from err
+            raise self.exceptions.get("insert", Exception)(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -220,7 +228,7 @@ class GenericManager(BaseManager):
             return {document[CmdbDAO.PUBLIC_ID_KEY] for document in documents}
         except Exception as err:
             LOGGER.error("[find_existing_public_ids] Exception: %s. Type: %s", err, type(err))
-            raise self.exceptions.get("get", Exception)(f"Retrieval error: {err}") from err
+            raise self.exceptions.get("get", Exception)(err) from err
 
 
     def get_item(self, public_id: int, as_dict: bool = False) -> dict[str, Any] | CmdbDAO | None:
@@ -246,7 +254,7 @@ class GenericManager(BaseManager):
             return data if as_dict else self.model.from_data(data)
         except Exception as err:
             LOGGER.error("[get_item] Exception: %s. Type: %s", err, type(err))
-            raise self.exceptions.get("get", Exception)(f"Retrieval error: {err}") from err
+            raise self.exceptions.get("get", Exception)(err) from err
 
 
     def iterate_items(self, builder_params: BuilderParameters) -> IterationResult[CmdbDAO]:
@@ -267,7 +275,7 @@ class GenericManager(BaseManager):
             return IterationResult(aggregation_result, total, self.model)
         except Exception as err:
             LOGGER.error("[iterate_items] Exception: %s. Type: %s", err, type(err))
-            raise self.exceptions.get("iterate", Exception)(f"Iteration error: {err}") from err
+            raise self.exceptions.get("iterate", Exception)(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -300,7 +308,7 @@ class GenericManager(BaseManager):
             self.update({'public_id': public_id}, data)
         except Exception as err:
             LOGGER.error("[update_item] Exception: %s. Type: %s", err, type(err))
-            raise self.exceptions.get("update", Exception)(f"Update error: {err}") from err
+            raise self.exceptions.get("update", Exception)(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -321,4 +329,4 @@ class GenericManager(BaseManager):
             return self.delete({'public_id': public_id})
         except Exception as err:
             LOGGER.error("[delete_item] Exception: %s. Type: %s", err, type(err))
-            raise self.exceptions.get("delete", Exception)(f"Deletion error: {err}") from err
+            raise self.exceptions.get("delete", Exception)(err) from err

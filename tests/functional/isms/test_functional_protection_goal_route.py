@@ -18,7 +18,7 @@ Functional smoke for the ``/isms/protection_goals`` REST routes
 
 Covers CRUD, the predefined guards (predefined goals cannot be created / edited / deleted), the
 name-uniqueness rules (duplicate insert / colliding update rejected, but an update that keeps the
-goal's own name is allowed - the audit-item-12 regression), the delete-when-used 400, and the
+goal's own name is allowed), the delete-when-used 400, and the
 manager-error -> 400 mapping. The routes are ISMS-license gated, so the check is stubbed.
 """
 from http import HTTPStatus
@@ -38,6 +38,13 @@ from cmdb.errors.manager.protection_goal_manager import (
     ProtectionGoalManagerDeleteError,
     ProtectionGoalManagerIterationError,
 )
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    PROTECTION_GOAL_LABEL,
+    IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/protection_goals'
@@ -161,13 +168,23 @@ class TestPutProtectionGoal:
 
     def test_update_keeping_own_name_succeeds(self, rest_api,
                                              database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """Updating a goal while keeping its own name is allowed (audit item 12 regression)."""
+        """Updating a goal while keeping its own name is allowed."""
         _insert_goal(database_manager, database_name, PG_ID_FOR_UPDATE, name=EXISTING_NAME)
 
         response = rest_api.put(f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}',
                                 json=_pg_payload(PG_ID_FOR_UPDATE, name=EXISTING_NAME))
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+
+    def test_a_body_public_id_can_not_move_the_protection_goal(self, rest_api,
+            database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A PUT is addressed by the URL; a body naming another public_id leaves the stored protection goal in place"""
+        _insert_goal(database_manager, database_name, PG_ID_FOR_UPDATE, name=EXISTING_NAME)
+
+        assert_body_public_id_cannot_move(
+            rest_api, f'{ROUTE_URL}/{PG_ID_FOR_UPDATE}', _pg_payload(MISSING_PG_ID, name=EXISTING_NAME),
+            database_manager.get_collection(IsmsProtectionGoal.COLLECTION, database_name), PG_ID_FOR_UPDATE,
+        )
 
     def test_update_to_other_goals_name_returns_400(self, rest_api,
                                                    database_manager: MongoDatabaseManager,
@@ -295,12 +312,17 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{PG_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(ProtectionGoalManager, 'insert_item', lambda *_a, **_k: PG_ID_FOR_GET)
         monkeypatch.setattr(ProtectionGoalManager, 'get_item', lambda *_a, **_k: None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_pg_payload(PG_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            PROTECTION_GOAL_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""

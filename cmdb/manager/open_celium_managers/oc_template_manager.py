@@ -85,13 +85,16 @@ class OcTemplateManager(OcBaseManager):
         )
 
 
-    def get_all_templates(self, from_connector: int = None, to_connector: int = None) -> list[dict[str, Any]] | None:
+    def get_all_templates(
+            self,
+            from_connector: int | None = None,
+            to_connector: int | None = None) -> list[dict[str, Any]] | None:
         """
         Retrieves all busines templates from OpenCelium
 
         Args:
-        from_connector_id (int): fromConnectorId
-        to_connector_id (int): toConnectorId
+        from_connector_id (int | None): fromConnectorId
+        to_connector_id (int | None): toConnectorId
 
         Raises:
             OcTemplateGetError: When retrieving the OcTemplates failed

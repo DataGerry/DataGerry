@@ -50,6 +50,7 @@ from cmdb.models.object_relation_model import ObjectRelationKey
 from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKey
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 
 from cmdb.errors.manager.object_relation_logs_manager import (
     ObjectRelationLogsManagerBuildError,
@@ -283,8 +284,8 @@ def handle_deleted_type_ids(relation_id: int,
     Compares the allowed parent and child CmdbTypes of the old vs. new relation; for every type
     that is no longer allowed, the corresponding CmdbObjectRelations are deleted.
 
-    A stored relation that carries no type list at all (an incomplete document from before the lists
-    became required) is read as an empty list, so the comparison reports nothing removed instead of
+    A stored relation that carries no type list at all (the lists are required on write, but older
+    stored data may lack them) is read as an empty list, so the comparison reports nothing removed instead of
     failing the whole update with a KeyError.
 
     Args:
@@ -399,8 +400,7 @@ def apply_relation_update(public_id: int,
         tuple[CmdbRelation, dict[str, list[str]]]: The stored CmdbRelation and the
             ``{'added': [...], 'removed': [...]}`` diff of its section fields
     """
-    # Pin the identity to the URL so a forged body public_id cannot rewrite the document
-    data[RelationKey.PUBLIC_ID.value] = public_id
+    pin_public_id(data, public_id)
 
     # Compute the diff from the in-memory old/new data before any persistence
     changed_fields: dict[str, list[str]] = get_added_and_removed_fields(old_relation, data)

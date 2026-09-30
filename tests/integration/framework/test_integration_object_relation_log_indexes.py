@@ -18,13 +18,12 @@ Integration tests for the CmdbObjectRelationLog indexes against a real MongoDB
 
 The unit tests pin what the model *declares*; these pin that MongoDB accepts the declaration, that the
 boot-time reconciliation creates it on an existing collection - which is how a deployment that predates
-the declaration gets the new indexes - and, the part that is the whole point, that the query the object
-view actually runs is served by an index instead of scanning an unbounded, append-only collection.
+the declaration gets the declared indexes - and, the part that is the whole point, that the query the
+object view actually runs is served by an index instead of scanning an unbounded, append-only collection.
 
 The query is the one the Angular relation-log list sends on every object view:
 ``{$or: [{object_relation_parent_id: <id>}, {object_relation_child_id: <id>}]}`` sorted by public_id.
-Before this sweep the collection carried a single index on ``object_relation_id``, which nothing
-queries at all
+Without an index on each side of the ``$or`` the plan has no choice but a collection scan.
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -76,8 +75,8 @@ def fixture_reconciled_indexes(database_manager: MongoDatabaseManager, database_
     Runs the boot-time index reconciliation for the log collection, then drops what it created
 
     The test suite never runs CollectionValidator, so a declared index does not exist in a test
-    database unless a test builds it - which is exactly the gap that let the previous index set go
-    unnoticed.
+    database unless a test builds it - and an index that is never built is never checked against the
+    query.
     """
     logs = _logs(database_manager, database_name)
     logs.delete_many({ObjectRelationLogKey.PUBLIC_ID.value: {'$in': LOG_IDS}})
@@ -148,7 +147,7 @@ def test_reconciliation_is_additive_and_re_runnable(
     """
     A second pass over an already-indexed collection changes nothing
 
-    Which is also why the two new indexes reach an existing deployment on the next start, and why
+    Which is also why the two declared indexes reach an existing deployment on the next start, and why
     removing one would need a migration rather than a declaration change.
     """
     before: dict[str, Any] = database_manager.get_index_info(
@@ -188,7 +187,7 @@ def test_the_object_view_query_is_index_served_on_both_sides(
     """
     The whole query the frontend sends, matched against both indexes rather than scanned
 
-    This is the query that ran on every object view; with the previous index set the plan had no
+    This is the query that runs on every object view; without these indexes the plan has no
     choice but a collection scan of an append-only collection that only ever grows.
     """
     criteria: dict[str, Any] = {
@@ -210,7 +209,7 @@ def test_the_history_query_returns_both_sides(
     database_manager: MongoDatabaseManager, database_name: str,
 ) -> None:
     """
-    The index change must not change the answer
+    The indexes must not change the answer
 
     An object's history is every entry where it is either endpoint - here two of the three seeded
     entries, and not the one between two other objects.

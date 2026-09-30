@@ -20,7 +20,7 @@ Pure: no Mongo, no Flask. CmdbCategory is the node of the tree the framework UI 
 what is pinned here is the document contract (`from_data` / `to_json`, guarded by a round-trip test)
 and the small accessors the tree builder reads it through.
 
-Two behaviours are asserted because they were wrong before 2026-08-26: a document missing `public_id`
+Two behaviours are asserted because they are easy to get wrong: a document missing `public_id`
 or `name` fails at construction rather than producing a category whose name is None (which only broke
 later, inside `get_label`), and `get_meta` returns the instance's own CategoryMeta rather than a
 throw-away default minted per call.
@@ -104,7 +104,7 @@ def test_a_failing_init_is_wrapped() -> None:
 @pytest.mark.parametrize('missing', [CmdbObjectKey.PUBLIC_ID, CategoryKey.NAME])
 def test_a_missing_required_key_fails_at_construction(missing: Any) -> None:
     """
-    Regression: a document without `name` used to build a category with name=None
+    Regression: a document without `name` must not build a category with name=None
 
     That object only broke the next time something asked for its label, with a message naming neither
     the category nor the field. Both keys are required by the schema and `name` is the collection's
@@ -214,7 +214,7 @@ def test_get_label_does_not_write_the_fallback_back() -> None:
 
 def test_get_meta_returns_the_instances_own_metadata() -> None:
     """
-    Regression: the default used to be a new CategoryMeta per call
+    Regression: the default must not be a new CategoryMeta per call
 
     A caller that mutated the result was mutating a throw-away object and silently lost the change.
     """

@@ -111,8 +111,8 @@ class TestBuildDeniedTypesCriteria:
         An ACL switched off denies nothing, and so does one carrying no `activated` key
 
         That second half is the model's reading (`AccessControlList.from_data` defaults the flag to
-        False), adopted here on 2026-09-17 so a listing and a single object read stop disagreeing on
-        the same stored document - tier 2 T208.
+        False), which the query builder follows too, so a listing and a single object read never
+        disagree on the same stored document.
         """
         assert {'acl.activated': {'$exists': True, '$nin': [False, None]}} in self._clauses()
 
@@ -247,7 +247,7 @@ class TestBuildAclPipeline:
         assert build_acl_pipeline(user, AccessControlPermission.READ) == []
 
     def test_no_lookup_stage_is_emitted(self, user: SimpleNamespace, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Regression: the filter used to $lookup framework.types for every single document."""
+        """Regression: the filter must not $lookup framework.types for every single document."""
         _stub_types_manager(monkeypatch, _StubTypesManager([{PUBLIC_ID_KEY: 3}]))
 
         pipeline = build_acl_pipeline(user, AccessControlPermission.READ)

@@ -70,7 +70,7 @@ exporter_blueprint = APIBlueprint('exporter', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @exporter_blueprint.protect(auth=True, right=ExporterRight.OBJECT.value)
-def get_export_file_types(request_user: CmdbUser) -> Response:  # pylint: disable=unused-argument
+def get_export_file_types(request_user: CmdbUser) -> Response:
     """
     Endpoint to retrieve the supported export file types/extensions.
 

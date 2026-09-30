@@ -41,11 +41,14 @@ from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectMdsKey,
     CmdbObjectMdsRowKey,
 )
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.utils import duplicate_names, parse_import_bool
+from cmdb.framework.object_field_value_rules import build_field_value_rules, collect_object_value_errors
+from cmdb.framework.object_field_defaults import fill_entries_from_defaults, usable_default
 from cmdb.framework.object_required_fields import (
     build_missing_required_errors,
     collect_missing_required_values,
@@ -74,6 +77,8 @@ from cmdb.framework.section_templates import PREDEFINED_SELECT_OPTION_REJECTED
 #                                   unknown value rejects the object instead
 #   new_select_options            - {name: [added values]} accumulator of select options to persist to
 #                                   the type after the batch (mutated during validation)
+#   field_value_rules             - {name: FieldValueRule} length cap + pattern of each field that has one
+#                                   (see cmdb.framework.object_field_value_rules); empty checks nothing
 ImportTypeContext = namedtuple(
     'ImportTypeContext',
     [
@@ -86,7 +91,9 @@ ImportTypeContext = namedtuple(
         'field_options',
         'predefined_select_fields',
         'new_select_options',
+        'field_value_rules',
     ],
+    defaults=[{}],
 )
 
 # Field types whose value cannot be resolved on import yet (foreign object / location ids), so the value
@@ -99,7 +106,7 @@ _CLEARABLE_FIELD_TYPES: frozenset[str] = frozenset({
 
 
 def normalize_and_validate_object(
-        working_object: dict,
+        working_object: dict[str, Any],
         special_type: SpecialType | None,
         author_id: int,
         type_context: ImportTypeContext | None = None) -> list[str]:
@@ -122,7 +129,7 @@ def normalize_and_validate_object(
     rules), on values the steps above have already coerced
 
     Args:
-        working_object (dict): The generated object to normalize (mutated in place)
+        working_object (dict[str, Any]): The generated object to normalize (mutated in place)
         special_type (SpecialType | None): The target type's special type (assigned to the object)
         author_id (int): public_id of the CmdbUser performing the import, forced onto every object
         type_context (ImportTypeContext | None): The target type's derived inputs (see
@@ -169,6 +176,9 @@ def normalize_and_validate_object(
         # A required field must carry a value (cleared reference/location fields are exempt)
         _validate_required_fields(working_object, type_context, errors)
 
+        # No value longer than its field kind allows, none breaking its field's pattern
+        errors.extend(collect_object_value_errors(working_object, type_context.field_value_rules))
+
         # References/locations can't be resolved on import yet -> clear their values (keep the entries)
         clear_reference_values(working_object, type_context.clearable_reference_fields)
 
@@ -178,7 +188,7 @@ def normalize_and_validate_object(
     return errors
 
 
-def _validate_rack_values(working_object: dict, special_type: SpecialType | None, errors: list[str]) -> None:
+def _validate_rack_values(working_object: dict[str, Any], special_type: SpecialType | None, errors: list[str]) -> None:
     """
     Applies the Rack value rules to an imported Rack object, and canonicalises its height
 
@@ -191,7 +201,7 @@ def _validate_rack_values(working_object: dict, special_type: SpecialType | None
     object REST routes enforce presence unconditionally (see cmdb.framework.rack.enforcement)
 
     Args:
-        working_object (dict): The generated object to validate (height canonicalised in place)
+        working_object (dict[str, Any]): The generated object to validate (height canonicalised in place)
         special_type (SpecialType | None): The target type's special type
         errors (list[str]): The error accumulator to append to
     """
@@ -202,7 +212,7 @@ def _validate_rack_values(working_object: dict, special_type: SpecialType | None
     errors.extend(validate_rack_field_values(working_object))
 
 
-def _validate_mds_sections(working_object: dict, type_context: ImportTypeContext, errors: list[str]) -> None:
+def _validate_mds_sections(working_object: dict[str, Any], type_context: ImportTypeContext, errors: list[str]) -> None:
     """
     Validates that every multi-data section of the object is one the target type defines
 
@@ -212,7 +222,7 @@ def _validate_mds_sections(working_object: dict, type_context: ImportTypeContext
     which they are not when a section was renamed or copied from another type
 
     Args:
-        working_object (dict): The object being validated
+        working_object (dict[str, Any]): The object being validated
         type_context (ImportTypeContext): The target type's derived inputs
         errors (list[str]): The error accumulator to append to on an unknown section
     """
@@ -227,7 +237,7 @@ def _validate_mds_sections(working_object: dict, type_context: ImportTypeContext
         errors.append(f"Multi-data section(s) not defined on the type: {unknown}")
 
 
-def _validate_active(working_object: dict, errors: list[str]) -> None:
+def _validate_active(working_object: dict[str, Any], errors: list[str]) -> None:
     """
     Defaults / validates the ``active`` flag of an imported object (mutates the object / errors list)
 
@@ -235,7 +245,7 @@ def _validate_active(working_object: dict, errors: list[str]) -> None:
     ``parse_import_bool`` - if it does not, an error is appended and the object is left unchanged.
 
     Args:
-        working_object (dict): The object being validated (its ``active`` value may be replaced)
+        working_object (dict[str, Any]): The object being validated (its ``active`` value may be replaced)
         errors (list[str]): The error accumulator to append to on an invalid value
     """
     active_value = working_object.get(CmdbObjectKey.ACTIVE.value)
@@ -252,7 +262,7 @@ def _validate_active(working_object: dict, errors: list[str]) -> None:
         working_object[CmdbObjectKey.ACTIVE.value] = parsed
 
 
-def _validate_location_field(working_object: dict, errors: list[str]) -> None:
+def _validate_location_field(working_object: dict[str, Any], errors: list[str]) -> None:
     """
     Validates the placement of the special location field (``dg_location``)
 
@@ -261,7 +271,7 @@ def _validate_location_field(working_object: dict, errors: list[str]) -> None:
     left unchanged.
 
     Args:
-        working_object (dict): The object being validated
+        working_object (dict[str, Any]): The object being validated
         errors (list[str]): The error accumulator to append to on a violation
     """
     top_level_fields = working_object.get(CmdbObjectKey.FIELDS.value) or []
@@ -280,12 +290,12 @@ def _validate_location_field(working_object: dict, errors: list[str]) -> None:
         )
 
 
-def _location_field_in_mds(working_object: dict) -> bool:
+def _location_field_in_mds(working_object: dict[str, Any]) -> bool:
     """
     Reports whether the location field (``dg_location``) appears inside any multi-data section
 
     Args:
-        working_object (dict): The object being validated
+        working_object (dict[str, Any]): The object being validated
 
     Returns:
         bool: True if a multi-data-section row carries the location field
@@ -299,7 +309,7 @@ def _location_field_in_mds(working_object: dict) -> bool:
     return False
 
 
-def _validate_unique_field_names(working_object: dict, errors: list[str]) -> None:
+def _validate_unique_field_names(working_object: dict[str, Any], errors: list[str]) -> None:
     """
     Validates that field names (identifiers) are unique where they must be
 
@@ -308,7 +318,7 @@ def _validate_unique_field_names(working_object: dict, errors: list[str]) -> Non
     expected (every row of a section shares the section's field names) and is allowed.
 
     Args:
-        working_object (dict): The object being validated
+        working_object (dict[str, Any]): The object being validated
         errors (list[str]): The error accumulator to append to on a duplicate
     """
     top_level_names = [
@@ -336,7 +346,7 @@ def _validate_unique_field_names(working_object: dict, errors: list[str]) -> Non
                 )
 
 
-def build_field_type_map(type_fields: list[dict]) -> dict[str, str]:
+def build_field_type_map(type_fields: list[dict[str, Any]]) -> dict[str, str]:
     """
     Builds a ``{field name: field type}`` map from a type's field definitions
 
@@ -344,7 +354,7 @@ def build_field_type_map(type_fields: list[dict]) -> dict[str, str]:
     stamp each imported field's ``type`` and to detect fields the type does not define.
 
     Args:
-        type_fields (list[dict]): The target type's field definitions
+        type_fields (list[dict[str, Any]]): The target type's field definitions
 
     Returns:
         dict[str, str]: The field-name-to-type map
@@ -355,7 +365,7 @@ def build_field_type_map(type_fields: list[dict]) -> dict[str, str]:
     }
 
 
-def _field_options(type_fields: list[dict]) -> dict[str, set]:
+def _field_options(type_fields: list[dict[str, Any]]) -> dict[str, set[Any]]:
     """
     Returns the allowed option names of each select / radio field, keyed by field name
 
@@ -365,12 +375,12 @@ def _field_options(type_fields: list[dict]) -> dict[str, set]:
     lifts them onto the field before the type is persisted, so no stored type carries that shape.)
 
     Args:
-        type_fields (list[dict]): The target type's field definitions
+        type_fields (list[dict[str, Any]]): The target type's field definitions
 
     Returns:
-        dict[str, set]: ``{field name: {option name, …}}`` for select and radio fields
+        dict[str, set[Any]]: ``{field name: {option name, …}}`` for select and radio fields
     """
-    options: dict[str, set] = {}
+    options: dict[str, set[Any]] = {}
 
     for field in type_fields or []:
         if field.get(FieldKey.TYPE.value) in (FieldType.SELECT.value, FieldType.RADIO.value):
@@ -385,7 +395,7 @@ def _field_options(type_fields: list[dict]) -> dict[str, set]:
 
 
 def build_import_type_context(
-        type_instance,
+        type_instance: CmdbType,
         predefined_select_fields: dict[str, str] | None = None) -> ImportTypeContext:
     """
     Builds the per-import ``ImportTypeContext`` from the target type
@@ -397,7 +407,7 @@ def build_import_type_context(
     it cannot satisfy a required check).
 
     Args:
-        type_instance: The target ``CmdbType`` being imported into
+        type_instance (CmdbType): The target ``CmdbType`` being imported into
         predefined_select_fields (dict[str, str] | None): {select field name: owning predefined section
             template name} whose options the import must not extend (see
             ``cmdb.framework.section_templates.resolve_predefined_select_fields``); None means none
@@ -406,7 +416,13 @@ def build_import_type_context(
         ImportTypeContext: The derived inputs for ``normalize_and_validate_object``
     """
     type_fields = type_instance.get_fields()
-    field_defaults = {field.get(FieldKey.NAME.value): field.get(FieldKey.VALUE.value) for field in type_fields or []}
+    field_value_rules = build_field_value_rules(type_fields)
+    # The default each field may be filled with - None for an excluded kind or a default that breaks the
+    # field's own rules (see cmdb.framework.object_field_defaults)
+    field_defaults = {
+        field.get(FieldKey.NAME.value): usable_default(field, field_value_rules.get(field.get(FieldKey.NAME.value)))
+        for field in type_fields or []
+    }
 
     required_field_names = collect_required_field_names(type_fields, _CLEARABLE_FIELD_TYPES)
 
@@ -430,10 +446,11 @@ def build_import_type_context(
         field_options=_field_options(type_fields),
         predefined_select_fields=predefined_select_fields or {},
         new_select_options={},
+        field_value_rules=field_value_rules,
     )
 
 
-def apply_new_select_options(type_instance, new_select_options: dict) -> None:
+def apply_new_select_options(type_instance: CmdbType, new_select_options: dict[str, list[Any]]) -> None:
     """
     Adds newly-seen select values as options on the target type's select fields (mutates the type)
 
@@ -445,8 +462,8 @@ def apply_new_select_options(type_instance, new_select_options: dict) -> None:
     unknown value for such a field instead of recording it (see ``_apply_value_suitability``).
 
     Args:
-        type_instance: The target ``CmdbType`` (its select fields' options are extended in place)
-        new_select_options (dict): ``{field name: [added option values]}`` collected during the import
+        type_instance (CmdbType): The target ``CmdbType`` (its select fields' options are extended in place)
+        new_select_options (dict[str, list[Any]]): ``{field name: [added option values]}`` collected during the import
     """
     for field in type_instance.get_fields():
         added_values = new_select_options.get(field.get(FieldKey.NAME.value))
@@ -466,40 +483,45 @@ def apply_new_select_options(type_instance, new_select_options: dict) -> None:
                 existing.add(value)
 
 
-def _backfill_from_type(working_object: dict, type_context: ImportTypeContext) -> None:
+def _backfill_from_type(working_object: dict[str, Any], type_context: ImportTypeContext) -> None:
     """
-    Adds the type's fields the object did not provide, using each field's default value
+    Completes the object with the type's fields and fills its empty fields from their defaults
 
-    Top-level: every top-level type field absent from the object's ``fields`` is appended with its
-    default. MDS: for every section instance the object carries, each row is completed with the section's
-    fields it is missing (from the type default). Field ``type`` is stamped separately afterwards.
+    Top-level: every top-level type field absent from the object's ``fields`` is appended, and every entry
+    left empty (absent, null or '') takes its field's default. MDS: every row of every section instance the
+    object carries is completed and filled the same way from the section's fields. The defaults are the
+    context's usable ones (see ``cmdb.framework.object_field_defaults``) - an excluded kind or a default
+    that breaks its own rules is appended as None and fills nothing. Field ``type`` is stamped separately
+    afterwards.
 
     Args:
-        working_object (dict): The object to complete (mutated in place)
+        working_object (dict[str, Any]): The object to complete (mutated in place)
         type_context (ImportTypeContext): The target type's field defaults
     """
-    top_level_fields = working_object.setdefault(CmdbObjectKey.FIELDS.value, [])
-    present = {field.get(CmdbObjectFieldKey.NAME.value) for field in top_level_fields}
-
-    for name, default in type_context.top_level_field_defaults.items():
-        if name not in present:
-            top_level_fields.append({CmdbObjectFieldKey.NAME.value: name, CmdbObjectFieldKey.VALUE.value: default})
+    fill_entries_from_defaults(
+        working_object.setdefault(CmdbObjectKey.FIELDS.value, []),
+        type_context.top_level_field_defaults,
+        append_without_default=True,
+    )
 
     for section in working_object.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value) or []:
         defaults = type_context.mds_field_defaults_by_section.get(section.get(CmdbObjectMdsKey.SECTION_ID.value))
+
         if not defaults:
             continue
 
         for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
-            row_data = row.setdefault(CmdbObjectMdsRowKey.DATA.value, [])
-            row_present = {entry.get(CmdbObjectFieldKey.NAME.value) for entry in row_data}
+            fill_entries_from_defaults(
+                row.setdefault(CmdbObjectMdsRowKey.DATA.value, []),
+                defaults,
+                append_without_default=True,
+            )
 
-            for name, default in defaults.items():
-                if name not in row_present:
-                    row_data.append({CmdbObjectFieldKey.NAME.value: name, CmdbObjectFieldKey.VALUE.value: default})
 
-
-def _validate_required_fields(working_object: dict, type_context: ImportTypeContext, errors: list[str]) -> None:
+def _validate_required_fields(
+        working_object: dict[str, Any],
+        type_context: ImportTypeContext,
+        errors: list[str]) -> None:
     """
     Rejects the object when a required field is left without a value (top-level or in an MDS row)
 
@@ -509,7 +531,7 @@ def _validate_required_fields(working_object: dict, type_context: ImportTypeCont
     context's required sets because their values are cleared on import).
 
     Args:
-        working_object (dict): The object being validated
+        working_object (dict[str, Any]): The object being validated
         type_context (ImportTypeContext): The target type's required-field sets
         errors (list[str]): The error accumulator to append to on a missing required value
     """
@@ -522,7 +544,10 @@ def _validate_required_fields(working_object: dict, type_context: ImportTypeCont
     errors.extend(build_missing_required_errors(missing_top_level, missing_by_section))
 
 
-def _stamp_and_validate_field_types(working_object: dict, field_type_map: dict, errors: list[str]) -> None:
+def _stamp_and_validate_field_types(
+        working_object: dict[str, Any],
+        field_type_map: dict[str, str],
+        errors: list[str]) -> None:
     """
     Stamps each field's ``type`` from the target type and rejects fields the type does not define
 
@@ -531,13 +556,13 @@ def _stamp_and_validate_field_types(working_object: dict, field_type_map: dict, 
     not defined on the type is collected and reported as an error (the object is rejected).
 
     Args:
-        working_object (dict): The object being validated (field types stamped in place)
-        field_type_map (dict): The target type's ``{field name: field type}`` map
+        working_object (dict[str, Any]): The object being validated (field types stamped in place)
+        field_type_map (dict[str, str]): The target type's ``{field name: field type}`` map
         errors (list[str]): The error accumulator to append the unknown-field error to
     """
-    unknown_names: list = []
+    unknown_names: list[str | None] = []
 
-    def _apply(entry: dict) -> None:
+    def _apply(entry: dict[str, Any]) -> None:
         name = entry.get(CmdbObjectFieldKey.NAME.value)
         if name in field_type_map:
             entry[CmdbObjectFieldKey.TYPE.value] = field_type_map[name]
@@ -658,7 +683,7 @@ def _coerce_scalar_value(field_type: str, value: Any) -> tuple[Any, str | None]:
     return value, None  # text / textarea / password / unknown -> unchanged
 
 
-def _apply_value_suitability(entry: dict, type_context: ImportTypeContext, errors: list[str]) -> None:
+def _apply_value_suitability(entry: dict[str, Any], type_context: ImportTypeContext, errors: list[str]) -> None:
     """
     Validates / coerces one field entry's value against its field type (empty values are skipped)
 
@@ -669,7 +694,7 @@ def _apply_value_suitability(entry: dict, type_context: ImportTypeContext, error
     password accept any value.
 
     Args:
-        entry (dict): The field entry ({name, value, ...}) to check (value coerced in place)
+        entry (dict[str, Any]): The field entry ({name, value, ...}) to check (value coerced in place)
         type_context (ImportTypeContext): The target type's derived inputs
         errors (list[str]): The error accumulator to append to on an unsuitable value
     """
@@ -710,13 +735,13 @@ def _apply_value_suitability(entry: dict, type_context: ImportTypeContext, error
         entry[CmdbObjectFieldKey.VALUE.value] = coerced
 
 
-def _validate_and_coerce_field_values(working_object: dict, type_context: ImportTypeContext,
+def _validate_and_coerce_field_values(working_object: dict[str, Any], type_context: ImportTypeContext,
                                       errors: list[str]) -> None:
     """
     Applies the value-suitability check to every field, top-level and inside MDS rows
 
     Args:
-        working_object (dict): The object being validated (field values coerced in place)
+        working_object (dict[str, Any]): The object being validated (field values coerced in place)
         type_context (ImportTypeContext): The target type's derived inputs
         errors (list[str]): The error accumulator to append to on an unsuitable value
     """
@@ -729,7 +754,7 @@ def _validate_and_coerce_field_values(working_object: dict, type_context: Import
                 _apply_value_suitability(entry, type_context, errors)
 
 
-def reference_field_names(type_fields: list[dict]) -> set[str]:
+def reference_field_names(type_fields: list[dict[str, Any]]) -> set[str]:
     """
     Collects the names of a type's fields whose value must be cleared on import
 
@@ -738,7 +763,7 @@ def reference_field_names(type_fields: list[dict]) -> set[str]:
     so the values are cleared instead of stored unresolved.
 
     Args:
-        type_fields (list[dict]): The target type's field definitions
+        type_fields (list[dict[str, Any]]): The target type's field definitions
 
     Returns:
         set[str]: The names of the fields whose value must be cleared
@@ -750,7 +775,7 @@ def reference_field_names(type_fields: list[dict]) -> set[str]:
     }
 
 
-def clear_reference_values(working_object: dict, clearable_field_names: set) -> None:
+def clear_reference_values(working_object: dict[str, Any], clearable_field_names: set[str]) -> None:
     """
     Clears (sets ``None``) the value of every reference / ref-section / location field on the object
 
@@ -758,8 +783,8 @@ def clear_reference_values(working_object: dict, clearable_field_names: set) -> 
     foreign id is imported. The field entries are kept; only their value is emptied.
 
     Args:
-        working_object (dict): The object to clear (mutated in place)
-        clearable_field_names (set): The field names whose value must be cleared
+        working_object (dict[str, Any]): The object to clear (mutated in place)
+        clearable_field_names (set[str]): The field names whose value must be cleared
     """
     if not clearable_field_names:
         return

@@ -30,6 +30,8 @@ import pytest
 from cmdb.manager.base_manager import BaseManager
 from cmdb.errors.database import (
     DocumentInsertError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
     DocumentGetError,
     DocumentUpdateError,
     DocumentDeleteError,
@@ -578,6 +580,18 @@ def test_count_documents_defaults_to_no_limit() -> None:
     mgr.dbm.count.assert_called_once_with(COLLECTION, DB_NAME, {'relation_id': 5}, None)
 
 
+def test_bulk_write_answers_the_database_layers_modified_count() -> None:
+    """The count reaches the caller, which is how a batch write learns whether every statement landed."""
+    mgr = _mock_manager()
+    mgr.dbm.bulk_write.return_value = 2
+    operations = [MagicMock(), MagicMock()]
+
+    result = BaseManager.bulk_write(mgr, operations)
+
+    assert result == 2
+    mgr.dbm.bulk_write.assert_called_once_with(COLLECTION, DB_NAME, operations)
+
+
 def test_delete_many_raw_delegates_with_filter_query() -> None:
     """delete_many_raw forwards the raw filter as filter_query and returns the delete result"""
     mgr = _mock_manager()
@@ -616,7 +630,18 @@ _ERROR_MAPPING_CASES = [
     ('update_many_raw', ({'x': 1}, {'$set': {}}), 'update_many_raw', DocumentUpdateError, BaseManagerUpdateError),
     ('bulk_write', ([],), 'bulk_write', DocumentInsertError, BaseManagerUpdateError),
     ('delete_many_raw', ({'x': 1},), 'delete_many_raw', DocumentDeleteError, BaseManagerDeleteError),
+    ('count_from_other_collection', ('other', {}), 'count', DocumentGetError, BaseManagerGetError),
+    ('update', ({'x': 1}, {'y': 2}), 'update', DocumentUpdateError, BaseManagerUpdateError),
+    ('upsert', ({'x': 1}, {'y': 2}), 'upsert', DocumentUpdateError, BaseManagerUpdateError),
+    ('delete', ({'x': 1},), 'delete', DocumentDeleteError, BaseManagerDeleteError),
+    ('delete_many', ({'x': 1},), 'delete_many', DocumentDeleteError, BaseManagerDeleteError),
+    ('delete_many_from_other_collection', ('other', {'x': 1}), 'delete_many_raw',
+     DocumentDeleteError, BaseManagerDeleteError),
 ]
+
+# The one delegation whose wrapper ADDS context (the collection name) around the error, and so carries
+# text rather than the error itself - the kind of message the error-wrapping tripwire leaves alone
+CONTEXT_WRAPPING_METHODS: frozenset[str] = frozenset({'bulk_write'})
 
 
 @pytest.mark.parametrize(
@@ -625,9 +650,50 @@ _ERROR_MAPPING_CASES = [
     ids=[case[0] for case in _ERROR_MAPPING_CASES],
 )
 def test_delegation_wraps_database_error(method, args, dbm_attr, db_error, expected_error) -> None:
-    """Each thin delegation rewraps its database-layer error as the matching BaseManager* error"""
-    mgr = _mock_manager()
-    getattr(mgr.dbm, dbm_attr).side_effect = db_error('boom')
+    """
+    Each thin delegation rewraps its database-layer error as the matching BaseManager* error
 
-    with pytest.raises(expected_error):
+    and hands over the error itself: args[0] is what a caller branches on, where `__cause__` would pass
+    under a stringified wrap too
+    """
+    mgr = _mock_manager()
+    failure = db_error('boom')
+    getattr(mgr.dbm, dbm_attr).side_effect = failure
+
+    with pytest.raises(expected_error) as caught:
         getattr(BaseManager, method)(mgr, *args)
+
+    assert caught.value.__cause__ is failure
+
+    if method not in CONTEXT_WRAPPING_METHODS:
+        assert caught.value.args[0] is failure
+
+
+@pytest.mark.parametrize('failure', [
+    DocumentNetworkError('connection lost'),
+    DocumentLockTimeoutError('lock timeout'),
+], ids=['network', 'lock-timeout'])
+def test_insert_many_raises_a_transient_failure_unwrapped(failure: Exception) -> None:
+    """
+    Like insert, which only ever wraps DocumentInsertError: a lock timeout or a lost connection says
+    nothing about the documents, so it is left for the route layer to answer as a server error
+    """
+    mgr = _mock_manager()
+    mgr.dbm.insert_many.side_effect = failure
+
+    with pytest.raises(type(failure)) as caught:
+        BaseManager.insert_many(mgr, [{'public_id': 1}], skip_public=True)
+
+    assert caught.value is failure
+
+
+def test_insert_leaves_a_transient_failure_unwrapped_too() -> None:
+    """The single insert already did; pinned beside insert_many so the two cannot drift apart"""
+    mgr = _mock_manager()
+    failure = DocumentNetworkError('connection lost')
+    mgr.dbm.insert.side_effect = failure
+
+    with pytest.raises(DocumentNetworkError) as caught:
+        BaseManager.insert(mgr, {})
+
+    assert caught.value is failure

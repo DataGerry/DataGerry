@@ -18,10 +18,10 @@ Functional tests for the ``/report_categories`` REST routes
 
 Pins the route-layer behaviour: create forces a server id + predefined=False, the missing-id 404s,
 the GET-list envelope, the update path (identity pinned to the URL id, predefined immutable), and
-the delete guards - missing -> 404, predefined -> 403, in-use-by-report -> 403, otherwise 200. The
-create/update routes read their data from the query string (parse_request_parameters), and both
-sanitise it: a payload without a usable ``name`` is a 400 and every key outside the write whitelist
-is dropped instead of being persisted as a document key. A predefined category is read-only, so it
+the delete guards - missing -> 404, predefined -> 400, in-use-by-report -> 400, otherwise 200. The
+create/update routes read their data from the schema-validated JSON body, and both sanitise it: a
+payload without a usable ``name`` is a 400 and every key outside the write whitelist is dropped
+instead of being persisted as a document key. A predefined category is read-only, so it
 can neither be renamed nor deleted
 """
 from datetime import datetime, timezone
@@ -31,6 +31,11 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.interface.rest_api.routes.report_routes.report_constants import (
+    CATEGORY_IN_USE_MSG,
+    CATEGORY_PREDEFINED_MSG,
+    ReportCategoryAction,
+)
 from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
@@ -138,7 +143,7 @@ class TestCreateReportCategory:
     ) -> None:
         """A missing / blank name is a 400 and no nameless category reaches the collection.
 
-        'absent' and 'empty' are now refused by the schema before the handler runs; 'blank' passes the
+        'absent' and 'empty' are refused by the schema before the handler runs; 'blank' passes the
         schema (a non-empty string) and is caught by the helper's trim-then-require.
         """
         categories = _categories(database_manager, database_name)
@@ -186,8 +191,8 @@ class TestReadReportCategory:
         """Auth runs before collection-param parsing (decorator order).
 
         An unauthorized request whose collection params would fail to parse (``filter`` is not JSON)
-        is rejected with 401 by ``@insert_request_user`` - not the 400 the parse decorator raised
-        when it sat outside the auth decorators.
+        is rejected with 401 by ``@insert_request_user`` - not the 400 the parse decorator would
+        raise if it sat outside the auth decorators.
         """
         response = rest_api.get(f'{ROUTE_URL}/?filter=notjson', unauthorized=True)
 
@@ -250,7 +255,7 @@ class TestUpdateReportCategory:
         stored = _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_FOR_UPDATE})
         assert stored['name'] == 'Original'
 
-    def test_update_of_a_predefined_category_returns_403(
+    def test_update_of_a_predefined_category_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """A predefined category is read-only: the rename is refused and the stored name stays."""
@@ -260,7 +265,9 @@ class TestUpdateReportCategory:
 
         response = rest_api.put(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}', json={'name': 'Renamed'})
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == CATEGORY_PREDEFINED_MSG.format(
+            action=ReportCategoryAction.UPDATED.value)
         stored = _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_PREDEFINED})
         assert stored['name'] == 'System'
 
@@ -275,7 +282,7 @@ class TestUpdateReportCategory:
 #                                                      DELETE                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestDeleteReportCategory:
-    """DELETE guards: success 200, missing 404, predefined 403, in-use 403 (none leak as 500)."""
+    """DELETE guards: success 200, missing 404, predefined 400, in-use 400 (none leak as 500)."""
 
     def test_delete_removes_category(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -292,26 +299,35 @@ class TestDeleteReportCategory:
         """Deleting a missing id returns 404 (not a 500 from the generic handler)."""
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_CATEGORY_ID}').status_code == HTTPStatus.NOT_FOUND
 
-    def test_delete_predefined_returns_403(
+    def test_delete_predefined_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Deleting a predefined category is rejected with 403 (a business-rule rejection, not 405)."""
+        """Deleting a predefined category is a business-rule rejection - 400, not 403 or 405."""
         _categories(database_manager, database_name).insert_one(
             _category_doc(CATEGORY_ID_PREDEFINED, 'System', predefined=True)
         )
 
-        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}').status_code == HTTPStatus.FORBIDDEN
+        response = rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_PREDEFINED}')
 
-    def test_delete_in_use_returns_403(
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == CATEGORY_PREDEFINED_MSG.format(
+            action=ReportCategoryAction.DELETED.value)
+        assert _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_PREDEFINED})
+
+    def test_delete_in_use_returns_400(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Deleting a category still referenced by a report is rejected with 403."""
+        """Deleting a category still referenced by a report is rejected with 400 and stays stored."""
         _categories(database_manager, database_name).insert_one(_category_doc(CATEGORY_ID_IN_USE, 'Used'))
         _reports(database_manager, database_name).insert_one(
             {'public_id': REPORT_ID_USING_CATEGORY, 'report_category_id': CATEGORY_ID_IN_USE}
         )
 
-        assert rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_IN_USE}').status_code == HTTPStatus.FORBIDDEN
+        response = rest_api.delete(f'{ROUTE_URL}/{CATEGORY_ID_IN_USE}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == CATEGORY_IN_USE_MSG.format(public_id=CATEGORY_ID_IN_USE)
+        assert _categories(database_manager, database_name).find_one({'public_id': CATEGORY_ID_IN_USE})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -430,10 +446,9 @@ class TestReportCategoryRightsAreDistinct:
 class TestFrontendRequestShape:
     """The exact request shapes report-category.service.ts sends still work.
 
-    The write routes moved from reading the query string to reading the schema-validated JSON body.
-    That is safe only because the Angular service sends its payload BOTH ways - it fills
-    ``this.options.params`` from the same object it passes as the body. These tests pin that shape, so
-    trimming the redundant query string out of the service would fail here instead of in production.
+    The write routes read the schema-validated JSON body, not the query string. The Angular service
+    sends its payload BOTH ways - it fills ``this.options.params`` from the same object it passes as
+    the body. These tests pin that shape, so a change to it fails here instead of in production.
     """
 
     def test_create_with_the_frontend_shape(
@@ -469,10 +484,9 @@ class TestFrontendRequestShape:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
 
     def test_a_write_without_a_body_is_refused(self, rest_api) -> None:
-        """The query string alone is no longer enough - the body is the payload now
+        """The query string alone is not enough - the body is the payload
 
-        Pins the consequence of the move for anyone reading the diff: a client that only sets query
-        parameters gets a 400 rather than silently creating a category.
+        A client that only sets query parameters gets a 400 rather than silently creating a category.
         """
         response = rest_api.post(f'{ROUTE_URL}/', query_string={'name': 'Query Only'})
 
@@ -483,7 +497,7 @@ class TestFrontendRequestShape:
         ({'name': 'x', 'predefined': 'true'}, 'predefined-not-a-boolean'),
     ], ids=lambda value: value if isinstance(value, str) else '')
     def test_schema_rejects_wrongly_typed_values(self, rest_api, body: dict[str, Any], reason: str) -> None:
-        """What the schema buys over the old hand-rolled check: types are enforced, not just presence"""
+        """The schema enforces types, not just presence"""
         assert rest_api.post(f'{ROUTE_URL}/', json=body).status_code == HTTPStatus.BAD_REQUEST, reason
 
     def test_a_payload_public_id_is_ignored_whatever_it_holds(
@@ -492,8 +506,8 @@ class TestFrontendRequestShape:
         """
         The identity is not part of the request contract, so its type cannot be wrong
 
-        It used to be declared and validated - an unusable value was a 400. Now the key is purged
-        before the handler sees it, so a category is created under the id the server assigns.
+        The key is purged before the handler sees it, so a category is created under the id the
+        server assigns.
         """
         response = rest_api.post(f'{ROUTE_URL}/', json={'name': 'ignored-id-category', 'public_id': 'nine'})
 
@@ -518,3 +532,19 @@ class TestFrontendRequestShape:
             assert response.status_code != HTTPStatus.PERMANENT_REDIRECT
         finally:
             categories.delete_one({'public_id': CATEGORY_ID_FOR_DELETE})
+
+
+class TestTheUpdateAnswersTheStoredDocument:
+    """PUT /report_categories/<id> answers the category as stored."""
+
+    def test_the_response_is_the_stored_category(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The dict write is normalised in place before it is stored, so the response already matches."""
+        _categories(database_manager, database_name).insert_one(_category_doc(CATEGORY_ID_FOR_UPDATE, 'Original'))
+
+        response = rest_api.put(f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}', json={'name': 'Renamed'})
+
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        # The single read answers the bare document (DefaultResponse), the update wraps it in 'result'
+        assert response.get_json()['result'] == rest_api.get(f'{ROUTE_URL}/{CATEGORY_ID_FOR_UPDATE}').get_json()

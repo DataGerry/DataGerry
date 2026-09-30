@@ -80,7 +80,7 @@ def compose_summary_line(
         summary_fields = target_object_type.get_summary().fields
         first = True
 
-        line: dict
+        line: dict[str, Any]
         for line in summary_fields:
             field_name = line.get('name')
             field_value = next(

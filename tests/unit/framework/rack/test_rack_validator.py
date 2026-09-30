@@ -178,9 +178,23 @@ def test_field_values_accept_a_numeric_string_height() -> None:
     assert validate_rack_field_values(_rack(height='42')) == []
 
 
-def test_field_values_have_no_upper_bound() -> None:
-    """No maximum height is enforced yet, by decision"""
-    assert validate_rack_field_values(_rack(height=100_000)) == []
+def test_the_maximum_height_is_accepted() -> None:
+    """The cap itself is a valid height"""
+    assert validate_rack_field_values(_rack(height=RackLimits.MAX_HEIGHT)) == []
+
+
+@pytest.mark.parametrize('height', [RackLimits.MAX_HEIGHT + 1, str(RackLimits.MAX_HEIGHT + 1), 10 ** 12, 1e15])
+def test_a_height_above_the_maximum_is_refused(height: Any) -> None:
+    """Every spelling of a too-tall rack is refused, naming the cap and the coerced value"""
+    assert validate_rack_field_values(_rack(height=height)) == [
+        RackValidationError.HEIGHT_ABOVE_MAXIMUM.format(maximum=RackLimits.MAX_HEIGHT, value=int(height)),
+    ]
+
+
+def test_the_maximum_is_two_hundred_u() -> None:
+    """The product decision, pinned so a change to it is a deliberate one"""
+    assert RackLimits.MAX_HEIGHT == 200
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              validate_rack_object                                                    #

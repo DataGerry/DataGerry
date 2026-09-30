@@ -15,35 +15,54 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 This module contains shared caching helpers used while building DocAPI template data.
+
+Every object a document reaches - the objects a template names by id, the partners of a relation it
+follows - is loaded HERE, and only from the types the requesting user may read. A document can
+therefore never show an object its reader could not open: a denied object is simply not in the cache,
+and the template renders it the way it renders an object that does not exist - blank.
 """
+from typing import Any
+
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def cache_objects_and_types(
     object_ids: list[int],
-    object_cache: dict[int, dict],
-    type_cache: dict[int, dict],
+    object_cache: dict[int, dict[str, Any]],
+    type_cache: dict[int, dict[str, Any]],
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
+    request_user: CmdbUser,
 ) -> None:
     """
-    Lazily loads any of `object_ids` (and the types they reference) that are not already cached
+    Lazily loads any of `object_ids` the user may read (and the types they reference) not already cached
 
     Both caches are mutated in place: objects missing from `object_cache` are fetched in a single
-    bulk query, then any type referenced by a cached object but missing from `type_cache` is fetched
-    in a second bulk query. Keeping both caches in sync here prevents objects reached during relation
-    traversal from being silently dropped later because their type was never loaded.
+    bulk query - restricted to the types the user's group may READ, so a denied object stays out -
+    then any type referenced by a cached object but missing from `type_cache` is fetched in a second
+    bulk query. Keeping both caches in sync here prevents objects reached during relation traversal
+    from being silently dropped later because their type was never loaded.
 
     Args:
         object_ids (list[int]): The public_ids of the objects that must be present in the cache
-        object_cache (dict[int, dict]): Object cache keyed by public_id, mutated in place
-        type_cache (dict[int, dict]): Type cache keyed by public_id, mutated in place
+        object_cache (dict[int, dict[str, Any]]): Object cache keyed by public_id, mutated in place
+        type_cache (dict[int, dict[str, Any]]): Type cache keyed by public_id, mutated in place
         objects_manager (ObjectsManager): Manager used to fetch missing objects
         types_manager (TypesManager): Manager used to fetch missing types
+        request_user (CmdbUser): The user the document is built for; their READ ACL filters the objects
     """
     missing_ids = [oid for oid in object_ids if oid not in object_cache]
     if missing_ids:
-        for obj in objects_manager.find(criteria={"public_id": {"$in": missing_ids}}):
+        criteria: dict[str, Any] = {"public_id": {"$in": missing_ids}}
+        denied_type_ids: list[int] = resolve_denied_type_ids(request_user, AccessControlPermission.READ)
+
+        if denied_type_ids:
+            criteria.update(build_denied_types_condition(denied_type_ids))
+
+        for obj in objects_manager.find(criteria=criteria):
             object_cache[obj["public_id"]] = obj
 
     missing_type_ids = {

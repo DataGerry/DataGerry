@@ -14,29 +14,30 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-The `requires_feature` route guard for license feature-gating (license feature part P15, Step 1)
+The license feature-gating guards: the `requires_feature` route decorator and the blueprint gate
 
-A decorator that blocks a route when the active license does not unlock a given LicenseFeature.
-Gating applies ON-PREMISE ONLY: in cloud or local mode the guard passes through untouched, leaving
-the subscription/api-level gating those modes already enforce. On-premise it resolves the
-LicenseService once per request (cached on `flask.g` so hot paths do not re-decrypt/re-verify per
-call) and aborts with HTTP 403 - distinct from the codebase's usual 400 for invalid data - when the
-feature is not unlocked. The guard belongs at the bottom of the decorator stack (the `@protect`
-level): it runs after `@insert_request_user` has populated `request_user` in kwargs and reads the
-mode flags off `current_app`
+Both block a route when the active license does not unlock a given LicenseFeature. Gating applies
+ON-PREMISE ONLY: in cloud or local mode the guards pass through untouched, leaving the
+subscription/api-level gating those modes already enforce. On-premise the LicenseService is resolved
+once per request (cached on `flask.g` so hot paths do not re-decrypt/re-verify per call) and a locked
+feature is refused with HTTP 403 - distinct from the codebase's usual 400 for invalid data.
+
+The order is authenticate, then licence, then right: every licence check runs after the caller is
+authenticated, so a caller without valid credentials gets the 401 and never learns which features
+the installation is licensed for. `requires_feature` sits below `@insert_request_user`; the blueprint
+gate and the REST API (HTTP Basic) lock are enforced by `insert_request_user` itself
 """
 import functools
 from logging import Logger, getLogger
 from typing import Any, Callable
 
-from flask import Blueprint, abort, current_app, g, request
+from flask import Blueprint, abort, current_app, g
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.license_manager.license_service import LicenseService
 
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -45,8 +46,12 @@ LOGGER: Logger = getLogger(__name__)
 # `flask.g` attribute under which the per-request {LicenseFeature: bool} lookup cache is stored
 LICENSE_FEATURE_CACHE_ATTR: str = 'license_feature_cache'
 
-# Prefix of an `Authorization` header carrying HTTP Basic credentials (e.g. "Basic dXNlcjpwYXNz")
-BASIC_AUTH_HEADER_PREFIX: str = f'{AuthMethod.BASIC.value} '
+# `flask.g` attribute listing the features the current request's gated blueprint requires
+LICENSE_REQUIRED_FEATURES_ATTR: str = 'license_required_features'
+
+# Attribute on a `gate_blueprint` hook naming the feature it records - lets a census find the gated blueprints
+GATED_FEATURE_ATTR: str = 'gated_feature'
+
 
 # 403 body when a feature is not unlocked; `{feature}` is filled with a human-readable feature label
 FEATURE_NOT_LICENSED_MESSAGE: str = "The {feature} feature requires a valid license!"
@@ -73,8 +78,7 @@ def request_has_feature(feature: LicenseFeature, request_user: CmdbUser | None =
         feature (LicenseFeature): The feature whose availability is checked
         request_user (CmdbUser | None): The user making the request. Only consulted when resolving
             a tenant-scoped manager in cloud mode; on-premise (the only mode that gates) the license
-            store is install-wide, so this may be None - e.g. when called from a blueprint-level gate
-            that runs before the request user is resolved
+            store is install-wide, so this may be None
 
     Returns:
         bool: True if the current entitlement unlocks the feature
@@ -170,57 +174,70 @@ def gate_blueprint(blueprint: Blueprint, feature: LicenseFeature) -> None:
     """
     Gates EVERY route on a blueprint behind a license feature (on-premise only)
 
-    Registers a `before_request` hook so all current and future routes on the blueprint are blocked
-    with HTTP 403 when the feature is not licensed. Use this to lock a whole feature surface in one
-    place; use `requires_feature` to gate individual routes. CORS preflight `OPTIONS` requests are
-    never gated - aborting them would fail the browser preflight and surface as a CORS error rather
-    than the intended 403. In cloud or local mode the hook is a no-op pass-through. Must be called
-    BEFORE the blueprint is registered on the app (Flask runs a blueprint's deferred setup at
-    registration time)
+    Registers a `before_request` hook so all current and future routes on the blueprint require the
+    feature. The hook only records the feature for the request - it never refuses anything itself:
+    a `before_request` hook runs before any route decorator, so a refusal there would answer a caller
+    who has not authenticated and tell a stranger which features the installation is licensed for.
+    `insert_request_user` enforces the recorded features through `enforce_request_licenses` once the
+    caller is authenticated, so every route on a gated blueprint must carry it. Because the hook never
+    refuses, a CORS preflight `OPTIONS` - which carries no token and never reaches a route decorator -
+    is never gated. Use `requires_feature` to gate individual routes. Must be called BEFORE the
+    blueprint is registered on the app (Flask runs a blueprint's deferred setup at registration time)
 
     Args:
         blueprint (Blueprint): The blueprint whose routes are gated
         feature (LicenseFeature): The feature the blueprint belongs to
     """
-    def enforce_feature() -> None:
-        # Never gate the CORS preflight: the browser sends an unauthenticated OPTIONS before the
-        # real cross-origin request and requires a 2xx on it. Aborting here (403) fails the preflight
-        # so the browser never sends the real request, surfacing as a CORS error in the frontend.
-        # flask-cors answers the preflight itself; the gate belongs on the actual method only.
-        if request.method == 'OPTIONS':
-            return
+    def record_required_feature() -> None:
+        require_feature_for_request(feature)
 
-        # On-premise only: cloud/local keep their own subscription + api-level gating (handled
-        # inside abort_if_feature_locked, which is a no-op in those modes)
-        abort_if_feature_locked(feature)
-
-    blueprint.before_request(enforce_feature)
+    setattr(record_required_feature, GATED_FEATURE_ATTR, feature)
+    blueprint.before_request(record_required_feature)
 
 
-def enforce_rest_api_license() -> None:
+def require_feature_for_request(feature: LicenseFeature) -> None:
     """
-    Blocks HTTP Basic-auth REST calls when the REST_API feature is not licensed (on-premise only)
+    Records that the current request needs a feature, for `enforce_request_licenses` to check
 
-    Registered as an app-level `before_request` on the REST API. On-premise the two auth channels are
-    distinguishable: external automation authenticates per request with `Authorization: Basic
-    <user:pass>` (`parse_authorization_header` mints a token from those credentials on every call),
-    whereas the Angular UI logs in once via `POST /auth/login` (a JSON body, no `Authorization`
-    header) and then sends `Authorization: Bearer <jwt>`. Refusing Basic-auth requests therefore
-    locks the external REST API while leaving the UI - login and every Bearer call - fully
-    functional. The determined caller can still script the login+Bearer flow; this is a deliberate,
-    accepted gap (the mint route stays open so users can always log in).
-
-    CORS preflight `OPTIONS` is never gated. In cloud or local mode the check is a no-op
-    (`abort_if_feature_locked` returns without effect there), leaving the cloud `x-api-key` +
-    api-level gating untouched.
+    Args:
+        feature (LicenseFeature): The feature the requested route belongs to
     """
-    # Never gate the CORS preflight (see gate_blueprint for the rationale)
-    if request.method == 'OPTIONS':
-        return
+    required: list[LicenseFeature] = getattr(g, LICENSE_REQUIRED_FEATURES_ATTR, [])
 
-    auth_header: str | None = request.headers.get('Authorization')
+    if feature not in required:
+        required.append(feature)
 
-    # Case-insensitive match: parse_authorization_header lowercases the scheme before accepting it,
-    # so a lowercase "basic " header still authenticates and must be gated the same way
-    if auth_header and auth_header.lower().startswith(BASIC_AUTH_HEADER_PREFIX.lower()):
-        abort_if_feature_locked(LicenseFeature.REST_API)
+    setattr(g, LICENSE_REQUIRED_FEATURES_ATTR, required)
+
+
+def enforce_request_licenses(request_user: CmdbUser, uses_basic_auth: bool) -> None:
+    """
+    Refuses an authenticated request whose route or channel needs a feature that is not licensed
+
+    Called by `insert_request_user` right after the caller was authenticated, so a caller without
+    valid credentials gets the 401 and never learns the licence state. Two features are checked:
+
+    * REST_API, when the caller authenticated with HTTP Basic. On-premise the two auth channels are
+      distinguishable: external automation sends `Authorization: Basic <user:pass>` on every call,
+      whereas the Angular UI logs in once via `POST /auth/login` and then sends a Bearer JWT. Refusing
+      Basic therefore locks the external REST API while the UI keeps working. The determined caller
+      can still script the login+Bearer flow; this is a deliberate, accepted gap
+    * every feature a gated blueprint recorded for the request (see `gate_blueprint`)
+
+    A no-op in cloud or local mode (`abort_if_feature_locked` returns without effect there)
+
+    Args:
+        request_user (CmdbUser): The authenticated user
+        uses_basic_auth (bool): Whether the caller authenticated with HTTP Basic credentials
+            (`route_utils.request_uses_basic_auth`)
+
+    Raises:
+        HTTPException: 403 naming the first required feature that is not licensed
+    """
+    required: list[LicenseFeature] = list(getattr(g, LICENSE_REQUIRED_FEATURES_ATTR, []))
+
+    if uses_basic_auth:
+        required.insert(0, LicenseFeature.REST_API)
+
+    for feature in required:
+        abort_if_feature_locked(feature, request_user)

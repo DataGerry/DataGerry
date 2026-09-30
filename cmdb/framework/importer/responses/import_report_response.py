@@ -26,13 +26,19 @@ count; a rejected one has to say what was refused and why, and that message is t
 imports do not share: objects report `ImportFailedMessage` (`failed_object`), types
 `TypeImportFailedMessage` (`failed_type`)
 """
-from typing import Any
+from typing import TYPE_CHECKING
 
 from cmdb.framework.importer.importer_constants import (
     IMPORT_NOUN_PLURAL_SUFFIX,
     IMPORT_SUMMARY_MESSAGE,
     ImportNoun,
 )
+
+if TYPE_CHECKING:
+    # For the annotation only: the type import's message lives in the route layer, which this framework
+    # module must not import at runtime
+    from cmdb.framework.importer.messages.import_failed_message import ImportFailedMessage
+    from cmdb.interface.rest_api.routes.importer_routes.importer_type_messages import TypeImportFailedMessage
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def build_import_summary_message(
@@ -74,7 +80,7 @@ class ImportReportResponse:
             self,
             message: str,
             success_imports: int = 0,
-            failed_imports: list | None = None,
+            failed_imports: list['ImportFailedMessage | TypeImportFailedMessage'] | None = None,
         ) -> None:
         """
         Initializes the ImportReportResponse for a bulk import
@@ -82,10 +88,10 @@ class ImportReportResponse:
         Args:
             message (str): A human-readable summary of the import result
             success_imports (int): How many entries were imported. Defaults to 0
-            failed_imports (list | None): The failure messages of the import (ImportFailedMessage for
-                                          objects, TypeImportFailedMessage for types). Defaults to an
-                                          empty list
+            failed_imports (list[ImportFailedMessage | TypeImportFailedMessage] | None): The failure messages
+                of the import - ImportFailedMessage for objects, TypeImportFailedMessage for types. Defaults
+                to an empty list
         """
         self.message: str = message
         self.success_imports: int = success_imports
-        self.failed_imports: list[Any] = failed_imports or []
+        self.failed_imports: list['ImportFailedMessage | TypeImportFailedMessage'] = failed_imports or []

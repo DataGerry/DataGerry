@@ -18,7 +18,8 @@ Project-wide, domain-unspecific Python helpers and definitions
 
 Domain helpers (CmdbObject-document helpers, IPAM CIDR helpers, etc.) live next to their
 domain. This package is the explicit home for cross-feature, language-level utilities such
-as the shared BaseStrEnum, cast helpers and logging configuration
+as the shared BaseStrEnum, the MongoDB stage/operator vocabulary (`Builder`), cast helpers, reading a
+wrapped error's cause chain (`find_cause`) and logging configuration
 
 Everything listed in `__all__` is imported from the package path (`from cmdb.utils import ...`),
 not from the module inside it - with one exception: a module *inside* this package imports its
@@ -27,12 +28,14 @@ are deliberately left out of `__all__`: `boolify` and `numberify` are `auto_cast
 rather than an API of their own, and `cmdb.utils.logger` is process bootstrap that callers import by
 module path.
 
-`cmdb.utils.wraps` used to sit beside it, holding a `@deprecated` decorator that was applied to
+`cmdb.utils.wraps` is deliberately gone. It held a `@deprecated` decorator that was applied to
 nothing in the whole repository - the only `@deprecated` uses were the examples inside its own
-docstring. Removed 2026-09-14
+docstring.
 """
 from .base_str_enum import BaseStrEnum
+from .builder import Builder
 from .cast import auto_cast
+from .error_chain import find_cause
 from .helpers import (
     MONGO_DATE_KEY,
     coerce_datetime,
@@ -56,6 +59,7 @@ from .validation_error import ValidationErrorKey, build_error
 
 __all__: list[str] = [
     'BaseStrEnum',
+    'Builder',
     'MONGO_DATE_KEY',
     'ValidationErrorKey',
     'auto_cast',
@@ -66,6 +70,7 @@ __all__: list[str] = [
     'coerce_mongo_datetime',
     'coerce_whole_number',
     'duplicate_names',
+    'find_cause',
     'is_hex_color',
     'is_non_blank_string',
     'is_truthy_query_arg',

@@ -40,7 +40,7 @@ class GetMultiResponse(BaseAPIResponse):
     API Response for get calls with a collection of resources
     """
     def __init__(self,
-                 results: list[dict],
+                 results: list[dict[str, Any]],
                  total: int,
                  params: CollectionParameters,
                  url: str | None = None,
@@ -49,7 +49,7 @@ class GetMultiResponse(BaseAPIResponse):
         Initializes the GetMultiResponse
 
         Args:
-            results (list[dict]): The elements of the requested page
+            results (list[dict[str, Any]]): The elements of the requested page
             total (int): The complete number of elements matching the request, across all pages
             params (CollectionParameters): The parsed query parameters, consulted for a `?projection=`
                 and reported back in the pager block
@@ -58,7 +58,7 @@ class GetMultiResponse(BaseAPIResponse):
                 None means yes
         """
         self.parameters: CollectionParameters = params
-        self.results: list[dict] = self.apply_projection(results, params.projection)
+        self.results: list[dict[str, Any]] = self.apply_projection(results, params.projection)
 
         self.count: int = len(self.results)
         self.total: int = total

@@ -16,6 +16,7 @@
 """
 Implementation of ImportMessage
 """
+from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class ImportMessage:
@@ -23,11 +24,11 @@ class ImportMessage:
     Simple base wrapper carrying the raw object dict for JSON encoding
     """
 
-    def __init__(self, obj: dict | None = None) -> None:
+    def __init__(self, obj: dict[str, Any] | None = None) -> None:
         """
         Initialises the ImportMessage
 
         Args:
-            obj (dict | None): The object dict this message wraps
+            obj (dict[str, Any] | None): The object dict this message wraps
         """
         self.obj = obj

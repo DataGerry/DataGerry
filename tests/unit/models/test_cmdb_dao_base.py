@@ -100,7 +100,7 @@ class TestConstruction:
         """
         The loop six models still rely on, CmdbSectionTemplate and CmdbReport among them
 
-        Its 'version' branch used to do character for character what setattr does, and is gone.
+        A 'version' branch would do character for character what setattr does.
         """
         thing = _thing(anything='kept', version='2.0.0')
 
@@ -176,7 +176,7 @@ class TestUpdateVersion:
 
     def test_the_new_version_is_stored_on_the_instance_and_returned(self) -> None:
         """
-        It used to only return the string
+        It must not only return the string
 
         The object update writes the return value into the document while the edit log reads
         get_version() off the instance, so the log recorded every edit one bump behind the object it
@@ -203,7 +203,7 @@ class TestUpdateVersion:
 
     def test_an_unknown_bump_constant_is_refused(self) -> None:
         """
-        It used to fall through to a patch bump
+        It must not fall through to a patch bump
 
         So a typo'd or future constant degraded silently - the version still moved, just not the way
         the caller asked.
@@ -224,7 +224,7 @@ class TestUpdateVersion:
     @pytest.mark.parametrize('stored', [None, ''], ids=['none', 'empty'])
     def test_the_emptiness_rule_matches_get_version(self, stored: Any) -> None:
         """
-        '' used to pass this guard and die inside int('')
+        '' must not pass this guard and die inside int('')
 
         The two accessors now agree on what "no version" means.
         """
@@ -236,7 +236,7 @@ class TestUpdateVersion:
     @pytest.mark.parametrize('stored', ['v1', '1.2.x', '1.2.3.4'], ids=['prefixed', 'letter', 'four_parts'])
     def test_an_unreadable_version_surfaces_as_a_domain_error(self, stored: str) -> None:
         """
-        A raw ValueError from int() used to escape the model, past the caller's error mapping
+        A raw ValueError from int() must not escape the model, past the caller's error mapping
 
         The message names the object and the value, which is what an operator needs to fix the
         document.

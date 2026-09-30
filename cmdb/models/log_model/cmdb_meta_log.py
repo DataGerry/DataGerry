@@ -55,13 +55,20 @@ class CmdbMetaLog(CmdbDAO):
         },
     ]
 
-    def __init__(self, public_id: int, log_type, log_time: datetime, action: LogAction, action_name: str):
+    def __init__(
+        self,
+        public_id: int,
+        log_type: str | None,
+        log_time: datetime,
+        action: LogAction,
+        action_name: str,
+    ) -> None:
         """
         Initializes a CmdbMetaLog
 
         Args:
             public_id (int): The unique identifier for the log entry
-            log_type (str): The type/category of the log
+            log_type (str | None): The type/category of the log
             log_time (datetime): The timestamp of when the log event occurred
             action (LogAction): The action taken (e.g., CREATE, UPDATE, DELETE)
             action_name (str): A descriptive name for the action performed

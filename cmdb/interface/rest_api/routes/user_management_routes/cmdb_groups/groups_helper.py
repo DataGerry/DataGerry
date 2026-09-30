@@ -19,7 +19,11 @@ Helper methods shared by the CmdbUserGroup REST routes
 from typing import Any
 from flask import abort
 
-from cmdb.manager import GroupsManager
+from cmdb.manager import GroupsManager, UsersManager
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
+    GROUP_MEMBERS_NEED_ACTION_MSG,
+    GROUP_MOVE_TARGET_IS_SOURCE_MSG,
+)
 from cmdb.models.group_model import (
     CmdbUserGroup,
     GroupDeleteMode,
@@ -34,21 +38,25 @@ def resolve_move_target(
     groups_manager: GroupsManager,
     action: GroupDeleteMode | None,
     target_group_id: int | None,
+    source_group_id: int,
 ) -> CmdbUserGroup | None:
     """
     Validates and resolves the destination group for a MOVE-mode group deletion
 
-    Only meaningful for the ``MOVE`` action: the caller must supply a ``target_group_id`` and that
-    group must exist. For any other action (``DELETE`` or ``None``) there is no target to resolve
+    Only meaningful for the ``MOVE`` action: the caller must supply a ``target_group_id``, that group must
+    exist, and it must not be the group being deleted - moving the members there would leave them holding
+    a group_id that is gone the moment the delete completes. For any other action (``DELETE`` or ``None``)
+    there is no target to resolve
 
     Args:
         groups_manager (GroupsManager): Manager used to look up the target group
         action (GroupDeleteMode | None): The delete mode requested for the source group
         target_group_id (int | None): public_id of the group members should be moved to
+        source_group_id (int): public_id of the group being deleted
 
     Raises:
-        HTTPException: 400 if ``MOVE`` is requested without a ``target_group_id``; 404 if the target
-            group does not exist
+        HTTPException: 400 if ``MOVE`` is requested without a ``target_group_id`` or with the source group
+            as its target; 404 if the target group does not exist
 
     Returns:
         CmdbUserGroup | None: The resolved target group for ``MOVE``, otherwise None
@@ -59,12 +67,42 @@ def resolve_move_target(
     if not target_group_id:
         abort(400, "The target group for moving users was not provided!")
 
+    if target_group_id == source_group_id:
+        abort(400, GROUP_MOVE_TARGET_IS_SOURCE_MSG.format(public_id=source_group_id))
+
     target_group: CmdbUserGroup | None = groups_manager.get_group(target_group_id)
 
     if not target_group:
         abort(404, f"The target UserGroup for moving users with ID:{target_group_id} was not found!")
 
     return target_group
+
+
+def abort_if_members_would_be_stranded(
+    users_manager: UsersManager,
+    group_id: int,
+    action: GroupDeleteMode | None,
+) -> None:
+    """
+    Refuses a UserGroup delete that names no action while the group still has members
+
+    Without an action the delete redistributes nobody, so every member would keep a ``group_id`` that
+    no longer resolves: they would still authenticate and be refused every right. An empty group needs
+    no action - deleting it without one is a legitimate no-op for its (absent) members
+
+    Args:
+        users_manager (UsersManager): Manager used to ask whether the group has members
+        group_id (int): public_id of the UserGroup being deleted
+        action (GroupDeleteMode | None): The delete mode requested for the group's members
+
+    Raises:
+        HTTPException: 400 when no action is given and at least one CmdbUser is a member
+    """
+    if action is not None:
+        return
+
+    if users_manager.has_group_members(group_id):
+        abort(400, GROUP_MEMBERS_NEED_ACTION_MSG.format(public_id=group_id))
 
 
 def ensure_admin_group_keeps_master_right(public_id: int, data: dict[str, Any]) -> None:
@@ -94,7 +132,7 @@ def ensure_admin_group_keeps_master_right(public_id: int, data: dict[str, Any]) 
     if public_id != ADMIN_GROUP_ID:
         return
 
-    submitted_rights: list = data.get(GroupKey.RIGHTS) or []
+    submitted_rights: list[str] = data.get(GroupKey.RIGHTS) or []
 
     if MASTER_RIGHT_NAME not in submitted_rights:
         abort(

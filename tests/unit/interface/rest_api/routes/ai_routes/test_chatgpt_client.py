@@ -22,7 +22,7 @@ constructor and the ``SystemConfigReader`` are patched at the module level so ea
 one-line ``get_client`` is intentionally outside the scope
 
 ``resolve_api_key`` is covered branch by branch because every one of its arms is a way for an
-installation to be unconfigured, and they used to be indistinguishable from a failure: the client
+installation to be unconfigured, and that must be distinguishable from a failure: the client
 raised whatever the reader or the OpenAI SDK raised and the route turned all of it into one 500
 """
 from typing import Any

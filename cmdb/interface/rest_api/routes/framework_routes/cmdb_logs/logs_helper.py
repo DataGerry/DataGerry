@@ -17,11 +17,12 @@
 Helper methods shared by the CmdbLog REST routes
 
 Holds the shared list assembly (`build_object_logs_response`, which every list endpoint routes its own
-query through) and the server-side user resolution behind ``?include_users=true``.
+query through), the existence-split pipeline behind ``/logs/object/exists`` and ``/logs/object/notexists``
+(`build_object_log_existence_query`) and the server-side user resolution behind ``?include_users=true``.
 
 NOTE the caller's ``filter`` collection parameter is NOT merged into the query here - it is parsed by
-the route decorator and then ignored, which is a known gap (discussion-backlog item), not a decision
-this helper makes on purpose.
+the route decorator and then ignored, which is a known gap, not a decision this helper makes on
+purpose.
 """
 from typing import Any, Union
 
@@ -30,20 +31,63 @@ from werkzeug import Response
 
 from cmdb.manager import LogsManager, UsersManager
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.object_model import CmdbObject
+from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
+from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
 from cmdb.interface.rest_api.responses import GetMultiResponse
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants import (
     LogKey,
+    LogQueryOperator,
     LogResultKey,
     INCLUDE_USERS_PARAM,
+    MONGO_ID_KEY,
+    OBJECT_LOOKUP_FIELD,
+    OBJECT_LOOKUP_FIRST_MATCH,
+    OBJECT_LOOKUP_MAX_MATCHES,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+
+def build_object_log_existence_query(object_exists: bool = True) -> list[dict[str, Any]]:
+    """
+    Builds the pipeline selecting the object logs whose object still exists, or no longer exists
+
+    Delete-action logs are left out on both sides. Only the existence of the referenced object
+    matters, so the join caps at one id-only document instead of loading each full object, and the
+    split is read straight off the joined array: element 0 is there exactly when the object is. The
+    joined field is not part of a log, and `CmdbObjectLog.from_data` drops it when the rows are bound
+
+    Args:
+        object_exists (bool): True selects the logs whose object exists, False the ones whose
+            object has been deleted
+
+    Returns:
+        list[dict[str, Any]]: The aggregation pipeline, passed as the criteria of a paged log read
+    """
+    return [
+        Builder.match_({
+            LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE,
+            LogKey.ACTION.value: {LogQueryOperator.NE.value: LogAction.DELETE.value},
+        }),
+        Builder.lookup_(
+            from_collection=CmdbObject.COLLECTION,
+            local_field=LogKey.OBJECT_ID.value,
+            foreign_field=LogKey.PUBLIC_ID.value,
+            as_field=OBJECT_LOOKUP_FIELD,
+            pipeline=[
+                Builder.limit_(OBJECT_LOOKUP_MAX_MATCHES),
+                Builder.project_({MONGO_ID_KEY: 1}),
+            ],
+        ),
+        Builder.match_({OBJECT_LOOKUP_FIRST_MATCH: {LogQueryOperator.EXISTS.value: object_exists}}),
+    ]
 
 
 def _include_users_requested(request: Request) -> bool:
@@ -89,7 +133,7 @@ def build_object_logs_response(logs_manager: LogsManager,
     iterate -> serialize -> GetMultiResponse assembly lives here once. When the request sets
     ``?include_users=true`` the ``results`` payload becomes ``{logs, users}`` - the same paginated
     envelope (total/count/pager) with the referenced users resolved server-side under ``users`` so the
-    frontend no longer fetches each log's user separately. Without the flag the payload stays the plain
+    frontend does not fetch each log's user separately. Without the flag the payload stays the plain
     list of logs (the default, preserved for API clients).
 
     Args:
