@@ -63,7 +63,8 @@ from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.port_connection_model import PortConnectionKey, sort_endpoints
@@ -106,9 +107,11 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     append_criteria_to_filter,
     fetch_only_active_objects,
     request_wants_body,
+    require_created_item,
 )
 
 from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route_constants import (
+    CONNECTION_CREATED_NOT_READABLE_MESSAGE,
     ConnectionParam,
     ConnectionRequestKey,
     ConnectionRight,
@@ -174,8 +177,10 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
     Raises:
         HTTPException: 400 when the body fails the schema, the shape is invalid, an endpoint's slot of
                        this kind is taken, the cable CI is already used, or the body describes its
-                       cable both inline and by reference; 404 when the created connection cannot be
-                       read back; 500 on an unexpected error
+                       cable both inline and by reference - the slot and cable rules by the pre-checks
+                       or, under a concurrent create, by the unique indexes; 500 when the write fails for
+                       any other reason, when the created connection cannot be read back, or on an
+                       unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbPortConnection, with its resolved cable block, and its
@@ -211,17 +216,16 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
 
         new_id: int = port_connections_manager.insert_item(candidate)
 
-        created: dict[str, Any] | None = port_connections_manager.get_item(new_id, as_dict=True)
-
-        if not created:
-            abort(404, 'Could not retrieve the created Port connection from the database!')
+        created: dict[str, Any] = require_created_item(
+            port_connections_manager.get_item(new_id, as_dict=True), CONNECTION_CREATED_NOT_READABLE_MESSAGE,
+        )
 
         return InsertSingleResponse(with_cable_view(created, request_user), new_id).make_response()
     except PortConnectionsManagerInsertError as err:
         # The partial unique indexes are what stop two concurrent creates, and they are the only thing
         # that can: every check above is a read followed by a write
         LOGGER.error("[insert_cmdb_port_connection] PortConnectionsManagerInsertError: %s", err, exc_info=True)
-        duplicate_key_abort(err, connection_type, endpoints)
+        duplicate_key_abort(err, connection_type, endpoints, port_connections_manager)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #
@@ -540,48 +544,55 @@ def update_cmdb_port_connection(public_id: int, data: dict[str, Any], request_us
 
     Raises:
         HTTPException: 400 when the body fails the schema, the payload changes an immutable field, the
-                       cable CI is already used, a cable field is set on an INTERNAL connection, or the
-                       body describes its cable both inline and by reference; 404 when the connection
-                       does not exist; 500 on an unexpected error
+                       cable CI is already used (by the pre-check or, under a concurrent claim, by the
+                       unique index - the same message naming the holder), a cable field is set on an
+                       INTERNAL connection, or the body describes its cable both inline and by reference;
+                       404 when the connection does not exist; 500 when the write fails for any other
+                       reason, or on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbPortConnection, with its resolved cable block
     """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+        ManagerType.PORT_CONNECTIONS, request_user)
+
+    stored: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
+
+    refuse_identity_change(stored, data)
+
+    # The stored type decides which fields are allowed, not the payload's: the type is immutable,
+    # so a body that omits it must be judged by what the connection actually IS
+    connection_type: str = stored.get(PortConnectionKey.CONNECTION_TYPE.value)
+
+    enforce_connection_shape(
+        ManagerProvider.get_manager(ManagerType.PORTS, request_user),
+        objects_manager, types_manager, connection_type,
+        {**data, ConnectionRequestKey.ENDPOINTS.value: stored.get(PortConnectionKey.ENDPOINTS.value)},
+    )
+    enforce_cable_ci_free(
+        port_connections_manager, data.get(ConnectionRequestKey.CABLE_CI_ID.value),
+        exclude_id=public_id,
+    )
+
+    cable_info: dict[str, Any] = build_cable_info(data)
+    cable_info[PortConnectionKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
+
     try:
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
-            ManagerType.PORT_CONNECTIONS, request_user)
-
-        stored: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
-
-        refuse_identity_change(stored, data)
-
-        # The stored type decides which fields are allowed, not the payload's: the type is immutable,
-        # so a body that omits it must be judged by what the connection actually IS
-        connection_type: str = stored.get(PortConnectionKey.CONNECTION_TYPE.value)
-
-        enforce_connection_shape(
-            ManagerProvider.get_manager(ManagerType.PORTS, request_user),
-            objects_manager, types_manager, connection_type,
-            {**data, ConnectionRequestKey.ENDPOINTS.value: stored.get(PortConnectionKey.ENDPOINTS.value)},
-        )
-        enforce_cable_ci_free(
-            port_connections_manager, data.get(ConnectionRequestKey.CABLE_CI_ID.value),
-            exclude_id=public_id,
-        )
-
-        cable_info: dict[str, Any] = build_cable_info(data)
-        cable_info[PortConnectionKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
-
         port_connections_manager.replace_connection(public_id, cable_info)
-
-        updated: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
-
-        return UpdateSingleResponse(with_cable_view(updated, request_user)).make_response()
     except PortConnectionsManagerUpdateError as err:
+        # The partial unique index on cable_ci_id is what stops two concurrent claims of one Cable - the
+        # only index an update can reach, its endpoints being immutable. Its refusal is answered with the
+        # pre-check's own message; any other failure of the write is the server's (500)
         LOGGER.error("[update_cmdb_port_connection] PortConnectionsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f'Failed to update the Port connection with ID: {public_id}!')
+        duplicate_key_abort(
+            err, connection_type, stored.get(PortConnectionKey.ENDPOINTS.value), port_connections_manager,
+        )
+
+    updated: dict[str, Any] = get_connection_or_abort(port_connections_manager, public_id)
+
+    return UpdateSingleResponse(with_cable_view(updated, request_user)).make_response()
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - DELETE                                                      #

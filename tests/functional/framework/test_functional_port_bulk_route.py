@@ -40,19 +40,18 @@ from cmdb.models.extendable_option_model import CmdbExtendableOption, OptionType
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
 from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.manager import ObjectsManager
-from cmdb.manager import ObjectsManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.errors.manager.ports_manager import PortsManagerGetError
+from cmdb.errors.manager.ports_manager import PortsManagerGetError, PortsManagerInsertError
 from cmdb.errors.security import AccessDeniedError
-from cmdb.manager.ports_manager import PortsManager
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.models.port_connection_model import (
     CmdbPortConnection,
     ConnectionType,
     PortConnectionKey,
 )
-from cmdb.framework.port.bulk_create_constants import BulkCreateKey
+from cmdb.framework.port.bulk_create_constants import BulkCreateError, BulkCreateFailureReason, BulkCreateKey
+from cmdb.errors.database import DocumentInsertDuplicateKeyError
 from cmdb.framework.port.name_syntax_constants import PortDeviceKind, PortPreviewKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -548,12 +547,12 @@ def _raiser(error: Exception):
 
 class TestErrorMapping:
     """
-    A database failure is a 400, anything unexpected a 500 - and a failed batch has TWO outcomes
+    A failed batch has THREE outcomes, and only one is the caller's to resolve
 
-    A batch that was rolled back cleanly is a 400: the database is as it was and the caller may fix
-    their request and retry. A batch whose rollback could not finish is a 500 naming every id, because
-    the caller cannot fix that by editing anything and somebody has to go and remove them. Conflating
-    the two is exactly what §37 forbids.
+    A batch that lost a race for a name and was rolled back cleanly is a 400: the database is as it was
+    and the caller may open the preview again and retry. A write that simply failed is a 500, rolled back
+    or not - nothing about the request was wrong. A batch whose rollback could not finish is a 500 naming
+    every id, because somebody has to go and remove them. Conflating them is exactly what §37 forbids.
     """
 
     def test_a_denied_owner_is_403(self, rest_api, monkeypatch) -> None:
@@ -576,19 +575,39 @@ class TestErrorMapping:
 
         assert _bulk(rest_api).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_a_batch_rolled_back_cleanly_is_400(self, rest_api, monkeypatch, ports) -> None:
+    def test_a_lost_race_rolled_back_cleanly_is_400(self, rest_api, monkeypatch, ports) -> None:
         """
-        The database is as it was, so the caller may fix their request and retry
+        A concurrent write took a previewed name: the database is as it was and the caller can retry
 
-        The insert is broken AFTER the collision pre-check has passed, which is the only way to reach a
-        mid-batch failure through the route.
+        The insert is refused AFTER the collision pre-check has passed, the way a real race lands, and
+        the refusal is the typed duplicate the database layer raises, wrapped by the manager
         """
-        monkeypatch.setattr(PortsManager, 'insert_item', _raiser(RuntimeError('write failed')))
+        refusal = DocumentInsertDuplicateKeyError('duplicate', key_pattern={PortKey.NAME.value: 1})
+        failure = PortsManagerInsertError(refusal)
+        failure.__cause__ = refusal
+        monkeypatch.setattr(PortsManager, 'insert_item', _raiser(failure))
 
         response = _bulk(rest_api, count=3)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert 'removed again' in response.get_json()['message']
+        assert response.get_json()['message'] == BulkCreateError.ROLLED_BACK.format(
+            created=0, reason=BulkCreateFailureReason.NAME_TAKEN.value,
+        )
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
+
+    def test_a_failed_write_rolled_back_cleanly_is_500(self, rest_api, monkeypatch, ports) -> None:
+        """
+        Nothing about the request was wrong, so it is not the caller's to fix - and the database's own
+        text is not what the user reads
+        """
+        monkeypatch.setattr(PortsManager, 'insert_item', _raiser(RuntimeError("E11000 in 'framework.ports'")))
+
+        response = _bulk(rest_api, count=3)
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == BulkCreateError.ROLLED_BACK.format(
+            created=0, reason=BulkCreateFailureReason.WRITE_FAILED.value,
+        )
         assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
 
     def test_a_batch_whose_rollback_failed_is_500_naming_the_residue(

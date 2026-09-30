@@ -38,6 +38,7 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerDeleteError,
     UsersManagerIterationError,
 )
+from cmdb.interface.rest_api.routes.user_management_routes.users_constants import USER_CREATED_NOT_READABLE_MESSAGE
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/users'
@@ -176,18 +177,25 @@ class TestDeleteGuards:
 class TestErrorMapping:
     """The routes map manager failures to the documented HTTP statuses."""
 
-    def test_insert_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A UsersManagerInsertError on create surfaces as 400."""
+    def test_an_insert_error_that_is_no_duplicate_returns_500(self, rest_api, monkeypatch) -> None:
+        """
+        A UsersManagerInsertError alone is no taken name: only a typed refusal in its chain is
+
+        It used to be the generic "Failed to create the User in database!" 400 a duplicate name answered too.
+        """
         monkeypatch.setattr(UsersManager, 'insert_user', _raiser(UsersManagerInsertError('boom')))
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_payload()).status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.post(f'{ROUTE_URL}/', json=_payload()).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created user cannot be re-read, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """The insert worked but the read-back found nothing: the server lost its own write, not a 404."""
         monkeypatch.setattr(UsersManager, 'insert_user', lambda *_a, **_k: USER_ID)
         _patch_target_get_user(monkeypatch, USER_ID, result=None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_payload()).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_payload())
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == USER_CREATED_NOT_READABLE_MESSAGE
 
     def test_insert_get_error_returns_500(self, rest_api, monkeypatch) -> None:
         """A UsersManagerGetError re-reading the created user surfaces as 500."""
@@ -226,14 +234,15 @@ class TestErrorMapping:
 
         assert rest_api.get(f'{ROUTE_URL}/{USER_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_update_error_returns_400(
+    def test_an_update_error_that_is_no_duplicate_returns_500(
         self, rest_api, monkeypatch, database_manager: MongoDatabaseManager, database_name: str
     ) -> None:
-        """A UsersManagerUpdateError (user present) surfaces as 400."""
+        """A UsersManagerUpdateError (user present) alone says nothing about the request - a 500, not the old 400."""
         _seed(database_manager, database_name, USER_ID)
         monkeypatch.setattr(UsersManager, 'update_user', _raiser(UsersManagerUpdateError('boom')))
 
-        assert rest_api.put(f'{ROUTE_URL}/{USER_ID}', json=_update_payload()).status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.put(f'{ROUTE_URL}/{USER_ID}', json=_update_payload()).status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_update_missing_returns_404(self, rest_api) -> None:
         """A PUT on a missing user returns 404."""

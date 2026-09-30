@@ -47,7 +47,7 @@ from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.json_codec import object_hook
-from cmdb.manager.query_builder import Builder
+from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
 

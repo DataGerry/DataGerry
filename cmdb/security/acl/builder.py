@@ -40,6 +40,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.utils import Builder
 
 if TYPE_CHECKING:
     # Imported for type checking only; importing the model at runtime would pull the manager package
@@ -211,11 +212,6 @@ def build_acl_stages(denied_type_ids: list[int]) -> list[dict[str, Any]]:
     """
     if not denied_type_ids:
         return []
-
-    # Imported lazily for the same reason as in resolve_denied_type_ids: the manager package imports
-    # this module through the query builders
-    # pylint: disable=import-outside-toplevel
-    from cmdb.manager.query_builder.builder import Builder
 
     return [Builder.match_(build_denied_types_condition(denied_type_ids))]
 

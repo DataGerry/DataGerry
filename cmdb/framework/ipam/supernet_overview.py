@@ -31,7 +31,7 @@ from typing import Any
 from flask import abort
 
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import (
     SupernetField,

@@ -16,7 +16,7 @@
 """
 Tripwire: an aggregation stage is built with its `Builder` constructor, never as a hand-written dict
 
-`cmdb.manager.query_builder.builder.Builder` is the one place a stage's shape is written down. A
+`cmdb.utils.Builder` is the one place a stage's shape is written down. A
 hand-written `{'$lookup': {...}}` works until it drifts from the constructor's shape - the argument order
 of a `$lookup` and the options default of a `$regex` are where that has happened. This scan fails on a
 single-key dict whose key is a stage that HAS a constructor, standing where a pipeline stage stands:
@@ -45,7 +45,7 @@ import pytest
 
 REPO_ROOT: Path = Path(__file__).resolve().parents[2]
 SCANNED_GLOB: str = 'cmdb/**/*.py'
-BUILDER_MODULE: str = 'cmdb/manager/query_builder/builder.py'
+BUILDER_MODULE: str = 'cmdb/utils/builder.py'
 UPDATER_PACKAGE: str = 'cmdb/database/updater/versions/'
 
 # The stage names Builder has a constructor for, and the constructor to use instead

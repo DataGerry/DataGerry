@@ -99,6 +99,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
     load_port_option_labels,
 )
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_CREATED_NOT_READABLE_MESSAGE,
     PORT_NAME_TAKEN_MESSAGE,
     PortRequestKey,
     PortRight,
@@ -118,7 +119,12 @@ from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     get_requested_side_or_abort,
     refuse_owner_change,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_if_duplicate,
+    pin_public_id,
+    request_wants_body,
+    require_created_item,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -146,9 +152,11 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 400 when the owner's Type does not use ports, the name is taken, or a value is
+        HTTPException: 400 when the owner's Type does not use ports, the name is taken - by the
+                       pre-check or, under a concurrent create, by the unique index - or a value is
                        invalid; 403 when the owner's ACL denies it; 404 when the owner does not exist;
-                       500 on an unexpected error
+                       500 when the write fails for any other reason (an outage is never reported as a
+                       taken name), when the created Port cannot be read back, or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbPort and its public_id
@@ -184,27 +192,23 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
         candidate[PortKey.CREATION_TIME.value] = datetime.now(timezone.utc)
         candidate[PortKey.LAST_EDIT_TIME.value] = None
 
-        new_id: int = ports_manager.insert_item(candidate)
+        try:
+            new_id: int = ports_manager.insert_item(candidate)
+        except PortsManagerInsertError as err:
+            # The unique (object_id, side, name) index is what stops two concurrent creates, and it is
+            # the only thing that can: the pre-check above is a read followed by a write. A duplicate is
+            # answered with the pre-check's own message; any other failure is the server's (500)
+            LOGGER.error("[insert_cmdb_port] PortsManagerInsertError: %s", err, exc_info=True)
+            abort_if_duplicate(err, PORT_NAME_TAKEN_MESSAGE.format(name=name, side=side, object_id=object_id))
 
-        created_port: dict[str, Any] | None = ports_manager.get_item(new_id, as_dict=True)
-
-        if not created_port:
-            abort(404, 'Could not retrieve the created Port from the database!')
+        created_port: dict[str, Any] = require_created_item(
+            ports_manager.get_item(new_id, as_dict=True), PORT_CREATED_NOT_READABLE_MESSAGE,
+        )
 
         return InsertSingleResponse(created_port, new_id).make_response()
     except AccessDeniedError as err:
         LOGGER.error("[insert_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerInsertError as err:
-        # The unique (object_id, side, name) index is what stops two concurrent creates, and it is the
-        # only thing that can: the pre-check above is a read followed by a write. Reported as the same
-        # readable 400 rather than as a database error
-        LOGGER.error("[insert_cmdb_port] PortsManagerInsertError: %s", err, exc_info=True)
-        abort(400, PORT_NAME_TAKEN_MESSAGE.format(
-            name=payload.get(PortRequestKey.NAME.value),
-            side=payload.get(PortRequestKey.SIDE.value),
-            object_id=payload.get(PortRequestKey.OBJECT_ID.value),
-        ))
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #
@@ -593,9 +597,10 @@ def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 400 when the payload changes an immutable field, the name is taken, or a value
-                       is invalid; 403 when the owner's ACL denies it; 404 when the port or its owner
-                       does not exist; 500 on an unexpected error
+        HTTPException: 400 when the payload changes an immutable field, the name is taken - by the
+                       pre-check or, under a concurrent rename, by the unique index - or a value is
+                       invalid; 403 when the owner's ACL denies it; 404 when the port or its owner does
+                       not exist; 500 when the write fails for any other reason, or on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbPort
@@ -629,15 +634,18 @@ def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         candidate[PortKey.CREATION_TIME.value] = stored_port.get(PortKey.CREATION_TIME.value)
         candidate[PortKey.LAST_EDIT_TIME.value] = datetime.now(timezone.utc)
 
-        ports_manager.update_item(public_id, candidate)
+        try:
+            ports_manager.update_item(public_id, candidate)
+        except PortsManagerUpdateError as err:
+            # A rename that loses the race to a concurrent write is refused by the same unique index, and
+            # answered with the same message the pre-check gives; any other failure is the server's (500)
+            LOGGER.error("[update_cmdb_port] PortsManagerUpdateError: %s", err, exc_info=True)
+            abort_if_duplicate(err, PORT_NAME_TAKEN_MESSAGE.format(name=name, side=side, object_id=object_id))
 
         return UpdateSingleResponse(candidate).make_response()
     except AccessDeniedError as err:
         LOGGER.error("[update_cmdb_port] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortsManagerUpdateError as err:
-        LOGGER.error("[update_cmdb_port] PortsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f'Failed to update the Port with ID: {public_id}!')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   CRUD - DELETE                                                      #

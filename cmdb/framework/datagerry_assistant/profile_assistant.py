@@ -162,7 +162,7 @@ class ProfileAssistant:
 
         except Exception as err:
             LOGGER.debug("[create_profiles] Error: %s", err)
-            raise ProfileCreationError(str(err)) from err
+            raise ProfileCreationError(err) from err
 
         created_ids: list[int] = [type_id for type_id in created_type_ids.values() if type_id]
 

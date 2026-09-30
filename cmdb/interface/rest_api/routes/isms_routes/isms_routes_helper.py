@@ -24,6 +24,7 @@ from flask import abort
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.interface.rest_api.routes import routes_helper
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     BULK_ITEM_INVALID_ID_MSG,
     BULK_ITEM_MISSING_ID_MSG,
@@ -34,6 +35,8 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_BULK_DELETE_DELETED_KEY,
     ISMS_CAP_REACHED_MSG,
     ISMS_BULK_DELETE_IN_USE_KEY,
+    IsmsEntityLabel,
+    IsmsManagerErrorMessage,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -70,6 +73,82 @@ def get_item_or_404(
         abort(404, not_found_message)
 
     return item
+
+
+class _KeepUnfilledPlaceholders(dict):
+    """A format mapping that answers an unknown placeholder with the placeholder itself"""
+
+    def __missing__(self, key: str) -> str:
+        """
+        Keeps a placeholder this mapping does not fill, for a later formatting pass
+
+        Args:
+            key (str): The placeholder's name
+
+        Returns:
+            str: The placeholder as written, ``{key}``
+        """
+        return f'{{{key}}}'
+
+
+def manager_error_message(label: IsmsEntityLabel, template: IsmsManagerErrorMessage) -> str:
+    """
+    Fills an ISMS manager-error template with an entity's labels
+
+    Only ``{entity}`` and ``{entities}`` are filled. Every other placeholder - ``{public_id}`` - stays in
+    the result, for ``handle_manager_errors`` to fill from the route's argument
+
+    Args:
+        label (IsmsEntityLabel): The entity the route serves
+        template (IsmsManagerErrorMessage): The operation's message template
+
+    Returns:
+        str: The template with the entity's labels filled in
+    """
+    return template.value.format_map(
+        _KeepUnfilledPlaceholders(entity=label.singular, entities=label.plural)
+    )
+
+
+def manager_error_messages(
+        label: IsmsEntityLabel,
+        templates: dict[type[Exception], IsmsManagerErrorMessage]) -> dict[type[Exception], str]:
+    """
+    Builds a route's ``handle_manager_errors`` table from its entity and one template per error class
+
+    Args:
+        label (IsmsEntityLabel): The entity the route serves
+        templates (dict[type[Exception], IsmsManagerErrorMessage]): Error class -> operation template
+
+    Returns:
+        dict[type[Exception], str]: Error class -> message, ``{public_id}`` still unfilled
+    """
+    return {
+        error_class: manager_error_message(label, template)
+        for error_class, template in templates.items()
+    }
+
+
+def require_created_item(item: dict[str, Any] | None, label: IsmsEntityLabel) -> dict[str, Any]:
+    """
+    Answers the item an ISMS insert route just created, refusing with a 500 when it cannot be read back
+
+    ``routes_helper.require_created_item`` with the entity's own message
+    (``IsmsManagerErrorMessage.GET_CREATED``)
+
+    Args:
+        item (dict[str, Any] | None): The read-back of the created item
+        label (IsmsEntityLabel): The entity the route serves
+
+    Raises:
+        werkzeug.exceptions.InternalServerError: Aborts with 500 when the item was not found
+
+    Returns:
+        dict[str, Any]: The created item
+    """
+    return routes_helper.require_created_item(
+        item, manager_error_message(label, IsmsManagerErrorMessage.GET_CREATED),
+    )
 
 
 def abort_if_isms_cap_reached(manager: GenericManager, cap: int, entity_label: str) -> None:

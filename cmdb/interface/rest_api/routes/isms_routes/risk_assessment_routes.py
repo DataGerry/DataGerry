@@ -44,10 +44,21 @@ from cmdb.models.isms_model.isms_risk_constants import RiskKey
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    handle_manager_errors,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     get_item_or_404,
     guard_required_risk_assessment_fields,
+    manager_error_messages,
+    require_created_item,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    RISK_ASSESSMENT_LABEL,
+    IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -161,6 +172,10 @@ def build_ra_naming(
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.add')
 @risk_assessment_blueprint.validate(build_write_schema(IsmsRiskAssessment.SCHEMA))
 @handle_route_errors("while creating the RiskAssessment")
+@handle_manager_errors(manager_error_messages(RISK_ASSESSMENT_LABEL, {
+    RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
+    RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+}))
 def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskAssessment into the database
@@ -174,54 +189,48 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
 
     Raises:
         HTTPException: 400 when a required field is missing (every missing field is named), when an
-            unknown ControlMeasure is referenced or when the insert fails
+            unknown ControlMeasure is referenced or when the insert or the read-back of the created
+            RiskAssessment fails; 500 when the created RiskAssessment cannot be found afterwards or on an
+            unexpected error
 
     Returns:
         InsertSingleResponse: The new IsmsRiskAssessment and its public_id
     """
-    try:
-        risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
-                                                                            ManagerType.RISK_ASSESSMENT,
-                                                                            request_user
-                                                                         )
-        cm_assignment_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
-                                                                            ManagerType.CONTROL_MEASURE_ASSIGNMENT,
-                                                                            request_user
-                                                                       )
-        # Refuse an incomplete assessment before anything is written
-        guard_required_risk_assessment_fields(data)
+    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+                                                                        ManagerType.RISK_ASSESSMENT,
+                                                                        request_user
+                                                                     )
+    cm_assignment_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
+                                                                        ManagerType.CONTROL_MEASURE_ASSIGNMENT,
+                                                                        request_user
+                                                                   )
+    # Refuse an incomplete assessment before anything is written
+    guard_required_risk_assessment_fields(data)
 
-        _coerce_costs_for_implementation(data)
+    _coerce_costs_for_implementation(data)
 
-        cm_assignments = data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, []) or []
+    cm_assignments = data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, []) or []
 
-        # Reject unknown ControlMeasure references before writing anything (no orphaned RiskAssessment)
-        missing_control_measures = cm_assignment_manager.get_missing_control_measure_ids(cm_assignments)
-        if missing_control_measures:
-            abort(400, f"Unknown ControlMeasure(s) referenced: {sorted(missing_control_measures)}!")
+    # Reject unknown ControlMeasure references before writing anything (no orphaned RiskAssessment)
+    missing_control_measures = cm_assignment_manager.get_missing_control_measure_ids(cm_assignments)
+    if missing_control_measures:
+        abort(400, f"Unknown ControlMeasure(s) referenced: {sorted(missing_control_measures)}!")
 
-        # Derive maximum_impact / likelihood_value server-side (client-supplied values are not trusted)
-        risk_assessment_manager.recalculate_risk_values(data)
+    # Derive maximum_impact / likelihood_value server-side (client-supplied values are not trusted)
+    risk_assessment_manager.recalculate_risk_values(data)
 
-        result_id: int = risk_assessment_manager.insert_item(data)
+    result_id: int = risk_assessment_manager.insert_item(data)
 
-        # Create all provided ControlMeasureAssignments (each linked to this RiskAssessment)
-        for cma in cm_assignments:
-            cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = result_id
-            cm_assignment_manager.insert_item(cma)
+    # Create all provided ControlMeasureAssignments (each linked to this RiskAssessment)
+    for cma in cm_assignments:
+        cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = result_id
+        cm_assignment_manager.insert_item(cma)
 
-        created_risk_assessment = risk_assessment_manager.get_item(result_id, as_dict=True)
+    created_risk_assessment: dict[str, Any] = require_created_item(
+        risk_assessment_manager.get_item(result_id, as_dict=True), RISK_ASSESSMENT_LABEL,
+    )
 
-        if not created_risk_assessment:
-            abort(404, "Could not retrieve the created RiskAssessment from the database!")
-
-        return InsertSingleResponse(created_risk_assessment, result_id).make_response()
-    except RiskAssessmentManagerInsertError as err:
-        LOGGER.error("[insert_isms_risk_assessment] RiskAssessmentManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Failed to insert the new RiskAssessment in the database!")
-    except RiskAssessmentManagerGetError as err:
-        LOGGER.error("[insert_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created RiskAssessment from the database!")
+    return InsertSingleResponse(created_risk_assessment, result_id).make_response()
 
 
 # The DOCUMENT schema, deliberately: on this route the body's `public_id` is not the identity of
@@ -233,6 +242,9 @@ def insert_isms_risk_assessment(data: dict[str, Any], request_user: CmdbUser) ->
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.add')
 @risk_assessment_blueprint.validate(IsmsRiskAssessment.SCHEMA)
 @handle_route_errors("while duplicating the RiskAssessment")
+@handle_manager_errors(manager_error_messages(RISK_ASSESSMENT_LABEL, {
+    RiskAssessmentManagerInsertError: IsmsManagerErrorMessage.INSERT_DUPLICATE,
+}))
 def duplicate_isms_risk_assessment(
     data: dict[str, Any],
     request_user: CmdbUser,
@@ -263,85 +275,81 @@ def duplicate_isms_risk_assessment(
     """
     # Duplicating across three modes with optional CMA copying spans several branches / locals
     # pylint: disable=too-many-locals
-    try:
-        duplicate_modes = ('object','risk', 'object_group')
+    duplicate_modes = ('object','risk', 'object_group')
 
-        if duplicate_mode not in duplicate_modes:
-            abort(400, f"Invalid duplication target: {duplicate_mode}. Allowed: {', '.join(duplicate_modes)}!")
+    if duplicate_mode not in duplicate_modes:
+        abort(400, f"Invalid duplication target: {duplicate_mode}. Allowed: {', '.join(duplicate_modes)}!")
 
-        copy_cma = request.args.get('copy_cma', 'true').lower() == 'true'
+    copy_cma = request.args.get('copy_cma', 'true').lower() == 'true'
 
-        # The source payload becomes every duplicate, so it has to satisfy the same required fields
-        guard_required_risk_assessment_fields(data)
+    # The source payload becomes every duplicate, so it has to satisfy the same required fields
+    guard_required_risk_assessment_fields(data)
 
-        # The assignments are copied from the SOURCE assessment's own collection below, so the copy
-        # travelling in the payload is redundant - and storing it would put a key outside
-        # RiskAssessmentKey into the document, where every response built through the model would hide
-        # it while it still occupied the assessment
-        data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, None)
+    # The assignments are copied from the SOURCE assessment's own collection below, so the copy
+    # travelling in the payload is redundant - and storing it would put a key outside
+    # RiskAssessmentKey into the document, where every response built through the model would hide
+    # it while it still occupied the assessment
+    data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, None)
 
-        # Extract the public_id
-        initial_risk_assessment_id = data.pop(RiskAssessmentKey.PUBLIC_ID.value, None)
+    # Extract the public_id
+    initial_risk_assessment_id = data.pop(RiskAssessmentKey.PUBLIC_ID.value, None)
 
-        if not initial_risk_assessment_id:
-            abort(400, "Missing 'public_id' of the source RiskAssessment in request body!")
+    if not initial_risk_assessment_id:
+        abort(400, "Missing 'public_id' of the source RiskAssessment in request body!")
 
-        target_ids = [int(pid.strip()) for pid in public_ids.split(',') if pid.strip().isdigit()]
+    target_ids = [int(pid.strip()) for pid in public_ids.split(',') if pid.strip().isdigit()]
 
-        if not target_ids:
-            abort(400, "No valid public_ids were provided for duplication.")
+    if not target_ids:
+        abort(400, "No valid public_ids were provided for duplication.")
 
-        # The duplicate mode depends only on the source payload, not the targets, so validate it once
-        source_ref_type = data.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value)
-        if duplicate_mode == "object" and source_ref_type != ObjectReferenceType.OBJECT:
-            abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
-        if duplicate_mode == "object_group" and source_ref_type != ObjectReferenceType.OBJECT_GROUP:
-            abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
+    # The duplicate mode depends only on the source payload, not the targets, so validate it once
+    source_ref_type = data.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value)
+    if duplicate_mode == "object" and source_ref_type != ObjectReferenceType.OBJECT:
+        abort(400, "object_id_ref_type must be 'OBJECT' to duplicate in object mode.")
+    if duplicate_mode == "object_group" and source_ref_type != ObjectReferenceType.OBJECT_GROUP:
+        abort(400, "object_id_ref_type must be 'OBJECT_GROUP' to duplicate in object_group mode.")
 
-        risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
-            ManagerType.RISK_ASSESSMENT, request_user
+    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+        ManagerType.RISK_ASSESSMENT, request_user
+    )
+
+    # Fetch the source assignments and the assignment manager once, not per duplicated target
+    if copy_cma:
+        original_assignments = risk_assessment_manager.get_many_from_other_collection(
+                                                            IsmsControlMeasureAssignment.COLLECTION,
+                                                            risk_assessment_id=initial_risk_assessment_id
+                                                        )
+        cma_manager: ControlMeasureAssignmentManager | None = ManagerProvider.get_manager(
+            ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
         )
+    else:
+        original_assignments = []
+        cma_manager = None
 
-        # Fetch the source assignments and the assignment manager once, not per duplicated target
-        if copy_cma:
-            original_assignments = risk_assessment_manager.get_many_from_other_collection(
-                                                                IsmsControlMeasureAssignment.COLLECTION,
-                                                                risk_assessment_id=initial_risk_assessment_id
-                                                            )
-            cma_manager: ControlMeasureAssignmentManager | None = ManagerProvider.get_manager(
-                ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
-            )
-        else:
-            original_assignments = []
-            cma_manager = None
+    # 'risk' mode retargets the risk_id; 'object'/'object_group' modes retarget the object_id
+    target_field = 'risk_id' if duplicate_mode == "risk" else 'object_id'
 
-        # 'risk' mode retargets the risk_id; 'object'/'object_group' modes retarget the object_id
-        target_field = 'risk_id' if duplicate_mode == "risk" else 'object_id'
+    created_risk_assessment_ids = []
 
-        created_risk_assessment_ids = []
+    for target_id in target_ids:
+        new_data = data.copy()
+        new_data[target_field] = target_id
 
-        for target_id in target_ids:
-            new_data = data.copy()
-            new_data[target_field] = target_id
+        new_risk_assessment_id = risk_assessment_manager.insert_item(new_data)
+        created_risk_assessment_ids.append(new_risk_assessment_id)
 
-            new_risk_assessment_id = risk_assessment_manager.insert_item(new_data)
-            created_risk_assessment_ids.append(new_risk_assessment_id)
+        # Copy the source assignments onto the new RiskAssessment in a single batched insert
+        if original_assignments:
+            new_assignments = []
+            for assignment in original_assignments:
+                new_assignment = assignment.copy()
+                new_assignment.pop(ControlMeasureAssignmentKey.PUBLIC_ID.value, None)
+                new_assignment[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = new_risk_assessment_id
+                new_assignments.append(new_assignment)
 
-            # Copy the source assignments onto the new RiskAssessment in a single batched insert
-            if original_assignments:
-                new_assignments = []
-                for assignment in original_assignments:
-                    new_assignment = assignment.copy()
-                    new_assignment.pop(ControlMeasureAssignmentKey.PUBLIC_ID.value, None)
-                    new_assignment[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = new_risk_assessment_id
-                    new_assignments.append(new_assignment)
+            cma_manager.insert_many_items(new_assignments)
 
-                cma_manager.insert_many_items(new_assignments)
-
-        return DefaultResponse(created_risk_assessment_ids).make_response()
-    except RiskAssessmentManagerInsertError as err:
-        LOGGER.error("[duplicate_isms_risk_assessment] RiskAssessmentManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Failed to insert the duplicated RiskAssessment in the database!")
+    return DefaultResponse(created_risk_assessment_ids).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -350,6 +358,10 @@ def duplicate_isms_risk_assessment(
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.view')
 @risk_assessment_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving RiskAssessments")
+@handle_manager_errors(manager_error_messages(RISK_ASSESSMENT_LABEL, {
+    RiskAssessmentManagerIterationError: IsmsManagerErrorMessage.ITERATE,
+}))
 def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRiskAssessments
@@ -364,149 +376,142 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
     # This route expands the object-group membership filter and joins six collections to enrich the
     # response, so the branch / local / statement counts legitimately exceed the defaults
     # pylint: disable=too-many-locals,too-many-branches,too-many-statements
-    try:
-        body: bool = request_wants_body()
+    body: bool = request_wants_body()
 
-        risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
-            ManagerType.RISK_ASSESSMENT,
-            request_user
-        )
-        object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
-            ManagerType.OBJECT_GROUP,
-            request_user
-        )
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(
-                                                            ManagerType.OBJECTS,
-                                                            request_user
-                                                          )
-        risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
-        persons_manager: PersonsManager = ManagerProvider.get_manager(
-            ManagerType.PERSON, request_user
-        )
-        person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(
-            ManagerType.PERSON_GROUP,
-            request_user
-        )
+    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+        ManagerType.RISK_ASSESSMENT,
+        request_user
+    )
+    object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(
+        ManagerType.OBJECT_GROUP,
+        request_user
+    )
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(
+                                                        ManagerType.OBJECTS,
+                                                        request_user
+                                                      )
+    risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
+    persons_manager: PersonsManager = ManagerProvider.get_manager(
+        ManagerType.PERSON, request_user
+    )
+    person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(
+        ManagerType.PERSON_GROUP,
+        request_user
+    )
 
-        # Add RiskAssessments from ObjectGroups
-        # # STEP 1: Extract object_id from the fixed filter
-        original_filter = params.filter or {}
-        clauses = original_filter.get('$and', [])
-        object_id = None
-        ref_type = None
+    # Add RiskAssessments from ObjectGroups
+    # # STEP 1: Extract object_id from the fixed filter
+    original_filter = params.filter or {}
+    clauses = original_filter.get('$and', [])
+    object_id = None
+    ref_type = None
 
-        for clause in clauses:
-            if 'object_id' in clause:
-                object_id = clause[RiskAssessmentKey.OBJECT_ID.value]
+    for clause in clauses:
+        if 'object_id' in clause:
+            object_id = clause[RiskAssessmentKey.OBJECT_ID.value]
 
-            if 'object_id_ref_type' in clause:
-                ref_type = clause[RiskAssessmentKey.OBJECT_ID_REF_TYPE.value]
+        if 'object_id_ref_type' in clause:
+            ref_type = clause[RiskAssessmentKey.OBJECT_ID_REF_TYPE.value]
 
-        # STEP 2: Enhance the filter if object_id was found
-        if object_id is not None and ref_type == ObjectReferenceType.OBJECT:
-            target_object = objects_manager.get_object(object_id)
+    # STEP 2: Enhance the filter if object_id was found
+    if object_id is not None and ref_type == ObjectReferenceType.OBJECT:
+        target_object = objects_manager.get_object(object_id)
 
-            if target_object is not None:
-                type_id = target_object['type_id']
+        if target_object is not None:
+            type_id = target_object['type_id']
 
-                # Every group the object belongs to: the STATIC ones listing the object itself and the
-                # DYNAMIC ones listing its type. The manager owns that pairing - it is the same
-                # mode/assigned_ids knowledge its cleanup query uses - and answers both in one query
-                all_group_ids: list[int] = object_groups_manager.find_group_ids_containing(
-                    object_id, type_id,
-                )
-
-                # STEP 3: Build enhanced filter
-                params.filter = {
-                    '$or': [
-                        {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ref_type},
-                                  {RiskAssessmentKey.OBJECT_ID.value: object_id}]},
-                        {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT_GROUP},
-                                  {RiskAssessmentKey.OBJECT_ID.value: {'$in': all_group_ids}}]}
-                    ]
-                }
-
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
-        iteration_result: IterationResult[IsmsRiskAssessment] = risk_assessment_manager.iterate_items(builder_params)
-        risk_assessments = iteration_result.results
-
-        # Prepare bulk fetch mappings
-        risk_ids = set()
-        object_group_ids = set()
-        object_ids = set()
-        person_ids = set()
-        responsible_person_ids = set()
-        responsible_person_group_ids = set()
-
-        for ra in risk_assessments:
-            if ra.risk_id:
-                risk_ids.add(ra.risk_id)
-            if ra.object_id_ref_type == ObjectReferenceType.OBJECT_GROUP:
-                object_group_ids.add(ra.object_id)
-            if ra.object_id_ref_type == ObjectReferenceType.OBJECT:
-                object_ids.add(ra.object_id)
-            if isinstance(ra.interviewed_persons, list) and len(ra.interviewed_persons) > 0:
-                person_ids.update(ra.interviewed_persons)
-            if ra.responsible_persons_id:
-                if ra.responsible_persons_id_ref_type == PersonReferenceType.PERSON:
-                    responsible_person_ids.add(ra.responsible_persons_id)
-                elif ra.responsible_persons_id_ref_type == PersonReferenceType.PERSON_GROUP:
-                    responsible_person_group_ids.add(ra.responsible_persons_id)
-
-        # Bulk fetch metadata
-        risks = {
-            r[RiskKey.PUBLIC_ID.value]: r[RiskKey.NAME.value] for r in
-            risk_manager.find_all(criteria={RiskKey.PUBLIC_ID.value: {'$in': list(risk_ids)}})
-        }
-        object_groups = {
-            g['public_id']: g['name'] for g in
-            object_groups_manager.find_all(criteria={'public_id': {'$in': list(object_group_ids)}})
-        }
-        persons = {}
-        if person_ids:
-            persons = {
-                p['public_id']: p['display_name'] for p in
-                persons_manager.find_all(criteria={'public_id': {'$in': list(person_ids)}})
-            }
-
-        responsible_persons = {}
-        if responsible_person_ids:
-            responsible_persons = {
-                p['public_id']: p['display_name'] for p in
-                persons_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_ids)}})
-            }
-        responsible_person_groups = {}
-        if responsible_person_group_ids:
-            responsible_person_groups = {
-                g['public_id']: g['name'] for g in
-                person_groups_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_group_ids)}})
-            }
-
-        # Resolve the referenced objects' summary lines in a single batch instead of one per assessment
-        object_summaries = objects_manager.get_summary_lines_lookup(list(object_ids)) if object_ids else {}
-
-        # Add naming info
-        risk_assessments_list = []
-        for ra in risk_assessments:
-            ra_json = IsmsRiskAssessment.to_json(ra)
-            ra_json['naming'] = build_ra_naming(
-                ra, risks, object_groups, object_summaries, persons, responsible_persons, responsible_person_groups
+            # Every group the object belongs to: the STATIC ones listing the object itself and the
+            # DYNAMIC ones listing its type. The manager owns that pairing - it is the same
+            # mode/assigned_ids knowledge its cleanup query uses - and answers both in one query
+            all_group_ids: list[int] = object_groups_manager.find_group_ids_containing(
+                object_id, type_id,
             )
-            risk_assessments_list.append(ra_json)
 
-        api_response = GetMultiResponse(risk_assessments_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+            # STEP 3: Build enhanced filter
+            params.filter = {
+                '$or': [
+                    {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ref_type},
+                              {RiskAssessmentKey.OBJECT_ID.value: object_id}]},
+                    {'$and': [{RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT_GROUP},
+                              {RiskAssessmentKey.OBJECT_ID.value: {'$in': all_group_ids}}]}
+                ]
+            }
 
-        return api_response.make_response()
-    except RiskAssessmentManagerIterationError as err:
-        LOGGER.error("[get_isms_risk_assessments] RiskAssessmentManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve RiskAssessments from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risk_assessments] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving RiskAssessments!")
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+    iteration_result: IterationResult[IsmsRiskAssessment] = risk_assessment_manager.iterate_items(builder_params)
+    risk_assessments = iteration_result.results
+
+    # Prepare bulk fetch mappings
+    risk_ids = set()
+    object_group_ids = set()
+    object_ids = set()
+    person_ids = set()
+    responsible_person_ids = set()
+    responsible_person_group_ids = set()
+
+    for ra in risk_assessments:
+        if ra.risk_id:
+            risk_ids.add(ra.risk_id)
+        if ra.object_id_ref_type == ObjectReferenceType.OBJECT_GROUP:
+            object_group_ids.add(ra.object_id)
+        if ra.object_id_ref_type == ObjectReferenceType.OBJECT:
+            object_ids.add(ra.object_id)
+        if isinstance(ra.interviewed_persons, list) and len(ra.interviewed_persons) > 0:
+            person_ids.update(ra.interviewed_persons)
+        if ra.responsible_persons_id:
+            if ra.responsible_persons_id_ref_type == PersonReferenceType.PERSON:
+                responsible_person_ids.add(ra.responsible_persons_id)
+            elif ra.responsible_persons_id_ref_type == PersonReferenceType.PERSON_GROUP:
+                responsible_person_group_ids.add(ra.responsible_persons_id)
+
+    # Bulk fetch metadata
+    risks = {
+        r[RiskKey.PUBLIC_ID.value]: r[RiskKey.NAME.value] for r in
+        risk_manager.find_all(criteria={RiskKey.PUBLIC_ID.value: {'$in': list(risk_ids)}})
+    }
+    object_groups = {
+        g['public_id']: g['name'] for g in
+        object_groups_manager.find_all(criteria={'public_id': {'$in': list(object_group_ids)}})
+    }
+    persons = {}
+    if person_ids:
+        persons = {
+            p['public_id']: p['display_name'] for p in
+            persons_manager.find_all(criteria={'public_id': {'$in': list(person_ids)}})
+        }
+
+    responsible_persons = {}
+    if responsible_person_ids:
+        responsible_persons = {
+            p['public_id']: p['display_name'] for p in
+            persons_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_ids)}})
+        }
+    responsible_person_groups = {}
+    if responsible_person_group_ids:
+        responsible_person_groups = {
+            g['public_id']: g['name'] for g in
+            person_groups_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_group_ids)}})
+        }
+
+    # Resolve the referenced objects' summary lines in a single batch instead of one per assessment
+    object_summaries = objects_manager.get_summary_lines_lookup(list(object_ids)) if object_ids else {}
+
+    # Add naming info
+    risk_assessments_list = []
+    for ra in risk_assessments:
+        ra_json = IsmsRiskAssessment.to_json(ra)
+        ra_json['naming'] = build_ra_naming(
+            ra, risks, object_groups, object_summaries, persons, responsible_persons, responsible_person_groups
+        )
+        risk_assessments_list.append(ra_json)
+
+    api_response = GetMultiResponse(risk_assessments_list,
+                                    iteration_result.total,
+                                    params,
+                                    request.url,
+                                    body)
+
+    return api_response.make_response()
 
 
 @risk_assessment_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -514,6 +519,9 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.view')
 @handle_route_errors("while retrieving the RiskAssessment with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_ASSESSMENT_LABEL, {
+    RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRiskAssessment
@@ -525,19 +533,15 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
     Returns:
         GetSingleResponse: The requested IsmsRiskAssessment
     """
-    try:
-        risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
-                                                                            ManagerType.RISK_ASSESSMENT,
-                                                                            request_user
-                                                                         )
+    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+                                                                        ManagerType.RISK_ASSESSMENT,
+                                                                        request_user
+                                                                     )
 
-        requested_risk_assessment = get_item_or_404(risk_assessment_manager, public_id,
-                                                     f"The RiskAssessment with ID:{public_id} was not found!")
+    requested_risk_assessment = get_item_or_404(risk_assessment_manager, public_id,
+                                                 f"The RiskAssessment with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_risk_assessment, body=request_wants_body()).make_response()
-    except RiskAssessmentManagerGetError as err:
-        LOGGER.error("[get_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskAssessment with ID: {public_id} from the database!")
+    return GetSingleResponse(requested_risk_assessment, body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -547,6 +551,10 @@ def get_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.edit')
 @risk_assessment_blueprint.validate(build_write_schema(IsmsRiskAssessment.SCHEMA))
 @handle_route_errors("while updating the RiskAssessment with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_ASSESSMENT_LABEL, {
+    RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET,
+    RiskAssessmentManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+}))
 def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskAssessment
@@ -567,83 +575,76 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
     Returns:
         UpdateSingleResponse: The new data of the IsmsRiskAssessment
     """
-    try:
-        risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
-                                                                            ManagerType.RISK_ASSESSMENT,
-                                                                            request_user
-                                                                         )
-        cm_assignment_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
-                                                                            ManagerType.CONTROL_MEASURE_ASSIGNMENT,
-                                                                            request_user
-                                                                       )
+    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+                                                                        ManagerType.RISK_ASSESSMENT,
+                                                                        request_user
+                                                                     )
+    cm_assignment_manager: ControlMeasureAssignmentManager = ManagerProvider.get_manager(
+                                                                        ManagerType.CONTROL_MEASURE_ASSIGNMENT,
+                                                                        request_user
+                                                                   )
 
-        get_item_or_404(risk_assessment_manager, public_id,
-                        f"The RiskAssessment with ID:{public_id} was not found!", as_dict=False)
+    get_item_or_404(risk_assessment_manager, public_id,
+                    f"The RiskAssessment with ID:{public_id} was not found!", as_dict=False)
 
-        # Refuse an incomplete assessment before anything is written (the payload is the whole document)
-        guard_required_risk_assessment_fields(data)
+    # Refuse an incomplete assessment before anything is written (the payload is the whole document)
+    guard_required_risk_assessment_fields(data)
 
-        _coerce_costs_for_implementation(data)
+    _coerce_costs_for_implementation(data)
 
-        # Handle ControlMeasureAssignments (a dict of created / updated / deleted entries)
-        cm_assignments: dict[str, Any] = data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, {}) or {}
+    # Handle ControlMeasureAssignments (a dict of created / updated / deleted entries)
+    cm_assignments: dict[str, Any] = data.pop(CONTROL_MEASURE_ASSIGNMENTS_KEY, {}) or {}
 
-        # Reject unknown ControlMeasure references (created + updated) before applying any change
-        referenced_assignments = cm_assignments.get('created', []) + cm_assignments.get('updated', [])
-        missing_control_measures = cm_assignment_manager.get_missing_control_measure_ids(referenced_assignments)
-        if missing_control_measures:
-            abort(400, f"Unknown ControlMeasure(s) referenced: {sorted(missing_control_measures)}!")
+    # Reject unknown ControlMeasure references (created + updated) before applying any change
+    referenced_assignments = cm_assignments.get('created', []) + cm_assignments.get('updated', [])
+    missing_control_measures = cm_assignment_manager.get_missing_control_measure_ids(referenced_assignments)
+    if missing_control_measures:
+        abort(400, f"Unknown ControlMeasure(s) referenced: {sorted(missing_control_measures)}!")
 
-        # The public_ids of the ControlMeasureAssignments actually linked to THIS RiskAssessment;
-        # updates and deletes are restricted to these so one RiskAssessment cannot mutate another's
-        owned_cma_ids: set[int] = set()
+    # The public_ids of the ControlMeasureAssignments actually linked to THIS RiskAssessment;
+    # updates and deletes are restricted to these so one RiskAssessment cannot mutate another's
+    owned_cma_ids: set[int] = set()
 
-        if cm_assignments.get('updated') or cm_assignments.get('deleted'):
-            owned_cma_ids = {
-                cma[ControlMeasureAssignmentKey.PUBLIC_ID.value]
-                for cma in risk_assessment_manager.get_many_from_other_collection(
-                    IsmsControlMeasureAssignment.COLLECTION, risk_assessment_id=public_id)
-            }
+    if cm_assignments.get('updated') or cm_assignments.get('deleted'):
+        owned_cma_ids = {
+            cma[ControlMeasureAssignmentKey.PUBLIC_ID.value]
+            for cma in risk_assessment_manager.get_many_from_other_collection(
+                IsmsControlMeasureAssignment.COLLECTION, risk_assessment_id=public_id)
+        }
 
-        # Handle created ControlMeasureAssignments (each is linked to this RiskAssessment)
-        for created_cma in cm_assignments.get('created', []):
-            created_cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = public_id
-            cm_assignment_manager.insert_item(created_cma)
+    # Handle created ControlMeasureAssignments (each is linked to this RiskAssessment)
+    for created_cma in cm_assignments.get('created', []):
+        created_cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = public_id
+        cm_assignment_manager.insert_item(created_cma)
 
-        # Handle updated ControlMeasureAssignments (only those belonging to this RiskAssessment)
-        for updated_cma in cm_assignments.get('updated', []):
-            cma_id = updated_cma.get(ControlMeasureAssignmentKey.PUBLIC_ID.value)
+    # Handle updated ControlMeasureAssignments (only those belonging to this RiskAssessment)
+    for updated_cma in cm_assignments.get('updated', []):
+        cma_id = updated_cma.get(ControlMeasureAssignmentKey.PUBLIC_ID.value)
 
-            if cma_id not in owned_cma_ids:
-                abort(400, f"ControlMeasureAssignment ID:{cma_id} is not linked to RiskAssessment ID:{public_id}!")
+        if cma_id not in owned_cma_ids:
+            abort(400, f"ControlMeasureAssignment ID:{cma_id} is not linked to RiskAssessment ID:{public_id}!")
 
-            updated_cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = public_id
-            cm_assignment_manager.update_item(cma_id, IsmsControlMeasureAssignment.from_data(updated_cma))
+        updated_cma[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value] = public_id
+        cm_assignment_manager.update_item(cma_id, IsmsControlMeasureAssignment.from_data(updated_cma))
 
-        # Handle deleted ControlMeasureAssignments (only those belonging to this RiskAssessment)
-        for deleted_cma_id in cm_assignments.get('deleted', []):
-            if deleted_cma_id not in owned_cma_ids:
-                abort(400,
-                      f"ControlMeasureAssignment ID:{deleted_cma_id} is not linked to RiskAssessment ID:{public_id}!")
+    # Handle deleted ControlMeasureAssignments (only those belonging to this RiskAssessment)
+    for deleted_cma_id in cm_assignments.get('deleted', []):
+        if deleted_cma_id not in owned_cma_ids:
+            abort(400,
+                  f"ControlMeasureAssignment ID:{deleted_cma_id} is not linked to RiskAssessment ID:{public_id}!")
 
-            cm_assignment_manager.delete_item(deleted_cma_id)
+        cm_assignment_manager.delete_item(deleted_cma_id)
 
-        # Derive maximum_impact / likelihood_value server-side (client-supplied values are not trusted)
-        risk_assessment_manager.recalculate_risk_values(data)
+    # Derive maximum_impact / likelihood_value server-side (client-supplied values are not trusted)
+    risk_assessment_manager.recalculate_risk_values(data)
 
-        # Update the actual RiskAssessment
-        # The URL owns the identity: a body public_id would otherwise be $set onto the document
-        pin_public_id(data, public_id)
+    # Update the actual RiskAssessment
+    # The URL owns the identity: a body public_id would otherwise be $set onto the document
+    pin_public_id(data, public_id)
 
-        stored: dict[str, Any] = update_item_from_payload(risk_assessment_manager, public_id, IsmsRiskAssessment, data)
+    stored: dict[str, Any] = update_item_from_payload(risk_assessment_manager, public_id, IsmsRiskAssessment, data)
 
-        return UpdateSingleResponse(stored).make_response()
-    except RiskAssessmentManagerGetError as err:
-        LOGGER.error("[update_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskAssessment with ID: {public_id} from the database!")
-    except RiskAssessmentManagerUpdateError as err:
-        LOGGER.error("[update_isms_risk_assessment] RiskAssessmentManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the RiskAssessment with ID: {public_id}!")
+    return UpdateSingleResponse(stored).make_response()
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -652,6 +653,10 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_assessment_blueprint.protect(auth=True, right='base.isms.riskAssessment.delete')
 @handle_route_errors("while deleting the RiskAssessment with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_ASSESSMENT_LABEL, {
+    RiskAssessmentManagerDeleteError: IsmsManagerErrorMessage.DELETE,
+    RiskAssessmentManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def delete_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRiskAssessment
@@ -663,22 +668,15 @@ def delete_isms_risk_assessment(public_id: int, request_user: CmdbUser) -> Respo
     Returns:
         DeleteSingleResponse: The deleted IsmsRiskAssessment data
     """
-    try:
-        risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
-                                                                            ManagerType.RISK_ASSESSMENT,
-                                                                            request_user
-                                                                         )
+    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+                                                                        ManagerType.RISK_ASSESSMENT,
+                                                                        request_user
+                                                                     )
 
-        to_delete_risk_assessment = get_item_or_404(risk_assessment_manager, public_id,
-                                                    f"The RiskAssessment with ID:{public_id} was not found!",
-                                                    as_dict=False)
+    to_delete_risk_assessment = get_item_or_404(risk_assessment_manager, public_id,
+                                                f"The RiskAssessment with ID:{public_id} was not found!",
+                                                as_dict=False)
 
-        risk_assessment_manager.delete_with_follow_up(public_id)
+    risk_assessment_manager.delete_with_follow_up(public_id)
 
-        return DeleteSingleResponse(to_delete_risk_assessment).make_response()
-    except RiskAssessmentManagerDeleteError as err:
-        LOGGER.error("[delete_isms_risk_assessment] RiskAssessmentManagerDeleteError: %s", err, exc_info=True)
-        abort(400, f"Failed to delete the RiskAssessment with ID:{public_id}!")
-    except RiskAssessmentManagerGetError as err:
-        LOGGER.error("[delete_isms_risk_assessment] RiskAssessmentManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskAssessment with ID:{public_id} from the database!")
+    return DeleteSingleResponse(to_delete_risk_assessment).make_response()

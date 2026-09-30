@@ -21,9 +21,10 @@ import base64
 import functools
 import inspect
 import json
+from http import HTTPStatus
 from logging import Logger, getLogger
 from datetime import datetime, timezone
-from typing import Any, Callable
+from typing import Any, Callable, Collection
 import requests
 from requests.exceptions import ConnectTimeout, Timeout, ConnectionError
 from flask import request, abort, current_app, has_request_context
@@ -60,7 +61,12 @@ from cmdb.errors.security import (
     RequestTimeoutError,
     RequestError,
 )
-from cmdb.errors.database import SetDatabaseError, DocumentNetworkError, DocumentLockTimeoutError
+from cmdb.errors.database import (
+    SetDatabaseError,
+    DocumentNetworkError,
+    DocumentLockTimeoutError,
+    TRANSIENT_DATABASE_ERRORS,
+)
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.open_celium import AuthError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -168,6 +174,55 @@ def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
     return wrapper
 
 
+def format_route_message(
+        signature: inspect.Signature,
+        message: str,
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any]) -> str:
+    """
+    Fills a route's message template with the arguments the route was called with
+
+    Bound to the route's signature, so a placeholder is filled whether the caller passed the value
+    positionally or by keyword - the shared route bodies do the former. A template the arguments cannot
+    fill is answered as it is: a broken error message must not replace the error it reports
+
+    Args:
+        signature (inspect.Signature): Signature of the route the arguments belong to
+        message (str): The template, e.g. ``"while retrieving the Subnet with ID: {public_id}"``
+        args (tuple[Any, ...]): The positional arguments of the call
+        kwargs (dict[str, Any]): The keyword arguments of the call
+
+    Returns:
+        str: The filled message, or the template unchanged when it cannot be filled
+    """
+    try:
+        bound = signature.bind(*args, **kwargs)
+        bound.apply_defaults()
+
+        return message.format(**bound.arguments)
+    except (KeyError, IndexError, TypeError, ValueError):
+        return message
+
+
+def _keep_route_signature(wrapper: Callable[..., Any], signature: inspect.Signature) -> None:
+    """
+    Drops a route wrapper's ``__wrapped__`` link while keeping the route's own signature on it
+
+    ``functools.wraps`` copies the name and docstring (the log labels read the former) and sets a
+    ``__wrapped__`` link. The link is deliberately dropped: the route tests unwrap a handler to call it
+    without auth, and following the link would unwrap the error mapping with it - every "an error maps
+    to 400 / 500" test would then see the raw exception instead. The signature is pinned in its place,
+    because ``inspect.signature`` of the wrapper is otherwise ``(*args, **kwargs)`` and an error
+    decorator stacked above could no longer fill its message from the route's arguments
+
+    Args:
+        wrapper (Callable[..., Any]): The wrapper returned by a route error decorator
+        signature (inspect.Signature): Signature of the function the wrapper wraps
+    """
+    del wrapper.__wrapped__
+    wrapper.__signature__ = signature
+
+
 def handle_route_errors(message: str) -> Callable[..., Any]:
     """
     Owns a route's generic error tail: re-raise an HTTPException, map anything else to a 500
@@ -177,28 +232,30 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
     aborting 500. Written out, that is ~300 copies of six lines whose only per-route content is the
     message; written here, a route says what it was doing and stops repeating how to fail
 
-    The message is a TEMPLATE formatted with the route's own keyword arguments, so the per-route text
-    stays per route: ``"while retrieving the Subnet with ID: {public_id}"`` reads the handler's
-    ``public_id``. A placeholder the route does not take is left as it is rather than raising - a
-    broken error message must not replace the error
+    The message is a TEMPLATE formatted with the route's own arguments (see ``format_route_message``),
+    so the per-route text stays per route: ``"while retrieving the Subnet with ID: {public_id}"`` reads
+    the handler's ``public_id``
 
-    What it deliberately does NOT do is own the arms in between. A route that maps its manager's
-    errors to 400s keeps those ``except`` clauses: they are the route's rules, not its plumbing
+    What it deliberately does NOT do is own the arms in between. A route that maps its manager's errors
+    to 400s states those rules with ``handle_manager_errors``, stacked directly below this decorator so
+    its aborts pass through the HTTPException arm here
 
     Args:
-        message (str): What the route was doing, as a template over its keyword arguments
+        message (str): What the route was doing, as a template over its arguments
 
     Returns:
         Callable[..., Any]: The decorator
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        signature: inspect.Signature = inspect.signature(func)
+
         @functools.wraps(func)
         def wrapper(*args: Any, **kwargs: Any) -> Any:
             try:
                 return func(*args, **kwargs)
             except HTTPException:
                 raise
-            except (DocumentLockTimeoutError, DocumentNetworkError):
+            except TRANSIENT_DATABASE_ERRORS:
                 # A TRANSIENT database failure is not an internal error: `@handle_db_errors` maps it to
                 # 423 / 503 so the caller knows to retry, and it only ever sees what escapes this
                 # wrapper. Claiming it here would make that a flat 500 instead
@@ -208,22 +265,105 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
                     "[%s] Exception: %s. Type: %s", func.__name__, err, type(err).__name__, exc_info=True,
                 )
 
-                try:
-                    # Bound to the signature, so a placeholder is filled whether the caller passed the
-                    # value positionally or by keyword - the shared route bodies do the former
-                    bound = inspect.signature(func).bind(*args, **kwargs)
-                    bound.apply_defaults()
-                    detail: str = message.format(**bound.arguments)
-                except (KeyError, IndexError, TypeError, ValueError):
-                    detail = message
+                detail: str = format_route_message(signature, message, args, kwargs)
 
-                abort(500, f"An internal server error occured {detail}!")
+                abort(HTTPStatus.INTERNAL_SERVER_ERROR, f"An internal server error occured {detail}!")
 
-        # `functools.wraps` copies the name and docstring (the log label reads the former), but the
-        # `__wrapped__` link it also sets is deliberately dropped: the route tests unwrap a handler to
-        # call it without auth, and following the link would unwrap the error tail with it - every
-        # "an unexpected error is a 500" test would then see the raw exception instead
-        del wrapper.__wrapped__
+        _keep_route_signature(wrapper, signature)
+
+        return wrapper
+
+    return decorator
+
+
+def closest_listed_error_class(
+        error_classes: Collection[type[Exception]],
+        err: Exception) -> type[Exception] | None:
+    """
+    Picks the listed class a raised error belongs to, the most specific one winning
+
+    The error's own class is looked up first, then its bases in method resolution order, so a mapping
+    that lists both a base class and one of its subclasses answers the subclass with its own entry
+
+    Args:
+        error_classes (Collection[type[Exception]]): The listed error classes
+        err (Exception): The raised error
+
+    Returns:
+        type[Exception] | None: The closest listed class, None when the error is none of them
+    """
+    for error_class in type(err).__mro__:
+        if error_class in error_classes:
+            return error_class
+
+    return None
+
+
+def handle_manager_errors(
+        failures: dict[type[Exception], str],
+        refusals: dict[type[Exception], str] | None = None) -> Callable[..., Any]:
+    """
+    Maps the manager errors a route names onto a 400 with that route's message
+
+    The typed arms that sat between a route's body and its generic tail - ``except XxxManagerGetError:
+    log; abort(400, "...")`` - are one table per route: an error class and what to say about it. This
+    decorator holds that table, so the route states its rules without repeating how to answer them
+
+    ``failures`` are manager operations that went wrong; they are logged as errors with the traceback.
+    ``refusals`` are business rules a manager enforced (e.g. "still used by a Risk"): the request was
+    understood and declined, so they are logged as warnings without a traceback. Both answer 400. The
+    messages are templates over the route's arguments, filled like ``handle_route_errors``' message
+
+    Stack it directly below ``handle_route_errors``: its aborts are HTTPExceptions, which that decorator
+    hands through untouched, and every error it does not name still reaches that decorator's 500
+
+    Args:
+        failures (dict[type[Exception], str]): Error class -> message, logged as an error
+        refusals (dict[type[Exception], str] | None): Error class -> message, logged as a warning
+
+    Raises:
+        ValueError: When no error class is given at all, or one class is listed as both
+
+    Returns:
+        Callable[..., Any]: The decorator
+    """
+    refusals = refusals or {}
+
+    if not failures and not refusals:
+        raise ValueError("handle_manager_errors needs at least one error class to map!")
+
+    overlap: list[str] = sorted(error_class.__name__ for error_class in set(failures) & set(refusals))
+
+    if overlap:
+        raise ValueError(f"Error classes listed as both failure and refusal: {overlap}")
+
+    messages: dict[type[Exception], str] = {**failures, **refusals}
+
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        signature: inspect.Signature = inspect.signature(func)
+
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            try:
+                return func(*args, **kwargs)
+            except Exception as err:
+                error_class: type[Exception] | None = closest_listed_error_class(messages, err)
+
+                # Not one of this route's rules: the generic tail above decides what it is
+                if error_class is None:
+                    raise
+
+                if error_class in refusals:
+                    LOGGER.warning("[%s] %s: %s", func.__name__, type(err).__name__, err)
+                else:
+                    LOGGER.error("[%s] %s: %s", func.__name__, type(err).__name__, err, exc_info=True)
+
+                abort(
+                    HTTPStatus.BAD_REQUEST,
+                    format_route_message(signature, messages[error_class], args, kwargs),
+                )
+
+        _keep_route_signature(wrapper, signature)
 
         return wrapper
 
@@ -1271,6 +1411,6 @@ def validate_subscription_user(
             err_msg: str = response.text
         raise InvalidCloudUserError(err_msg)
     except requests.exceptions.Timeout as err:
-        raise RequestTimeoutError(str(err)) from err
+        raise RequestTimeoutError(err) from err
     except requests.exceptions.RequestException as err:
-        raise RequestError(str(err)) from err
+        raise RequestError(err) from err

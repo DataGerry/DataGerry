@@ -18,7 +18,6 @@ Implementation of all API routes for the IsmsRiskMatrix
 """
 from logging import Logger, getLogger
 from typing import Any
-from flask import abort
 from werkzeug import Response
 
 from cmdb.manager import RiskMatrixManager
@@ -32,8 +31,14 @@ from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC
 
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
-from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404
+from cmdb.interface.route_utils import (
+    handle_manager_errors,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import get_item_or_404, manager_error_messages
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import RISK_MATRIX_LABEL, IsmsManagerErrorMessage
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     GetSingleResponse,
@@ -58,6 +63,9 @@ risk_matrix_blueprint = APIBlueprint('risk_matrices', __name__)
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_matrix_blueprint.protect(auth=True, right='base.isms.riskMatrix.view')
 @handle_route_errors("while retrieving the RiskMatrix with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_MATRIX_LABEL, {
+    RiskMatrixManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve the IsmsRiskMatrix
@@ -77,22 +85,18 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         GetSingleResponse: The requested IsmsRiskMatrix, rebuilt first if its shape was stale
     """
-    try:
-        risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(
-                                                                    ManagerType.RISK_MATRIX,
-                                                                    request_user
-                                                                         )
+    risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(
+                                                                ManagerType.RISK_MATRIX,
+                                                                request_user
+                                                                     )
 
-        requested_risk_matrix = get_item_or_404(risk_matrix_manager, public_id,
-                                                 f"The RiskMatrix with ID:{public_id} was not found!")
+    requested_risk_matrix = get_item_or_404(risk_matrix_manager, public_id,
+                                             f"The RiskMatrix with ID:{public_id} was not found!")
 
-        if public_id == RISK_MATRIX_PUBLIC_ID:
-            requested_risk_matrix = ensure_risk_matrix_matches_scales(request_user, requested_risk_matrix)
+    if public_id == RISK_MATRIX_PUBLIC_ID:
+        requested_risk_matrix = ensure_risk_matrix_matches_scales(request_user, requested_risk_matrix)
 
-        return GetSingleResponse(requested_risk_matrix, body=request_wants_body()).make_response()
-    except RiskMatrixManagerGetError as err:
-        LOGGER.error("[get_isms_risk_matrix] RiskMatrixManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskMatrix with ID: {public_id} from the database!")
+    return GetSingleResponse(requested_risk_matrix, body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -102,6 +106,10 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
 @risk_matrix_blueprint.protect(auth=True, right='base.isms.riskMatrix.edit')
 @risk_matrix_blueprint.validate(build_write_schema(IsmsRiskMatrix.SCHEMA))
 @handle_route_errors("while updating the RiskMatrix with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_MATRIX_LABEL, {
+    RiskMatrixManagerGetError: IsmsManagerErrorMessage.GET,
+    RiskMatrixManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+}))
 def update_isms_risk_matrix(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskMatrix
@@ -114,25 +122,18 @@ def update_isms_risk_matrix(public_id: int, data: dict[str, Any], request_user: 
     Returns:
         UpdateSingleResponse: The new data of the IsmsRiskMatrix
     """
-    try:
-        risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(
-                                                                    ManagerType.RISK_MATRIX,
-                                                                    request_user
-                                                                         )
+    risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(
+                                                                ManagerType.RISK_MATRIX,
+                                                                request_user
+                                                                     )
 
-        get_item_or_404(risk_matrix_manager, public_id,
-                        f"The RiskMatrix with ID:{public_id} was not found!", as_dict=False)
+    get_item_or_404(risk_matrix_manager, public_id,
+                    f"The RiskMatrix with ID:{public_id} was not found!", as_dict=False)
 
-        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+    # The URL owns the identity: a body public_id would otherwise be $set onto the document
 
-        pin_public_id(data, public_id)
+    pin_public_id(data, public_id)
 
-        stored: dict[str, Any] = update_item_from_payload(risk_matrix_manager, public_id, IsmsRiskMatrix, data)
+    stored: dict[str, Any] = update_item_from_payload(risk_matrix_manager, public_id, IsmsRiskMatrix, data)
 
-        return UpdateSingleResponse(stored).make_response()
-    except RiskMatrixManagerGetError as err:
-        LOGGER.error("[update_isms_risk_matrix] RiskMatrixManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskMatrix with ID: {public_id} from the database!")
-    except RiskMatrixManagerUpdateError as err:
-        LOGGER.error("[update_isms_risk_matrix] RiskMatrixManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the RiskMatrix with ID: {public_id}!")
+    return UpdateSingleResponse(stored).make_response()

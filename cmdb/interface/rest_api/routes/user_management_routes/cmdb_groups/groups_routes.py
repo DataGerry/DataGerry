@@ -35,7 +35,7 @@ from cmdb.manager import (
 )
 
 from cmdb.framework.results import IterationResult
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import CmdbUserGroup, GroupKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
@@ -74,6 +74,8 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_co
     GROUP_DELETE_RIGHT,
     GROUPS_COLLECTION_ROUTE,
     GROUP_ITEM_ROUTE,
+    GROUP_CREATED_NOT_READABLE_MSG,
+    GROUP_NAME_TAKEN_MSG,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
     resolve_move_target,
@@ -81,9 +83,12 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_he
     ensure_admin_group_keeps_master_right,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_if_duplicate,
+    abort_if_taken,
     build_searchable_builder_params,
     request_wants_body,
     pin_public_id,
+    require_created_item,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -109,11 +114,14 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
     Validates the payload against ``CmdbUserGroup.SCHEMA`` (decorator), inserts via the
     ``GroupsManager``, and immediately re-reads the row to return the persisted form
 
+    The name is unique, compared exactly as sent: a pre-check names the clash, and the unique index
+    refuses a concurrent create of the same name with the same message
+
     Status codes:
         201 CREATED: Group created; body is ``{ result_id, raw }``
-        400 BAD_REQUEST: Insert failed at the manager layer
-        404 NOT_FOUND: Insert succeeded but the row could not be re-read (defensive)
-        500: Unexpected error
+        400 BAD_REQUEST: The body fails the schema, or the name is taken
+        500: The insert failed for any other reason (an outage is never reported as a taken name), the
+            created row could not be read back, or an unexpected error
 
     Args:
         data (CmdbUserGroup.SCHEMA): Validated body of the new CmdbUserGroup
@@ -125,17 +133,24 @@ def insert_cmdb_user_group(data: dict[str, Any], request_user: CmdbUser) -> Resp
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        result_id: int = groups_manager.insert_group(data)
+        name: str = data[GroupKey.NAME.value]
+        taken_message: str = GROUP_NAME_TAKEN_MSG.format(name=name)
 
-        created_group: CmdbUserGroup | None = groups_manager.get_group(result_id)
+        abort_if_taken(groups_manager, {GroupKey.NAME.value: name}, taken_message)
 
-        if not created_group:
-            abort(404, "Could not retrieve the created UserGroup from the database!")
+        try:
+            result_id: int = groups_manager.insert_group(data)
+        except GroupsManagerInsertError as err:
+            # The unique index is what stops a concurrent create of the same name; any other failure of the
+            # insert is the server's (500), never a taken name
+            LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
+            abort_if_duplicate(err, taken_message)
+
+        created_group: CmdbUserGroup = require_created_item(
+            groups_manager.get_group(result_id), GROUP_CREATED_NOT_READABLE_MSG,
+        )
 
         return InsertSingleResponse(CmdbUserGroup.to_json(created_group), result_id).make_response()
-    except GroupsManagerInsertError as err:
-        LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
-        abort(400, "Failed to insert the new UserGroup in the database!")
     except GroupsManagerGetError as err:
         # The group was created; failing to re-read it is a server-side problem, not a client error
         LOGGER.error("[insert_cmdb_user_group] %s", err, exc_info=True)
@@ -257,10 +272,11 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 
     Status codes:
         202 ACCEPTED: Update applied; body is the persisted serialization
-        400 BAD_REQUEST: The administrator group's master right was dropped, or the lookup /
-            update failed at the manager layer
+        400 BAD_REQUEST: The administrator group's master right was dropped, the name is taken by
+            another group (by the pre-check or, under a concurrent write, by the unique index), or the
+            lookup failed at the manager layer
         404 NOT_FOUND: No group with the given public_id exists
-        500: Unexpected error
+        500: The update failed for any other reason, or an unexpected error
 
     Args:
         public_id (int): public_id of the CmdbUserGroup to update
@@ -282,14 +298,22 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
         ensure_admin_group_keeps_master_right(public_id, data)
         pin_public_id(data, public_id)
 
+        name: str = data[GroupKey.NAME.value]
+        taken_message: str = GROUP_NAME_TAKEN_MSG.format(name=name)
+
+        abort_if_taken(groups_manager, {GroupKey.NAME.value: name}, taken_message, exclude_id=public_id)
+
         group_dict: dict[str, Any] = groups_manager.hydrate_group(data)
 
-        groups_manager.update_group(public_id, group_dict)
+        try:
+            groups_manager.update_group(public_id, group_dict)
+        except GroupsManagerUpdateError as err:
+            # A rename that loses the race to a concurrent write is refused by the same unique index; any
+            # other failure of the update is the server's (500)
+            LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
+            abort_if_duplicate(err, taken_message)
 
         return UpdateSingleResponse(group_dict).make_response()
-    except GroupsManagerUpdateError as err:
-        LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
-        abort(400, f"User group with public_id:{public_id} could not be updated!")
     except GroupsManagerGetError as err:
         LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")

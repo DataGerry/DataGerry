@@ -86,7 +86,7 @@ class UserSettingsManager(GenericManager):
             })
         except Exception as err:
             LOGGER.error("[get_user_setting] Exception: %s. Type: %s", err, type(err))
-            raise UserSettingsManagerGetError(str(err)) from err
+            raise UserSettingsManagerGetError(err) from err
 
 
     def get_user_settings(
@@ -131,7 +131,7 @@ class UserSettingsManager(GenericManager):
             return [setting for setting in normalized if setting is not None]
         except Exception as err:
             LOGGER.error("[get_user_settings] Exception: %s. Type: %s", err, type(err))
-            raise UserSettingsManagerIterationError(str(err)) from err
+            raise UserSettingsManagerIterationError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -160,7 +160,7 @@ class UserSettingsManager(GenericManager):
             )
         except Exception as err:
             LOGGER.error("[update_user_setting] Exception: %s. Type: %s", err, type(err))
-            raise UserSettingsManagerUpdateError(str(err)) from err
+            raise UserSettingsManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -184,4 +184,4 @@ class UserSettingsManager(GenericManager):
                 UserSettingKey.RESOURCE.value: resource,
             })
         except BaseManagerDeleteError as err:
-            raise UserSettingsManagerDeleteError(str(err)) from err
+            raise UserSettingsManagerDeleteError(err) from err

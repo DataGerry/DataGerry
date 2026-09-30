@@ -31,6 +31,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.groups_manager import GroupsManager, PROTECTED_GROUP_IDS
 from cmdb.models.group_model import CmdbUserGroup
 
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.manager.groups_manager import (
     GroupsManagerInitError,
     GroupsManagerInsertError,
@@ -128,6 +129,20 @@ class TestInsertGroup:
 
         with pytest.raises(GroupsManagerInsertError):
             GroupsManager.insert_group(mgr, SAMPLE_GROUP_DICT)
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentLockTimeoutError('lock timeout'),
+    ], ids=['network', 'lock-timeout'])
+    def test_a_transient_failure_is_raised_unwrapped(self, failure: Exception) -> None:
+        """Not the insert error the route answers 400: a lock timeout or an outage is no fault of the group."""
+        mgr = _mock_manager()
+        mgr.insert.side_effect = failure
+
+        with pytest.raises(type(failure)) as caught:
+            GroupsManager.insert_group(mgr, SAMPLE_GROUP_DICT)
+
+        assert caught.value is failure
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

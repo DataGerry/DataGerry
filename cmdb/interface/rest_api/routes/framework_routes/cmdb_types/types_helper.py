@@ -34,7 +34,7 @@ from flask import abort
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.ports_manager import PortsManager
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates, plan_mds_changes
 from cmdb.manager import (
     TypesManager,
@@ -48,7 +48,7 @@ from cmdb.manager import (
     SectionTemplatesManager,
 )
 
-from cmdb.utils import coerce_whole_number
+from cmdb.utils import Builder, coerce_whole_number
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType

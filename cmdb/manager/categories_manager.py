@@ -20,7 +20,8 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree, readable_type_ids
@@ -153,10 +154,10 @@ class CategoriesManager(GenericManager):
 
             return readable_type_ids(category.get(CategoryKey.TYPES.value))
         except BaseManagerGetError as err:
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_category_type_ids] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
 
 
     def get_assigned_type_ids(self) -> set[int]:
@@ -186,10 +187,10 @@ class CategoriesManager(GenericManager):
                 for type_id in readable_type_ids(category.get(CategoryKey.TYPES.value))
             }
         except BaseManagerGetError as err:
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_assigned_type_ids] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
 
 
     def find_unknown_type_ids(self, type_ids: list[int]) -> list[int]:
@@ -320,10 +321,10 @@ class CategoriesManager(GenericManager):
 
             return [CmdbCategory.from_data(category) for category in raw_categories]
         except (BaseManagerGetError, CmdbCategoryInitFromDataError) as err:
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_categories_by] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -375,10 +376,10 @@ class CategoriesManager(GenericManager):
                 update={CategoryKey.PARENT: None}
             )
         except BaseManagerUpdateError as err:
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[remove_category_as_parent] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
 
 
     def remove_type_from_categories(self, type_id: int) -> None:
@@ -401,10 +402,10 @@ class CategoriesManager(GenericManager):
                 update={'$pull': {CategoryKey.TYPES: type_id}}
             )
         except BaseManagerUpdateError as err:
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
         except Exception as err:
             LOGGER.error("[remove_type_from_categories] Exception: %s. Type: %s", err, type(err))
-            raise CategoriesManagerUpdateError(str(err)) from err
+            raise CategoriesManagerUpdateError(err) from err
 
 
     def validate_parent_assignment(self, public_id: int | None, parent_id: int | None) -> str | None:
@@ -490,7 +491,7 @@ class CategoriesManager(GenericManager):
         try:
             result: list[dict[str, Any]] = list(self.aggregate(pipeline))
         except BaseManagerIterationError as err:
-            raise CategoriesManagerGetError(str(err)) from err
+            raise CategoriesManagerGetError(err) from err
 
         if not result:
             return None

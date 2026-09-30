@@ -46,6 +46,7 @@ rule - and no equal-front/rear-count check, because one count drives both faces 
 express an unequal panel at all
 """
 from datetime import datetime, timezone
+from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any
 
@@ -139,9 +140,10 @@ def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 400 when the syntax, the numbering or a select value is unusable, when the
-                       preview found collisions, or when a write failed and was rolled back cleanly;
-                       403 when the owner's ACL denies it; 404 when the object does not exist;
-                       500 when the rollback could not remove everything it had created
+                       preview found collisions, or when a concurrent write took one of the names and
+                       the batch was rolled back cleanly; 403 when the owner's ACL denies it; 404 when
+                       the object does not exist; 500 when a write failed for any other reason (rolled
+                       back or not) or the rollback could not remove everything it had created
 
     Returns:
         DefaultResponse: The created ports and, for a panel, the INTERNAL connections
@@ -202,16 +204,19 @@ def _abort_for_failed_batch(result: BulkCreateResult) -> None:
     """
     Turns a failed batch into the honest refusal for what actually happened
 
-    Two different outcomes, and conflating them is exactly what §37 forbids. A clean rollback left the
-    database as it was, so the caller may simply fix their request and try again - a 400. A rollback
-    that could not finish left rows nobody asked for, which the caller cannot fix by editing anything -
-    a 500 naming every id, because somebody has to go and remove them
+    Three different outcomes, and conflating them is exactly what §37 forbids. A rollback that could not
+    finish left rows nobody asked for, which the caller cannot fix by editing anything - a 500 naming
+    every id, because somebody has to go and remove them. A clean rollback left the database as it was:
+    when the write was refused as a duplicate (a concurrent write took a name the preview showed as free)
+    the caller can open the preview again and retry - a 400; when the write simply failed, nothing about
+    the request was wrong - a 500. The reason is a BulkCreateFailureReason, never the database's text
 
     Args:
         result (BulkCreateResult): The outcome of the failed batch
 
     Raises:
-        HTTPException: 500 when the rollback left residue, 400 when it did not
+        HTTPException: 500 when the rollback left residue or the write failed for a reason other than a
+            duplicate, 400 when a duplicate was cleanly rolled back
     """
     if result.has_residue():
         abort(500, BulkCreateError.ROLLBACK_INCOMPLETE.format(
@@ -222,9 +227,8 @@ def _abort_for_failed_batch(result: BulkCreateResult) -> None:
             },
         ))
 
-    abort(400, BulkCreateError.ROLLED_BACK.format(
-        created=len(result.port_ids), reason=result.error,
-    ))
+    abort(HTTPStatus.BAD_REQUEST if result.duplicate else HTTPStatus.INTERNAL_SERVER_ERROR,
+          BulkCreateError.ROLLED_BACK.format(created=len(result.port_ids), reason=result.error))
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            the bulk ACTIONS (§30-35)                                                 #

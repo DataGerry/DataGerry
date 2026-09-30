@@ -18,13 +18,16 @@ Implementation of general API route helpers
 """
 import json
 from collections.abc import Sequence
-from typing import Any
+from http import HTTPStatus
+from typing import Any, NoReturn, TypeVar
 from logging import Logger, getLogger
 from flask import request, abort
 from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
 
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder, find_cause
+from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.framework.search.list_search import build_list_search_stages
 from cmdb.interface.rest_api.responses.response_parameters import (
@@ -35,6 +38,8 @@ from cmdb.interface.rest_api.responses.response_parameters import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+ItemT = TypeVar('ItemT')
 
 # The one HTTP method that asks for a response without a payload
 HEAD_METHOD: str = 'HEAD'
@@ -372,3 +377,86 @@ def normalize_public_id_list(values: list[Any]) -> list[int]:
         normalized_ids.append(candidate)
 
     return normalized_ids
+
+
+def require_created_item(item: ItemT | None, not_readable_message: str) -> ItemT:
+    """
+    Answers the item an insert route just created, refusing with a 500 when it cannot be read back
+
+    The insert has just reported the new public_id, so a read that finds nothing is not a missing
+    resource the caller asked for - it is the server failing to see its own write. That is a 500, not
+    the 404 a lookup of a caller-supplied id would answer. The read-back may be a raw document or a
+    model instance; either is answered as it came
+
+    Args:
+        item (ItemT | None): The read-back of the created item
+        not_readable_message (str): The message of the 500
+
+    Raises:
+        werkzeug.exceptions.InternalServerError: Aborts with 500 when the item was not found
+
+    Returns:
+        ItemT: The created item
+    """
+    if not item:
+        abort(HTTPStatus.INTERNAL_SERVER_ERROR, not_readable_message)
+
+    return item
+
+
+def abort_if_duplicate(err: Exception, duplicate_message: str) -> NoReturn:
+    """
+    Answers a write refused by a unique index with the route's readable 400, and re-raises anything else
+
+    A write route pre-checks its uniqueness rule with a read, but only the unique index holds under
+    concurrency - so the manager error of the write is where a lost race shows up. It is ALSO where an
+    outage or any other failure of the write shows up, which is why the cause is looked for rather than
+    assumed: only a ``DocumentDuplicateKeyError`` somewhere in the chain is the caller's clash, and
+    everything else is re-raised for the route's generic tail to answer as the server error it is
+
+    Call it from the ``except`` of the write alone, so nothing but that write's error reaches it
+
+    Args:
+        err (Exception): The manager error the write raised
+        duplicate_message (str): What the 400 says, the same text the route's pre-check answers
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the write violated a unique index
+        Exception: ``err`` itself, unchanged, when it did not
+    """
+    if find_cause(err, DocumentDuplicateKeyError) is not None:
+        abort(HTTPStatus.BAD_REQUEST, duplicate_message)
+
+    raise err
+
+
+def abort_if_taken(
+        manager: Any,
+        criteria: dict[str, Any],
+        taken_message: str,
+        exclude_id: int | None = None) -> None:
+    """
+    Refuses a write whose unique value another stored document already holds
+
+    The readable half of a uniqueness rule that a unique index enforces: the index is what holds under
+    concurrency (its refusal is answered by ``abort_if_duplicate``), this read is what makes the ordinary
+    case say which value clashed. The value is compared as sent - exactly what the index compares - so the
+    check refuses precisely what the index would, and a stored near-twin (another case, surrounding blanks)
+    never blocks a write of its own
+
+    Args:
+        manager (Any): The manager of the collection, anything with BaseManager's ``get_one_by``
+        criteria (dict[str, Any]): The unique value(s) the write would store, e.g. ``{'name': 'Admins'}``
+        taken_message (str): What the 400 says; the same text the write's duplicate refusal answers
+        exclude_id (int | None): public_id of the document being updated, which may keep its own value.
+            Defaults to None (a create)
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when another document holds the value
+    """
+    existing: dict[str, Any] | None = manager.get_one_by(criteria)
+
+    if not existing or (exclude_id is not None and existing.get(CmdbDAO.PUBLIC_ID_KEY) == exclude_id):
+        return
+
+    abort(HTTPStatus.BAD_REQUEST, taken_message)

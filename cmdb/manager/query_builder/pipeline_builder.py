@@ -19,7 +19,7 @@ Implementation of PipelineBuilder
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)

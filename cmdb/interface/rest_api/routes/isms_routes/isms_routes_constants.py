@@ -16,6 +16,8 @@
 """
 Shared constants for the ISMS REST routes
 """
+from typing import NamedTuple
+
 from cmdb.utils import BaseStrEnum
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -27,12 +29,55 @@ MAX_ISMS_SCALE_ENTRIES: int = 6
 # Maximum number of IsmsRiskClasses that may be created
 MAX_ISMS_RISK_CLASSES: int = 10
 
+
+class IsmsEntityLabel(NamedTuple):
+    """How an ISMS entity is named in the messages its routes answer"""
+    singular: str
+    plural: str
+
+
+CONTROL_MEASURE_LABEL: IsmsEntityLabel = IsmsEntityLabel('ControlMeasure', 'ControlMeasures')
+CONTROL_MEASURE_ASSIGNMENT_LABEL: IsmsEntityLabel = IsmsEntityLabel(
+    'ControlMeasureAssignment', 'ControlMeasureAssignments',
+)
+IMPACT_LABEL: IsmsEntityLabel = IsmsEntityLabel('Impact', 'Impacts')
+IMPACT_CATEGORY_LABEL: IsmsEntityLabel = IsmsEntityLabel('ImpactCategory', 'ImpactCategories')
+LIKELIHOOD_LABEL: IsmsEntityLabel = IsmsEntityLabel('Likelihood', 'Likelihoods')
+PROTECTION_GOAL_LABEL: IsmsEntityLabel = IsmsEntityLabel('ProtectionGoal', 'ProtectionGoals')
+RISK_LABEL: IsmsEntityLabel = IsmsEntityLabel('Risk', 'Risks')
+RISK_ASSESSMENT_LABEL: IsmsEntityLabel = IsmsEntityLabel('RiskAssessment', 'RiskAssessments')
+RISK_CLASS_LABEL: IsmsEntityLabel = IsmsEntityLabel('RiskClass', 'RiskClasses')
+RISK_MATRIX_LABEL: IsmsEntityLabel = IsmsEntityLabel('RiskMatrix', 'RiskMatrices')
+THREAT_LABEL: IsmsEntityLabel = IsmsEntityLabel('Threat', 'Threats')
+VULNERABILITY_LABEL: IsmsEntityLabel = IsmsEntityLabel('Vulnerability', 'Vulnerabilities')
+
+
+class IsmsManagerErrorMessage(BaseStrEnum):
+    """
+    The 400 an ISMS route answers when its manager fails, one template per operation
+
+    ``{entity}`` and ``{entities}`` are an IsmsEntityLabel's singular and plural, filled by
+    ``isms_routes_helper.manager_error_messages``. ``{public_id}`` is left for ``handle_manager_errors``
+    to fill from the route's own argument
+    """
+    INSERT = "Failed to insert the new {entity} in the database!"
+    INSERT_DUPLICATE = "Failed to insert the duplicated {entity} in the database!"
+    GET_CREATED = "Failed to retrieve the created {entity} from the database!"
+    GET = "Failed to retrieve the {entity} with ID: {public_id} from the database!"
+    ITERATE = "Failed to retrieve {entities} from the database!"
+    UPDATE = "Failed to update the {entity} with ID: {public_id}!"
+    DELETE = "Failed to delete the {entity} with ID: {public_id}!"
+    USED_BY_RISKS = "The {entity} with ID: {public_id} can not be deleted because it is used by Risks!"
+    BULK_USAGE = "Failed to determine which {entities} are still in use!"
+    BULK_DELETE = "Failed to delete one of the requested {entities}!"
+
+
 # The 400 a create answers once its entity already holds the maximum number of entries; filled with the
 # cap and the entity's plural label
 ISMS_CAP_REACHED_MSG: str = "Only a maximum of {cap} {entity_label} can be created!"
-ISMS_LIKELIHOODS_LABEL: str = 'Likelihoods'
-ISMS_IMPACTS_LABEL: str = 'Impacts'
-ISMS_RISK_CLASSES_LABEL: str = 'RiskClasses'
+ISMS_LIKELIHOODS_LABEL: str = LIKELIHOOD_LABEL.plural
+ISMS_IMPACTS_LABEL: str = IMPACT_LABEL.plural
+ISMS_RISK_CLASSES_LABEL: str = RISK_CLASS_LABEL.plural
 
 # Minimum number of configured entries per ISMS section before it counts as "ready" in the setup
 # status reported by GET /isms/config/status

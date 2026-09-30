@@ -24,7 +24,7 @@ import re
 
 import pytest
 
-from cmdb.manager.query_builder.builder import (
+from cmdb.utils.builder import (
     Builder,
     SORT_ORDER_DUPLICATED_MSG,
     SORT_ORDER_INVALID_MSG,

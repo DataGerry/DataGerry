@@ -27,7 +27,7 @@ key enum, and the join aliases and response keys through the enums in `isms_repo
 import re
 from typing import Any
 
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     CALCULATION_BASIS_SEPARATOR,

@@ -170,7 +170,7 @@ class CmdbUser(CmdbDAO):
 
             super().__init__(public_id=public_id)
         except Exception as err:
-            raise CmdbUserInitError(str(err)) from err
+            raise CmdbUserInitError(err) from err
 
 
     def __str__(self) -> str:
@@ -236,7 +236,7 @@ class CmdbUser(CmdbDAO):
                 last_name=data.get(CmdbUserKey.LAST_NAME.value)
             )
         except Exception as err:
-            raise CmdbUserInitFromDataError(str(err)) from err
+            raise CmdbUserInitFromDataError(err) from err
 
 
     @classmethod
@@ -278,7 +278,7 @@ class CmdbUser(CmdbDAO):
                 CmdbUserKey.LAST_NAME.value: instance.last_name
             }
         except Exception as err:
-            raise CmdbUserToJsonError(str(err)) from err
+            raise CmdbUserToJsonError(err) from err
 
     @classmethod
     def to_public_json(cls, instance: "CmdbDAO") -> dict[str, Any]:

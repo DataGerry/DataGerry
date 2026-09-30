@@ -18,7 +18,7 @@ Implementation of BuilderParameters
 """
 from typing import Any
 
-from .builder import Builder
+from cmdb.utils import Builder
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BuilderParameters - CLASS                                              #

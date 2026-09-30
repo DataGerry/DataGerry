@@ -39,6 +39,8 @@ from cmdb.errors.manager.risk_manager import (
     RiskManagerIterationError,
 )
 
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import RISK_LABEL, IsmsManagerErrorMessage
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -383,12 +385,17 @@ class TestErrorMapping:
         assert rest_api.delete(f'{ROUTE_URL}/{RISK_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST
 
 
-    def test_insert_created_not_retrievable_returns_404(self, rest_api, monkeypatch) -> None:
-        """When the created item cannot be re-read after insert, the route returns 404."""
+    def test_insert_created_not_retrievable_returns_500(self, rest_api, monkeypatch) -> None:
+        """A created item the server cannot read back is its own fault: 500, not a 404."""
         monkeypatch.setattr(RiskManager, 'insert_item', lambda *_a, **_k: RISK_ID_FOR_GET)
         monkeypatch.setattr(RiskManager, 'get_item', lambda *_a, **_k: None)
 
-        assert rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET)).status_code == HTTPStatus.NOT_FOUND
+        response = rest_api.post(f'{ROUTE_URL}/', json=_risk_payload(RISK_ID_FOR_GET))
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] == manager_error_message(
+            RISK_LABEL, IsmsManagerErrorMessage.GET_CREATED,
+        )
 
     def test_insert_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A ManagerGetError while re-reading the created item surfaces as 400."""

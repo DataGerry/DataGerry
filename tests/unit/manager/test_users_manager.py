@@ -40,6 +40,13 @@ from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
 
+from cmdb.utils import find_cause
+from cmdb.errors.database import (
+    DocumentDuplicateKeyError,
+    DocumentInsertDuplicateKeyError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
+)
 from cmdb.errors.manager import (
     BaseManagerDeleteError,
     BaseManagerGetError,
@@ -159,12 +166,40 @@ class TestInsertUser:
         mgr.insert.assert_called_once_with(SAMPLE_USER_DICT)
 
     def test_wraps_an_insert_failure(self) -> None:
-        """A duplicate user_name (unique index) has to surface as this manager's insert error."""
+        """A failed insert surfaces as this manager's insert error, carrying the failure itself."""
         mgr = _mock_manager()
-        mgr.insert.side_effect = RuntimeError('duplicate key')
+        failure = RuntimeError('insert failed')
+        mgr.insert.side_effect = failure
 
-        with pytest.raises(UsersManagerInsertError):
+        with pytest.raises(UsersManagerInsertError) as caught:
             UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
+
+        assert caught.value.args[0] is failure
+
+    def test_a_duplicate_user_name_is_findable_by_type_beneath_the_insert_error(self) -> None:
+        """The route's abort_if_duplicate looks for exactly this: the typed refusal in the cause chain."""
+        mgr = _mock_manager()
+        refusal = DocumentInsertDuplicateKeyError('duplicate', key_pattern={'user_name': 1})
+        mgr.insert.side_effect = refusal
+
+        with pytest.raises(UsersManagerInsertError) as caught:
+            UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
+
+        assert find_cause(caught.value, DocumentDuplicateKeyError) is refusal
+
+    @pytest.mark.parametrize('failure', [
+        DocumentNetworkError('connection lost'),
+        DocumentLockTimeoutError('lock timeout'),
+    ], ids=['network', 'lock-timeout'])
+    def test_a_transient_failure_is_raised_unwrapped(self, failure: Exception) -> None:
+        """Not the insert error the route answers: a lock timeout or an outage is no fault of the user."""
+        mgr = _mock_manager()
+        mgr.insert.side_effect = failure
+
+        with pytest.raises(type(failure)) as caught:
+            UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
+
+        assert caught.value is failure
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

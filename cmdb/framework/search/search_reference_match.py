@@ -40,7 +40,7 @@ Three rules the reversal makes explicit:
 """
 from typing import Any, TYPE_CHECKING
 
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.framework.search.search_constants import (

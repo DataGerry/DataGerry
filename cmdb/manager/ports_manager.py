@@ -88,7 +88,7 @@ class PortsManager(GenericManager):
                       (PortKey.NAME.value, self.model.DAO_ASCENDING)],
             )
         except (BaseManagerGetError, Exception) as err:
-            raise PortsManagerGetError(str(err)) from err
+            raise PortsManagerGetError(err) from err
 
 
     def get_ports_of_objects(self, object_ids: list[int]) -> list[dict[str, Any]]:
@@ -119,7 +119,7 @@ class PortsManager(GenericManager):
                       (PortKey.NAME.value, self.model.DAO_ASCENDING)],
             )
         except (BaseManagerGetError, Exception) as err:
-            raise PortsManagerGetError(str(err)) from err
+            raise PortsManagerGetError(err) from err
 
 
     def get_ports_by_ids(self, port_ids: list[int]) -> list[dict[str, Any]]:
@@ -145,7 +145,7 @@ class PortsManager(GenericManager):
         try:
             return self.find(criteria={PortKey.PUBLIC_ID.value: {'$in': port_ids}})
         except (BaseManagerGetError, Exception) as err:
-            raise PortsManagerGetError(str(err)) from err
+            raise PortsManagerGetError(err) from err
 
 
     def get_port_by_name(self, object_id: int, side: str, name: str) -> dict[str, Any] | None:
@@ -174,7 +174,7 @@ class PortsManager(GenericManager):
                 PortKey.NAME.value: name,
             })
         except (BaseManagerGetError, Exception) as err:
-            raise PortsManagerGetError(str(err)) from err
+            raise PortsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -196,4 +196,4 @@ class PortsManager(GenericManager):
         try:
             return self.delete_many({PortKey.OBJECT_ID.value: object_id}).deleted_count
         except (BaseManagerDeleteError, Exception) as err:
-            raise PortsManagerDeleteError(str(err)) from err
+            raise PortsManagerDeleteError(err) from err

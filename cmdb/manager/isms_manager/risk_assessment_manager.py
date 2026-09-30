@@ -118,4 +118,4 @@ class RiskAssessmentManager(GenericManager):
 
             return self.delete_item(public_id)
         except Exception as err:
-            raise RiskAssessmentManagerDeleteError(str(err)) from err
+            raise RiskAssessmentManagerDeleteError(err) from err

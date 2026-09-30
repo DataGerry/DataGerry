@@ -183,7 +183,7 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             return self.users_manager.get_user_by(query)
         except UsersManagerGetError as err:
             LOGGER.error('[_read_user_by] Could not read the CmdbUser to authenticate: %s', err)
-            raise AuthenticationError(str(err)) from err
+            raise AuthenticationError(err) from err
 
 
     @classmethod

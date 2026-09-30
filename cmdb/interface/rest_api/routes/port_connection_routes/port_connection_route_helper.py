@@ -35,6 +35,9 @@ from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.utils import find_cause
+from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.manager.port_connections_manager import PortConnectionsManagerGetError
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.port_connection_model import (
@@ -71,8 +74,6 @@ from cmdb.interface.rest_api.routes.port_connection_routes.port_connection_route
     CONNECTION_PORT_ALREADY_CABLED_MESSAGE,
     CONNECTION_PORT_ALREADY_PAIRED_MESSAGE,
     CONNECTION_PORT_NOT_FOUND_MESSAGE,
-    DUPLICATE_KEY_CABLE_CI_MARKER,
-    DUPLICATE_KEY_ENDPOINTS_MARKER,
     CableUsageKey,
     ConnectionRequestKey,
 )
@@ -422,36 +423,88 @@ def build_connection_candidate(
 #                                              the database's own refusal                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 
+def cable_ci_in_use_message(port_connections_manager: PortConnectionsManager, cable_ci_id: Any) -> str:
+    """
+    The message a refused cable-CI claim answers - the pre-check's own words, naming the holder
+
+    Used when the unique index, not the pre-check, refused the claim: a concurrent write took the Cable in
+    between, so the connection now holding it is read once to name it, exactly as
+    ``enforce_cable_ci_free`` would have. The read is best-effort - it runs only on that race path, and when
+    it cannot name the holder (the refusal did not report the CI, the holder is gone again, or the read
+    itself fails) the general collision message is answered instead of an error about the error
+
+    Args:
+        port_connections_manager (PortConnectionsManager): db interface for CmdbPortConnections
+        cable_ci_id (Any): The Cable CI the refusal reported, or None when it reported none
+
+    Returns:
+        str: CONNECTION_CABLE_CI_IN_USE_MESSAGE for the holder, or CONNECTION_DUPLICATE_MESSAGE
+    """
+    if not isinstance(cable_ci_id, int):
+        return CONNECTION_DUPLICATE_MESSAGE
+
+    try:
+        holder: dict[str, Any] | None = port_connections_manager.get_connection_by_cable_ci(cable_ci_id)
+    except PortConnectionsManagerGetError as err:
+        LOGGER.error("[cable_ci_in_use_message] Could not read the holder of Cable ID:%s: %s", cable_ci_id, err)
+
+        return CONNECTION_DUPLICATE_MESSAGE
+
+    if not holder:
+        return CONNECTION_DUPLICATE_MESSAGE
+
+    return CONNECTION_CABLE_CI_IN_USE_MESSAGE.format(
+        cable_ci_id=cable_ci_id, public_id=holder.get(PortConnectionKey.PUBLIC_ID.value),
+    )
+
+
 def duplicate_key_abort(
         error: Exception,
         connection_type: str,
-        endpoints: list[int] | None) -> NoReturn:
+        endpoints: list[int] | None,
+        port_connections_manager: PortConnectionsManager) -> NoReturn:
     """
     Turns the database's duplicate-key refusal into the same message the pre-check would have given
 
-    This is the arm that actually holds under concurrency: the pre-checks above are reads followed by
-    writes, so two simultaneous requests both pass them and one of the unique indexes stops the second.
-    Reporting that as a raw driver error would tell the loser nothing it could act on.
+    This is the arm that actually holds under concurrency: the pre-checks are reads followed by writes,
+    so two simultaneous requests both pass them and one of the unique indexes stops the second.
+    Reporting that as a raw driver error would tell the loser nothing it could act on. Both write routes
+    use it - the create for every index, the update for the one it can reach (its endpoints are immutable,
+    so only the cable-CI index can refuse it).
 
-    The driver names the violated index's key PATTERN, not its name, so the two endpoint indexes are
-    indistinguishable here - which costs nothing, because the route knows which connection_type it was
-    writing and the message follows from that. An unrecognised duplicate falls back to a message
-    stating all three rules rather than guessing one
+    **Only a duplicate is answered here.** A write's manager error is also what an outage or any other
+    failure of the write comes out as, so the refusal is recognised by its type
+    (``DocumentDuplicateKeyError`` in the cause chain) and everything else is re-raised for the route's
+    generic tail - a 500, never a claim that the slot or the Cable is taken.
+
+    Which index was violated is read off the refusal's ``key_pattern``. ``cable_ci_id`` answers the cable-CI
+    pre-check's own message, naming the Cable and the connection now holding it (``cable_ci_in_use_message``);
+    ``endpoints`` is one of the two partial endpoint indexes, which share their key pattern - which costs
+    nothing, because the route knows which connection_type it was writing and the message follows from
+    that. An unrecognised index falls back to a message stating all three rules rather than guessing one
 
     Args:
-        error (Exception): The manager error wrapping the duplicate-key failure
+        error (Exception): The manager error the write raised
         connection_type (str): The ConnectionType value that was being written
         endpoints (list[int] | None): The canonically sorted endpoints, when they are known
+        port_connections_manager (PortConnectionsManager): db interface for CmdbPortConnections, to name the
+            holder of a taken Cable
 
     Raises:
-        HTTPException: 400, always
+        HTTPException: 400 when the write violated a unique index
+        Exception: ``error`` itself, unchanged, when it did not
     """
-    reason: str = str(error)
+    duplicate: DocumentDuplicateKeyError | None = find_cause(error, DocumentDuplicateKeyError)
 
-    if DUPLICATE_KEY_CABLE_CI_MARKER in reason:
-        abort(400, CONNECTION_DUPLICATE_MESSAGE)
+    if duplicate is None:
+        raise error
 
-    if DUPLICATE_KEY_ENDPOINTS_MARKER in reason and endpoints:
+    if PortConnectionKey.CABLE_CI_ID.value in duplicate.key_pattern:
+        abort(400, cable_ci_in_use_message(
+            port_connections_manager, duplicate.key_value.get(PortConnectionKey.CABLE_CI_ID.value),
+        ))
+
+    if PortConnectionKey.ENDPOINTS.value in duplicate.key_pattern and endpoints:
         abort(400, OCCUPIED_SLOT_MESSAGES.get(
             connection_type, CONNECTION_DUPLICATE_MESSAGE,
         ).format(port_id=endpoints[0]))

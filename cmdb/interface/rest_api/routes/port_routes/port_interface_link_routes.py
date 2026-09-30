@@ -83,6 +83,7 @@ from cmdb.interface.rest_api.responses import (
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRight
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import (
     LINK_ALREADY_EXISTS_MESSAGE,
+    LINK_CREATED_NOT_READABLE_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_helper import (
     enforce_interface_on_port_object,
@@ -102,7 +103,11 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     read_pagination_params,
     read_search_param,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_if_duplicate,
+    request_wants_body,
+    require_created_item,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -136,9 +141,11 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
 
     Raises:
         HTTPException: 400 when the row id, the relation type or the row itself is unusable, when the
-                       interface belongs to another CmdbObject, or when the link already exists; 403
-                       when the port owner's ACL denies it; 404 when the port or the interface object
-                       does not exist; 500 on an unexpected error
+                       interface belongs to another CmdbObject, or when the link already exists (by
+                       the pre-check or, under a concurrent create, by the unique index); 403 when the
+                       port owner's ACL denies it; 404 when the port or the interface object does not
+                       exist; 500 when the write fails for any other reason, when the created link cannot
+                       be read back, or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbPortInterfaceLink and its public_id
@@ -177,22 +184,23 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
         candidate[PortInterfaceLinkKey.CREATION_TIME.value] = datetime.now(timezone.utc)
         candidate[PortInterfaceLinkKey.LAST_EDIT_TIME.value] = None
 
-        new_id: int = port_interface_links_manager.insert_item(candidate)
+        try:
+            new_id: int = port_interface_links_manager.insert_item(candidate)
+        except PortInterfaceLinksManagerInsertError as err:
+            # The unique index on the identity tuple is what stops two concurrent creates, and it is the
+            # only thing that can: the pre-check above is a read followed by a write. Only its refusal is
+            # an existing link; any other failure is the server's (500)
+            LOGGER.error("[insert_port_interface_link] PortInterfaceLinksManagerInsertError: %s", err, exc_info=True)
+            abort_if_duplicate(err, LINK_ALREADY_EXISTS_MESSAGE.format(port_id=port_id))
 
-        created: dict[str, Any] | None = port_interface_links_manager.get_item(new_id, as_dict=True)
-
-        if not created:
-            abort(404, 'Could not retrieve the created Port interface link from the database!')
+        created: dict[str, Any] = require_created_item(
+            port_interface_links_manager.get_item(new_id, as_dict=True), LINK_CREATED_NOT_READABLE_MESSAGE,
+        )
 
         return InsertSingleResponse(created, new_id).make_response()
     except AccessDeniedError as err:
         LOGGER.error("[insert_port_interface_link] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
-    except PortInterfaceLinksManagerInsertError as err:
-        # The unique index on the identity tuple is what stops two concurrent creates, and it is the
-        # only thing that can: the pre-check above is a read followed by a write
-        LOGGER.error("[insert_port_interface_link] PortInterfaceLinksManagerInsertError: %s", err, exc_info=True)
-        abort(400, LINK_ALREADY_EXISTS_MESSAGE.format(port_id=port_id))
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    CRUD - READ                                                       #

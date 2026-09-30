@@ -71,7 +71,7 @@ class RiskManager(GenericManager):
             # Delete the Risk itself
             return self.delete_item(public_id)
         except Exception as err:
-            raise RiskManagerDeleteError(str(err)) from err
+            raise RiskManagerDeleteError(err) from err
 
 
     def delete_many_with_follow_up(self, public_ids: list[int]) -> tuple[list[int], int, int]:
@@ -112,7 +112,7 @@ class RiskManager(GenericManager):
 
             return existing_risk_ids, deleted_ras, deleted_cmas
         except Exception as err:
-            raise RiskManagerDeleteError(str(err)) from err
+            raise RiskManagerDeleteError(err) from err
 
 
     def _cascade_delete_risk_assessments(self, risk_ids: list[int]) -> tuple[int, int]:

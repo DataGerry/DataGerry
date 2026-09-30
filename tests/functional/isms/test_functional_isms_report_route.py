@@ -585,7 +585,7 @@ class TestReportFilterShapes:
 
 
 class TestReportErrorMapping:
-    """Report routes map an unexpected aggregation failure to 500."""
+    """Report routes map a manager read failure to 400 and any other failure to 500."""
 
     def test_risk_assessments_report_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error during the risk-assessments report aggregation surfaces as 500."""
@@ -596,19 +596,18 @@ class TestReportErrorMapping:
 
         assert rest_api.get(f'{ROUTE_URL}/risk_assessments').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_risk_treatment_plan_iteration_error_returns_500(self, rest_api, monkeypatch) -> None:
+    def test_risk_treatment_plan_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """
-        The route's typed arm: a manager iteration failure has its own handler and its own message
+        A manager iteration failure is the report's typed arm: 400, as on every ISMS list route
 
-        It is distinct from the generic arm above - that one logs with exc_info, this one does not,
-        because a RiskAssessmentManagerIterationError already names what failed.
+        Anything the route does not name is the generic arm above and stays a 500.
         """
         def _raise_iteration_error(*_args, **_kwargs):
             raise RiskAssessmentManagerIterationError('no iteration')
 
         monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _raise_iteration_error)
 
-        assert rest_api.get(f'{ROUTE_URL}/risk_treatment_plan').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert rest_api.get(f'{ROUTE_URL}/risk_treatment_plan').status_code == HTTPStatus.BAD_REQUEST
 
     def test_risk_matrix_report_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """The RiskMatrix report has no pagination and no aggregation, so its builder is what can fail."""

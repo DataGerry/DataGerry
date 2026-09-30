@@ -44,7 +44,7 @@ Two semantics are worth knowing before changing anything here:
     The IS_NULL rule is therefore an ``$or`` of "entry exists and is empty" and "no such entry".
 
 The MongoDB operator names (``'$and'``, ``'$elemMatch'``, ...) are written as bare literals here, in
-the same way ``manager/query_builder/builder.py`` does: they are the database's wire vocabulary. The
+the same way ``utils/builder.py`` does: they are the database's wire vocabulary. The
 DataGerry document keys around them are NOT literals - they come from the field-key enums at the top
 of this module. Note that this builder emits query OPERATORS nested inside ``$elemMatch`` rather than
 pipeline stages, which is why it does not go through ``Builder``: that class supplies stage
@@ -393,7 +393,7 @@ class MongoDBQueryBuilder:
             raise
         except Exception as err:
             LOGGER.error("[__build_rule] Exception: %s, Type: %s", err, type(err))
-            raise MongoQueryBuilderBuildRuleError(str(err)) from err
+            raise MongoQueryBuilderBuildRuleError(err) from err
 
 # ------------------------------------------------------ HELPERS ----------------------------------------------------- #
 

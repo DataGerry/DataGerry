@@ -293,7 +293,9 @@ def enforce_port_name_available(
 
     A readable rejection for the ordinary case. It is not the guarantee: being a read followed by a
     write it cannot stop two concurrent requests, which is what the unique (object_id, side, name)
-    index is for - the routes translate its duplicate-key error into the same 400
+    index is for. Both write routes (create and update) answer that index's refusal with this same 400
+    through ``routes_helper.abort_if_duplicate`` - and only that refusal: any other failure of the write
+    is a 500, never a taken name
 
     Args:
         ports_manager (PortsManager): db interface for CmdbPorts

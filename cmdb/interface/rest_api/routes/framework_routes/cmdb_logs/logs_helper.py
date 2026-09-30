@@ -30,7 +30,8 @@ from flask import Request
 from werkzeug import Response
 
 from cmdb.manager import LogsManager, UsersManager
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import Builder
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser

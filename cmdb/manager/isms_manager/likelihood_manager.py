@@ -22,7 +22,7 @@ from typing import Any
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.manager.query_builder import Builder
+from cmdb.utils import Builder
 
 from cmdb.models.isms_model import IsmsLikelihood, IsmsRiskAssessment
 from cmdb.models.isms_model.isms_likelihood_constants import LikelihoodKey
@@ -142,4 +142,4 @@ class LikelihoodManager(GenericManager):
             return bool(result)
         except Exception as err:
             LOGGER.error("[likelihood_calculation_basis_exists] Exception: %s. Type: %s", err, type(err))
-            raise LikelihoodManagerGetError(str(err)) from err
+            raise LikelihoodManagerGetError(err) from err

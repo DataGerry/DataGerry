@@ -40,7 +40,7 @@ returns the same documents an unsearched one does
 """
 from typing import Any
 
-from cmdb.manager.query_builder.builder import Builder
+from cmdb.utils import Builder
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.framework.search.list_search import as_text, build_search_match_stages

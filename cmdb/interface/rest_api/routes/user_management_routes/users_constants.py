@@ -77,3 +77,12 @@ SERVER_OWNED_FIELD_REFUSED: str = "The field '{field}' cannot be changed through
 PASSWORD_FIELD_REFUSED: str = (
     "A password cannot be set through this route - use PATCH /users/<public_id>/password instead!"
 )
+
+
+# Refusal (HTTP 400) when another CmdbUser already carries the user_name - by the route's pre-check or, under
+# a concurrent write, by the unique index on user_name. The name is compared exactly as sent, as the index does
+USER_NAME_TAKEN_MESSAGE: str = "A User with the user_name '{user_name}' already exists!"
+
+# Server error (HTTP 500) when the CmdbUser the insert just reported cannot be read back - the server losing
+# sight of its own write, not a missing resource the caller asked for
+USER_CREATED_NOT_READABLE_MESSAGE: str = "Could not retrieve the created User from the database!"

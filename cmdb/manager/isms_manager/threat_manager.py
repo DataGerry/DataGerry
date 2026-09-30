@@ -21,7 +21,7 @@ from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.manager.query_builder import Builder
+from cmdb.utils import Builder
 from cmdb.manager.isms_manager.isms_manager_helper import delete_isms_item_if_unused_by_risk
 
 from cmdb.models.isms_model import IsmsThreat, IsmsRisk
@@ -117,7 +117,7 @@ class ThreatManager(GenericManager):
 
             return {doc['_id'] for doc in result}
         except BaseManagerIterationError as err:
-            raise ThreatManagerGetError(str(err)) from err
+            raise ThreatManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_used_threat_ids] Exception: %s. Type: %s", err, type(err))
-            raise ThreatManagerGetError(str(err)) from err
+            raise ThreatManagerGetError(err) from err

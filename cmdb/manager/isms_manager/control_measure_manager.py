@@ -22,7 +22,7 @@ from typing import Any
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
-from cmdb.manager.query_builder import Builder
+from cmdb.utils import Builder
 
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
@@ -104,7 +104,7 @@ class ControlMeasureManager(GenericManager):
 
             return {doc['_id'] for doc in result}
         except BaseManagerIterationError as err:
-            raise ControlMeasureManagerGetError(str(err)) from err
+            raise ControlMeasureManagerGetError(err) from err
         except Exception as err:
             LOGGER.error("[get_used_control_measure_ids] Exception: %s. Type: %s", err, type(err))
-            raise ControlMeasureManagerGetError(str(err)) from err
+            raise ControlMeasureManagerGetError(err) from err

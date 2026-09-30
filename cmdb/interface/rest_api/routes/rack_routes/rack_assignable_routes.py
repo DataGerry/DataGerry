@@ -35,7 +35,7 @@ from flask import request, abort
 from werkzeug import Response
 
 from cmdb.manager import ObjectsManager, TypesManager
-from cmdb.manager.query_builder import Builder, BuilderParameters
+from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
@@ -48,7 +48,7 @@ from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.utils import is_truthy_query_arg
+from cmdb.utils import Builder, is_truthy_query_arg
 
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel

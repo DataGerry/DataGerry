@@ -112,6 +112,10 @@ PORT_NAME_TAKEN_MESSAGE: str = (
     "A Port named '{name}' already exists on the '{side}' side of CmdbObject ID:{object_id}!"
 )
 
+# Server error (HTTP 500) when a Port the insert just reported cannot be read back - the server losing
+# sight of its own write, not a missing resource the caller asked for
+PORT_CREATED_NOT_READABLE_MESSAGE: str = 'Could not retrieve the created Port from the database!'
+
 # Refusal (HTTP 400) when a select field names a CmdbExtendableOption that does not exist, or one from
 # the wrong list - a PORT_TYPE id in the speed field would otherwise be stored and rendered as a speed
 PORT_OPTION_INVALID_MESSAGE: str = (

@@ -19,7 +19,7 @@ Implementation of all API routes for IsmsRiskClasses
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import request, abort
+from flask import request
 from werkzeug import Response
 
 from cmdb.interface.rest_api.responses.default_response import DefaultResponse
@@ -33,16 +33,25 @@ from cmdb.models.isms_model.isms_helper import remove_deleted_risk_class_from_ma
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     MAX_ISMS_RISK_CLASSES,
     ISMS_RISK_CLASSES_LABEL,
+    RISK_CLASS_LABEL,
+    IsmsManagerErrorMessage,
 )
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    handle_manager_errors,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_if_isms_cap_reached,
     get_item_or_404,
     update_multiple_items,
+    manager_error_messages,
+    require_created_item,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -76,6 +85,10 @@ risk_class_blueprint = APIBlueprint('risk_classes', __name__)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.add')
 @risk_class_blueprint.validate(build_write_schema(IsmsRiskClass.SCHEMA))
 @handle_route_errors("while creating the RiskClass")
+@handle_manager_errors(manager_error_messages(RISK_CLASS_LABEL, {
+    RiskClassManagerInsertError: IsmsManagerErrorMessage.INSERT,
+    RiskClassManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
+}))
 def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsRiskClass into the database
@@ -84,28 +97,24 @@ def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Resp
         data (IsmsRiskClass.SCHEMA): Data of the IsmsRiskClass which should be inserted
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the insert or the read-back of the created RiskClass fails, 500 when
+            the created RiskClass cannot be found afterwards or on an unexpected error
+
     Returns:
         InsertSingleResponse: The new IsmsRiskClass and its public_id
     """
-    try:
-        risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
+    risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        abort_if_isms_cap_reached(risk_class_manager, MAX_ISMS_RISK_CLASSES, ISMS_RISK_CLASSES_LABEL)
+    abort_if_isms_cap_reached(risk_class_manager, MAX_ISMS_RISK_CLASSES, ISMS_RISK_CLASSES_LABEL)
 
-        result_id: int = risk_class_manager.insert_item(data)
+    result_id: int = risk_class_manager.insert_item(data)
 
-        created_risk_class: dict[str, Any] | None = risk_class_manager.get_item(result_id, as_dict=True)
+    created_risk_class: dict[str, Any] = require_created_item(
+        risk_class_manager.get_item(result_id, as_dict=True), RISK_CLASS_LABEL,
+    )
 
-        if not created_risk_class:
-            abort(404, "Could not retrieve the created RiskClass from the database!")
-
-        return InsertSingleResponse(created_risk_class, result_id).make_response()
-    except RiskClassManagerInsertError as err:
-        LOGGER.error("[insert_isms_risk_class] RiskClassManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Could not insert the new RiskClass in the database!")
-    except RiskClassManagerGetError as err:
-        LOGGER.error("[insert_isms_risk_class] RiskClassManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the created RiskClass from the database!")
+    return InsertSingleResponse(created_risk_class, result_id).make_response()
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -114,6 +123,10 @@ def insert_isms_risk_class(data: dict[str, Any], request_user: CmdbUser) -> Resp
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.view')
 @risk_class_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving RiskClasses")
+@handle_manager_errors(manager_error_messages(RISK_CLASS_LABEL, {
+    RiskClassManagerIterationError: IsmsManagerErrorMessage.ITERATE,
+}))
 def get_isms_risk_classes(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple IsmsRiskClasses
@@ -125,29 +138,22 @@ def get_isms_risk_classes(params: CollectionParameters, request_user: CmdbUser) 
     Returns:
         GetMultiResponse: All the IsmsRiskClasses matching the CollectionParameters
     """
-    try:
-        body = request_wants_body()
+    body = request_wants_body()
 
-        risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
+    risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[IsmsRiskClass] = risk_class_manager.iterate_items(builder_params)
-        risk_class_list = [IsmsRiskClass.to_json(risk_class) for risk_class in iteration_result.results]
+    iteration_result: IterationResult[IsmsRiskClass] = risk_class_manager.iterate_items(builder_params)
+    risk_class_list = [IsmsRiskClass.to_json(risk_class) for risk_class in iteration_result.results]
 
-        api_response = GetMultiResponse(risk_class_list,
-                                        iteration_result.total,
-                                        params,
-                                        request.url,
-                                        body)
+    api_response = GetMultiResponse(risk_class_list,
+                                    iteration_result.total,
+                                    params,
+                                    request.url,
+                                    body)
 
-        return api_response.make_response()
-    except RiskClassManagerIterationError as err:
-        LOGGER.error("[get_isms_risk_classes] RiskClassManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve RiskClasses from the database!")
-    except Exception as err:
-        LOGGER.error("[get_isms_risk_classes] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving RiskClasses!")
+    return api_response.make_response()
 
 
 @risk_class_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
@@ -155,6 +161,9 @@ def get_isms_risk_classes(params: CollectionParameters, request_user: CmdbUser) 
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.view')
 @handle_route_errors("while retrieving the RiskClass with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_CLASS_LABEL, {
+    RiskClassManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def get_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve a single IsmsRiskClass
@@ -166,16 +175,12 @@ def get_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         GetSingleResponse: The requested IsmsRiskClass
     """
-    try:
-        risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
+    risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        requested_risk_class = get_item_or_404(risk_class_manager, public_id,
-                                               f"The RiskClass with ID:{public_id} was not found!")
+    requested_risk_class = get_item_or_404(risk_class_manager, public_id,
+                                           f"The RiskClass with ID:{public_id} was not found!")
 
-        return GetSingleResponse(requested_risk_class, body=request_wants_body()).make_response()
-    except RiskClassManagerGetError as err:
-        LOGGER.error("[get_isms_risk_class] RiskClassManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskClass with ID: {public_id} from the database!")
+    return GetSingleResponse(requested_risk_class, body=request_wants_body()).make_response()
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -185,6 +190,10 @@ def get_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.edit')
 @risk_class_blueprint.validate(build_write_schema(IsmsRiskClass.SCHEMA))
 @handle_route_errors("while updating the RiskClass with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_CLASS_LABEL, {
+    RiskClassManagerGetError: IsmsManagerErrorMessage.GET,
+    RiskClassManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
+}))
 def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsRiskClass
@@ -197,25 +206,18 @@ def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: C
     Returns:
         UpdateSingleResponse: The new data of the IsmsRiskClass
     """
-    try:
-        risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
+    risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        get_item_or_404(risk_class_manager, public_id,
-                        f"The RiskClass with ID:{public_id} was not found!", as_dict=False)
+    get_item_or_404(risk_class_manager, public_id,
+                    f"The RiskClass with ID:{public_id} was not found!", as_dict=False)
 
-        # The URL owns the identity: a body public_id would otherwise be $set onto the document
+    # The URL owns the identity: a body public_id would otherwise be $set onto the document
 
-        pin_public_id(data, public_id)
+    pin_public_id(data, public_id)
 
-        stored: dict[str, Any] = update_item_from_payload(risk_class_manager, public_id, IsmsRiskClass, data)
+    stored: dict[str, Any] = update_item_from_payload(risk_class_manager, public_id, IsmsRiskClass, data)
 
-        return UpdateSingleResponse(stored).make_response()
-    except RiskClassManagerGetError as err:
-        LOGGER.error("[update_isms_risk_class] RiskClassManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskClass with ID: {public_id} from the database!")
-    except RiskClassManagerUpdateError as err:
-        LOGGER.error("[update_isms_risk_class] RiskClassManagerUpdateError: %s", err, exc_info=True)
-        abort(400, f"Failed to update the RiskClass with ID: {public_id}!")
+    return UpdateSingleResponse(stored).make_response()
 
 
 @risk_class_blueprint.route('/multiple', methods=['PUT', 'PATCH'])
@@ -255,6 +257,10 @@ def update_multiple_isms_risk_classes(request_user: CmdbUser) -> Response:
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @risk_class_blueprint.protect(auth=True, right='base.isms.riskClass.delete')
 @handle_route_errors("while deleting the RiskClass with ID: {public_id}")
+@handle_manager_errors(manager_error_messages(RISK_CLASS_LABEL, {
+    RiskClassManagerDeleteError: IsmsManagerErrorMessage.DELETE,
+    RiskClassManagerGetError: IsmsManagerErrorMessage.GET,
+}))
 def delete_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `DELETE` route to delete a single IsmsRiskClass
@@ -266,21 +272,14 @@ def delete_isms_risk_class(public_id: int, request_user: CmdbUser) -> Response:
     Returns:
         DeleteSingleResponse: The deleted IsmsRiskClass data
     """
-    try:
-        risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
+    risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-        to_delete_risk_class: dict[str, Any] = get_item_or_404(risk_class_manager, public_id,
-                                                               f"The RiskClass with ID:{public_id} was not found!")
+    to_delete_risk_class: dict[str, Any] = get_item_or_404(risk_class_manager, public_id,
+                                                           f"The RiskClass with ID:{public_id} was not found!")
 
-        risk_class_manager.delete_item(public_id)
+    risk_class_manager.delete_item(public_id)
 
-        # Remove the risk_class from the RiskMatrix
-        remove_deleted_risk_class_from_matrix(public_id, request_user)
+    # Remove the risk_class from the RiskMatrix
+    remove_deleted_risk_class_from_matrix(public_id, request_user)
 
-        return DeleteSingleResponse(to_delete_risk_class).make_response()
-    except RiskClassManagerDeleteError as err:
-        LOGGER.error("[delete_isms_risk_class] RiskClassManagerDeleteError: %s", err, exc_info=True)
-        abort(400, f"Failed to delete the RiskClass with ID:{public_id}!")
-    except RiskClassManagerGetError as err:
-        LOGGER.error("[delete_isms_risk_class] RiskClassManagerGetError: %s", err, exc_info=True)
-        abort(400, f"Failed to retrieve the RiskClass with ID:{public_id} from the database!")
+    return DeleteSingleResponse(to_delete_risk_class).make_response()
