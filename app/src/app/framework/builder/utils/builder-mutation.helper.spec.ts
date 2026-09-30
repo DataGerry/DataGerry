@@ -348,6 +348,26 @@ describe('BuilderMutationHelper', () => {
     });
 
 
+    describe('removing a field from a loaded type', () => {
+
+        it('drops the name from the stored section, not only from the canvas copy', () => {
+            // A loaded type stores names, while the canvas holds field objects in its own copy.
+            ctx.typeInstance.render_meta.sections = [
+                { name: 'section_a', label: 'A', type: 'section', fields: ['field_a', 'field_c'] },
+                { name: 'section_b', label: 'B', type: 'section', fields: ['field_b'] }
+            ];
+            const fieldC = { name: 'field_c', type: 'text', label: 'Field C' };
+            ctx.typeInstance.fields = [fieldA, fieldB, fieldC];
+            helper.syncSectionsFromModel();
+
+            helper.removeField(fieldC, ctx.sections[0]);
+
+            expect(ctx.typeInstance.fields.map((f: any) => f.name)).toEqual(['field_a', 'field_b']);
+            expect(ctx.typeInstance.render_meta.sections[0].fields).toEqual(['field_a']);
+            expect(ctx.typeInstance.render_meta.sections[1].fields).toEqual(['field_b']);
+        });
+    });
+
     describe('removing a section that owns fields', () => {
 
         it('removes a multi-data-section\'s fields from the model with it', () => {
@@ -395,6 +415,66 @@ describe('BuilderMutationHelper', () => {
             helper.removeSection(refSection, 0);
 
             expect(ctx.typeInstance.fields.map((f: any) => f.name)).toEqual(['field_b']);
+        });
+    });
+
+
+    describe('ports section restore', () => {
+        const PORTS_TEMPLATE = 'dg-virtual-tpl-ports';
+
+        function armPortsTemplate(): void {
+            const template: any = { name: PORTS_TEMPLATE, label: 'Ports', is_global: true, fields: [] };
+            ctx.globalSectionTemplates = [template];
+            templateManager.extractSectionData.and.returnValue({
+                name: PORTS_TEMPLATE, label: 'Ports', type: 'section', fields: []
+            });
+        }
+
+        function sectionNames(): Array<string> {
+            return ctx.sections.map((section: any) => section?.name);
+        }
+
+
+        it('restores the section at the stored slot', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+            ctx.typeInstance.port_section_index = 1;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual(['section_a', PORTS_TEMPLATE, 'section_b']);
+        });
+
+
+        it('restores the section first when the stored slot is 0', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+            ctx.typeInstance.port_section_index = 0;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual([PORTS_TEMPLATE, 'section_a', 'section_b']);
+        });
+
+
+        it('clamps a stored slot that outruns the sections', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+            ctx.typeInstance.port_section_index = 9;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual(['section_a', 'section_b', PORTS_TEMPLATE]);
+        });
+
+
+        it('treats a type without a stored slot as first', () => {
+            armPortsTemplate();
+            ctx.typeInstance.uses_ports = true;
+
+            helper.restorePortsSection();
+
+            expect(sectionNames()).toEqual([PORTS_TEMPLATE, 'section_a', 'section_b']);
         });
     });
 });

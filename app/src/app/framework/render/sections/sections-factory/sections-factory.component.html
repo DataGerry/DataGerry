@@ -1,4 +1,9 @@
-@for (section of sections; track section) {
+
+@if (resolvedSlotIndex === 0) {
+<ng-container [ngTemplateOutlet]="sectionSlot" />
+}
+
+@for (section of sections; track section; let index = $index) {
 
 @switch (section.type) {
 @case ('ref-section') {
@@ -14,4 +19,9 @@
         [values]="values" [objectID]="objectID" />
 }
 }
+
+@if (resolvedSlotIndex === index + 1) {
+<ng-container [ngTemplateOutlet]="sectionSlot" />
+}
+
 }

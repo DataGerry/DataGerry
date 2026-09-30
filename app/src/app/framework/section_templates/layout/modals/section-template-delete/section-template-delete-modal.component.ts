@@ -32,8 +32,9 @@ export class SectionTemplateDeleteModalComponent {
   @Input() 
   public sectionTemplate: CmdbSectionTemplate;
 
+  /** Null when the template is not global, so no counts were fetched. */
   @Input()
-  public templateCounts: GlobalTemplateCounts;
+  public templateCounts: GlobalTemplateCounts | null = null;
 
   public readonly activeModal = inject(NgbActiveModal);
 }

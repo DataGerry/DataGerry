@@ -17,7 +17,8 @@
 */
 import { PortOptionType } from 'src/app/framework/models/port-option-type';
 import { PortInterfaceLink, PortInterfaceSummary } from './interface-link.types';
-import { PortConnectionState } from './port-connection.types';
+import { PortDeviceKind } from './port-bulk.types';
+import { PortConnectionState, ResolvedCable } from './port-connection.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** The option lists the three select fields of a port draw their values from. */
@@ -65,34 +66,112 @@ export interface CmdbPort {
 }
 
 
-/** One table row: a port with its option ids resolved to the labels the user picked them by. */
+/** An option field of the overview: the stored id and its resolved label. */
+export interface PortOptionValue {
+    id: number | null;
+    label: string | null;
+}
+
+
+/** The far port of a cable. `name` and `side` are masked to null when the user may not read it. */
+export interface OverviewConnectedPort {
+    port_id: number;
+    name: string | null;
+    side: PortSide | null;
+}
+
+
+/** The object at the far end of a cable. `label` is null while `restricted`. */
+export interface OverviewConnectedObject {
+    object_id: number;
+    label: string | null;
+    restricted: boolean;
+}
+
+
+/** One port as `GET /ports/object/<object_id>/overview` returns it, labels and cable resolved. */
+export interface OverviewPort {
+    port_id: number;
+    side: PortSide;
+    port_number: number | null;
+    name: string;
+    description?: string | null;
+    connected: boolean;
+    cable: ResolvedCable | null;
+    cable_connection_id: number | null;
+    connected_port?: OverviewConnectedPort | null;
+    connected_object: OverviewConnectedObject | null;
+    interface_links: PortInterfaceLink[];
+    status: PortOptionValue | null;
+    port_type: PortOptionValue | null;
+    speed: PortOptionValue | null;
+}
+
+
+/** A STANDARD device row: one port. */
+export interface StandardOverviewRow {
+    port: OverviewPort;
+}
+
+
+/** A PATCH_PANEL row: one pairing. An unpaired port leaves the other face null. */
+export interface PatchPanelOverviewRow {
+    front: OverviewPort | null;
+    rear: OverviewPort | null;
+    paired: boolean;
+}
+
+
+/** `device_kind` decides the row shape; an object without ports answers null with no rows. */
+export type PortOverviewResponse =
+    | { device_kind: null; rows: never[]; total: number }
+    | { device_kind: PortDeviceKind.STANDARD; rows: StandardOverviewRow[]; total: number }
+    | { device_kind: PortDeviceKind.PATCH_PANEL; rows: PatchPanelOverviewRow[]; total: number };
+
+
+/** One port as the tables show it. */
 export interface PortRow {
     publicId: number;
     name: string;
     side: PortSide;
-    sideLabel: string;
     portNumber: number | null;
     status: string | null;
     portType: string | null;
     speed: string | null;
     description: string | null;
-    connected: boolean;
     connectionState: PortConnectionState;
 
-    /** What the connection cell reads: the cable in one line, the pairing, or "Free". */
+    /** What the connection cell reads: the cable in one line, or "Free". */
     connectionLabel: string;
 
     /** The cable to edit or to cut; null while the port carries none. */
     cableConnectionId: number | null;
 
-    /** The panel port on the other side of the internal pairing, which belongs to the same object. */
-    pairedPortName: string | null;
+    /** The far end of the cable: its port and object, or a note that it is restricted. */
+    farEndLabel: string | null;
 
     /** What the interfaces cell reads. */
     interfaces: PortInterfaceSummary;
 
     /** The interface label on its own, because the column sorts by a plain value. */
     interfaceLabel: string | null;
+}
+
+
+/** One patch panel pairing: the front and rear port side by side. */
+export interface PatchPanelRow {
+    /** Identifies the pairing; the front port's id, or the rear's when the front is missing. */
+    key: number;
+    portNumber: number | null;
+    front: PortRow | null;
+    rear: PortRow | null;
+    paired: boolean;
+
+    /** Flat sort keys, so the pairing sorts like any other row. */
+    frontName: string | null;
+    rearName: string | null;
+    frontConnection: string | null;
+    rearConnection: string | null;
 }
 
 

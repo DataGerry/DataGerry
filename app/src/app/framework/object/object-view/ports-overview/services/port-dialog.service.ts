@@ -30,6 +30,7 @@ import { PortBulkDeleteModalComponent } from '../components/port-bulk-delete-mod
 import { PortBulkEditModalComponent } from '../components/port-bulk-edit-modal/port-bulk-edit-modal.component';
 import { PortCreateWizardModalComponent } from '../components/port-create-wizard-modal/port-create-wizard-modal.component';
 import { PortFormModalComponent } from '../components/port-form-modal/port-form-modal.component';
+import { PortDeviceKind } from '../models/port-bulk.types';
 import { CmdbPortConnection } from '../models/port-connection.types';
 import { CmdbPort, PortSelection } from '../models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -58,11 +59,12 @@ export class PortDialogService {
     }
 
 
-    /** The creation assistant: a whole device's ports, named and previewed server-side. */
-    public openCreateWizard(objectId: number, objectLabel: string): Observable<void> {
+    /** The Add dialog. The kind the object already is limits the device type it offers. */
+    public openAddPorts(objectId: number, objectLabel: string, existingKind: PortDeviceKind | null): Observable<void> {
         return this.open(PortCreateWizardModalComponent, (instance) => {
             instance.objectId = objectId;
             instance.objectLabel = objectLabel;
+            instance.existingKind = existingKind;
         });
     }
 

@@ -67,7 +67,8 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
   beforeEach(async () => {
     licenseService = jasmine.createSpyObj<LicenseService>('LicenseService',
       ['getCurrentLicense', 'deleteCurrentLicense', 'importLicense', 'generateActivationKey']);
-    premiumFeature = jasmine.createSpyObj<PremiumFeatureService>('PremiumFeatureService', ['seed', 'clear']);
+    premiumFeature = jasmine.createSpyObj<PremiumFeatureService>('PremiumFeatureService', ['refresh', 'clear']);
+    premiumFeature.refresh.and.returnValue(of(null));
     toast = jasmine.createSpyObj<ToastService>('ToastService', ['error', 'success']);
     loader = jasmine.createSpyObj<LoaderService>('LoaderService', ['show', 'hide'], { isLoading$: of(false) });
     deleteModal = jasmine.createSpyObj<DeleteModalService>('DeleteModalService', ['confirmDelete']);
@@ -98,7 +99,7 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
   /* ------------------------------------------------ REMOVAL FLOW ------------------------------------------------- */
 
   describe('license removal', () => {
-    it('clears the gating cache and reloads the license on a successful delete', () => {
+    it('clears the gating cache and re-reads the entitlements on a successful delete', () => {
       deleteModal.confirmDelete.and.callFake((config: DeleteModalConfig) => {
         config.onConfirm();
         return Promise.resolve();
@@ -110,8 +111,8 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
 
       expect(licenseService.deleteCurrentLicense).toHaveBeenCalledTimes(1);
       expect(premiumFeature.clear).toHaveBeenCalledTimes(1);
-      // The gate is cleared directly; it must not be re-derived from a fetch.
-      expect(premiumFeature.seed).not.toHaveBeenCalled();
+      // Cleared at once for an instant lock, then confirmed against license/entitlements.
+      expect(premiumFeature.refresh).toHaveBeenCalledTimes(1);
       expect(toast.success).toHaveBeenCalled();
       // The component still refreshes its own displayed edition.
       expect(licenseService.getCurrentLicense).toHaveBeenCalled();
@@ -128,6 +129,7 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
 
       expect(toast.error).toHaveBeenCalledWith('Delete failed');
       expect(premiumFeature.clear).not.toHaveBeenCalled();
+      expect(premiumFeature.refresh).not.toHaveBeenCalled();
     });
 
     it('does nothing until the destructive action is confirmed', () => {
@@ -145,7 +147,7 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
   /* ------------------------------------------------ IMPORT FLOW -------------------------------------------------- */
 
   describe('license import', () => {
-    it('seeds the gating cache from the imported license (no re-fetch)', fakeAsync(() => {
+    it('re-reads the entitlements after a successful import', fakeAsync(() => {
       const license = buildLicense([LicenseFeature.Ipam]);
       licenseService.importLicense.and.returnValue(of(license));
       const file = { text: () => Promise.resolve('license-blob') } as unknown as File;
@@ -154,12 +156,12 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
       tick();
 
       expect(licenseService.importLicense).toHaveBeenCalledWith('license-blob');
-      expect(premiumFeature.seed).toHaveBeenCalledWith(license);
+      expect(premiumFeature.refresh).toHaveBeenCalledTimes(1);
       expect(premiumFeature.clear).not.toHaveBeenCalled();
       expect(toast.success).toHaveBeenCalled();
     }));
 
-    it('does not seed when the import request fails', fakeAsync(() => {
+    it('does not touch the gating cache when the import request fails', fakeAsync(() => {
       licenseService.importLicense.and.returnValue(throwError(() => ({ error: { message: 'Invalid license' } })));
       const file = { text: () => Promise.resolve('license-blob') } as unknown as File;
 
@@ -167,7 +169,7 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
       tick();
 
       expect(toast.error).toHaveBeenCalledWith('Invalid license');
-      expect(premiumFeature.seed).not.toHaveBeenCalled();
+      expect(premiumFeature.refresh).not.toHaveBeenCalled();
     }));
 
     it('rejects an empty license file without calling the import endpoint', fakeAsync(() => {
@@ -177,7 +179,7 @@ describe('LicenseManagementComponent — gating cache wiring', () => {
       tick();
 
       expect(licenseService.importLicense).not.toHaveBeenCalled();
-      expect(premiumFeature.seed).not.toHaveBeenCalled();
+      expect(premiumFeature.refresh).not.toHaveBeenCalled();
       expect(toast.error).toHaveBeenCalled();
     }));
   });

@@ -47,12 +47,20 @@ export interface PortNamingRequest {
 }
 
 
-/** Body of `POST /ports/object/<id>/bulk`: the naming keys plus the values shared by every port. */
+/**
+ * Body of `POST /ports/object/<id>/bulk`: the naming keys plus the values shared by every port.
+ *
+ * The `rear_*` keys are for a panel's rear face. An omitted rear status or port type is copied from the front.
+ */
 export interface PortBulkRequest extends PortNamingRequest {
     status: number | null;
     port_type: number | null;
     speed: number | null;
     description: string | null;
+    rear_status?: number;
+    rear_port_type?: number;
+    rear_speed?: number;
+    rear_description?: string;
 }
 
 

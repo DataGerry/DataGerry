@@ -8,13 +8,15 @@
 
     <cmdb-sections-factory [mode]="mode" [form]="renderForm" [changeForm]="changeForm" [objectID]="objectID"
         [sections]="renderResult.sections" [fields]="renderResult.fields" [values]="renderResult.fields"
-        [typeInstance]="typeInstance" [renderResult]="renderResult" />
+        [typeInstance]="typeInstance" [renderResult]="renderResult"
+        [sectionSlot]="sectionSlot" [sectionSlotIndex]="sectionSlotIndex" />
 
     } @else {
 
     <cmdb-sections-factory [mode]="mode" [form]="renderForm" [changeForm]="changeForm"
         [sections]="typeInstance?.render_meta?.sections" [fields]="typeInstance?.fields"
-        [values]="objectInstance?.fields" [typeInstance]="typeInstance" [renderResult]="renderResult" />
+        [values]="objectInstance?.fields" [typeInstance]="typeInstance" [renderResult]="renderResult"
+        [sectionSlot]="sectionSlot" [sectionSlotIndex]="sectionSlotIndex" />
 
     }
 </div>

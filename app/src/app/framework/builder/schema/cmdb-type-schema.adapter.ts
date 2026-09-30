@@ -93,4 +93,11 @@ export class CmdbTypeSchemaAdapter implements BuilderSchemaAdapter {
     public setUsesPorts(value: boolean): void {
         this.typeInstance.uses_ports = value;
     }
+
+
+    public readPortSectionIndex(): number {
+        const storedIndex = this.typeInstance?.port_section_index;
+
+        return Number.isInteger(storedIndex) && storedIndex >= 0 ? storedIndex : 0;
+    }
 }

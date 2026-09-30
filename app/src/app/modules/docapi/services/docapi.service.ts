@@ -127,8 +127,8 @@ export class DocapiService<T = DocTemplate> implements ApiServicePrefix {
     }
 
 
-    public getRenderedObjectDoc(templateId: number, objectId: number) {
-        return this.api?.callGet<any>(`${ this.servicePrefix }/${ templateId }/render/${ objectId }`, httpFileOptions);
+    public getRenderedObjectDoc(templateId: number, objectId: number): Observable<HttpResponse<Blob>> {
+        return this.api?.callGet<Blob>(`${ this.servicePrefix }/${ templateId }/render/${ objectId }`, httpFileOptions);
     }
 
 

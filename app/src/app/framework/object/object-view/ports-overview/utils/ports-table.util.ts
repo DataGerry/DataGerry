@@ -15,22 +15,31 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { FieldOption } from 'src/app/framework/models/cmdb-section-template';
 import { Sort, SortDirection } from 'src/app/layout/table/table.types';
-import { PortConnectionInfo, PortConnectionState } from '../models/port-connection.types';
-import { CmdbPort, PortRow, PortSide } from '../models/ports-overview.types';
+import { CmdbPortConnection, ConnectionType, PortConnectionState } from '../models/port-connection.types';
+import {
+    CmdbPort,
+    OverviewPort,
+    PatchPanelOverviewRow,
+    PatchPanelRow,
+    PortOptionValue,
+    PortOverviewResponse,
+    PortRow,
+    StandardOverviewRow
+} from '../models/ports-overview.types';
 import { summarisePortInterfaces } from './interface-row.util';
-import { cableSummary, peerPortIdOf } from './port-connection.util';
-import { normalizeSide, portSideLabel } from './port-side.util';
+import { cableLabel } from './port-connection.util';
+import { normalizeSide } from './port-side.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 // Port names are numbered ("Gi1/0/2", "Gi1/0/10"), so they have to collate numerically to read right.
 const COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
 
-/** Column identifier of the table mapped to the row field it sorts by. */
-const SORT_FIELDS: Record<string, keyof PortRow> = {
+type SortValue = string | number | boolean | null | undefined;
+
+/** Column identifier of the standard table mapped to the row field it sorts by. */
+const PORT_SORT_FIELDS: Record<string, keyof PortRow> = {
     name: 'name',
-    side: 'sideLabel',
     port_number: 'portNumber',
     status: 'status',
     port_type: 'portType',
@@ -40,97 +49,140 @@ const SORT_FIELDS: Record<string, keyof PortRow> = {
     description: 'description'
 };
 
+/** Column identifier of the patch panel table mapped to the row field it sorts by. */
+const PANEL_SORT_FIELDS: Record<string, keyof PatchPanelRow> = {
+    port_number: 'portNumber',
+    front: 'frontName',
+    front_connection: 'frontConnection',
+    paired: 'paired',
+    rear: 'rearName',
+    rear_connection: 'rearConnection'
+};
 
-/**
- * Builds the table rows. An option id with no label shows a dash, never the raw number.
- *
- * `connectionsByPort` is what the connection cell reads. Without it every port reports as free -
- * a section that may not read the connections still lists the ports.
- */
-export function toPortRows(
-    ports: readonly CmdbPort[],
-    labels: Map<string, string>,
-    connectionsByPort: Map<number, PortConnectionInfo> = new Map()
-): PortRow[] {
-    const namesByPortId = new Map(ports.map((port) => [port.public_id, port.name ?? '']));
 
-    return ports.map((port) => {
-        const side = normalizeSide(port.side);
-        const connection = connectionsByPort.get(port.public_id) ?? null;
-        const pairedPortName = pairedPortNameOf(connection, port.public_id, namesByPortId);
-        const interfaces = summarisePortInterfaces(port.interface_links ?? []);
+/** One overview port as a table row. A missing option label shows a dash, never the raw id. */
+export function toPortRow(port: OverviewPort): PortRow {
+    const interfaces = summarisePortInterfaces(port.interface_links ?? []);
+    const cabled = port.cable_connection_id != null;
 
-        return {
-            publicId: port.public_id,
-            name: port.name ?? '',
-            side,
-            sideLabel: portSideLabel(side),
-            portNumber: port.port_number ?? null,
-            status: labelOf(port.status, labels),
-            portType: labelOf(port.port_type, labels),
-            speed: labelOf(port.speed, labels),
-            description: port.description ?? null,
-            connected: port.connected === true,
-            connectionState: connection?.state ?? PortConnectionState.FREE,
-            connectionLabel: connectionLabelOf(connection, pairedPortName),
-            cableConnectionId: connection?.cable?.public_id ?? null,
-            pairedPortName,
-            interfaces,
-            interfaceLabel: interfaces.label
-        };
-    });
+    return {
+        publicId: port.port_id,
+        name: port.name ?? '',
+        side: normalizeSide(port.side),
+        portNumber: port.port_number ?? null,
+        status: labelOf(port.status),
+        portType: labelOf(port.port_type),
+        speed: labelOf(port.speed),
+        description: port.description ?? null,
+        connectionState: cabled ? PortConnectionState.CABLED : PortConnectionState.FREE,
+        connectionLabel: cabled ? cableLabel(port.cable) || 'Cable' : 'Free',
+        cableConnectionId: port.cable_connection_id ?? null,
+        farEndLabel: cabled ? farEndLabelOf(port) : null,
+        interfaces,
+        interfaceLabel: interfaces.label
+    };
 }
 
 
-/** Flattens the catalog's per-type option lists into one `public_id -> label` lookup. */
-export function toOptionLabels(optionsByType: Map<string, FieldOption[]>): Map<string, string> {
-    const labels = new Map<string, string>();
+export function toStandardRows(rows: readonly StandardOverviewRow[]): PortRow[] {
+    return rows.filter((row) => !!row?.port).map((row) => toPortRow(row.port));
+}
 
-    for (const options of optionsByType.values()) {
-        for (const option of options) {
-            labels.set(String(option.name), option.label);
-        }
+
+export function toPatchPanelRows(rows: readonly PatchPanelOverviewRow[]): PatchPanelRow[] {
+    return rows
+        .filter((row) => !!row?.front || !!row?.rear)
+        .map((row) => {
+            const front = row.front ? toPortRow(row.front) : null;
+            const rear = row.rear ? toPortRow(row.rear) : null;
+
+            return {
+                key: (front ?? rear).publicId,
+                portNumber: front?.portNumber ?? rear?.portNumber ?? null,
+                front,
+                rear,
+                paired: row.paired === true,
+                frontName: front?.name ?? null,
+                rearName: rear?.name ?? null,
+                frontConnection: front?.connectionLabel ?? null,
+                rearConnection: rear?.connectionLabel ?? null
+            };
+        });
+}
+
+
+/** The ports of the selected pairings, which is what every bulk action works on. */
+export function portsOfPanelRows(rows: readonly PatchPanelRow[]): PortRow[] {
+    return rows.flatMap((row) => [row.front, row.rear]).filter((port): port is PortRow => !!port);
+}
+
+
+/** Every port of an overview, whichever shape its rows have. */
+export function overviewPorts(overview: PortOverviewResponse): OverviewPort[] {
+    const rows: ReadonlyArray<StandardOverviewRow | PatchPanelOverviewRow> = overview?.rows ?? [];
+
+    return rows
+        .flatMap((row) => 'port' in row ? [row.port] : [row.front, row.rear])
+        .filter((port): port is OverviewPort => !!port);
+}
+
+
+/** The stored port the edit dialogs start from, rebuilt from the option ids the overview carries. */
+export function toCmdbPort(port: OverviewPort, objectId: number): CmdbPort {
+    return {
+        public_id: port.port_id,
+        object_id: objectId,
+        side: normalizeSide(port.side),
+        name: port.name ?? '',
+        port_number: port.port_number ?? null,
+        status: port.status?.id ?? null,
+        port_type: port.port_type?.id ?? null,
+        speed: port.speed?.id ?? null,
+        description: port.description ?? null,
+        author_id: null,
+        creation_time: null,
+        last_edit_time: null,
+        connected: port.connected === true,
+        interface_links: port.interface_links ?? []
+    };
+}
+
+
+/** The cable of a port as the connection dialog edits it; null while the port carries none. */
+export function toCableConnection(port: OverviewPort): CmdbPortConnection | null {
+    if (port.cable_connection_id == null) {
+        return null;
     }
 
-    return labels;
+    const endpoints = [port.port_id, port.connected_port?.port_id]
+        .filter((id): id is number => id != null)
+        .sort((left, right) => left - right);
+
+    return {
+        public_id: port.cable_connection_id,
+        endpoints,
+        connection_type: ConnectionType.CABLE,
+        cable: port.cable,
+        author_id: null,
+        creation_time: null,
+        last_edit_time: null
+    };
 }
 
 
-/** Whether the backend sends `connected` at all; without it the column would claim "Free" for every port. */
-export function hasConnectionState(ports: readonly CmdbPort[]): boolean {
-    return ports.some((port) => 'connected' in port);
-}
-
-
-/** Whether the read route embeds the interface links; without the key the column would claim every port has none. */
-export function hasInterfaceLinks(ports: readonly CmdbPort[]): boolean {
-    return ports.some((port) => 'interface_links' in port);
-}
-
-
-/** True as soon as one port sits on a panel face, which is what makes the side column worth showing. */
-export function hasPanelSides(rows: readonly PortRow[]): boolean {
-    return rows.some((row) => row.side === PortSide.FRONT || row.side === PortSide.REAR);
-}
-
-
-/** Orders a copy of the full list, so the loaded ports keep the order the backend sent. */
+/** Orders a copy of the ports, so the loaded list keeps the order the backend sent. */
 export function sortPortRows(rows: readonly PortRow[], sort: Sort): PortRow[] {
-    const field = SORT_FIELDS[sort?.name];
-    const ordered = [...rows];
+    return sortRows(rows, sort, PORT_SORT_FIELDS);
+}
 
-    if (!field || sort.order === SortDirection.NONE) {
-        return ordered;
-    }
 
-    const direction = sort.order === SortDirection.DESCENDING ? -1 : 1;
-
-    return ordered.sort((left, right) => direction * compare(left[field], right[field]));
+export function sortPatchPanelRows(rows: readonly PatchPanelRow[], sort: Sort): PatchPanelRow[] {
+    return sortRows(rows, sort, PANEL_SORT_FIELDS);
 }
 
 
 /** The rows of one page. An out-of-range page yields nothing, which is what an empty table shows. */
-export function pagePortRows(rows: readonly PortRow[], page: number, pageSize: number): PortRow[] {
+export function pageRows<T>(rows: readonly T[], page: number, pageSize: number): T[] {
     if (pageSize <= 0) {
         return [...rows];
     }
@@ -152,34 +204,43 @@ export function clampPage(page: number, total: number, pageSize: number): number
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
-/** A cabled port reads as its cable, a paired one as its counterpart, and a free one as free. */
-function connectionLabelOf(connection: PortConnectionInfo | null, pairedPortName: string | null): string {
-    if (connection?.cable) {
-        return cableSummary(connection.cable);
+/** A column the table does not know keeps the backend order. */
+function sortRows<T>(rows: readonly T[], sort: Sort, fields: Record<string, keyof T>): T[] {
+    const field = fields[sort?.name];
+    const ordered = [...rows];
+
+    if (!field || sort.order === SortDirection.NONE) {
+        return ordered;
     }
 
-    if (!connection?.internal) {
-        return 'Free';
-    }
+    const direction = sort.order === SortDirection.DESCENDING ? -1 : 1;
 
-    return pairedPortName ? `Paired with ${ pairedPortName }` : 'Paired internally';
+    return ordered.sort((left, right) =>
+        direction * compare(left[field] as SortValue, right[field] as SortValue));
 }
 
 
-/** Both ends of an internal pairing are ports of the same object, so the peer can be named here. */
-function pairedPortNameOf(
-    connection: PortConnectionInfo | null,
-    portId: number,
-    namesByPortId: Map<number, string>
-): string | null {
-    const peerId = peerPortIdOf(connection?.internal ?? null, portId);
+/** The far port and its object; a restricted object is not named at all. */
+function farEndLabelOf(port: OverviewPort): string | null {
+    const object = port.connected_object;
 
-    return peerId == null ? null : namesByPortId.get(peerId) ?? null;
+    if (!object) {
+        return null;
+    }
+
+    if (object.restricted) {
+        return 'Restricted object';
+    }
+
+    const objectLabel = object.label?.trim() || `Object #${ object.object_id }`;
+    const portName = port.connected_port?.name?.trim();
+
+    return portName ? `${ portName } · ${ objectLabel }` : objectLabel;
 }
 
 
 /** Empty values always sort last, so a table sorted by an optional column still starts with content. */
-function compare(left: PortRow[keyof PortRow], right: PortRow[keyof PortRow]): number {
+function compare(left: SortValue, right: SortValue): number {
     const leftEmpty = isEmpty(left);
     const rightEmpty = isEmpty(right);
 
@@ -199,11 +260,11 @@ function compare(left: PortRow[keyof PortRow], right: PortRow[keyof PortRow]): n
 }
 
 
-function isEmpty(value: PortRow[keyof PortRow]): boolean {
+function isEmpty(value: SortValue): boolean {
     return value === null || value === undefined || value === '';
 }
 
 
-function labelOf(optionId: number | null, labels: Map<string, string>): string | null {
-    return optionId == null ? null : labels.get(String(optionId)) ?? null;
+function labelOf(option: PortOptionValue | null | undefined): string | null {
+    return option?.label?.trim() || null;
 }

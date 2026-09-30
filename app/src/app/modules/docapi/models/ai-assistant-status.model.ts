@@ -13,23 +13,12 @@
 * GNU Affero General Public License for more details.
 *
 * You should have received a copy of the GNU Affero General Public License
-* along with this program.  If not, see <https://www.gnu.org/licenses/>.
+* along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-/** Mirrors the backend's export kinds. */
-export enum ExportKind {
-    Objects = 'objects',
-    Types = 'types',
-    CsvTemplate = 'csv_template',
-    Document = 'document',
-    Ipam = 'ipam'
-}
+/* ---------------------------------------------------- MODELS ------------------------------------------------------ */
 
-
-/** Names a download when the server sends no filename. */
-export interface ExportFallbackName {
-    kind: ExportKind;
-
-    /** Without the leading dot. Optional: the format list it comes from can miss. */
-    extension?: string;
+/** Body of `GET /chatgpt/status`. */
+export interface AiAssistantStatus {
+    configured: boolean;
 }

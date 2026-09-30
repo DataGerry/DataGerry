@@ -51,4 +51,7 @@ export interface BuilderSchemaAdapter {
     /** Whether the model declares port support; false and a no-op where it has no meaning. */
     readUsesPorts(): boolean;
     setUsesPorts(value: boolean): void;
+
+    /** Stored slot of the ports section among the model's sections; 0 where ports have no meaning. */
+    readPortSectionIndex(): number;
 }

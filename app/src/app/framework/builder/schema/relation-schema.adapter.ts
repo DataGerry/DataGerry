@@ -91,4 +91,9 @@ export class RelationSchemaAdapter implements BuilderSchemaAdapter {
     public setUsesPorts(): void {
         // A relation has no ports.
     }
+
+
+    public readPortSectionIndex(): number {
+        return 0;
+    }
 }

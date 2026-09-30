@@ -1,0 +1,162 @@
+<cmdb-table
+  class="ports-table"
+  [id]="'object-patch-panel-table'"
+  [items]="rows"
+  [columns]="columns"
+  [initialVisibleColumns]="visibleColumns"
+  [totalItems]="totalRows"
+  [page]="page"
+  [pageSize]="pageSize"
+  [sort]="sort"
+  [loading]="loading"
+  [selectEnabled]="selectEnabled"
+  [selectedItems]="selectedRows"
+  [toggleable]="true"
+  [searchEnabled]="false"
+  [paginationEnabled]="true"
+  [pageSizeEnabled]="true"
+  [emptyMessage]="emptyMessage"
+  (pageChange)="onPageChange($event)"
+  (pageSizeChange)="onPageSizeChange($event)"
+  (sortChange)="onSortChange($event)"
+  (columnVisibilityChange)="onColumnVisibilityChange($event)"
+  (selectedChange)="onSelectedChange($event)">
+</cmdb-table>
+
+<ng-template #portCell let-port>
+  @if (port) {
+    <div class="panel-port">
+      <span class="ports-name">{{ port.name }}</span>
+      @if (port.status) {
+        <span class="ports-badge ports-badge--status">{{ port.status }}</span>
+      }
+    </div>
+  } @else {
+    <span class="ports-muted">No port</span>
+  }
+</ng-template>
+
+<ng-template #connectionCell let-port>
+  @if (port) {
+    <div class="ports-connection">
+      <span class="ports-state" [class.ports-state--connected]="port.connectionState === connectionState.CABLED">
+        <span class="ports-state__dot" aria-hidden="true"></span>
+        {{ port.connectionLabel }}
+      </span>
+
+      @if (port.farEndLabel) {
+        <small class="ports-connection__far-end">to {{ port.farEndLabel }}</small>
+      }
+    </div>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #frontTemplate let-item="item">
+  <ng-container *ngTemplateOutlet="portCell; context: { $implicit: item.front }"></ng-container>
+</ng-template>
+
+<ng-template #frontConnectionTemplate let-item="item">
+  <ng-container *ngTemplateOutlet="connectionCell; context: { $implicit: item.front }"></ng-container>
+</ng-template>
+
+<ng-template #rearTemplate let-item="item">
+  <ng-container *ngTemplateOutlet="portCell; context: { $implicit: item.rear }"></ng-container>
+</ng-template>
+
+<ng-template #rearConnectionTemplate let-item="item">
+  <ng-container *ngTemplateOutlet="connectionCell; context: { $implicit: item.rear }"></ng-container>
+</ng-template>
+
+<ng-template #pairedTemplate let-item="item">
+  <span
+    class="panel-pairing"
+    [class.panel-pairing--paired]="item.paired"
+    [title]="pairingLabel(item)">
+    <i class="fas" [class.fa-exchange-alt]="item.paired" [class.fa-unlink]="!item.paired" aria-hidden="true"></i>
+    <span class="visually-hidden">{{ pairingLabel(item) }}</span>
+  </span>
+</ng-template>
+
+<ng-template #valueTemplate let-data="data">
+  @if (data !== null && data !== undefined && data !== '') {
+    <span>{{ data }}</span>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>
+
+<ng-template #actionsTemplate let-item="item">
+  @if (hasRowActions(item)) {
+    <div class="ports-row-actions" ngbDropdown container="body" placement="bottom-end">
+      <!-- Native trigger: the ngb toggle needs the focusable host for its ARIA and arrow-key handling. -->
+      <button
+        type="button"
+        class="ports-row-actions__trigger"
+        ngbDropdownToggle
+        title="Pairing actions"
+        attr.aria-label="Actions for pairing {{ item.frontName || item.rearName }}">
+        <i class="fas fa-ellipsis-v" aria-hidden="true"></i>
+      </button>
+
+      <div ngbDropdownMenu class="ports-row-menu" attr.aria-label="Actions for pairing {{ item.frontName || item.rearName }}">
+        <!-- Declared inside the menu so its items still register with ngbDropdownMenu. -->
+        <ng-template #portActions let-port>
+          @if (canConnect && !port.cableConnectionId) {
+            <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onConnectPort(port)">
+              <i class="fas fa-link ports-row-menu__icon" aria-hidden="true"></i>
+              <span>Connect</span>
+            </button>
+          }
+          @if (canEditConnection && port.cableConnectionId) {
+            <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onEditConnection(port)">
+              <i class="fas fa-plug ports-row-menu__icon" aria-hidden="true"></i>
+              <span>Edit cable</span>
+            </button>
+          }
+          @if (canDisconnect && port.cableConnectionId) {
+            <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onDisconnectPort(port)">
+              <i class="fas fa-unlink ports-row-menu__icon" aria-hidden="true"></i>
+              <span>Disconnect</span>
+            </button>
+          }
+          @if (canViewInterfaces) {
+            <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onManageInterfaces(port)">
+              <i class="fas fa-network-wired ports-row-menu__icon" aria-hidden="true"></i>
+              <span>Manage interfaces</span>
+            </button>
+          }
+          @if (canEdit) {
+            <button type="button" ngbDropdownItem class="ports-row-menu__item" (click)="onEditPort(port)">
+              <i class="fas fa-edit ports-row-menu__icon" aria-hidden="true"></i>
+              <span>Edit port</span>
+            </button>
+          }
+          @if (canDelete) {
+            <button type="button" ngbDropdownItem class="ports-row-menu__item ports-row-menu__item--danger" (click)="onDeletePort(port)">
+              <i class="fas fa-trash-alt ports-row-menu__icon" aria-hidden="true"></i>
+              <span>Delete port</span>
+            </button>
+          }
+        </ng-template>
+
+        @if (hasPortActions(item.front)) {
+          <div class="ports-row-menu__header" role="presentation">Front &middot; {{ item.front.name }}</div>
+          <ng-container *ngTemplateOutlet="portActions; context: { $implicit: item.front }"></ng-container>
+        }
+
+        @if (hasPortActions(item.front) && hasPortActions(item.rear)) {
+          <div class="ports-row-menu__divider" role="separator"></div>
+        }
+
+        @if (hasPortActions(item.rear)) {
+          <div class="ports-row-menu__header" role="presentation">Rear &middot; {{ item.rear.name }}</div>
+          <ng-container *ngTemplateOutlet="portActions; context: { $implicit: item.rear }"></ng-container>
+        }
+      </div>
+    </div>
+  } @else {
+    <span class="ports-muted" aria-hidden="true">&ndash;</span>
+  }
+</ng-template>

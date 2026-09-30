@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
+import { HttpErrorResponse } from '@angular/common/http';
 import { UntypedFormControl, UntypedFormGroup, Validators } from '@angular/forms';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
 import { firstValueFrom } from 'rxjs';
@@ -55,6 +56,9 @@ export class DocapiAiAssistantModalComponent {
         'Generate a CI documentation template for a network device.',
         'Document an application with version, environment and dependencies.'
     ];
+
+    private static readonly GENERATE_ERROR = 'Failed to generate the document. Please try again.';
+    private static readonly EMPTY_RESPONSE_ERROR = 'No HTML response was returned by the AI Assistant.';
 
     public readonly currentStep = signal<AiAssistantStep>(1);
     public readonly isGenerating = signal(false);
@@ -150,10 +154,10 @@ export class DocapiAiAssistantModalComponent {
             this.generatedHtml.set(responseHtml || '');
 
             if (!this.generatedHtml()) {
-                this.requestError.set('No HTML response was returned by the AI Assistant.');
+                this.requestError.set(DocapiAiAssistantModalComponent.EMPTY_RESPONSE_ERROR);
             }
-        } catch {
-            this.requestError.set('Failed to generate the document. Please try again.');
+        } catch (error: unknown) {
+            this.requestError.set(this.resolveErrorMessage(error));
         } finally {
             this.isGenerating.set(false);
         }
@@ -182,5 +186,17 @@ export class DocapiAiAssistantModalComponent {
 
     public isStepPending(step: AiAssistantStep): boolean {
         return step > this.currentStep();
+    }
+
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    /** REST failures carry the reason in the error envelope's `message`. */
+    private resolveErrorMessage(error: unknown): string {
+        const message = (error as HttpErrorResponse)?.error?.message;
+
+        return typeof message === 'string' && message.trim()
+            ? message.trim()
+            : DocapiAiAssistantModalComponent.GENERATE_ERROR;
     }
 }

@@ -38,6 +38,7 @@ import { SpecialType } from '../../models/special-type';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
 import { finalize, take } from 'rxjs/operators';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { PORT_VIEW_RIGHT } from '../object-view/ports-overview/models/ports-overview.types';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -63,6 +64,8 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
 
     @Output() parentSubmit = new EventEmitter<any>();
     @ViewChild(RenderComponent, { static: false }) render: RenderComponent;
+
+    public readonly portViewRight = PORT_VIEW_RIGHT;
 
     private parentID: number;
     public isSaving: boolean = false;
@@ -131,6 +134,19 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
         this.typeIDSubject?.unsubscribe();
         this.subscriber?.next();
         this.subscriber?.complete();
+    }
+
+    /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    /** Ports live outside the type's sections, so the ports panel is placed among them by its slot. */
+    public get portsAvailable(): boolean {
+        return this.typeInstance?.uses_ports === true;
+    }
+
+
+    /** Slot the ports take among the type's sections, or null while the type has no ports. */
+    public get portsSectionIndex(): number | null {
+        return this.portsAvailable ? (this.typeInstance?.port_section_index ?? 0) : null;
     }
 
     /* ------------------------------------------------- HELPER METHODS ------------------------------------------------- */

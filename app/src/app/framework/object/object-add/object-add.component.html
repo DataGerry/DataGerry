@@ -70,7 +70,14 @@
             [mode]="mode"
             [renderForm]="renderForm"
             [typeInstance]="typeInstance"
+            [sectionSlot]="portsSlot"
+            [sectionSlotIndex]="portsSectionIndex"
         />
+
+        <!-- In add mode there is no object yet, so the section lists nothing and offers no action. -->
+        <ng-template #portsSlot>
+            <cmdb-ports-overview *permissionLink="[portViewRight]" />
+        </ng-template>
 
         <div id="object-form-action" class="shadow p-3 mb-5 bg-white rounded text-center">
             <div class="row d-flex justify-content-center align-items-center">

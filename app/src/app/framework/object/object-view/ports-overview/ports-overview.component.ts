@@ -26,11 +26,10 @@ import {
     inject
 } from '@angular/core';
 
-import { Observable, Subject, forkJoin, of } from 'rxjs';
-import { catchError, finalize, map, switchMap, takeUntil } from 'rxjs/operators';
+import { Observable, Subject, of } from 'rxjs';
+import { catchError, finalize, switchMap, takeUntil } from 'rxjs/operators';
 
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
-import { ExtendableOptionCatalogService } from 'src/app/core/services/extendable-option-catalog.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
@@ -39,46 +38,43 @@ import {
     CONNECTION_ADD_RIGHT,
     CONNECTION_DELETE_RIGHT,
     CONNECTION_EDIT_RIGHT,
-    CmdbPortConnection,
-    PortConnectionInfo
+    CmdbPortConnection
 } from './models/port-connection.types';
+import { PortDeviceKind } from './models/port-bulk.types';
 import {
     CmdbPort,
     PORT_ADD_RIGHT,
     PORT_DELETE_RIGHT,
     PORT_EDIT_RIGHT,
-    PORT_OPTION_TYPES,
     PORT_VIEW_RIGHT,
+    PatchPanelRow,
+    PortOverviewResponse,
     PortRow
 } from './models/ports-overview.types';
 import { PortConnectionService } from './services/port-connection.service';
 import { PortDialogService } from './services/port-dialog.service';
 import { PortService } from './services/port.service';
 import { distinctCableConnectionIds } from './utils/port-bulk.util';
-import { indexConnectionsByPort } from './utils/port-connection.util';
 import {
     clampPage,
-    hasConnectionState,
-    hasInterfaceLinks,
-    hasPanelSides,
-    pagePortRows,
+    overviewPorts,
+    pageRows,
+    portsOfPanelRows,
+    sortPatchPanelRows,
     sortPortRows,
-    toOptionLabels,
-    toPortRows
+    toCableConnection,
+    toCmdbPort,
+    toPatchPanelRows,
+    toStandardRows
 } from './utils/ports-table.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 const DEFAULT_PAGE_SIZE = 10;
 
-/** One load: the object's ports, the option labels they are shown by, and what is cabled to them. */
-interface LoadedPorts {
-    ports: CmdbPort[];
-    labels: Map<string, string>;
-    connections: CmdbPortConnection[];
-}
+const EMPTY_OVERVIEW: PortOverviewResponse = { device_kind: null, rows: [], total: 0 };
 
 
-/** The ports section of an object view. The route sends every port at once, so paging is client-side. */
+/** The ports section of an object view. The route sends every row at once, so paging is client-side. */
 @Component({
     selector: 'cmdb-ports-overview',
     templateUrl: './ports-overview.component.html',
@@ -90,7 +86,6 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
     private readonly portService = inject(PortService);
     private readonly portConnectionService = inject(PortConnectionService);
-    private readonly optionCatalog = inject(ExtendableOptionCatalogService);
     private readonly loaderService = inject(LoaderService);
     private readonly portDialogs = inject(PortDialogService);
     private readonly deleteModal = inject(DeleteModalService);
@@ -106,26 +101,37 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     /** Passed on as the modal's subtitle. */
     @Input() public objectLabel = '';
 
-    /** The rows of the current page. */
+    /** Decides the table: one row per port, or one row per patch panel pairing. */
+    public deviceKind: PortDeviceKind | null = null;
+
+    /** The rows of the current page of a standard device. */
     public rows: PortRow[] = [];
+
+    /** The rows of the current page of a patch panel. */
+    public panelRows: PatchPanelRow[] = [];
 
     /** What the pagination counts. */
     public totalRows = 0;
 
+    /** The ticked ports of the current page, which the bulk buttons act on. A pairing adds both faces. */
+    public selectedRows: PortRow[] = [];
+
+    /** Disconnecting applies to the cabled rows of the selection only. */
+    public selectedConnectedRows: PortRow[] = [];
+
     public page = 1;
     public pageSize = DEFAULT_PAGE_SIZE;
     public sort: Sort = { name: 'port_number', order: SortDirection.ASCENDING };
-    public showSideColumn = false;
-    public showConnectionColumn = false;
-    public showInterfaceColumn = false;
     public hasError = false;
     public readonly isLoading$ = this.loaderService.isLoading$;
     public readonly portAddRight = PORT_ADD_RIGHT;
+    public readonly patchPanel = PortDeviceKind.PATCH_PANEL;
 
     private allRows: PortRow[] = [];
+    private allPanelRows: PatchPanelRow[] = [];
 
-    /** The connections of the loaded ports, so an edit starts from the stored connection. */
-    private connectionsByPort = new Map<number, PortConnectionInfo>();
+    /** The cables of the loaded ports, so an edit starts from the stored connection. */
+    private cablesByPort = new Map<number, CmdbPortConnection>();
 
     /** The loaded ports by public_id, so an edit starts from the stored port and not from its row. */
     private portsById = new Map<number, CmdbPort>();
@@ -139,10 +145,10 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
         // switchMap so a second object replaces a request still in flight instead of racing it.
         this.load$
             .pipe(
-                switchMap((objectId) => this.readPorts(objectId)),
+                switchMap((objectId) => this.readOverview(objectId)),
                 takeUntil(this.destroy$)
             )
-            .subscribe((loaded) => this.applyPorts(loaded));
+            .subscribe((overview) => this.applyOverview(overview));
     }
 
     public ngOnChanges(changes: SimpleChanges): void {
@@ -178,18 +184,24 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     }
 
 
-    public onAddPort(): void {
-        this.openForm(null);
+    public onSelectedRowsChange(rows: PortRow[]): void {
+        this.selectedRows = rows;
+        this.selectedConnectedRows = rows.filter((row) => row.cableConnectionId != null);
     }
 
 
-    /** The creation assistant: a whole device's ports, named and previewed server-side. */
-    public onCreatePorts(): void {
+    public onSelectedPanelRowsChange(rows: PatchPanelRow[]): void {
+        this.onSelectedRowsChange(portsOfPanelRows(rows));
+    }
+
+
+    /** One dialog for one port or many; the count decides, the object's kind limits the device type. */
+    public onAddPorts(): void {
         if (this.objectId == null) {
             return;
         }
 
-        this.reloadWhenStored(this.portDialogs.openCreateWizard(this.objectId, this.objectLabel));
+        this.reloadWhenStored(this.portDialogs.openAddPorts(this.objectId, this.objectLabel, this.deviceKind));
     }
 
 
@@ -225,7 +237,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
 
     public onEditConnection(row: PortRow): void {
-        const cable = this.connectionsByPort.get(row.publicId)?.cable ?? null;
+        const cable = this.cablesByPort.get(row.publicId) ?? null;
 
         if (!cable) {
             return;
@@ -289,7 +301,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
 
     public onDisconnectPort(row: PortRow): void {
-        const cable = this.connectionsByPort.get(row.publicId)?.cable ?? null;
+        const cable = this.cablesByPort.get(row.publicId) ?? null;
 
         if (!cable) {
             return;
@@ -339,6 +351,14 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     /** Reading a port's interfaces is guarded by the port's own view right. */
     public get canViewInterfaces(): boolean {
         return this.hasRight(PORT_VIEW_RIGHT);
+    }
+
+
+    /** Without an object there is nothing to list yet, which the empty state says instead of the default. */
+    public get emptyMessage(): string {
+        return this.objectId == null
+            ? 'Ports can be added once the object has been saved.'
+            : 'No ports to display.';
     }
 
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
@@ -404,27 +424,15 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     }
 
 
-    /**
-     * Ports, option labels and connections are read together, so the table is built once.
-     *
-     * The connections are the one part allowed to fail on its own: a user who may list the ports but
-     * not the cabling still gets the list, with every port reading as free.
-     */
-    private readPorts(objectId: number): Observable<LoadedPorts> {
+    /** One request answers the device kind, the rows, the option labels and the cabling. */
+    private readOverview(objectId: number): Observable<PortOverviewResponse> {
         this.loaderService.show();
         this.hasError = false;
 
-        return forkJoin({
-            ports: this.portService.getPortsOfObject(objectId),
-            options: this.optionCatalog.optionsForTypes(PORT_OPTION_TYPES),
-            connections: this.portConnectionService.getConnectionsOfObject(objectId).pipe(
-                catchError(() => of<CmdbPortConnection[]>([]))
-            )
-        }).pipe(
-            map(({ ports, options, connections }) => ({ ports, labels: toOptionLabels(options), connections })),
+        return this.portService.getPortOverview(objectId).pipe(
             catchError(() => {
                 this.hasError = true;
-                return of<LoadedPorts>({ ports: [], labels: new Map(), connections: [] });
+                return of(EMPTY_OVERVIEW);
             }),
             finalize(() => {
                 this.loaderService.hide();
@@ -434,37 +442,61 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     }
 
 
-    private applyPorts({ ports, labels, connections }: LoadedPorts): void {
-        this.connectionsByPort = indexConnectionsByPort(connections);
-        this.allRows = toPortRows(ports, labels, this.connectionsByPort);
-        this.portsById = new Map(ports.map((port) => [port.public_id, port]));
-        this.showSideColumn = hasPanelSides(this.allRows);
-        this.showConnectionColumn = hasConnectionState(ports);
-        this.showInterfaceColumn = hasInterfaceLinks(ports);
+    private applyOverview(overview: PortOverviewResponse): void {
+        const objectId = this.objectId;
+        const ports = overviewPorts(overview);
+
+        this.deviceKind = overview.device_kind ?? null;
+        this.allRows = overview.device_kind === PortDeviceKind.STANDARD ? toStandardRows(overview.rows) : [];
+        this.allPanelRows = overview.device_kind === PortDeviceKind.PATCH_PANEL ? toPatchPanelRows(overview.rows) : [];
+        this.portsById = new Map(ports.map((port) => [port.port_id, toCmdbPort(port, objectId)]));
+        this.cablesByPort = new Map(ports
+            .map((port) => [port.port_id, toCableConnection(port)] as const)
+            .filter((entry): entry is readonly [number, CmdbPortConnection] => entry[1] !== null));
         this.applyQuery();
     }
 
 
     /** Recomputes the visible page from the full list. Nothing here talks to the server. */
     private applyQuery(): void {
-        const ordered = sortPortRows(this.allRows, this.sort);
+        if (this.deviceKind === PortDeviceKind.PATCH_PANEL) {
+            const ordered = sortPatchPanelRows(this.allPanelRows, this.sort);
 
-        this.totalRows = ordered.length;
-        this.page = clampPage(this.page, this.totalRows, this.pageSize);
-        this.rows = pagePortRows(ordered, this.page, this.pageSize);
+            this.totalRows = ordered.length;
+            this.page = clampPage(this.page, this.totalRows, this.pageSize);
+            this.panelRows = pageRows(ordered, this.page, this.pageSize);
+            this.rows = [];
+        } else {
+            const ordered = sortPortRows(this.allRows, this.sort);
+
+            this.totalRows = ordered.length;
+            this.page = clampPage(this.page, this.totalRows, this.pageSize);
+            this.rows = pageRows(ordered, this.page, this.pageSize);
+            this.panelRows = [];
+        }
+
+        this.clearSelection();
         this.changesRef.markForCheck();
     }
 
 
+    /** New row objects never match the table's identity-based selection. */
+    private clearSelection(): void {
+        this.selectedRows = [];
+        this.selectedConnectedRows = [];
+    }
+
+
     private reset(): void {
+        this.deviceKind = null;
         this.allRows = [];
+        this.allPanelRows = [];
         this.portsById = new Map();
-        this.connectionsByPort = new Map();
+        this.cablesByPort = new Map();
         this.rows = [];
+        this.panelRows = [];
+        this.clearSelection();
         this.totalRows = 0;
-        this.showSideColumn = false;
-        this.showConnectionColumn = false;
-        this.showInterfaceColumn = false;
         this.hasError = false;
         this.changesRef.markForCheck();
     }

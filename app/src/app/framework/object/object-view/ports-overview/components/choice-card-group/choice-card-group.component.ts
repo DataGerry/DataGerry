@@ -24,6 +24,10 @@ export interface ChoiceCard<T> {
     icon: string;
     label: string;
     text: string;
+
+    /** A disabled card stays visible and says why it cannot be picked. */
+    disabled?: boolean;
+    disabledReason?: string;
 }
 
 
@@ -52,4 +56,18 @@ export class ChoiceCardGroupComponent<T> {
     public readonly groupLabel = input('');
 
     public readonly choiceSelected = output<T>();
+
+/* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
+
+    public onChange(choice: ChoiceCard<T>): void {
+        if (!choice.disabled) {
+            this.choiceSelected.emit(choice.value);
+        }
+    }
+
+/* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public reasonId(index: number): string {
+        return `${ this.name() }-reason-${ index }`;
+    }
 }

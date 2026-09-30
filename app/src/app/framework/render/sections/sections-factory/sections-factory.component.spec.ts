@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program.  If not, see <https://www.gnu.org/licenses/>.
 */
-import { NO_ERRORS_SCHEMA } from '@angular/core';
+import { Component, NO_ERRORS_SCHEMA } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { ReactiveFormsModule, UntypedFormGroup } from '@angular/forms';
 
@@ -90,5 +90,102 @@ describe('SectionsFactoryComponent', () => {
         render(renderResultWith(''));
 
         expect(shownValue()).toBe('');
+    });
+});
+
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+/**
+ * The host template is applied through `overrideComponent`, not the decorator: a spec carries no
+ * NgModule, so an inline template referencing `cmdb-sections-factory` has no directive scope in AOT.
+ */
+const HOST_TEMPLATE = `
+    <cmdb-sections-factory
+        [mode]="mode"
+        [form]="form"
+        [sections]="sections"
+        [fields]="[]"
+        [values]="[]"
+        [sectionSlot]="portsSlot"
+        [sectionSlotIndex]="portsSlotIndex" />
+
+    <ng-template #portsSlot><span class="ports-marker"></span></ng-template>
+`;
+
+/** Marks the slot in the DOM so a test can read where it landed among the sections. */
+@Component({ template: '', standalone: false })
+class SectionSlotHostComponent {
+    public readonly mode = CmdbMode.View;
+    public readonly form = new UntypedFormGroup({});
+    public sections: Array<any> = [
+        { type: 'section', name: 'section_a', label: 'A', fields: [] },
+        { type: 'section', name: 'section_b', label: 'B', fields: [] }
+    ];
+    public portsSlotIndex: number | null = null;
+}
+
+
+describe('SectionsFactoryComponent section slot', () => {
+    let fixture: ComponentFixture<SectionSlotHostComponent>;
+
+    /** The rendered order, reading a section as its name and the slot as 'ports'. */
+    const renderedOrder = (): Array<string> =>
+        Array.from(fixture.nativeElement.querySelectorAll('cmdb-field-section, .ports-marker'))
+            .map((element: Element) => element.classList.contains('ports-marker') ? 'ports' : 'section');
+
+    const renderWithSlotAt = (index: number | null) => {
+        fixture.componentInstance.portsSlotIndex = index;
+        fixture.detectChanges();
+    };
+
+    beforeEach(async () => {
+        await TestBed.configureTestingModule({
+            declarations: [SectionsFactoryComponent, SectionSlotHostComponent],
+            imports: [ReactiveFormsModule],
+            schemas: [NO_ERRORS_SCHEMA]
+        })
+            .overrideComponent(SectionSlotHostComponent, { set: { template: HOST_TEMPLATE } })
+            .compileComponents();
+
+        fixture = TestBed.createComponent(SectionSlotHostComponent);
+    });
+
+    it('renders the slot first for index 0', () => {
+        renderWithSlotAt(0);
+
+        expect(renderedOrder()).toEqual(['ports', 'section', 'section']);
+    });
+
+    it('renders the slot between the sections for index 1', () => {
+        renderWithSlotAt(1);
+
+        expect(renderedOrder()).toEqual(['section', 'ports', 'section']);
+    });
+
+    it('renders the slot last for an index at the end', () => {
+        renderWithSlotAt(2);
+
+        expect(renderedOrder()).toEqual(['section', 'section', 'ports']);
+    });
+
+    it('clamps an index that outruns the sections instead of dropping the slot', () => {
+        renderWithSlotAt(7);
+
+        expect(renderedOrder()).toEqual(['section', 'section', 'ports']);
+    });
+
+    it('renders no slot at all without an index', () => {
+        renderWithSlotAt(null);
+
+        expect(renderedOrder()).toEqual(['section', 'section']);
+    });
+
+    // A ports-only type is saveable, so the slot must survive having no section to sit beside.
+    it('renders the slot for a type with no sections of its own', () => {
+        fixture.componentInstance.sections = [];
+        renderWithSlotAt(0);
+
+        expect(renderedOrder()).toEqual(['ports']);
     });
 });
