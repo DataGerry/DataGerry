@@ -1,0 +1,95 @@
+<div class="cabling-view">
+  <div
+    #canvasFrame
+    class="cabling-view__viewport"
+    [class.is-panning]="isPanning()"
+    tabindex="0"
+    role="region"
+    aria-label="Cabling canvas"
+    aria-describedby="cabling-view-keys"
+    (pointerdown)="onPointerDown($event)"
+    (pointermove)="onPointerMove($event)"
+    (pointerup)="onPointerUp($event)"
+    (pointercancel)="onPointerUp($event)"
+    (wheel)="onWheel($event)"
+    (keydown)="onKeydown($event)"
+    (click)="onCanvasClick($event)">
+
+    <div class="cabling-view__canvas" [class.is-animated]="animate()" [style.transform]="transform()">
+      <svg class="cabling-view__edges" aria-hidden="true" focusable="false">
+        @for (edge of edges(); track edge.connectionId) {
+          <g class="cabling-edge" [class.is-highlighted]="edge.connectionId === highlightedConnectionId()">
+            <path class="cabling-edge__hit" [attr.d]="edge.path"
+              (mouseenter)="hoveredConnectionId.set(edge.connectionId)" (mouseleave)="hoveredConnectionId.set(null)"
+              (click)="onSelectConnection(edge.connectionId)">
+              <title>{{ edge.description }}</title>
+            </path>
+            <path class="cabling-edge__casing" [attr.d]="edge.path" [attr.stroke]="casingStroke" />
+            <path class="cabling-edge__core" [attr.d]="edge.path" [attr.stroke]="edge.stroke" />
+            <circle class="cabling-edge__end" [attr.cx]="edge.from.x" [attr.cy]="edge.from.y" [attr.r]="endDotRadius"
+              [attr.fill]="edge.stroke" [attr.stroke]="casingStroke" />
+            <circle class="cabling-edge__end" [attr.cx]="edge.to.x" [attr.cy]="edge.to.y" [attr.r]="endDotRadius"
+              [attr.fill]="edge.stroke" [attr.stroke]="casingStroke" />
+          </g>
+        }
+      </svg>
+
+      @for (node of nodeList(); track node.objectId) {
+        <cmdb-cabling-node
+          [layout]="node"
+          [detail]="options().detail"
+          [highlightedConnectionId]="highlightedConnectionId()"
+          [expandingPortIds]="store.expandingPortIds()"
+          (expandPort)="store.expandPort($event)"
+          (toggleRows)="toggleRows(node.objectId)"
+          (hoverConnection)="hoveredConnectionId.set($event)"
+          (selectConnection)="onSelectConnection($event)">
+        </cmdb-cabling-node>
+      }
+
+      @if (selectedEdge(); as edge) {
+        <svg class="cabling-view__edges cabling-view__edges--raised" aria-hidden="true" focusable="false">
+          <g class="cabling-edge is-highlighted">
+            <path class="cabling-edge__casing" [attr.d]="edge.path" [attr.stroke]="casingStroke" />
+            <path class="cabling-edge__core" [attr.d]="edge.path" [attr.stroke]="edge.stroke" />
+            <circle class="cabling-edge__end" [attr.cx]="edge.from.x" [attr.cy]="edge.from.y" [attr.r]="endDotRadius"
+              [attr.fill]="edge.stroke" [attr.stroke]="casingStroke" />
+            <circle class="cabling-edge__end" [attr.cx]="edge.to.x" [attr.cy]="edge.to.y" [attr.r]="endDotRadius"
+              [attr.fill]="edge.stroke" [attr.stroke]="casingStroke" />
+          </g>
+        </svg>
+      }
+    </div>
+  </div>
+
+  @if (store.loadFailed()) {
+    <div class="cabling-view__state" role="alert">
+      <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+      <p>The cabling could not be loaded.</p>
+      <app-button
+        label="Try again"
+        icon="fas fa-rotate-right"
+        bootstrapClass="btn-primary btn-sm"
+        (clicked)="resetGraph()">
+      </app-button>
+    </div>
+  } @else if (isEmpty()) {
+    <p class="cabling-view__hint" role="status">No cables are connected to this object yet.</p>
+  }
+
+  <ul class="visually-hidden" aria-label="Cables on the canvas">
+    @for (edge of edges(); track edge.connectionId) {
+      <li>{{ edge.description }}</li>
+    }
+  </ul>
+  <p id="cabling-view-keys" class="visually-hidden">
+    Drag the canvas to pan and a card to move it. Arrow keys pan, plus and minus zoom, and 0 fits the cabling to
+    the screen. Hold Ctrl while scrolling to zoom. Click a cable or a cabled port to bring the cable to the front,
+    and press Escape to put it back.
+  </p>
+
+  <app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+  ></app-loading-popup>
+</div>
