@@ -27,109 +27,112 @@ body {
   }
 }
 
-// Toggle Button Group Styles
-.object-view-navbar {
-  .btn-group {
-    border-radius: 8px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-    overflow: hidden;
-    background: #ffffff;
+// Toggle Button Group Styles - app-button renders its own <button>, so the skin crosses its encapsulation.
+:host ::ng-deep .object-view-toggle {
+  // overflow: hidden drops a flex item's minimum width to 0, which would clip the last button.
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  background: #ffffff;
 
-    .btn {
-      border: none;
-      padding: 8px 12px;
-      font-size: 14px;
-      font-weight: 500;
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      position: relative;
-      min-width: 45px;
+  .object-view-toggle__btn {
+    border: none;
+    padding: 8px 12px;
+    font-size: 14px;
+    font-weight: 500;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    position: relative;
+    min-width: 45px;
+    border-radius: 0;
 
-      &:focus {
-        box-shadow: none;
-        outline: none;
+    &:focus {
+      box-shadow: none;
+      outline: none;
+    }
+
+    &:focus-visible {
+      outline: 2px solid #1f2937;
+      outline-offset: -3px;
+    }
+
+    i {
+      font-size: 16px;
+      transition: transform 0.2s ease;
+    }
+
+    // Inactive state (outline)
+    &.btn-outline-primary {
+      background: #ffffff;
+      color: #6c757d;
+      border: 1px solid #dee2e6;
+
+      &:hover {
+        background: #f8f9fa;
+        color: #5a6268;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+        border-color: #ced4da;
+
+        i {
+          transform: scale(1.1);
+        }
       }
 
-      &:first-child {
-        border-top-left-radius: 8px;
-        border-bottom-left-radius: 8px;
+      &:active {
+        transform: translateY(0);
+      }
+    }
+
+    // Active state (filled) - using the CMDB accent theme
+    &.btn-primary {
+      background: linear-gradient(135deg, #e1653b, #e94d18);
+      color: white;
+      border: 1px solid #e94d18;
+      box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
+
+      &:hover {
+        background: linear-gradient(135deg, #c06243, #eb815e);
+        transform: translateY(-1px);
+        box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
+        border-color: #1d4ed8;
       }
 
-      &:last-child {
-        border-top-right-radius: 8px;
-        border-bottom-right-radius: 8px;
+      &:active {
+        transform: translateY(0);
       }
 
       i {
-        font-size: 16px;
-        transition: transform 0.2s ease;
-      }
-
-      // Inactive state (outline)
-      &.btn-outline-primary {
-        background: #ffffff;
-        color: #6c757d;
-        border: 1px solid #dee2e6;
-
-        &:hover {
-          background: #f8f9fa;
-          color: #5a6268;
-          transform: translateY(-1px);
-          box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
-          border-color: #ced4da;
-
-          i {
-            transform: scale(1.1);
-          }
-        }
-
-        &:active {
-          transform: translateY(0);
-        }
-      }
-
-      // Active state (filled) - using the CMDB accent theme
-      &.btn-primary {
-        background: linear-gradient(135deg, #e1653b, #e94d18);
-        color: white;
-        border: 1px solid #e94d18;
-        box-shadow: 0 2px 8px rgba(59, 130, 246, 0.3);
-
-        &:hover {
-          background: linear-gradient(135deg, #c06243, #eb815e);
-          transform: translateY(-1px);
-          box-shadow: 0 4px 16px rgba(59, 130, 246, 0.4);
-          border-color: #1d4ed8;
-        }
-
-        &:active {
-          transform: translateY(0);
-        }
-
-        i {
-          transform: scale(1.05);
-        }
-      }
-
-      // Subtle separator between buttons
-      &:not(:last-child)::after {
-        content: '';
-        position: absolute;
-        right: 0;
-        top: 15%;
-        height: 70%;
-        width: 1px;
-        background: #e9ecef;
-        opacity: 0.5;
-      }
-
-      &.btn-primary::after {
-        display: none;
-      }
-
-      &.btn-primary + .btn::before {
-        display: none;
+        transform: scale(1.05);
       }
     }
+  }
+
+  app-button:first-child .object-view-toggle__btn {
+    border-top-left-radius: 8px;
+    border-bottom-left-radius: 8px;
+  }
+
+  app-button:last-child .object-view-toggle__btn {
+    border-top-right-radius: 8px;
+    border-bottom-right-radius: 8px;
+  }
+
+  // Subtle separator between buttons
+  app-button:not(:last-child) .object-view-toggle__btn::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 15%;
+    height: 70%;
+    width: 1px;
+    background: #e9ecef;
+    opacity: 0.5;
+  }
+
+  app-button .object-view-toggle__btn.btn-primary::after {
+    display: none;
   }
 }
 

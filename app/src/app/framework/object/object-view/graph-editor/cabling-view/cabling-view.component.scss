@@ -1,0 +1,173 @@
+@import "src/scss/variables";
+
+$canvas: #f0f2f5;
+$grid-dot: rgba(100, 116, 139, 0.28);
+$grid-step: 24px;
+$ink-strong: #1f2937;
+$ink-label: #374151;
+$ink-muted: #6b7280;
+$panel-border: #e9ecef;
+$panel-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
+$inset: 0.75rem;
+
+:host {
+  display: block;
+}
+
+.cabling-view {
+  position: relative;
+  height: 78vh;
+  min-height: 560px;
+  overflow: hidden;
+  background: $canvas;
+}
+
+.cabling-view__viewport {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  outline: 0;
+
+  // Painted on the frame, not the transformed canvas, so the texture never pans or zooms.
+  // background-image: radial-gradient(circle at center, $grid-dot 0 1.2px, transparent 1.3px);
+  background-size: $grid-step $grid-step;
+
+  &.is-panning {
+    cursor: grabbing;
+  }
+
+  &:focus-visible {
+    box-shadow: inset 0 0 0 2px $primary;
+  }
+}
+
+.cabling-view__canvas {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform-origin: 0 0;
+
+  &.is-animated {
+    transition: transform 180ms ease;
+  }
+}
+
+.cabling-view__edges {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 1px;
+  height: 1px;
+  overflow: visible;
+}
+
+.cabling-view__edges--raised {
+  pointer-events: none;
+}
+
+// Stroke and fill are bound per cable as attributes, so no rule here may declare them on those shapes.
+.cabling-edge__hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 16;
+  pointer-events: stroke;
+}
+
+.cabling-edge__casing,
+.cabling-edge__core {
+  fill: none;
+  stroke-linecap: round;
+  pointer-events: none;
+  transition: stroke-width 180ms ease;
+}
+
+.cabling-edge__casing {
+  stroke-width: 5;
+}
+
+.cabling-edge__core {
+  stroke-width: 3;
+}
+
+.cabling-edge__end {
+  stroke-width: 1.5;
+  pointer-events: none;
+}
+
+.cabling-edge.is-highlighted {
+  .cabling-edge__casing {
+    stroke-width: 8;
+  }
+
+  .cabling-edge__core {
+    stroke-width: 6;
+  }
+}
+
+.cabling-view__label {
+  position: absolute;
+  max-width: 8.5rem;
+  padding: 0.15rem 0.6rem;
+  overflow: hidden;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1.5px solid var(--cable-stroke);
+  border-radius: 999px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.08);
+  color: $ink-label;
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  transition: box-shadow 180ms ease;
+
+  &.is-highlighted {
+    box-shadow: 0 0 0 3px rgba($primary, 0.18), 0 1px 2px rgba(15, 23, 42, 0.08);
+  }
+}
+
+.cabling-view__state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.6rem;
+  padding: 1.25rem 1.5rem;
+  transform: translate(-50%, -50%);
+  background: #fff;
+  border: 1px solid $panel-border;
+  border-radius: 1rem;
+  box-shadow: $panel-shadow;
+  text-align: center;
+
+  i {
+    color: $primary;
+    font-size: 1.15rem;
+  }
+
+  p {
+    margin: 0;
+    font-size: 0.9rem;
+    color: $ink-strong;
+  }
+}
+
+.cabling-view__hint {
+  position: absolute;
+  bottom: $inset;
+  left: 50%;
+  margin: 0;
+  padding: 0.4rem 0.8rem;
+  transform: translateX(-50%);
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid $panel-border;
+  border-radius: 999px;
+  box-shadow: $panel-shadow;
+  color: $ink-muted;
+  font-size: 0.85rem;
+}

@@ -18,24 +18,46 @@
             <cmdb-object-docs *permissionLink="['base.docapi.template.view']" [renderResult]="renderResult">
             </cmdb-object-docs>
           </div>
-          <div class="col-xl-2 col-md-6 col-6 border-start pt-1">
+          <div class="col-xl col-md-6 col-6 border-start pt-1">
             <div class="d-flex justify-content-center">
               <cmdb-object-type-label [typeInformation]="renderResult?.type_information">
               </cmdb-object-type-label>
             </div>
           </div>
-          <div class="col-xl-1 col-md-6 col-6 border-start pt-1 last-widget">
-            <div class="d-flex justify-content-center" style="width: 87px !important;">
-              <div class="btn-group" role="group">
-                <button type="button" class="btn btn-sm" [class.btn-primary]="!isGraphView"
-                  [class.btn-outline-primary]="isGraphView" (click)="toggleView(false)" title="Table View">
-                  <i class="fas fa-table"></i>
-                </button>
-                <button *permissionLink="[ciExplorerViewRight]"
-                  type="button" class="btn btn-sm" [class.btn-primary]="isGraphView"
-                  [class.btn-outline-primary]="!isGraphView" (click)="toggleView(true)" title="Graph View">
-                  <i class="fas fa-project-diagram"></i>
-                </button>
+          <div class="col-xl-auto col-md-6 col-6 border-start pt-1 last-widget">
+            <div class="d-flex justify-content-center">
+              <div class="btn-group object-view-toggle" role="group" aria-label="Object view">
+                <app-button
+                  label=""
+                  icon="fas fa-table"
+                  [bootstrapClass]="toggleClass(isTableView)"
+                  [ariaPressed]="isTableView"
+                  ariaLabel="Table view"
+                  title="Table View"
+                  (clicked)="toggleView(viewModes.TABLE)">
+                </app-button>
+                @if (cablingAvailable) {
+                  <app-button
+                    *permissionLink="[portViewRight]"
+                    label=""
+                    icon="fas fa-network-wired"
+                    [bootstrapClass]="toggleClass(isCablingView)"
+                    [ariaPressed]="isCablingView"
+                    ariaLabel="Cabling view"
+                    title="Cabling View"
+                    (clicked)="toggleView(viewModes.CABLING)">
+                  </app-button>
+                }
+                <app-button
+                  *permissionLink="[ciExplorerViewRight]"
+                  label=""
+                  icon="fas fa-project-diagram"
+                  [bootstrapClass]="toggleClass(isGraphView)"
+                  [ariaPressed]="isGraphView"
+                  ariaLabel="Graph view"
+                  title="Graph View"
+                  (clicked)="toggleView(viewModes.GRAPH)">
+                </app-button>
               </div>
             </div>
           </div>
@@ -83,8 +105,19 @@
         </div>
       </div>
 
+      <!-- Cabling View -->
+      @if (isCablingView) {
+        <div id="cabling-view" class="col-md-12">
+          <div class="card">
+            <div class="card-body p-0">
+              <cmdb-cabling-view [objectId]="currentObjectID"></cmdb-cabling-view>
+            </div>
+          </div>
+        </div>
+      }
+
       <!-- Main Content: attributes + relation tabs -->
-      <div *ngIf="!isGraphView" id="object-view" class="col-md-12">
+      <div *ngIf="isTableView" id="object-view" class="col-md-12">
         <cmdb-object-relations [objectId]="currentObjectID" [typeId]="renderResult?.type_information?.type_id">
           <!-- Projected into the "Attributes" tab -->
           <cmdb-object-view-render [mode]="mode" [renderResult]="renderResult"></cmdb-object-view-render>
