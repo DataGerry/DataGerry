@@ -29,6 +29,8 @@ import { ToastService } from '../../../layout/toast/toast.service';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { ObjectViewComponent } from './object-view.component';
+import { ObjectViewMode } from './object-view-mode';
+import { PORT_VIEW_RIGHT } from './ports-overview/models/ports-overview.types';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -209,8 +211,102 @@ describe('ObjectViewComponent (the graph view answers to the CI Explorer right)'
     it('refuses the toggle when the right is missing', async () => {
         const view = await buildView({}, false);
 
-        view.toggleView(true);
+        view.toggleView(ObjectViewMode.GRAPH);
 
         expect(view.isGraphView).toBeFalse();
+    });
+});
+
+/* ------------------------------------------------------------------------------------------------------------------ */
+
+describe('ObjectViewComponent (the cabling view needs ports, the port right and the licence)', () => {
+
+    interface CablingSetup {
+        queryParams?: Record<string, string>;
+        portRight?: boolean;
+        usesPorts?: boolean;
+        licensed?: boolean;
+    }
+
+    const renderResultWithPorts = (usesPorts: boolean): RenderResult => ({
+        object_information: { object_id: OBJECT_ID },
+        type_information: { uses_ports: usesPorts },
+        fields: []
+    } as RenderResult);
+
+    const buildView = async ({ queryParams = {}, portRight = true, usesPorts = true, licensed = true }: CablingSetup) => {
+        const rights = (right: string) => right !== PORT_VIEW_RIGHT || portRight;
+
+        await TestBed.configureTestingModule({
+            declarations: [ObjectViewComponent],
+            providers: [
+                { provide: ObjectService, useValue: { getObject: () => of(renderResultWithPorts(usesPorts)) } },
+                { provide: ToastService, useValue: jasmine.createSpyObj('ToastService', ['success', 'error']) },
+                { provide: LoaderService, useValue: { show: () => { }, hide: () => { }, isLoading$: of(false) } },
+                { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
+                { provide: PremiumFeatureService, useValue: { isAvailable: () => licensed } },
+                { provide: PermissionService, useValue: { hasRight: rights, hasExtendedRight: rights } },
+                { provide: TypeService, useValue: { getTypes: () => of({ results: [] }) } },
+                {
+                    provide: ActivatedRoute,
+                    useValue: {
+                        data: of({ object: renderResultWithPorts(usesPorts) }),
+                        queryParamMap: of(convertToParamMap(queryParams))
+                    }
+                }
+            ],
+            schemas: [NO_ERRORS_SCHEMA]
+        }).compileComponents();
+
+        const view = TestBed.createComponent(ObjectViewComponent).componentInstance;
+        view.ngOnInit();
+
+        return view;
+    };
+
+    it('opens the cabling for ?view=cabling', async () => {
+        const view = await buildView({ queryParams: { view: 'cabling' } });
+
+        expect(view.isCablingView).toBeTrue();
+        expect(view.isTableView).toBeFalse();
+    });
+
+    it('keeps the table on screen for ?view=cabling when the port right is missing', async () => {
+        const view = await buildView({ queryParams: { view: 'cabling' }, portRight: false });
+
+        expect(view.isCablingView).toBeFalse();
+        expect(view.isTableView).toBeTrue();
+    });
+
+    it('offers no cabling for a type without ports, and shows the table instead', async () => {
+        const view = await buildView({ usesPorts: false });
+
+        view.toggleView(ObjectViewMode.CABLING);
+
+        expect(view.cablingAvailable).toBeFalse();
+        expect(view.isTableView).toBeTrue();
+    });
+
+    it('offers no cabling without the IPAM licence', async () => {
+        const view = await buildView({ licensed: false });
+
+        view.toggleView(ObjectViewMode.CABLING);
+
+        expect(view.cablingAvailable).toBeFalse();
+        expect(view.isCablingView).toBeFalse();
+    });
+
+    it('switches between the three views', async () => {
+        const view = await buildView({});
+
+        view.toggleView(ObjectViewMode.CABLING);
+        expect(view.isCablingView).toBeTrue();
+
+        view.toggleView(ObjectViewMode.GRAPH);
+        expect(view.isGraphView).toBeTrue();
+        expect(view.isCablingView).toBeFalse();
+
+        view.toggleView(ObjectViewMode.TABLE);
+        expect(view.isTableView).toBeTrue();
     });
 });
