@@ -18,8 +18,11 @@ Functional tests for the /config_file route feature-gating over HTTP
 
 `GET /config_file/status/opencelium` only ever reports on the `[OpenCelium]` section and is consumed
 by the Automations view alone, so it is gated with the OpenCelium routes it serves: with no license
-active a blueprint-level guard blocks it with HTTP 403. When Automations is licensed, or in local
+active its own `requires_feature` guard blocks it with HTTP 403. When Automations is licensed, or in local
 (cloud) mode, the guard lets the request through (asserted as "not 403").
+
+The gate sits on the route, not on the `config_file` blueprint: the blueprint is the home of every config-file
+status route, and one for another section must not inherit the Automations licence. That is pinned too.
 """
 from http import HTTPStatus
 
@@ -28,10 +31,12 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.license_manager.active_license_manager import ActiveLicenseManager
 from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import GATED_FEATURE_ATTR
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 STATUS_URL: str = '/config_file/status/opencelium'
+CONFIG_FILE_BLUEPRINT: str = 'config_file'
 
 
 @pytest.fixture(autouse=True)
@@ -92,3 +97,20 @@ def test_config_status_cors_preflight_not_blocked_without_license(rest_api) -> N
 
     assert response.status_code == HTTPStatus.OK
     assert response.headers.get('Access-Control-Allow-Origin') is not None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          the gate is the route's, not the blueprint's                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_the_config_file_blueprint_itself_is_not_gated(rest_api) -> None:
+    """No before_request gate on the blueprint: a status route for another section is not locked by Automations"""
+    hooks = rest_api.application.before_request_funcs.get(CONFIG_FILE_BLUEPRINT, [])
+
+    assert CONFIG_FILE_BLUEPRINT in rest_api.application.blueprints
+    assert not [hook for hook in hooks if hasattr(hook, GATED_FEATURE_ATTR)]
+
+
+def test_the_status_route_answers_401_before_its_licence_403(rest_api) -> None:
+    """Unlicensed and unauthenticated: the stranger gets the 401 and learns nothing about the licence"""
+    assert rest_api.get(STATUS_URL, unauthorized=True).status_code == HTTPStatus.UNAUTHORIZED
+

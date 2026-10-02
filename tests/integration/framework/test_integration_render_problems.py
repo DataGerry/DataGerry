@@ -194,9 +194,9 @@ class TestReferenceChainPrefetch:
         requested: list[set[int]] = []
         original = ObjectsManager.get_objects_lookup
 
-        def _spy(manager: ObjectsManager, public_ids: list[int]) -> dict[int, CmdbObject]:
+        def _spy(manager: ObjectsManager, public_ids: list[int], *args: Any) -> dict[int, CmdbObject]:
             requested.append(set(public_ids))
-            return original(manager, public_ids)
+            return original(manager, public_ids, *args)
 
         monkeypatch.setattr(ObjectsManager, 'get_objects_lookup', _spy)
 

@@ -704,8 +704,9 @@ class LocationsManager(BaseManager):
         Before the location is removed, every CmdbLocation that has it as ``parent`` is re-parented
         onto the deleted location's own parent (its grandparent). This keeps the location tree
         connected: the deleted node's subtree simply shifts up one level rather than being orphaned.
-        The promotion is a separate write from the deletion and there is no transaction around the
-        pair, so a deletion that fails afterwards leaves the children already promoted
+        The promotion and the deletion are two writes with no transaction around them; callers delete a
+        location through ``location_helper.delete_location_with_reparenting``, which records both (and the
+        mirrored object fields) in a WriteLedger and undoes them when the delete fails part-way
 
         The synthetic root (RootLocationDefault.PUBLIC_ID) is refused: it is the anchor every tree
         level is queried against, it is not backed by a CmdbObject, and its own ``parent`` sentinel

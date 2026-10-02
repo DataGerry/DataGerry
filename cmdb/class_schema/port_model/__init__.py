@@ -18,9 +18,10 @@ Validation schemas of the Port Connectivity domain entities
 
 Mirrors cmdb/models/port_model/ one-to-one, as every package under cmdb/class_schema/ does
 """
-from cmdb.class_schema.port_model.cmdb_port_schema import get_cmdb_port_schema
+from cmdb.class_schema.port_model.cmdb_port_schema import get_cmdb_port_schema, get_cmdb_port_write_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'get_cmdb_port_schema',
+    'get_cmdb_port_write_schema',
 ]

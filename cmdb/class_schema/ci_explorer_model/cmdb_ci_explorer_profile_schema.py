@@ -16,7 +16,11 @@
 """
 Validation schema for CmdbCiExplorerProfile
 
-A CmdbCiExplorerProfile is a saved CI Explorer filter (collection ``framework.ciExplorerProfile``).
+A CmdbCiExplorerProfile is a saved CI Explorer filter (collection ``framework.ciExplorerProfile``): the
+two id filters, and the three toggles saying which optional edge sources the graph walks. Each toggle
+defaults to TRUE - the frontend graph's own default (``DEFAULT_CI_EXPLORER_SCOPE``) and the default of
+``GET /ci_explorer/items`` - and the default is applied whenever a write leaves the toggle out, the
+update included.
 
 This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbCiExplorerProfile.SCHEMA.
@@ -31,42 +35,37 @@ def get_cmdb_ci_explorer_profile_schema() -> dict[str, Any]:
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbCiExplorerProfile.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    # Resolved at call time, not at module import time: the model imports this builder while its own
+    # package __init__ is still running (see class_schema/__init__.py)
+    from cmdb.models.ci_explorer_model.ci_explorer_profile_constants import (
+        CiExplorerProfileKey,
+        DEFAULT_PROFILE_SCOPE,
+    )
+
+    def id_filter() -> dict[str, Any]:
+        """A list of positive integer ids, empty or null for "no restriction" - a new dict per filter."""
+        return {'type': 'list', 'required': False, 'nullable': True, 'empty': True,
+                'schema': {'type': 'integer', 'min': 1}}
+
     return {
-        'public_id': {  # public_id of the CmdbCiExplorerProfile
+        CiExplorerProfileKey.PUBLIC_ID.value: {  # public_id of the CmdbCiExplorerProfile
             'type': 'integer',
             'min': 1,
         },
-        'name': {  # Name of the saved CI Explorer filter (visible to users)
+        CiExplorerProfileKey.NAME.value: {  # Name of the saved CI Explorer filter (visible to users)
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        'types_filter': {  # public_ids of CmdbTypes the saved filter restricts neighbours to; empty = no restriction
-            'type': 'list',
-            'required': False,
-            'nullable': True,
-            'empty': True,
-            'schema': {'type': 'integer', 'min': 1},
-        },
-        'relations_filter': {  # public_ids of CmdbRelations the saved filter restricts edges to; empty = no restriction
-            'type': 'list',
-            'required': False,
-            'nullable': True,
-            'empty': True,
-            'schema': {'type': 'integer', 'min': 1},
-        },
-        'with_locations': {  # If True the saved filter includes the dg_location hierarchy
-            'type': 'boolean',
-            'required': False,
-            'nullable': True,
-            'empty': True,
-            'default': True,
-        },
-        'with_ipam_relations': {  # If True the saved filter includes IPAM-hierarchy neighbours
-            'type': 'boolean',
-            'required': False,
-            'nullable': True,
-            'empty': True,
-            'default': False,
+        # public_ids of CmdbTypes the saved filter restricts neighbours to; empty = no restriction
+        CiExplorerProfileKey.TYPES_FILTER.value: id_filter(),
+        # public_ids of CmdbRelations the saved filter restricts edges to; empty = no restriction
+        CiExplorerProfileKey.RELATIONS_FILTER.value: id_filter(),
+        # The three edge-source toggles: whether the graph includes the location hierarchy, the IPAM
+        # hierarchy and the CIs the object is cabled to
+        **{
+            key: {'type': 'boolean', 'required': False, 'nullable': True, 'empty': True, 'default': default}
+            for key, default in DEFAULT_PROFILE_SCOPE.items()
         },
     }

@@ -41,7 +41,7 @@ from cmdb.manager import ReportCategoriesManager
 
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse, UpdateSingleResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -118,6 +118,7 @@ def create_cmdb_report_category(data: dict[str, Any], request_user: CmdbUser) ->
 
         return DefaultResponse(new_report_category_id).make_response()
     except ReportCategoriesManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[create_cmdb_report_category] ReportCategoriesManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new ReportCategory into the database!")
 
@@ -244,6 +245,7 @@ def update_cmdb_report_category(public_id: int, data: dict[str, Any], request_us
         LOGGER.error("[update_cmdb_report_category] ReportCategoriesManagerGetError: %s", err, exc_info=True)
         abort(400, CATEGORY_RETRIEVE_FAILED_MSG.format(public_id=public_id))
     except ReportCategoriesManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_report_category] ReportCategoriesManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the ReportCategory with ID: {public_id} from the database!")
 

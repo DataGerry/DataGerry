@@ -32,8 +32,9 @@ category filter regexes a numeric `public_id` under a comment saying it should b
 object list matched a `summary_line` that is not stored at all.
 
 **The term is a literal**, escaped before it becomes a `$regex`, so a search for `C++` finds `C++` and
-one for `.*` finds nothing. `object_list_search` is the richer sibling: the same match, over values
-gathered through a `$lookup` as well as from the document itself
+one for `.*` finds nothing. `object_list_search` is the richer sibling: the same conversion and the same
+escaped, case-insensitive match, plus the objects a listed object references (followed by the rule of
+`search_reference_match`)
 """
 import re
 from collections.abc import Iterable, Sequence

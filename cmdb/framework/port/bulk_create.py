@@ -50,6 +50,7 @@ from cmdb.models.port_model import PortKey
 
 from cmdb.framework.port.name_syntax_constants import PortPreviewKey
 from cmdb.framework.port.bulk_create_constants import BulkCreateFailureReason
+from cmdb.framework.write_ledger import LedgerResidue, WriteLedger
 from cmdb.utils import find_cause
 from cmdb.errors.database import DocumentDuplicateKeyError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -230,13 +231,11 @@ def roll_back(
     """
     Removes everything a failed batch created, connections first, and reports what survived
 
-    Two bulk statements rather than one delete per row, then a **verification read** of each collection
-    - so the residue is what is actually still stored rather than what the delete claimed. A rollback
-    that reported success because its statement did not raise would be exactly as misleading as no
-    rollback at all.
-
-    Every failure here is swallowed on purpose: this already runs on an error path, and a rollback that
-    raised would replace an honest "this was left behind" with a stack trace naming neither
+    The batch's writes are replayed into a ``WriteLedger`` - the ports, then the connections, in the order they
+    were created - and undone by it: newest first, so the connections go before the ports they pair, one delete
+    per collection, then a **verification read** of each, so the residue is what is actually still stored rather
+    than what the delete claimed. A rollback that reported success because its statement did not raise would be
+    exactly as misleading as no rollback at all. The ledger swallows every failure of its own for the same reason
 
     Args:
         ports_manager (PortsManager): db interface for CmdbPorts
@@ -247,54 +246,21 @@ def roll_back(
     Returns:
         tuple[list[int], list[int]]: The port ids and connection ids that are still stored
     """
-    if connection_ids:
-        try:
-            port_connections_manager.delete_many(
-                {PortConnectionKey.PUBLIC_ID.value: {'$in': connection_ids}},
-            )
-        except Exception as err:
-            LOGGER.error("[roll_back] Removing the created connections failed: %s", err, exc_info=True)
+    ledger = WriteLedger()
 
-    if port_ids:
-        try:
-            ports_manager.delete_many({PortKey.PUBLIC_ID.value: {'$in': port_ids}})
-        except Exception as err:
-            LOGGER.error("[roll_back] Removing the created ports failed: %s", err, exc_info=True)
+    for port_id in port_ids:
+        ledger.inserted(ports_manager, port_id)
 
-    return (
-        _surviving(ports_manager, PortKey.PUBLIC_ID.value, port_ids),
-        _surviving(port_connections_manager, PortConnectionKey.PUBLIC_ID.value, connection_ids),
-    )
+    for connection_id in connection_ids:
+        ledger.inserted(port_connections_manager, connection_id)
 
+    residue: list[LedgerResidue] = ledger.undo()
 
-def _surviving(manager: GenericManager, id_key: str, public_ids: list[int]) -> list[int]:
-    """
-    Reads back which of the given rows are still stored
+    def _surviving_ids(manager: GenericManager) -> list[int]:
+        """The residue's ids in one manager's collection."""
+        return sorted(item.public_id for item in residue if item.collection == manager.collection)
 
-    A read the rollback cannot trust itself without: `delete_many` reports what it matched, not what is
-    gone, and the whole point of the residue report is to be accurate about damage
-
-    Args:
-        manager (GenericManager): The manager owning the collection
-        id_key (str): Name of the collection's public_id field
-        public_ids (list[int]): The ids the rollback tried to remove
-
-    Returns:
-        list[int]: The ids still present, sorted; empty when the cleanup finished
-    """
-    if not public_ids:
-        return []
-
-    try:
-        found: list[dict[str, Any]] = manager.find(criteria={id_key: {'$in': public_ids}})
-    except Exception as err:
-        # The verification itself failed, so nothing can be promised about the cleanup. Reporting every
-        # id as residue is the honest answer: it sends somebody to look, which is what this is for
-        LOGGER.error("[_surviving] Verifying the rollback failed: %s", err, exc_info=True)
-
-        return sorted(public_ids)
-
-    return sorted(row[id_key] for row in found if id_key in row)
+    return _surviving_ids(ports_manager), _surviving_ids(port_connections_manager)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  the orchestration                                                   #

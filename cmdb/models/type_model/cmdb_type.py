@@ -69,6 +69,22 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
+def _stored_acl_document(stored_acl: Any) -> dict[str, Any]:
+    """
+    The stored ``acl`` as the document ``AccessControlList.from_data`` reads
+
+    A null - or anything else that is no document - reads as no ACL, exactly as an absent key does, instead of
+    failing the whole type: the same reading ``AccessControlList.normalize_stored`` gives it
+
+    Args:
+        stored_acl (Any): The stored ``acl`` value, whatever its shape
+
+    Returns:
+        dict[str, Any]: The value itself when it is a document, otherwise an empty one
+    """
+    return stored_acl if isinstance(stored_acl, dict) else {}
+
+
 # pylint: disable=too-many-instance-attributes
 class CmdbType(CmdbDAO):
     """
@@ -221,7 +237,7 @@ class CmdbType(CmdbDAO):
                 fields=data.get(TypeSchemaKey.FIELDS.value) or [],
                 ci_explorer_label=data.get(TypeSchemaKey.CI_EXPLORER_LABEL.value),
                 ci_explorer_color=data.get(TypeSchemaKey.CI_EXPLORER_COLOR.value),
-                acl=AccessControlList.from_data(data.get(TypeSchemaKey.ACL.value, {})),
+                acl=AccessControlList.from_data(_stored_acl_document(data.get(TypeSchemaKey.ACL.value))),
             )
         except Exception as err:
             raise CmdbTypeInitFromDataError(err) from err

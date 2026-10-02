@@ -55,7 +55,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import UpdateSingleResponse, GetMultiResponse, DefaultResponse
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_section_templates.section_template_helper import (
@@ -168,6 +168,7 @@ def create_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
 
         return DefaultResponse(created_section_template_id).make_response()
     except SectionTemplatesManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[create_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to create the SectionTemplate!")
 
@@ -436,6 +437,7 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         LOGGER.error("[update_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to retrieve SectionTemplate with ID: {public_id}!")
     except SectionTemplatesManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_section_template] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to update SectionTemplate with ID: {public_id}!")
 

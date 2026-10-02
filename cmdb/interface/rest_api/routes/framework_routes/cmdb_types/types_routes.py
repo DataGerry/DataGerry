@@ -60,7 +60,7 @@ from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.type_constants import TypeRight
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses.response_parameters import ParameterKey
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -71,6 +71,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
     guard_field_defaults,
+    guard_new_identifiers,
     guard_type_structure,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
@@ -187,6 +188,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # Explorer shows on every node of the Type - so a name the Type does not offer is refused
         normalize_ci_explorer_label(data)
 
+        # Every identifier of a new Type is new: none may be blank, padded or bracketed (type_identifier_rules)
+        guard_new_identifiers(data)
+
         # The sections and the summary line only REFERENCE the fields the flat list declares, and
         # nothing downstream re-checks that pairing - a payload that breaks it is stored as sent and
         # yields a Type that holds fields and renders none of them, or a summary line that drops
@@ -233,6 +237,7 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         LOGGER.error("[insert_cmdb_type] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Failed to retrieve the created Type from the database!")
     except TypesManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_type] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to insert the new Type into the database!")
 
@@ -652,6 +657,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # nominated field clears the nomination instead of being refused over it
         normalize_ci_explorer_label(data, old_type)
 
+        # The identifiers this update ADDS follow the identifier rule; the stored ones are immutable and pass
+        guard_new_identifiers(data, old_type)
+
         # An update writes the whole document, so it can introduce the same inconsistency a create
         # can: sections or a summary line referencing fields the payload does not declare
         guard_type_structure(data)
@@ -719,9 +727,11 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
         return UpdateSingleResponse(final_type).make_response()
     except LocationsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_type] LocationsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Although the Type got updated, the update of Locations failed!")
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_type] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Although the Type got updated, the update of correspondings Objects failed!")
     except ObjectsManagerGetError as err:
@@ -731,6 +741,7 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         LOGGER.error("[update_cmdb_type] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Type with ID: {public_id} from the database!")
     except TypesManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_type] TypesManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Type with ID: {public_id} from the database!")
     except TypesManagerUpdateMDSError as err:

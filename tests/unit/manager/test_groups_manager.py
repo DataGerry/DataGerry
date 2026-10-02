@@ -16,10 +16,11 @@
 """
 Unit tests for cmdb.manager.groups_manager.GroupsManager
 
-Pure tests: no Mongo. The override methods (``insert_group``, ``get_group``, ``update_group``,
-``delete_group``) and the rights-cache init are exercised against a MagicMock standing in for the
-manager instance. The one-line delegation ``iterate`` is intentionally outside the scope - it is
-covered transitively by the GenericManager unit suite and the management integration tests
+Pure tests: no Mongo. The override methods (``insert_group``, ``get_group``, ``iterate``,
+``update_group``, ``delete_group``), the model builder ``_build_group`` and the rights-cache init are
+exercised against a MagicMock standing in for the manager instance. ``iterate`` is no delegation: the
+generic ``iterate_items`` builds groups without the right tree, so the override is pinned here - every
+row built with ``self.rights``, a failure wrapped as ``GroupsManagerIterationError``
 """
 # pylint: disable=protected-access
 from typing import Any
@@ -29,13 +30,15 @@ import pytest
 
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.groups_manager import GroupsManager, PROTECTED_GROUP_IDS
-from cmdb.models.group_model import CmdbUserGroup
+from cmdb.models.group_model import CmdbUserGroup, MASTER_RIGHT_NAME
+from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
 
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.manager.groups_manager import (
     GroupsManagerInitError,
     GroupsManagerInsertError,
     GroupsManagerGetError,
+    GroupsManagerIterationError,
     GroupsManagerDeleteError,
 )
 from cmdb.errors.models.cmdb_user_group import CmdbUserGroupToJsonError
@@ -46,6 +49,7 @@ MODULE_PATH: str = 'cmdb.manager.groups_manager'
 NEW_GROUP_PUBLIC_ID: int = 17
 MISSING_GROUP_PUBLIC_ID: int = 9999
 REGULAR_GROUP_PUBLIC_ID: int = 5
+QUERY_TOTAL: int = 12
 ADMIN_GROUP_PUBLIC_ID: int = PROTECTED_GROUP_IDS[0]
 USER_GROUP_PUBLIC_ID: int = PROTECTED_GROUP_IDS[1]
 
@@ -57,6 +61,8 @@ def _mock_manager() -> MagicMock:
     """A MagicMock standing in for a GroupsManager, with a cached rights sentinel."""
     mgr = MagicMock(spec=GroupsManager)
     mgr.rights = MagicMock(name='cached_rights_tree')
+    # The real model builder, so every read the tests drive goes through the one place rights are resolved
+    mgr._build_group = lambda document: GroupsManager._build_group(mgr, document)
     return mgr
 
 
@@ -75,6 +81,14 @@ class TestInit:
             mgr = GroupsManager(dbm=MagicMock())
 
         assert mgr.rights is sentinel_rights
+
+    def test_caches_every_right_name(self) -> None:
+        """``self.right_names`` is the set of names of the cached tree."""
+        with patch.object(GenericManager, '__init__', return_value=None):
+            mgr = GroupsManager(dbm=MagicMock())
+
+        assert mgr.right_names == frozenset(right.name for right in mgr.rights)
+        assert MASTER_RIGHT_NAME in mgr.right_names
 
     def test_wraps_rights_cache_failure_as_init_error(self) -> None:
         """If ``flat_rights_tree`` raises, the wrapper surfaces it as ``GroupsManagerInitError``."""
@@ -202,6 +216,94 @@ class TestIsProtectedGroup:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                  _build_group / iterate                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBuildGroup:
+    """``_build_group`` is ``from_data`` fed the cached right tree."""
+
+    def test_feeds_the_cached_tree(self) -> None:
+        """The document and ``self.rights`` go to ``from_data``; its group is returned."""
+        mgr = _mock_manager()
+        sentinel_group = MagicMock(spec=CmdbUserGroup)
+
+        with patch.object(CmdbUserGroup, 'from_data', return_value=sentinel_group) as from_data_mock:
+            result = GroupsManager._build_group(mgr, SAMPLE_GROUP_DICT)
+
+        from_data_mock.assert_called_once_with(SAMPLE_GROUP_DICT, mgr.rights)
+        assert result is sentinel_group
+
+    def test_resolves_stored_names_against_the_real_tree(self) -> None:
+        """Against the real tree a stored name comes back as the right, not as nothing."""
+        mgr = _mock_manager()
+        mgr.rights = flat_rights_tree(ALL_RIGHTS)
+
+        group = GroupsManager._build_group(mgr, {**SAMPLE_GROUP_DICT, 'rights': [MASTER_RIGHT_NAME]})
+
+        assert [right.name for right in group.rights] == [MASTER_RIGHT_NAME]
+
+
+class TestIterate:
+    """``iterate`` runs the generic query and builds every row with the right tree."""
+
+    def test_every_row_is_built_with_the_tree_and_the_total_is_kept(self) -> None:
+        """Each document goes through ``_build_group``; the count is the query's total."""
+        mgr = _mock_manager()
+        other_document: dict[str, Any] = {**SAMPLE_GROUP_DICT, 'public_id': REGULAR_GROUP_PUBLIC_ID}
+        mgr.iterate_query.return_value = ([SAMPLE_GROUP_DICT, other_document], QUERY_TOTAL)
+        built: list[MagicMock] = [MagicMock(spec=CmdbUserGroup), MagicMock(spec=CmdbUserGroup)]
+        params = MagicMock(name='builder_params')
+
+        with patch.object(CmdbUserGroup, 'from_data', side_effect=built) as from_data_mock:
+            result = GroupsManager.iterate(mgr, params)
+
+        mgr.iterate_query.assert_called_once_with(params)
+        assert from_data_mock.call_args_list == [
+            ((SAMPLE_GROUP_DICT, mgr.rights),), ((other_document, mgr.rights),),
+        ]
+        assert result.results == built
+        assert result.total == QUERY_TOTAL
+        assert result.count == len(built)
+
+    def test_rows_carry_their_resolved_rights(self) -> None:
+        """Against the real tree the listed group holds its rights - the defect was an empty list here."""
+        mgr = _mock_manager()
+        mgr.rights = flat_rights_tree(ALL_RIGHTS)
+        mgr.iterate_query.return_value = ([{**SAMPLE_GROUP_DICT, 'rights': [MASTER_RIGHT_NAME]}], 1)
+
+        result = GroupsManager.iterate(mgr, MagicMock(name='builder_params'))
+
+        assert [right.name for right in result.results[0].rights] == [MASTER_RIGHT_NAME]
+
+    def test_an_empty_page_is_an_empty_result(self) -> None:
+        """No documents, no models; the total is still the query's."""
+        mgr = _mock_manager()
+        mgr.iterate_query.return_value = ([], QUERY_TOTAL)
+
+        result = GroupsManager.iterate(mgr, MagicMock(name='builder_params'))
+
+        assert not result.results
+        assert result.total == QUERY_TOTAL
+
+    @pytest.mark.parametrize('failing', ['query', 'row'])
+    def test_a_failure_is_wrapped_as_iteration_error_carrying_it(self, failing: str) -> None:
+        """A failed query or an unreadable row is a ``GroupsManagerIterationError`` holding the error itself."""
+        mgr = _mock_manager()
+        failure = RuntimeError('down')
+
+        if failing == 'query':
+            mgr.iterate_query.side_effect = failure
+        else:
+            mgr.iterate_query.return_value = ([SAMPLE_GROUP_DICT], 1)
+
+        with patch.object(CmdbUserGroup, 'from_data', side_effect=failure):
+            with pytest.raises(GroupsManagerIterationError) as exc_info:
+                GroupsManager.iterate(mgr, MagicMock(name='builder_params'))
+
+        assert exc_info.value.args[0] is failure
+        assert exc_info.value.__cause__ is failure
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                      hydrate_group                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHydrateGroup:
@@ -219,6 +321,48 @@ class TestHydrateGroup:
         from_data_mock.assert_called_once_with(SAMPLE_GROUP_DICT, mgr.rights)
         to_json_mock.assert_called_once_with(sentinel_group, True)
         assert result is SERIALIZED_GROUP_DICT
+
+    def test_rights_are_stored_once_each_in_tree_order(self) -> None:
+        """Against the real tree: duplicates go and the order is the tree's, whatever was submitted."""
+        mgr = _mock_manager()
+        mgr.rights = flat_rights_tree(ALL_RIGHTS)
+        first, second = mgr.rights[1].name, mgr.rights[2].name
+
+        result = GroupsManager.hydrate_group(mgr, {**SAMPLE_GROUP_DICT, 'rights': [second, first, second]})
+
+        assert result['rights'] == [first, second]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 canonical_right_names                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCanonicalRightNames:
+    """``canonical_right_names`` is the create's form of the list ``hydrate_group`` stores on an update."""
+
+    def test_each_name_once_in_tree_order(self) -> None:
+        """Duplicates go and the order is the tree's."""
+        mgr = _mock_manager()
+        mgr.rights = flat_rights_tree(ALL_RIGHTS)
+        first, second = mgr.rights[1].name, mgr.rights[2].name
+
+        assert GroupsManager.canonical_right_names(mgr, [second, first, second]) == [first, second]
+
+    def test_equals_what_the_update_stores(self) -> None:
+        """For the same input the create's list is the update's."""
+        mgr = _mock_manager()
+        mgr.rights = flat_rights_tree(ALL_RIGHTS)
+        submitted: list[str] = [mgr.rights[5].name, MASTER_RIGHT_NAME, mgr.rights[5].name]
+
+        hydrated = GroupsManager.hydrate_group(mgr, {**SAMPLE_GROUP_DICT, 'rights': submitted})
+
+        assert GroupsManager.canonical_right_names(mgr, submitted) == hydrated['rights']
+
+    def test_an_empty_list_stays_empty(self) -> None:
+        """No rights in, no rights out."""
+        mgr = _mock_manager()
+        mgr.rights = flat_rights_tree(ALL_RIGHTS)
+
+        assert not GroupsManager.canonical_right_names(mgr, [])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

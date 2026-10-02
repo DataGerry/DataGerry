@@ -22,7 +22,7 @@ refused - are pinned once in the shared membership-model test module. What is pi
 belongs to the person alone:
 
   - the ``groups`` index, which the group-deletion cascade needs:
-    ``delete_group_from_persons`` filters on ``{'groups': group_id}``, and its twin index on the other
+    ``remove_person_group_from_persons`` filters on ``{'groups': group_id}``, and its twin index on the other
     side of the pair (``group_members``) had existed all along
   - the collection reaching CollectionValidator through the user-management registry, without which no
     index of it is ever built

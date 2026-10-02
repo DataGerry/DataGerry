@@ -142,3 +142,55 @@ REQUIRED_RISK_ASSESSMENT_FIELDS: tuple[str, ...] = (
     RiskAssessmentKey.RISK_OWNER_ID.value,
     RiskAssessmentKey.RISK_ASSESSMENT_DATE.value,
 )
+
+
+# Server error (HTTP 500) when a RiskAssessment write failed part-way and undoing what it had already written
+# did not finish either: the named documents are left as the failed request made them and need a look by hand
+RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG: str = (
+    "Writing the RiskAssessment failed, and undoing what it had already written did not finish. "
+    "These writes are still in effect and have to be checked by hand: {residue}"
+)
+
+
+# Refusal (HTTP 400) for an IsmsControlMeasureAssignment naming IsmsControlMeasures that do not exist, formatted
+# with the sorted unknown ids
+UNKNOWN_CONTROL_MEASURES_MSG: str = "Unknown ControlMeasure(s) referenced: {unknown}!"
+
+# Refusals (HTTP 400) for a person reference that cannot be resolved at all: its value is not a public_id, or its
+# '_ref_type' sibling names neither a CmdbPerson nor a CmdbPersonGroup. Formatted with the reference key and the
+# offending value
+INVALID_PERSON_REFERENCE_ID_MSG: str = "The '{key}' reference must be a public_id, got {value!r}!"
+UNKNOWN_PERSON_REFERENCE_TYPE_MSG: str = (
+    "The '{key}' reference names no known reference type: {value!r} (allowed: {allowed})!"
+)
+
+# The 400 a write answers when looking up the documents it references fails, formatted with what they are
+REFERENCE_LOOKUP_FAILED_MSG: str = "Failed to look up the referenced {label} IDs in the database!"
+
+
+class AssignmentDiffKey(BaseStrEnum):
+    """The keys of the ControlMeasureAssignment diff a RiskAssessment update carries"""
+    CREATED = 'created'
+    UPDATED = 'updated'
+    DELETED = 'deleted'
+
+
+# Refusals (HTTP 400) of the ControlMeasureAssignments a RiskAssessment write carries. A create takes a list, an
+# update the AssignmentDiffKey object; every entry is judged by the ControlMeasureAssignment write schema
+ASSIGNMENTS_NOT_A_LIST_MSG: str = (
+    "'control_measure_assignments' of a new RiskAssessment must be a list of ControlMeasureAssignments!"
+)
+ASSIGNMENTS_NOT_A_DIFF_MSG: str = (
+    "'control_measure_assignments' of a RiskAssessment update must be an object of the lists {keys}!"
+)
+ASSIGNMENT_ENTRY_NOT_AN_OBJECT_MSG: str = "ControlMeasureAssignment {position} must be an object!"
+ASSIGNMENT_ENTRY_INVALID_MSG: str = "ControlMeasureAssignment {position} is invalid: {errors}"
+ASSIGNMENT_ID_INVALID_MSG: str = (
+    "ControlMeasureAssignment {position} needs the integer 'public_id' of a stored assignment, not {value!r}!"
+)
+ASSIGNMENT_CONTROL_MEASURE_DUPLICATE_MSG: str = (
+    "A ControlMeasure can be assigned to a RiskAssessment only once - more than once: {ids}!"
+)
+ASSIGNMENT_ALREADY_ASSIGNED_MSG: str = (
+    "ControlMeasure ID:{control_measure_id} is already assigned to RiskAssessment ID:{risk_assessment_id}!"
+)

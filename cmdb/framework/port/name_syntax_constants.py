@@ -51,6 +51,12 @@ TOKEN_PATTERN: re.Pattern = re.compile(r'\{([^{}]*)\}')
 # '{n:99999999}' turning a 48-port batch into megabytes of zeroes
 MAX_PAD_WIDTH: int = 10
 
+# The most ports one name preview or bulk creation may generate. Both build every name in memory before
+# anything is refused or written, and the creation then inserts them one by one, so without a ceiling one
+# request with a count in the millions ties up a worker. A 48-port switch face or a 96-port panel is the
+# ordinary case; this leaves room for the largest one-shot batches (the user's ruling)
+MAX_BULK_PORT_COUNT: int = 5000
+
 
 class PortNameSyntaxError(BaseStrEnum):
     """
@@ -69,6 +75,7 @@ class PortNameSyntaxError(BaseStrEnum):
     UNKNOWN_TOKEN = "'{{{token}}}' is not a known syntax token. Allowed: {allowed}"
     PAD_WIDTH_TOO_LARGE = "The padding of '{{{token}}}' is too wide - at most {maximum} digits!"
     INVALID_COUNT = 'The number of ports to create must be a whole number of at least 1, but was {value}!'
+    COUNT_TOO_LARGE = 'At most {maximum} ports can be created in one batch, but {value} were requested!'
     INVALID_START_INDEX = 'The start index must be a whole number of at least 0, but was {value}!'
 
 

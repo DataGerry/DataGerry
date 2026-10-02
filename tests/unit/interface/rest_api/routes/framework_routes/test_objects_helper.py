@@ -35,7 +35,9 @@ from cmdb.manager.objects_propagation_helper import (
 )
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    build_object_list_search_stages,
     render_or_native,
+    render_mds_reference,
     build_field_value_map,
     build_mds_value_map,
     build_object_value_view,
@@ -91,6 +93,7 @@ from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.reports_manager import ReportsManagerUpdateError
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -183,6 +186,33 @@ class TestRenderOrNative:
             render_or_native('something-else', [], MagicMock())
 
         assert exc_info.value.code == 400
+
+
+MDS_OBJECT_ID: int = 7
+
+
+class TestRenderMdsReference:
+    """render_mds_reference builds an object's reference block from a render of the object itself."""
+
+    def test_it_renders_without_reference_expansion(self) -> None:
+        """The block reads the object's own values; what it references is not loaded"""
+        referenced, user = SimpleNamespace(public_id=MDS_OBJECT_ID), MagicMock(name='user')
+
+        with patch(f'{HELPER_PATH}.CmdbMultiRender') as render_ctor:
+            render_mds_reference(referenced, user)
+
+        render_ctor.assert_called_once_with([referenced], user)
+
+    def test_it_answers_the_objects_own_reference(self) -> None:
+        """The reference is asked for the rendered object's own id"""
+        referenced = SimpleNamespace(public_id=MDS_OBJECT_ID)
+
+        with patch(f'{HELPER_PATH}.CmdbMultiRender') as render_ctor:
+            render_ctor.return_value.get_mds_reference.return_value = {'object_id': MDS_OBJECT_ID}
+
+            assert render_mds_reference(referenced, MagicMock()) == {'object_id': MDS_OBJECT_ID}
+
+        render_ctor.return_value.get_mds_reference.assert_called_once_with(MDS_OBJECT_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1389,3 +1419,36 @@ class TestBuildObjectValueView:
 
         assert result['fields'] == {'ip': ''}
         assert result['multi_data_sections'] == {'s1': [{'ip': '10.0.0.1'}]}
+
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            build_object_list_search_stages                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBuildObjectListSearchStages:
+    """The listing ``?search=`` for the requesting user: the READ ACL of the referenced objects, resolved lazily."""
+
+    @pytest.mark.parametrize('term', [None, '', '   '], ids=repr)
+    def test_no_term_resolves_no_acl_and_builds_nothing(self, term) -> None:
+        """An unsearched listing runs no extra query - not even the ACL resolution"""
+        with patch(f'{HELPER_PATH}.build_acl_pipeline') as acl, \
+             patch(f'{HELPER_PATH}.build_object_search_stages') as stages:
+            assert build_object_list_search_stages(term, MagicMock(name='objects_manager'), MagicMock()) == []
+
+        acl.assert_not_called()
+        stages.assert_not_called()
+
+    def test_a_term_gets_the_callers_read_acl(self) -> None:
+        """The referenced objects must pass the caller's READ stages, handed to the search builder as they are"""
+        objects_manager = MagicMock(name='objects_manager')
+        user = MagicMock(name='request_user')
+        acl_stages: list[dict[str, Any]] = [{'$match': {'type_id': {'$nin': [3]}}}]
+        built: list[dict[str, Any]] = [{'$match': {'built': True}}]
+
+        with patch(f'{HELPER_PATH}.build_acl_pipeline', return_value=acl_stages) as acl, \
+             patch(f'{HELPER_PATH}.build_object_search_stages', return_value=built) as stages:
+            result = build_object_list_search_stages('needle', objects_manager, user)
+
+        acl.assert_called_once_with(user, AccessControlPermission.READ)
+        stages.assert_called_once_with('needle', objects_manager, acl_stages)
+        assert result is built

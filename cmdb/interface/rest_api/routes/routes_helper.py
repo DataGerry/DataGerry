@@ -17,7 +17,8 @@
 Implementation of general API route helpers
 """
 import json
-from collections.abc import Sequence
+from contextlib import contextmanager
+from collections.abc import Iterable, Iterator, Sequence
 from http import HTTPStatus
 from typing import Any, NoReturn, TypeVar
 from logging import Logger, getLogger
@@ -28,6 +29,7 @@ from werkzeug.wrappers import Request
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import Builder, find_cause
 from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.framework.write_ledger import LedgerResidue, WriteLedger
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.framework.search.list_search import build_list_search_stages
 from cmdb.interface.rest_api.responses.response_parameters import (
@@ -48,6 +50,10 @@ HEAD_METHOD: str = 'HEAD'
 WRITE_PAYLOAD_NOT_AN_OBJECT_MSG: str = (
     "The {entity} write payload must be a JSON object when it is sent as a request body!"
 )
+
+# Refusal (HTTP 400) for a write naming public_ids its referenced collection does not hold, formatted with what
+# the ids refer to and the sorted unknown ids
+UNKNOWN_REFERENCES_MSG: str = "The following {entity_label} ID(s) do not exist: {unknown}!"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -460,3 +466,83 @@ def abort_if_taken(
         return
 
     abort(HTTPStatus.BAD_REQUEST, taken_message)
+
+
+def abort_on_unknown_references(
+        manager: Any,
+        public_ids: Iterable[int] | None,
+        entity_label: str) -> None:
+    """
+    Refuses the request when a referenced public_id does not exist
+
+    One projected ``$in`` query for the whole selection (``GenericManager.find_existing_public_ids``), so a
+    payload naming many references costs one read, and an empty or missing selection costs none
+
+    Args:
+        manager (Any): The manager owning the referenced collection, anything with GenericManager's
+            ``find_existing_public_ids``
+        public_ids (Iterable[int] | None): The referenced public_ids; nothing is checked for an empty
+            or missing selection
+        entity_label (str): What the ids refer to, used in the error message (e.g. 'PersonGroup')
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming every id that does not exist, sorted
+    """
+    referenced: list[int] = list(public_ids or [])
+
+    if not referenced:
+        return
+
+    unknown: list[int] = sorted(set(referenced) - manager.find_existing_public_ids(referenced))
+
+    if unknown:
+        abort(HTTPStatus.BAD_REQUEST, UNKNOWN_REFERENCES_MSG.format(entity_label=entity_label, unknown=unknown))
+
+
+def undo_or_abort(ledger: WriteLedger, residue_message: str) -> None:
+    """
+    Undoes a failed request's writes, refusing with a 500 that names whatever could not be undone
+
+    Call it from the ``except`` of the write phase and re-raise the original error afterwards: a clean undo
+    returns, so the request fails with the error it actually hit (its own 400 or 500) and nothing it wrote is
+    left behind. An undo that could not finish is a different outcome - rows nobody asked for are stored, which
+    the caller cannot fix by editing their request - so it is a 500 naming every one of them
+
+    Args:
+        ledger (WriteLedger): The writes the request made
+        residue_message (str): The 500's message, a template with a ``{residue}`` placeholder
+
+    Raises:
+        werkzeug.exceptions.InternalServerError: Aborts with 500 when the undo left anything behind
+    """
+    residue: list[LedgerResidue] = ledger.undo()
+
+    if residue:
+        LOGGER.error("[undo_or_abort] The undo left %s write(s) in effect: %s", len(residue), residue)
+        abort(HTTPStatus.INTERNAL_SERVER_ERROR,
+              residue_message.format(residue=[item.to_json() for item in residue]))
+
+
+@contextmanager
+def undone_on_failure(residue_message: str) -> Iterator[WriteLedger]:
+    """
+    A fresh WriteLedger for a block of writes, undone when the block fails
+
+    ``with undone_on_failure(MESSAGE) as ledger:`` - record every write of the block in ``ledger``. When the block
+    raises, the writes are undone (``undo_or_abort``) and the original error is re-raised unchanged, so the request
+    fails with the error it actually hit and the route's own error mapping answers it; an undo that could not
+    finish answers the 500 naming what is left instead
+
+    Args:
+        residue_message (str): The 500's message when the undo cannot finish, with a ``{residue}`` placeholder
+
+    Yields:
+        WriteLedger: The ledger to record the block's writes in
+    """
+    ledger = WriteLedger()
+
+    try:
+        yield ledger
+    except Exception:
+        undo_or_abort(ledger, residue_message)
+        raise

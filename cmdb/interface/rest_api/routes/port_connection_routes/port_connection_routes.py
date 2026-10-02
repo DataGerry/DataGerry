@@ -92,7 +92,7 @@ from cmdb.errors.manager.port_connections_manager import (
 )
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -224,6 +224,7 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
     except PortConnectionsManagerInsertError as err:
         # The partial unique indexes are what stop two concurrent creates, and they are the only thing
         # that can: every check above is a read followed by a write
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_port_connection] PortConnectionsManagerInsertError: %s", err, exc_info=True)
         duplicate_key_abort(err, connection_type, endpoints, port_connections_manager)
 
@@ -585,6 +586,7 @@ def update_cmdb_port_connection(public_id: int, data: dict[str, Any], request_us
         # The partial unique index on cable_ci_id is what stops two concurrent claims of one Cable - the
         # only index an update can reach, its endpoints being immutable. Its refusal is answered with the
         # pre-check's own message; any other failure of the write is the server's (500)
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_port_connection] PortConnectionsManagerUpdateError: %s", err, exc_info=True)
         duplicate_key_abort(
             err, connection_type, stored.get(PortConnectionKey.ENDPOINTS.value), port_connections_manager,

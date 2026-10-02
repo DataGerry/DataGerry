@@ -42,6 +42,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.port.connected import project_connected
 
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
+    PORT_CABLED_KEY,
     PORT_CONNECTED_KEY,
     PORT_FIELD_IMMUTABLE_MESSAGE,
     PORT_NAME_REQUIRED_MESSAGE,
@@ -477,7 +478,7 @@ def with_connected_flag(
         port_connections_manager: PortConnectionsManager,
         ports: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
-    Adds the derived connected flag to the ports of a read response
+    Adds the derived connected and cabled flags to the ports of a read response
 
     **One batched read for the whole response**, not one per port: a switch with 48 ports would
     otherwise cost 48 queries to answer a question a single indexed `$in` answers. The query is served
@@ -491,10 +492,10 @@ def with_connected_flag(
         ports (list[dict[str, Any]]): The port documents about to be returned
 
     Returns:
-        list[dict[str, Any]]: The same port documents, each carrying the flag
+        list[dict[str, Any]]: The same port documents, each carrying both flags
     """
     connections: list[dict[str, Any]] = port_connections_manager.get_connections_of_ports(
         collect_port_ids(ports),
     )
 
-    return project_connected(ports, connections, PORT_CONNECTED_KEY)
+    return project_connected(ports, connections, PORT_CONNECTED_KEY, PORT_CABLED_KEY)

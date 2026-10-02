@@ -40,7 +40,12 @@ from cmdb.framework.port.name_syntax import (
     render_name,
     syntax_blockers,
 )
-from cmdb.framework.port.name_syntax_constants import MAX_PAD_WIDTH, PortNameSyntaxError, SyntaxToken
+from cmdb.framework.port.name_syntax_constants import (
+    MAX_BULK_PORT_COUNT,
+    MAX_PAD_WIDTH,
+    PortNameSyntaxError,
+    SyntaxToken,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -156,6 +161,20 @@ class TestSyntaxBlockers:
     def test_an_unusable_start_index_is_refused(self, start_index: Any) -> None:
         """Same reasoning; a negative index would produce names nobody asked for"""
         assert any('start index' in blocker for blocker in syntax_blockers('{n}', 4, start_index))
+
+    def test_the_maximum_count_is_still_allowed(self) -> None:
+        """The batch ceiling itself is legal"""
+        assert syntax_blockers('Gi0/{n}', MAX_BULK_PORT_COUNT, 1) == []
+
+    def test_a_count_over_the_maximum_is_refused_with_both_numbers(self) -> None:
+        """One more is refused before a single name is built - every name is built in memory first"""
+        assert syntax_blockers('Gi0/{n}', MAX_BULK_PORT_COUNT + 1, 1) == [
+            PortNameSyntaxError.COUNT_TOO_LARGE.format(maximum=MAX_BULK_PORT_COUNT, value=MAX_BULK_PORT_COUNT + 1),
+        ]
+
+    def test_the_maximum_is_the_rulings_number(self) -> None:
+        """5000: room for the largest one-shot batch, a ceiling against a count in the millions"""
+        assert MAX_BULK_PORT_COUNT == 5000
 
     def test_zero_is_a_legal_start_index(self) -> None:
         """Some vendors number ports from 0, and the concept sets no floor above it"""

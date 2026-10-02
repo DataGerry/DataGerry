@@ -37,6 +37,8 @@ from cmdb.manager import ObjectRelationsManager, ObjectRelationLogsManager
 from cmdb.models.log_model import CmdbObjectRelationLog
 from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
+from cmdb.models.object_model import CmdbObject
+from tests.utils.ipam_doc_builders import make_object_doc
 from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsManagerBuildError
 from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerInsertError,
@@ -73,6 +75,12 @@ SEEDED_CREATION_TIME: datetime = datetime(2020, 1, 1, tzinfo=timezone.utc)
 OR_ID_FOR_LOGS: int = 77107
 OR_ID_FOR_MOVE: int = 77108
 OTHER_CHILD_OBJECT_ID: int = 701
+# The objects the payloads name: the write reads both endpoints, so they have to exist with the relation's types
+SEEDED_OBJECTS: dict[int, int] = {
+    PARENT_OBJECT_ID: PARENT_TYPE_ID, CHILD_OBJECT_ID: CHILD_TYPE_ID, OTHER_CHILD_OBJECT_ID: CHILD_TYPE_ID,
+}
+# The field the payloads give a value for, declared by the seeded relation
+DECLARED_FIELD_NAME: str = 'a'
 
 ALL_OR_IDS: list[int] = [
     OR_ID_FOR_GET, OR_ID_FOR_UPDATE, OR_ID_FOR_PIN, OR_ID_FOR_DELETE,
@@ -143,8 +151,15 @@ def _seed_relation_and_cleanup(database_manager: MongoDatabaseManager, database_
         'relation_name': 'functional-object-relation-test',
         'parent_type_ids': [PARENT_TYPE_ID],
         'child_type_ids': [CHILD_TYPE_ID],
+        'fields': [{'type': 'text', 'name': DECLARED_FIELD_NAME, 'label': 'A'}],
     })
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+
+    for object_id, type_id in SEEDED_OBJECTS.items():
+        objects.replace_one({'public_id': object_id}, make_object_doc(object_id, type_id, []), upsert=True)
+
     yield
+    objects.delete_many({'public_id': {'$in': list(SEEDED_OBJECTS)}})
     database_manager.get_collection(CmdbRelation.COLLECTION, database_name)\
         .delete_one({'public_id': RELATION_ID})
     database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)\

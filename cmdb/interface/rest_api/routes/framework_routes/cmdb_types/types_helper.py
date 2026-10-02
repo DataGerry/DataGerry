@@ -99,6 +99,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.errors.manager.types_manager import TypesManagerUpdateMDSError
+from cmdb.interface.route_utils import abort_if_too_large
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -510,19 +511,20 @@ def normalize_type_acl(type_data: dict[str, Any]) -> None:
     by whether anyone had edited the type.
 
     This applies the same normalisation the other three paths get, so a Type's stored ACL does not
-    depend on the route it arrived through. A partial ``acl`` is completed rather than rejected: the
-    absent half is exactly what the model defaults, and ``activated`` defaults to **False**, which
-    grants - access control is opt-in.
+    depend on the route it arrived through - ``AccessControlList.normalize_stored``, the reading
+    ``updater_20261003`` also wrote back onto every Type stored before this rule. A partial ``acl`` is
+    completed rather than rejected: the absent half is exactly what the model defaults, and ``activated``
+    defaults to **False**, which grants - access control is opt-in.
 
-    Note it also **drops unknown keys inside** ``acl``, because the model reads only ``activated`` and
-    ``groups``. That is what an update does to the same payload; the type schema declares ``acl`` as
-    ``allow_unknown``, so only a hand-built API payload can put anything else there
+    The block's shape has already been judged by the type write schema (``get_type_acl_schema``): a malformed
+    one is a 400 before this runs, so completing it cannot fail. An unknown key inside ``acl`` was purged by the
+    validator, as the model would drop it
 
     Args:
         type_data (dict[str, Any]): The CmdbType payload, modified in place
     """
-    type_data[TypeSchemaKey.ACL.value] = AccessControlList.to_json(
-        AccessControlList.from_data(type_data.get(TypeSchemaKey.ACL.value) or {})
+    type_data[TypeSchemaKey.ACL.value] = AccessControlList.normalize_stored(
+        type_data.get(TypeSchemaKey.ACL.value)
     )
 
 
@@ -686,6 +688,7 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
     try:
         objects_manager.apply_raw_updates(build_mds_updates(old_type.public_id, plan))
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         raise TypesManagerUpdateMDSError(err) from err
 
 

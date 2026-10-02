@@ -19,12 +19,25 @@ Unit tests for the IsmsRiskAssessment validation schema
 Pins the two behaviours changed in the ISMS sweep: the before/after risk_calculation matrices are
 built from one shared sub-schema (identical cell shape), with the before-matrix impacts required and
 the after-matrix impacts optional (an untreated assessment has no after sliders); and the reference-
-type discriminator fields are constrained to their enum values.
+type discriminator fields are constrained to their enum values. The three person ``_ref_type`` fields take null
+like the ids they qualify - the pairing of a set id with a real type is the write routes' person-reference check.
 """
+from typing import Any
+
+import pytest
+from cerberus import Validator
+
 from cmdb.models.isms_model import IsmsRiskAssessment
+from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SCHEMA: dict = IsmsRiskAssessment.SCHEMA
+PERSON_REF_TYPE_KEYS: tuple[str, ...] = (
+    RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE.value,
+    RiskAssessmentKey.RESPONSIBLE_PERSONS_ID_REF_TYPE.value,
+    RiskAssessmentKey.AUDITOR_ID_REF_TYPE.value,
+)
 _SHARED_CELL_KEYS = ('likelihood_id', 'likelihood_value', 'maximum_impact_id', 'maximum_impact_value')
 
 
@@ -57,3 +70,29 @@ class TestReferenceTypeConstraints:
         """Every person ref_type field only accepts the PersonReferenceType values."""
         for field in ('risk_owner_id_ref_type', 'responsible_persons_id_ref_type', 'auditor_id_ref_type'):
             assert set(SCHEMA[field]['allowed']) == {'PERSON', 'PERSON_GROUP'}
+
+
+def _field_validates(key: str, document: dict[str, Any]) -> bool:
+    """Validates a document against the one field's rule"""
+    return Validator({key: SCHEMA[key]}).validate(document)
+
+
+class TestPersonRefTypeNullability:
+    """A person _ref_type is null exactly when there is nothing to qualify - the schema's half of that rule"""
+
+    @pytest.mark.parametrize('key', PERSON_REF_TYPE_KEYS)
+    @pytest.mark.parametrize('value', [None, *[reference_type.value for reference_type in PersonReferenceType]])
+    def test_null_or_a_reference_type_is_accepted(self, key: str, value: Any) -> None:
+        """Null for an id-less reference, the enum's values otherwise"""
+        assert _field_validates(key, {key: value})
+
+    @pytest.mark.parametrize('key', PERSON_REF_TYPE_KEYS)
+    @pytest.mark.parametrize('value', ['person', 'NOBODY', '', 1])
+    def test_anything_else_is_refused(self, key: str, value: Any) -> None:
+        """Still pinned to the enum"""
+        assert not _field_validates(key, {key: value})
+
+    @pytest.mark.parametrize('key', PERSON_REF_TYPE_KEYS)
+    def test_the_key_is_still_required(self, key: str) -> None:
+        """Null is a value; leaving the key out is not"""
+        assert not _field_validates(key, {})

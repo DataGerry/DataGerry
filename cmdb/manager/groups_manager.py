@@ -34,6 +34,7 @@ from cmdb.errors.manager.groups_manager import (
     GroupsManagerInitError,
     GroupsManagerInsertError,
     GroupsManagerGetError,
+    GroupsManagerIterationError,
     GroupsManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -53,14 +54,17 @@ class GroupsManager(GenericManager):
     Keeps the named public API (``insert_group`` / ``get_group`` / ``iterate`` / ``update_group`` /
     ``delete_group``) used by the existing route + bootstrap call sites. Insert overrides
     ``GenericManager.insert_item`` because ``CmdbUserGroup.to_json`` needs ``insert_mode=True`` to
-    serialize rights as name strings; get overrides ``GenericManager.get_item`` to feed the cached
-    ``self.rights`` to ``CmdbUserGroup.from_data``; delete keeps the admin / user-group guard
+    serialize rights as name strings; the reads (``get_group``, ``iterate``) and the write hydration build
+    every model through ``_build_group``, which feeds the cached ``self.rights`` to
+    ``CmdbUserGroup.from_data``; delete keeps the admin / user-group guard
 
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager | None = None, database: str | None = None) -> None:
         """
-        Set the database connection for the GroupsManager and cache the flat right tree
+        Set the database connection for the GroupsManager and cache the flat right tree and its names
+
+        ``right_names`` is the set of every name the right tree knows - what a group's ``rights`` may carry
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
@@ -74,6 +78,7 @@ class GroupsManager(GenericManager):
 
         try:
             self.rights: list[BaseRight] = flat_rights_tree(ALL_RIGHTS)
+            self.right_names: frozenset[str] = frozenset(right.name for right in self.rights)
         except Exception as err:
             raise GroupsManagerInitError(err) from err
 
@@ -112,13 +117,31 @@ class GroupsManager(GenericManager):
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
+    def _build_group(self, document: dict[str, Any]) -> CmdbUserGroup:
+        """
+        Builds a CmdbUserGroup from a stored document, its right names resolved through the cached right tree
+
+        The one place a stored group becomes a model, so the single read, the list and the write hydration
+        cannot resolve the rights differently
+
+        Args:
+            document (dict[str, Any]): A stored CmdbUserGroup document, or a validated payload
+
+        Raises:
+            CmdbUserGroupInitFromDataError: When the document cannot be read as a CmdbUserGroup
+
+        Returns:
+            CmdbUserGroup: The group, holding the rights of the tree its document names
+        """
+        return CmdbUserGroup.from_data(document, self.rights)
+
+
     def get_group(self, public_id: int) -> CmdbUserGroup | None:
         """
         Get a single CmdbUserGroup by its public_id
 
-        Reuses the generic ``get_item`` for the raw fetch (and its error wrapping), then runs the
-        group-specific deserialization: ``CmdbUserGroup.from_data`` needs the cached right tree to
-        resolve right names into BaseRight instances
+        Reuses the generic ``get_item`` for the raw fetch (and its error wrapping), then builds the model
+        with ``_build_group``, which resolves the right names through the cached right tree
 
         Args:
             public_id (int): public_id of the CmdbUserGroup
@@ -135,7 +158,7 @@ class GroupsManager(GenericManager):
             return None
 
         try:
-            return CmdbUserGroup.from_data(requested_group, self.rights)
+            return self._build_group(requested_group)
         except Exception as err:
             LOGGER.error("[get_group] Exception: %s. Type: %s", err, type(err))
             raise GroupsManagerGetError(err) from err
@@ -143,18 +166,28 @@ class GroupsManager(GenericManager):
 
     def iterate(self, builder_params: BuilderParameters) -> IterationResult[CmdbUserGroup]:
         """
-        Retrieve multiple CmdbUserGroups via the generic iteration pipeline
+        Retrieve multiple CmdbUserGroups, each with its rights resolved like the single read
+
+        Runs the generic query (``iterate_query``) and builds every row with ``_build_group``. The generic
+        ``iterate_items`` cannot be used: it builds each model with the document alone, and a group read
+        without the right tree holds no rights
 
         Args:
             builder_params (BuilderParameters): Filter, sort and pagination parameters
 
         Raises:
-            GroupsManagerIterationError: When the iteration failed
+            GroupsManagerIterationError: When the query failed or a row could not be read as a CmdbUserGroup
 
         Returns:
-            IterationResult[CmdbUserGroup]: All CmdbUserGroups matching the filter
+            IterationResult[CmdbUserGroup]: The CmdbUserGroups matching the filter, with the total count
         """
-        return self.iterate_items(builder_params)
+        try:
+            documents, total = self.iterate_query(builder_params)
+
+            return IterationResult([self._build_group(document) for document in documents], total)
+        except Exception as err:
+            LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
+            raise GroupsManagerIterationError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -164,7 +197,8 @@ class GroupsManager(GenericManager):
 
         Resolves the submitted right names through the manager's cached right tree
         (``self.rights``) instead of recomputing ``flat_rights_tree(ALL_RIGHTS)`` per call, then
-        serializes with ``insert_mode=True`` so rights are stored as name strings
+        serializes with ``insert_mode=True`` so rights are stored as name strings - the form
+        ``canonical_right_names`` produces for a create
 
         Args:
             data (dict[str, Any]): Raw CmdbUserGroup payload (e.g. a validated request body)
@@ -172,9 +206,27 @@ class GroupsManager(GenericManager):
         Returns:
             dict[str, Any]: The insert-mode json of the hydrated CmdbUserGroup
         """
-        group: CmdbUserGroup = CmdbUserGroup.from_data(data, self.rights)
+        group: CmdbUserGroup = self._build_group(data)
 
         return CmdbUserGroup.to_json(group, True)
+
+
+    def canonical_right_names(self, right_names: list[str]) -> list[str]:
+        """
+        The stored form of a ``rights`` list: each known name once, in the order of the right tree
+
+        The same list ``hydrate_group`` stores on an update, so both write routes store one form. A create
+        needs it without building the model, which cannot exist before its public_id is drawn
+
+        Args:
+            right_names (list[str]): The submitted right names
+
+        Returns:
+            list[str]: The known names among them, each once, in tree order
+        """
+        submitted: set[str] = set(right_names)
+
+        return [right.name for right in self.rights if right.name in submitted]
 
 
     def update_group(self, public_id: int, group: CmdbUserGroup | dict[str, Any]) -> None:

@@ -342,9 +342,19 @@ class TestTheFocalPanel:
 class TestTheRequestContract:
     """The flag, the direction rule and the licence rule."""
 
-    def test_the_source_is_off_by_default(self, rest_api) -> None:
-        """Every other client keeps the response it has today."""
-        body = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_SERVER_A}&target_type=CHILD').get_json()
+    def test_the_source_is_on_by_default(self, rest_api) -> None:
+        """Omitted means the frontend's default - on - so it answers what an explicit true answers"""
+        omitted = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_SERVER_A}&target_type=CHILD').get_json()
+        explicit = _get(rest_api, OBJ_SERVER_A, target_type='CHILD').get_json()
+
+        assert _connection_edges(omitted)
+        assert _connection_edges(omitted) == _connection_edges(explicit)
+
+    def test_an_explicit_false_switches_the_source_off(self, rest_api) -> None:
+        """A client that does not want the cabling still says so"""
+        body = rest_api.get(
+            f'{ROUTE_URL}?target_id={OBJ_SERVER_A}&target_type=CHILD&with_port_connections=false',
+        ).get_json()
 
         assert not _connection_edges(body)
 

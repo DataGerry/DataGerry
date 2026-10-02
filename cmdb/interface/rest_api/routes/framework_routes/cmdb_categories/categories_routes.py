@@ -47,7 +47,7 @@ from cmdb.models.category_model import CategoryKey, CmdbCategory, CategoryTree
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -144,6 +144,7 @@ def insert_cmdb_category(data: dict[str, Any], request_user: CmdbUser) -> Respon
 
         return InsertSingleResponse(created_category, result_id).make_response()
     except CategoriesManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_category] %s", err, exc_info=True)
         abort(400, "Failed to insert the new Category in the database!")
     except CategoriesManagerGetError as err:
@@ -348,6 +349,7 @@ def update_cmdb_category(public_id: int, data: dict[str, Any], request_user: Cmd
         LOGGER.error("[update_cmdb_category] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the requested Category with ID:{public_id} from the database!")
     except CategoriesManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_category] %s", err, exc_info=True)
         abort(400, f"Failed to update the Category with ID:{public_id}!")
 
@@ -410,6 +412,7 @@ def delete_cmdb_category(public_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[delete_cmdb_category] %s", err, exc_info=True)
         abort(400, "Failed to retrieve a Category from the database!")
     except CategoriesManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[delete_cmdb_category] %s", err, exc_info=True)
         abort(400, f"Failed to detach child Categories of the Category with ID:{public_id}!")
     except CategoriesManagerDeleteError as err:

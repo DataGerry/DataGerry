@@ -17,8 +17,8 @@
 Functional smoke for the ``/groups`` REST routes
 
 Covers the route-layer concerns that the GroupsManager integration suite cannot: HTTP status
-codes, the 404 on a missing id, the JSON envelopes, the PUT round-trip, the DELETE
-status (200), and the DELETE delete-mode matrix (None / MOVE+missing group_id→400 /
+codes, the 404 on a missing id, the JSON envelopes, the list answering the single read's rights,
+the PUT round-trip, the DELETE status (202), and the DELETE delete-mode matrix (None / MOVE+missing group_id→400 /
 MOVE+target / DELETE+admin-in-group→400 / protected-group→400). CRUD behavior itself is asserted at the manager
 layer; these tests verify that the route wraps it correctly and that the recent bug fixes
 to the delete-mode flow hold
@@ -47,11 +47,13 @@ from cmdb.errors.manager.groups_manager import (
     GroupsManagerDeleteError,
 )
 from cmdb.errors.manager.users_manager import (
+    UsersManagerAdminMemberError,
     UsersManagerGetError,
     UsersManagerUpdateError,
     UsersManagerDeleteError,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
+    GROUP_ADMIN_MEMBER_MSG,
     GROUP_CREATED_NOT_READABLE_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -71,6 +73,9 @@ GROUP_ID_FOR_DELETE_MOVE_TARGET: int = 9856
 GROUP_ID_FOR_DELETE_MODE: int = 9857
 MISMATCHED_PAYLOAD_GROUP_ID: int = 9858
 GROUP_ID_FOR_RIGHTS_UPDATE: int = 9859
+GROUP_ID_FOR_LIST_RIGHTS: int = 9861
+# A member id the error-mapping tests hand the redistribution; no such user is stored
+USER_ID_MOVE_ERROR: int = 98991
 GUARD_USER_PUBLIC_ID: int = 9860
 MISSING_GROUP_ID: int = 9899
 
@@ -84,6 +89,7 @@ ALL_GROUP_IDS: list[int] = [
     GROUP_ID_FOR_DELETE_MODE,
     MISMATCHED_PAYLOAD_GROUP_ID,
     GROUP_ID_FOR_RIGHTS_UPDATE,
+    GROUP_ID_FOR_LIST_RIGHTS,
 ]
 
 ORIGINAL_LABEL: str = 'Original'
@@ -214,6 +220,42 @@ class TestGetGroup:
         body = response.get_json()
         assert 'results' in body
         assert len(body['results']) == int(response.headers['X-Total-Count'])
+
+
+class TestListRights:
+    """GET /groups/ answers each group's rights in the shape and with the content of GET /groups/<id>."""
+
+    LISTED_RIGHTS: list[str] = ['base.framework.type.view', 'base.framework.object.*']
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Inserts one group holding two rights directly via the DB and removes it after."""
+        database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name).insert_one(
+            _group_doc(GROUP_ID_FOR_LIST_RIGHTS, rights=self.LISTED_RIGHTS))
+        yield
+        _drop_group(database_manager, database_name, GROUP_ID_FOR_LIST_RIGHTS)
+
+    @staticmethod
+    def _listed(rest_api, public_id: int) -> dict[str, Any]:
+        """The group as the list answers it."""
+        response = rest_api.get(f'{ROUTE_URL}/', query_string={'filter': f'{{"public_id": {public_id}}}'})
+        assert response.status_code == HTTPStatus.OK
+
+        return next(group for group in response.get_json()['results'] if group['public_id'] == public_id)
+
+    def test_a_listed_group_carries_the_rights_of_its_single_read(self, rest_api) -> None:
+        """Same rights, same full-dict shape, same order - the list used to answer an empty list."""
+        listed: dict[str, Any] = self._listed(rest_api, GROUP_ID_FOR_LIST_RIGHTS)
+        single: dict[str, Any] = rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_LIST_RIGHTS}').get_json()['result']
+
+        assert sorted(right['name'] for right in listed['rights']) == sorted(self.LISTED_RIGHTS)
+        assert listed['rights'] == single['rights']
+
+    def test_the_admin_group_is_listed_with_the_master_right(self, rest_api) -> None:
+        """The bootstrap admin group holds ``base.*`` in the list too."""
+        listed: dict[str, Any] = self._listed(rest_api, ADMIN_GROUP_PUBLIC_ID)
+
+        assert [right['name'] for right in listed['rights']] == [MASTER_RIGHT_NAME]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -536,6 +578,22 @@ def _patch_get_group(monkeypatch, ids, *, raises: Exception | None = None, retur
     monkeypatch.setattr(GroupsManager, 'get_group', _selective)
 
 
+def _patch_group_snapshot(monkeypatch, public_id: int) -> None:
+    """
+    Makes the delete route's snapshot read find a stored document for a group only get_group was stubbed for
+
+    Any other id delegates to the real read, as in `_patch_get_group`.
+    """
+    original = GroupsManager.get_item
+
+    def _selective(self, requested_id, as_dict=False):
+        if requested_id == public_id:
+            return {'public_id': public_id, 'name': f'group-{public_id}', 'label': 'G', 'rights': []}
+        return original(self, requested_id, as_dict=as_dict)
+
+    monkeypatch.setattr(GroupsManager, 'get_item', _selective)
+
+
 class TestErrorMapping:
     """Manager failures map to the documented HTTP statuses across the /groups routes."""
 
@@ -634,55 +692,89 @@ class TestErrorMapping:
 
         assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code == HTTPStatus.BAD_REQUEST
 
-    def test_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A GroupsManagerDeleteError on delete surfaces as 400."""
+    def test_delete_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A GroupsManagerDeleteError is the server failing its own write: 500, after the undo."""
         _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_NONE, returns=object())
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_DELETE_NONE)
         monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
         monkeypatch.setattr(GroupsManager, 'delete_group', _raiser(GroupsManagerDeleteError('boom')))
 
-        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code == HTTPStatus.BAD_REQUEST
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code \
+            == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on delete surfaces as 500."""
         _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_NONE, returns=object())
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_DELETE_NONE)
         monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
         monkeypatch.setattr(GroupsManager, 'delete_group', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_delete_move_user_update_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A UsersManagerUpdateError while moving members surfaces as 400."""
+    def test_delete_move_user_update_error_returns_500(self, rest_api, monkeypatch) -> None:
+        """A UsersManagerUpdateError while moving members is a failed write: 500, after the undo."""
         _patch_get_group(monkeypatch, {GROUP_ID_FOR_DELETE_MOVE, GROUP_ID_FOR_DELETE_MOVE_TARGET}, returns=object())
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_DELETE_MOVE)
         monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(UsersManager, 'get_group_member_ids', lambda *_a, **_k: [USER_ID_MOVE_ERROR])
         monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
                             _raiser(UsersManagerUpdateError('boom')))
 
         assert rest_api.delete(
             f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MOVE}',
             query_string={'action': GroupDeleteMode.MOVE.value, 'group_id': GROUP_ID_FOR_DELETE_MOVE_TARGET},
-        ).status_code == HTTPStatus.BAD_REQUEST
+        ).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_user_get_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A UsersManagerGetError while resolving members surfaces as 400."""
         _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_MODE, returns=object())
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_DELETE_MODE)
         monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
-        monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
-                            _raiser(UsersManagerGetError('boom')))
+        monkeypatch.setattr(UsersManager, 'get_group_member_ids', _raiser(UsersManagerGetError('boom')))
 
         assert rest_api.delete(
             f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MODE}',
             query_string={'action': GroupDeleteMode.DELETE.value},
         ).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_delete_admin_in_group_maps_user_delete_error_to_400(self, rest_api, monkeypatch) -> None:
-        """A UsersManagerDeleteError (admin-protection business rule) surfaces as 400."""
+    def test_a_group_gone_before_its_snapshot_is_a_404(self, rest_api, monkeypatch) -> None:
+        """Found by the first read, gone by the snapshot read: nothing to delete and nothing written."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_NONE, returns=object())
+        monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        original = GroupsManager.get_item
+        monkeypatch.setattr(GroupsManager, 'get_item', lambda self, public_id, as_dict=False: None
+                            if public_id == GROUP_ID_FOR_DELETE_NONE else original(self, public_id, as_dict=as_dict))
+        monkeypatch.setattr(GroupsManager, 'delete_group', _raiser(AssertionError('must not delete')))
+
+        assert rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_NONE}').status_code == HTTPStatus.NOT_FOUND
+
+    def test_delete_admin_backstop_maps_to_400(self, rest_api, monkeypatch) -> None:
+        """The manager's admin refusal (the pre-check's backstop) is the business rule: 400, its own message."""
         _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_MODE, returns=object())
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_DELETE_MODE)
         monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(UsersManager, 'get_group_member_ids', lambda *_a, **_k: [USER_ID_MOVE_ERROR])
         monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
-                            _raiser(UsersManagerDeleteError('boom')))
+                            _raiser(UsersManagerAdminMemberError('admin')))
 
-        assert rest_api.delete(
-            f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MODE}',
-            query_string={'action': GroupDeleteMode.DELETE.value},
-        ).status_code == HTTPStatus.BAD_REQUEST
+        response = rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MODE}',
+                                   query_string={'action': GroupDeleteMode.DELETE.value})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == GROUP_ADMIN_MEMBER_MSG
+
+    def test_a_failed_member_delete_is_a_500_not_the_admin_message(self, rest_api, monkeypatch) -> None:
+        """An outage while deleting members is not the admin refusal: 500, and the admin is not named."""
+        _patch_get_group(monkeypatch, GROUP_ID_FOR_DELETE_MODE, returns=object())
+        _patch_group_snapshot(monkeypatch, GROUP_ID_FOR_DELETE_MODE)
+        monkeypatch.setattr(GroupsManager, 'is_protected_group', lambda *_a, **_k: False)
+        monkeypatch.setattr(UsersManager, 'get_group_member_ids', lambda *_a, **_k: [USER_ID_MOVE_ERROR])
+        monkeypatch.setattr(UsersManager, 'handle_users_on_group_delete',
+                            _raiser(UsersManagerDeleteError('db down')))
+
+        response = rest_api.delete(f'{ROUTE_URL}/{GROUP_ID_FOR_DELETE_MODE}',
+                                   query_string={'action': GroupDeleteMode.DELETE.value})
+
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert 'admin' not in response.get_json()['message']

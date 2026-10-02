@@ -30,6 +30,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
 
+from cmdb.database.database_constants import PUBLIC_ID_FIELD
 from cmdb.errors.database import (
     DocumentInsertError,
     TRANSIENT_DATABASE_ERRORS,
@@ -652,6 +653,26 @@ class BaseManager:
                 target_collection, self.db_name, criteria, data, *args,
                 add_to_set=add_to_set, plain=plain, **kwargs
             )
+        except DocumentUpdateError as err:
+            raise BaseManagerUpdateError(err) from err
+
+
+    def replace(self, public_id: int, document: dict[str, Any]) -> UpdateResult:
+        """
+        Replaces the document with this public_id entirely - see ``MongoDatabaseManager.replace``
+
+        Args:
+            public_id (int): public_id of the document to replace
+            document (dict[str, Any]): The document to store in its place
+
+        Raises:
+            BaseManagerUpdateError: If the document could not be replaced
+
+        Returns:
+            UpdateResult: The outcome of the replace
+        """
+        try:
+            return self.dbm.replace(self.collection, self.db_name, {PUBLIC_ID_FIELD: public_id}, document)
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(err) from err
 

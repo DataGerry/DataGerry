@@ -69,6 +69,9 @@ from tests.utils.type_import_builders import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# A render_meta the import rules let through and only CmdbType.from_data refuses: a summary that is no object
+UNBUILDABLE_RENDER_META: dict[str, Any] = {'summary': 'not-an-object'}
+
 TYPES_HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
 
 
@@ -401,9 +404,9 @@ class TestCreateTypeFromEntry:
 
     def test_invalid_type_data_is_reported(self) -> None:
         """An entry that cannot be built into a CmdbType is reported like on the update path."""
-        # named (so the name rules pass) but with an unusable acl, which CmdbType.from_data rejects
+        # named (so the name rules pass) but with an unusable summary, which only CmdbType.from_data rejects
         result = create_type_from_entry(
-            {'name': 'broken', 'acl': 'not-a-dict'}, StubTypesManager(), no_templates(), IMPORTER,
+            {'name': 'broken', 'render_meta': UNBUILDABLE_RENDER_META}, StubTypesManager(), no_templates(), IMPORTER,
         )
 
         assert result.startswith('Failed to create a Type instance from the provided data:')
@@ -491,8 +494,9 @@ class TestUpdateTypeFromEntry:
 
     def test_invalid_type_data_is_reported(self) -> None:
         """An entry that cannot be built into a CmdbType is reported with the underlying detail."""
-        # the type exists, but the entry carries an unusable acl, which CmdbType.from_data rejects
-        entry = {'name': 'broken', TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID, 'acl': 'not-a-dict'}
+        # the type exists, but the entry carries an unusable summary, which only CmdbType.from_data rejects
+        entry = {'name': 'broken', TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID,
+                 'render_meta': UNBUILDABLE_RENDER_META}
         result = update_type_from_entry(entry, StubTypesManager(), no_templates(), IMPORTER)
 
         assert result.startswith('Failed to create a Type instance from the provided data:')

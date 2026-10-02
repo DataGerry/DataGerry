@@ -45,9 +45,10 @@ def get_cmdb_user_group_schema() -> dict[str, Any]:
             'type': 'string',
             'required': False,
         },
-        'rights': {  # Right identifiers granted to members of this group
+        'rights': {  # Names of the rights granted to members of this group; each one must exist in the right tree
             'type': 'list',
             'required': False,
             'default': [],
+            'schema': {'type': 'string'},
         },
     }

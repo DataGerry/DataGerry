@@ -19,25 +19,31 @@ Implementation of the config-file status API routes
 Currently holds a single read-only route reporting whether the on-premise `[OpenCelium]` section of
 `etc/cmdb.conf` is complete enough for DataGerry to talk to OpenCelium. Only booleans are reported -
 the configured values themselves never leave the backend
+
+The route is gated on the Automations licence on its own (``requires_feature``), not through the blueprint: the
+blueprint is the home of every config-file status route, and a status route for another section must not inherit
+the OpenCelium route's licence
 """
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Callable
 
-from flask import abort, current_app
+from flask import current_app
 from werkzeug import Response
 
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.config_routes.config_file_constants import (
     MIN_VALID_PORT,
     OcConfigStatusKey,
 )
 from cmdb.open_celium.oc_constants import OC_CONFIG_KEYS, OC_CONFIG_SECTION, OcConfigKey
+from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.utils import coerce_whole_number
 
 from cmdb.errors.system_config import ConfigNotLoaded, SectionError
@@ -52,16 +58,19 @@ config_file_blueprint = APIBlueprint('config_file', __name__)
 @config_file_blueprint.route('/status/opencelium', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@requires_feature(LicenseFeature.AUTOMATIONS)
+@handle_route_errors("while checking the config file status for OpenCelium")
 def get_oc_config_status(request_user: CmdbUser) -> Response:
     """
-    HTTP `GET` route reporting which `[OpenCelium]` settings of the config file are configured
+    HTTP `GET` / `HEAD` route reporting which `[OpenCelium]` settings of the config file are configured
 
     Reads the section once and answers with one boolean per setting - never with the configured
     values. `section` is False when the section is missing entirely, when no config file is loaded
     at all, or in cloud mode (where the OpenCelium connection comes from the service portal instead
     of `etc/cmdb.conf`); an incomplete section still reports `section: True` plus a False flag for
     every setting it does not define. `status` is True only when every setting is usable, which is
-    what the frontend gates the Automations view on
+    what the frontend gates the Automations view on. On-premise the route needs the Automations
+    licence (403 otherwise); any unexpected failure answers 500
 
     Args:
         request_user (CmdbUser): The requesting user; unused in the body - the route only reads
@@ -89,9 +98,8 @@ def get_oc_config_status(request_user: CmdbUser) -> Response:
         section_values: dict[str, Any] = SystemConfigReader().get_all_values_from_section(OC_CONFIG_SECTION)
 
         for key in OC_CONFIG_KEYS:
-            config_state[key.value] = _is_configured(section_values.get(key.value))
+            config_state[key.value] = _setting_check(key)(section_values.get(key.value))
 
-        config_state[OcConfigKey.PORT.value] = _is_valid_port(section_values.get(OcConfigKey.PORT.value))
         config_state[OcConfigStatusKey.STATUS.value] = all(config_state[key.value] for key in OC_CONFIG_KEYS)
 
         return DefaultResponse(config_state).make_response()
@@ -101,11 +109,23 @@ def get_oc_config_status(request_user: CmdbUser) -> Response:
         config_state[OcConfigStatusKey.SECTION.value] = False
 
         return DefaultResponse(config_state).make_response()
-    except Exception as err:
-        LOGGER.error("[get_oc_config_status] Exception: %s. Type: %s", err, type(err).__name__, exc_info=True)
-        abort(500, "An internal server error occured while checking the config file status for OpenCelium!")
 
 # --------------------------------------------------- HELPER METHODS ------------------------------------------------- #
+
+def _setting_check(key: OcConfigKey) -> Callable[[Any], bool]:
+    """
+    The check that decides whether one `[OpenCelium]` setting is usable
+
+    The port must be a usable TCP port; every other setting only has to be present and non-blank
+
+    Args:
+        key (OcConfigKey): The setting
+
+    Returns:
+        Callable[[Any], bool]: `_is_valid_port` for the port, `_is_configured` for the rest
+    """
+    return _is_valid_port if key is OcConfigKey.PORT else _is_configured
+
 
 def _is_configured(value: Any) -> bool:
     """

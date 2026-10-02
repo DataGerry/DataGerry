@@ -58,7 +58,7 @@ from cmdb.errors.manager.rack_mounts_manager import (
 )
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     InsertSingleResponse,
@@ -199,6 +199,7 @@ def insert_rack_mount(rack_id: int, request_user: CmdbUser) -> Response:
 
         return InsertSingleResponse(created, mount_id).make_response()
     except RackMountsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_rack_mount] %s", err, exc_info=True)
         abort(400, "Could not mount the object into the Rack!")
     except RackMountsManagerGetError as err:
@@ -527,6 +528,7 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
 
         return UpdateSingleResponse(updated).make_response()
     except RackMountsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_rack_mount] %s", err, exc_info=True)
         abort(400, "Could not update the Rack mount!")
     except RackMountsManagerGetError as err:

@@ -21,28 +21,24 @@ the manager's own two write paths:
 
   - **the delete cascade removes ISMS documents, not just references.** Every IsmsRiskAssessment that
     assesses the group is deleted, and with it every IsmsControlMeasureAssignment belonging to those
-    assessments - a far heavier cascade than the person one, and the reason its filter naming
-    ``ObjectReferenceType.OBJECT_GROUP`` matters: without that half, an assessment of the *object* with
-    the same public_id would be deleted too
-  - the cascade is skipped entirely when no assessment matches, so deleting an unreferenced group is
-    one query and one delete
+    assessments - a far heavier cascade than the person one. It is ``risk_assessment_cascade_helper``,
+    shared with the object delete, asked for ``ObjectReferenceType.OBJECT_GROUP``: without that, an
+    assessment of the *object* with the same public_id would be deleted too
   - **``remove_ids_from_groups`` is mode-scoped.** Deleting objects cleans the STATIC groups, deleting
     a type cleans the DYNAMIC ones, and the call has to say which - the two hold different kinds of id
     in the same key
 """
-from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cmdb.manager.object_groups_manager import ObjectGroupsManager
-from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
-from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.object_group_model import ObjectGroupKey, ObjectGroupMode, ObjectReferenceType
 from cmdb.errors.manager.object_groups_manager import ObjectGroupsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
+MANAGER_PATH: str = 'cmdb.manager.object_groups_manager'
 DB_NAME: str = 'testdb'
 GROUP_ID: int = 4
 ASSESSMENT_IDS: list[int] = [11, 12]
@@ -109,64 +105,22 @@ class TestDeleteWithFollowUp:
 
 
 class TestRiskAssessmentCascade:
-    """Which ISMS documents go with a deleted group."""
+    """Which ISMS documents go with a deleted group: the shared helper decides, for OBJECT_GROUP assessments."""
 
-    def test_selects_the_assessments_by_id_and_reference_type(self) -> None:
+    def test_the_group_reaches_the_helper_as_an_object_group(self) -> None:
         """
-        Both halves of the filter, for the same reason the person cascades pair theirs
+        The reference type is the half that matters
 
-        An IsmsRiskAssessment's object_id holds either a CmdbObject or a CmdbObjectGroup; without the
-        ref_type half, deleting group 4 would delete the assessments of object 4.
-        """
-        manager = _stub()
-
-        ObjectGroupsManager.delete_object_group_from_risk_assessment_cascade(manager, GROUP_ID)
-
-        assert manager.dbm.find.call_args.args[2] == {
-            RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT_GROUP.value,
-            RiskAssessmentKey.OBJECT_ID.value: GROUP_ID,
-        }
-
-    def test_reads_only_the_ids_it_needs(self) -> None:
-        """Projected to public_id: the cascade needs the ids, not the assessments themselves."""
-        manager = _stub()
-
-        ObjectGroupsManager.delete_object_group_from_risk_assessment_cascade(manager, GROUP_ID)
-
-        assert manager.dbm.find.call_args.kwargs['projection'] == {RiskAssessmentKey.PUBLIC_ID.value: 1}
-
-    def test_deletes_the_assessments_and_their_assignments(self) -> None:
-        """
-        Two bulk deletes keyed on the same id list
-
-        The assignments are found by the assessments they belong to, which is why the assessment ids
-        have to be read before anything is deleted.
+        An IsmsRiskAssessment's object_id holds either a CmdbObject or a CmdbObjectGroup; asked for the
+        wrong kind, deleting group 4 would delete the assessments of object 4. What the helper then reads and
+        deletes is pinned in ``test_risk_assessment_cascade_helper``
         """
         manager = _stub()
 
-        ObjectGroupsManager.delete_object_group_from_risk_assessment_cascade(manager, GROUP_ID)
+        with patch(f'{MANAGER_PATH}.delete_risk_assessments_of') as cascade:
+            ObjectGroupsManager.delete_object_group_from_risk_assessment_cascade(manager, GROUP_ID)
 
-        deletes: list[tuple[Any, ...]] = [call.args for call in manager.delete_many_from_other_collection.call_args_list]
-
-        assert deletes == [
-            (
-                IsmsRiskAssessment.COLLECTION,
-                {RiskAssessmentKey.PUBLIC_ID.value: {'$in': ASSESSMENT_IDS}},
-            ),
-            (
-                IsmsControlMeasureAssignment.COLLECTION,
-                {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: {'$in': ASSESSMENT_IDS}},
-            ),
-        ]
-
-    def test_deletes_nothing_when_no_assessment_references_the_group(self) -> None:
-        """The common case: an unreferenced group costs one query and no deletes."""
-        manager = _stub()
-        manager.dbm.find.return_value = []
-
-        ObjectGroupsManager.delete_object_group_from_risk_assessment_cascade(manager, GROUP_ID)
-
-        manager.delete_many_from_other_collection.assert_not_called()
+        cascade.assert_called_once_with(manager.dbm, DB_NAME, ObjectReferenceType.OBJECT_GROUP, GROUP_ID)
 
 
 class TestFindGroupIdsContaining:

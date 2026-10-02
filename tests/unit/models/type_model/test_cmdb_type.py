@@ -33,6 +33,7 @@ from typing import Any
 import pytest
 from cerberus import Validator
 
+from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -90,6 +91,14 @@ def _type(**overrides: Any) -> CmdbType:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                      __init__                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('stored', [None, {}, 'on', ['READ']], ids=['null', 'empty', 'string', 'list'])
+def test_an_acl_that_is_no_usable_document_reads_as_no_access_control(stored: Any) -> None:
+    """A stored null or non-document used to fail the whole type; it reads as an absent one"""
+    acl_dict = CmdbType.to_json(_type(**{TypeSchemaKey.ACL.value: stored}))[TypeSchemaKey.ACL.value]
+
+    assert acl_dict == AccessControlList.default_json()
+
+
 def test_defaults_are_applied() -> None:
     """An omitted optional argument falls back to its documented default"""
     cmdb_type = _type()

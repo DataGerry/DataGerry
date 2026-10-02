@@ -79,6 +79,21 @@ RELATION_DUPLICATE_SECTION_IDENTIFIER_MESSAGE: str = (
     "once: {duplicates}."
 )
 
+# Refusals (HTTP 400) of a CmdbObjectRelation write whose endpoints or field values do not fit its CmdbRelation.
+# An endpoint the caller may not read is refused with the same message as one that does not exist, so the answer
+# says nothing about objects the caller cannot see
+OBJECT_RELATION_ENDPOINT_UNKNOWN_MESSAGE: str = "The {role} Object with ID:{public_id} does not exist!"
+OBJECT_RELATION_TYPE_NOT_ALLOWED_MESSAGE: str = (
+    "The Relation with ID:{relation_id} does not allow an Object of the Type with ID:{type_id} as its {role}!"
+)
+OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE: str = (
+    "The Relation with ID:{relation_id} declares no field(s) named: {names}!"
+)
+OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE: str = "A field value is given more than once for: {names}!"
+
+# The 400 of a CmdbObjectRelation write when reading its endpoints failed
+OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE: str = "Failed to read the Objects of the ObjectRelation!"
+
 
 class RelationRight(BaseStrEnum):
     """

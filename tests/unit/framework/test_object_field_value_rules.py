@@ -18,16 +18,28 @@ Unit tests for cmdb.framework.object_field_value_rules
 
 Pure tests (no database). Covers the length cap per field kind, the field's pattern read the way the
 object form reads it (anchored, not wrapped), which values the rules judge at all, where in an object
-the values are read from, and that a value the stored object already holds is not judged again
+the values are read from, that a value the stored object already holds is not judged again, and the time
+limit: a backtracking pattern answers TIMED_OUT within its per-match limit, one write shares one budget, and a
+timed-out value is refused with its own message
 """
 import logging
+import time
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
-from cmdb.framework.object_field_value_constants import FieldDefaultError, FieldValueError, MDS_SECTION_SUFFIX
+from cmdb.framework.object_field_value_constants import (
+    FieldDefaultError,
+    FieldValueError,
+    MDS_SECTION_SUFFIX,
+    PATTERN_MATCH_TIMEOUT_SECONDS,
+    PATTERN_WRITE_BUDGET_SECONDS,
+    PatternVerdict,
+)
 from cmdb.framework.object_field_value_rules import (
     FieldValueRule,
+    PatternBudget,
     anchor_field_regex,
     build_field_value_rules,
     collect_object_value_errors,
@@ -38,6 +50,7 @@ from cmdb.framework.object_field_value_rules import (
     find_value_errors,
     has_no_value,
     iter_object_values,
+    match_field_pattern,
     value_as_pattern_text,
 )
 from cmdb.models.type_model import FieldType, TEXT_VALUE_MAX_LENGTH, TEXTAREA_VALUE_MAX_LENGTH
@@ -52,7 +65,8 @@ MDS_SECTION: str = 'rows'
 
 CODE_REGEX: str = '[A-Z]{3}'
 NUMBER_REGEX: str = r'\d{2}'
-PYTHON_UNCOMPILABLE_REGEX: str = '(?<name>x)'   # a JavaScript named group Python spells (?P<name>...)
+UNCOMPILABLE_REGEX: str = '\\u{1F600}'   # a JavaScript code-point escape the regex engine does not read
+JS_NAMED_GROUP_REGEX: str = '(?<code>[A-Z]{2})'   # JavaScript's named group: `re` refused it, `regex` reads it
 
 
 def _type_fields() -> list[dict[str, Any]]:
@@ -120,10 +134,18 @@ class TestCompileFieldRegex:
         """Only a non-empty string declares a pattern"""
         assert compile_field_regex(CODE_FIELD, regex) is None
 
+    def test_a_javascript_named_group_compiles_and_is_enforced(self) -> None:
+        """`re` could not read `(?<name>...)` and skipped the field; the regex engine reads it as the browser does"""
+        rule = FieldValueRule(pattern=compile_field_regex(CODE_FIELD, JS_NAMED_GROUP_REGEX), regex=JS_NAMED_GROUP_REGEX)
+
+        assert rule.pattern is not None
+        assert not find_value_errors(CODE_FIELD, 'DE', rule)
+        assert find_value_errors(CODE_FIELD, 'de', rule)
+
     def test_an_uncompilable_regex_is_skipped_with_a_warning(self, caplog: pytest.LogCaptureFixture) -> None:
         """Failing every write of the type over it would be worse than not checking it"""
         with caplog.at_level(logging.WARNING):
-            assert compile_field_regex(CODE_FIELD, PYTHON_UNCOMPILABLE_REGEX) is None
+            assert compile_field_regex(CODE_FIELD, UNCOMPILABLE_REGEX) is None
 
         assert CODE_FIELD in caplog.text
 
@@ -149,7 +171,7 @@ class TestBuildFieldValueRules:
 
     def test_an_uncompilable_regex_leaves_the_cap(self) -> None:
         """The field keeps its kind's cap, and no regex is quoted for a pattern that is not applied"""
-        rules = build_field_value_rules([{'type': 'text', 'name': CODE_FIELD, 'regex': PYTHON_UNCOMPILABLE_REGEX}])
+        rules = build_field_value_rules([{'type': 'text', 'name': CODE_FIELD, 'regex': UNCOMPILABLE_REGEX}])
 
         assert rules[CODE_FIELD] == FieldValueRule(max_length=TEXT_VALUE_MAX_LENGTH)
 
@@ -359,7 +381,7 @@ class TestFindDefaultValueErrors:
     @pytest.mark.parametrize('field', [
         {'type': 'text', 'name': CODE_FIELD, 'regex': CODE_REGEX, 'value': 'ABC'},
         {'type': 'text', 'name': CODE_FIELD, 'regex': CODE_REGEX},
-        {'type': 'text', 'name': CODE_FIELD, 'regex': PYTHON_UNCOMPILABLE_REGEX, 'value': 'anything'},
+        {'type': 'text', 'name': CODE_FIELD, 'regex': UNCOMPILABLE_REGEX, 'value': 'anything'},
         {'type': 'checkbox', 'name': FLAG_FIELD, 'value': True},
     ], ids=['matching', 'no-default', 'uncompilable-regex-skipped', 'no-rule'])
     def test_a_passing_or_unjudged_default_is_not_named(self, field: dict[str, Any]) -> None:
@@ -371,3 +393,182 @@ class TestFindDefaultValueErrors:
         rule = build_field_value_rules(_type_fields())[CODE_FIELD]
 
         assert len(find_default_errors(CODE_FIELD, 'x' * (TEXT_VALUE_MAX_LENGTH + 1), rule)) == 2
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 the time limit                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+BACKTRACKING_REGEX: str = '(a|aa)+b'          # Fibonacci backtracking - hours on 60 characters without a limit
+BACKTRACKING_VALUE: str = 'a' * 60
+BACKTRACKING_FIELDS: int = 25                 # enough patterned fields to add per-match timeouts past the budget
+WALL_CLOCK_MARGIN_SECONDS: float = 0.5
+
+
+class _FakeClock:
+    """A monotonic clock the test moves by hand."""
+
+    def __init__(self) -> None:
+        self.now: float = 100.0
+
+    def __call__(self) -> float:
+        return self.now
+
+
+def _backtracking_rule() -> FieldValueRule:
+    """The rule of a text field declaring the backtracking pattern."""
+    return build_field_value_rules([{'type': 'text', 'name': CODE_FIELD, 'regex': BACKTRACKING_REGEX}])[CODE_FIELD]
+
+
+class TestPatternBudget:
+    """The time all the pattern checks of one write may spend."""
+
+    def test_the_next_timeout_is_the_per_match_limit_while_time_is_left(self) -> None:
+        """Plenty left: each match gets PATTERN_MATCH_TIMEOUT_SECONDS"""
+        budget = PatternBudget(seconds=PATTERN_WRITE_BUDGET_SECONDS, clock=_FakeClock())
+
+        assert budget.next_timeout() == PATTERN_MATCH_TIMEOUT_SECONDS
+        assert not budget.exhausted
+
+    def test_the_next_timeout_shrinks_to_what_is_left(self) -> None:
+        """Near the end of the budget a match gets only the rest"""
+        clock = _FakeClock()
+        budget = PatternBudget(seconds=PATTERN_WRITE_BUDGET_SECONDS, clock=clock)
+        clock.now += PATTERN_WRITE_BUDGET_SECONDS - PATTERN_MATCH_TIMEOUT_SECONDS / 4
+
+        assert budget.next_timeout() == pytest.approx(PATTERN_MATCH_TIMEOUT_SECONDS / 4)
+
+    def test_a_spent_budget_answers_none_and_is_exhausted(self) -> None:
+        """Nothing left: no timeout to run with, and the budget says so from then on"""
+        clock = _FakeClock()
+        budget = PatternBudget(seconds=PATTERN_WRITE_BUDGET_SECONDS, clock=clock)
+        clock.now += PATTERN_WRITE_BUDGET_SECONDS
+
+        assert budget.next_timeout() is None
+        assert budget.exhausted
+
+    def test_an_exhausted_budget_stays_exhausted(self) -> None:
+        """A timed-out match exhausts the budget even with time on the clock"""
+        budget = PatternBudget(clock=_FakeClock())
+        budget.exhausted = True
+
+        assert budget.next_timeout() is None
+
+
+class TestMatchFieldPattern:
+    """The one place a field pattern runs."""
+
+    def test_match_and_mismatch(self) -> None:
+        """An ordinary pattern decides"""
+        rule = FieldValueRule(pattern=compile_field_regex(CODE_FIELD, CODE_REGEX), regex=CODE_REGEX)
+
+        assert match_field_pattern(rule, 'ABC', PatternBudget(), CODE_FIELD) == PatternVerdict.MATCH
+        assert match_field_pattern(rule, 'abc', PatternBudget(), CODE_FIELD) == PatternVerdict.MISMATCH
+
+    def test_a_backtracking_pattern_times_out_within_its_limit(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The defect: unlimited, this match runs for hours; now it answers TIMED_OUT in about the per-match limit"""
+        budget = PatternBudget()
+
+        with caplog.at_level(logging.WARNING):
+            started: float = time.monotonic()
+            verdict = match_field_pattern(_backtracking_rule(), BACKTRACKING_VALUE, budget, CODE_FIELD)
+            elapsed: float = time.monotonic() - started
+
+        assert verdict == PatternVerdict.TIMED_OUT
+        assert elapsed < PATTERN_MATCH_TIMEOUT_SECONDS + WALL_CLOCK_MARGIN_SECONDS
+        assert budget.exhausted
+        assert BACKTRACKING_REGEX in caplog.text and CODE_FIELD in caplog.text
+
+    def test_an_exhausted_budget_runs_nothing(self) -> None:
+        """Once spent, the pattern is not even called"""
+        pattern = MagicMock(name='pattern')
+        budget = PatternBudget()
+        budget.exhausted = True
+
+        verdict = match_field_pattern(FieldValueRule(pattern=pattern, regex='x'), 'x', budget, CODE_FIELD)
+
+        assert verdict == PatternVerdict.TIMED_OUT
+        pattern.search.assert_not_called()
+
+    def test_the_match_runs_with_the_budgets_timeout(self) -> None:
+        """The engine is handed the timeout - the limit is not a wish"""
+        pattern = MagicMock(name='pattern')
+        pattern.search.return_value = object()
+
+        match_field_pattern(FieldValueRule(pattern=pattern, regex='x'), 'x', PatternBudget(), CODE_FIELD)
+
+        assert pattern.search.call_args.kwargs['timeout'] == PATTERN_MATCH_TIMEOUT_SECONDS
+
+
+class TestTheTimedOutAnswer:
+    """A timed-out value is refused with its own message - not called a mismatch, not let through."""
+
+    def test_a_value_gets_the_timeout_message(self) -> None:
+        """The value message set"""
+        assert find_value_errors(CODE_FIELD, BACKTRACKING_VALUE, _backtracking_rule()) == [
+            FieldValueError.PATTERN_TIMEOUT.format(field=CODE_FIELD, regex=BACKTRACKING_REGEX),
+        ]
+
+    def test_a_default_gets_the_default_wording(self) -> None:
+        """The default message set"""
+        assert find_default_errors(CODE_FIELD, BACKTRACKING_VALUE, _backtracking_rule()) == [
+            FieldDefaultError.PATTERN_TIMEOUT.format(field=CODE_FIELD, regex=BACKTRACKING_REGEX),
+        ]
+
+    def test_a_matching_value_of_the_same_pattern_passes(self) -> None:
+        """Only the pathological input runs out of time; a short value decides normally"""
+        assert not find_value_errors(CODE_FIELD, 'aab', _backtracking_rule())
+
+    def test_the_length_cap_is_still_reported_beside_it(self) -> None:
+        """The cap is judged first and independently"""
+        errors = find_value_errors(CODE_FIELD, 'a' * (TEXT_VALUE_MAX_LENGTH + 1), _backtracking_rule())
+
+        assert errors[0].startswith(FieldValueError.TOO_LONG.format(
+            field=CODE_FIELD, length=TEXT_VALUE_MAX_LENGTH + 1, max_length=TEXT_VALUE_MAX_LENGTH,
+        )[:20])
+        assert errors[1] == FieldValueError.PATTERN_TIMEOUT.format(field=CODE_FIELD, regex=BACKTRACKING_REGEX)
+
+
+class TestOneBudgetPerWrite:
+    """Many patterned fields cannot add their timeouts up."""
+
+    @staticmethod
+    def _many_backtracking_fields() -> tuple[dict[str, Any], dict[str, FieldValueRule]]:
+        names: list[str] = [f'field-{index}' for index in range(BACKTRACKING_FIELDS)]
+        rules = build_field_value_rules([
+            {'type': 'text', 'name': name, 'regex': BACKTRACKING_REGEX} for name in names
+        ])
+
+        return _object({name: BACKTRACKING_VALUE for name in names}), rules
+
+    def test_an_object_write_stops_at_the_first_time_out(self) -> None:
+        """25 x 0.1 s would be 2.5 s; one write spends about one per-match timeout, then runs nothing"""
+        document, rules = self._many_backtracking_fields()
+
+        started: float = time.monotonic()
+        errors = collect_object_value_errors(document, rules)
+        elapsed: float = time.monotonic() - started
+
+        assert elapsed < PATTERN_MATCH_TIMEOUT_SECONDS + WALL_CLOCK_MARGIN_SECONDS
+        assert len(errors) == BACKTRACKING_FIELDS
+        assert all('in time' in message for message in errors)
+
+    def test_the_defaults_of_one_type_share_a_budget(self) -> None:
+        """The same bound on the type write's default check"""
+        names: list[str] = [f'field-{index}' for index in range(BACKTRACKING_FIELDS)]
+        fields = [{'type': 'text', 'name': name, 'regex': BACKTRACKING_REGEX, 'value': BACKTRACKING_VALUE}
+                  for name in names]
+
+        started: float = time.monotonic()
+        errors = find_default_value_errors(fields)
+        elapsed: float = time.monotonic() - started
+
+        assert elapsed < PATTERN_MATCH_TIMEOUT_SECONDS + WALL_CLOCK_MARGIN_SECONDS
+        assert set(errors) == set(names)
+
+    def test_each_write_starts_its_own_budget(self) -> None:
+        """A timed-out write does not spend the next one's budget"""
+        collect_object_value_errors(_object({CODE_FIELD: BACKTRACKING_VALUE}),
+                                    {CODE_FIELD: _backtracking_rule()})
+        rule = FieldValueRule(pattern=compile_field_regex(CODE_FIELD, CODE_REGEX), regex=CODE_REGEX)
+
+        assert not collect_object_value_errors(_object({CODE_FIELD: 'ABC'}), {CODE_FIELD: rule})

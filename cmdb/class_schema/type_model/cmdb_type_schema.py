@@ -28,6 +28,67 @@ from typing import Any
 DEFAULT_VERSION = '1.0.0'
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def get_type_acl_schema() -> dict[str, Any]:
+    """
+    Builds the Cerberus rule for a CmdbType's ``acl`` block
+
+    The one declaration of the block's shape, used by ``CmdbType.SCHEMA`` and by the type import, so a route write
+    and an imported type are held to the same rule:
+
+    * ``activated`` is a boolean - the listing query and the single read both decide on it, and only a real
+      boolean means the same thing to both
+    * ``groups.includes`` maps a CmdbUserGroup public_id (as a string key) to a list of AccessControlPermission
+      values; an empty list is a group granted nothing
+
+    Every part is optional and ``groups`` / ``includes`` may be null: the create route completes a partial block
+    (``types_helper.normalize_type_acl``) and the model reads a null section as "no groups". An unknown key inside
+    the block is purged by the route validator, as the model would drop it
+
+    Returns:
+        dict[str, Any]: The rule for the ``acl`` key
+    """
+    # Imported inside the builder, like the model constants below (see the class_schema convention)
+    # pylint: disable=import-outside-toplevel
+    from cmdb.security.acl.acl_constants import ACL_GROUP_KEY_PATTERN, AclKey
+    from cmdb.security.acl.permission import AccessControlPermission
+
+    permissions: list[str] = [permission.value for permission in AccessControlPermission]
+
+    return {
+        'type': 'dict',
+        'required': False,
+        'schema': {
+            AclKey.ACTIVATED.value: {
+                'type': 'boolean',
+                'required': False,
+            },
+            AclKey.GROUPS.value: {
+                'type': 'dict',
+                'required': False,
+                'nullable': True,
+                'schema': {
+                    AclKey.INCLUDES.value: {
+                        'type': 'dict',
+                        'required': False,
+                        'nullable': True,
+                        'keysrules': {
+                            'type': 'string',
+                            'regex': ACL_GROUP_KEY_PATTERN,
+                        },
+                        'valuesrules': {
+                            'type': 'list',
+                            'schema': {
+                                'type': 'string',
+                                'allowed': permissions,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
 # pylint: disable=R0801
 def get_cmdb_type_schema() -> dict[str, Any]:
     """
@@ -347,11 +408,7 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                 }
             }
         },
-        'acl': {
-            'type': 'dict',
-            'allow_unknown': True,
-            'required': False,
-        },
+        'acl': get_type_acl_schema(),
         'ci_explorer_label': {  # Stores the name of the field which should be used as the Label in the CI Explorer
             'type': 'string',
             'required': False,

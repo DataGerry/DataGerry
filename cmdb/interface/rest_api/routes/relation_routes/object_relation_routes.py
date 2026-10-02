@@ -62,7 +62,7 @@ from cmdb.framework.results import IterationResult
 
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -83,16 +83,19 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     ObjectRelationTabParam,
     TabInstancesKey,
     BulkDeleteKey,
+    OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     get_existing_relation_or_abort,
-    validate_object_relation_endpoints,
+    guard_object_relation_field_values,
+    resolve_object_relation_endpoints,
     resolve_counterpart_summaries,
     log_object_relation_change,
     log_object_relation_update,
     log_object_relation_deletions,
 )
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerInsertError,
     ObjectRelationsManagerGetError,
@@ -108,6 +111,39 @@ object_relations_blueprint = APIBlueprint('object_relations', __name__)
 
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
 
+def stamp_object_relation_references(data: dict[str, Any], relation: dict[str, Any], request_user: CmdbUser) -> None:
+    """
+    Judges a CmdbObjectRelation write against its CmdbRelation and stamps what the server owns, in place
+
+    Both endpoints are read (``resolve_object_relation_endpoints``): they must exist, be readable by the caller
+    and be of a type the relation allows on their side. Their real type ids replace whatever the body sent, and
+    the field values must name the relation's declared fields. Shared by the create and the update, since an
+    update replaces both endpoints wholesale
+
+    Args:
+        data (dict[str, Any]): The validated write payload, modified in place
+        relation (dict[str, Any]): The referenced CmdbRelation, as stored
+        request_user (CmdbUser): The user issuing the request
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when an endpoint or a field value does not fit
+        BaseManagerGetError: When reading the endpoints fails
+    """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    parent_type_id, child_type_id = resolve_object_relation_endpoints(
+        relation,
+        data.get(ObjectRelationKey.RELATION_PARENT_ID.value),
+        data.get(ObjectRelationKey.RELATION_CHILD_ID.value),
+        objects_manager,
+        request_user,
+    )
+    data[ObjectRelationKey.RELATION_PARENT_TYPE_ID.value] = parent_type_id
+    data[ObjectRelationKey.RELATION_CHILD_TYPE_ID.value] = child_type_id
+
+    guard_object_relation_field_values(relation, data.get(ObjectRelationKey.FIELD_VALUES.value))
+
+
 @object_relations_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
@@ -118,18 +154,21 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
     """
     HTTP `POST` route to insert a CmdbObjectRelation into the database
 
-    The referenced CmdbRelation must still exist and the two endpoints must be different CmdbObjects.
-    `author_id` and `creation_time` are stamped from the request and `last_edit_time` is cleared, so
-    none of the three is ever taken from the body
+    The referenced CmdbRelation must still exist, and the two endpoints must be different CmdbObjects that exist,
+    that the caller may read, and whose types the relation allows on their side. Their type ids are stamped from
+    the objects, and every field value must name a field the relation declares
+    (``stamp_object_relation_references``). `author_id` and `creation_time` are stamped from the request and
+    `last_edit_time` is cleared, so none of the three is ever taken from the body
 
     Args:
         data (CmdbObjectRelation.SCHEMA): Data of the CmdbObjectRelation which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the referenced CmdbRelation is gone, the endpoints are invalid or the
-                       insert fails, 404 if the created CmdbObjectRelation cannot be read back,
-                       500 on an unexpected error
+        HTTPException: 400 if the referenced CmdbRelation is gone, an endpoint is missing, the same object,
+                       unknown or unreadable, of a type the relation does not allow, a field value names an
+                       undeclared or repeated field, reading the endpoints fails or the insert fails; 404 if
+                       the created CmdbObjectRelation cannot be read back; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbObjectRelation and its public_id
@@ -142,11 +181,10 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
         relations_manager: RelationsManager = ManagerProvider.get_manager(
             ManagerType.RELATIONS, request_user)
 
-        get_existing_relation_or_abort(relations_manager, data.get(ObjectRelationKey.RELATION_ID.value))
-        validate_object_relation_endpoints(
-            data.get(ObjectRelationKey.RELATION_PARENT_ID.value),
-            data.get(ObjectRelationKey.RELATION_CHILD_ID.value),
+        relation: dict[str, Any] = get_existing_relation_or_abort(
+            relations_manager, data.get(ObjectRelationKey.RELATION_ID.value),
         )
+        stamp_object_relation_references(data, relation, request_user)
 
         # Stamp server-controlled fields: none of the three is ever trusted from the body. Clearing
         # last_edit_time is what keeps "never edited" a real state - a create is not an edit
@@ -167,11 +205,15 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
 
         return InsertSingleResponse(created_object_relation, result_id).make_response()
     except ObjectRelationsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, "Could not insert the new ObjectRelation in the database!")
     except ObjectRelationsManagerGetError as err:
         LOGGER.error("[insert_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the created ObjectRelation from the database!")
+    except BaseManagerGetError as err:
+        LOGGER.error("[insert_cmdb_object_relation] %s", err, exc_info=True)
+        abort(400, OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -357,7 +399,8 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
     HTTP `PUT`/`PATCH` route to update a single CmdbObjectRelation
 
     The whole document is replaced, so the update passes the same rules as a create: the referenced
-    CmdbRelation must still exist and the two endpoints must be different CmdbObjects. The stored
+    CmdbRelation must still exist, both endpoints are read and judged and their type ids stamped, and the
+    field values must name the relation's declared fields (``stamp_object_relation_references``). The stored
     creation time survives; the editing user becomes `author_id` and `last_edit_time` is stamped.
     The response is the document as it was stored, not the submitted body
 
@@ -368,8 +411,8 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
 
     Raises:
         HTTPException: 404 if no such CmdbObjectRelation exists, 400 if the referenced CmdbRelation is
-                       gone, the endpoints are invalid, the data is unusable or the write fails,
-                       500 on an unexpected error
+                       gone, an endpoint or a field value does not fit it (as on create), reading the endpoints
+                       fails, the data is unusable or the write fails, 500 on an unexpected error
 
     Returns:
         UpdateSingleResponse: The stored data of the CmdbObjectRelation
@@ -382,12 +425,11 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
         relations_manager: RelationsManager = ManagerProvider.get_manager(
             ManagerType.RELATIONS, request_user)
 
-        get_existing_relation_or_abort(relations_manager, data.get(ObjectRelationKey.RELATION_ID.value))
-        # An update replaces both endpoints wholesale, so it has to be as sound as a create
-        validate_object_relation_endpoints(
-            data.get(ObjectRelationKey.RELATION_PARENT_ID.value),
-            data.get(ObjectRelationKey.RELATION_CHILD_ID.value),
+        relation: dict[str, Any] = get_existing_relation_or_abort(
+            relations_manager, data.get(ObjectRelationKey.RELATION_ID.value),
         )
+        # An update replaces both endpoints wholesale, so it has to be as sound as a create
+        stamp_object_relation_references(data, relation, request_user)
 
         to_update_object_relation = object_relations_manager.get_object_relation(public_id)
 
@@ -421,8 +463,12 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
         LOGGER.error("[update_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ObjectRelation with ID:{public_id} which should be updated!")
     except ObjectRelationsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Failed to update the ObjectRelation with ID:{public_id}!")
+    except BaseManagerGetError as err:
+        LOGGER.error("[update_cmdb_object_relation] %s", err, exc_info=True)
+        abort(400, OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

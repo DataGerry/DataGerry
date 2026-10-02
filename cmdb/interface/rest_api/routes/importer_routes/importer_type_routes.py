@@ -38,7 +38,8 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import 
     update_type_from_entry,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import ImporterRight
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.request_limits_constants import RequestSizeLimit
+from cmdb.interface.route_utils import accepts_upload, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -54,6 +55,7 @@ LOGGER: Logger = getLogger(__name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_type_blueprint.protect(auth=True, right=ImporterRight.TYPE.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH, RequestSizeLimit.TYPE_IMPORT_MAX_FORM_MEMORY_SIZE)
 @handle_route_errors("while creating Types from imported data")
 def add_type(request_user: CmdbUser) -> Response:
     """
@@ -98,6 +100,7 @@ def add_type(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_type_blueprint.protect(auth=True, right=ImporterRight.TYPE.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH, RequestSizeLimit.TYPE_IMPORT_MAX_FORM_MEMORY_SIZE)
 @handle_route_errors("while updating Types from imported data")
 def update_type(request_user: CmdbUser) -> Response:
     """

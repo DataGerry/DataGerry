@@ -19,7 +19,8 @@ The rules a CmdbType import judges an uploaded entry by
 Every rule is a function that RETURNS a message instead of raising, so a single bad entry can be
 reported in the partial report without touching the rest of the batch. Three groups live here:
 
-    * the upload-only rules, gathered per verb by `validate_create_entry` / `validate_update_entry`
+    * the upload-only rules, gathered per verb by `validate_create_entry` / `validate_update_entry` (a create's
+      identifiers all pass the identifier rule there, `new_identifiers_error`)
     * the structural rules, run together by `validate_type_structure` - one function per rule,
       registered in _STRUCTURE_RULES, all of them reported at once
     * `stored_type_update_blocker`, the rules an update can only answer against the STORED type
@@ -29,6 +30,8 @@ live in `importer_type_repairs`
 """
 from typing import Any, Callable, NamedTuple
 from logging import Logger, getLogger
+
+from cerberus import Validator
 
 from cmdb.manager import TypesManager
 
@@ -42,7 +45,14 @@ from cmdb.models.type_model import (
     SectionType,
     DG_LOCATION_FIELD_NAME,
 )
+from cmdb.models.type_model.type_identifier_rules import (
+    identifier_error,
+    payload_identifier_names,
+    stored_identifier_names,
+)
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.class_schema.type_model.cmdb_type_schema import get_type_acl_schema
+from cmdb.interface.blueprints.schema_error_format import ERRORS_SEPARATOR, flatten_schema_errors
 from cmdb.utils import coerce_whole_number, duplicate_names, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     field_identifier_change_blocker,
@@ -891,6 +901,55 @@ def normalize_boolean_flags(type_entry: Any) -> str | None:
     return STRUCTURE_ERROR_SEPARATOR.join(errors) if errors else None
 
 
+def acl_shape_error(type_entry: Any) -> str | None:
+    """
+    Judges an uploaded type's ``acl`` block by the same rule ``POST`` / ``PUT /types`` apply
+
+    The import never runs ``CmdbType.SCHEMA``, so without this a block the routes refuse - ``groups`` that is no
+    object, a permission list sent as a string, a non-boolean ``activated`` - would be built into the type by the
+    model: some of it raising, some of it stored scrambled. An entry without an ``acl`` (or with a null one) is
+    left to the repair that writes the default block; an unknown key inside the block is purged, as on the routes
+
+    Args:
+        type_entry (Any): A single entry of the uploaded payload
+
+    Returns:
+        str | None: The schema errors of the block, or None when it is usable or absent
+    """
+    if not isinstance(type_entry, dict) or type_entry.get(TypeSchemaKey.ACL.value) is None:
+        return None
+
+    acl_key: str = TypeSchemaKey.ACL.value
+    validator = Validator({acl_key: get_type_acl_schema()}, purge_unknown=True)
+
+    if validator.validate({acl_key: type_entry[acl_key]}):
+        return None
+
+    return TypeImportError.INVALID_ACL.format(
+        detail=ERRORS_SEPARATOR.join(flatten_schema_errors(validator.errors)),
+    )
+
+
+def new_identifiers_error(type_entry: Any) -> str | None:
+    """
+    Reports a CREATE entry whose field or section identifiers the identifier rule refuses
+
+    Every identifier of a type the import creates is new, so all of them are judged - the same rule, and the same
+    message, the type create route aborts with (``type_identifier_rules``). An update entry is judged against the
+    stored type instead, in ``stored_type_update_blocker``
+
+    Args:
+        type_entry (Any): A single entry of the uploaded payload
+
+    Returns:
+        str | None: The first refused identifier's message, or None
+    """
+    if not isinstance(type_entry, dict):
+        return None
+
+    return identifier_error(*payload_identifier_names(type_entry))
+
+
 def validate_create_entry(type_entry: Any, types_manager: TypesManager, ipam_locked: bool) -> str | None:
     """
     Runs every rule a CREATE entry can be judged by from the upload alone, first finding wins
@@ -913,6 +972,8 @@ def validate_create_entry(type_entry: Any, types_manager: TypesManager, ipam_loc
     return (
         validate_create_special_type(type_entry, types_manager, ipam_locked)
         or validate_type_structure(type_entry)
+        or new_identifiers_error(type_entry)
+        or acl_shape_error(type_entry)
         or normalize_boolean_flags(type_entry)
         # After normalisation, so the lenient spellings are already real booleans
         or uses_ports_license_error(type_entry, ipam_locked)
@@ -941,6 +1002,7 @@ def validate_update_entry(type_entry: Any, types_manager: TypesManager, ipam_loc
     return (
         special_type_license_error(type_entry, ipam_locked)
         or validate_type_structure(type_entry)
+        or acl_shape_error(type_entry)
         or normalize_boolean_flags(type_entry)
         # After normalisation, so the lenient spellings are already real booleans
         or uses_ports_license_error(type_entry, ipam_locked)
@@ -968,7 +1030,8 @@ def stored_type_update_blocker(
     2. `special_type` may not be changed by an update (the marker is immutable; an upload declaring a
        different one is refused rather than silently ignored)
     2a. a field identifier, or a multi-data-section identifier, may not be renamed while the type has
-       Objects - the name IS the key every Object stores its values and rows under
+       Objects - the name IS the key every Object stores its values and rows under; and an identifier the
+       update ADDS must pass the identifier rule (``type_identifier_rules``), as on the update route
     3. the location field may not be removed while CmdbObjects still hold a location value
     4. `selectable_as_parent` may not be turned off while CmdbObjects of the type are placed
     5. a section may not be removed (or renamed) while another CmdbType pulls its fields through a
@@ -999,8 +1062,12 @@ def stored_type_update_blocker(
     if not special_type_is_unchanged(stored_marker, uploaded_marker):
         return TypeImportError.SPECIAL_TYPE_IMMUTABLE.format(stored=stored_marker, uploaded=uploaded_marker)
 
+    stored_fields, stored_sections = stored_identifier_names(old_type)
+    new_fields, new_sections = stored_identifier_names(new_type)
+
     return (
-        field_identifier_change_blocker(request_user, old_type, new_type)
+        identifier_error(new_fields, new_sections, stored_fields, stored_sections)
+        or field_identifier_change_blocker(request_user, old_type, new_type)
         or mds_section_identifier_change_blocker(request_user, old_type, new_type)
         or location_field_removal_blocker(request_user, old_type, new_type)
         or selectable_as_parent_change_blocker(request_user, old_type, new_type)

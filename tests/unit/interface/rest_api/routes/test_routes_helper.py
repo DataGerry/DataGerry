@@ -16,15 +16,14 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.routes_helper
 
-The shared multipart-request helpers (get_file_in_request / get_element_from_data_request, consolidated
-here from the importer + media-library route utils) plus fetch_only_active_objects, the two public_id
-readers (extract_public_ids for a URL segment, normalize_public_id_list for a JSON body) and
-append_criteria_to_filter, exercised inside a minimal Flask request context (no REST API booted).
+The shared multipart-request helpers (get_file_in_request / get_element_from_data_request) plus
+fetch_only_active_objects, the two public_id readers (extract_public_ids for a URL segment,
+normalize_public_id_list for a JSON body), append_criteria_to_filter and the reference guard
+abort_on_unknown_references, exercised inside a minimal Flask request context (no REST API booted).
 
-append_criteria_to_filter lives here rather than in the rack package because
-the port-connection picker became its second caller: it is route-layer plumbing (a parsed ``?filter=``
-turned into pipeline stages) and knows nothing about either domain. Its tests moved with it, which is
-why they read in terms of a generic criteria dict rather than of the rack's rules.
+append_criteria_to_filter is route-layer plumbing (a parsed ``?filter=`` turned into pipeline stages) shared by
+the rack and the port-connection pickers, so its tests read in terms of a generic criteria dict rather than of
+either domain's rules.
 """
 import json
 from http import HTTPStatus
@@ -51,7 +50,9 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     read_write_payload,
     abort_if_duplicate,
     abort_if_taken,
+    abort_on_unknown_references,
     require_created_item,
+    undone_on_failure,
     WRITE_PAYLOAD_NOT_AN_OBJECT_MSG,
 )
 from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentNetworkError
@@ -622,3 +623,140 @@ class TestAbortIfTaken:
         with app.test_request_context(), pytest.raises(HTTPException):
             abort_if_taken(_manager_holding({'name': 'x'}), {'name': 'x'}, TAKEN_MESSAGE)
 
+
+RESIDUE_MESSAGE: str = 'The undo left: {residue}'
+
+
+class TestUndoneOnFailure:
+    """A block of writes, undone when it raises - with the original error, or a 500 naming what is left."""
+
+    def test_a_block_that_succeeds_undoes_nothing(self) -> None:
+        """The ledger is only replayed on failure."""
+        manager = MagicMock()
+
+        with undone_on_failure(RESIDUE_MESSAGE) as ledger:
+            ledger.inserted(manager, STORED_ID)
+
+        manager.delete_many.assert_not_called()
+
+    def test_a_failing_block_is_undone_and_its_own_error_re_raised(self) -> None:
+        """A clean undo: the request fails with the error it hit, so the route's own mapping answers it."""
+        manager = MagicMock()
+        manager.find.return_value = []
+        failure = RuntimeError('write failed')
+
+        with pytest.raises(RuntimeError) as caught:
+            with undone_on_failure(RESIDUE_MESSAGE) as ledger:
+                ledger.inserted(manager, STORED_ID)
+                raise failure
+
+        assert caught.value is failure
+        manager.delete_many.assert_called_once()
+
+    def test_an_undo_that_cannot_finish_is_a_500_naming_the_residue(self) -> None:
+        """Somebody has to go and look - the message says where."""
+        manager = MagicMock()
+        manager.collection = 'isms.riskAssessment'
+        manager.find.return_value = [{'public_id': STORED_ID}]
+
+        with app.test_request_context(), pytest.raises(HTTPException) as exc_info:
+            with undone_on_failure(RESIDUE_MESSAGE) as ledger:
+                ledger.inserted(manager, STORED_ID)
+                raise RuntimeError('write failed')
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert "'isms.riskAssessment'" in exc_info.value.description
+        assert f"'public_id': {STORED_ID}" in exc_info.value.description
+
+# -------------------------------------------------------------------------------------------------------------------- #
+
+UNKNOWN_REFERENCE_LABEL: str = 'PersonGroup'
+
+
+def _existing_ids_manager(existing: set[int]) -> MagicMock:
+    """A manager stub reporting the given public_ids as existing"""
+    manager = MagicMock()
+    manager.find_existing_public_ids.return_value = existing
+
+    return manager
+
+
+class TestAbortOnUnknownReferences:
+    """
+    The shared reference guard: nothing is checked when nothing is referenced, the check costs one lookup rather
+    than one per id, and the refusal names the ids that are missing so the client can fix the payload
+    """
+
+    def test_passes_when_every_reference_exists(self) -> None:
+        """The happy path writes nothing and raises nothing."""
+        with app.app_context():
+            abort_on_unknown_references(_existing_ids_manager({1, 2}), [1, 2], UNKNOWN_REFERENCE_LABEL)
+
+    def test_refuses_and_names_the_missing_ids(self) -> None:
+        """
+        The message carries the ids, because the client cannot otherwise tell which reference was wrong
+
+        A payload naming a dozen groups would otherwise be rejected with nothing to act on.
+        """
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(_existing_ids_manager({1}), [1, 7, 9], UNKNOWN_REFERENCE_LABEL)
+
+        assert caught.value.code == HTTPStatus.BAD_REQUEST
+        assert '7' in caught.value.description and '9' in caught.value.description
+        assert UNKNOWN_REFERENCE_LABEL in caught.value.description
+
+    def test_reports_the_missing_ids_in_a_stable_order(self) -> None:
+        """Sorted, so the message does not depend on set iteration order between runs."""
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(_existing_ids_manager(set()), [9, 7], UNKNOWN_REFERENCE_LABEL)
+
+        assert '[7, 9]' in caught.value.description
+
+    def test_checks_nothing_for_an_empty_selection(self) -> None:
+        """A payload referencing nothing must not cost a query."""
+        manager = _existing_ids_manager(set())
+
+        with app.app_context():
+            abort_on_unknown_references(manager, [], UNKNOWN_REFERENCE_LABEL)
+
+        manager.find_existing_public_ids.assert_not_called()
+
+    def test_checks_nothing_for_a_missing_selection(self) -> None:
+        """None is what a payload omitting the membership key produces."""
+        manager = _existing_ids_manager(set())
+
+        with app.app_context():
+            abort_on_unknown_references(manager, None, UNKNOWN_REFERENCE_LABEL)
+
+        manager.find_existing_public_ids.assert_not_called()
+
+    def test_asks_the_manager_once_for_the_whole_list(self) -> None:
+        """One projected '$in' query, not one read per referenced id."""
+        manager = _existing_ids_manager({1, 2, 3})
+
+        with app.app_context():
+            abort_on_unknown_references(manager, [1, 2, 3], UNKNOWN_REFERENCE_LABEL)
+
+        manager.find_existing_public_ids.assert_called_once()
+
+    def test_a_duplicate_reference_is_asked_about_once(self) -> None:
+        """A repeated id is the same reference, and must not be reported twice either."""
+        manager = _existing_ids_manager(set())
+
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(manager, [4, 4], UNKNOWN_REFERENCE_LABEL)
+
+        assert '[4]' in caught.value.description
+
+    def test_the_label_names_what_the_ids_refer_to(self) -> None:
+        """The two route files pass different labels, and the message has to say which side failed."""
+        with app.app_context():
+            with pytest.raises(HTTPException) as caught:
+                abort_on_unknown_references(_existing_ids_manager(set()), [1], 'Person')
+
+        description: Any = caught.value.description
+
+        assert 'Person ID(s)' in description

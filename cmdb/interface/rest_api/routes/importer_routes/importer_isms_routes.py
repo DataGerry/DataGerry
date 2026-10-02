@@ -69,7 +69,8 @@ from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
 from cmdb.utils import parse_import_bool
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.request_limits_constants import RequestSizeLimit
+from cmdb.interface.route_utils import accepts_upload, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import ImporterRight
@@ -113,6 +114,7 @@ RESULT_INVALID: str = 'invalid_objects'
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @isms_importer_blueprint.protect(auth=True, right=ImporterRight.ISMS_ADD.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors("while trying to import ISMS Objects")
 def import_isms_objects(target: str, request_user: CmdbUser) -> Response:
     """

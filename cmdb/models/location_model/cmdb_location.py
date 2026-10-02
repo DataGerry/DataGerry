@@ -111,6 +111,9 @@ class CmdbLocation(CmdbDAO):
         },
     ]
 
+    # The stored document's contract, written down - not run by any write (the create route takes three ids, the
+    # mirror builds the rest). It requires exactly REQUIRED_INIT_KEYS and defaults as CmdbLocationDefault; tests hold
+    # the two to each other
     SCHEMA: dict[str, Any] = get_cmdb_location_schema()
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither

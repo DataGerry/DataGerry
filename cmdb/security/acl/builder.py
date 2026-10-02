@@ -28,8 +28,7 @@ permission - a missing entry denies just as an incomplete one does. Everything e
 with no ACL, a type whose ACL is switched off - including one carrying no `activated` key at all,
 which is the model's reading of that shape - and a type that grants the permission. Because the
 filter is an exclusion, an object whose type_id resolves to no CmdbType at all (an orphan) also
-passes, which is the behaviour the previous `$lookup`-based implementation had through its
-`preserveNullAndEmptyArrays` unwind
+passes
 
 When nothing is denied - the common case, since most installations activate an ACL on few types or
 none - `build_acl_pipeline` returns no stages at all and the query runs unfiltered
@@ -108,14 +107,11 @@ def build_denied_types_criteria(
     list does not contain the required permission. Everything else passes: no `acl` key, an `acl`
     that is switched off, and a group that holds the permission.
 
-    **What "switched on" means is the model's reading.** An `acl` carrying no `activated` key at all
-    is **not** activated and therefore grants - which is what `acl/helpers.acl_grants_access` answers
-    for the same document, because `AccessControlList.from_data` defaults the flag to False. Reading
-    it as `activated $ne False` would deny that shape, leaving a single object read and a listing
-    disagreeing on it. `$exists` plus `$nin: [False, None]` is the closest expression of Python truthiness a
-    query can give: its one remaining divergence from the model is a stored `0`, which the model
-    reads as off and this reads as on - a listing stricter than the single read, which is the safe
-    direction for the two to differ in
+    **"Switched on" is `activated: true`, and nothing else.** The type write schema stores the flag only as a
+    boolean, and `updater_20261001` rewrote every older non-boolean value to the boolean the model reads it as -
+    so an equality test is the model's reading exactly: an `acl` with no `activated` key, or a null one, is off
+    here as it is in `acl/helpers.acl_grants_access` (where `AccessControlList.from_data` defaults the flag to
+    False), and a single object read and a listing cannot disagree on a type
 
     `$all` does not match a missing field, so wrapping it in `$nor` covers both "the group has no
     entry" and "the group's entry lacks this permission" in one clause - which is why no separate
@@ -139,14 +135,12 @@ def build_denied_types_criteria(
     Returns:
         dict[str, Any]: The criteria for a `framework.types` query
     """
-    acl_path = TypeSchemaKey.ACL.value
-    activated_path = f'{acl_path}.{AclKey.ACTIVATED.value}'
+    activated_path = f'{TypeSchemaKey.ACL.value}.{AclKey.ACTIVATED.value}'
     required = [entry.value for entry in normalize_permissions(permission)]
 
     return {
         '$and': [
-            {acl_path: {'$exists': True}},
-            {activated_path: {'$exists': True, '$nin': [False, None]}},
+            {activated_path: True},
             {'$nor': [{build_group_permissions_path(group_id): {'$all': required}}]},
         ]
     }

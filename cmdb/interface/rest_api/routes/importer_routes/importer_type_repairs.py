@@ -47,13 +47,13 @@ from cmdb.utils import coerce_whole_number, random_hex_color, is_non_blank_strin
 from cmdb.framework.ci_explorer.label_field import label_field_error
 from cmdb.framework.object_field_value_rules import find_default_value_errors
 from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     TypeStructure,
     read_type_structure,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     DEFAULT_TYPE_ICON,
-    DEFAULT_TYPE_ACL,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -113,7 +113,7 @@ def apply_type_defaults(type_entry: Any) -> None:
         type_entry[TypeSchemaKey.CI_EXPLORER_COLOR.value] = random_hex_color()
 
     if not type_entry.get(TypeSchemaKey.ACL.value):
-        type_entry[TypeSchemaKey.ACL.value] = deepcopy(DEFAULT_TYPE_ACL)
+        type_entry[TypeSchemaKey.ACL.value] = AccessControlList.default_json()
 
 
 def apply_port_section_index_default(type_entry: Any) -> None:

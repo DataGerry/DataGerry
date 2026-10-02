@@ -60,8 +60,9 @@ def get_assignable_objects(request_user: CmdbUser) -> Response:
 
     Returns every CmdbObject whose owner CmdbType declares the dg-ipam-interface MDS section,
     one row per object, with the row carrying the object's public_id, a small ``type_info``
-    sub-dict ({public_id, label}) and the rendered summary line. The listing is global
-    across the tenant: the FE filters / sorts client-side or via the ``search`` query param
+    sub-dict ({public_id, label}) and the rendered summary line. The listing covers every candidate
+    the caller may READ; without a search the page is cut in MongoDB, so a request reads one page of
+    objects (``framework.ipam.assignable_objects``). The rows are in ``public_id`` order, on every page
 
     Query params:
         page (int, default=1): 1-based page number; clamped into the valid range server-side

@@ -55,7 +55,7 @@ from cmdb.framework.exporter.export_filename_helper import build_document_export
 from cmdb.framework.results import IterationResult
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import GetMultiResponse, DefaultResponse
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
@@ -144,6 +144,7 @@ def create_template(request_user: CmdbUser) -> Response:
     except HTTPException as http_err:
         raise http_err
     except DocapiTemplatesManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[create_template] %s", err, exc_info=True)
         abort(400, "Could not insert the new template in the database!")
     except Exception as err:
@@ -481,6 +482,7 @@ def update_template(request_user: CmdbUser) -> Response:
     except HTTPException as http_err:
         raise http_err
     except DocapiTemplatesManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_template] %s", err, exc_info=True)
         abort(400, "Could not update the template!")
     except Exception as err:

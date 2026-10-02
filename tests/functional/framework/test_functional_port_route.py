@@ -40,6 +40,7 @@ from cmdb.models.port_connection_model import CmdbPortConnection, ConnectionType
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import (
     PORT_CONNECTED_KEY,
     PORT_CREATED_NOT_READABLE_MESSAGE,
+    PORT_NAME_REQUIRED_MESSAGE,
     PORT_NAME_TAKEN_MESSAGE,
 )
 from cmdb.errors.database import DocumentInsertError, DocumentNetworkError, DocumentUpdateError
@@ -1124,3 +1125,71 @@ class TestAnObjectIsOneKindOfDevice:
 
         assert _create(rest_api, object_id=SECOND_OWNER_OBJECT_ID, name='Gi0/1',
                        side=PortSide.SINGLE.value).status_code == HTTPStatus.CREATED
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the write schema: types and the text cap                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+AT_THE_CAP: int = 255
+
+
+class TestTheWriteSchema:
+    """POST /ports/ and PUT /ports/<id> validate their body: the right types, text within the cap."""
+
+    def test_a_name_at_the_cap_is_accepted(self, rest_api) -> None:
+        """255 characters is a valid name"""
+        assert _create(rest_api, name='n' * AT_THE_CAP).status_code == HTTPStatus.CREATED
+
+    @pytest.mark.parametrize('field, value', [
+        ('name', 'n' * (AT_THE_CAP + 1)),
+        ('description', 'd' * (AT_THE_CAP + 1)),
+    ], ids=['name', 'description'])
+    def test_text_over_the_cap_is_a_400_naming_the_field(self, rest_api, seeded, field: str, value: str) -> None:
+        """One character over: refused, the field named, nothing stored"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_port_payload(**{field: value}))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert field in response.get_json()['message']
+        assert seeded.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
+
+    @pytest.mark.parametrize('field, value', [
+        ('port_number', '12'),
+        ('description', {'text': 'not a string'}),
+        ('status', 'Up'),
+    ], ids=['port-number-as-text', 'description-as-object', 'status-as-label'])
+    def test_a_value_of_the_wrong_type_is_a_400(self, rest_api, seeded, field: str, value: Any) -> None:
+        """Stored as sent until now - a text port_number broke the panel's number order"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_port_payload(**{field: value}))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert field in response.get_json()['message']
+        assert seeded.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
+
+    def test_a_null_name_still_gets_the_routes_own_message(self, rest_api) -> None:
+        """The schema leaves a missing or blank name to the route, which says what is wrong"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_port_payload(name=None))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == PORT_NAME_REQUIRED_MESSAGE
+
+    def test_a_server_owned_key_is_dropped(self, rest_api, seeded) -> None:
+        """An author or a creation time in the body never reaches the stored port"""
+        new_id = rest_api.post(f'{ROUTE_URL}/', json=_port_payload(author_id=4242)).get_json()['result_id']
+
+        assert seeded.find_one({PortKey.PUBLIC_ID.value: new_id})[PortKey.AUTHOR_ID.value] != 4242
+
+    def test_the_update_is_held_to_the_same_schema(self, rest_api, seeded) -> None:
+        """PUT: a description over the cap is refused and the stored one kept"""
+        new_id = _create(rest_api, description='kept').get_json()['result_id']
+
+        response = rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload(description='d' * (AT_THE_CAP + 1)))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert seeded.find_one({PortKey.PUBLIC_ID.value: new_id})[PortKey.DESCRIPTION.value] == 'kept'
+
+    def test_the_update_refuses_a_wrong_type(self, rest_api) -> None:
+        """PUT: port_number as text is refused"""
+        new_id = _create(rest_api).get_json()['result_id']
+
+        assert rest_api.put(f'{ROUTE_URL}/{new_id}', json=_port_payload(port_number='3')).status_code \
+            == HTTPStatus.BAD_REQUEST

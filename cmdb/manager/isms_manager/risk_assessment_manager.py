@@ -97,7 +97,13 @@ class RiskAssessmentManager(GenericManager):
 
     def delete_with_follow_up(self, public_id: int) -> bool:
         """
-        Deletes an IsmsRiskAssessment from the database with followup logics
+        Deletes an IsmsRiskAssessment and then every IsmsControlMeasureAssignment linked to it
+
+        **The RiskAssessment goes first.** The two deletes are separate writes, so a failure can fall between
+        them, and the order decides what that leaves: assignments left behind point at a RiskAssessment that no
+        longer exists, which every reader already treats as "no RiskAssessment" (and a retried delete finds
+        nothing to delete) - whereas the old order, assignments first, left a surviving RiskAssessment that had
+        silently lost its assignments
 
         Args:
             public_id (int): The public_id of the IsmsRiskAssessment to delete
@@ -106,16 +112,17 @@ class RiskAssessmentManager(GenericManager):
             RiskAssessmentManagerDeleteError: If something went wrong
 
         Returns:
-            bool: True if successful, False otherwise
+            bool: True if the RiskAssessment was deleted, False when there was none
         """
         try:
-            # When an IsmsRiskAssessment is deleted, delete all IsmsControlMeasureAssignments linked to
-            # it in a single cross-collection delete rather than one delete per assignment
+            deleted: bool = self.delete_item(public_id)
+
+            # One cross-collection delete rather than one delete per assignment
             self.delete_many_from_other_collection(
                 IsmsControlMeasureAssignment.COLLECTION,
                 {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: public_id}
             )
 
-            return self.delete_item(public_id)
+            return deleted
         except Exception as err:
             raise RiskAssessmentManagerDeleteError(err) from err
