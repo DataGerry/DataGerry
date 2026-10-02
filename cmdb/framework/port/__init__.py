@@ -31,7 +31,7 @@ Five things live here today:
     schema nor its indexes can express
   - the resolved cable block a connection is READ with: one shape whether the cable lives on the
     connection or on the Cable CI it names
-  - the derivation of a port's `connected` flag, computed on read and never stored
+  - the derivation of a port's `connected` and `cabled` flags, computed on read and never stored
   - the unassigned-cable picker: which Cable CIs a connection may still claim, and the row it shows
   - the cable-usage guard: a Cable CI a connection still names may not be deleted, because the
     connection is a fact about its two ports and survives its cable record
@@ -65,7 +65,7 @@ from .cascade import (
     delete_ports_of_object,
     port_ids_of_object,
 )
-from .connected import collect_connected_port_ids, project_connected
+from .connected import collect_cabled_port_ids, collect_connected_port_ids, project_connected
 from .name_preview import (
     build_face,
     build_panel_preview,
@@ -131,6 +131,7 @@ __all__: list[str] = [
     'group_links_by_interface_object',
     'is_dangling',
     'resolve_link_row',
+    'collect_cabled_port_ids',
     'collect_connected_port_ids',
     'project_connected',
     'build_face',

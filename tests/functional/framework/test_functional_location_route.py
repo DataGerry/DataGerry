@@ -55,6 +55,7 @@ ROUTE_URL: str = '/locations'
 TYPE_ID: int = 9790
 TYPE_NAME: str = 'location-smoke-type'
 NAME_FIELD: str = 'name-field'
+LOCATION_FIELD: str = 'location-field'
 ROOT_PARENT_ID: int = 1
 SEED_AUTHOR_ID: int = 1
 SEED_VERSION: str = '1.0.0'
@@ -138,8 +139,8 @@ ALL_OBJECT_IDS: list[int] = [
     OBJECT_ID_FOR_CREATE, OBJECT_ID_FOR_GET, ROOT_OBJECT_ID, CHILD_OBJECT_ID,
     OBJECT_ID_FOR_UPDATE, OBJECT_ID_FOR_DELETE, DERIVE_POST_OBJECT_ID, DERIVE_PUT_OBJECT_ID,
 ]
-# CmdbObjects seeded as real documents (so the render pipeline can derive a summary line)
-REAL_OBJECT_IDS: list[int] = [DERIVE_POST_OBJECT_ID, DERIVE_PUT_OBJECT_ID]
+# CmdbObjects seeded as real documents: the write routes read the linked object (and derive a summary line)
+REAL_OBJECT_IDS: list[int] = [DERIVE_POST_OBJECT_ID, DERIVE_PUT_OBJECT_ID, OBJECT_ID_FOR_CREATE, OBJECT_ID_FOR_UPDATE]
 
 
 def _type_doc() -> dict[str, Any]:
@@ -152,10 +153,11 @@ def _type_doc() -> dict[str, Any]:
         'creation_time': datetime.now(timezone.utc),
         'active': True,
         'selectable_as_parent': True,
-        'fields': [{'type': 'text', 'name': NAME_FIELD, 'label': 'Name'}],
+        'fields': [{'type': 'text', 'name': NAME_FIELD, 'label': 'Name'},
+                   {'type': 'location', 'name': LOCATION_FIELD, 'label': 'Location'}],
         'render_meta': {
             'icon': 'fa-cube',
-            'sections': [{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]}],
+            'sections': [{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD, LOCATION_FIELD]}],
             'summary': {'fields': [NAME_FIELD]},
         },
         'acl': {'activated': False, 'groups': {'includes': None}},
@@ -164,14 +166,15 @@ def _type_doc() -> dict[str, Any]:
 
 
 def _object_doc(public_id: int, value: str) -> dict[str, Any]:
-    """Builds a complete CmdbObject doc whose ``NAME_FIELD`` value drives the rendered summary line."""
+    """Builds a complete CmdbObject doc whose ``NAME_FIELD`` value drives the rendered summary line, not yet placed."""
     return {
         'public_id': public_id,
         'type_id': TYPE_ID,
         'active': True,
         'author_id': SEED_AUTHOR_ID,
         'version': SEED_VERSION,
-        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': value}],
+        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': value},
+                   {'type': 'location', 'name': LOCATION_FIELD, 'value': None}],
         'creation_time': datetime.now(timezone.utc),
     }
 
@@ -252,6 +255,7 @@ class TestPostLocation:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """A POST with a valid type + object creates a location retrievable via /<object_id>/object."""
+        _insert_object(database_manager, database_name, OBJECT_ID_FOR_CREATE, ORIGINAL_NAME)
         try:
             response = rest_api.post(
                 f'{ROUTE_URL}/',
@@ -265,6 +269,7 @@ class TestPostLocation:
             assert follow_up.get_json()['object_id'] == OBJECT_ID_FOR_CREATE
         finally:
             _drop_locations_by_objects(database_manager, database_name, [OBJECT_ID_FOR_CREATE])
+            _drop_objects(database_manager, database_name, [OBJECT_ID_FOR_CREATE])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -648,6 +653,7 @@ class TestPutLocation:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """After the update a follow-up GET reflects the new name."""
+        _insert_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE, ORIGINAL_NAME)
         _insert_location(database_manager, database_name, _location_doc(
             LOCATION_ID_FOR_UPDATE, OBJECT_ID_FOR_UPDATE, ROOT_PARENT_ID,
         ))
@@ -665,11 +671,13 @@ class TestPutLocation:
             assert response.get_json()['result'] == follow_up.get_json()
         finally:
             _drop_locations_by_ids(database_manager, database_name, [LOCATION_ID_FOR_UPDATE])
+            _drop_objects(database_manager, database_name, [OBJECT_ID_FOR_UPDATE])
 
     def test_update_to_non_selectable_parent_rejected(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """Updating the location to a parent whose type is not selectable-as-parent is rejected 400."""
+        _insert_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE, ORIGINAL_NAME)
         _insert_location(database_manager, database_name, _location_doc(
             LOCATION_ID_FOR_UPDATE, OBJECT_ID_FOR_UPDATE, ROOT_PARENT_ID,
         ))
@@ -686,6 +694,7 @@ class TestPutLocation:
         finally:
             _drop_locations_by_ids(database_manager, database_name,
                                    [LOCATION_ID_FOR_UPDATE, NON_SELECTABLE_PARENT_LOC])
+            _drop_objects(database_manager, database_name, [OBJECT_ID_FOR_UPDATE])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

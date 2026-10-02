@@ -20,6 +20,10 @@ Helpers extracted from the route handlers so the orchestration in ``relations_ro
 ``object_relation_routes`` stays readable and the comparison / validation logic stays
 unit-testable. The validation helpers abort with the documented HTTP status on invalid input.
 
+A CmdbObjectRelation write trusts nothing about its endpoints: ``resolve_object_relation_endpoints`` reads both
+objects (existence, the caller's READ ACL, the relation's allowed type per side) and answers the type ids the
+route stores, and ``guard_object_relation_field_values`` holds the values to the relation's declared fields.
+
 A CmdbRelation update is split into ``apply_relation_update`` (everything that must happen for the
 relation itself) and ``cascade_relation_update`` (everything that must then happen to its dependent
 CmdbObjectRelations), so the route can report a failed cascade differently from a failed update: the
@@ -30,6 +34,7 @@ history entry could not be stored, so they swallow (and log) the logs manager's 
 them is called AFTER the write it describes, so a failed write never leaves a log claiming a change
 that did not happen.
 """
+from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any
 
@@ -47,10 +52,21 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model import LogInteraction
 from cmdb.models.object_relation_model import ObjectRelationKey
+from cmdb.models.object_relation_model.object_relation_constants import ObjectRelationFieldValueKey, ObjectRelationRole
+from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKey
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.security.acl.builder import resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
+    OBJECT_RELATION_ENDPOINT_UNKNOWN_MESSAGE,
+    OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE,
+    OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE,
+    OBJECT_RELATION_TYPE_NOT_ALLOWED_MESSAGE,
+)
+from cmdb.interface.rest_api.routes.relation_routes.relation_structure_helper import duplicated_names
 
 from cmdb.errors.manager.object_relation_logs_manager import (
     ObjectRelationLogsManagerBuildError,
@@ -59,6 +75,9 @@ from cmdb.errors.manager.object_relation_logs_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# Only what the endpoint check needs of an object: that it exists, and its type
+ENDPOINT_PROJECTION: dict[str, int] = {CmdbObjectKey.PUBLIC_ID.value: 1, CmdbObjectKey.TYPE_ID.value: 1, '_id': 0}
 
 # Keys of a counterpart summary returned for a relation-tab row
 COUNTERPART_OBJECT_ID_KEY: str = 'object_id'
@@ -258,6 +277,131 @@ def validate_object_relation_endpoints(parent_id: int | None, child_id: int | No
 
     if parent_id == child_id:
         abort(400, "Parent and child cannot be the same Object in an ObjectRelation!")
+
+
+def resolve_object_relation_endpoints(
+        relation: dict[str, Any],
+        parent_id: int | None,
+        child_id: int | None,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser) -> tuple[int, int]:
+    """
+    Reads both endpoints of a CmdbObjectRelation write and answers their types, refusing what the relation forbids
+
+    The endpoints are the ONLY source of the stored ``relation_parent_type_id`` / ``relation_child_type_id`` -
+    the definition-update cascade deletes instances by those ids, so a client-supplied one could make it delete a
+    valid instance or keep an invalid one. Refused with 400, in this order:
+
+    * a missing endpoint, or the same object on both sides (``validate_object_relation_endpoints``)
+    * an endpoint that does not exist, or whose type the caller may not READ - one answer for both, so it says
+      nothing about objects the caller cannot see
+    * an endpoint whose type the relation does not allow on that side: the parent's in ``parent_type_ids``, the
+      child's in ``child_type_ids`` - the same per-side lists the cascade judges by
+
+    One projected read of both objects, plus the caller's denied types (one projected read of the types,
+    none at all when no type has an active ACL)
+
+    Args:
+        relation (dict[str, Any]): The referenced CmdbRelation, as stored
+        parent_id (int | None): public_id of the parent CmdbObject, as sent
+        child_id (int | None): public_id of the child CmdbObject, as sent
+        objects_manager (ObjectsManager): Manager of the CmdbObjects
+        request_user (CmdbUser): The user issuing the request
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 on any of the refusals above
+        BaseManagerGetError: When reading the objects or the types fails
+
+    Returns:
+        tuple[int, int]: The parent's and the child's type public_id, to be stored
+    """
+    validate_object_relation_endpoints(parent_id, child_id)
+
+    type_by_object: dict[int, int] = {
+        document[CmdbObjectKey.PUBLIC_ID.value]: document[CmdbObjectKey.TYPE_ID.value]
+        for document in objects_manager.find(
+            criteria={CmdbObjectKey.PUBLIC_ID.value: {'$in': [parent_id, child_id]}},
+            projection=ENDPOINT_PROJECTION,
+        )
+    }
+    denied_type_ids: set[int] = set(resolve_denied_type_ids(request_user, AccessControlPermission.READ))
+
+    sides: tuple[tuple[ObjectRelationRole, int, RelationKey], ...] = (
+        (ObjectRelationRole.PARENT, parent_id, RelationKey.PARENT_TYPE_IDS),
+        (ObjectRelationRole.CHILD, child_id, RelationKey.CHILD_TYPE_IDS),
+    )
+
+    for role, object_id, allowed_key in sides:
+        type_id: int | None = type_by_object.get(object_id)
+
+        if type_id is None or type_id in denied_type_ids:
+            abort(HTTPStatus.BAD_REQUEST, OBJECT_RELATION_ENDPOINT_UNKNOWN_MESSAGE.format(
+                role=role.value, public_id=object_id,
+            ))
+
+        if type_id not in (relation.get(allowed_key.value) or []):
+            abort(HTTPStatus.BAD_REQUEST, OBJECT_RELATION_TYPE_NOT_ALLOWED_MESSAGE.format(
+                relation_id=relation.get(RelationKey.PUBLIC_ID.value), type_id=type_id, role=role.value,
+            ))
+
+    return type_by_object[parent_id], type_by_object[child_id]
+
+
+def object_relation_field_values_blocker(relation: dict[str, Any], field_values: list[Any] | None) -> str | None:
+    """
+    Reports why a CmdbObjectRelation's field values do not fit its CmdbRelation, if they do not
+
+    Every value has to name a field the relation DECLARES (its flat ``fields`` list), and each name may appear
+    once. A value under any other name would be shown in the relation tab and never reached by the relation's
+    field cascade, which only knows the declared names. The entry SHAPE (a dict with a non-blank ``name``) is
+    the schema's job
+
+    Args:
+        relation (dict[str, Any]): The referenced CmdbRelation, as stored
+        field_values (list[Any] | None): The ``field_values`` of the write; nothing to judge when absent
+
+    Returns:
+        str | None: The reason the values are refused, or None when they fit
+    """
+    names: list[str] = [
+        entry.get(ObjectRelationFieldValueKey.NAME.value)
+        for entry in (field_values or []) if isinstance(entry, dict)
+    ]
+    declared: set[str] = {
+        field.get(FieldKey.NAME.value)
+        for field in (relation.get(RelationKey.FIELDS.value) or []) if isinstance(field, dict)
+    }
+
+    undeclared: list[str] = [name for name in names if name not in declared]
+
+    if undeclared:
+        return OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE.format(
+            relation_id=relation.get(RelationKey.PUBLIC_ID.value), names=', '.join(map(str, undeclared)),
+        )
+
+    repeated: list[str] = duplicated_names(names)
+
+    if repeated:
+        return OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE.format(names=', '.join(repeated))
+
+    return None
+
+
+def guard_object_relation_field_values(relation: dict[str, Any], field_values: list[Any] | None) -> None:
+    """
+    Refuses a CmdbObjectRelation write whose field values do not fit its CmdbRelation
+
+    Args:
+        relation (dict[str, Any]): The referenced CmdbRelation, as stored
+        field_values (list[Any] | None): The ``field_values`` of the write
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the undeclared or repeated names
+    """
+    blocker: str | None = object_relation_field_values_blocker(relation, field_values)
+
+    if blocker:
+        abort(HTTPStatus.BAD_REQUEST, blocker)
 
 
 def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> list[int]:

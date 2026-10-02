@@ -32,6 +32,7 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.manager import LocationsManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.rack_model import CmdbRackMount, RackArea
@@ -556,6 +557,48 @@ class TestLeavingTheRack:
         assert field['value'] is None
         assert _node_of(locations, MEMBER_WITH_FIELD_ID) is None
 
+    def test_an_object_under_a_leaving_member_moves_to_the_rack_node_as_a_field_too(
+            self, rest_api, collections) -> None:
+        """
+        A blade under a chassis that leaves the rack: its node was promoted onto the rack node, but its location
+        FIELD kept pointing at the chassis' deleted node - a dangling field its next edit would refuse. The
+        detach now goes through the one delete path, which moves the field with the node
+        """
+        objects, locations, _ = collections
+        _place_rack(rest_api)
+        mount_id = _mount(rest_api, MEMBER_WITH_FIELD_ID).get_json()['result_id']
+        member_node_id: int = _node_of(locations, MEMBER_WITH_FIELD_ID)['public_id']
+        rack_node_id: int = _node_of(locations, RACK_ID)['public_id']
+        child_payload = _object_doc(CHILD_OBJECT_ID, WITH_LOCATION_TYPE_ID, 'blade-01', member_node_id)
+        child_payload.pop('creation_time')
+        rest_api.put(f'{OBJECTS_URL}/{CHILD_OBJECT_ID}', json=child_payload)
+
+        rest_api.delete(f'{RACKS_URL}/{RACK_ID}/mounts/{mount_id}')
+
+        child = objects.find_one({'public_id': CHILD_OBJECT_ID})
+        field = next(f for f in child['fields'] if f['name'] == LOCATION_FIELD)
+        assert _node_of(locations, CHILD_OBJECT_ID)['parent'] == rack_node_id
+        assert field['value'] == rack_node_id
+        assert locations.find_one({'public_id': member_node_id}) is None
+
+    def test_a_failed_node_delete_leaves_the_member_placed(self, rest_api, monkeypatch, collections) -> None:
+        """
+        The detach is best-effort, but never half-done: the field clear is undone when the node delete fails, so
+        the member keeps both its field and its node instead of losing one of them
+        """
+        objects, locations, _ = collections
+        _place_rack(rest_api)
+        mount_id = _mount(rest_api, MEMBER_WITH_FIELD_ID).get_json()['result_id']
+        rack_node_id: int = _node_of(locations, RACK_ID)['public_id']
+        monkeypatch.setattr(LocationsManager, 'delete', _raiser(RuntimeError('delete failed')))
+
+        rest_api.delete(f'{RACKS_URL}/{RACK_ID}/mounts/{mount_id}')
+
+        stored = objects.find_one({'public_id': MEMBER_WITH_FIELD_ID})
+        field = next(f for f in stored['fields'] if f['name'] == LOCATION_FIELD)
+        assert field['value'] == rack_node_id
+        assert _node_of(locations, MEMBER_WITH_FIELD_ID)['parent'] == rack_node_id
+
     def test_deleting_a_mounted_object_removes_its_membership(self, rest_api, collections) -> None:
         """5a: the mount row must not outlive the object it points at"""
         _, _, mounts = collections
@@ -792,3 +835,11 @@ class TestLocationDrivenMembership:
 
         assert response.status_code == HTTPStatus.FORBIDDEN
         assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID}) is None
+
+
+def _raiser(error: Exception):
+    """A replacement that always raises the given error."""
+    def _raise(*_args: Any, **_kwargs: Any) -> None:
+        raise error
+
+    return _raise

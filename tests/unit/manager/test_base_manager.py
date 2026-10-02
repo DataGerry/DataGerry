@@ -632,6 +632,7 @@ _ERROR_MAPPING_CASES = [
     ('delete_many_raw', ({'x': 1},), 'delete_many_raw', DocumentDeleteError, BaseManagerDeleteError),
     ('count_from_other_collection', ('other', {}), 'count', DocumentGetError, BaseManagerGetError),
     ('update', ({'x': 1}, {'y': 2}), 'update', DocumentUpdateError, BaseManagerUpdateError),
+    ('replace', (7, {'y': 2}), 'replace', DocumentUpdateError, BaseManagerUpdateError),
     ('upsert', ({'x': 1}, {'y': 2}), 'upsert', DocumentUpdateError, BaseManagerUpdateError),
     ('delete', ({'x': 1},), 'delete', DocumentDeleteError, BaseManagerDeleteError),
     ('delete_many', ({'x': 1},), 'delete_many', DocumentDeleteError, BaseManagerDeleteError),
@@ -697,3 +698,13 @@ def test_insert_leaves_a_transient_failure_unwrapped_too() -> None:
         BaseManager.insert(mgr, {})
 
     assert caught.value is failure
+
+
+def test_replace_addresses_the_document_by_its_public_id() -> None:
+    """The whole document is handed to the database layer, keyed by public_id."""
+    mgr = _mock_manager()
+
+    BaseManager.replace(mgr, 7, {'public_id': 7, 'name': 'x'})
+
+    mgr.dbm.replace.assert_called_once_with(COLLECTION, DB_NAME, {'public_id': 7}, {'public_id': 7, 'name': 'x'})
+

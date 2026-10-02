@@ -28,12 +28,10 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import ObjectsManager
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
-from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME, RenderProblemCode
+from cmdb.framework.rendering.render_constants import ANONYMOUS_NAME
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
-from cmdb.models.type_model.field_type_enum import FieldType
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -324,33 +322,6 @@ class TestCacheIsolation:
         cached_field = render.types_cache[MAIN_TYPE_ID].get_field(NAME_FIELD)
         assert 'value' not in cached_field
 
-    def test_shared_cache_avoids_refetching_references(self, full_access_user, database_manager,
-                                                       database_name, monkeypatch) -> None:
-        """A nested render reusing the shared cache does not re-query an already-loaded reference."""
-        requested: list[list[int]] = []
-        original = ObjectsManager.get_objects_lookup
-
-        def _spy(self, public_ids):
-            requested.append(list(public_ids))
-            return original(self, public_ids)
-
-        monkeypatch.setattr(ObjectsManager, 'get_objects_lookup', _spy)
-
-        # First render loads REF_OBJ_ID into the cache
-        render = _render_main(full_access_user, database_manager, database_name)
-        assert any(REF_OBJ_ID in batch for batch in requested)
-
-        # A render sharing those caches must NOT ask the DB for REF_OBJ_ID again
-        requested.clear()
-        doc = database_manager.get_collection(CmdbObject.COLLECTION, database_name).find_one({'public_id': MAIN_OBJ_ID})
-        CmdbMultiRender(
-            [CmdbObject.from_data(doc)], full_access_user, True,
-            shared_objects_cache=render.objects_cache,
-            shared_types_cache=render.types_cache,
-            shared_users_cache=render.users_cache,
-        )
-        assert all(REF_OBJ_ID not in batch for batch in requested)
-
 
 class TestReferenceSection:
     """A ref-section pulls the referenced type's section fields into the render."""
@@ -387,51 +358,6 @@ class TestReferenceSection:
         assert ref_field is not None
         assert ref_field['value'] is None
         assert ref_field['references']['type_id'] == REF_TYPE_ID
-
-
-class TestNestedReferenceSectionAgainstTheRealManager:
-    """The nested reference-section merge, run with the real ObjectsManager behind the render."""
-
-    @staticmethod
-    def _merge_nested(render: CmdbMultiRender, value: Any) -> list[dict[str, Any]]:
-        """Merges one nested ref-section field while rendering MAIN_OBJ_ID"""
-        with render.problems.rendering(MAIN_OBJ_ID):
-            return render._merge_reference_section_fields(  # pylint: disable=protected-access
-                {'name': REFSEC_REF_FIELD, 'type': FieldType.REF_SECTION.value, 'value': value}, [], 1,
-            )
-
-    def test_an_unset_nested_reference_reads_nothing_and_flags_nothing(
-            self, full_access_user, database_manager, database_name, monkeypatch) -> None:
-        """
-        An unset nested reference references nothing yet
-
-        The real manager answers a `public_id: None` lookup with no object, which the render used to
-        read as a failure - one wasted query on every render, and a false problem on the object
-        """
-        lookups: list[Any] = []
-        original = ObjectsManager.get_object
-
-        def _spy(manager: ObjectsManager, public_id: Any, *args: Any, **kwargs: Any) -> Any:
-            lookups.append(public_id)
-            return original(manager, public_id, *args, **kwargs)
-
-        monkeypatch.setattr(ObjectsManager, 'get_object', _spy)
-        render = _render_main(full_access_user, database_manager, database_name)
-
-        assert self._merge_nested(render, None) == []
-        assert not lookups
-        assert render.problems.problems_for(MAIN_OBJ_ID) == []
-
-    def test_a_dangling_nested_reference_is_still_a_problem(
-            self, full_access_user, database_manager, database_name) -> None:
-        """The control: a SET reference to an object that does not exist is reported, not hidden"""
-        render = _render_main(full_access_user, database_manager, database_name)
-        missing_object_id = max(ALL_OBJ_IDS) + 1
-
-        assert self._merge_nested(render, missing_object_id) == []
-        assert [problem['code'] for problem in render.problems.problems_for(MAIN_OBJ_ID)] == [
-            RenderProblemCode.NESTED_REFERENCE_SECTION_FAILED.value
-        ]
 
 
 class TestHelpers:

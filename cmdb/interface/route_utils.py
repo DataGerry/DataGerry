@@ -61,10 +61,13 @@ from cmdb.errors.security import (
     RequestTimeoutError,
     RequestError,
 )
+from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
+from cmdb.utils import find_cause
 from cmdb.errors.database import (
     SetDatabaseError,
     DocumentNetworkError,
     DocumentLockTimeoutError,
+    DocumentTooLargeError,
     TRANSIENT_DATABASE_ERRORS,
 )
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
@@ -223,6 +226,60 @@ def _keep_route_signature(wrapper: Callable[..., Any], signature: inspect.Signat
     wrapper.__signature__ = signature
 
 
+def abort_if_too_large(err: BaseException) -> None:
+    """
+    Answers a write refused on MongoDB's 16 MB document limit with the one 400 every route gives
+
+    The database layer raises a typed ``DocumentTooLargeError`` for it, and a manager wraps that in its own write
+    error - so the cause is looked for in the chain rather than assumed. Anything else returns, for the caller to
+    answer as it would have. Call it first in an ``except`` of a manager's insert / update error, before that arm
+    reports the failure its own way
+
+    Args:
+        err (BaseException): The error the write raised
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 when the write failed on the document size limit
+    """
+    if find_cause(err, DocumentTooLargeError) is not None:
+        LOGGER.warning("[abort_if_too_large] %s: %s", type(err).__name__, err)
+        abort(HTTPStatus.BAD_REQUEST, DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE)
+
+
+def accepts_upload(max_content_length: int, max_form_memory_size: int | None = None) -> Callable[..., Any]:
+    """
+    Raises the request size limits for one upload route, before anything reads its body
+
+    Flask's ``MAX_CONTENT_LENGTH`` holds every request to the JSON-body limit; a route that takes a file raises it
+    for its own request (Flask 3.1 lets a request carry its own limits). ``max_form_memory_size`` is for a route
+    that receives its upload as a plain form FIELD rather than a file part - Werkzeug keeps such a field in memory
+    and caps it at 500 KB by default. A larger body is still a 413, answered by Werkzeug itself
+
+    Stack it with the parsers, below the authentication decorators: it reads nothing, so the caller is still
+    identified before the body is, and it must run before the handler touches ``request.files`` / ``request.form``
+
+    Args:
+        max_content_length (int): The largest body the route accepts, in bytes
+        max_form_memory_size (int | None): The largest non-file form field, in bytes. Defaults to None (Werkzeug's)
+
+    Returns:
+        Callable[..., Any]: The decorator
+    """
+    def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
+        @functools.wraps(func)
+        def wrapper(*args: Any, **kwargs: Any) -> Any:
+            request.max_content_length = max_content_length
+
+            if max_form_memory_size is not None:
+                request.max_form_memory_size = max_form_memory_size
+
+            return func(*args, **kwargs)
+
+        return wrapper
+
+    return decorator
+
+
 def handle_route_errors(message: str) -> Callable[..., Any]:
     """
     Owns a route's generic error tail: re-raise an HTTPException, map anything else to a 500
@@ -239,6 +296,9 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
     What it deliberately does NOT do is own the arms in between. A route that maps its manager's errors
     to 400s states those rules with ``handle_manager_errors``, stacked directly below this decorator so
     its aborts pass through the HTTPException arm here
+
+    One failure is never a 500: a write refused on MongoDB's 16 MB document limit is the caller's, and is answered
+    with the shared 400 of ``abort_if_too_large`` before the 500 is considered
 
     Args:
         message (str): What the route was doing, as a template over its arguments
@@ -261,6 +321,9 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
                 # wrapper. Claiming it here would make that a flat 500 instead
                 raise
             except Exception as err:
+                # A document past the size limit is the caller's, not a server fault
+                abort_if_too_large(err)
+
                 LOGGER.error(
                     "[%s] Exception: %s. Type: %s", func.__name__, err, type(err).__name__, exc_info=True,
                 )
@@ -317,6 +380,9 @@ def handle_manager_errors(
     Stack it directly below ``handle_route_errors``: its aborts are HTTPExceptions, which that decorator
     hands through untouched, and every error it does not name still reaches that decorator's 500
 
+    Before the table is consulted, a write refused on MongoDB's 16 MB document limit gets the shared 400 of
+    ``abort_if_too_large`` - the table's message for the write's error would read like a database failure
+
     Args:
         failures (dict[type[Exception], str]): Error class -> message, logged as an error
         refusals (dict[type[Exception], str] | None): Error class -> message, logged as a warning
@@ -347,6 +413,9 @@ def handle_manager_errors(
             try:
                 return func(*args, **kwargs)
             except Exception as err:
+                # Whatever this route's table says about the write that failed: the size limit has one answer
+                abort_if_too_large(err)
+
                 error_class: type[Exception] | None = closest_listed_error_class(messages, err)
 
                 # Not one of this route's rules: the generic tail above decides what it is

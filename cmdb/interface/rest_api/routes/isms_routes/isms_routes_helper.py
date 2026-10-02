@@ -38,6 +38,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsEntityLabel,
     IsmsManagerErrorMessage,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
+    UNKNOWN_CONTROL_MEASURES_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -339,6 +340,24 @@ def guard_required_risk_assessment_fields(data: dict[str, Any]) -> None:
 
     if missing_fields:
         abort(400, f"The RiskAssessment is missing required field(s): {', '.join(missing_fields)}!")
+
+
+def abort_on_unknown_control_measures(cm_assignment_manager: Any, assignments: list[dict[str, Any]]) -> None:
+    """
+    Refuses a write whose ControlMeasureAssignments name an IsmsControlMeasure that does not exist
+
+    Args:
+        cm_assignment_manager (Any): The ControlMeasureAssignmentManager, anything with its
+            ``get_missing_control_measure_ids``
+        assignments (list[dict[str, Any]]): The assignment payloads; nothing is queried when none names a measure
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the unknown measure ids, sorted
+    """
+    missing_control_measures: set[int] = cm_assignment_manager.get_missing_control_measure_ids(assignments)
+
+    if missing_control_measures:
+        abort(400, UNKNOWN_CONTROL_MEASURES_MSG.format(unknown=sorted(missing_control_measures)))
 
 
 def _bulk_item_failure(public_id: Any, message: str) -> dict[str, Any]:

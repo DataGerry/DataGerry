@@ -70,7 +70,7 @@ from cmdb.framework.port.interface_links import collect_dangling_links
 from cmdb.framework.port.assignable_interfaces import build_assignable_interfaces_page
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -190,6 +190,7 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
             # The unique index on the identity tuple is what stops two concurrent creates, and it is the
             # only thing that can: the pre-check above is a read followed by a write. Only its refusal is
             # an existing link; any other failure is the server's (500)
+            abort_if_too_large(err)
             LOGGER.error("[insert_port_interface_link] PortInterfaceLinksManagerInsertError: %s", err, exc_info=True)
             abort_if_duplicate(err, LINK_ALREADY_EXISTS_MESSAGE.format(port_id=port_id))
 
@@ -466,6 +467,7 @@ def update_port_interface_link(public_id: int, request_user: CmdbUser) -> Respon
         LOGGER.error("[update_port_interface_link] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except PortInterfaceLinksManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_port_interface_link] PortInterfaceLinksManagerUpdateError: %s", err, exc_info=True)
         abort(400, f'Failed to update the Port interface link with ID: {public_id}!')
 

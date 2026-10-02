@@ -35,6 +35,11 @@ the collection's. Every other method raises ``AccessDeniedError``.
 **The ACL is only applied when a user and a permission are passed.** Several internal callers pass
 neither on purpose (a cascade cleaning up after a delete, the CI Explorer's neighbour reads); a route
 that omits them is a bug
+
+What is not a read or write of ``framework.objects`` itself lives in manager-free modules beside it:
+``objects_reference_helper`` (the reference queries and the MDS merge), ``objects_summary_helper`` (the
+summary line), ``objects_propagation_helper`` (the field statements a Type edit pushes down) and
+``risk_assessment_cascade_helper`` (the ISMS cascade, shared with ``ObjectGroupsManager``)
 """
 from logging import Logger, getLogger
 import copy
@@ -61,11 +66,6 @@ from cmdb.models.object_group_model import ObjectReferenceType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRiskAssessment
-from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
-from cmdb.models.isms_model.isms_control_measure_assignment_constants import (
-    ControlMeasureAssignmentKey,
-)
 from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
 from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
@@ -76,6 +76,7 @@ from cmdb.manager.objects_reference_helper import (
     merge_mds_references,
 )
 from cmdb.manager.objects_summary_helper import compose_summary_line
+from cmdb.manager.risk_assessment_cascade_helper import delete_risk_assessments_of
 from cmdb.manager.objects_propagation_helper import RawUpdate
 
 from cmdb.errors.manager import (
@@ -91,7 +92,6 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerUpdateError,
     ObjectsManagerIterationError,
     ObjectsManagerMdsReferencesError,
-    ObjectsManagerSummaryLineError,
 )
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
@@ -585,6 +585,9 @@ class ObjectsManager(BaseManager):
             projection: dict[str, Any] | None = None,
             user: CmdbUser | None = None,
             permission: AccessControlPermission | None = None,
+            skip: int = 0,
+            limit: int = 0,
+            sort: list[tuple[str, int]] | None = None,
         ) -> list[CmdbObject] | list[dict[str, Any]]:
         """
         Get a list of CmdbObjects by a filter
@@ -609,6 +612,9 @@ class ObjectsManager(BaseManager):
             user (CmdbUser | None): The requesting user, when the read should be ACL-scoped
             permission (AccessControlPermission | None): The permission the user's group must hold;
                 scoping happens only when both this and `user` are given
+            skip (int): Matching documents passed over first; page with a ``sort``, natural order is not stable
+            limit (int): The most documents answered; 0 (the default) means no limit
+            sort (list[tuple[str, int]] | None): The order as (key, direction) pairs; None is the natural order
 
         Raises:
             ObjectsManagerGetError: When the retrieval of CmdbObjects failed, or when a
@@ -622,14 +628,17 @@ class ObjectsManager(BaseManager):
 
         criteria = self.apply_acl_to_criteria(criteria, user, permission)
 
+        paging: dict[str, Any] = {key: val for key, val in (('skip', skip), ('limit', limit), ('sort', sort)) if val}
+
         try:
             if projection is not None:
                 # Preserve the default '_id' exclusion the projection-less path applies in
                 # MongoDatabaseManager.find, unless the caller addressed '_id' explicitly
                 safe_projection: dict[str, Any] = {'_id': 0, **projection}
-                found_objects: list[dict[str, Any]] = list(self.find(criteria=criteria, projection=safe_projection))
+                found_objects: list[dict[str, Any]] = list(
+                    self.find(criteria=criteria, projection=safe_projection, **paging))
             else:
-                found_objects = list(self.find(criteria=criteria))
+                found_objects = list(self.find(criteria=criteria, **paging))
 
             if as_dict:
                 return found_objects
@@ -677,6 +686,34 @@ class ObjectsManager(BaseManager):
             return self.aggregate(pipeline=pipeline, **kwargs)
         except BaseManagerIterationError as err:
             raise ObjectsManagerIterationError(err) from err
+
+
+    def count_objects(
+            self,
+            criteria: dict[str, Any],
+            user: CmdbUser | None = None,
+            permission: AccessControlPermission | None = None,
+        ) -> int:
+        """
+        Counts the CmdbObjects matching a filter, ACL-scoped exactly as ``find_objects`` is - the total of a page
+
+        Args:
+            criteria (dict[str, Any]): Filter which should be applied
+            user (CmdbUser | None): The requesting user, when the count should be ACL-scoped
+            permission (AccessControlPermission | None): The permission the group must hold; scoping needs both
+
+        Raises:
+            ObjectsManagerGetError: When the count failed
+        Returns:
+            int: The number of matching CmdbObjects
+        """
+        criteria = self.apply_acl_to_criteria(criteria, user, permission)
+
+        try:
+            return self.count_documents(criteria)
+        except Exception as err:
+            LOGGER.error("[count_objects] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerGetError(err) from err
 
 
     def count_objects_grouped_by_type(self) -> dict[int, int]:
@@ -925,19 +962,24 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(err) from err
 
 
-    def get_objects_lookup(self, public_ids: list[int]) -> dict[int, CmdbObject]:
+    def get_objects_lookup(
+            self, public_ids: list[int], denied_type_ids: list[int] | None = None) -> dict[int, CmdbObject]:
         """
         Batch-loads the CmdbObjects for the given public_ids and returns them keyed by public_id
 
-        Issues a single query over all ids instead of one lookup per id
+        Issues a single query over all ids instead of one lookup per id. The ACL is opt-in, as in `find_objects`,
+        and takes the denied types already resolved once by the caller (`resolve_denied_type_ids`)
 
         Args:
             public_ids (list[int]): The CmdbObject public_ids to load
+            denied_type_ids (list[int] | None): public_ids of the CmdbTypes left out; None or empty reads unscoped
 
         Returns:
             dict[int, CmdbObject]: Mapping of public_id to its CmdbObject for every id that resolved
         """
-        all_objects: list[CmdbObject] = self.find_objects(criteria={"public_id": {"$in": public_ids}})
+        criteria: dict[str, Any] = self.narrow_criteria_by_denied_types(
+            {CmdbObjectKey.PUBLIC_ID.value: {"$in": public_ids}}, denied_type_ids)
+        all_objects: list[CmdbObject] = self.find_objects(criteria=criteria)
 
         return {obj.public_id: obj for obj in all_objects}
 
@@ -1098,7 +1140,7 @@ class ObjectsManager(BaseManager):
             object_type,
         )
 
-        self.delete_object_from_risk_assessment_cascade(public_id)
+        self.delete_objects_from_risk_assessment_cascade([public_id])
 
         return self.delete_object(public_id, user, permission, object_type)
 
@@ -1126,75 +1168,47 @@ class ObjectsManager(BaseManager):
                 if not public_ids:
                     return
 
-                ids_filter: dict[str, list[int]] = {"$in": public_ids}
+                ids_filter: int | dict[str, list[int]] = {"$in": public_ids}
             elif public_ids:
-                ids_filter: int = public_ids
+                ids_filter = public_ids
             else:
                 raise ObjectsManagerUpdateError("No public ids provided to delete from references!")
 
-            # Both plain ref fields and ref-section fields hold object references
-            ref_field_types: list[str] = [FieldType.REFERENCE.value, FieldType.REF_SECTION.value]
-
-            # Remove from normal fields
-            filter_query: dict[str, Any] = {
-                "fields": {
-                    "$elemMatch": {
-                        "type": {"$in": ref_field_types},
-                        "value": ids_filter,
-                    }
-                }
-            }
-
-            update: dict[str, Any] = {
-                "$set": {
-                    "fields.$[f].value": ""
-                }
-            }
-
-            array_filters: list[dict[str, Any]] = [
-                {
-                    "f.type": {"$in": ref_field_types},
-                    "f.value": ids_filter,
-                }
-            ]
-
-            self.update_many_raw(
-                filter_query=filter_query,
-                update=update,
-                array_filters=array_filters,
-            )
-
-            # Remove from multi_data_sections[].values[].data[]
-            filter_query_multi: dict[str, Any] = {
-                "multi_data_sections.values.data": {
-                    "$elemMatch": {
-                        "type": {"$in": ref_field_types},
-                        "value": ids_filter,
-                    }
-                }
-            }
-
-            update_multi: dict[str, Any] = {
-                "$set": {
-                    "multi_data_sections.$[].values.$[].data.$[f].value": ""
-                }
-            }
-
-            array_filters_multi: list[dict[str, Any]] = [
-                {
-                    "f.type": {"$in": ref_field_types},
-                    "f.value": ids_filter,
-                }
-            ]
-
-            self.update_many_raw(
-                filter_query=filter_query_multi,
-                update=update_multi,
-                array_filters=array_filters_multi,
-            )
+            # Regular fields first, then the rows of every multi-data-section
+            for rows_path, value_path in (
+                ("fields", "fields.$[f].value"),
+                ("multi_data_sections.values.data", "multi_data_sections.$[].values.$[].data.$[f].value"),
+            ):
+                self.update_many_raw(**self._reference_scrub(rows_path, value_path, ids_filter))
         except Exception as err:
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
+
+
+    @staticmethod
+    def _reference_scrub(rows_path: str, value_path: str, ids_filter: Any) -> dict[str, Any]:
+        """
+        Builds one ``update_many_raw`` that empties the reference rows pointing at the given ids
+
+        A row is a reference when its ``type`` is a plain reference or a reference-section field - both
+        hold an object id. The same element match selects the documents and, as the array filter ``f``,
+        the rows inside them
+
+        Args:
+            rows_path (str): Where the rows sit (``fields``, or the MDS rows' ``data``)
+            value_path (str): The positional path of a matching row's ``value``, through ``$[f]``
+            ids_filter (Any): The ``value`` filter - one public_id, or an ``$in`` clause
+
+        Returns:
+            dict[str, Any]: The ``filter_query``, ``update`` and ``array_filters`` keyword arguments
+        """
+        ref_field_types: list[str] = [FieldType.REFERENCE.value, FieldType.REF_SECTION.value]
+
+        return {
+            "filter_query": {rows_path: {"$elemMatch": {"type": {"$in": ref_field_types}, "value": ids_filter}}},
+            "update": {"$set": {value_path: ""}},
+            "array_filters": [{"f.type": {"$in": ref_field_types}, "f.value": ids_filter}],
+        }
 
 
     def set_location_field_for_objects(self, object_ids: list[int], parent_id: int | None) -> None:
@@ -1245,116 +1259,30 @@ class ObjectsManager(BaseManager):
         """
         self.set_location_field_for_objects(object_ids, None)
 
-# ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
-
-    def delete_object_from_risk_assessment_cascade(self, deleted_object_id: int) -> None:
-        """
-        Deletes every IsmsRiskAssessment of one CmdbObject, and their IsmsControlMeasureAssignments
-
-        Args:
-            deleted_object_id (int): The public_id of the deleted CmdbObject
-        """
-        self._delete_risk_assessments_of_objects(deleted_object_id)
-
+# --------------------------------------------------- ISMS CASCADE --------------------------------------------------- #
 
     def delete_objects_from_risk_assessment_cascade(self, deleted_object_ids: list[int]) -> None:
         """
-        The batched form: every IsmsRiskAssessment of ANY of the given CmdbObjects, in one pass
+        Deletes every IsmsRiskAssessment of any of the given CmdbObjects, and their assignments
 
-        One '$in' query per collection instead of the per-object round trips a loop over the
-        single-object form would issue. The net effect is identical
+        One ``$in`` query per collection, however many objects. Only assessments of OBJECTS are touched -
+        an assessment of a CmdbObjectGroup sharing a public_id is the group's (see
+        ``risk_assessment_cascade_helper``, which the group delete shares)
 
         Args:
-            deleted_object_ids (list[int]): public_ids of the deleted CmdbObjects
+            deleted_object_ids (list[int]): public_ids of the deleted CmdbObjects; empty is a no-op
+
+        Raises:
+            BaseManagerDeleteError: If deleting the assessments or the assignments fails
         """
         if not deleted_object_ids:
             return
 
-        self._delete_risk_assessments_of_objects({'$in': deleted_object_ids})
-
-
-    def _delete_risk_assessments_of_objects(self, object_id_criteria: Any) -> None:
-        """
-        Deletes the IsmsRiskAssessments matching an object criterion, and their assignments
-
-        The single and the batched cascade differ only in that criterion - one public_id or an
-        '$in' of them - so the three steps live here once: find the assessments of those objects,
-        delete them, then delete the assignments that belonged to them.
-
-        The assessments are read before anything is deleted because the assignments are found by the
-        ids of the assessments that are about to go: deleting the assessments first would leave
-        nothing to look their assignments up by.
-
-        Only assessments whose reference type is OBJECT are touched - an assessment of an
-        ObjectGroup that happens to share the public_id is another entity's business, and its own
-        cascade in ObjectGroupsManager handles it
-
-        Args:
-            object_id_criteria (Any): The 'object_id' filter value - a public_id, or an '$in' clause
-        """
-        matching_risk_assessments: list[dict[str, Any]] = list(self.dbm.find(
-            IsmsRiskAssessment.COLLECTION,
-            self.db_name,
-            {
-                RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT.value,
-                RiskAssessmentKey.OBJECT_ID.value: object_id_criteria,
-            },
-            projection={RiskAssessmentKey.PUBLIC_ID.value: 1},
-        ))
-
-        if not matching_risk_assessments:
-            return
-
-        risk_assessment_ids: list[int] = [
-            assessment[RiskAssessmentKey.PUBLIC_ID.value] for assessment in matching_risk_assessments
-        ]
-
-        self.delete_many_from_other_collection(
-            IsmsRiskAssessment.COLLECTION,
-            {RiskAssessmentKey.PUBLIC_ID.value: {'$in': risk_assessment_ids}},
+        delete_risk_assessments_of(
+            self.dbm, self.db_name, ObjectReferenceType.OBJECT, {'$in': deleted_object_ids},
         )
 
-        self.delete_many_from_other_collection(
-            IsmsControlMeasureAssignment.COLLECTION,
-            {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: {'$in': risk_assessment_ids}},
-        )
-
-
-
-
-    def get_summary_line(self, public_id: int, with_type: bool = True) -> str:
-        """
-        Retrieves the summary line of an CmdbObject
-
-        Args:
-            public_id (int): public_id of the CmdbObject
-            with_type (bool): If True then the Type label should be part of the summary line
-
-        Returns:
-            str: The summary line of the CmdbObject
-        """
-        try:
-            default_line: str = ""
-
-            if not public_id:
-                return default_line
-
-            target_object = self.get_object(public_id)
-
-            if not target_object:
-                return default_line
-
-            object_type_id = target_object.get('type_id')
-
-            target_object_type = self.get_object_type(object_type_id)
-
-            if not target_object_type:
-                return default_line
-
-            return compose_summary_line(target_object, target_object_type, with_type=with_type)
-        except Exception as err:
-            raise ObjectsManagerSummaryLineError(err) from err
-
+# --------------------------------------------------- SUMMARY LINES -------------------------------------------------- #
 
     def _load_types_lookup(self, type_ids: list[int]) -> dict[int, CmdbType]:
         """
@@ -1402,14 +1330,13 @@ class ObjectsManager(BaseManager):
         """
         Batch-resolves summary lines for many CmdbObjects in a single round-trip pair
 
-        Used by callers that need summary lines for a known list of public_ids and would
-        otherwise issue O(N) per-object lookups via ``get_summary_line``. Issues at most two
-        bulk queries: one ``find_objects`` over the requested ids (skipped entirely when the
-        caller already holds the documents and passes them via ``object_docs``), then one
-        ``get_types_lookup`` over the distinct type ids referenced by those objects. Summary
-        lines are composed locally via ``_compose_summary_line`` so the wire-format matches
-        ``get_summary_line`` byte-for-byte. Duplicates in ``public_ids`` are collapsed before
-        the bulk fetch
+        The one summary-line read of this manager: callers that need lines for a known list of
+        public_ids would otherwise issue one read per object. Issues at most two bulk queries: one
+        ``find_objects`` over the requested ids (skipped entirely when the caller already holds the
+        documents and passes them via ``object_docs``), then one ``_load_types_lookup`` over the
+        distinct type ids referenced by those objects. Each line is composed locally by
+        ``objects_summary_helper.compose_summary_line``. Duplicates in ``public_ids`` are collapsed
+        before the bulk fetch
 
         Objects that cannot be resolved (deleted, no longer matching their type id, etc.) are
         absent from the returned dict - callers should treat a missing key as "no summary

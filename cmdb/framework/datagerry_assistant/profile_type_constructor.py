@@ -37,6 +37,7 @@ from cmdb.models.type_model import (
     TypeSchemaKey,
 )
 from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
+from cmdb.security.acl.access_control_list import AccessControlList
 
 from .predefined_template_provider import PredefinedTemplateProvider
 from .datagerry_assistant_constants import (
@@ -178,12 +179,7 @@ class ProfileTypeConstructor:
             TypeSchemaKey.CI_EXPLORER_LABEL: None,
             TypeSchemaKey.CI_EXPLORER_COLOR: ci_explorer_color,
             TypeSchemaKey.FIELDS: [],
-            TypeSchemaKey.ACL: {
-                "activated": False,
-                "groups": {
-                    "includes": {}
-                }
-            }
+            TypeSchemaKey.ACL: AccessControlList.default_json(),
         }
 
 

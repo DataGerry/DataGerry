@@ -66,6 +66,12 @@ class UsersManagerDeleteError(UsersManagerError):
     """
 
 
+class UsersManagerAdminMemberError(UsersManagerDeleteError):
+    """
+    Raised when deleting a UserGroup's members would delete the bootstrap admin user - a refusal, not a failure
+    """
+
+
 class UsersManagerIterationError(UsersManagerError):
     """
     Raised when UsersManager could not iterate CmdbUsers

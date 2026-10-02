@@ -42,7 +42,7 @@ from cmdb.manager import WebhooksManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse, UpdateSingleResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -107,6 +107,7 @@ def create_webhook(params: dict[str, Any], request_user: CmdbUser) -> Response:
 
         new_webhook_id = webhooks_manager.insert_item(CmdbWebhook.from_data(payload))
     except WebhooksManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[create_webhook] WebhooksManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to create the Webhook in the database!")
 
@@ -239,6 +240,7 @@ def update_webhook(public_id: int, params: dict[str, Any], request_user: CmdbUse
     try:
         stored_webhook = update_item_from_payload(webhooks_manager, public_id, CmdbWebhook, payload)
     except WebhooksManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_webhook] WebhooksManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Could not update Webhook with ID: {public_id}!")
 

@@ -184,10 +184,10 @@ class TestAddType:
 
     def test_error_message_carries_detail(self, rest_api) -> None:
         """A collected create failure names the reason, not just a generic sentence."""
-        # named (so the name rules pass) but with an unusable acl, which CmdbType.from_data rejects
+        # named (so the name rules pass) but with an unusable summary, which only CmdbType.from_data rejects
         response = rest_api.post(
             CREATE_URL,
-            data=_upload_form([{'name': 'broken-type', 'acl': 'not-a-dict'}]),
+            data=_upload_form([{'name': 'broken-type', 'render_meta': {'summary': 'not-an-object'}}]),
             content_type='multipart/form-data',
         )
 

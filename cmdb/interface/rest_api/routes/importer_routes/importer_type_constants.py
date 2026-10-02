@@ -16,11 +16,8 @@
 """
 Shared constants for the CmdbType import REST routes
 """
-from typing import Any
-
 from cmdb.utils import BaseStrEnum
 from cmdb.models.type_model import TypeSchemaKey
-from cmdb.security.acl.acl_constants import AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -28,7 +25,6 @@ __all__: list[str] = [
     'STRUCTURE_ERROR_SEPARATOR',
     'LEGACY_EXTERNALS_KEY',
     'DEFAULT_TYPE_ICON',
-    'DEFAULT_TYPE_ACL',
     'IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS',
     'TypeImporterFormField',
     'TypeImportError',
@@ -76,17 +72,6 @@ IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS: dict[str, bool] = {
     TypeSchemaKey.USES_PORTS.value: False,
 }
 
-# The "no access control" ACL every newly created CmdbType starts with (same shape the assistant's
-# profile_type_constructor seeds and the one AccessControlList.from_data({}) produces): the ACL is
-# switched off and no group is granted anything, so the type is governed by the normal rights alone
-DEFAULT_TYPE_ACL: dict[str, Any] = {
-    AclKey.ACTIVATED.value: False,
-    AclKey.GROUPS.value: {
-        AclKey.INCLUDES.value: {},
-    },
-}
-
-
 class TypeImporterFormField(BaseStrEnum):
     """Multipart form-field names read from a type-import request"""
     UPLOAD_FILE = 'uploadFile'
@@ -106,6 +91,7 @@ class TypeImportError(BaseStrEnum):
     MALFORMED_JSON = 'The uploaded data is not valid JSON: {detail}'
     MISSING_TYPE_NAME = 'The Type data does not contain a name!'
     INVALID_BOOLEAN_VALUE = "Invalid value for '{field}': {value}"
+    INVALID_ACL = 'Invalid access control list: {detail}'
     SPECIAL_TYPE_NOT_LICENSED = 'The IPAM feature is not licensed, so the special Type "{special_type}" ' \
                                 'can not be imported!'
     USES_PORTS_NOT_LICENSED = 'The IPAM feature is not licensed, so the Type "{name}" can not be ' \

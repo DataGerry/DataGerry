@@ -48,7 +48,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse, UpdateSingleResponse
@@ -141,6 +141,7 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
         LOGGER.error("[create_cmdb_report] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, REPORT_CONDITIONS_INVALID_MSG.format(reason=err))
     except ReportsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[create_cmdb_report] ReportsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new Report in the database!")
 
@@ -370,6 +371,7 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
         LOGGER.error("[update_cmdb_report] ReportsManagerGetError: %s", err, exc_info=True)
         abort(400, REPORT_RETRIEVE_FAILED_MSG.format(public_id=public_id))
     except ReportsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_report] ReportsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Report with ID: {public_id}!")
 

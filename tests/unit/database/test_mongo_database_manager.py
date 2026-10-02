@@ -536,6 +536,13 @@ class TestInsertManyAndBulk:
 
         assert mgr.insert_many(COLL, DB, [{'name': 'a'}, {'name': 'b'}]) == [10, 11]
 
+    def test_insert_many_as_is_lists_only_the_ids_it_has(self, mgr: MongoDatabaseManager) -> None:
+        """A document restored as-is without a public_id is inserted, not listed - and no KeyError after the write."""
+        collection = _stub_collection(mgr)
+
+        assert mgr.insert_many(COLL, DB, [{'public_id': 4}, {'name': 'legacy'}], skip_public=True) == [4]
+        collection.insert_many.assert_called_once()
+
     def test_insert_many_duplicate_error(self, mgr: MongoDatabaseManager) -> None:
         """
         A duplicate key surfaces as the typed duplicate, which is still a DocumentInsertError
@@ -1221,3 +1228,32 @@ class TestDuplicateKeyDetails:
         assert COLL in message
         assert "{'name': 'a'}" in message
         assert "['name', 'side']" in message
+
+
+class TestReplace:
+    """replace_one - the whole document, _id aside, typed on a duplicate."""
+
+    def test_the_document_is_replaced_without_its_id(self, mgr: MongoDatabaseManager) -> None:
+        """The stored _id is kept, so the replacement must not try to set one."""
+        collection = _stub_collection(mgr)
+
+        mgr.replace(COLL, DB, {'public_id': 7}, {'_id': 'x', 'public_id': 7, 'name': 'a'})
+
+        collection.replace_one.assert_called_once_with({'public_id': 7}, {'public_id': 7, 'name': 'a'})
+
+    def test_a_duplicate_is_the_typed_refusal(self, mgr: MongoDatabaseManager) -> None:
+        """Restoring a snapshot could only collide if something else took its unique value meanwhile."""
+        _stub_collection(mgr).replace_one.side_effect = DuplicateKeyError(
+            'dup', details={'keyPattern': {'name': 1}, 'keyValue': {'name': 'a'}},
+        )
+
+        with pytest.raises(DocumentUpdateDuplicateKeyError):
+            mgr.replace(COLL, DB, {'public_id': 7}, {'public_id': 7, 'name': 'a'})
+
+    def test_any_other_failure_is_an_update_error(self, mgr: MongoDatabaseManager) -> None:
+        """Everything else stays the plain update failure."""
+        _stub_collection(mgr).replace_one.side_effect = RuntimeError('boom')
+
+        with pytest.raises(DocumentUpdateError):
+            mgr.replace(COLL, DB, {'public_id': 7}, {'public_id': 7})
+

@@ -54,6 +54,7 @@ from cmdb.errors.manager import (
 )
 from cmdb.errors.manager.users_manager import (
     UsersManagerActionError,
+    UsersManagerAdminMemberError,
     UsersManagerDeleteError,
     UsersManagerGetError,
     UsersManagerInitError,
@@ -461,25 +462,46 @@ class TestDeleteUserSettings:
 #                                            handle_users_on_group_delete                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHandleUsersOnGroupDeleteDispatch:
-    """Which branch runs - and what happens when the answer is 'neither'."""
+    """Which branch runs, on which ids - and what happens when the answer is 'neither'."""
 
     def test_move_runs_the_move_branch(self) -> None:
         """MOVE must not delete anybody."""
         mgr = _mock_manager()
 
-        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID)
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID,
+                                                  [USER_ID])
 
-        mgr._move_group_members.assert_called_once_with(SRC_GROUP_ID, DST_GROUP_ID)
-        mgr._delete_group_members.assert_not_called()
+        mgr.move_users.assert_called_once_with([USER_ID], DST_GROUP_ID)
+        mgr.delete_users.assert_not_called()
 
     def test_delete_runs_the_delete_branch(self) -> None:
         """DELETE must not move anybody."""
         mgr = _mock_manager()
 
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None, [USER_ID])
+
+        mgr.delete_users.assert_called_once_with([USER_ID])
+        mgr.move_users.assert_not_called()
+
+    def test_the_given_member_ids_are_written_and_not_re_read(self) -> None:
+        """The ids the caller recorded the undo for are the ids the write selects."""
+        mgr = _mock_manager()
+
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID,
+                                                  [USER_ID, OTHER_USER_ID])
+
+        mgr.get_group_member_ids.assert_not_called()
+        assert mgr.move_users.call_args.args[0] == [USER_ID, OTHER_USER_ID]
+
+    def test_without_member_ids_they_are_read(self) -> None:
+        """The standalone call reads the members itself."""
+        mgr = _mock_manager()
+        mgr.get_group_member_ids.return_value = [USER_ID]
+
         UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None)
 
-        mgr._delete_group_members.assert_called_once_with(SRC_GROUP_ID)
-        mgr._move_group_members.assert_not_called()
+        mgr.get_group_member_ids.assert_called_once_with(SRC_GROUP_ID)
+        mgr.delete_users.assert_called_once_with([USER_ID])
 
     @pytest.mark.parametrize('action', ['BOGUS', 'null', '', 'move', None])
     def test_an_unsupported_action_refuses_instead_of_no_op(self, action: Any) -> None:
@@ -489,81 +511,107 @@ class TestHandleUsersOnGroupDeleteDispatch:
         with pytest.raises(UsersManagerActionError):
             UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, action, DST_GROUP_ID)
 
-        mgr._move_group_members.assert_not_called()
-        mgr._delete_group_members.assert_not_called()
+        mgr.get_group_member_ids.assert_not_called()
+        mgr.move_users.assert_not_called()
+        mgr.delete_users.assert_not_called()
 
     def test_the_string_form_of_the_enum_still_dispatches(self) -> None:
         """Flask hands query values over as strings; GroupDeleteMode is a str enum for that reason."""
         mgr = _mock_manager()
 
-        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, 'MOVE', DST_GROUP_ID)
+        UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, 'MOVE', DST_GROUP_ID, [USER_ID])
 
-        mgr._move_group_members.assert_called_once_with(SRC_GROUP_ID, DST_GROUP_ID)
+        mgr.move_users.assert_called_once_with([USER_ID], DST_GROUP_ID)
 
 
 class TestHandleUsersOnGroupDeleteErrorMapping:
     """Every BaseManager failure has to arrive at the route as a UsersManager error."""
 
     def test_a_base_update_error_becomes_an_update_error(self) -> None:
-        """The route maps this to 'Failed to move User to Group' - a 400, not a 500."""
+        """A failed move, carrying its cause."""
         mgr = _mock_manager()
-        mgr._move_group_members.side_effect = BaseManagerUpdateError('boom')
+        mgr.move_users.side_effect = BaseManagerUpdateError('boom')
 
         with pytest.raises(UsersManagerUpdateError):
-            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID)
+            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.MOVE, DST_GROUP_ID,
+                                                      [USER_ID])
 
     def test_a_base_delete_error_becomes_a_delete_error(self) -> None:
         """Same for a failed member delete."""
         mgr = _mock_manager()
-        mgr._delete_group_members.side_effect = BaseManagerDeleteError('boom')
+        mgr.delete_users.side_effect = BaseManagerDeleteError('boom')
 
-        with pytest.raises(UsersManagerDeleteError):
-            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None)
+        with pytest.raises(UsersManagerDeleteError) as caught:
+            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None, [USER_ID])
 
-    def test_a_base_get_error_becomes_a_get_error(self) -> None:
-        """And for the member read that the delete branch does first."""
-        mgr = _mock_manager()
-        mgr._delete_group_members.side_effect = BaseManagerGetError('boom')
-
-        with pytest.raises(UsersManagerGetError):
-            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None)
+        assert not isinstance(caught.value, UsersManagerAdminMemberError)
 
     @pytest.mark.parametrize(
         'raised',
-        [UsersManagerDeleteError('admin'), UsersManagerUpdateError('no target'), UsersManagerGetError('read')],
-        ids=['delete', 'update', 'get'],
+        [UsersManagerAdminMemberError('admin'), UsersManagerUpdateError('no target')],
+        ids=['admin', 'update'],
     )
     def test_this_managers_own_errors_pass_through_unchanged(self, raised: Exception) -> None:
         """Re-wrapping would lose which rule fired, and the route answers a different message per rule."""
         mgr = _mock_manager()
-        mgr._delete_group_members.side_effect = raised
+        mgr.delete_users.side_effect = raised
 
         with pytest.raises(type(raised)) as excinfo:
-            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None)
+            UsersManager.handle_users_on_group_delete(mgr, SRC_GROUP_ID, GroupDeleteMode.DELETE, None, [USER_ID])
 
         assert excinfo.value is raised
 
 
-class TestMoveGroupMembers:
-    """MOVE: one predicate, one constant value, one statement."""
+class TestGetGroupMemberIds:
+    """The members' ids, read with a projection."""
 
-    def test_moves_every_member_in_a_single_update(self) -> None:
-        """Reading the members to build one UpdateOne each would be N reads and N writes for one value."""
+    def test_reads_only_the_member_ids(self) -> None:
+        """The redistribution needs the ids; loading whole user documents for them would be waste."""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{'public_id': USER_ID}, {'public_id': OTHER_USER_ID}]
+
+        assert UsersManager.get_group_member_ids(mgr, SRC_GROUP_ID) == [USER_ID, OTHER_USER_ID]
+        mgr.find.assert_called_once_with(criteria={'group_id': SRC_GROUP_ID}, projection=USER_ID_PROJECTION)
+
+    def test_a_failed_read_is_a_get_error_carrying_the_cause(self) -> None:
+        """The route maps it to its own 400."""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('db down')
+        mgr.find.side_effect = cause
+
+        with pytest.raises(UsersManagerGetError) as exc_info:
+            UsersManager.get_group_member_ids(mgr, SRC_GROUP_ID)
+
+        assert exc_info.value.__cause__ is cause
+
+
+class TestMoveUsers:
+    """MOVE: the ids read, one constant value, one statement."""
+
+    def test_moves_the_given_users_in_a_single_update(self) -> None:
+        """By id, so the undo that moves exactly these back matches the write."""
         mgr = _mock_manager()
 
-        UsersManager._move_group_members(mgr, SRC_GROUP_ID, DST_GROUP_ID)
+        UsersManager.move_users(mgr, [USER_ID, OTHER_USER_ID], DST_GROUP_ID)
 
-        mgr.update_many.assert_called_once_with({'group_id': SRC_GROUP_ID}, {'group_id': DST_GROUP_ID})
-        mgr.find.assert_not_called()
-        mgr.get_many_users.assert_not_called()
+        mgr.update_many.assert_called_once_with({'public_id': {'$in': [USER_ID, OTHER_USER_ID]}},
+                                                {'group_id': DST_GROUP_ID})
 
     def test_coerces_a_numeric_string_target(self) -> None:
         """The target arrives from a query string, and group_id is stored as an int."""
         mgr = _mock_manager()
 
-        UsersManager._move_group_members(mgr, SRC_GROUP_ID, '9911')
+        UsersManager.move_users(mgr, [USER_ID], '9911')
 
         assert mgr.update_many.call_args.args[1] == {'group_id': DST_GROUP_ID}
+
+    def test_no_users_is_a_no_op(self) -> None:
+        """An empty '$in' would match nothing anyway; the statement is not sent."""
+        mgr = _mock_manager()
+
+        UsersManager.move_users(mgr, [], DST_GROUP_ID)
+
+        mgr.update_many.assert_not_called()
 
     @pytest.mark.parametrize('target', [None, 0], ids=['missing', 'zero'])
     def test_refuses_without_a_target(self, target: Any) -> None:
@@ -571,7 +619,7 @@ class TestMoveGroupMembers:
         mgr = _mock_manager()
 
         with pytest.raises(UsersManagerUpdateError):
-            UsersManager._move_group_members(mgr, SRC_GROUP_ID, target)
+            UsersManager.move_users(mgr, [USER_ID], target)
 
         mgr.update_many.assert_not_called()
 
@@ -600,73 +648,33 @@ class TestHasGroupMembers:
         assert exc_info.value.__cause__ is cause
 
 
-class TestDeleteGroupMembers:
-    """DELETE: refuse for the admin, then delete the members and their settings."""
+class TestDeleteUsers:
+    """DELETE: refuse for the admin, then delete the users and their settings."""
 
-    def test_refuses_when_the_admin_is_a_member(self) -> None:
-        """The check runs before anything is deleted, so the group survives intact."""
+    def test_refuses_when_the_admin_is_among_them(self) -> None:
+        """The backstop runs before anything is deleted, and is the refusal class, not a failure."""
         mgr = _mock_manager()
-        mgr.get_one_by.return_value = {'public_id': CmdbUser.ADMIN_PUBLIC_ID}
 
-        with pytest.raises(UsersManagerDeleteError):
-            UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
+        with pytest.raises(UsersManagerAdminMemberError):
+            UsersManager.delete_users(mgr, [USER_ID, CmdbUser.ADMIN_PUBLIC_ID])
 
         mgr.delete_many.assert_not_called()
         mgr._delete_user_settings.assert_not_called()
 
-    def test_looks_for_the_admin_in_this_group_only(self) -> None:
-        """A query on public_id alone would refuse every group delete."""
-        mgr = _mock_manager()
-        mgr.get_one_by.return_value = None
-        mgr.find.return_value = []
-
-        UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
-
-        mgr.get_one_by.assert_called_once_with({
-            'group_id': SRC_GROUP_ID,
-            'public_id': CmdbUser.ADMIN_PUBLIC_ID,
-        })
-
-    def test_an_empty_group_is_a_no_op(self) -> None:
+    def test_no_users_is_a_no_op(self) -> None:
         """No members means nothing to delete and nothing to cascade."""
         mgr = _mock_manager()
-        mgr.get_one_by.return_value = None
-        mgr.find.return_value = []
 
-        UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
+        UsersManager.delete_users(mgr, [])
 
         mgr.delete_many.assert_not_called()
         mgr._delete_user_settings.assert_not_called()
 
-    def test_reads_only_the_member_ids(self) -> None:
-        """The cascade needs the ids; loading whole user documents for them would be waste."""
+    def test_deletes_exactly_the_given_users_and_cascades_their_settings(self) -> None:
+        """By id, not by the group query - a user added in between keeps account and settings together."""
         mgr = _mock_manager()
-        mgr.get_one_by.return_value = None
-        mgr.find.return_value = [{'public_id': USER_ID}]
 
-        UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
-
-        mgr.find.assert_called_once_with(criteria={'group_id': SRC_GROUP_ID}, projection=USER_ID_PROJECTION)
-
-    def test_deletes_the_members_and_cascades_their_settings(self) -> None:
-        """Both halves, with the ids read before the users are gone."""
-        mgr = _mock_manager()
-        mgr.get_one_by.return_value = None
-        mgr.find.return_value = [{'public_id': USER_ID}, {'public_id': OTHER_USER_ID}]
-
-        UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
+        UsersManager.delete_users(mgr, [USER_ID, OTHER_USER_ID])
 
         mgr.delete_many.assert_called_once_with({'public_id': {'$in': [USER_ID, OTHER_USER_ID]}})
         mgr._delete_user_settings.assert_called_once_with([USER_ID, OTHER_USER_ID])
-
-    def test_deletes_exactly_the_members_it_read(self) -> None:
-        """By id, not by re-running the group query - a user added in between keeps account and settings together"""
-        mgr = _mock_manager()
-        mgr.get_one_by.return_value = None
-        mgr.find.return_value = [{'public_id': USER_ID}]
-
-        UsersManager._delete_group_members(mgr, SRC_GROUP_ID)
-
-        criteria: dict[str, Any] = mgr.delete_many.call_args.args[0]
-        assert 'group_id' not in criteria
-        assert criteria == {'public_id': {'$in': [USER_ID]}}

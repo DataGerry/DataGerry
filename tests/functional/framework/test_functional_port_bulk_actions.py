@@ -695,3 +695,30 @@ class TestBulkActionErrorMapping:
         )
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestBulkEditTextCap:
+    """PATCH /ports/object/<id>/bulk - the description is capped like a single port's."""
+
+    def test_a_description_over_the_cap_changes_nothing(self, rest_api, seeded) -> None:
+        """Refused as a whole: no selected port takes it"""
+        response = rest_api.patch(_bulk_url(), json={
+            'port_ids': [FRONT_PORT_ID, REAR_PORT_ID], 'values': {'description': 'd' * 256},
+        })
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "'description'" in response.get_json()['message']
+        assert _stored_port(seeded, FRONT_PORT_ID)[PortKey.DESCRIPTION.value] == 'before'
+
+    def test_a_description_that_is_not_text_is_a_400(self, rest_api) -> None:
+        """A number is not a description"""
+        response = rest_api.patch(_bulk_url(), json={'port_ids': [FRONT_PORT_ID], 'values': {'description': 7}})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_null_description_still_clears_it(self, rest_api, seeded) -> None:
+        """null is a value: it clears the field, as before"""
+        response = rest_api.patch(_bulk_url(), json={'port_ids': [FRONT_PORT_ID], 'values': {'description': None}})
+
+        assert response.status_code == HTTPStatus.OK
+        assert _stored_port(seeded, FRONT_PORT_ID)[PortKey.DESCRIPTION.value] is None

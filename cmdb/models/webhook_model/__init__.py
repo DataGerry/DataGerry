@@ -13,3 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+The CmdbWebhook definition and its delivery log, the CmdbWebhookEvent
+
+Imported by module path (``cmdb.models.webhook_model.cmdb_webhook_event`` and its siblings); the package
+re-exports nothing
+"""

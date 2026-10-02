@@ -19,7 +19,7 @@ Constants of the CmdbCiExplorerProfile model
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = ['CiExplorerProfileKey']
+__all__ = ['CiExplorerProfileKey', 'DEFAULT_PROFILE_SCOPE']
 
 
 class CiExplorerProfileKey(BaseStrEnum):
@@ -37,6 +37,10 @@ class CiExplorerProfileKey(BaseStrEnum):
         RELATIONS_FILTER: public_ids of the CmdbRelations the graph's edges are restricted to
         WITH_LOCATIONS: Whether the graph includes the location hierarchy
         WITH_IPAM_RELATIONS: Whether the graph includes the IPAM hierarchy
+        WITH_PORT_CONNECTIONS: Whether the graph includes the CIs the object is cabled to
+
+    The three WITH_* toggles default to **true** - the frontend's own defaults for the graph
+    (``DEFAULT_CI_EXPLORER_SCOPE``), so a profile saved without them means what the graph shows by default
     """
     PUBLIC_ID = 'public_id'
     NAME = 'name'
@@ -44,3 +48,12 @@ class CiExplorerProfileKey(BaseStrEnum):
     RELATIONS_FILTER = 'relations_filter'
     WITH_LOCATIONS = 'with_locations'
     WITH_IPAM_RELATIONS = 'with_ipam_relations'
+    WITH_PORT_CONNECTIONS = 'with_port_connections'
+
+
+# The default of every WITH_* toggle of a profile: the frontend graph's defaults, all three on
+DEFAULT_PROFILE_SCOPE: dict[str, bool] = {
+    CiExplorerProfileKey.WITH_LOCATIONS.value: True,
+    CiExplorerProfileKey.WITH_IPAM_RELATIONS.value: True,
+    CiExplorerProfileKey.WITH_PORT_CONNECTIONS.value: True,
+}

@@ -26,8 +26,14 @@ from typing import Any
 
 from flask import abort
 
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.type_identifier_rules import (
+    identifier_error,
+    payload_identifier_names,
+    stored_identifier_names,
+)
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
 from cmdb.framework.object_field_value_rules import find_default_value_errors
@@ -173,6 +179,30 @@ def summary_blocker(data: dict[str, Any], known: set[str]) -> str | None:
         return SUMMARY_DUPLICATE_FIELD_MESSAGE.format(duplicates=', '.join(repeated))
 
     return None
+
+
+def guard_new_identifiers(data: dict[str, Any], old_type: CmdbType | None = None) -> None:
+    """
+    Aborts 400 when a CmdbType payload adds a field or section identifier the identifier rule refuses
+
+    The route-level wrapper around ``type_identifier_rules.identifier_error``: a blank, padded or bracketed NEW
+    identifier is refused, while every identifier the stored type already holds passes untouched - identifiers are
+    immutable, so an old one cannot be fixed and must not block a save. On create every identifier is new
+
+    Args:
+        data (dict[str, Any]): The Type payload an insert or an update would persist
+        old_type (CmdbType | None): The stored Type an update replaces; None for a create
+
+    Raises:
+        HTTPException: 400 naming the first refused identifier
+    """
+    field_names, section_names = payload_identifier_names(data)
+    stored_fields, stored_sections = stored_identifier_names(old_type) if old_type is not None else (set(), set())
+
+    error: str | None = identifier_error(field_names, section_names, stored_fields, stored_sections)
+
+    if error:
+        abort(400, error)
 
 
 def guard_type_structure(data: dict[str, Any]) -> None:

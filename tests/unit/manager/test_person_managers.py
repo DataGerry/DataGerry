@@ -29,8 +29,9 @@ What is pinned here:
     stayed listed in every group
   - the cascade's failure surfaces as the manager's own delete error, rather than as whatever pymongo
     raised
-  - the reciprocal membership methods forward to the shared helper with this side's collection and
-    array key - the pairing that a copy-paste between the twins would get wrong
+  - the cascade's counterpart cleanup writes the OTHER collection under the other side's array key - the
+    pairing that a copy-paste between the twins would get wrong. A create or update writes the other side
+    in the route layer (``person_membership_helper.sync_membership``), not through these managers
   - **the assessor and the interviewed persons are the person's alone**: a group is never either, and
     asserting it here is what keeps a later "harmonisation" of the twins from adding them
 """
@@ -69,8 +70,6 @@ class _Side(NamedTuple):
     clear_risk_assessments: Callable[[Any, int], None]
     clear_assignments: Callable[[Any, int], None]
     remove_from_counterpart: Callable[[Any, int], None]
-    add_to_documents: Callable[[Any, int, Any], None]
-    remove_from_documents: Callable[[Any, int, Any], None]
 
 
 SIDES: list[_Side] = [
@@ -91,8 +90,6 @@ SIDES: list[_Side] = [
         PersonsManager.remove_person_from_risk_assessments,
         PersonsManager.remove_person_from_control_measure_assignments,
         PersonsManager.remove_person_from_person_groups,
-        PersonsManager.add_group_to_persons,
-        PersonsManager.delete_group_from_persons,
     ),
     _Side(
         PersonGroupsManager,
@@ -111,8 +108,6 @@ SIDES: list[_Side] = [
         PersonGroupsManager.remove_person_group_from_risk_assessments,
         PersonGroupsManager.remove_person_group_from_control_measure_assignments,
         PersonGroupsManager.remove_person_group_from_persons,
-        PersonGroupsManager.add_person_to_groups,
-        PersonGroupsManager.delete_person_from_groups,
     ),
 ]
 
@@ -203,37 +198,8 @@ class TestDeleteCascade:
 
 
 @pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)
-class TestReciprocalMembership:
-    """The add / remove pair, and the collection each side writes."""
-
-    def test_adds_to_its_own_collection_under_its_own_array_key(self, side: _Side) -> None:
-        """
-        The pairing a copy-paste between the twins gets wrong
-
-        PersonsManager maintains 'groups' on management.person; PersonGroupsManager maintains
-        'group_members' on management.personGroup. Swapping either half writes into a key that does
-        not exist.
-        """
-        manager = _stub(side)
-
-        with patch(f'{side.module_path}.add_member_to_documents') as mock_add:
-            side.add_to_documents(manager, ENTITY_ID, [1, 2])
-
-        assert mock_add.call_args.args[2] == side.own_collection
-        assert mock_add.call_args.args[3] == side.own_array_key
-        assert mock_add.call_args.args[4] == ENTITY_ID
-        assert mock_add.call_args.args[5] == [1, 2]
-
-    def test_removes_from_its_own_collection_under_its_own_array_key(self, side: _Side) -> None:
-        """The mirror of the add, including the optional selection passed straight through."""
-        manager = _stub(side)
-
-        with patch(f'{side.module_path}.remove_member_from_documents') as mock_remove:
-            side.remove_from_documents(manager, ENTITY_ID, [3])
-
-        assert mock_remove.call_args.args[2] == side.own_collection
-        assert mock_remove.call_args.args[3] == side.own_array_key
-        assert mock_remove.call_args.args[5] == [3]
+class TestCounterpartCleanup:
+    """The delete cascade's write into the other side of the membership."""
 
     def test_the_counterpart_cleanup_writes_the_other_collection(self, side: _Side) -> None:
         """
@@ -248,6 +214,24 @@ class TestReciprocalMembership:
 
         assert mock_remove.call_args.args[2] == side.counterpart_collection
         assert mock_remove.call_args.args[3] == side.counterpart_array_key
+        assert mock_remove.call_args.args[4] == ENTITY_ID
+
+    def test_the_counterpart_cleanup_reaches_every_listing_document(self, side: _Side) -> None:
+        """No selection is passed: the member is pulled from every document of the other side that lists it."""
+        manager = _stub(side)
+
+        with patch(f'{side.module_path}.remove_member_from_documents') as mock_remove:
+            side.remove_from_counterpart(manager, ENTITY_ID)
+
+        assert len(mock_remove.call_args.args) == 5
+        assert 'document_ids' not in mock_remove.call_args.kwargs
+
+    def test_the_managers_offer_no_second_sync_path(self, side: _Side) -> None:
+        """The create / update sync lives in the route layer only, where the ledger records its undo."""
+        retired = {'update_group_in_persons', 'add_group_to_persons', 'delete_group_from_persons',
+                   'update_person_in_groups', 'add_person_to_groups', 'delete_person_from_groups'}
+
+        assert not retired & set(dir(side.manager))
 
 
 @pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)

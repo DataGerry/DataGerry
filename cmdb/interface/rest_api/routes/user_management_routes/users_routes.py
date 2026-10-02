@@ -33,7 +33,7 @@ from cmdb.manager import (
 
 from cmdb.framework.results import IterationResult
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     apply_registration_time,
     guard_user_update,
@@ -136,6 +136,7 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
         except UsersManagerInsertError as err:
             # The unique index is what stops a concurrent create of the same name; any other failure of the
             # insert is the server's (500), never a taken name
+            abort_if_too_large(err)
             LOGGER.error("[insert_cmdb_user] %s", err, exc_info=True)
             abort_if_duplicate(err, taken_message)
 
@@ -279,6 +280,7 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     except UsersManagerUpdateError as err:
         # A rename that loses the race to a concurrent write is refused by the same unique index; any
         # other failure of the update is the server's (500)
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_user] %s", err, exc_info=True)
         abort_if_duplicate(err, taken_message)
 
@@ -339,6 +341,7 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
         LOGGER.error("[change_cmdb_user_password] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the User with ID: {public_id}!")
     except UsersManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[change_cmdb_user_password] %s", err, exc_info=True)
         abort(400, f"Failed to change the password for User with ID: {public_id}!")
 

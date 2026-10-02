@@ -40,6 +40,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.route_utils import (
+    abort_if_too_large,
     check_db_exists,
     init_db_routine,
     set_admin_user,
@@ -215,6 +216,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
         LOGGER.error("[cloud_login] UsersManagerGetError: %s", err, exc_info=True)
         abort(500, "Could not login because user can't be retrieved from database!")
     except UsersManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[cloud_login] UsersManagerInsertError: %s", err, exc_info=True)
         abort(500, "Could not login because user can't be inserted in database!")
     except Exception as err:  # pylint: disable=broad-exception-caught

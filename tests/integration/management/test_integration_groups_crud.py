@@ -20,7 +20,7 @@ Pins the manager-layer behavior against a real MongoDB instance after the refact
 GenericManager: insert returns the new public_id and persists the doc, get_group resolves
 present ids into hydrated ``CmdbUserGroup`` instances and missing ids to None, update
 overwrites the label, delete reports the removal and refuses the protected bootstrap ids,
-iterate finds the seeded rows
+iterate finds the seeded rows - each with its rights resolved exactly as ``get_group`` resolves them
 """
 from typing import Any
 
@@ -378,3 +378,27 @@ class TestIterateGroups:
         returned_ids = [group.public_id for group in result.results]
         assert returned_ids == GROUP_IDS_FOR_ITERATE
         assert result.total == len(GROUP_IDS_FOR_ITERATE)
+
+    def test_rows_carry_the_rights_the_single_read_answers(
+        self, groups_manager: GroupsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A listed group holds the rights its document names - the same ones ``get_group`` answers."""
+        stored_rights: list[str] = [LEAF_RIGHT_NAME, BRANCH_RIGHT_NAME]
+        database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name).update_one(
+            {'public_id': GROUP_IDS_FOR_ITERATE[0]}, {'$set': {'rights': stored_rights}},
+        )
+        params = BuilderParameters(criteria=[{'$match': {'public_id': GROUP_IDS_FOR_ITERATE[0]}}])
+
+        listed: CmdbUserGroup = groups_manager.iterate(params).results[0]
+        single: CmdbUserGroup = groups_manager.get_group(GROUP_IDS_FOR_ITERATE[0])
+
+        assert sorted(right.name for right in listed.rights) == sorted(stored_rights)
+        assert [right.name for right in listed.rights] == [right.name for right in single.rights]
+
+    def test_the_admin_group_lists_the_master_right(self, groups_manager: GroupsManager) -> None:
+        """The bootstrap admin group comes out of the list holding ``base.*``."""
+        params = BuilderParameters(criteria=[{'$match': {'public_id': ADMIN_GROUP_ID}}])
+
+        listed: CmdbUserGroup = groups_manager.iterate(params).results[0]
+
+        assert [right.name for right in listed.rights] == [MASTER_RIGHT_NAME]

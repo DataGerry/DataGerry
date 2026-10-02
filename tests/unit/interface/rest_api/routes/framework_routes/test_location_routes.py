@@ -24,12 +24,13 @@ route glue (manager-call ordering, branch selection, and status-code mapping to 
 is exercised.
 """
 # pylint: disable=too-many-arguments,too-many-positional-arguments
+from contextlib import ExitStack
 from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import HTTPException, BadRequest
+from werkzeug.exceptions import HTTPException, BadRequest, Forbidden
 
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes import (
@@ -51,7 +52,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_rou
 from cmdb.models.location_model.location_constants import RootLocationDefault
 
 from cmdb.errors.manager.types_manager import TypesManagerGetError
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
+    LINKED_OBJECT_TYPE_MISMATCH_MSG,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import PlacementTarget
 from cmdb.errors.manager.locations_manager import (
     LocationsManagerInsertError,
     LocationsManagerGetError,
@@ -67,6 +72,7 @@ LOCATION_PUBLIC_ID: int = 7
 OBJECT_ID: int = 42
 PARENT_ID: int = 3
 TYPE_ID: int = 11
+OTHER_TYPE_ID: int = 12
 MISSING_OBJECT_ID: int = 9999
 TOTAL_LOCATIONS: int = 2
 RESOLVED_NAME: str = 'resolved-name'
@@ -76,6 +82,8 @@ HTTP_NOT_FOUND: int = 404
 HTTP_SERVER_ERROR: int = 500
 
 INSERT_PAYLOAD: dict[str, Any] = {'object_id': OBJECT_ID, 'parent': PARENT_ID, 'type_id': TYPE_ID, 'name': 'srv'}
+# The object the routes read before they write; a sentinel, since the read itself is patched
+LINKED_OBJECT: MagicMock = MagicMock(name='linked_object')
 UPDATE_PAYLOAD: dict[str, Any] = {'object_id': OBJECT_ID, 'parent': PARENT_ID, 'name': 'srv'}
 SAMPLE_LOCATION_DICT: dict[str, Any] = {'public_id': LOCATION_PUBLIC_ID, 'object_id': OBJECT_ID, 'parent': PARENT_ID}
 
@@ -134,36 +142,175 @@ def fixture_patched_provider(managers: dict[ManagerType, MagicMock]) -> Any:
 #                                                 insert_cmdb_location                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestInsertCmdbLocation:
-    """``insert_cmdb_location`` validates the type, resolves the name, then inserts."""
+    """
+    ``insert_cmdb_location`` reads the object under READ, validates the placement, then writes both halves
+
+    The object read, the placement check, the rack guard and the rack reconcile are patched at the route
+    module, so each test drives one branch of the route's own sequence
+    """
 
     @staticmethod
-    def _call(flask_app: Flask, data: dict[str, Any]) -> Any:
+    def _call(flask_app: Flask, data: dict[str, Any], request_user: Any = None) -> Any:
         """Drives the unwrapped handler inside a POST request context."""
         with flask_app.test_request_context('/', method='POST'):
-            return _unwrap(insert_cmdb_location)(data=data, request_user=MagicMock())
+            return _unwrap(insert_cmdb_location)(data=data, request_user=request_user or MagicMock())
 
-    def test_inserts_with_resolved_name_and_type_metadata(
+    @staticmethod
+    def _object_type() -> MagicMock:
+        """The linked object's own type."""
+        object_type = MagicMock(name='object_type', public_id=TYPE_ID, label='Server', selectable_as_parent=True)
+        object_type.get_icon.return_value = 'fas fa-server'
+        return object_type
+
+    def _patched(self, object_type: MagicMock | None = None, **overrides: Any) -> dict[str, Any]:
+        """The patches of the route's collaborators, each overridable by name."""
+        patches: dict[str, Any] = {
+            'read_linked_object': patch(f'{ROUTE_PATH}.read_linked_object', return_value=LINKED_OBJECT),
+            'validate_location_placement': patch(
+                f'{ROUTE_PATH}.validate_location_placement',
+                return_value=PlacementTarget(LINKED_OBJECT, object_type or self._object_type()),
+            ),
+            'resolve_location_name': patch(f'{ROUTE_PATH}.resolve_location_name', return_value=RESOLVED_NAME),
+            'guard_rack_location_change': patch(f'{ROUTE_PATH}.guard_rack_location_change'),
+            'reconcile_object_rack_membership': patch(f'{ROUTE_PATH}.reconcile_object_rack_membership'),
+            'DefaultResponse': patch(f'{ROUTE_PATH}.DefaultResponse'),
+        }
+        patches.update(overrides)
+        return patches
+
+    def _run(self, flask_app: Flask, data: dict[str, Any], patches: dict[str, Any],
+             request_user: Any = None) -> dict[str, MagicMock]:
+        """Runs the route under `patches`; answers the started mocks by name."""
+        with ExitStack() as stack:
+            started: dict[str, MagicMock] = {name: stack.enter_context(cm) for name, cm in patches.items()}
+            self._call(flask_app, data, request_user)
+
+        return started
+
+    def test_the_object_is_read_through_the_callers_acl(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
-        """The happy path resolves the name, copies type metadata, and returns the new public_id."""
+        """A node carries its object's summary as its name: the object is read with the caller, before anything"""
         del patched_provider
-        managers[ManagerType.TYPES].get_type.return_value = {'public_id': TYPE_ID}
-        managers[ManagerType.LOCATIONS].insert_location.return_value = LOCATION_PUBLIC_ID
-        type_mock = MagicMock(label='Server', selectable_as_parent=True)
-        type_mock.get_icon.return_value = 'fas fa-server'
-        sentinel_response = MagicMock(name='wsgi_response')
+        request_user = MagicMock(name='request_user')
 
-        with patch(f'{ROUTE_PATH}.CmdbType.from_data', return_value=type_mock), \
-             patch(f'{ROUTE_PATH}.resolve_location_name', return_value=RESOLVED_NAME), \
-             patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
-            response_ctor.return_value.make_response.return_value = sentinel_response
-            result = self._call(flask_app, dict(INSERT_PAYLOAD))
+        started = self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(), request_user)
+
+        started['read_linked_object'].assert_called_once_with(OBJECT_ID, managers[ManagerType.OBJECTS], request_user)
+
+    def test_a_denied_object_writes_nothing(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The read's 403 is the answer; no node and no field are written"""
+        del patched_provider
+        denied = patch(f'{ROUTE_PATH}.read_linked_object', side_effect=Forbidden())
+
+        with pytest.raises(Forbidden):
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_linked_object=denied))
+
+        managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
+        managers[ManagerType.OBJECTS].set_location_field_for_objects.assert_not_called()
+
+    def test_the_placement_is_validated_for_the_object(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The same check as a move: location field, parent exists, selectable, no cycle"""
+        del patched_provider
+
+        started = self._run(flask_app, dict(INSERT_PAYLOAD), self._patched())
+
+        started['validate_location_placement'].assert_called_once_with(
+            LINKED_OBJECT, PARENT_ID, managers[ManagerType.OBJECTS], managers[ManagerType.LOCATIONS],
+        )
+
+    def test_an_invalid_placement_writes_nothing(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The placement check's 400 is the answer"""
+        del patched_provider
+        invalid = patch(f'{ROUTE_PATH}.validate_location_placement', side_effect=BadRequest())
+
+        with pytest.raises(BadRequest):
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(validate_location_placement=invalid))
+
+        managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
+
+    def test_the_node_carries_the_objects_own_type(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """Label, icon and selectable come from the object's type, and the name from the resolver"""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].insert_location.return_value = LOCATION_PUBLIC_ID
+
+        started = self._run(flask_app, dict(INSERT_PAYLOAD), self._patched())
 
         written = managers[ManagerType.LOCATIONS].insert_location.call_args.args[0]
-        assert written['name'] == RESOLVED_NAME
-        assert written['type_label'] == 'Server'
-        response_ctor.assert_called_once_with(LOCATION_PUBLIC_ID)
-        assert result is sentinel_response
+        assert written == {
+            'object_id': OBJECT_ID, 'parent': PARENT_ID, 'type_id': TYPE_ID, 'type_label': 'Server',
+            'type_icon': 'fas fa-server', 'type_selectable': True, 'name': RESOLVED_NAME,
+        }
+        started['DefaultResponse'].assert_called_once_with(LOCATION_PUBLIC_ID)
+
+    def test_the_name_is_resolved_from_the_object_read(self, flask_app: Flask, patched_provider: Any) -> None:
+        """The resolver gets the object the route read - it reads nothing itself"""
+        del patched_provider
+        request_user = MagicMock(name='request_user')
+
+        started = self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(), request_user)
+
+        started['resolve_location_name'].assert_called_once_with(
+            INSERT_PAYLOAD['name'], LINKED_OBJECT, request_user,
+        )
+
+    def test_the_type_id_may_be_omitted(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The object names its type; the body need not"""
+        del patched_provider
+        payload: dict[str, Any] = {key: value for key, value in INSERT_PAYLOAD.items() if key != 'type_id'}
+
+        self._run(flask_app, payload, self._patched())
+
+        assert managers[ManagerType.LOCATIONS].insert_location.call_args.args[0]['type_id'] == TYPE_ID
+
+    def test_another_type_id_is_a_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """A body naming a type the object does not have is refused, naming both"""
+        del patched_provider
+        payload: dict[str, Any] = {**INSERT_PAYLOAD, 'type_id': OTHER_TYPE_ID}
+
+        with pytest.raises(BadRequest) as excinfo:
+            self._run(flask_app, payload, self._patched())
+
+        assert excinfo.value.description == LINKED_OBJECT_TYPE_MISMATCH_MSG.format(
+            object_id=OBJECT_ID, object_type_id=TYPE_ID, type_id=OTHER_TYPE_ID,
+        )
+        managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
+
+    def test_the_object_location_field_is_pointed_at_the_parent(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The other half of the mirror: the object's location field holds the node's parent"""
+        del patched_provider
+
+        self._run(flask_app, dict(INSERT_PAYLOAD), self._patched())
+
+        managers[ManagerType.OBJECTS].set_location_field_for_objects.assert_called_once_with([OBJECT_ID], PARENT_ID)
+
+    def test_the_rack_rules_run_around_the_write(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The rack guard before, the membership reconcile after"""
+        del patched_provider
+        request_user = MagicMock(name='request_user')
+
+        started = self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(), request_user)
+
+        started['guard_rack_location_change'].assert_called_once_with(
+            request_user, OBJECT_ID, PARENT_ID, managers[ManagerType.LOCATIONS],
+        )
+        started['reconcile_object_rack_membership'].assert_called_once()
 
     def test_missing_required_field_maps_to_400(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
@@ -189,42 +336,24 @@ class TestInsertCmdbLocation:
         assert excinfo.value.code == HTTP_BAD_REQUEST
         managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
 
-    def test_missing_type_aborts_404(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """A type that cannot be found aborts 404 before any insert happens."""
+    def test_objects_get_error_maps_to_400(self, flask_app: Flask, patched_provider: Any) -> None:
+        """An ``ObjectsManagerGetError`` from the object read maps to HTTP 400."""
         del patched_provider
-        managers[ManagerType.TYPES].get_type.return_value = None
+        failing = patch(f'{ROUTE_PATH}.read_linked_object', side_effect=ObjectsManagerGetError('boom'))
 
         with pytest.raises(HTTPException) as excinfo:
-            self._call(flask_app, dict(INSERT_PAYLOAD))
-
-        assert excinfo.value.code == HTTP_NOT_FOUND
-        managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
-
-    def test_types_get_error_maps_to_400(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """A ``TypesManagerGetError`` is translated to HTTP 400."""
-        del patched_provider
-        managers[ManagerType.TYPES].get_type.side_effect = TypesManagerGetError('lookup failed')
-
-        with pytest.raises(HTTPException) as excinfo:
-            self._call(flask_app, dict(INSERT_PAYLOAD))
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_linked_object=failing))
 
         assert excinfo.value.code == HTTP_BAD_REQUEST
 
-    def test_objects_get_error_maps_to_400(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """An ``ObjectsManagerGetError`` surfacing from name resolution maps to HTTP 400."""
+    def test_types_get_error_maps_to_400(self, flask_app: Flask, patched_provider: Any) -> None:
+        """A ``TypesManagerGetError`` - the rack reconcile reads types - is translated to HTTP 400."""
         del patched_provider
-        managers[ManagerType.TYPES].get_type.return_value = {'public_id': TYPE_ID}
+        failing = patch(f'{ROUTE_PATH}.reconcile_object_rack_membership',
+                        side_effect=TypesManagerGetError('lookup failed'))
 
-        with patch(f'{ROUTE_PATH}.CmdbType.from_data', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.resolve_location_name', side_effect=ObjectsManagerGetError('boom')):
-            with pytest.raises(HTTPException) as excinfo:
-                self._call(flask_app, dict(INSERT_PAYLOAD))
+        with pytest.raises(HTTPException) as excinfo:
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(reconcile_object_rack_membership=failing))
 
         assert excinfo.value.code == HTTP_BAD_REQUEST
 
@@ -233,25 +362,33 @@ class TestInsertCmdbLocation:
     ) -> None:
         """A ``LocationsManagerInsertError`` is translated to HTTP 400."""
         del patched_provider
-        managers[ManagerType.TYPES].get_type.return_value = {'public_id': TYPE_ID}
         managers[ManagerType.LOCATIONS].insert_location.side_effect = LocationsManagerInsertError('write failed')
 
-        with patch(f'{ROUTE_PATH}.CmdbType.from_data', return_value=MagicMock()), \
-             patch(f'{ROUTE_PATH}.resolve_location_name', return_value=RESOLVED_NAME):
-            with pytest.raises(HTTPException) as excinfo:
-                self._call(flask_app, dict(INSERT_PAYLOAD))
+        with pytest.raises(HTTPException) as excinfo:
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched())
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+        managers[ManagerType.OBJECTS].set_location_field_for_objects.assert_not_called()
+
+    def test_field_write_error_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """An ``ObjectsManagerUpdateError`` from the mirror write is translated to HTTP 400."""
+        del patched_provider
+        managers[ManagerType.OBJECTS].set_location_field_for_objects.side_effect = ObjectsManagerUpdateError('x')
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched())
 
         assert excinfo.value.code == HTTP_BAD_REQUEST
 
-    def test_unexpected_error_maps_to_500(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
+    def test_unexpected_error_maps_to_500(self, flask_app: Flask, patched_provider: Any) -> None:
         """Any other exception is translated to HTTP 500."""
         del patched_provider
-        managers[ManagerType.TYPES].get_type.side_effect = RuntimeError('boom')
+        failing = patch(f'{ROUTE_PATH}.read_linked_object', side_effect=RuntimeError('boom'))
 
         with pytest.raises(HTTPException) as excinfo:
-            self._call(flask_app, dict(INSERT_PAYLOAD))
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_linked_object=failing))
 
         assert excinfo.value.code == HTTP_SERVER_ERROR
 
@@ -739,6 +876,36 @@ class TestUpdateCmdbLocationForObject:
         written = managers[ManagerType.LOCATIONS].update_location.call_args.args[1]
         assert written['name'] == RESOLVED_NAME
         assert written['parent'] == PARENT_ID
+
+    def test_the_object_is_read_through_the_callers_acl(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The answer echoes the node, whose name is the object's summary: the object is read with the caller"""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].get_location_for_object.return_value = SAMPLE_LOCATION_DICT
+        request_user = MagicMock(name='request_user')
+
+        with patch(f'{ROUTE_PATH}.read_linked_object', return_value=LINKED_OBJECT) as read, \
+             patch(f'{ROUTE_PATH}.resolve_location_name', return_value=RESOLVED_NAME) as resolve, \
+             patch(f'{ROUTE_PATH}.validate_object_location_change'), \
+             patch(f'{ROUTE_PATH}.UpdateSingleResponse'), \
+             flask_app.test_request_context('/update_location', method='PUT'):
+            _unwrap(update_cmdb_location_for_object)(data=dict(UPDATE_PAYLOAD), request_user=request_user)
+
+        read.assert_called_once_with(OBJECT_ID, managers[ManagerType.OBJECTS], request_user)
+        resolve.assert_called_once_with(UPDATE_PAYLOAD['name'], LINKED_OBJECT, request_user)
+
+    def test_a_denied_object_writes_nothing(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The read's 403 comes first: neither the node nor the object's field is written"""
+        del patched_provider
+
+        with patch(f'{ROUTE_PATH}.read_linked_object', side_effect=Forbidden()), pytest.raises(Forbidden):
+            self._call(flask_app, dict(UPDATE_PAYLOAD))
+
+        managers[ManagerType.LOCATIONS].update_location.assert_not_called()
+        managers[ManagerType.OBJECTS].set_location_field_for_objects.assert_not_called()
 
     def test_mirrors_the_parent_onto_the_object_location_field(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,

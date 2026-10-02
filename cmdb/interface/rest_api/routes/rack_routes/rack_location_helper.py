@@ -48,6 +48,7 @@ from typing import Any
 from cmdb.manager import LocationsManager, ObjectsManager
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 
+from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.rack_model.rack_mount_constants import RackMountKey
 from cmdb.models.type_model.cmdb_type import CmdbType
@@ -57,7 +58,14 @@ from cmdb.models.location_model.location_constants import LocationKey
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     sync_object_location,
+    delete_location_with_reparenting,
+    extract_object_location_parent,
+    location_fields_point_at,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
+    LOCATION_DELETE_UNDO_INCOMPLETE_MSG,
+)
+from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -151,7 +159,9 @@ def detach_member_location(
     being deleted. The node is deleted rather than promoted onto whatever was above the rack: an object's
     place in the tree came from the rack, so it goes with the rack. Clears the object's own location field
     too when it has one, otherwise the field would dangle at a node that no longer exists and the object
-    would fail validation on its next edit
+    would fail validation on its next edit. The node goes through ``delete_location_with_reparenting``, the one
+    delete path: objects placed UNDER the member (a chassis' blades) move to the rack node, node and field alike.
+    The field clear and the delete are all-or-nothing - a delete that fails puts the member's field back
 
     Best-effort, for the same reason as attach_member_location
 
@@ -162,12 +172,27 @@ def detach_member_location(
     """
     try:
         existing: dict[str, Any] | None = locations_manager.get_location_for_object(member_id)
+        member: dict[str, Any] | None = objects_manager.get_object(member_id)
+        _, stored_parent = extract_object_location_parent(member.get(CmdbObjectKey.FIELDS.value) or []) \
+            if member else (False, None)
 
-        # Cleared even without a node, so a field pointing at an already-gone node cannot linger
-        objects_manager.clear_location_field_for_objects([member_id])
+        # All-or-nothing by compensation: a node delete that fails puts the member's field back, so the member is
+        # never left without a placement while its node still stands
+        with undone_on_failure(LOCATION_DELETE_UNDO_INCOMPLETE_MSG) as ledger:
+            ledger.compensated(
+                CmdbObject.COLLECTION,
+                f"the location field of CmdbObject {member_id}",
+                undo=lambda: objects_manager.set_location_field_for_objects([member_id], stored_parent),
+                verify=lambda: location_fields_point_at(objects_manager, [member_id], stored_parent),
+            )
 
-        if existing:
-            locations_manager.delete_location(existing[LocationKey.PUBLIC_ID.value])
+            # Cleared even without a node, so a field pointing at an already-gone node cannot linger
+            objects_manager.clear_location_field_for_objects([member_id])
+
+            if existing:
+                # The one delete path: it promotes the member's child NODES onto the rack node AND re-points the
+                # child OBJECTS' location fields there - deleting the node alone left those fields dangling at it
+                delete_location_with_reparenting(existing, locations_manager, objects_manager)
     except Exception as err:
         LOGGER.error("[detach_member_location] Failed to remove the Location of Object ID:%s: %s. Type: %s",
                      member_id, err, type(err))

@@ -50,7 +50,6 @@ from werkzeug.exceptions import HTTPException
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import Builder
-from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager import (
     LocationsManager,
     LogsManager,
@@ -62,6 +61,7 @@ from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.type_reference import TypeReference
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.object_model import CmdbObject, CmdbObjectKey, ObjectWriteVerb
@@ -71,7 +71,13 @@ from cmdb.framework.results import IterationResult
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access, handle_db_errors
+from cmdb.interface.route_utils import (
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+    handle_db_errors,
+)
 from cmdb.interface.rest_api.routes.routes_helper import (
     as_pipeline_criteria,
     extract_public_ids,
@@ -84,6 +90,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     handle_rack_object_deleted,
     handle_port_object_deleted,
     render_or_native,
+    render_mds_reference,
+    build_object_list_search_stages,
     build_object_value_view,
     apply_object_update,
     guard_object_delete,
@@ -195,6 +203,7 @@ def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response
         # as a flat 500 'internal server error' with nothing telling the caller to retry
         raise db_err
     except ObjectsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_object] ObjectsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new Object in the database!")
     except ObjectsManagerGetError as err:
@@ -292,10 +301,11 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjects
 
-    ``?search=<text>`` narrows the listing to the objects whose public_id, timestamps, own field
-    values or **referenced** objects' field values contain the text. The term is matched as a
-    literal, not as a pattern (`framework.search.object_list_search`), and an absent or blank one
-    adds no stages at all.
+    ``?search=<text>`` narrows the listing to the objects whose public_id, timestamps or own field
+    values contain the text, or one of whose **reference rows** points at an object the caller may
+    read whose own field values contain it. Every value is compared as a string, and the term is
+    matched as a literal, not as a pattern (`framework.search.object_list_search`). An absent or
+    blank one adds no stages and runs no query.
 
     Args:
         params (CollectionParameters): Filter, paging and the optional ``search`` term
@@ -314,7 +324,9 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
         if fetch_only_active_objects():
             criteria.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {"$eq": True}}))
 
-        criteria.extend(build_object_search_stages(params.optional.get(ParameterKey.SEARCH.value)))
+        criteria.extend(build_object_list_search_stages(
+            params.optional.get(ParameterKey.SEARCH.value), objects_manager, request_user,
+        ))
 
         builder_args = CollectionParameters.get_builder_params(params)
         builder_args[BuilderParamKey.CRITERIA.value] = criteria
@@ -556,9 +568,7 @@ def get_cmdb_object_mds_reference(public_id: int, request_user: CmdbUser) -> Res
         if not referenced_type:
             abort(500, f"The Type of the Object with ID:{public_id} was not found in the database!")
 
-        mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(public_id)
-
-        return DefaultResponse(mds_reference).make_response()
+        return DefaultResponse(render_mds_reference(referenced_object, request_user)).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_mds_reference] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
@@ -579,6 +589,9 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
     Resolves the target ids from the 'objectIDs' query parameter (comma-separated). When the
     parameter is missing or empty, falls back to the path-supplied 'public_id'
 
+    An object the caller may not read answers the empty reference, as a reference to it renders
+    everywhere else; the rest of the batch is still answered. A missing object is still a 404
+
     Args:
         public_id (int): Fallback public_id used when 'objectIDs' query param is absent
         request_user (CmdbUser): The CmdbUser making the request
@@ -596,14 +609,14 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
         raw_object_ids: str = request.args.get(ObjectQueryParam.OBJECT_IDS.value, "")
         object_ids: list[int] = extract_public_ids(raw_object_ids) if raw_object_ids else [public_id]
 
-        # NOTE: each object is rendered in its OWN CmdbMultiRender on purpose - do not collapse the
-        # loop into a single multi-object render. CmdbMultiRender.get_mds_reference resolves the id
-        # from objects_cache, which a shared render would populate with the OTHER objects' references
-        # too, so a cross-referenced id would resolve differently. Per-object keeps the result exact
         for object_id in object_ids:
-            referenced_object = objects_manager.get_object(object_id,
-                                                            request_user,
-                                                            AccessControlPermission.READ)
+            try:
+                referenced_object = objects_manager.get_object(object_id,
+                                                                request_user,
+                                                                AccessControlPermission.READ)
+            except AccessDeniedError:
+                summary_lines[object_id] = TypeReference.to_json(TypeReference.empty())
+                continue
 
             if not referenced_object:
                 abort(404, f"The Object with ID:{object_id} was not found!")
@@ -615,17 +628,12 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
             if not referenced_type:
                 abort(404, f"The Type of the Object with ID:{object_id} was not found in the database!")
 
-            mds_reference = CmdbMultiRender([referenced_object], request_user, True).get_mds_reference(object_id)
-
-            summary_lines[object_id] = mds_reference
+            summary_lines[object_id] = render_mds_reference(referenced_object, request_user)
 
         return DefaultResponse(summary_lines).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_mds_references] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve an Object from the database!")
-    except AccessDeniedError as err:
-        LOGGER.error("[get_cmdb_object_mds_references] AccessDeniedError: %s", err, exc_info=True)
-        abort(403, "No permission for this action!")
 
 
 @objects_blueprint.route('/references/<int:public_id>', methods=['GET', 'HEAD'])
@@ -633,12 +641,13 @@ def get_cmdb_object_mds_references(public_id: int, request_user: CmdbUser) -> Re
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @objects_blueprint.protect(auth=True, right=ObjectRightName.VIEW.value)
 @objects_blueprint.parse_collection_parameters(view='native')
+@handle_route_errors("while retrieving references for Object with ID: {public_id}")
 def get_cmdb_object_references(public_id: int, params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     Retrieves references for a given CmdbObject based on specified criteria
 
     Takes the same ``?search=<text>`` as the object listing, with the same meaning and the same
-    literal matching
+    literal matching: own values, or a reference row pointing at a readable object whose values match
 
     Args:
         public_id (int): The public_id of the CmdbObject
@@ -660,14 +669,17 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
         if fetch_only_active_objects():
             criteria.append(Builder.match_({CmdbObjectKey.ACTIVE.value: {"$eq": True}}))
 
-        criteria.extend(build_object_search_stages(params.optional.get(ParameterKey.SEARCH.value)))
-
         referenced_object = objects_manager.get_object(public_id, request_user, AccessControlPermission.READ)
 
         if not referenced_object:
             abort(404, f"Object with ID: {public_id} not found!")
 
         referenced_object = CmdbObject.from_data(referenced_object)
+
+        # After the existence check: the search runs a query, which a missing object must not cost
+        criteria.extend(build_object_list_search_stages(
+            params.optional.get(ParameterKey.SEARCH.value), objects_manager, request_user,
+        ))
 
         iteration_result: IterationResult[CmdbObject] = objects_manager.references(
                                                                     object_=referenced_object,
@@ -689,8 +701,6 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
                             body=request_wants_body())
 
         return api_response.make_response()
-    except HTTPException as http_err:
-        raise http_err
     except ObjectsManagerGetError as err:
         LOGGER.error("[get_cmdb_object_references] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve an Object from the database!")
@@ -700,9 +710,6 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
     except AccessDeniedError as err:
         LOGGER.error("[get_cmdb_object_references] AccessDeniedError: %s", err, exc_info=True)
         abort(403, "No permission for this action!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_object_references] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, f"An internal server error while retrieving references for Object with ID: {public_id}!")
 
 
 @objects_blueprint.route('/state/<int:public_id>', methods=['GET'])
@@ -810,6 +817,7 @@ def update_cmdb_object(public_id: int, data: dict[str, Any], request_user: CmdbU
         LOGGER.error("[update_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the requested Object in the database!")
     except AccessDeniedError:
@@ -885,6 +893,7 @@ def patch_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[patch_cmdb_object] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[patch_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the requested Object in the database!")
     except AccessDeniedError:
@@ -978,6 +987,7 @@ def update_cmdb_object_state(public_id: int, request_user: CmdbUser) -> Response
         LOGGER.error("[update_cmdb_object_state] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the requested Object from the database!")
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_object_state] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the Object in the database!")
     except AccessDeniedError:
@@ -1055,6 +1065,7 @@ def delete_cmdb_object(public_id: int, request_user: CmdbUser) -> Response:
 
         return DefaultResponse(True).make_response()
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[delete_cmdb_object] ObjectsManagerUpdateError: %s", err, exc_info=True)
         abort(500, "Failed to delete Object references from the database!")
     except ObjectsManagerGetError as err:

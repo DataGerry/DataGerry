@@ -368,3 +368,92 @@ class TestAccessControlList:
 
         with pytest.raises(ValueError):
             acl.revoke_access(GROUP_ID, AccessControlPermission.READ, section=section)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         default_json / normalize_stored                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+COMPLETE_DEFAULT: dict[str, Any] = {
+    AclKey.ACTIVATED.value: False,
+    AclKey.GROUPS.value: {AclKey.INCLUDES.value: {}},
+}
+GRANTED_INCLUDES: dict[str, list[str]] = {'2': ['READ', 'UPDATE']}
+
+
+class TestDefaultJson:
+    """The one spelling of the default block."""
+
+    def test_is_switched_off_and_grants_no_group(self) -> None:
+        """The complete block, nothing granted"""
+        assert AccessControlList.default_json() == COMPLETE_DEFAULT
+
+    def test_is_a_new_dict_on_every_call(self) -> None:
+        """A caller may modify its copy without touching the next one's"""
+        first = AccessControlList.default_json()
+        first[AclKey.GROUPS.value][AclKey.INCLUDES.value]['1'] = ['READ']
+
+        assert AccessControlList.default_json() == COMPLETE_DEFAULT
+
+    def test_reads_back_as_the_model_default(self) -> None:
+        """The same block the model writes for an ACL nobody configured"""
+        assert AccessControlList.default_json() == AccessControlList.to_json(AccessControlList.from_data({}))
+
+
+class TestNormalizeStored:
+    """The complete block a stored value reads as."""
+
+    @pytest.mark.parametrize('stored', [None, 'on', 7, ['READ']], ids=['null', 'string', 'number', 'list'])
+    def test_a_value_that_is_no_document_is_the_default(self, stored: Any) -> None:
+        """Nothing to read: the default"""
+        assert AccessControlList.normalize_stored(stored) == COMPLETE_DEFAULT
+
+    @pytest.mark.parametrize('stored', [
+        {},
+        {AclKey.ACTIVATED.value: False},
+        {AclKey.ACTIVATED.value: None},
+        {AclKey.ACTIVATED.value: False, AclKey.GROUPS.value: None},
+        {AclKey.ACTIVATED.value: False, AclKey.GROUPS.value: {}},
+        {AclKey.ACTIVATED.value: False, AclKey.GROUPS.value: {AclKey.INCLUDES.value: None}},
+    ], ids=['empty', 'no-groups', 'null-activated', 'null-groups', 'no-includes', 'null-includes'])
+    def test_every_incomplete_switched_off_shape_is_the_default(self, stored: dict[str, Any]) -> None:
+        """The shapes older types carry: all read as off with no group, so all become the default block"""
+        assert AccessControlList.normalize_stored(stored) == COMPLETE_DEFAULT
+
+    def test_groups_without_activated_keep_their_groups_and_read_off(self) -> None:
+        """A hand-built ACL with groups but no switch: the groups stay, the switch is the False it reads as"""
+        stored = {AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}}
+
+        assert AccessControlList.normalize_stored(stored) == {
+            AclKey.ACTIVATED.value: False,
+            AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES},
+        }
+
+    def test_a_complete_activated_block_is_unchanged(self) -> None:
+        """Nothing to repair"""
+        stored = {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}}
+
+        assert AccessControlList.normalize_stored(stored) == stored
+
+    @pytest.mark.parametrize(('stored', 'expected'), [('yes', True), (1, True), (0, False), ('', False)])
+    def test_a_non_boolean_switch_becomes_the_boolean_it_reads_as(self, stored: Any, expected: bool) -> None:
+        """The single read's truthiness - the same reading updater_20261001 wrote"""
+        normalized = AccessControlList.normalize_stored({AclKey.ACTIVATED.value: stored})
+
+        assert normalized[AclKey.ACTIVATED.value] is expected
+
+    @pytest.mark.parametrize('stored', [
+        {AclKey.ACTIVATED.value: False},
+        {AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}},
+        {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}},
+        {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: None},
+    ], ids=['off-no-groups', 'groups-no-switch', 'on-with-groups', 'on-null-groups'])
+    def test_no_access_decision_changes(self, stored: dict[str, Any]) -> None:
+        """For every group and permission the normalized block grants exactly what the stored one did"""
+        before = AccessControlList.from_data(stored)
+        after = AccessControlList.from_data(AccessControlList.normalize_stored(stored))
+
+        for group_id in [GROUP_ID, OTHER_GROUP_ID, UNKNOWN_GROUP_ID]:
+            for permission in AccessControlPermission:
+                granted_before = not before.activated or before.verify_access(group_id, permission)
+                granted_after = not after.activated or after.verify_access(group_id, permission)
+                assert granted_before == granted_after

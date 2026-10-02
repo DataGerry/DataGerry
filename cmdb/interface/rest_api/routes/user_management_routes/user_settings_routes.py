@@ -36,7 +36,7 @@ from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     GetListResponse,
@@ -102,6 +102,7 @@ def insert_cmdb_user_setting(user_id: int, data: dict[str, Any], request_user: C
             result_id=new_public_id,
         ).make_response()
     except UserSettingsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_user_setting] UserSettingsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new UserSetting in the database!")
     except UserSettingsManagerGetError as err:
@@ -217,9 +218,11 @@ def update_cmdb_user_setting(user_id: int, resource: str, data: dict[str, Any], 
         LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserSetting for resource: '{resource}' from the database!")
     except UserSettingsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerInsertError: %s", err, exc_info=True)
         abort(400, f"Failed to create the UserSetting for resource: '{resource}' in the database!")
     except UserSettingsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_user_setting] UserSettingsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the UserSetting for resource: '{resource}' in the database!")
 

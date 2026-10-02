@@ -24,8 +24,8 @@ from collections.abc import MutableMapping
 from pymongo.database import Database
 from pymongo.errors import (
     BulkWriteError,
-    PyMongoError,
     CollectionInvalid,
+    DocumentTooLarge,
     DuplicateKeyError,
     OperationFailure,
     NetworkTimeout,
@@ -52,6 +52,8 @@ from cmdb.database.database_constants import (
     KEEPALIVE_PING_INTERVAL_SECONDS,
     MONGO_LOCK_TIMEOUT_ERROR_CODE,
     MONGO_SORT_DESCENDING,
+    MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES,
+    DOCUMENT_TOO_LARGE_MESSAGE,
 )
 from cmdb.database.retry import retry_operation
 
@@ -69,6 +71,8 @@ from cmdb.errors.database import (
     DocumentInsertDuplicateKeyError,
     DocumentUpdateError,
     DocumentUpdateDuplicateKeyError,
+    DocumentInsertTooLargeError,
+    DocumentUpdateTooLargeError,
     DocumentGetError,
     DocumentAggregationError,
     GetCollectionError,
@@ -81,6 +85,80 @@ from cmdb.errors.database import (
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def is_document_too_large(err: BaseException) -> bool:
+    """
+    Decides whether a write failed because a document would exceed MongoDB's 16 MB document limit
+
+    The limit is reported three ways, depending on who notices: the driver refuses a document it would have to
+    send whole (``DocumentTooLarge`` - an insert, a replace, an ``$set`` carrying the oversize value), the server
+    refuses the RESULT of an update that grew the document (an ``OperationFailure`` / ``WriteError`` with code
+    10334, or 17419 on older servers), and a bulk write reports the same code per failed operation. Only the
+    first is not a ``PyMongoError`` - it subclasses ``bson.errors.InvalidDocument``
+
+    Args:
+        err (BaseException): The error the write raised
+
+    Returns:
+        bool: True when the write failed on the document size limit
+    """
+    if isinstance(err, DocumentTooLarge):
+        return True
+
+    if isinstance(err, BulkWriteError):
+        write_errors: list[dict[str, Any]] = (err.details or {}).get(MONGO_WRITE_ERRORS_KEY) or []
+
+        return any(entry.get(MONGO_ERROR_CODE_KEY) in MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES for entry in write_errors)
+
+    return isinstance(err, OperationFailure) and err.code in MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES
+
+
+def typed_insert_failure(err: BaseException, collection: str) -> Exception:
+    """
+    The error an insert raises for one failed ``insert_one``, sorted by what failed
+
+    The one sorting both insert paths share - the retry loop and ``skip_public`` - so a failure means the same on
+    either. Checked in this order:
+
+    * a duplicate key -> the typed ``DocumentInsertDuplicateKeyError``, naming the violated index and value (the
+      retry loop has already handled a public_id clash it could retry)
+    * a lock timeout (code 24) or an exceeded time limit -> ``DocumentLockTimeoutError``
+    * the 16 MB document limit -> ``DocumentInsertTooLargeError`` (see ``is_document_too_large``)
+    * a lost connection - ``ConnectionFailure``, which ``AutoReconnect``, ``NetworkTimeout`` and
+      ``ServerSelectionTimeoutError`` all are -> ``DocumentNetworkError``
+    * anything else, every other ``PyMongoError`` included -> ``DocumentInsertError``
+
+    The two transient ones are what every wrapping layer lets through to ``@handle_db_errors``; a refusal no retry
+    can fix must never be one of them
+
+    Args:
+        err (BaseException): The error ``insert_one`` raised
+        collection (str): Name of the collection the insert was for
+
+    Returns:
+        Exception: The error to raise, for the caller to raise ``from err``
+    """
+    if isinstance(err, DuplicateKeyError):
+        key_pattern, key_value = duplicate_key_details(err)
+
+        return DocumentInsertDuplicateKeyError(
+            duplicate_key_message(collection, key_pattern, key_value), key_pattern=key_pattern, key_value=key_value,
+        )
+
+    if isinstance(err, ExecutionTimeout):
+        return DocumentLockTimeoutError(f"Execution timeout: {err}")
+
+    if isinstance(err, OperationFailure) and err.code == MONGO_LOCK_TIMEOUT_ERROR_CODE:
+        return DocumentLockTimeoutError(f"Lock timeout: {err}")
+
+    if is_document_too_large(err):
+        return DocumentInsertTooLargeError(DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err))
+
+    if isinstance(err, ConnectionFailure):
+        return DocumentNetworkError(f"Network/timeout error while inserting document: {err}")
+
+    return DocumentInsertError(f"Failed to insert document into collection '{collection}': {err}")
+
 
 def is_public_id_conflict(err: DuplicateKeyError) -> bool:
     """
@@ -604,86 +682,97 @@ class MongoDatabaseManager:
                                 document is inserted as-is and may legitimately carry no public_id
                                 (e.g. a collection keyed by a string id).
 
+        **Every failure of the write is sorted the same way on both paths** (``typed_insert_failure``): a duplicate
+        key, a lock or time-limit timeout, the 16 MB limit and a lost connection each raise their own error, and
+        anything else is a plain ``DocumentInsertError`` - never a network error, which every layer above treats
+        as worth retrying. Once a caller-supplied id is stored, a failed counter update is logged, not raised: the
+        document exists (``_raise_counter_to_stored_id``).
+
         Raises:
-            DocumentInsertError: If the document could not be created.
-            DocumentNetworkError: If a network or timeout error occurs.
-            DocumentLockTimeoutError: If a lock or execution timeout occurs.
+            DocumentInsertDuplicateKeyError: If the document duplicates a unique index - on the ``skip_public`` path
+                the public_id index included, since the caller chose the id
+            DocumentInsertTooLargeError: If the document exceeds MongoDB's 16 MB limit
+            DocumentLockTimeoutError: If a lock or execution timeout occurs
+            DocumentNetworkError: If the connection to the server failed
+            DocumentInsertError: If the document could not be created for any other reason, or no free public_id
+                was found within MAX_DUPLICATE_KEY_RETRIES attempts
 
         Returns:
             int | None: The document's public_id, or None when skip_public is set and the document
                         carries no public_id.
         """
-        try:
-            if skip_public:
+        if skip_public:
+            try:
                 self.get_collection(collection, db_name).insert_one(data)
-                return data.get('public_id')
+            except Exception as err:
+                # The caller chose the id, so even a public_id clash is a genuine duplicate - nothing to retry
+                raise typed_insert_failure(err, collection) from err
 
-            for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
-                # A caller-supplied id is not drawn from the counter, so the counter has to be told
-                # about it - see the note in the docstring
-                caller_supplied_id: bool = 'public_id' in data
+            return data.get(PUBLIC_ID_FIELD)
 
-                if not caller_supplied_id:
-                    data['public_id'] = self.get_next_public_id(collection, db_name, inc_id=True)
+        for attempt in range(MAX_DUPLICATE_KEY_RETRIES):
+            # A caller-supplied id is not drawn from the counter, so the counter has to be told
+            # about it - see the note in the docstring
+            caller_supplied_id: bool = PUBLIC_ID_FIELD in data
 
+            if not caller_supplied_id:
                 try:
-                    self.get_collection(collection, db_name).insert_one(data)
+                    data[PUBLIC_ID_FIELD] = self.get_next_public_id(collection, db_name, inc_id=True)
+                except DocumentGetError as err:
+                    raise DocumentInsertError(
+                        f"Failed to draw a public_id for collection '{collection}': {err}"
+                    ) from err
 
-                    if caller_supplied_id:
-                        self.update_public_id_counter(collection, db_name, value=data['public_id'])
+            try:
+                self.get_collection(collection, db_name).insert_one(data)
+            except DuplicateKeyError as err:
+                if not is_public_id_conflict(err):
+                    # A different unique index was violated, so the document is a real duplicate of one
+                    # already stored - e.g. a CmdbExtendableOption value that already exists in its
+                    # OptionType. Retrying with a new public_id cannot help, and doing it anyway would
+                    # consume MAX_DUPLICATE_KEY_RETRIES ids from the counter before failing with an error
+                    # blaming the public_id
+                    raise typed_insert_failure(err, collection) from err
 
-                    return data['public_id']
+                LOGGER.debug(
+                    "Duplicate public_id %s detected on attempt %d, retrying...", data[PUBLIC_ID_FIELD], attempt + 1,
+                )
+                data.pop(PUBLIC_ID_FIELD, None)
+                continue
+            except Exception as err:
+                raise typed_insert_failure(err, collection) from err
 
-                except DuplicateKeyError as err:
-                    if not is_public_id_conflict(err):
-                        # A different unique index was violated, so the document is a real duplicate
-                        # of one already stored - e.g. a CmdbExtendableOption value that already
-                        # exists in its OptionType. Retrying with a new public_id cannot help, and
-                        # doing it anyway would consume MAX_DUPLICATE_KEY_RETRIES ids from the
-                        # counter before failing with an error blaming the public_id
-                        key_pattern, key_value = duplicate_key_details(err)
+            if caller_supplied_id:
+                self._raise_counter_to_stored_id(collection, db_name, data[PUBLIC_ID_FIELD])
 
-                        raise DocumentInsertDuplicateKeyError(
-                            duplicate_key_message(collection, key_pattern, key_value),
-                            key_pattern=key_pattern,
-                            key_value=key_value,
-                        ) from err
+            return data[PUBLIC_ID_FIELD]
 
-                    LOGGER.debug(
-                        "Duplicate public_id %s detected on attempt %d, retrying...",
-                        data['public_id'], attempt + 1
-                    )
-                    data.pop('public_id', None)
+        raise DocumentInsertError(
+            f"Failed to insert document after {MAX_DUPLICATE_KEY_RETRIES} duplicate key attempts"
+        )
 
-                except ExecutionTimeout as err:
-                    LOGGER.debug("ExecutionTimeout on attempt %d: %s", attempt + 1, err, exc_info=True)
-                    raise DocumentLockTimeoutError(f"Execution timeout: {err}") from err
 
-                except OperationFailure as err:
-                    if err.code == MONGO_LOCK_TIMEOUT_ERROR_CODE:  # MongoDB LockTimeout
-                        LOGGER.debug("LockTimeout on attempt %d: %s", attempt + 1, err, exc_info=True)
-                        raise DocumentLockTimeoutError(f"Lock timeout: {err}") from err
-                    raise DocumentInsertError(f"Operation failure: {err}") from err
+    def _raise_counter_to_stored_id(self, collection: str, db_name: str, public_id: int) -> None:
+        """
+        Raises a collection's public_id counter to an id a caller supplied, once the document is stored
 
-            raise DocumentInsertError(
-                f"Failed to insert document after {MAX_DUPLICATE_KEY_RETRIES} duplicate key attempts"
+        The document is stored by then, so a failure here is NOT a failed insert: reported as one, the caller
+        would answer "insert failed" for a document that exists, and its retry would be refused as a duplicate of
+        itself. It is logged instead. A counter left below the stored id costs a later insert one retry - it
+        draws the taken id, collides on the public_id index and draws again
+
+        Args:
+            collection (str): Name of the collection the document was stored in
+            db_name (str): Name of the database owning the collection
+            public_id (int): The id the caller supplied
+        """
+        try:
+            self.update_public_id_counter(collection, db_name, value=public_id)
+        except DocumentUpdateError as err:
+            LOGGER.error(
+                "[insert] Stored ID %s in '%s', but its public_id counter could not be raised to it: %s",
+                public_id, collection, err,
             )
-
-        # Let the already-typed errors raised inside the loop propagate unchanged - otherwise the
-        # generic ``except Exception`` below would re-wrap a DocumentLockTimeoutError as a plain
-        # DocumentInsertError, hiding the lock-timeout type from callers
-        except (DocumentLockTimeoutError, DocumentNetworkError, DocumentInsertError):
-            raise
-
-        except (ServerSelectionTimeoutError, NetworkTimeout, ConnectionFailure, PyMongoError) as net_err:
-            LOGGER.debug("Network exception: %s", net_err, exc_info=True)
-            raise DocumentNetworkError(f"Network/timeout error while inserting document: {net_err}") from net_err
-
-        except Exception as err:
-            LOGGER.debug("Insert exception: %s. Type: %s", err, type(err), exc_info=True)
-            raise DocumentInsertError(
-                f"Failed to insert document into collection '{collection}': {err}"
-        ) from err
 
 
     def insert_many(
@@ -717,11 +806,16 @@ class MongoDatabaseManager:
 
             self.get_collection(collection, db_name).insert_many(data, ordered=False)
 
-            return [doc["public_id"] for doc in data]
+            # A document restored as-is (skip_public) may carry no public_id; it is inserted, just not listed
+            return [doc["public_id"] for doc in data if "public_id" in doc]
 
         except BulkWriteError as err:
             # An unordered insert_many never raises DuplicateKeyError: every refused document is listed
             # in one BulkWriteError, the duplicates by their code
+            if is_document_too_large(err):
+                raise DocumentInsertTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             if not is_duplicate_key_bulk_error(err):
                 raise DocumentInsertError(
                     f"Failed to insert many documents into collection '{collection}': {err}"
@@ -739,6 +833,10 @@ class MongoDatabaseManager:
             raise DocumentNetworkError(f"Network/timeout error while inserting documents: {net_err}") from net_err
 
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentInsertTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentInsertError(
                 f"Failed to insert many documents into collection '{collection}': {err}"
             ) from err
@@ -772,6 +870,10 @@ class MongoDatabaseManager:
 
             return modified
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentInsertTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentInsertError(f"Failed bulk write in collection '{collection}': {err}") from err
 
 
@@ -928,11 +1030,63 @@ class MongoDatabaseManager:
                 key_value=key_value,
             ) from err
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             LOGGER.error("[update] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to update document in '{collection}': {err}") from err
 
 
     @retry_operation
+    def replace(
+            self,
+            collection: str,
+            db_name: str,
+            criteria: dict[str, Any],
+            document: dict[str, Any]) -> UpdateResult:
+        """
+        Replaces the one document matching the criteria with the given document, entirely
+
+        Unlike `update`, which sets the given keys and keeps every other stored one, this writes the document
+        exactly: a key the replacement lacks is gone afterwards. It is what restoring a snapshot needs - an
+        undone update must remove the keys the update added, not only reset the ones it changed. The `_id` of
+        the stored document is kept whether or not the replacement carries it
+
+        Args:
+            collection (str): The name of the database collection
+            db_name (str): Name of the database owning the collection
+            criteria (dict[str, Any]): The filter matching the document to replace
+            document (dict[str, Any]): The document to store in its place
+
+        Raises:
+            DocumentUpdateDuplicateKeyError: When the replacement would duplicate a unique index
+            DocumentUpdateError: When the document could not be replaced
+
+        Returns:
+            UpdateResult: The outcome of the replace (matched / modified counts)
+        """
+        replacement: dict[str, Any] = {key: value for key, value in document.items() if key != '_id'}
+
+        try:
+            return self.get_collection(collection, db_name).replace_one(criteria, replacement)
+        except DuplicateKeyError as err:
+            key_pattern, key_value = duplicate_key_details(err)
+
+            raise DocumentUpdateDuplicateKeyError(
+                duplicate_key_message(collection, key_pattern, key_value),
+                key_pattern=key_pattern,
+                key_value=key_value,
+            ) from err
+        except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
+            LOGGER.error("[replace] Exception: %s. Type: %s", err, type(err))
+            raise DocumentUpdateError(f"Failed to replace document in '{collection}': {err}") from err
+
+
     def upsert_set(self, collection:str, db_name: str, data: dict[str, Any]) -> UpdateResult:
         """
         Performs an upsert operation on a specified MongoDB collection.
@@ -972,6 +1126,10 @@ class MongoDatabaseManager:
 
             return result
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             LOGGER.error("[upsert_set] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to update/create document in '{collection}': {err}") from err
 
@@ -1006,6 +1164,10 @@ class MongoDatabaseManager:
         try:
             return self.get_collection(collection, db_name).update_one(criteria, {'$set': data}, upsert=True)
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             LOGGER.error("[upsert] Exception: %s. Type: %s", err, type(err))
             raise DocumentUpdateError(f"Failed to upsert document in '{collection}': {err}") from err
 
@@ -1087,6 +1249,10 @@ class MongoDatabaseManager:
 
             return self.get_collection(collection, db_name).update_many(criteria, formatted_data)
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentUpdateError(f"Failed to update documents in '{collection}': {err}") from err
 
 
@@ -1159,6 +1325,10 @@ class MongoDatabaseManager:
                 **kwargs,
             )
         except Exception as err:
+            if is_document_too_large(err):
+                raise DocumentUpdateTooLargeError(
+                    DOCUMENT_TOO_LARGE_MESSAGE.format(collection=collection, err=err)
+                ) from err
             raise DocumentUpdateError(
                 f"Error updating documents in collection '{collection}': {err}"
             ) from err

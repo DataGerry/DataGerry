@@ -40,6 +40,7 @@ from typing import Any
 
 from cmdb.framework.object_field_value_rules import (
     FieldValueRule,
+    PatternBudget,
     build_field_value_rules,
     find_default_errors,
     has_no_value,
@@ -73,13 +74,16 @@ DEFAULT_EXCLUDED_KINDS: frozenset[str] = frozenset({
 })
 
 
-def usable_default(field: dict[str, Any], rule: FieldValueRule | None) -> Any:
+def usable_default(field: dict[str, Any], rule: FieldValueRule | None, budget: PatternBudget | None = None) -> Any:
     """
     Answers the default a new object's empty field may be filled with, or None when there is none
+
+    A default whose pattern check runs out of time is not used either - it could not be shown to pass
 
     Args:
         field (dict[str, Any]): The field definition
         rule (FieldValueRule | None): The field's value rule (see ``build_field_value_rules``), if it has one
+        budget (PatternBudget | None): The object write's pattern time budget; None starts one for this field
 
     Returns:
         Any: The declared default, or None when the field declares none, is of an excluded kind, or its
@@ -91,7 +95,7 @@ def usable_default(field: dict[str, Any], rule: FieldValueRule | None) -> Any:
         return None
 
     if rule is not None:
-        errors: list[str] = find_default_errors(field.get(FieldKey.NAME.value), default, rule)
+        errors: list[str] = find_default_errors(field.get(FieldKey.NAME.value), default, rule, budget)
 
         if errors:
             LOGGER.warning("[usable_default] Not filling an unusable default: %s", '; '.join(errors))
@@ -153,8 +157,9 @@ def fill_object_defaults(object_data: dict[str, Any], type_instance: CmdbType) -
     """
     type_fields: list[dict[str, Any]] = type_instance.get_fields() or []
     rules: dict[str, FieldValueRule] = build_field_value_rules(type_fields)
+    budget: PatternBudget = PatternBudget()
     usable: dict[Any, Any] = {
-        field.get(FieldKey.NAME.value): usable_default(field, rules.get(field.get(FieldKey.NAME.value)))
+        field.get(FieldKey.NAME.value): usable_default(field, rules.get(field.get(FieldKey.NAME.value)), budget)
         for field in type_fields
     }
     field_types: dict[Any, Any] = {

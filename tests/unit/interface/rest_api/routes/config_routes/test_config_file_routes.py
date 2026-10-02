@@ -20,8 +20,9 @@ Covers the OpenCelium config-status route and its two helpers. `SystemConfigRead
 the route module path, so no config file is read and no process-wide singleton is touched; the
 route's own answer-shaping is what is pinned here.
 
-The route carries auth decorators that abort outside a real session, so each test unwraps the
-decorator chain via __wrapped__ and calls the bare handler inside a Flask test_request_context.
+The route carries auth and licence decorators that abort outside a real session, so each test unwraps the
+decorator chain via __wrapped__ - down to ``handle_route_errors``, which drops the link on purpose, so the
+generic error tail is still part of what is called - inside a Flask test_request_context.
 The hosting app carries a `cloud_mode` flag because the route branches on it, mirroring
 `BaseCmdbApp`.
 """
@@ -31,13 +32,15 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from flask import Flask
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import HTTPException, ServiceUnavailable
 
 from cmdb.interface.rest_api.routes.config_routes.config_file_routes import (
     _is_configured,
     _is_valid_port,
+    _setting_check,
     get_oc_config_status,
 )
+from cmdb.open_celium.oc_constants import OC_CONFIG_KEYS, OcConfigKey
 from cmdb.errors.system_config import ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -247,3 +250,28 @@ def test_unexpected_error_aborts_500(flask_app: Flask) -> None:
             bare(request_user=MagicMock())
 
     assert exc_info.value.code == 500
+
+    assert exc_info.value.description == (
+        "An internal server error occured while checking the config file status for OpenCelium!"
+    )
+
+
+def test_an_abort_inside_the_route_keeps_its_own_status(flask_app: Flask) -> None:
+    """The generic tail re-raises an HTTPException: a 503 raised inside is not turned into the 500"""
+    bare = _unwrap(get_oc_config_status)
+
+    with patch(f'{ROUTE_PATH}.SystemConfigReader', side_effect=ServiceUnavailable()), \
+         flask_app.test_request_context('/status/opencelium'):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock())
+
+    assert exc_info.value.code == ServiceUnavailable.code
+
+
+@pytest.mark.parametrize('key', list(OC_CONFIG_KEYS), ids=[key.value for key in OC_CONFIG_KEYS])
+def test_each_setting_has_exactly_one_check(key: OcConfigKey) -> None:
+    """The port is checked as a port, everything else for presence - one check per setting, never two"""
+    expected = _is_valid_port if key is OcConfigKey.PORT else _is_configured
+
+    assert _setting_check(key) is expected
+

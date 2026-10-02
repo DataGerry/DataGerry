@@ -79,3 +79,13 @@ MONGO_TLS_OPTION: str = "tls"
 MONGO_HELLO_COMMAND: str = "hello"
 MONGO_COMMAND_OK_KEY: str = "ok"
 MONGO_COMMAND_OK_VALUE: int = 1
+
+# MongoDB error codes reported when a write would leave a document past the 16 MB BSON limit
+# (OperationFailure.code, and the code of each failed entry of a bulk write): BSONObjectTooLarge, and the code
+# older servers report for an update whose result outgrows the limit
+MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES: frozenset[int] = frozenset({10334, 17419})
+
+# The message of a write refused on the document size limit, formatted with the collection and the error
+DOCUMENT_TOO_LARGE_MESSAGE: str = (
+    "The document for collection '{collection}' exceeds MongoDB's 16 MB document limit: {err}"
+)

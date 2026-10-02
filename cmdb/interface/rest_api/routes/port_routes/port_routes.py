@@ -42,7 +42,7 @@ from logging import Logger, getLogger
 from datetime import datetime, timezone
 from typing import Any
 
-from flask import request, abort
+from flask import abort
 from werkzeug import Response
 
 from cmdb.manager import ExtendableOptionsManager, ObjectsManager, TypesManager
@@ -52,6 +52,7 @@ from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.class_schema.port_model import get_cmdb_port_write_schema
 from cmdb.models.port_model import PortKey
 from cmdb.models.user_model import CmdbUser
 
@@ -70,7 +71,7 @@ from cmdb.framework.port.connection_cable_view import attach_cable_views
 from cmdb.models.port_connection_model.port_connection_constants import ConnectionType
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -139,8 +140,9 @@ port_blueprint = APIBlueprint('ports', __name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_blueprint.protect(auth=True, right=PortRight.ADD.value)
+@port_blueprint.validate(get_cmdb_port_write_schema())
 @handle_route_errors("while creating the Port")
-def insert_cmdb_port(request_user: CmdbUser) -> Response:
+def insert_cmdb_port(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to create a CmdbPort on a CmdbObject
 
@@ -148,13 +150,17 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
     The name must be free on the requested face of that object, and every select value must belong to
     the CmdbExtendableOption list its field draws from
 
+    The body is validated against the port write schema first: a field of the wrong type, or a name or
+    description longer than the text cap, is a 400 naming the field
+
     Args:
+        data (dict[str, Any]): The request body, validated against the port write schema
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 400 when the owner's Type does not use ports, the name is taken - by the
-                       pre-check or, under a concurrent create, by the unique index - or a value is
-                       invalid; 403 when the owner's ACL denies it; 404 when the owner does not exist;
+        HTTPException: 400 when the body fails the schema, the owner's Type does not use ports, the name
+                       is taken - by the pre-check or, under a concurrent create, by the unique index -
+                       or a value is invalid; 403 when the owner's ACL denies it; 404 when the owner does not exist;
                        500 when the write fails for any other reason (an outage is never reported as a
                        taken name), when the created Port cannot be read back, or on an unexpected error
 
@@ -168,7 +174,7 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
         extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
             ManagerType.EXTENDABLE_OPTIONS, request_user)
 
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = data
 
         owner: dict[str, Any] = get_accessible_owner_or_abort(
             objects_manager, payload.get(PortRequestKey.OBJECT_ID.value), request_user,
@@ -198,6 +204,7 @@ def insert_cmdb_port(request_user: CmdbUser) -> Response:
             # The unique (object_id, side, name) index is what stops two concurrent creates, and it is
             # the only thing that can: the pre-check above is a read followed by a write. A duplicate is
             # answered with the pre-check's own message; any other failure is the server's (500)
+            abort_if_too_large(err)
             LOGGER.error("[insert_cmdb_port] PortsManagerInsertError: %s", err, exc_info=True)
             abort_if_duplicate(err, PORT_NAME_TAKEN_MESSAGE.format(name=name, side=side, object_id=object_id))
 
@@ -583,24 +590,28 @@ def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @port_blueprint.protect(auth=True, right=PortRight.EDIT.value)
+@port_blueprint.validate(get_cmdb_port_write_schema())
 @handle_route_errors("while updating the Port with ID: {public_id}")
-def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
+def update_cmdb_port(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single CmdbPort
 
     The owner and the side are immutable: a payload naming a different one is refused rather than
     ignored, so a client can not discover that its edit did nothing. Everything else the body carries
-    replaces the stored value, since the routes take the whole port
+    replaces the stored value, since the routes take the whole port. The body is validated against the
+    port write schema first, as the create's is
 
     Args:
         public_id (int): public_id of the CmdbPort to update
+        data (dict[str, Any]): The request body, validated against the port write schema
         request_user (CmdbUser): CmdbUser requesting this operation
 
     Raises:
-        HTTPException: 400 when the payload changes an immutable field, the name is taken - by the
-                       pre-check or, under a concurrent rename, by the unique index - or a value is
-                       invalid; 403 when the owner's ACL denies it; 404 when the port or its owner does
-                       not exist; 500 when the write fails for any other reason, or on an unexpected error
+        HTTPException: 400 when the body fails the schema, the payload changes an immutable field, the
+                       name is taken - by the pre-check or, under a concurrent rename, by the unique
+                       index - or a value is invalid; 403 when the owner's ACL denies it; 404 when the
+                       port or its owner does not exist; 500 when the write fails for any other reason,
+                       or on an unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbPort
@@ -611,7 +622,7 @@ def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
             ManagerType.EXTENDABLE_OPTIONS, request_user)
 
-        payload: dict[str, Any] = request.get_json(silent=True) or {}
+        payload: dict[str, Any] = data
 
         stored_port: dict[str, Any] = get_port_or_abort(ports_manager, public_id)
         object_id: Any = stored_port.get(PortKey.OBJECT_ID.value)
@@ -639,6 +650,7 @@ def update_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
         except PortsManagerUpdateError as err:
             # A rename that loses the race to a concurrent write is refused by the same unique index, and
             # answered with the same message the pre-check gives; any other failure is the server's (500)
+            abort_if_too_large(err)
             LOGGER.error("[update_cmdb_port] PortsManagerUpdateError: %s", err, exc_info=True)
             abort_if_duplicate(err, PORT_NAME_TAKEN_MESSAGE.format(name=name, side=side, object_id=object_id))
 

@@ -35,8 +35,10 @@ Three properties of this log matter before changing anything here:
 * **Each row holds the full object documents.** ``object_before`` and ``object_after`` are complete
   serialised CmdbObjects, and this route returns them for every row even though the frontend's table
   renders four scalar columns.
-* **Reading it needs no object ACL.** Those field values are readable with
-  ``base.framework.webhook.view`` alone, whatever the object's own permissions say.
+* **Reading it applies the object ACL to the values, not to the rows.** For an object whose type the caller may
+  not READ, ``object_before``, ``object_after`` and ``changes`` come back ``null`` - on the list and on the single
+  read alike - while the rest of the row stays (``webhook_event_access``). The list masks them in the pipeline,
+  ahead of the caller's ``?filter=`` stages, so a filter cannot find a masked value either.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -55,10 +57,16 @@ from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import WebhookRight
 from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import (
+    build_event_masking_stage,
+    denied_object_type_ids,
+    mask_event_object_values,
+)
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.framework.results import IterationResult
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.webhooks_event_manager import (
     WebhooksEventManagerGetError,
     WebhooksEventManagerDeleteError,
@@ -92,7 +100,8 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
     HTTP `GET` route to retrieve a single CmdbWebhookEvent
 
     Requires the ``base.framework.webhook.view`` right - reading a delivery needs the same right as
-    reading the webhook that produced it
+    reading the webhook that produced it. The object values (``object_before``, ``object_after``, ``changes``)
+    are ``null`` when the caller may not READ the object's type
 
     Args:
         public_id (int): public_id of the CmdbWebhookEvent which should be retrieved
@@ -103,7 +112,8 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 403 when the user lacks the right; 404 when no CmdbWebhookEvent carries the
-            public_id; 400 when the retrieval fails; 500 on an unexpected error
+            public_id; 400 when the retrieval or the read of the caller's denied types fails; 500 on an
+            unexpected error
     """
     try:
         webhook_events_manager: WebhooksEventManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS_EVENT,
@@ -114,9 +124,13 @@ def get_webhook_event(public_id: int, request_user: CmdbUser) -> Response:
         if not requested_webhook_event:
             abort(404, f"The Webhook Event with ID: {public_id} was not found!")
 
-        return DefaultResponse(requested_webhook_event).make_response()
-    except WebhooksEventManagerGetError as err:
-        LOGGER.error("[get_webhook_event] WebhooksEventManagerGetError: %s", err, exc_info=True)
+        visible_event: dict[str, Any] = mask_event_object_values(
+            requested_webhook_event, denied_object_type_ids(request_user),
+        )
+
+        return DefaultResponse(visible_event).make_response()
+    except (WebhooksEventManagerGetError, BaseManagerGetError) as err:
+        LOGGER.error("[get_webhook_event] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Could not retrieve Webhook Event with ID: {public_id}!")
 
 
@@ -139,7 +153,8 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
       criteria dict. Those stages reach the pipeline as given, which is why the filter shape can not
       simply be locked down on this route alone
     - each row carries the complete ``object_before`` / ``object_after`` documents, while the table
-      renders only four scalar columns
+      renders only four scalar columns. For an object whose type the caller may not READ, those two and
+      ``changes`` are ``null`` - blanked by the first stage of the pipeline, before the caller's ones
 
     The collection is indexed on ``webhook_id`` and ``event_time`` (see ``CmdbWebhookEvent``), the two
     keys this route is sorted and searched by
@@ -152,14 +167,20 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
         GetMultiResponse: The CmdbWebhookEvents matching the params, with the pager metadata
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the iteration fails; 500 on an
-            unexpected error
+        HTTPException: 403 when the user lacks the right; 400 when the iteration or the read of the caller's
+            denied types fails; 500 on an unexpected error
     """
     try:
         webhook_events_manager: WebhooksEventManager = ManagerProvider.get_manager(ManagerType.WEBHOOKS_EVENT,
                                                                                    request_user)
 
         builder_params: BuilderParameters = build_searchable_builder_params(params, WEBHOOK_EVENT_SEARCHABLE_FIELDS)
+
+        # First, before the caller's ?filter= stages: what is masked here cannot be matched on after it
+        masking_stage: dict[str, Any] | None = build_event_masking_stage(denied_object_type_ids(request_user))
+
+        if masking_stage:
+            builder_params.criteria = [masking_stage, *builder_params.get_criteria()]
 
         iteration_result: IterationResult[CmdbWebhookEvent] = webhook_events_manager.iterate_items(builder_params)
         webhook_event_list: list[dict[str, Any]] = [
@@ -173,8 +194,8 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
                                         body=request_wants_body())
 
         return api_response.make_response()
-    except WebhooksEventManagerIterationError as err:
-        LOGGER.error("[get_webhook_events] WebhooksEventManagerIterationError: %s", err, exc_info=True)
+    except (WebhooksEventManagerIterationError, BaseManagerGetError) as err:
+        LOGGER.error("[get_webhook_events] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Could not retrieve Webhook Events!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #

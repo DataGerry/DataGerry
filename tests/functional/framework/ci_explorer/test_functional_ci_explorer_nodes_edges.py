@@ -374,6 +374,24 @@ class TestCiExplorerNodesEdgesContract:
         assert 'metadata' not in loc_edge_down
 
 
+class TestTheLocationsDefault:
+    """with_locations omitted means the frontend's default - on."""
+
+    def test_omitted_answers_what_true_answers(self, rest_api) -> None:
+        """The location-tree parent is grafted without naming the flag"""
+        omitted = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=BOTH').get_json()
+        explicit = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=BOTH&with_locations=true').get_json()
+
+        assert OBJ_LOC_PARENT in {node['linked_object']['public_id'] for node in omitted['children_nodes']}
+        assert omitted['children_nodes'] == explicit['children_nodes']
+
+    def test_an_explicit_false_leaves_the_locations_out(self, rest_api) -> None:
+        """A client that does not want the location tree still says so"""
+        body = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_TARGET}&target_type=BOTH&with_locations=false').get_json()
+
+        assert OBJ_LOC_PARENT not in {node['linked_object']['public_id'] for node in body['children_nodes']}
+
+
 class TestAMissingTargetIsA404:
     """The contract: a graph of nothing is not an empty graph."""
 

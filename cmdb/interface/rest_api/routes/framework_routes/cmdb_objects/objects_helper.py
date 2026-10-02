@@ -36,6 +36,8 @@ serves. The routes stay thin: they validate the request, resolve managers and de
   logging problem never rolls back a stored object. The trade-off is that a successful write can leave
   no audit entry, with nothing surfaced to the caller; a lost change-log entry is logged under the
   ``OBJECT_LOG_LOST`` marker so an operator can alert on it
+* **Listing search** - ``build_object_list_search_stages`` is the ``?search=`` of the object list and the
+  object reference listing: own values, or a reference row pointing at a readable object whose values match
 * **Re-alignment** - ``realign_objects_to_type`` and ``clean_type_reports`` repair stored objects after
   their CmdbType changed
 
@@ -53,7 +55,9 @@ from bson import json_util
 from flask import abort, current_app
 
 from cmdb.database.json_codec import default, object_hook
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_list import RenderList
+from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.objects_propagation_helper import (
     RawUpdate,
@@ -115,6 +119,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     handle_object_deleted as handle_rack_object_deleted,
     handle_rack_object_updated,
 )
+from cmdb.security.acl.builder import build_acl_pipeline
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
@@ -138,6 +143,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
 from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
+from cmdb.interface.route_utils import abort_if_too_large
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -205,6 +211,11 @@ def build_field_value_map(fields: Any) -> dict[str, Any]:
     a single malformed row must not cost the caller the whole response. A name that repeats resolves to
     the LAST entry, which cannot happen on a well-formed object (a field name is unique within its
     CmdbType) and is only reachable on corrupted data
+
+    **A key is the field name verbatim** - nothing is escaped. A name may contain a dot or a non-ASCII letter (the
+    type builder derives names from labels, ``ip.address`` is an ordinary one), so a consumer must not split a key
+    on dots. A new name may not be blank, padded or bracketed (``type_identifier_rules``), so those keys only appear
+    on a type stored before that rule
 
     Args:
         fields (Any): The stored ``fields`` list, or an MDS row's ``data`` list
@@ -346,6 +357,51 @@ def render_or_native(
         return RenderList(results, request_user, True).render_result_list(raw=True)
 
     abort(400, "Invalid or unprovided 'view' parameter!")
+
+
+def render_mds_reference(referenced_object: CmdbObject, request_user: CmdbUser) -> dict[str, Any]:
+    """
+    Builds the reference block another object's multi-data-section row shows for an object
+
+    Rendered without reference expansion: the block is built from the object's own values and type,
+    so loading what the object itself references would only cost queries
+
+    Args:
+        referenced_object (CmdbObject): The object the row references, already read under the caller's ACL
+        request_user (CmdbUser): The CmdbUser the reference is built for
+
+    Returns:
+        dict[str, Any]: The serialised TypeReference of the object
+    """
+    return CmdbMultiRender([referenced_object], request_user).get_mds_reference(referenced_object.public_id)
+
+
+def build_object_list_search_stages(
+        search_term: str | None,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser,
+    ) -> list[dict[str, Any]]:
+    """
+    Builds the ``?search=`` stages of an object listing for the requesting user
+
+    Shared by the object list and the object reference routes, so both follow references the same way:
+    only reference rows, and only objects the caller may READ (``object_list_search``). The ACL stages
+    are resolved only when there is a term, so an unsearched listing runs no extra query
+
+    Args:
+        search_term (str | None): The term as the request carried it; None or blank means no search
+        objects_manager (ObjectsManager): Runs the query collecting the matching referenced objects
+        request_user (CmdbUser): The CmdbUser whose READ access the referenced objects must pass
+
+    Returns:
+        list[dict[str, Any]]: The stages to splice into the listing pipeline, possibly empty
+    """
+    if not (search_term or '').strip():
+        return []
+
+    acl_stages: list[dict[str, Any]] = build_acl_pipeline(request_user, AccessControlPermission.READ)
+
+    return build_object_search_stages(search_term, objects_manager, acl_stages)
 
 
 def delete_one_cascade(
@@ -1261,6 +1317,7 @@ def realign_objects_to_type(
     try:
         objects_manager.apply_raw_updates(updates)
     except ObjectsManagerUpdateError as error:
+        abort_if_too_large(error)
         LOGGER.error(
             "[realign_objects_to_type] Clean objects Exception: %s, Type: %s", error, type(error)
         )

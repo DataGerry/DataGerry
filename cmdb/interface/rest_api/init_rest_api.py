@@ -433,10 +433,8 @@ def register_blueprints(app: BaseCmdbApp) -> None:
     ):
         gate_blueprint(oc_automations_blueprint, LicenseFeature.AUTOMATIONS)
 
-    # The config-file status route only ever answers for the OpenCelium section and is consumed by
-    # the Automations view alone, so it is gated with the routes it serves. Registered here, AFTER
-    # the gate call, for the same reason as the IPAM blueprints above
-    gate_blueprint(config_file_blueprint, LicenseFeature.AUTOMATIONS)
+    # Not gated as a blueprint: it is the home of every config-file status route, and each route carries
+    # the licence of the section it reports on (the OpenCelium one: `requires_feature(AUTOMATIONS)`)
     app.register_blueprint(config_file_blueprint, url_prefix='/config_file')
 
     app.register_blueprint(oc_connectors_blueprint, url_prefix='/open_celium')

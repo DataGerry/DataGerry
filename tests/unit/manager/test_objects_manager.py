@@ -16,10 +16,9 @@
 """
 Unit tests for cmdb.manager.objects_manager summary-line helpers
 
-Covers the projection-aware ``find_objects``, the private composition helper
-``_compose_summary_line``, the batch type loader ``_load_types_lookup``, the orchestration
-in ``get_summary_line`` (refactored to delegate composition) and the batch
-``get_summary_lines_lookup`` (including its pre-loaded ``object_docs`` fast path). Mongo
+Covers the projection-aware ``find_objects``, the batch type loader ``_load_types_lookup``, the
+batch ``get_summary_lines_lookup`` (including its pre-loaded ``object_docs`` fast path), the reference
+scrub and the delegation of the ISMS cascade to ``risk_assessment_cascade_helper``. Mongo
 touch-points are stubbed via MagicMock on a ``MagicMock``-typed self so the method body
 runs without an actual database connection
 """
@@ -38,7 +37,6 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerInitError,
     ObjectsManagerIterationError,
     ObjectsManagerGetTypeError,
-    ObjectsManagerSummaryLineError,
     ObjectsManagerMdsReferencesError,
 )
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
@@ -49,10 +47,12 @@ from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.manager.objects_propagation_helper import RawUpdate
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model.field_type_enum import FieldType
+from cmdb.models.object_group_model import ObjectReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 OWNER_OBJECT_ID: int = 700
+CASCADE_IDS: list[int] = [701, 702, 703]
 OWNER_TYPE_ID: int = 50
 OTHER_OWNER_OBJECT_ID: int = 701
 OTHER_OWNER_TYPE_ID: int = 51
@@ -141,57 +141,6 @@ def test_load_types_lookup_skips_types_that_fail_to_deserialise() -> None:
         result = ObjectsManager._load_types_lookup(mock_self, [OWNER_TYPE_ID, OTHER_OWNER_TYPE_ID])
 
     assert result == {OTHER_OWNER_TYPE_ID: type_b}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                              get_summary_line                                                        #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_get_summary_line_returns_empty_string_for_falsy_public_id() -> None:
-    """public_id of 0 or None short-circuits to an empty line before any DB call"""
-    mock_self = MagicMock()
-
-    assert ObjectsManager.get_summary_line(mock_self, 0) == ''
-    mock_self.get_object.assert_not_called()
-
-
-def test_get_summary_line_returns_empty_string_when_object_not_found() -> None:
-    """A missing CmdbObject yields '' without attempting to compose"""
-    mock_self = MagicMock()
-    mock_self.get_object.return_value = None
-
-    assert ObjectsManager.get_summary_line(mock_self, OWNER_OBJECT_ID) == ''
-
-
-def test_get_summary_line_returns_empty_string_when_object_type_not_found() -> None:
-    """A CmdbObject without a resolvable type yields '' (no _compose_summary_line call)"""
-    mock_self = MagicMock()
-    mock_self.get_object.return_value = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
-    mock_self.get_object_type.return_value = None
-
-    result = ObjectsManager.get_summary_line(mock_self, OWNER_OBJECT_ID)
-
-    assert result == ''
-    mock_self._compose_summary_line.assert_not_called()
-
-
-def test_get_summary_line_delegates_to_compose_summary_line_on_happy_path() -> None:
-    """
-    When the object + type both resolve, the manager reads and the helper composes
-
-    The manager owns the two lookups; the text itself is composed by objects_summary_helper, which is
-    what keeps the single-object and the batch path producing the same line.
-    """
-    obj_doc = _make_object_doc(OWNER_OBJECT_ID, OWNER_TYPE_ID)
-    type_mock = _make_type_mock(OWNER_TYPE_ID, 'Server')
-    mock_self = MagicMock()
-    mock_self.get_object.return_value = obj_doc
-    mock_self.get_object_type.return_value = type_mock
-
-    with patch(f'{PATH}.compose_summary_line', return_value=f"Server #{OWNER_OBJECT_ID}") as compose:
-        result = ObjectsManager.get_summary_line(mock_self, OWNER_OBJECT_ID, with_type=True)
-
-    assert result == f"Server #{OWNER_OBJECT_ID}"
-    compose.assert_called_once_with(obj_doc, type_mock, with_type=True)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -325,6 +274,52 @@ def test_get_summary_lines_lookup_with_object_docs_filters_to_requested_ids() ->
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                get_objects_lookup                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+LOOKUP_IDS: list[int] = [41, 42]
+DENIED_TYPE_IDS: list[int] = [7, 8]
+
+
+def _lookup_self(found: list[CmdbObject]) -> MagicMock:
+    """A MagicMock self whose find_objects answers `found`, with the real criteria narrowing."""
+    mock_self = MagicMock()
+    mock_self.find_objects.return_value = found
+    mock_self.narrow_criteria_by_denied_types = ObjectsManager.narrow_criteria_by_denied_types
+
+    return mock_self
+
+
+@pytest.mark.parametrize('denied_type_ids', [None, []], ids=['none', 'empty'])
+def test_get_objects_lookup_without_denied_types_reads_unscoped(denied_type_ids: list[int] | None) -> None:
+    """No denied types: the criteria is the id match alone"""
+    mock_self = _lookup_self([])
+
+    ObjectsManager.get_objects_lookup(mock_self, LOOKUP_IDS, denied_type_ids)
+
+    mock_self.find_objects.assert_called_once_with(criteria={'public_id': {'$in': LOOKUP_IDS}})
+
+
+def test_get_objects_lookup_leaves_out_the_denied_types() -> None:
+    """Denied types narrow the id match with the type exclusion, combined by $and"""
+    mock_self = _lookup_self([])
+
+    ObjectsManager.get_objects_lookup(mock_self, LOOKUP_IDS, DENIED_TYPE_IDS)
+
+    mock_self.find_objects.assert_called_once_with(criteria=ObjectsManager.narrow_criteria_by_denied_types(
+        {'public_id': {'$in': LOOKUP_IDS}}, DENIED_TYPE_IDS,
+    ))
+
+
+def test_get_objects_lookup_keys_by_public_id() -> None:
+    """Each loaded object is answered under its own public_id"""
+    first, second = MagicMock(public_id=LOOKUP_IDS[0]), MagicMock(public_id=LOOKUP_IDS[1])
+
+    result = ObjectsManager.get_objects_lookup(_lookup_self([first, second]), LOOKUP_IDS, DENIED_TYPE_IDS)
+
+    assert result == {LOOKUP_IDS[0]: first, LOOKUP_IDS[1]: second}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  find_objects                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_find_objects_rejects_projection_without_as_dict() -> None:
@@ -371,6 +366,68 @@ def test_find_objects_without_projection_issues_plain_find() -> None:
     assert 'projection' not in mock_self.find.call_args.kwargs
 
 
+@pytest.mark.parametrize('projection', [None, {'public_id': 1}], ids=['plain', 'projected'])
+def test_find_objects_forwards_skip_and_limit(projection: dict | None) -> None:
+    """A page is cut by the driver, on either call shape"""
+    mock_self = MagicMock()
+    mock_self.find.return_value = []
+
+    ObjectsManager.find_objects(mock_self, {}, as_dict=True, projection=projection, skip=20, limit=10)
+
+    assert (mock_self.find.call_args.kwargs['skip'], mock_self.find.call_args.kwargs['limit']) == (20, 10)
+
+
+@pytest.mark.parametrize('projection', [None, {'public_id': 1}], ids=['plain', 'projected'])
+def test_find_objects_forwards_a_sort(projection: dict | None) -> None:
+    """An order reaches the driver on either call shape"""
+    mock_self = MagicMock()
+    mock_self.find.return_value = []
+
+    ObjectsManager.find_objects(mock_self, {}, as_dict=True, projection=projection, sort=[('public_id', 1)])
+
+    assert mock_self.find.call_args.kwargs['sort'] == [('public_id', 1)]
+
+
+def test_find_objects_without_paging_passes_neither_skip_nor_limit() -> None:
+    """An unpaged read is the exact call it always was"""
+    mock_self = MagicMock()
+    mock_self.find.return_value = []
+
+    ObjectsManager.find_objects(mock_self, {}, as_dict=True)
+
+    assert 'skip' not in mock_self.find.call_args.kwargs
+    assert 'limit' not in mock_self.find.call_args.kwargs
+    assert 'sort' not in mock_self.find.call_args.kwargs
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  count_objects                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_count_objects_counts_the_acl_scoped_criteria() -> None:
+    """The count runs on the criteria apply_acl_to_criteria answers - the same scoping find_objects uses"""
+    mock_self = MagicMock()
+    scoped: dict = {'type_id': {'$in': [1]}, 'denied': True}
+    mock_self.apply_acl_to_criteria.return_value = scoped
+    mock_self.count_documents.return_value = 7
+    user, permission = MagicMock(name='user'), MagicMock(name='permission')
+
+    assert ObjectsManager.count_objects(mock_self, {'type_id': {'$in': [1]}}, user, permission) == 7
+    mock_self.apply_acl_to_criteria.assert_called_once_with({'type_id': {'$in': [1]}}, user, permission)
+    mock_self.count_documents.assert_called_once_with(scoped)
+
+
+def test_count_objects_wraps_a_failure_with_the_error_itself() -> None:
+    """A failed count is an ObjectsManagerGetError carrying the exception"""
+    mock_self = MagicMock()
+    failure = RuntimeError('down')
+    mock_self.count_documents.side_effect = failure
+
+    with pytest.raises(ObjectsManagerGetError) as exc_info:
+        ObjectsManager.count_objects(mock_self, {})
+
+    assert exc_info.value.args[0] is failure
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                            _ref_field_names_by_type                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -413,10 +470,48 @@ def test_delete_all_object_references_falsy_non_list_raises() -> None:
 def test_delete_all_object_references_runs_two_scrubs_for_valid_ids() -> None:
     """A valid id list scrubs both the flat fields and the multi-data-section fields"""
     mock_self = MagicMock()
+    mock_self._reference_scrub = ObjectsManager._reference_scrub
 
     ObjectsManager.delete_all_object_references(mock_self, [OWNER_OBJECT_ID])
 
     assert mock_self.update_many_raw.call_count == 2
+
+
+@pytest.mark.parametrize('ids, ids_filter', [([OWNER_OBJECT_ID], {'$in': [OWNER_OBJECT_ID]}),
+                                             (OWNER_OBJECT_ID, OWNER_OBJECT_ID)], ids=['list', 'scalar'])
+def test_delete_all_object_references_empties_every_reference_row(ids: Any, ids_filter: Any) -> None:
+    """Each scrub selects the reference rows holding the ids - plain and ref-section - and empties their value"""
+    mock_self = MagicMock()
+    mock_self._reference_scrub = ObjectsManager._reference_scrub
+    reference_kinds: dict[str, list[str]] = {'$in': [FieldType.REFERENCE.value, FieldType.REF_SECTION.value]}
+
+    ObjectsManager.delete_all_object_references(mock_self, ids)
+
+    fields_call, mds_call = mock_self.update_many_raw.call_args_list
+    assert fields_call.kwargs == {
+        'filter_query': {'fields': {'$elemMatch': {'type': reference_kinds, 'value': ids_filter}}},
+        'update': {'$set': {'fields.$[f].value': ''}},
+        'array_filters': [{'f.type': reference_kinds, 'f.value': ids_filter}],
+    }
+    assert mds_call.kwargs == {
+        'filter_query': {'multi_data_sections.values.data': {
+            '$elemMatch': {'type': reference_kinds, 'value': ids_filter}}},
+        'update': {'$set': {'multi_data_sections.$[].values.$[].data.$[f].value': ''}},
+        'array_filters': [{'f.type': reference_kinds, 'f.value': ids_filter}],
+    }
+
+
+def test_delete_all_object_references_wraps_a_failed_write() -> None:
+    """A failing scrub surfaces as ObjectsManagerUpdateError carrying the original error"""
+    mock_self = MagicMock()
+    mock_self._reference_scrub = ObjectsManager._reference_scrub
+    failure = RuntimeError('write failed')
+    mock_self.update_many_raw.side_effect = failure
+
+    with pytest.raises(ObjectsManagerUpdateError) as caught:
+        ObjectsManager.delete_all_object_references(mock_self, [OWNER_OBJECT_ID])
+
+    assert caught.value.args[0] is failure
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -696,15 +791,6 @@ def test_set_location_field_for_objects_wraps_unexpected_error() -> None:
         ObjectsManager.set_location_field_for_objects(mock_self, [1], 5)
 
 
-def test_get_summary_line_wraps_unexpected_error() -> None:
-    """A failure while composing a summary line surfaces as ObjectsManagerSummaryLineError."""
-    mock_self = MagicMock()
-    mock_self.get_object.side_effect = RuntimeError('boom')
-
-    with pytest.raises(ObjectsManagerSummaryLineError):
-        ObjectsManager.get_summary_line(mock_self, 1)
-
-
 def test_apply_raw_updates_runs_each_statement_in_order_and_sums_the_modified_counts() -> None:
     """Every statement goes to update_many_raw unchanged; the answer is the total of what they modified."""
     mock_self = MagicMock()
@@ -908,7 +994,7 @@ class TestDeleteWithFollowUpChecksAccessFirst:
                 ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID, MagicMock(),
                                                      AccessControlPermission.DELETE)
 
-        mock_self.delete_object_from_risk_assessment_cascade.assert_not_called()
+        mock_self.delete_objects_from_risk_assessment_cascade.assert_not_called()
         mock_self.delete_object.assert_not_called()
 
     def test_a_permitted_delete_cascades_then_deletes(self) -> None:
@@ -917,7 +1003,7 @@ class TestDeleteWithFollowUpChecksAccessFirst:
         mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
         order: list[str] = []
         mock_self.guard_writable_type.side_effect = lambda *_a, **_k: order.append('guard')
-        mock_self.delete_object_from_risk_assessment_cascade.side_effect = lambda *_: order.append('cascade')
+        mock_self.delete_objects_from_risk_assessment_cascade.side_effect = lambda *_: order.append('cascade')
         mock_self.delete_object.side_effect = lambda *_a, **_k: order.append('delete') or True
 
         with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
@@ -936,7 +1022,7 @@ class TestDeleteWithFollowUpChecksAccessFirst:
         mock_self.get_one.return_value = None
 
         assert ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID) is False
-        mock_self.delete_object_from_risk_assessment_cascade.assert_not_called()
+        mock_self.delete_objects_from_risk_assessment_cascade.assert_not_called()
 
     def test_the_resolved_type_is_handed_to_the_delete(self) -> None:
         """The guard already resolved it, so delete_object must not look it up a second time."""
@@ -959,79 +1045,36 @@ class TestDeleteWithFollowUpChecksAccessFirst:
             ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID)
 
 
-class TestTheSharedRiskAssessmentCascade:
-    """One implementation for the single and the batched form."""
+class TestTheRiskAssessmentCascade:
+    """The object delete's ISMS cascade is the shared helper, for OBJECT assessments."""
 
-    def test_the_single_form_filters_on_one_object_id(self) -> None:
-        """Both public methods are thin wrappers over the shared criterion."""
+    def test_the_ids_reach_the_helper_as_an_in_clause(self) -> None:
+        """One '$in' query per collection instead of a round trip per object, for OBJECT assessments only."""
         mock_self = MagicMock()
 
-        ObjectsManager.delete_object_from_risk_assessment_cascade(mock_self, OWNER_OBJECT_ID)
+        with patch(f'{PATH}.delete_risk_assessments_of') as cascade:
+            ObjectsManager.delete_objects_from_risk_assessment_cascade(mock_self, CASCADE_IDS)
 
-        mock_self._delete_risk_assessments_of_objects.assert_called_once_with(OWNER_OBJECT_ID)
+        cascade.assert_called_once_with(
+            mock_self.dbm, mock_self.db_name, ObjectReferenceType.OBJECT, {'$in': CASCADE_IDS},
+        )
 
-    def test_the_batched_form_filters_with_an_in_clause(self) -> None:
-        """One '$in' query per collection instead of a round trip per object."""
-        mock_self = MagicMock()
-
-        ObjectsManager.delete_objects_from_risk_assessment_cascade(mock_self, [1, 2, 3])
-
-        mock_self._delete_risk_assessments_of_objects.assert_called_once_with({'$in': [1, 2, 3]})
-
-    def test_the_batched_form_does_nothing_for_an_empty_list(self) -> None:
+    def test_an_empty_list_does_nothing(self) -> None:
         """A bulk delete of nothing must not query, let alone delete."""
+        with patch(f'{PATH}.delete_risk_assessments_of') as cascade:
+            ObjectsManager.delete_objects_from_risk_assessment_cascade(MagicMock(), [])
+
+        cascade.assert_not_called()
+
+    def test_the_single_delete_cascades_its_one_object(self) -> None:
+        """delete_with_follow_up runs the batched form with the one id"""
         mock_self = MagicMock()
+        mock_self.get_one.return_value = {'public_id': OWNER_OBJECT_ID, 'type_id': OWNER_TYPE_ID}
 
-        ObjectsManager.delete_objects_from_risk_assessment_cascade(mock_self, [])
+        with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(type_id=OWNER_TYPE_ID)):
+            ObjectsManager.delete_with_follow_up(mock_self, OWNER_OBJECT_ID)
 
-        mock_self._delete_risk_assessments_of_objects.assert_not_called()
-
-    def test_only_assessments_of_OBJECT_reference_type_are_deleted(self) -> None:
-        """
-        An assessment of an ObjectGroup that happens to share the public_id belongs to another cascade
-
-        The two counters are independent, so overlapping ids are the normal case.
-        """
-        mock_self = MagicMock()
-        mock_self.dbm.find.return_value = []
-
-        ObjectsManager._delete_risk_assessments_of_objects(  # pylint: disable=protected-access
-            mock_self, OWNER_OBJECT_ID,
-        )
-
-        criteria = mock_self.dbm.find.call_args.args[2]
-
-        assert criteria['object_id_ref_type'] == 'OBJECT'
-        assert criteria['object_id'] == OWNER_OBJECT_ID
-
-    def test_nothing_is_deleted_when_no_assessment_matches(self) -> None:
-        """The common case: an object nobody assessed costs one query and no deletes."""
-        mock_self = MagicMock()
-        mock_self.dbm.find.return_value = []
-
-        ObjectsManager._delete_risk_assessments_of_objects(  # pylint: disable=protected-access
-            mock_self, OWNER_OBJECT_ID,
-        )
-
-        mock_self.delete_many_from_other_collection.assert_not_called()
-
-    def test_the_assignments_are_deleted_by_the_assessment_ids(self) -> None:
-        """
-        Read first, delete second: the assignments are found by the ids of the assessments going away
-
-        Deleting the assessments first would leave nothing to look their assignments up by.
-        """
-        mock_self = MagicMock()
-        mock_self.dbm.find.return_value = [{'public_id': 11}, {'public_id': 12}]
-
-        ObjectsManager._delete_risk_assessments_of_objects(  # pylint: disable=protected-access
-            mock_self, OWNER_OBJECT_ID,
-        )
-
-        assessments_call, assignments_call = mock_self.delete_many_from_other_collection.call_args_list
-
-        assert assessments_call.args[1] == {'public_id': {'$in': [11, 12]}}
-        assert assignments_call.args[1] == {'risk_assessment_id': {'$in': [11, 12]}}
+        mock_self.delete_objects_from_risk_assessment_cascade.assert_called_once_with([OWNER_OBJECT_ID])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

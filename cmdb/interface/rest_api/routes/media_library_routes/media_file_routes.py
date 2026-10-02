@@ -39,7 +39,14 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.request_limits_constants import RequestSizeLimit
+from cmdb.interface.route_utils import (
+    abort_if_too_large,
+    accepts_upload,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     MediaFileKey,
@@ -131,6 +138,7 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors("while adding the file")
 def add_new_file(request_user: CmdbUser) -> Resp:
     """
@@ -179,6 +187,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
         LOGGER.error("[add_new_file] MediaFileManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the File which would be replaced from the database!")
     except MediaFileManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[add_new_file] MediaFileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the File in the database!")
 
@@ -187,6 +196,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors("while updating the file")
 def update_file(request_user: CmdbUser) -> Resp:
     """
@@ -240,6 +250,7 @@ def update_file(request_user: CmdbUser) -> Resp:
 
         return DefaultResponse(data).make_response()
     except MediaFileManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_file] MediaFileManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the File in the database!")
 

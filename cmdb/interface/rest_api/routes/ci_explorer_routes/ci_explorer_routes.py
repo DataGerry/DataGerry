@@ -61,7 +61,12 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
-from cmdb.models.ci_explorer_model import NodeType, CmdbCiExplorerProfile
+from cmdb.models.ci_explorer_model import (
+    CiExplorerProfileKey,
+    CmdbCiExplorerProfile,
+    DEFAULT_PROFILE_SCOPE,
+    NodeType,
+)
 
 from cmdb.framework.ci_explorer.argparsing import (
     clamp_item_limit,
@@ -77,7 +82,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -172,6 +177,7 @@ def insert_cmdb_ci_explorer_profile(data: dict[str, Any], request_user: CmdbUser
         # The profile WAS created, so this is a server-side problem, not a missing resource
         abort(500, "Could not retrieve the created CiExplorer Profile from the database!")
     except CiExplorerProfileManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_ci_explorer_profile] CiExplorerProfileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new CiExplorer Profile in the database!")
     except CiExplorerProfileManagerGetError as err:
@@ -258,17 +264,21 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
         target_id (int, required): public_id of the focal CmdbObject. 400 when missing
         target_type (str, default 'BOTH'): one of NodeType values (CHILD / PARENT / BOTH)
         with_root (bool, default false): include the focal object as ``root_node``
-        with_locations (bool, default false): include the dg_location hierarchy (inverted)
-        with_ipam_relations (bool, default false): include IPAM-hierarchy neighbours
+        with_locations (bool, default true): include the dg_location hierarchy (inverted)
+        with_ipam_relations (bool, default true): include IPAM-hierarchy neighbours
             (SUPERNET / SUBNET / VLAN / interface carriers) folded into the standard
             parent/child buckets with metadata.source='ipam' on each edge
-        with_port_connections (bool, default false): include the CIs the focal object is
+        with_port_connections (bool, default true): include the CIs the focal object is
             physically cabled to, with patch panels collapsed away. The edges land in the
             children bucket carrying metadata.source='port_connection' and
             metadata.undirected=true, plus the collapsed physical path in metadata.path.
             Requires the licensed IPAM feature: without it the flag yields nothing rather
             than refusing the request, since the rest of the graph is not IPAM surface
         item_limit (int, default 0=unlimited): cap on neighbour nodes
+
+    The three edge-source toggles default to TRUE - the frontend graph's defaults, and a saved
+    profile's (``DEFAULT_PROFILE_SCOPE``) - so a request, a profile and the UI mean the same graph when
+    none of them names a toggle
         types_filter (JSON list of int, optional): allowed neighbour type_ids
         relations_filter (JSON list of int, optional): allowed CmdbRelation public_ids
 
@@ -285,14 +295,19 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
             request.args.get(CiExplorerParam.TARGET_TYPE, default=NodeType.BOTH.value).upper(),
         )
         with_root: bool = parse_bool_arg(request.args.get(CiExplorerParam.WITH_ROOT), default=False)
-        with_locations: bool = parse_bool_arg(request.args.get(CiExplorerParam.WITH_LOCATIONS), default=False)
+        with_locations: bool = parse_bool_arg(
+            request.args.get(CiExplorerParam.WITH_LOCATIONS),
+            default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_LOCATIONS],
+        )
         with_ipam_relations: bool = parse_bool_arg(
-            request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS), default=False,
+            request.args.get(CiExplorerParam.WITH_IPAM_RELATIONS),
+            default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_IPAM_RELATIONS],
         )
         # An unlicensed instance gets an empty source, not a 403 - the graph is a shared read
         # surface and a refusal would break a request that is valid for every other source
         with_port_connections: bool = parse_bool_arg(
-            request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS), default=False,
+            request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS),
+            default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_PORT_CONNECTIONS],
         ) and not feature_locked(LicenseFeature.IPAM, request_user)
         item_limit: int = clamp_item_limit(request.args.get(CiExplorerParam.ITEM_LIMIT, type=int))
         types_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.TYPES_FILTER))
@@ -426,6 +441,7 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
             CiExplorerResponseKey.SELECTABLE_FIELDS.value: selectable_label_fields(target_type),
         }).make_response()
     except (TypesManagerGetError, TypesManagerUpdateError) as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_type_label_field] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f"Failed to update the CI Explorer label field for Type-ID: {public_id}!")
 
@@ -488,6 +504,7 @@ def update_cmdb_ci_explorer_profile(public_id: int, data: dict[str, Any], reques
         LOGGER.error("[update_cmdb_ci_explorer_profile] CiExplorerProfileManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the CiExplorer Profile with ID: {public_id} from the database!")
     except CiExplorerProfileManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_ci_explorer_profile] CiExplorerProfileManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the CiExplorer Profile with ID: {public_id}!")
 

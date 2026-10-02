@@ -151,6 +151,29 @@ class DocumentUpdateDuplicateKeyError(DocumentUpdateError, DocumentDuplicateKeyE
     """
 
 
+class DocumentTooLargeError(DataBaseError):
+    """
+    Raised when a write was refused because a document would exceed MongoDB's 16 MB document limit
+
+    The marker every such refusal shares, whichever write raised it and whether the driver refused the document
+    before sending it or the server refused the result of an update: a route catching the manager error of its
+    operation finds it with ``cmdb.utils.find_cause`` and answers "the document is too large" instead of
+    reporting a database failure
+    """
+
+
+class DocumentInsertTooLargeError(DocumentInsertError, DocumentTooLargeError):
+    """
+    Raised if an insert would exceed the document size limit - still a DocumentInsertError to every caller
+    """
+
+
+class DocumentUpdateTooLargeError(DocumentUpdateError, DocumentTooLargeError):
+    """
+    Raised if an update would exceed the document size limit - still a DocumentUpdateError to every caller
+    """
+
+
 class DocumentDeleteError(DataBaseError):
     """
     Raised if a document could not be deleted from a collection

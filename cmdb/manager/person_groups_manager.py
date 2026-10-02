@@ -23,7 +23,9 @@ for a deleted reference target. Two things are worth knowing before changing any
 **A group's deletion is a cascade, and the whole cascade lives here.** ``delete_with_follow_up`` clears
 the ISMS references, removes the group from every CmdbPerson that lists it and only then deletes the
 document. The person half is not left to the delete route, so any *other* caller deleting a group
-removes it from every member too.
+removes it from every member too. A create or update writes the persons' side through
+``person_membership_helper.sync_membership`` in the route layer, where the write is recorded in the request's
+WriteLedger - this manager writes the other side only as part of that cascade.
 
 **A group is referenced where a person can be.** An IsmsRiskAssessment's owner, responsible persons and
 auditor, and an IsmsControlMeasureAssignment's responsible party, each hold either kind - which is what
@@ -37,14 +39,13 @@ from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.person_reference_helper import (
-    add_member_to_documents,
     remove_member_from_documents,
     clear_polymorphic_risk_assessment_references,
     clear_control_measure_assignment_reference,
 )
 
 from cmdb.models.person_model import CmdbPerson, PersonKey
-from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
+from cmdb.models.person_group_model import CmdbPersonGroup, PersonReferenceType
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 
 from cmdb.errors.manager.person_groups_manager import (
@@ -74,8 +75,10 @@ class PersonGroupsManager(GenericManager):
         Deletes a CmdbPersonGroup and cleans all affected collections from it
 
         The complete cascade: the ISMS references are cleared, the group is removed from every
-        CmdbPerson that lists it, and the document is deleted last, so an interrupted run leaves the
-        group in place rather than leaving references to a group that no longer exists
+        CmdbPerson that lists it, and the document is deleted last, so an interrupted run never leaves
+        references to a group that no longer exists. The writes are not undone here: the DELETE route
+        records the inverse of each one beforehand (``record_delete_cascade``) and undoes them when this
+        raises
 
         Args:
             public_id (int): public_id of CmdbPersonGroup which should be deleted
@@ -96,58 +99,6 @@ class PersonGroupsManager(GenericManager):
             raise PersonGroupsManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
-
-    def update_person_in_groups(self, person_id: int, groups_to_add: list[int], groups_to_delete: list[int]) -> None:
-        """
-        Updates a CmdbPerson in CmdbPersonGroups during an update operation
-
-        Args:
-            person_id (int): public_id of CmdbPerson which should be updated
-            groups_to_add (list[int]): public_id's of CmdbPersonGroups where the CmdbPerson should be added
-            groups_to_delete (list[int]): list of CmdbPersonGroup public_id's which should be deleted
-        """
-        self.add_person_to_groups(person_id, groups_to_add)
-        self.delete_person_from_groups(person_id, groups_to_delete)
-
-
-    def add_person_to_groups(self, person_id: int, group_ids: list[int]) -> None:
-        """
-        Adds a CmdbPerson to the 'group_members' of the given CmdbPersonGroups in a single bulk update
-
-        Args:
-            person_id (int): public_id of CmdbPerson which should be added
-            group_ids (list[int]): public_id's of CmdbPersonGroups where the CmdbPerson should be added
-        """
-        add_member_to_documents(
-            self.dbm,
-            self.db_name,
-            self.collection,
-            PersonGroupKey.GROUP_MEMBERS.value,
-            person_id,
-            group_ids,
-        )
-
-
-    def delete_person_from_groups(self, person_id: int, groups_ids: list[int] | None = None) -> None:
-        """
-        Removes a CmdbPerson from the 'group_members' of CmdbPersonGroups in a single bulk '$pull' update
-
-        When groups_ids is provided the pull is restricted to those CmdbPersonGroups, otherwise it is
-        applied to every CmdbPersonGroup that lists the person as a member
-
-        Args:
-            person_id (int): public_id of CmdbPerson which should be removed
-            groups_ids (list[int] | None): public_id's of the CmdbPersonGroups to update. Defaults to None
-        """
-        remove_member_from_documents(
-            self.dbm,
-            self.db_name,
-            self.collection,
-            PersonGroupKey.GROUP_MEMBERS.value,
-            person_id,
-            groups_ids,
-        )
-
 
     def remove_person_group_from_persons(self, person_group_id: int) -> None:
         """

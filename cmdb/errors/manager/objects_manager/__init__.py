@@ -26,7 +26,6 @@ from .objects_manager_errors import (
     ObjectsManagerInitError,
     ObjectsManagerIterationError,
     ObjectsManagerMdsReferencesError,
-    ObjectsManagerSummaryLineError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -40,5 +39,4 @@ __all__: list[str] = [
     'ObjectsManagerInitError',
     'ObjectsManagerIterationError',
     'ObjectsManagerMdsReferencesError',
-    'ObjectsManagerSummaryLineError',
 ]

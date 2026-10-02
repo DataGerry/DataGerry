@@ -16,10 +16,11 @@
 """
 Unit tests for the CmdbLocation route helpers
 
-``resolve_location_name`` is exercised with ObjectsManager / RenderList / CmdbObject patched at
-the helper module path - no Mongo and no rendering pipeline runs, only the name-derivation
-branching. ``build_location_forest`` is exercised against the real ``LocationNode`` (pure logic)
-to pin the flat-list -> nested-forest assembly the tree search and tree path routes delegate to.
+The name helpers (``read_linked_object``, ``derive_location_name``, ``resolve_location_name``) run with
+ObjectsManager / RenderList patched at the helper module path - no Mongo and no rendering pipeline,
+only the read, ACL and derivation branching. ``build_location_forest`` is exercised against the real
+``LocationNode`` (pure logic) to pin the flat-list -> nested-forest assembly the tree search and tree
+path routes delegate to.
 """
 from typing import Any
 from unittest.mock import MagicMock, patch
@@ -37,12 +38,26 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     sync_object_location,
     build_location_level,
     delete_location_with_reparenting,
+    location_fields_point_at,
     normalize_parent_id,
     validate_object_location_move,
     validate_object_location_moves,
     validate_shared_move_parent,
     move_object_location,
+    derive_location_name,
+    is_explicit_location_name,
+    read_linked_object,
+    validate_location_placement,
+    with_location_parent,
+    PlacementTarget,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
+    LINKED_OBJECT_DENIED_MSG,
+    LINKED_OBJECT_NOT_FOUND_MSG,
+)
+from cmdb.models.object_model import CmdbObject
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.errors.security import AccessDeniedError
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.location_model.location_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -58,12 +73,16 @@ OWN_LOCATION_ID: int = 50
 DESCENDANT_LOCATION_ID: int = 51
 NEW_PARENT_ID: int = 60
 RESOLVED_NAME: str = 'Resolved Location Name'
+NAME_FIELD: str = 'name'
+LOCATION_FIELD: str = 'placement'
+NAME_VALUE: str = 'srv-01'
 
 EXPLICIT_NAME: str = 'Server Room A'
 RENDERED_SUMMARY: str = 'Rendered Summary Line'
 FALLBACK_NAME: str = f'ObjectID: {OBJECT_ID}'
 
 HTTP_BAD_REQUEST: int = 400
+HTTP_FORBIDDEN: int = 403
 HTTP_NOT_FOUND: int = 404
 HTTP_INTERNAL_SERVER_ERROR: int = 500
 TYPE_ID: int = 77
@@ -78,6 +97,17 @@ SECOND_ROOT_ID: int = 20
 def fixture_flask_app() -> Flask:
     """A minimal Flask app so ``abort`` resolves inside a request context."""
     return Flask(__name__)
+
+
+def _real_object() -> CmdbObject:
+    """A CmdbObject with a text field and a location field placed under OWN_LOCATION_ID."""
+    return CmdbObject.from_data({
+        'public_id': OBJECT_ID, 'type_id': TYPE_ID, 'active': True, 'author_id': 1, 'version': '1.0.0',
+        'fields': [
+            {'type': TEXT_FIELD_TYPE, 'name': NAME_FIELD, 'value': NAME_VALUE},
+            {'type': LOCATION_FIELD_TYPE, 'name': LOCATION_FIELD, 'value': OWN_LOCATION_ID},
+        ],
+    })
 
 
 def _location(public_id: int, parent: int) -> dict[str, Any]:
@@ -123,54 +153,165 @@ class TestParseRequiredInt:
 #                                                resolve_location_name                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestResolveLocationName:
-    """``resolve_location_name`` returns an explicit name or derives one from the linked object."""
+    """``resolve_location_name`` returns an explicit name or derives one from the object it is handed."""
 
-    def test_explicit_name_is_returned_without_touching_the_object(self, flask_app: Flask) -> None:
-        """A non-empty name short-circuits: the ObjectsManager is never queried."""
-        objects_manager = MagicMock(name='objects_manager')
-
-        with flask_app.test_request_context():
-            result = resolve_location_name(EXPLICIT_NAME, OBJECT_ID, objects_manager, MagicMock())
+    def test_explicit_name_is_returned_without_deriving(self) -> None:
+        """A non-empty name short-circuits: nothing is rendered."""
+        with patch(f'{HELPER_PATH}.derive_location_name') as derive:
+            result = resolve_location_name(EXPLICIT_NAME, MagicMock(name='cmdb_object'), MagicMock())
 
         assert result == EXPLICIT_NAME
-        objects_manager.get_object.assert_not_called()
+        derive.assert_not_called()
 
-    def test_empty_name_derives_from_rendered_summary_line(self, flask_app: Flask) -> None:
-        """An empty name is replaced by the linked object's rendered ``summary_line``."""
-        objects_manager = MagicMock(name='objects_manager')
-        objects_manager.get_object.return_value = {'public_id': OBJECT_ID}
+    @pytest.mark.parametrize('raw_name', ['', None], ids=['empty', 'none'])
+    def test_no_name_derives_from_the_object(self, raw_name: str | None) -> None:
+        """An empty or absent name is derived from the handed-in object, for the request user."""
+        cmdb_object, request_user = MagicMock(name='cmdb_object'), MagicMock(name='request_user')
 
-        with patch(f'{HELPER_PATH}.CmdbObject.from_data'), \
-             patch(f'{HELPER_PATH}.RenderList') as render_list_ctor, \
-             flask_app.test_request_context():
-            render_list_ctor.return_value.render_result_list.return_value = [{'summary_line': RENDERED_SUMMARY}]
-            result = resolve_location_name('', OBJECT_ID, objects_manager, MagicMock())
+        with patch(f'{HELPER_PATH}.derive_location_name', return_value=RENDERED_SUMMARY) as derive:
+            result = resolve_location_name(raw_name, cmdb_object, request_user)
 
         assert result == RENDERED_SUMMARY
+        derive.assert_called_once_with(cmdb_object, request_user)
 
-    def test_empty_summary_line_falls_back_to_object_id_template(self, flask_app: Flask) -> None:
-        """When the summary line is also empty the ``ObjectID: <id>`` template is used."""
+
+class TestIsExplicitLocationName:
+    """``is_explicit_location_name`` separates a given name from one left to be derived."""
+
+    @pytest.mark.parametrize('raw_name, expected', [(EXPLICIT_NAME, True), (' ', True), ('', False), (None, False)],
+                             ids=['name', 'blank-is-a-name', 'empty', 'none'])
+    def test_answers(self, raw_name: str | None, expected: bool) -> None:
+        """Only the empty string and None leave the name to be derived."""
+        assert is_explicit_location_name(raw_name) is expected
+
+
+class TestDeriveLocationName:
+    """``derive_location_name`` renders the object's summary line, without reference expansion."""
+
+    @staticmethod
+    def _derive(rendered: list[dict[str, Any]]) -> tuple[str, MagicMock]:
+        """Derives with RenderList patched to answer `rendered`; answers the name and the constructor mock."""
+        with patch(f'{HELPER_PATH}.RenderList') as render_list_ctor:
+            render_list_ctor.return_value.render_result_list.return_value = rendered
+            return derive_location_name(_real_object(), MagicMock(name='request_user')), render_list_ctor
+
+    def test_the_summary_line_is_the_name(self) -> None:
+        """The rendered summary line is used as it is."""
+        assert self._derive([{'summary_line': RENDERED_SUMMARY}])[0] == RENDERED_SUMMARY
+
+    def test_the_render_resolves_no_references(self) -> None:
+        """The summary line reads the object's own values, so nothing it references is loaded."""
+        render_list_ctor = self._derive([{'summary_line': RENDERED_SUMMARY}])[1]
+
+        assert len(render_list_ctor.call_args.args) == 2
+        assert not render_list_ctor.call_args.kwargs
+
+    @pytest.mark.parametrize('summary_line', ['', None], ids=['empty', 'none'])
+    def test_an_empty_summary_line_falls_back_to_the_object_id(self, summary_line: str | None) -> None:
+        """When the summary line is empty the ``ObjectID: <id>`` template is used."""
+        assert self._derive([{'summary_line': summary_line}])[0] == FALLBACK_NAME
+
+    def test_an_object_the_render_skips_falls_back_to_the_object_id(self) -> None:
+        """An object whose type cannot be read renders nothing - the fallback name, not an IndexError."""
+        assert self._derive([])[0] == FALLBACK_NAME
+
+
+class TestReadLinkedObject:
+    """``read_linked_object`` reads the object a node is written for through the caller's READ ACL."""
+
+    def test_the_read_asks_for_read(self) -> None:
+        """The caller and READ are handed to the manager; the object comes back as a CmdbObject."""
+        objects_manager, request_user = MagicMock(name='objects_manager'), MagicMock(name='request_user')
+
+        assert read_linked_object(OBJECT_ID, objects_manager, request_user) is objects_manager.get_object.return_value
+        objects_manager.get_object.assert_called_once_with(
+            OBJECT_ID, request_user, AccessControlPermission.READ, as_dict=False,
+        )
+
+    def test_a_denial_is_a_403(self, flask_app: Flask) -> None:
+        """An object the caller may not read is a 403 naming it - not the 500 a raw AccessDeniedError becomes."""
         objects_manager = MagicMock(name='objects_manager')
-        objects_manager.get_object.return_value = {'public_id': OBJECT_ID}
+        objects_manager.get_object.side_effect = AccessDeniedError('denied')
 
-        with patch(f'{HELPER_PATH}.CmdbObject.from_data'), \
-             patch(f'{HELPER_PATH}.RenderList') as render_list_ctor, \
-             flask_app.test_request_context():
-            render_list_ctor.return_value.render_result_list.return_value = [{'summary_line': ''}]
-            result = resolve_location_name(None, OBJECT_ID, objects_manager, MagicMock())
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as excinfo:
+            read_linked_object(OBJECT_ID, objects_manager, MagicMock())
 
-        assert result == FALLBACK_NAME
+        assert excinfo.value.code == HTTP_FORBIDDEN
+        assert excinfo.value.description == LINKED_OBJECT_DENIED_MSG.format(object_id=OBJECT_ID)
 
-    def test_missing_object_aborts_404(self, flask_app: Flask) -> None:
-        """A name that must be derived from a non-existent object aborts 404."""
+    def test_a_missing_object_is_a_404(self, flask_app: Flask) -> None:
+        """No object with the id is a 404 naming it."""
         objects_manager = MagicMock(name='objects_manager')
         objects_manager.get_object.return_value = None
 
-        with flask_app.test_request_context():
-            with pytest.raises(HTTPException) as excinfo:
-                resolve_location_name('', OBJECT_ID, objects_manager, MagicMock())
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as excinfo:
+            read_linked_object(OBJECT_ID, objects_manager, MagicMock())
 
         assert excinfo.value.code == HTTP_NOT_FOUND
+        assert excinfo.value.description == LINKED_OBJECT_NOT_FOUND_MSG.format(object_id=OBJECT_ID)
+
+    def test_without_a_user_the_read_is_unscoped(self) -> None:
+        """None is handed on - the manager's convention for a read the caller already authorized."""
+        objects_manager = MagicMock(name='objects_manager')
+
+        read_linked_object(OBJECT_ID, objects_manager, None)
+
+        assert objects_manager.get_object.call_args.args[1] is None
+
+
+class TestWithLocationParent:
+    """``with_location_parent`` is the in-memory twin of the location-field write."""
+
+    def test_the_location_field_takes_the_parent(self) -> None:
+        """Every field of the location kind holds the new parent; the rest is unchanged."""
+        placed = with_location_parent(_real_object(), NEW_PARENT_ID)
+
+        assert {field['name']: field['value'] for field in placed.fields} == {
+            NAME_FIELD: NAME_VALUE, LOCATION_FIELD: NEW_PARENT_ID,
+        }
+
+    def test_the_original_is_left_untouched(self) -> None:
+        """A copy is answered - the caller's object keeps its old placement."""
+        original = _real_object()
+
+        with_location_parent(original, NEW_PARENT_ID)
+
+        assert next(field for field in original.fields if field['name'] == LOCATION_FIELD)['value'] == OWN_LOCATION_ID
+
+
+class TestValidateLocationPlacement:
+    """``validate_location_placement`` checks an object already read, then the placement."""
+
+    def test_a_placeable_object_is_answered_with_its_type(self) -> None:
+        """The object and its type come back; the placement check runs for the object's id"""
+        objects_manager, locations_manager = MagicMock(name='objects_manager'), MagicMock(name='locations_manager')
+        cmdb_object = _real_object()
+
+        with patch(f'{HELPER_PATH}.validate_object_location_change') as validate_change:
+            result = validate_location_placement(cmdb_object, NEW_PARENT_ID, objects_manager, locations_manager)
+
+        assert result == PlacementTarget(cmdb_object, objects_manager.get_object_type.return_value)
+        validate_change.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, locations_manager)
+
+    def test_an_object_without_a_location_field_is_a_400(self, flask_app: Flask) -> None:
+        """Only an object with a location field can sit in the tree"""
+        unplaceable = _real_object()
+        unplaceable.fields = [field for field in unplaceable.fields if field['name'] != LOCATION_FIELD]
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as excinfo:
+            validate_location_placement(unplaceable, NEW_PARENT_ID, MagicMock(), MagicMock())
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+    def test_an_unreadable_type_is_a_500(self, flask_app: Flask) -> None:
+        """The object's type is gone"""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object_type.return_value = None
+
+        with flask_app.test_request_context(), pytest.raises(HTTPException) as excinfo:
+            validate_location_placement(_real_object(), NEW_PARENT_ID, objects_manager, MagicMock())
+
+        assert excinfo.value.code == HTTP_INTERNAL_SERVER_ERROR
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -415,6 +556,7 @@ class TestValidateObjectLocationMove:
         """A MagicMock CmdbObject with a type id and a configurable has-location-field answer."""
         cmdb_object = MagicMock(name='cmdb_object')
         cmdb_object.get_type_id.return_value = TYPE_ID
+        cmdb_object.get_public_id.return_value = OBJECT_ID
         cmdb_object.has_fields_of_type.return_value = has_location
         return cmdb_object
 
@@ -451,7 +593,7 @@ class TestValidateObjectLocationMove:
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
     def test_valid_returns_type_and_runs_placement_validation(self) -> None:
-        """A placeable object returns its type and delegates the placement check to the validator."""
+        """A placeable object answers itself with its type, and delegates the placement check to the validator."""
         objects_manager = MagicMock(name='objects_manager')
         cmdb_object = self._object(True)
         object_type = MagicMock(name='type')
@@ -462,7 +604,7 @@ class TestValidateObjectLocationMove:
         with patch(f'{HELPER_PATH}.validate_object_location_change') as validate_change:
             result = validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager)
 
-        assert result is object_type
+        assert result == PlacementTarget(cmdb_object, object_type)
         cmdb_object.has_fields_of_type.assert_called_once_with(FieldType.LOCATION)
         validate_change.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, locations_manager)
 
@@ -471,41 +613,60 @@ class TestValidateObjectLocationMove:
 #                                              move_object_location                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestMoveObjectLocation:
-    """move_object_location validates (unless a type is supplied), then mirrors field + node."""
+    """move_object_location validates (unless a target is supplied), then mirrors field + node."""
 
     def test_validates_then_mirrors_both_sides(self) -> None:
-        """With no pre-validated type, it validates first, sets the object field and syncs the node."""
+        """With no pre-validated target, it validates first, sets the object field and syncs the node."""
         objects_manager = MagicMock(name='objects_manager')
         locations_manager = MagicMock(name='locations_manager')
         request_user = MagicMock(name='request_user')
-        object_type = MagicMock(name='type')
+        target = PlacementTarget(MagicMock(name='cmdb_object'), MagicMock(name='type'))
+        placed = MagicMock(name='placed_object')
 
-        with patch(f'{HELPER_PATH}.validate_object_location_move', return_value=object_type) as validate_move, \
+        with patch(f'{HELPER_PATH}.validate_object_location_move', return_value=target) as validate_move, \
+             patch(f'{HELPER_PATH}.with_location_parent', return_value=placed) as with_parent, \
              patch(f'{HELPER_PATH}.sync_object_location') as sync:
             move_object_location(OBJECT_ID, NEW_PARENT_ID, request_user, objects_manager, locations_manager)
 
         validate_move.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager)
         objects_manager.set_location_field_for_objects.assert_called_once_with([OBJECT_ID], NEW_PARENT_ID)
+        with_parent.assert_called_once_with(target.cmdb_object, NEW_PARENT_ID)
         sync.assert_called_once_with(
-            OBJECT_ID, NEW_PARENT_ID, None, object_type, request_user, objects_manager, locations_manager
+            OBJECT_ID, NEW_PARENT_ID, None, target.object_type, request_user, objects_manager, locations_manager,
+            cmdb_object=placed,
         )
 
-    def test_supplied_type_skips_validation(self) -> None:
-        """When a pre-validated type is passed (bulk path) it does not re-validate; None removes placement."""
+    def test_supplied_target_skips_validation(self) -> None:
+        """When a pre-validated target is passed (bulk path) it does not re-validate; None removes placement."""
         objects_manager = MagicMock(name='objects_manager')
         locations_manager = MagicMock(name='locations_manager')
         request_user = MagicMock(name='request_user')
-        object_type = MagicMock(name='type')
+        target = PlacementTarget(MagicMock(name='cmdb_object'), MagicMock(name='type'))
 
         with patch(f'{HELPER_PATH}.validate_object_location_move') as validate_move, \
+             patch(f'{HELPER_PATH}.with_location_parent', return_value=target.cmdb_object), \
              patch(f'{HELPER_PATH}.sync_object_location') as sync:
-            move_object_location(OBJECT_ID, None, request_user, objects_manager, locations_manager, object_type)
+            move_object_location(OBJECT_ID, None, request_user, objects_manager, locations_manager, target)
 
         validate_move.assert_not_called()
         objects_manager.set_location_field_for_objects.assert_called_once_with([OBJECT_ID], None)
         sync.assert_called_once_with(
-            OBJECT_ID, None, None, object_type, request_user, objects_manager, locations_manager
+            OBJECT_ID, None, None, target.object_type, request_user, objects_manager, locations_manager,
+            cmdb_object=target.cmdb_object,
         )
+
+    def test_the_moved_object_is_not_read_again(self) -> None:
+        """The validated object reaches the mirror, so the name is derived without a second read"""
+        objects_manager = MagicMock(name='objects_manager')
+        locations_manager = MagicMock(name='locations_manager')
+        locations_manager.get_location_for_object.return_value = None
+        target = PlacementTarget(_real_object(), MagicMock(name='type'))
+
+        with patch(f'{HELPER_PATH}.derive_location_name', return_value=RESOLVED_NAME):
+            move_object_location(OBJECT_ID, NEW_PARENT_ID, MagicMock(), objects_manager, locations_manager, target)
+
+        objects_manager.get_object.assert_not_called()
+        assert locations_manager.insert_location.call_args.args[0]['name'] == RESOLVED_NAME
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -532,11 +693,12 @@ class TestDeleteLocationWithReparenting:
         # the owning objects' location fields are re-pointed at the grandparent
         objects_manager.set_location_field_for_objects.assert_called_once_with([101, 102], NEW_PARENT_ID)
 
-    def test_no_children_still_deletes_and_syncs_empty(self) -> None:
-        """With no children the node is still deleted and the object-field sync is a no-op ([])."""
+    def test_no_children_still_deletes_and_skips_the_object_write(self) -> None:
+        """With no children the node is still deleted, and there is no object field to re-point."""
         locations_manager = MagicMock(name='locations_manager')
         objects_manager = MagicMock(name='objects_manager')
         locations_manager.get_child_object_ids.return_value = []
+        locations_manager.find.return_value = []
         locations_manager.delete_location.return_value = True
 
         delete_location_with_reparenting(
@@ -544,7 +706,55 @@ class TestDeleteLocationWithReparenting:
         )
 
         locations_manager.delete_location.assert_called_once_with(OWN_LOCATION_ID)
-        objects_manager.set_location_field_for_objects.assert_called_once_with([], NEW_PARENT_ID)
+        objects_manager.set_location_field_for_objects.assert_not_called()
+
+    def test_a_node_already_gone_is_not_recorded_for_re_insertion(self) -> None:
+        """
+        Deleted concurrently between the caller's read and the snapshot: the delete still runs (and answers
+        as the manager does), but there is no snapshot the undo could put back
+        """
+        locations_manager = MagicMock(name='locations_manager')
+        locations_manager.get_one_by.return_value = None
+        locations_manager.find.return_value = []
+        locations_manager.get_child_object_ids.return_value = []
+        locations_manager.delete_location.side_effect = RuntimeError('delete failed')
+
+        with pytest.raises(RuntimeError):
+            delete_location_with_reparenting(
+                {'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}, locations_manager, MagicMock(),
+            )
+
+        locations_manager.insert.assert_not_called()
+
+    def test_a_failed_object_write_puts_every_earlier_write_back(self) -> None:
+        """
+        The fields fail after the node is gone: the undo re-points the fields at the node, re-inserts the node
+        and restores each child's parent - then the original error surfaces
+        """
+        node = {'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}
+        child = {'public_id': 91, 'parent': OWN_LOCATION_ID}
+        store: dict[int, dict[str, Any]] = {}
+        locations_manager = MagicMock(name='locations_manager')
+        locations_manager.get_one_by.side_effect = lambda criteria: store.get(
+            criteria['public_id'], node if criteria['public_id'] == OWN_LOCATION_ID else child,
+        )
+        locations_manager.find.return_value = [child]
+        locations_manager.get_child_object_ids.return_value = [101]
+        locations_manager.delete_location.return_value = True
+        objects_manager = MagicMock(name='objects_manager')
+        failure = RuntimeError('field write failed')
+        objects_manager.set_location_field_for_objects.side_effect = [failure, None]
+        objects_manager.find_objects.return_value = [
+            {'public_id': 101, 'fields': [{'name': 'loc', 'type': 'location', 'value': OWN_LOCATION_ID}]},
+        ]
+
+        with pytest.raises(RuntimeError) as caught:
+            delete_location_with_reparenting(node, locations_manager, objects_manager)
+
+        assert caught.value is failure
+        # the inverse re-points the fields back at the node being deleted
+        assert objects_manager.set_location_field_for_objects.call_args_list[-1].args == ([101], OWN_LOCATION_ID)
+        locations_manager.replace.assert_called_once_with(91, child)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -571,8 +781,9 @@ class TestSyncObjectLocation:
         return manager
 
     def _sync(self, manager: MagicMock, parent: int | None, location_name: str | None) -> None:
-        """Runs sync_object_location with resolve_location_name patched to a fixed value."""
-        with patch(f'{HELPER_PATH}.resolve_location_name', return_value=RESOLVED_NAME):
+        """Runs sync_object_location with the name derivation patched to a fixed value."""
+        with patch(f'{HELPER_PATH}.read_linked_object'), \
+             patch(f'{HELPER_PATH}.derive_location_name', return_value=RESOLVED_NAME):
             sync_object_location(
                 OBJECT_ID, parent, location_name, self._object_type(),
                 MagicMock(name='request_user'), MagicMock(name='objects_manager'), manager,
@@ -628,9 +839,49 @@ class TestSyncObjectLocation:
         """An explicit name updates the location even when the parent is unchanged."""
         manager = self._manager({'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID})
 
-        self._sync(manager, NEW_PARENT_ID, 'Renamed Node')
+        self._sync(manager, NEW_PARENT_ID, EXPLICIT_NAME)
 
-        manager.update_location.assert_called_once_with(OBJECT_ID, {'parent': NEW_PARENT_ID, 'name': RESOLVED_NAME})
+        manager.update_location.assert_called_once_with(OBJECT_ID, {'parent': NEW_PARENT_ID, 'name': EXPLICIT_NAME})
+
+    def test_an_explicit_name_reads_no_object(self) -> None:
+        """The name is given, so nothing is derived and the object is not read"""
+        manager = self._manager(None)
+
+        with patch(f'{HELPER_PATH}.read_linked_object') as read, \
+             patch(f'{HELPER_PATH}.derive_location_name') as derive:
+            sync_object_location(OBJECT_ID, NEW_PARENT_ID, EXPLICIT_NAME, self._object_type(),
+                                 MagicMock(), MagicMock(), manager)
+
+        read.assert_not_called()
+        derive.assert_not_called()
+        assert manager.insert_location.call_args.args[0]['name'] == EXPLICIT_NAME
+
+    def test_a_derived_name_reads_the_stored_object_unscoped(self) -> None:
+        """No object handed in: the stored one is read without a user - the caller's write authorized it"""
+        manager = self._manager(None)
+        objects_manager = MagicMock(name='objects_manager')
+        request_user = MagicMock(name='request_user')
+
+        with patch(f'{HELPER_PATH}.read_linked_object') as read, \
+             patch(f'{HELPER_PATH}.derive_location_name', return_value=RESOLVED_NAME) as derive:
+            sync_object_location(OBJECT_ID, NEW_PARENT_ID, None, self._object_type(),
+                                 request_user, objects_manager, manager)
+
+        read.assert_called_once_with(OBJECT_ID, objects_manager, None)
+        derive.assert_called_once_with(read.return_value, request_user)
+
+    def test_a_handed_in_object_is_not_read_again(self) -> None:
+        """The caller's object is what the name is derived from"""
+        manager = self._manager(None)
+        handed_in = MagicMock(name='cmdb_object')
+
+        with patch(f'{HELPER_PATH}.read_linked_object') as read, \
+             patch(f'{HELPER_PATH}.derive_location_name', return_value=RESOLVED_NAME) as derive:
+            sync_object_location(OBJECT_ID, NEW_PARENT_ID, None, self._object_type(),
+                                 MagicMock(), MagicMock(), manager, cmdb_object=handed_in)
+
+        read.assert_not_called()
+        assert derive.call_args.args[0] is handed_in
 
     def test_write_failure_is_swallowed(self) -> None:
         """A failing location write is logged and swallowed so the object save is never lost."""
@@ -755,7 +1006,7 @@ class TestValidateObjectLocationMoves:
 
         assert objects_manager.get_object_type.call_count == 1
         assert set(result) == set(BULK_OBJECT_IDS)
-        assert len({id(object_type) for object_type in result.values()}) == 1
+        assert len({id(target.object_type) for target in result.values()}) == 1
 
     def test_two_types_are_resolved_once_each(self, flask_app: Flask) -> None:
         """A mixed batch resolves one type per distinct type_id, and maps each object to its own."""
@@ -769,8 +1020,8 @@ class TestValidateObjectLocationMoves:
             result = validate_object_location_moves([11, 12, 13], PARENT_ID, objects_manager, MagicMock())
 
         assert objects_manager.get_object_type.call_count == 2
-        assert result[11] is result[13]
-        assert result[12] is not result[11]
+        assert result[11].object_type is result[13].object_type
+        assert result[12].object_type is not result[11].object_type
 
     def test_validates_the_shared_parent_once(self, flask_app: Flask) -> None:
         """The parent is the same for the whole batch, so it is checked once."""
@@ -905,3 +1156,42 @@ class TestSyncObjectLocationRemovalWithoutNode:
 
         delete_helper.assert_not_called()
         locations_manager.insert_location.assert_not_called()
+
+
+class TestLocationFieldsPointAt:
+    """The verification of an undone location-field write."""
+
+    @staticmethod
+    def _objects(*documents: dict[str, Any]) -> MagicMock:
+        """An ObjectsManager whose find_objects answers the given documents."""
+        manager = MagicMock(name='objects_manager')
+        manager.find_objects.return_value = list(documents)
+        return manager
+
+    @staticmethod
+    def _with_location(public_id: int, value: Any) -> dict[str, Any]:
+        """An object document whose location field holds `value`."""
+        return {'public_id': public_id, 'fields': [{'name': 'loc', 'type': 'location', 'value': value}]}
+
+    def test_every_field_at_the_parent_is_true(self) -> None:
+        """The undo took effect."""
+        manager = self._objects(self._with_location(1, OWN_LOCATION_ID), self._with_location(2, OWN_LOCATION_ID))
+
+        assert location_fields_point_at(manager, [1, 2], OWN_LOCATION_ID) is True
+
+    def test_one_field_elsewhere_is_false(self) -> None:
+        """A single object left at the other parent is enough."""
+        manager = self._objects(self._with_location(1, OWN_LOCATION_ID), self._with_location(2, NEW_PARENT_ID))
+
+        assert location_fields_point_at(manager, [1, 2], OWN_LOCATION_ID) is False
+
+    def test_a_missing_object_is_false(self) -> None:
+        """Nothing to verify is not a verified undo."""
+        assert location_fields_point_at(self._objects(self._with_location(1, OWN_LOCATION_ID)), [1, 2],
+                                        OWN_LOCATION_ID) is False
+
+    def test_an_object_without_a_location_field_does_not_count_against_it(self) -> None:
+        """Only location fields are compared."""
+        manager = self._objects({'public_id': 1, 'fields': [{'name': 't', 'type': 'text', 'value': 'x'}]})
+
+        assert location_fields_point_at(manager, [1], OWN_LOCATION_ID) is True

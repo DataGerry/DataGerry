@@ -26,16 +26,28 @@ person or group. Both managers are thin wrappers over it, so the rules live here
   - **every polymorphic filter names the '_ref_type' sibling.** Without it, deleting person 7 would
     also clear a field pointing at the *group* with public_id 7 - the ids come from two independent
     counters and collide constantly
+  - **the snapshot criteria select what the clears write.** The delete route snapshots the documents the
+    cascade will change with ``risk_assessment_reference_criteria`` / ``control_measure_assignment_reference_
+    criteria``; a document the clears reach but the criteria miss would not be restored by an undo
 """
 from typing import Any
 from unittest.mock import MagicMock
 
+import pytest
+
 from cmdb.manager.person_reference_helper import (
+    CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS,
+    PERSON_ONLY_RISK_ASSESSMENT_KEYS,
     POLYMORPHIC_RISK_ASSESSMENT_PERSON_KEYS,
+    RISK_ASSESSMENT_PERSON_REFERENCE_KEYS,
+    ref_type_key,
     add_member_to_documents,
     clear_control_measure_assignment_reference,
     clear_polymorphic_risk_assessment_references,
+    control_measure_assignment_reference_criteria,
+    polymorphic_reference_filter,
     remove_member_from_documents,
+    risk_assessment_reference_criteria,
 )
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
@@ -244,3 +256,96 @@ class TestClearControlMeasureAssignmentReference:
 
         assert 'plain' not in dbm.update_many.call_args.kwargs
         assert '$set' not in dbm.update_many.call_args.args[3]
+
+
+class TestPolymorphicReferenceFilter:
+    """The one spelling of the id + '_ref_type' pairing."""
+
+    def test_pairs_the_id_with_its_ref_type(self) -> None:
+        """Both keys, the reference type as its plain string."""
+        assert polymorphic_reference_filter('risk_owner_id', MEMBER_ID, PersonReferenceType.PERSON_GROUP) == {
+            'risk_owner_id': MEMBER_ID,
+            'risk_owner_id_ref_type': 'PERSON_GROUP',
+        }
+
+
+class TestRiskAssessmentReferenceCriteria:
+    """What the delete of one person or group changes on the assessments - exactly what the clears write."""
+
+    def test_a_person_adds_the_person_only_fields(self) -> None:
+        """The assessor and the interviewed persons can only be persons, so only a person's delete reaches them."""
+        clauses = risk_assessment_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON)['$or']
+
+        assert {RiskAssessmentKey.RISK_ASSESSOR_ID.value: MEMBER_ID} in clauses
+        assert {RiskAssessmentKey.INTERVIEWED_PERSONS.value: MEMBER_ID} in clauses
+        assert len(clauses) == len(POLYMORPHIC_RISK_ASSESSMENT_PERSON_KEYS) + 2
+
+    def test_a_group_reaches_the_polymorphic_fields_only(self) -> None:
+        """Group 3 must not select the assessments whose assessor is person 3."""
+        clauses = risk_assessment_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON_GROUP)['$or']
+
+        assert clauses == [
+            polymorphic_reference_filter(key, MEMBER_ID, PersonReferenceType.PERSON_GROUP)
+            for key in POLYMORPHIC_RISK_ASSESSMENT_PERSON_KEYS
+        ]
+
+    def test_every_filter_the_clear_writes_is_a_clause(self) -> None:
+        """Each update_many of the clear matches a subset of the criteria, so the snapshot covers its writes."""
+        dbm = MagicMock()
+        clear_polymorphic_risk_assessment_references(dbm, DB_NAME, RA_COLLECTION, MEMBER_ID,
+                                                     PersonReferenceType.PERSON)
+        clauses = risk_assessment_reference_criteria(MEMBER_ID, PersonReferenceType.PERSON)['$or']
+
+        assert all(call.args[2] in clauses for call in dbm.update_many.call_args_list)
+
+
+class TestControlMeasureAssignmentReferenceCriteria:
+    """The assignment's single polymorphic reference."""
+
+    def test_is_the_filter_the_clear_writes(self) -> None:
+        """One spelling: the snapshot reads what the clear writes."""
+        dbm = MagicMock()
+        clear_control_measure_assignment_reference(dbm, DB_NAME, CMA_COLLECTION, MEMBER_ID,
+                                                   PersonReferenceType.PERSON)
+
+        assert dbm.update_many.call_args.args[2] == control_measure_assignment_reference_criteria(
+            MEMBER_ID, PersonReferenceType.PERSON
+        )
+        assert dbm.update_many.call_args.args[2] == {
+            ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value: MEMBER_ID,
+            ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE.value: 'PERSON',
+        }
+
+
+class TestPersonReferenceKeys:
+    """The one list of person-reference keys per collection, shared by the cascades and the write check"""
+
+    def test_the_risk_assessment_keys_are_the_ones_the_cascade_clears(self) -> None:
+        """The write check and the delete cascade read the same tuples, so they cannot drift"""
+        assert RISK_ASSESSMENT_PERSON_REFERENCE_KEYS.polymorphic is POLYMORPHIC_RISK_ASSESSMENT_PERSON_KEYS
+        assert RISK_ASSESSMENT_PERSON_REFERENCE_KEYS.person_only is PERSON_ONLY_RISK_ASSESSMENT_KEYS
+
+    def test_the_risk_assessment_person_only_keys(self) -> None:
+        """The assessor and the interviewed persons can only ever be persons"""
+        assert set(PERSON_ONLY_RISK_ASSESSMENT_KEYS) == {
+            RiskAssessmentKey.RISK_ASSESSOR_ID.value,
+            RiskAssessmentKey.INTERVIEWED_PERSONS.value,
+        }
+
+    def test_the_assignment_has_one_polymorphic_key_and_no_person_only_one(self) -> None:
+        """The responsible-for-implementation reference, the key its cascade clears"""
+        assert CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS.polymorphic == (
+            ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value,
+        )
+        assert CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS.person_only == ()
+
+    @pytest.mark.parametrize('key, ref_type', [
+        (RiskAssessmentKey.RISK_OWNER_ID.value, RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE.value),
+        (RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value, RiskAssessmentKey.RESPONSIBLE_PERSONS_ID_REF_TYPE.value),
+        (RiskAssessmentKey.AUDITOR_ID.value, RiskAssessmentKey.AUDITOR_ID_REF_TYPE.value),
+        (ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value,
+         ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE.value),
+    ])
+    def test_ref_type_key_spells_the_stored_sibling(self, key: str, ref_type: str) -> None:
+        """Every polymorphic key's sibling, as the model's key enums name it"""
+        assert ref_type_key(key) == ref_type

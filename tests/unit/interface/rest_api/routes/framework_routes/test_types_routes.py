@@ -584,6 +584,9 @@ class TestUpdateCmdbType:
         """Patches the helper chain the happy path runs through; returns the patch context managers."""
         return [
             patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)),
+            # The identifier rule reads the stored type's fields and sections, which this stub does not carry; it is
+            # pinned by its own tests (test_types_structure_helper / test_type_identifier_rules)
+            patch(f'{ROUTE_PATH}.guard_new_identifiers'),
             patch(f'{ROUTE_PATH}.CmdbType'),
             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True),
             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -641,6 +644,7 @@ class TestUpdateCmdbType:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type='OLD')), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
              patch(f'{ROUTE_PATH}.enforce_special_type_license'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=False), \
@@ -657,6 +661,7 @@ class TestUpdateCmdbType:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -681,6 +686,7 @@ class TestUpdateCmdbType:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -700,6 +706,7 @@ class TestUpdateCmdbType:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -724,6 +731,7 @@ class TestUpdateCmdbType:
         del patched_manager_provider
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -744,6 +752,7 @@ class TestUpdateCmdbType:
         mgr.update_type.side_effect = TypesManagerUpdateError('x')
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -806,6 +815,7 @@ class TestUpdateCmdbType:
         mgr.get_type.return_value = dict(SAMPLE_TYPE_DICT)
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
+             patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
              patch(f'{ROUTE_PATH}.CmdbType') as cmdb_type, \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
