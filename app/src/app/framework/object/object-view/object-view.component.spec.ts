@@ -31,6 +31,8 @@ import { PermissionService } from 'src/app/modules/auth/services/permission.serv
 import { ObjectViewComponent } from './object-view.component';
 import { ObjectViewMode } from './object-view-mode';
 import { PORT_VIEW_RIGHT } from './ports-overview/models/ports-overview.types';
+import { PortsAccess } from './ports-overview/models/ports-license.types';
+import { PortsLicenseService } from './ports-overview/services/ports-license.service';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -219,13 +221,13 @@ describe('ObjectViewComponent (the graph view answers to the CI Explorer right)'
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-describe('ObjectViewComponent (the cabling view needs ports, the port right and the licence)', () => {
+describe('ObjectViewComponent (the cabling view needs ports, the port right and a license, expired or not)', () => {
 
     interface CablingSetup {
         queryParams?: Record<string, string>;
         portRight?: boolean;
         usesPorts?: boolean;
-        licensed?: boolean;
+        access?: PortsAccess;
     }
 
     const renderResultWithPorts = (usesPorts: boolean): RenderResult => ({
@@ -234,7 +236,12 @@ describe('ObjectViewComponent (the cabling view needs ports, the port right and 
         fields: []
     } as RenderResult);
 
-    const buildView = async ({ queryParams = {}, portRight = true, usesPorts = true, licensed = true }: CablingSetup) => {
+    const buildView = async ({
+        queryParams = {},
+        portRight = true,
+        usesPorts = true,
+        access = PortsAccess.FULL
+    }: CablingSetup) => {
         const rights = (right: string) => right !== PORT_VIEW_RIGHT || portRight;
 
         await TestBed.configureTestingModule({
@@ -244,7 +251,8 @@ describe('ObjectViewComponent (the cabling view needs ports, the port right and 
                 { provide: ToastService, useValue: jasmine.createSpyObj('ToastService', ['success', 'error']) },
                 { provide: LoaderService, useValue: { show: () => { }, hide: () => { }, isLoading$: of(false) } },
                 { provide: Router, useValue: jasmine.createSpyObj('Router', ['navigate']) },
-                { provide: PremiumFeatureService, useValue: { isAvailable: () => licensed } },
+                { provide: PremiumFeatureService, useValue: { isAvailable: () => true } },
+                { provide: PortsLicenseService, useValue: { access: () => access } },
                 { provide: PermissionService, useValue: { hasRight: rights, hasExtendedRight: rights } },
                 { provide: TypeService, useValue: { getTypes: () => of({ results: [] }) } },
                 {
@@ -287,13 +295,20 @@ describe('ObjectViewComponent (the cabling view needs ports, the port right and 
         expect(view.isTableView).toBeTrue();
     });
 
-    it('offers no cabling without the IPAM licence', async () => {
-        const view = await buildView({ licensed: false });
+    it('offers no cabling without a license', async () => {
+        const view = await buildView({ access: PortsAccess.LOCKED });
 
         view.toggleView(ObjectViewMode.CABLING);
 
         expect(view.cablingAvailable).toBeFalse();
         expect(view.isCablingView).toBeFalse();
+    });
+
+    it('keeps the cabling open on an expired license', async () => {
+        const view = await buildView({ queryParams: { view: 'cabling' }, access: PortsAccess.LAPSED });
+
+        expect(view.cablingAvailable).toBeTrue();
+        expect(view.isCablingView).toBeTrue();
     });
 
     it('switches between the three views', async () => {

@@ -57,7 +57,8 @@ export function mapEntitlementsResponse(response: LicenseEntitlements): LicenseE
   return {
     is_active: !!response?.is_active,
     type: response?.type || COMMUNITY_TIER,
-    features: response?.features ?? []
+    features: response?.features ?? [],
+    status: response?.status ?? null
   };
 }
 

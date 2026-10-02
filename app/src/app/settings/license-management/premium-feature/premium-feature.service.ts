@@ -28,7 +28,12 @@ import {
   PremiumFeatureModalComponent
 } from 'src/app/core/components/dialog/premium-feature-modal/premium-feature-modal.component';
 
-import { COMMUNITY_TIER, LicenseEntitlements, LicenseFeature } from '../models/license.model';
+import {
+  COMMUNITY_TIER,
+  LicenseEntitlements,
+  LicenseFeature,
+  LicenseVerificationStatus
+} from '../models/license.model';
 import { LicenseService } from '../services/license.service';
 import { PREMIUM_FEATURE_CONTENT } from './premium-feature.config';
 
@@ -98,6 +103,27 @@ export class PremiumFeatureService {
       switchMap(() => this.entitlements$),
       map(() => this.isAvailable(feature)),
       distinctUntilChanged()
+    );
+  }
+
+  /** Whether the stored license is past its term; `is_active` alone reads the same as no license. */
+  isExpired(): boolean {
+    if (environment.cloudMode) {
+      return false;
+    }
+
+    return this.entitlements()?.status === LicenseVerificationStatus.Expired;
+  }
+
+  /** Emits once the entitlements are known and again on every license change; once in cloud. */
+  entitlementChanges$(): Observable<void> {
+    if (environment.cloudMode) {
+      return of(undefined);
+    }
+
+    return this.ensureHydrated().pipe(
+      switchMap(() => this.entitlements$),
+      map(() => undefined)
     );
   }
 

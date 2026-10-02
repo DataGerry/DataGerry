@@ -25,12 +25,20 @@ import { PREMIUM_FEATURE_MODAL_RESULT } from 'src/app/core/components/dialog/pre
 
 import { PremiumFeatureService } from './premium-feature.service';
 import { LicenseService } from '../services/license.service';
-import { LicenseEntitlements, LicenseFeature } from '../models/license.model';
+import { LicenseEntitlements, LicenseFeature, LicenseVerificationStatus } from '../models/license.model';
 
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** Community answer of `GET /rest/license/entitlements`. */
 const COMMUNITY: LicenseEntitlements = { is_active: false, type: 'free', features: [] };
+
+/** An expired license runs on the free entitlement; only the status tells it apart from none. */
+const EXPIRED: LicenseEntitlements = {
+  is_active: false,
+  type: 'free',
+  features: [],
+  status: LicenseVerificationStatus.Expired
+};
 
 /**
  * Builds an entitlements payload. Defaults describe an active Business license that unlocks IPAM
@@ -209,6 +217,54 @@ describe('PremiumFeatureService', () => {
       expect(isms).toEqual([false]);
       s1.unsubscribe();
       s2.unsubscribe();
+    });
+  });
+
+  /* ---------------------------------------- isExpired() — lapsed license ----------------------------------------- */
+
+  describe('isExpired() lapsed license', () => {
+    it('is false before the entitlements are hydrated', () => {
+      expect(service.isExpired()).toBeFalse();
+    });
+
+    it('is false without a stored license', () => {
+      hydrate(COMMUNITY);
+      expect(service.isExpired()).toBeFalse();
+    });
+
+    it('is true for an expired license, which unlocks nothing', () => {
+      hydrate(EXPIRED);
+
+      expect(service.isExpired()).toBeTrue();
+      expect(service.isAvailable(LicenseFeature.Ipam)).toBeFalse();
+    });
+
+    it('is false for any other verification failure', () => {
+      hydrate({ ...EXPIRED, status: LicenseVerificationStatus.BindingMismatch });
+      expect(service.isExpired()).toBeFalse();
+    });
+
+    it('is false again once the license is removed', () => {
+      hydrate(EXPIRED);
+      service.clear();
+
+      expect(service.isExpired()).toBeFalse();
+    });
+  });
+
+  describe('entitlementChanges$() license changes', () => {
+    it('emits once hydrated and again on every license change', () => {
+      let emissions = 0;
+      const sub = service.entitlementChanges$().subscribe(() => emissions++);
+      flushSignals();
+      expect(emissions).toBe(1);
+
+      hydrate(EXPIRED);
+      flushSignals();
+
+      expect(emissions).toBe(2);
+      expect(service.isExpired()).toBeTrue();
+      sub.unsubscribe();
     });
   });
 
@@ -503,6 +559,15 @@ describe('PremiumFeatureService', () => {
 
       expect(seen).toEqual([true]);
       expect(modalService.open).not.toHaveBeenCalled();
+    });
+
+    it('never reports an expired license and emits one change without the endpoint', () => {
+      let emissions = 0;
+      service.entitlementChanges$().subscribe(() => emissions++);
+
+      expect(service.isExpired()).toBeFalse();
+      expect(emissions).toBe(1);
+      expect(licenseService.getEntitlements).not.toHaveBeenCalled();
     });
   });
 });
