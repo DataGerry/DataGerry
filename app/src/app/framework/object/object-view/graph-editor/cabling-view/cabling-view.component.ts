@@ -20,14 +20,14 @@ import {
     ChangeDetectionStrategy,
     Component,
     ElementRef,
-    Signal,
     computed,
     inject,
     input,
     signal,
     viewChild
 } from '@angular/core';
-import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -86,7 +86,7 @@ interface Gesture {
 @Component({
     selector: 'cmdb-cabling-view',
     standalone: true,
-    imports: [AsyncPipe, CoreModule, CablingNodeComponent],
+    imports: [AsyncPipe, ReactiveFormsModule, CoreModule, CablingNodeComponent],
     templateUrl: './cabling-view.component.html',
     styleUrls: ['./cabling-view.component.scss'],
     providers: [CablingViewStore],
@@ -110,7 +110,16 @@ export class CablingViewComponent {
     private readonly expandedNodeIds = signal<ReadonlySet<number>>(new Set());
     private readonly offsets = signal<ReadonlyMap<number, CablingPoint>>(new Map());
 
-    public readonly options: Signal<CablingDisplayOptions> = signal(DEFAULT_DISPLAY_OPTIONS);
+    public readonly displayForm = new FormGroup({
+        showFreePorts: new FormControl(false, { nonNullable: true })
+    });
+
+    private readonly showFreePorts = toSignal(this.displayForm.controls.showFreePorts.valueChanges, { initialValue: false });
+
+    public readonly options = computed<CablingDisplayOptions>(() => ({
+        ...DEFAULT_DISPLAY_OPTIONS,
+        onlyConnected: !this.showFreePorts()
+    }));
 
     /** Laid out apart from the drag offsets, so moving one card does not re-run the placement. */
     private readonly placedNodes = computed(() =>

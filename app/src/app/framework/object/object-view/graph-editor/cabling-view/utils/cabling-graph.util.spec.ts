@@ -15,7 +15,6 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { PortSide } from '../../../ports-overview/models/ports-overview.types';
 import {
     CABLE_FRONT,
     CABLE_NAS,
@@ -43,34 +42,29 @@ import { graphFromRing, graphWithExpansion, nodePorts, revealColumn, revealedObj
 describe('cabling-graph.util', () => {
 
     describe('revealColumn', () => {
-        it('puts what a panel front reaches on its left and what its rear reaches on its right', () => {
-            expect(revealColumn(0, PortSide.FRONT, PortSide.SINGLE, 0, 0)).toBe(-1);
-            expect(revealColumn(0, PortSide.REAR, PortSide.SINGLE, 0, 0)).toBe(1);
+        it('puts every patch panel in the one column left of the focal object', () => {
+            expect(revealColumn(0, true)).toBe(-1);
+            expect(revealColumn(1, true)).toBe(-1);
+            expect(revealColumn(-2, true)).toBe(-1);
         });
 
-        it('faces a revealed panel towards the node it was reached from', () => {
-            expect(revealColumn(0, PortSide.SINGLE, PortSide.FRONT, 0, 0)).toBe(1);
-            expect(revealColumn(0, PortSide.SINGLE, PortSide.REAR, 0, 0)).toBe(-1);
+        it('flows right from the focal object and on from each neighbour', () => {
+            expect(revealColumn(0, false)).toBe(1);
+            expect(revealColumn(1, false)).toBe(2);
         });
 
-        it('lets the parent face decide when both ends sit on a panel', () => {
-            expect(revealColumn(2, PortSide.REAR, PortSide.REAR, 0, 0)).toBe(3);
+        it('flows left from a panel', () => {
+            expect(revealColumn(-1, false)).toBe(-2);
         });
 
-        it('keeps walking away from the focal object between two plain ports', () => {
-            expect(revealColumn(1, PortSide.SINGLE, PortSide.SINGLE, 0, 0)).toBe(2);
-            expect(revealColumn(-2, null, null, 0, 0)).toBe(-3);
-        });
-
-        it('fills the emptier side beside the focal object, right first', () => {
-            expect(revealColumn(0, PortSide.SINGLE, PortSide.SINGLE, 0, 0)).toBe(1);
-            expect(revealColumn(0, PortSide.SINGLE, PortSide.SINGLE, 0, 1)).toBe(-1);
-            expect(revealColumn(0, PortSide.SINGLE, PortSide.SINGLE, 2, 1)).toBe(1);
+        it('keeps a card past the outer columns in its parent\'s', () => {
+            expect(revealColumn(2, false)).toBe(2);
+            expect(revealColumn(-2, false)).toBe(-2);
         });
     });
 
     describe('graphFromRing', () => {
-        it('centres the focal object and places each neighbour by the panel face its cable lands on', () => {
+        it('starts at the focal object and puts every plain neighbour on its right, whichever face it is cabled to', () => {
             const graph = graphFromRing(mockupRing());
 
             expect(graph.focalId).toBe(PP_01);
@@ -78,8 +72,20 @@ describe('cabling-graph.util', () => {
                 { parentId: null, parentPortId: null, ownPortId: null, column: 0, generation: 0 }
             );
             expect(graph.reveals.get(WEB_01)).toEqual(
-                { parentId: PP_01, parentPortId: FRONT_12, ownPortId: WEB_ETH0, column: -1, generation: 1 }
+                { parentId: PP_01, parentPortId: FRONT_12, ownPortId: WEB_ETH0, column: 1, generation: 1 }
             );
+            expect(graph.reveals.get(SW_01)?.column).toBe(1);
+        });
+
+        it('puts a patch panel neighbour on the left', () => {
+            const graph = graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), ppNode()], edges: [frontEdge()] });
+
+            expect(graph.reveals.get(PP_01)?.column).toBe(-1);
+        });
+
+        it('treats a restricted neighbour as a plain device', () => {
+            const graph = graphFromRing({ focal_object_id: PP_01, nodes: [ppNode(), restrictedNode(SW_01)], edges: [rearEdge()] });
+
             expect(graph.reveals.get(SW_01)?.column).toBe(1);
         });
 
@@ -109,32 +115,33 @@ describe('cabling-graph.util', () => {
     });
 
     describe('graphWithExpansion', () => {
-        it('keeps the canvas to three columns: a card that would open a fourth joins its parent', () => {
+        it('follows a plain cable one column further right', () => {
             const graph = graphWithExpansion(graphFromRing(mockupRing()), nasExpansion(), SW_GI24);
 
             expect(graph.reveals.get(NAS_01)).toEqual(
-                { parentId: SW_01, parentPortId: SW_GI24, ownPortId: NAS_E0A, column: 1, generation: 2 }
+                { parentId: SW_01, parentPortId: SW_GI24, ownPortId: NAS_E0A, column: 2, generation: 2 }
             );
             expect(graph.edges.has(CABLE_NAS)).toBeTrue();
         });
 
-        it('opens a third column while the canvas has two, and no fourth', () => {
+        it('flows left from a panel, and no further than one column beyond it', () => {
             const ring = graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), ppNode()], edges: [frontEdge()] });
             const graph = graphWithExpansion(
                 ring, { focal_object_id: PP_01, nodes: [switchNode()], edges: [rearEdge()] }, REAR_12
             );
             const further = graphWithExpansion(graph, nasExpansion(), SW_GI24);
 
-            expect(ring.reveals.get(PP_01)?.column).toBe(1);
-            expect(graph.reveals.get(SW_01)?.column).toBe(2);
-            expect(further.reveals.get(NAS_01)?.column).toBe(2);
+            expect(ring.reveals.get(PP_01)?.column).toBe(-1);
+            expect(graph.reveals.get(SW_01)?.column).toBe(-2);
+            expect(further.reveals.get(NAS_01)?.column).toBe(-2);
         });
 
-        it('keeps the place of a node already drawn and takes its fresher rows', () => {
+        it('adds no second card for a node already drawn, keeps its place and takes its fresher rows', () => {
             const ring = graphFromRing(mockupRing());
             const fresher = { ...webNode(), title: 'WEB-01 (renamed)' };
             const graph = graphWithExpansion(ring, { focal_object_id: PP_01, nodes: [fresher], edges: [] }, FRONT_12);
 
+            expect(graph.nodes.size).toBe(ring.nodes.size);
             expect(graph.reveals.get(WEB_01)).toBe(ring.reveals.get(WEB_01));
             expect(graph.nodes.get(WEB_01)).toBe(fresher);
         });

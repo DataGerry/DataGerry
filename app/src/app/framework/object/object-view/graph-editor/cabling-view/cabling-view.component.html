@@ -62,6 +62,10 @@
     </div>
   </div>
 
+  <div class="cabling-view__controls" [formGroup]="displayForm">
+    <app-toggle [id]="'cabling-show-free-ports'" controlName="showFreePorts" label="Show free ports"></app-toggle>
+  </div>
+
   @if (store.loadFailed()) {
     <div class="cabling-view__state" role="alert">
       <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>

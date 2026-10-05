@@ -173,6 +173,9 @@ export interface CablingNodeLayout {
     focal: boolean;
     restricted: boolean;
     patchPanel: boolean;
+    column: number;
+    /** On the second sub-column of a wrapped column; its cables pass between the first one's cards. */
+    wrapped: boolean;
     title: string;
     subtitle: string;
     icon: string;

@@ -18,7 +18,6 @@
 import {
     OverviewPort,
     PatchPanelOverviewRow,
-    PortSide,
     StandardOverviewRow
 } from '../../../ports-overview/models/ports-overview.types';
 import {
@@ -29,8 +28,8 @@ import {
     CablingResponse,
     CablingReveal
 } from '../models/cabling.types';
-import { CABLING_MAX_COLUMNS } from '../constants/cabling.constants';
-import { hasCable, isRestrictedNode } from './cabling-format.util';
+import { CABLING_COLUMNS } from '../constants/cabling.constants';
+import { hasCable, isPatchPanelNode, isRestrictedNode } from './cabling-format.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 export const EMPTY_CABLING_GRAPH: CablingGraph = {
@@ -57,44 +56,23 @@ export function nodePorts(node: CablingNode): OverviewPort[] {
 }
 
 
-/**
- * Which column a revealed node goes to, one step beside the node it was reached from.
- *
- * A panel's front faces left and its rear faces right, so a cable on either face decides the side.
- * Two plain ports carry no side: away from the focal object, or the emptier side beside it.
- */
-export function revealColumn(
-    parentColumn: number,
-    parentSide: PortSide | null,
-    ownSide: PortSide | null,
-    leftCount: number,
-    rightCount: number
-): number {
-    if (parentSide === PortSide.FRONT) {
-        return parentColumn - 1;
+/** Panels share one column; anything else flows away from the focal object, never past the outer columns. */
+export function revealColumn(parentColumn: number, patchPanel: boolean): number {
+    if (patchPanel) {
+        return CABLING_COLUMNS.panels;
     }
 
-    if (parentSide === PortSide.REAR) {
-        return parentColumn + 1;
+    if (parentColumn === CABLING_COLUMNS.focal) {
+        return CABLING_COLUMNS.neighbours;
     }
 
-    if (ownSide === PortSide.FRONT) {
-        return parentColumn + 1;
-    }
+    const next = parentColumn + Math.sign(parentColumn);
 
-    if (ownSide === PortSide.REAR) {
-        return parentColumn - 1;
-    }
-
-    if (parentColumn !== 0) {
-        return parentColumn + Math.sign(parentColumn);
-    }
-
-    return leftCount < rightCount ? -1 : 1;
+    return next < CABLING_COLUMNS.first || next > CABLING_COLUMNS.last ? parentColumn : next;
 }
 
 
-/** The first ring: the focal object in the middle, and every object one cable away beside it. */
+/** The first ring: the focal object, and every object one cable away. */
 export function graphFromRing(response: CablingResponse): CablingGraph {
     const focalId = response.focal_object_id;
     const nodes = new Map<number, CablingNode>();
@@ -115,10 +93,10 @@ export function graphFromRing(response: CablingResponse): CablingGraph {
 
     reveals.set(focalId, { parentId: null, parentPortId: null, ownPortId: null, column: 0, generation: 0 });
 
-    nodes.forEach((_node, objectId) => {
+    nodes.forEach((node, objectId) => {
         if (!reveals.has(objectId)) {
             const edge = edgeBetween(edges.values(), focalId, objectId);
-            reveals.set(objectId, revealBeside(reveals, focalId, edge ? endOn(edge, focalId) : null, edge));
+            reveals.set(objectId, revealBeside(reveals, focalId, edge ? endOn(edge, focalId) : null, edge, node));
         }
     });
 
@@ -142,7 +120,7 @@ export function graphWithExpansion(graph: CablingGraph, response: CablingRespons
             ?? edgeBetween(edges.values(), parentId, node.object_id);
         const parentEnd = edge ? endOnPort(edge, portId) ?? endOn(edge, parentId) : null;
 
-        reveals.set(node.object_id, revealBeside(reveals, parentId, parentEnd, edge));
+        reveals.set(node.object_id, revealBeside(reveals, parentId, parentEnd, edge, node));
     });
 
     return { ...graph, nodes, reveals, edges };
@@ -160,32 +138,19 @@ function revealBeside(
     reveals: ReadonlyMap<number, CablingReveal>,
     parentId: number,
     parentEnd: CablingEnd | null,
-    edge: CablingEdge | null | undefined
+    edge: CablingEdge | null | undefined,
+    node: CablingNode
 ): CablingReveal {
     const parent = reveals.get(parentId);
-    const parentColumn = parent?.column ?? 0;
-    const columns = [...reveals.values()].map((reveal) => reveal.column);
     const ownEnd = edge && parentEnd ? otherEnd(edge, parentEnd) : null;
-    const column = revealColumn(
-        parentColumn,
-        parentEnd?.side ?? null,
-        ownEnd?.side ?? null,
-        columns.filter((existing) => existing === parentColumn - 1).length,
-        columns.filter((existing) => existing === parentColumn + 1).length
-    );
 
     return {
         parentId,
         parentPortId: parentEnd?.port_id ?? null,
         ownPortId: ownEnd?.port_id ?? null,
-        column: fitsColumnLimit(columns, column) ? column : parentColumn,
+        column: revealColumn(parent?.column ?? CABLING_COLUMNS.focal, isPatchPanelNode(node)),
         generation: (parent?.generation ?? 0) + 1
     };
-}
-
-
-function fitsColumnLimit(columns: number[], column: number): boolean {
-    return Math.max(column, ...columns) - Math.min(column, ...columns) + 1 <= CABLING_MAX_COLUMNS;
 }
 
 

@@ -17,6 +17,7 @@
 */
 import { hexToRgb, normalizeHexColor, safeCssColor } from 'src/app/core/utils/color-utils';
 
+import { PortDeviceKind } from '../../../ports-overview/models/port-bulk.types';
 import { ResolvedCable } from '../../../ports-overview/models/port-connection.types';
 import { OverviewPort } from '../../../ports-overview/models/ports-overview.types';
 import {
@@ -41,6 +42,12 @@ function joinParts(parts: Array<string | null | undefined>, separator = ' · '):
 
 export function isRestrictedNode(node: CablingNode | null | undefined): node is RestrictedCablingNode {
     return node?.restricted === true;
+}
+
+
+/** A restricted object never reads as a panel: its kind is not known. */
+export function isPatchPanelNode(node: CablingNode | null | undefined): boolean {
+    return !!node && !isRestrictedNode(node) && node.device_kind === PortDeviceKind.PATCH_PANEL;
 }
 
 

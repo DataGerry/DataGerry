@@ -34,13 +34,20 @@ export const CABLING_GEOMETRY = {
         panel: { compact: 320, detail: 400 }
     },
     columnGap: 150,
+    subColumnGap: 60,
     nodeGap: 36,
     curveMin: 40,
     endDotRadius: 4
 } as const;
 
-/** The canvas never grows wider than this; a card that would open another column joins its parent's. */
-export const CABLING_MAX_COLUMNS = 3;
+/** Columns counted from the focal object; every patch panel shares the one on its left. */
+export const CABLING_COLUMNS = { first: -2, panels: -1, focal: 0, neighbours: 1, last: 2 } as const;
+
+/** Past this many cards the neighbours column splits into two sub-columns. */
+export const CABLING_WRAP_AFTER = 6;
+
+/** How far cables bow out beside a card; brackets and hooks on one side nest a step apart. */
+export const CABLING_ROUTING = { bracketReach: 24, bracketStep: 14, hookReach: 24, hookStep: 10 } as const;
 
 /** Rows a card shows before the rest fold under "more ports". */
 export const CABLING_ROW_LIMIT = { compact: 3, detail: 8 } as const;
@@ -67,7 +74,7 @@ export const DEFAULT_DISPLAY_OPTIONS: CablingDisplayOptions = {
     detail: false,
     showCableInfo: true,
     showPorts: true,
-    onlyConnected: false
+    onlyConnected: true
 };
 
 export const RESTRICTED_OBJECT_LABEL = 'Restricted object';

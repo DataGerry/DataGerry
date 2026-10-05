@@ -157,6 +157,19 @@ $inset: 0.75rem;
   }
 }
 
+.cabling-view__controls {
+  position: absolute;
+  top: $inset;
+  left: $inset;
+  display: flex;
+  align-items: center;
+  padding: 0.35rem 0.75rem;
+  background: rgba(255, 255, 255, 0.97);
+  border: 1px solid $panel-border;
+  border-radius: 999px;
+  box-shadow: $panel-shadow;
+}
+
 .cabling-view__hint {
   position: absolute;
   bottom: $inset;
