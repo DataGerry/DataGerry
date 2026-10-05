@@ -17,9 +17,9 @@
 */
 import { hexToRgb, normalizeHexColor, safeCssColor } from 'src/app/core/utils/color-utils';
 
-import { PortDeviceKind } from '../../../ports-overview/models/port-bulk.types';
-import { ResolvedCable } from '../../../ports-overview/models/port-connection.types';
-import { OverviewPort } from '../../../ports-overview/models/ports-overview.types';
+import { PortDeviceKind } from '../../ports-overview/models/port-bulk.types';
+import { ResolvedCable } from '../../ports-overview/models/port-connection.types';
+import { OverviewPort } from '../../ports-overview/models/ports-overview.types';
 import {
     DEFAULT_CABLE_STROKE,
     DEFAULT_NODE_ICON,

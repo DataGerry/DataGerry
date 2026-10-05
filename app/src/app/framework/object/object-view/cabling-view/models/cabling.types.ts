@@ -15,13 +15,13 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { PortDeviceKind } from '../../../ports-overview/models/port-bulk.types';
-import { ResolvedCable } from '../../../ports-overview/models/port-connection.types';
+import { PortDeviceKind } from '../../ports-overview/models/port-bulk.types';
+import { ResolvedCable } from '../../ports-overview/models/port-connection.types';
 import {
     PatchPanelOverviewRow,
     PortSide,
     StandardOverviewRow
-} from '../../../ports-overview/models/ports-overview.types';
+} from '../../ports-overview/models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** How the CI Explorer presents a type; the cabling view reuses it so an object looks the same in both. */

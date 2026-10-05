@@ -15,9 +15,9 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { PortDeviceKind } from '../../../ports-overview/models/port-bulk.types';
-import { CableSource, ResolvedCable } from '../../../ports-overview/models/port-connection.types';
-import { OverviewPort, PortSide } from '../../../ports-overview/models/ports-overview.types';
+import { PortDeviceKind } from '../../ports-overview/models/port-bulk.types';
+import { CableSource, ResolvedCable } from '../../ports-overview/models/port-connection.types';
+import { OverviewPort, PortSide } from '../../ports-overview/models/ports-overview.types';
 import {
     CablingEdge,
     CablingEnd,

@@ -19,7 +19,7 @@ import {
     PatchPanelOverviewRow,
     PortSide,
     StandardOverviewRow
-} from '../../../ports-overview/models/ports-overview.types';
+} from '../../ports-overview/models/ports-overview.types';
 import {
     CABLING_COLUMNS,
     CABLING_GEOMETRY,

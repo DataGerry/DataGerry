@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { EDGE_STYLES } from '../../constants/graph.constants';
+import { EDGE_STYLES } from '../../graph-editor/constants/graph.constants';
 import { CablingDisplayOptions } from '../models/cabling.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 

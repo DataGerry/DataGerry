@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { PortSide } from '../../../ports-overview/models/ports-overview.types';
+import { PortSide } from '../../ports-overview/models/ports-overview.types';
 import { CABLING_GEOMETRY, DEFAULT_DISPLAY_OPTIONS } from '../constants/cabling.constants';
 import {
     CablingDisplayOptions,
