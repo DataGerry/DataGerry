@@ -34,8 +34,44 @@ $radius: 0.75rem;
   }
 }
 
+// The crown overhangs the corner, so the focal card rounds its own sections instead of clipping.
 :host(.cabling-node--focal) {
+  overflow: visible;
   box-shadow: 0 0 0 2px $primary, 0 0 0 6px rgba($primary, 0.12), $card-shadow;
+
+  .cabling-node__header {
+    border-radius: $radius $radius 0 0;
+
+    &:last-child {
+      border-radius: $radius;
+    }
+  }
+
+  .cabling-node__body {
+    overflow: hidden;
+    border-radius: 0 0 $radius $radius;
+  }
+}
+
+.cabling-node__crown {
+  position: absolute;
+  top: -0.7rem;
+  right: -0.7rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: 50%;
+  background: $brand-text;
+  box-shadow: 0 0 0 2px #fff, 0 4px 10px -3px rgba($brand-text, 0.6);
+  color: #fff;
+  font-size: 0.7rem;
+  pointer-events: none;
+
+  i {
+    margin: 0;
+  }
 }
 
 :host(.cabling-node--restricted) {

@@ -39,6 +39,7 @@ import {
     CABLING_ZOOM,
     DEFAULT_DISPLAY_OPTIONS
 } from './constants/cabling.constants';
+import { CablingGesture, CablingSize, CablingViewport } from './models/cabling-viewport.types';
 import { CablingDisplayOptions, CablingNodeLayout, CablingPoint } from './models/cabling.types';
 import { CablingViewStore } from './services/cabling-view.store';
 import {
@@ -48,8 +49,6 @@ import {
     offsetCablingNodes
 } from './utils/cabling-layout.util';
 import {
-    CablingSize,
-    CablingViewport,
     centerViewport,
     containsBounds,
     fitViewport,
@@ -67,16 +66,6 @@ const WHEEL_LINE_HEIGHT = 16;
 
 /** Screen pixels a press may travel and still count as a click. */
 const DRAG_THRESHOLD = 4;
-
-interface Gesture {
-    kind: 'pan' | 'node';
-    pointerId: number;
-    objectId: number | null;
-    startX: number;
-    startY: number;
-    origin: CablingPoint;
-    moved: boolean;
-}
 
 
 /**
@@ -150,7 +139,7 @@ export class CablingViewComponent {
 
     /** Not named `viewport`: a template reference of that name would shadow the signal in the template. */
     private readonly viewportRef = viewChild.required<ElementRef<HTMLElement>>('canvasFrame');
-    private gesture: Gesture | null = null;
+    private gesture: CablingGesture | null = null;
 
     /** Set when a press ended as a pan or a drag, so the click that follows it selects nothing. */
     private gestureMoved = false;

@@ -16,22 +16,9 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { CABLING_FIT_INSETS, CABLING_ZOOM } from '../constants/cabling.constants';
+import { CablingSize, CablingViewport } from '../models/cabling-viewport.types';
 import { CablingBounds, CablingPoint } from '../models/cabling.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-/** Pan in screen pixels, zoom as a factor; a canvas point p lands on screen at p * zoom + pan. */
-export interface CablingViewport {
-    x: number;
-    y: number;
-    zoom: number;
-}
-
-
-export interface CablingSize {
-    width: number;
-    height: number;
-}
-
 
 export function clampZoom(zoom: number): number {
     return Math.min(CABLING_ZOOM.max, Math.max(CABLING_ZOOM.min, zoom));

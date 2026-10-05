@@ -9,6 +9,8 @@ $ink-muted: #6b7280;
 $panel-border: #e9ecef;
 $panel-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $inset: 0.75rem;
+$brand-text: #c2410c;
+$toolbar-height: 48px;
 
 :host {
   display: block;
@@ -22,9 +24,47 @@ $inset: 0.75rem;
   background: $canvas;
 }
 
+.cabling-view__toolbar {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  box-sizing: border-box;
+  height: $toolbar-height;
+  padding: 0 $inset;
+  background: #fff;
+  border-bottom: 1px solid $panel-border;
+  box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.35);
+}
+
+.cabling-view__toolbar-group {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.cabling-view__zoom {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: #f8fafc;
+  border: 1px solid $panel-border;
+  border-radius: 0.6rem;
+}
+
+.cabling-view__toolbar-divider {
+  width: 1px;
+  height: 1.25rem;
+  background: $panel-border;
+}
+
 .cabling-view__viewport {
   position: absolute;
-  inset: 0;
+  inset: $toolbar-height 0 0;
   overflow: hidden;
   cursor: grab;
   touch-action: none;
@@ -32,7 +72,7 @@ $inset: 0.75rem;
   outline: 0;
 
   // Painted on the frame, not the transformed canvas, so the texture never pans or zooms.
-  // background-image: radial-gradient(circle at center, $grid-dot 0 1.2px, transparent 1.3px);
+  background-image: radial-gradient(circle at center, $grid-dot 0 1.2px, transparent 1.3px);
   background-size: $grid-step $grid-step;
 
   &.is-panning {
@@ -157,19 +197,6 @@ $inset: 0.75rem;
   }
 }
 
-.cabling-view__controls {
-  position: absolute;
-  top: $inset;
-  left: $inset;
-  display: flex;
-  align-items: center;
-  padding: 0.35rem 0.75rem;
-  background: rgba(255, 255, 255, 0.97);
-  border: 1px solid $panel-border;
-  border-radius: 999px;
-  box-shadow: $panel-shadow;
-}
-
 .cabling-view__hint {
   position: absolute;
   bottom: $inset;
@@ -183,4 +210,35 @@ $inset: 0.75rem;
   box-shadow: $panel-shadow;
   color: $ink-muted;
   font-size: 0.85rem;
+}
+
+// app-button renders its own <button>, so the tool look has to cross that component's encapsulation.
+:host ::ng-deep .cabling-view__tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  border: 0;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: $ink-label;
+  font-size: 0.85rem;
+  line-height: 1;
+  transition: background 150ms ease, color 150ms ease;
+
+  &:hover {
+    background: rgba($primary, 0.08);
+    color: $brand-text;
+  }
+
+  &:focus-visible {
+    outline: 0;
+    box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+  }
+
+  i {
+    margin: 0;
+  }
 }

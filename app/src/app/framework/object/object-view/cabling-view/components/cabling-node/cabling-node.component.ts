@@ -80,7 +80,9 @@ export class CablingNodeComponent {
 
         return layout.restricted
             ? layout.title
-            : [layout.title, layout.subtitle, this.portCountLabel()].filter(Boolean).join(', ');
+            : [layout.title, layout.subtitle, this.portCountLabel(), layout.focal ? 'this object' : null]
+                .filter(Boolean)
+                .join(', ');
     });
 
     protected readonly footerLabel = computed(() => {

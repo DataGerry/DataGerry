@@ -1,4 +1,39 @@
 <div class="cabling-view">
+  <div class="cabling-view__toolbar" role="toolbar" aria-label="Cabling tools">
+    <div class="cabling-view__toolbar-group" [formGroup]="displayForm">
+      <app-toggle [id]="'cabling-show-free-ports'" controlName="showFreePorts" label="Show free ports"></app-toggle>
+    </div>
+
+    <div class="cabling-view__toolbar-group">
+      <div class="cabling-view__zoom" role="group" aria-label="Zoom">
+        <app-button
+          label=""
+          icon="fas fa-magnifying-glass-minus"
+          bootstrapClass="cabling-view__tool"
+          ariaLabel="Zoom out"
+          title="Zoom out">
+        </app-button>
+        <app-button
+          label=""
+          icon="fas fa-magnifying-glass-plus"
+          bootstrapClass="cabling-view__tool"
+          ariaLabel="Zoom in"
+          title="Zoom in">
+        </app-button>
+      </div>
+
+      <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
+
+      <app-button
+        label=""
+        icon="fas fa-expand"
+        bootstrapClass="cabling-view__tool"
+        ariaLabel="Full screen"
+        title="Full screen">
+      </app-button>
+    </div>
+  </div>
+
   <div
     #canvasFrame
     class="cabling-view__viewport"
@@ -60,10 +95,6 @@
         </svg>
       }
     </div>
-  </div>
-
-  <div class="cabling-view__controls" [formGroup]="displayForm">
-    <app-toggle [id]="'cabling-show-free-ports'" controlName="showFreePorts" label="Show free ports"></app-toggle>
   </div>
 
   @if (store.loadFailed()) {

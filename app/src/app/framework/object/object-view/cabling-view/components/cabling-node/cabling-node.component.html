@@ -1,3 +1,9 @@
+@if (layout().focal) {
+  <span class="cabling-node__crown" aria-hidden="true">
+    <i class="fas fa-crown"></i>
+  </span>
+}
+
 <div class="cabling-node__header" [style.height.px]="geometry.headerHeight">
   <span class="cabling-node__chip" aria-hidden="true">
     <i [class]="layout().icon"></i>

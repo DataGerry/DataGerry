@@ -55,13 +55,8 @@ import {
     webNode
 } from '../testing/cabling-fixtures';
 import { graphFromRing, graphWithExpansion } from './cabling-graph.util';
-import {
-    anchorOffset,
-    cablingBounds,
-    layoutCablingEdges,
-    layoutCablingNodes,
-    offsetCablingNodes
-} from './cabling-layout.util';
+import { cablingBounds, layoutCablingEdges, layoutCablingNodes, offsetCablingNodes } from './cabling-layout.util';
+import { anchorOffset } from './cabling-node-frame.util';
 
 describe('cabling-layout.util', () => {
     const SW_GI1 = 8820;
