@@ -21,10 +21,12 @@ get_symmetric_aes_key: cloud+local (app key), cloud non-local (env key + the mis
 and on-premise generate-on-absence (with a stubbed settings manager so the shared DB key is untouched).
 """
 import base64
+from unittest.mock import patch
 
 import pytest
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
+from cmdb.manager import security_manager as security_manager_module
 from cmdb.manager.security_manager import SecurityManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -102,22 +104,23 @@ class TestGenerateSymmetricAesKey:
         written: dict = {}
 
         monkeypatch.setattr(
-            security_manager.settings_manager, 'write',
-            lambda section, data: written.update({'section': section, 'data': data}),
+            security_manager_module, 'write_security_setting',
+            lambda dbm, database, values: written.update({'dbm': dbm, 'database': database, 'values': values}),
         )
 
         security_manager.generate_symmetric_aes_key()
 
-        assert written['section'] == 'security'
-        assert len(written['data']['symmetric_aes_key']) == 32
+        assert written['dbm'] is security_manager.dbm
+        assert written['database'] == security_manager.database
+        assert len(written['values']['symmetric_aes_key']) == 32
 
     def test_each_call_mints_a_different_key(self, security_manager: SecurityManager, monkeypatch) -> None:
         """A deterministic 'random' key would make every installation's secrets interchangeable"""
         keys: list[bytes] = []
 
         monkeypatch.setattr(
-            security_manager.settings_manager, 'write',
-            lambda _section, data: keys.append(data['symmetric_aes_key']),
+            security_manager_module, 'write_security_setting',
+            lambda _dbm, _database, values: keys.append(values['symmetric_aes_key']),
         )
 
         security_manager.generate_symmetric_aes_key()
@@ -127,14 +130,15 @@ class TestGenerateSymmetricAesKey:
 
 
 class TestGetSymmetricAesKeyOnPremise:
-    """get_symmetric_aes_key on-premise generate-on-absence branch (settings manager stubbed)."""
+    """get_symmetric_aes_key on-premise generate-on-absence branch (the security-document read stubbed)."""
 
     def test_generates_when_absent(self, security_manager: SecurityManager, monkeypatch) -> None:
         """A missing stored key triggers generation, then the freshly stored key is returned."""
         values = [None, b'freshly-generated-key']
         generated = {'count': 0}
 
-        monkeypatch.setattr(security_manager.settings_manager, 'get_value', lambda name, section: values.pop(0))
+        monkeypatch.setattr(security_manager_module, 'read_security_setting',
+                            lambda _dbm, _database, key: values.pop(0))
         monkeypatch.setattr(security_manager, 'generate_symmetric_aes_key',
                             lambda: generated.__setitem__('count', generated['count'] + 1))
 
@@ -145,3 +149,30 @@ class TestGetSymmetricAesKeyOnPremise:
             assert security_manager.get_symmetric_aes_key() == b'freshly-generated-key'
 
         assert generated['count'] == 1
+
+
+class TestNoManagerIsHeld:
+    """The security document is read and written through security_settings; no SettingsManager is held"""
+
+    def test_it_builds_and_holds_no_settings_manager(self, database_manager) -> None:
+        """Constructing one never builds a SettingsManager"""
+        with patch('cmdb.manager.system_manager.settings_manager.SettingsManager') as settings_cls:
+            manager = SecurityManager(database_manager, 'tenant_db')
+
+        settings_cls.assert_not_called()
+        assert not hasattr(manager, 'settings_manager')
+        assert manager.dbm is database_manager
+        assert manager.database == 'tenant_db'
+
+    def test_the_stored_key_is_read_from_its_own_database(self, database_manager, monkeypatch) -> None:
+        """The database argument reaches the read - on premise it names the one database"""
+        reads: list = []
+        monkeypatch.setattr(security_manager_module, 'read_security_setting',
+                            lambda dbm, database, key: reads.append((database, key)) or b'stored')
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+
+        with app.app_context():
+            assert SecurityManager(database_manager, 'tenant_db').get_symmetric_aes_key() == b'stored'
+
+        assert reads == [('tenant_db', 'symmetric_aes_key')]

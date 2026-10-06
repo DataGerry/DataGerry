@@ -782,6 +782,27 @@ def test_aggregate_objects_wraps_iteration_error() -> None:
         ObjectsManager.aggregate_objects(mock_self, [])
 
 
+def test_aggregate_objects_within_time_limit_reads_under_the_budget() -> None:
+    """The pipeline and the budget reach the base method; its rows are the answer"""
+    mock_self = MagicMock()
+    mock_self.aggregate_within_time_limit.return_value = [{'public_id': 1}]
+
+    assert ObjectsManager.aggregate_objects_within_time_limit(mock_self, ['PIPE'], 4321) == [{'public_id': 1}]
+    mock_self.aggregate_within_time_limit.assert_called_once_with(['PIPE'], 4321)
+
+
+def test_aggregate_objects_within_time_limit_wraps_iteration_error() -> None:
+    """A BaseManagerIterationError surfaces as ObjectsManagerIterationError, the error itself inside"""
+    mock_self = MagicMock()
+    failure = BaseManagerIterationError('boom')
+    mock_self.aggregate_within_time_limit.side_effect = failure
+
+    with pytest.raises(ObjectsManagerIterationError) as exc_info:
+        ObjectsManager.aggregate_objects_within_time_limit(mock_self, [], 4321)
+
+    assert exc_info.value.args[0] is failure
+
+
 def test_set_location_field_for_objects_wraps_unexpected_error() -> None:
     """A failure writing the mirrored location field surfaces as ObjectsManagerUpdateError."""
     mock_self = MagicMock()

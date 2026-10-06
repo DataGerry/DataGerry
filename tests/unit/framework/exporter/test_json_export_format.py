@@ -63,6 +63,21 @@ class TestJsonExport:
         assert set(out[0]) == {'public_id', 'fields'}
         assert out[0]['fields'] == [{'name': 'dg-name', 'value': 'host-1'}]
 
+    def test_render_metadata_without_columns_keeps_every_field(self) -> None:
+        """A metadata override leaving `columns` out selects the default columns, not none at all."""
+        metadata = json.dumps({'header': ['public_id']})
+        out = _export([_obj(10)], {'view': 'render', 'metadata': metadata})
+
+        assert set(out[0]) == {'public_id', 'fields'}
+        assert out[0]['fields'] == [{'name': 'dg-name', 'value': 'host-1'}]
+
+    def test_render_metadata_with_empty_columns_exports_no_field(self) -> None:
+        """An empty `columns` list is a selection of its own: no field at all."""
+        metadata = json.dumps({'header': ['public_id'], 'columns': []})
+        out = _export([_obj(10)], {'view': 'render', 'metadata': metadata})
+
+        assert out[0]['fields'] == []
+
     def test_render_metadata_multiple_objects_does_not_crash(self) -> None:
         """Regression: a multi-object render export with metadata must not re-parse metadata per object."""
         metadata = json.dumps({'header': ['public_id'], 'columns': ['dg-name']})

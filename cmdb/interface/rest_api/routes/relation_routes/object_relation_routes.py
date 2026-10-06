@@ -62,7 +62,13 @@ from cmdb.framework.results import IterationResult
 
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -74,7 +80,7 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
-from cmdb.interface.rest_api.routes.routes_helper import normalize_public_id_list, request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     DEFAULT_TAB_PAGE_SIZE,
     MAX_TAB_PAGE_SIZE,
@@ -82,7 +88,8 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     ObjectRelationRight,
     ObjectRelationTabParam,
     TabInstancesKey,
-    BulkDeleteKey,
+    OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE,
+    OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE,
     OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
@@ -93,9 +100,11 @@ from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     log_object_relation_change,
     log_object_relation_update,
     log_object_relation_deletions,
+    read_bulk_delete_selection,
+    delete_object_relations,
 )
 
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerInsertError,
     ObjectRelationsManagerGetError,
@@ -258,6 +267,7 @@ def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUs
 
         return api_response.make_response()
     except ObjectRelationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_relations] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the ObjectRelations from database!")
 
@@ -293,6 +303,7 @@ def get_cmdb_object_relation_tabs(object_id: int, request_user: CmdbUser) -> Res
 
         return DefaultResponse({TabInstancesKey.RESULTS.value: tabs}).make_response()
     except ObjectRelationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_relation_tabs] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the ObjectRelation tabs from database!")
 
@@ -346,6 +357,7 @@ def get_cmdb_object_relation_tab_instances(object_id: int, request_user: CmdbUse
             TabInstancesKey.RESULTS.value: results,
         }).make_response()
     except ObjectRelationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_relation_tab_instances] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the ObjectRelation tab instances from database!")
 
@@ -481,17 +493,23 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Respo
     """
     HTTP `DELETE` route to delete a single CmdbObjectRelation
 
+    The relation is read first (its history entry and the response need the document), and the delete has
+    to remove it: when another request deleted it in between, this one answers 404 and logs nothing, so a
+    deletion is recorded once, by the request that performed it
+
     Args:
         public_id (int): public_id of the CmdbObjectRelation which should be deleted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 404 if no such CmdbObjectRelation exists, 400 if the read or the delete fails,
-                       500 on an unexpected error
+        HTTPException: 404 if no such CmdbObjectRelation exists (or it was deleted concurrently), 400 if the
+                       read or the delete fails, 500 on an unexpected error
 
     Returns:
         DeleteSingleResponse: The deleted CmdbObjectRelation data
     """
+    not_found_message: str = f"The ObjectRelation with ID: {public_id} was not found!"
+
     try:
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
             ManagerType.OBJECT_RELATIONS, request_user)
@@ -501,9 +519,10 @@ def delete_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Respo
         to_delete_object_relation = object_relations_manager.get_object_relation(public_id)
 
         if not to_delete_object_relation:
-            abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
+            abort(404, not_found_message)
 
-        object_relations_manager.delete_object_relation(public_id)
+        if not object_relations_manager.delete_object_relation(public_id):
+            abort(404, not_found_message)
 
         log_object_relation_change(
             object_relation_logs_manager, request_user, LogInteraction.DELETE, to_delete_object_relation, None,
@@ -527,51 +546,47 @@ def delete_many_object_relations(request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to delete multiple CmdbObjectRelations at once
 
-    The CmdbObjectRelations are read before they are deleted because their history entries need the
-    stored documents. public_ids that match nothing are ignored; only an entirely unknown selection is
-    reported
+    The body is ``{'target_ids': [<public_id>, ...]}`` - numbers or digit strings, at most
+    MAX_BULK_DELETE_OBJECT_RELATIONS distinct ids (see ``read_bulk_delete_selection``). Every id is deleted by
+    its own atomic read-and-delete (``delete_object_relations``), and one DELETE log is written per document
+    that call removed: a relation another request deleted in the meantime is neither deleted nor logged here.
+    public_ids that match nothing are ignored; only a selection of which nothing was deleted is reported.
+
+    A delete that fails part-way answers 400 naming how many were deleted before it; those are logged too
 
     Args:
         request_user (CmdbUser): CmdbUser which is using this route
 
     Raises:
-        HTTPException: 400 if no usable public_ids were provided, none of them exist or the delete
-                       fails, 500 on an unexpected error
+        HTTPException: 400 if the body is no object, no usable public_ids were provided, too many were, none
+                       of them was deleted, or a delete fails; 500 on an unexpected error
 
     Returns:
         DefaultResponse: True when the matched CmdbObjectRelations were deleted
     """
+    deleted: list[dict[str, Any]] = []
+
     try:
-        data: dict[str, Any] = request.get_json()
-        target_ids: list[Any] | None = data.get(BulkDeleteKey.TARGET_IDS.value)
-
-        if not target_ids:
-            abort(400, "No public_ids provided of ObjectRelations which should be deleted!")
-
-        normalized_ids: list[int] = normalize_public_id_list(target_ids)
+        selection: list[int] = read_bulk_delete_selection(request.get_json())
 
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
             ManagerType.OBJECT_RELATIONS, request_user)
         object_relation_logs_manager: ObjectRelationLogsManager = ManagerProvider.get_manager(
             ManagerType.OBJECT_RELATION_LOGS, request_user)
 
-        selection = {ObjectRelationKey.PUBLIC_ID.value: {"$in": normalized_ids}}
+        try:
+            delete_object_relations(object_relations_manager, selection, deleted)
+        finally:
+            # Also after a failure part-way: what was deleted before it is history all the same
+            log_object_relation_deletions(object_relation_logs_manager, request_user, deleted)
 
-        # Retrieve all ObjectRelations which should be deleted
-        to_delete_object_relations: list[dict[str, Any]] = object_relations_manager.find(criteria=selection)
-
-        if not to_delete_object_relations:
-            abort(400, "No ObjectRelations exist with these IDs!")
-
-        # Delete all ObjectRelations with the provided target_ids
-        object_relations_manager.delete_many(selection)
-
-        log_object_relation_deletions(object_relation_logs_manager, request_user, to_delete_object_relations)
+        if not deleted:
+            abort(400, OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE)
 
         return DefaultResponse(True).make_response()
-    except ObjectRelationsManagerDeleteError as err:
+    except BaseManagerDeleteError as err:
         LOGGER.error("[delete_many_object_relations] %s", err, exc_info=True)
-        abort(400, "Failed to delete the ObjectRelations!")
+        abort(400, OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE.format(deleted=len(deleted)))
 
 # -------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------ #
 

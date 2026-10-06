@@ -118,6 +118,7 @@ class CmdbType(CmdbDAO):
         selectable_as_parent: bool = True,
         uses_ports: bool = False,
         port_section_index: int = DEFAULT_PORT_SECTION_INDEX,
+        alignment_pending: bool = False,
         global_template_ids: list[str] | None = None,
         fields: list[dict[str, Any]] | None = None,
         version: str | None = None,
@@ -151,6 +152,9 @@ class CmdbType(CmdbDAO):
                                         ports section - 0 puts it first, 1 second, and so on. Only
                                         read while `uses_ports` is true; the write paths force it back
                                         to DEFAULT_PORT_SECTION_INDEX whenever the flag is off
+            alignment_pending (bool): True while a saved update of this CmdbType has not yet been applied to
+                                        its objects, locations and reports - server-owned; the next save of
+                                        the type finishes the work. Defaults to False
             global_template_ids (list[str]): Names of the global CmdbSectionTemplates used by this
                                                 CmdbType (the name is also the render_meta section name)
             fields (list): A list of fields associated with the CmdbType
@@ -172,6 +176,7 @@ class CmdbType(CmdbDAO):
             self.selectable_as_parent: bool = selectable_as_parent
             self.uses_ports: bool = uses_ports
             self.port_section_index: int = port_section_index
+            self.alignment_pending: bool = alignment_pending
             self.global_template_ids: list[str] = global_template_ids or []
             self.active: bool = active
             self.special_type: str | None = special_type
@@ -223,6 +228,7 @@ class CmdbType(CmdbDAO):
                 uses_ports=data.get(TypeSchemaKey.USES_PORTS.value, False),
                 port_section_index=data.get(TypeSchemaKey.PORT_SECTION_INDEX.value,
                                             DEFAULT_PORT_SECTION_INDEX),
+                alignment_pending=data.get(TypeSchemaKey.ALIGNMENT_PENDING.value, False),
                 global_template_ids=data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value, []),
                 active=data.get(TypeSchemaKey.ACTIVE.value, True),
                 special_type=data.get(TypeSchemaKey.SPECIAL_TYPE.value),
@@ -264,6 +270,7 @@ class CmdbType(CmdbDAO):
                 TypeSchemaKey.SELECTABLE_AS_PARENT.value: instance.selectable_as_parent,
                 TypeSchemaKey.USES_PORTS.value: instance.uses_ports,
                 TypeSchemaKey.PORT_SECTION_INDEX.value: instance.port_section_index,
+                TypeSchemaKey.ALIGNMENT_PENDING.value: instance.alignment_pending,
                 TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: instance.global_template_ids,
                 TypeSchemaKey.ACTIVE.value: instance.active,
                 TypeSchemaKey.SPECIAL_TYPE.value: instance.special_type,

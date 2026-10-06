@@ -102,6 +102,8 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     validate_shape_or_abort,
 )
 from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.security.acl.builder import resolve_denied_type_ids
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -324,6 +326,9 @@ def get_rack_overview(rack_id: int, request_user: CmdbUser) -> Response:
     the same whether it holds one object or forty - the legend is tallied from the same batch the rows
     are projected from, not read separately
 
+    A member the caller may not READ keeps its row - its slots are occupied - but is drawn blank: no
+    summary line and no type label, icon or colour (``mask_unreadable_members``)
+
     Which slots are free is deliberately not part of the answer: the frontend draws the rack from the
     buckets, so an unoccupied slot is visible without being told, and whether a specific placement is
     actually allowed is answered by POST /racks/<rack_id>/mounts/validate - which runs the very checks
@@ -351,6 +356,7 @@ def get_rack_overview(rack_id: int, request_user: CmdbUser) -> Response:
 
         summary_lines, type_meta, object_types = resolve_mounted_object_meta(
             objects_manager, types_manager, mounts,
+            resolve_denied_type_ids(request_user, AccessControlPermission.READ),
         )
 
         overview: dict[str, Any] = build_rack_overview(
@@ -381,7 +387,8 @@ def get_rack_height_conflicts(rack_id: int, request_user: CmdbUser) -> Response:
     The pre-check behind "these 3 objects no longer fit": a frontend calls it with the candidate height
     before saving so the user can confirm. Writes nothing - lowering the height is what actually unplaces
     the reported mounts, and it does so whether or not this route was called, so an API client that skips
-    it still ends up consistent
+    it still ends up consistent. A displaced member the caller may not READ is reported blank, as in the
+    overview
 
     Args:
         rack_id (int): public_id of the Rack
@@ -408,6 +415,7 @@ def get_rack_height_conflicts(rack_id: int, request_user: CmdbUser) -> Response:
 
         summary_lines, type_meta, object_types = resolve_mounted_object_meta(
             objects_manager, types_manager, conflicts,
+            resolve_denied_type_ids(request_user, AccessControlPermission.READ),
         )
 
         return DefaultResponse({
@@ -471,6 +479,9 @@ def update_rack_mount(rack_id: int, mount_id: int, request_user: CmdbUser) -> Re
     touching its geometry. Setting the area to UNASSIGNED unplaces the object: its slots are freed and
     it stays a member of the Rack, with its height kept as a hint for re-placing it. The mount being
     changed is excluded from its own overlap check, so re-slotting does not collide with where it is
+
+    A side list and the unassigned bucket are ordered by `position`, and naming one is how a row is
+    reordered. A move into another of those areas without a position appends the row to its end
 
     Args:
         rack_id (int): public_id of the Rack owning the mount

@@ -28,7 +28,7 @@ from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
-from werkzeug.exceptions import HTTPException
+from werkzeug.exceptions import BadRequest, HTTPException
 
 from cmdb.models.type_model import (
     DEFAULT_PORT_SECTION_INDEX,
@@ -42,8 +42,10 @@ from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKe
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates
+from cmdb.errors.database import DocumentTooLargeError
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
-from cmdb.errors.manager.types_manager import TypesManagerUpdateMDSError
+from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
+from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerUpdateMDSError
 from cmdb.models.location_model.location_constants import LocationKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_helper
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_reference_section_helper
@@ -52,6 +54,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     TypeUserDataKey,
     ReferencedSectionUsageKey,
     UsesPortsUsageKey,
+    TypeAlignmentStep,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     describe_identifier_swap,
@@ -69,7 +72,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     selectable_as_parent_change_blocker,
     build_location_usage_payload,
     compute_removed_global_templates,
-    apply_removed_global_template_cleanup,
+    strip_removed_global_templates,
+    run_alignment_step,
+    realign_type_object_fields,
+    clean_type_reports_after_update,
+    undeclared_report_field_names,
+    align_type_mds,
     build_types_overview_items,
     realign_type_objects_if_fields_changed,
     apply_type_update_side_effects,
@@ -300,25 +308,57 @@ def test_compute_removed_global_templates_snapshots_present_sections() -> None:
     assert hints == {'t1': (['a', 'b'], SectionType.MDS_SECTION.value)}
 
 
-# ------------------------------------------------- apply_removed_global_template_cleanup ---------------------------- #
+# ------------------------------------------------- strip_removed_global_templates ----------------------------------- #
 
-def test_apply_removed_global_template_cleanup_uses_hints_with_fallback() -> None:
-    """Each removed template is cleaned with its snapshotted hint, or (None, None) when absent."""
-    manager = MagicMock()
-    hints: dict[str, tuple[list[str], str]] = {'t1': (['a'], SectionType.MDS_SECTION.value)}
-
-    apply_removed_global_template_cleanup(manager, 42, {'t1', 't2'}, hints)
-
-    manager.cleanup_global_section_from_type.assert_any_call(
-        42, 't1', expected_field_names=['a'], expected_section_type=SectionType.MDS_SECTION.value,
-    )
-    manager.cleanup_global_section_from_type.assert_any_call(
-        42, 't2', expected_field_names=None, expected_section_type=None,
-    )
-    assert manager.cleanup_global_section_from_type.call_count == 2
+def _templated_document() -> dict[str, Any]:
+    """A type document carrying a global template 'tpl' (section + two fields) beside its own field 'own'."""
+    return {
+        TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: ['tpl', 'kept'],
+        TypeSchemaKey.FIELDS.value: [{'name': 'own'}, {'name': 'tpl-a'}, {'name': 'tpl-b'}],
+        TypeSchemaKey.RENDER_META.value: {
+            TypeSchemaKey.SECTIONS.value: [{'name': 'main', 'fields': ['own']}, {'name': 'tpl', 'fields': ['tpl-a']}],
+            TypeSchemaKey.SUMMARY.value: {TypeSchemaKey.FIELDS.value: ['own', 'tpl-a']},
+        },
+    }
 
 
-# ------------------------------------------------- build_types_overview_items --------------------------------------- #
+def test_strip_removed_global_templates_takes_the_template_out_of_the_document() -> None:
+    """Its name, its section, its fields and their summary entries go - from the document that is written"""
+    document = _templated_document()
+    removed = ({'tpl'}, {'tpl': (['tpl-a', 'tpl-b'], SectionType.SECTION.value)})
+
+    cleaned = strip_removed_global_templates(document, removed)
+
+    assert cleaned[TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value] == ['kept']
+    assert [field['name'] for field in cleaned[TypeSchemaKey.FIELDS.value]] == ['own']
+    render_meta = cleaned[TypeSchemaKey.RENDER_META.value]
+    assert [section['name'] for section in render_meta[TypeSchemaKey.SECTIONS.value]] == ['main']
+    assert render_meta[TypeSchemaKey.SUMMARY.value][TypeSchemaKey.FIELDS.value] == ['own']
+
+
+def test_strip_removed_global_templates_leaves_the_input_untouched() -> None:
+    """A new document; the caller's is not modified"""
+    document = _templated_document()
+
+    strip_removed_global_templates(document, ({'tpl'}, {'tpl': (['tpl-a'], SectionType.SECTION.value)}))
+
+    assert document == _templated_document()
+
+
+def test_strip_removed_global_templates_with_nothing_removed_is_the_same_document() -> None:
+    """No copy, no change"""
+    document = _templated_document()
+
+    assert strip_removed_global_templates(document, (set(), {})) is document
+
+
+def test_strip_removed_global_templates_without_a_hint_still_drops_the_claim_and_section() -> None:
+    """A template whose section was already gone contributes no field names, but its claim goes"""
+    cleaned = strip_removed_global_templates(_templated_document(), ({'tpl'}, {}))
+
+    assert cleaned[TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value] == ['kept']
+    assert len(cleaned[TypeSchemaKey.FIELDS.value]) == 3
+
 
 def _type_doc(public_id: int, field_names: list[str]) -> dict[str, Any]:
     """Builds a CmdbType document with the given field names."""
@@ -360,13 +400,11 @@ def test_realign_skips_when_field_names_unchanged() -> None:
     updated_type = _type_with_field_names(1, ['a', 'b'])
 
     with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get, \
-         patch(f'{PATH}.realign_objects_to_type') as mock_realign, \
-         patch(f'{PATH}.clean_type_reports') as mock_reports:
+         patch(f'{PATH}.align_objects_to_type') as mock_align:
         realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
 
     mock_get.assert_not_called()
-    mock_realign.assert_not_called()
-    mock_reports.assert_not_called()
+    mock_align.assert_not_called()
 
 
 @pytest.mark.parametrize('old_names, new_names', [
@@ -377,53 +415,233 @@ def test_realign_runs_when_field_set_changed(old_names: list[str], new_names: li
     """Adding or removing a field name reconciles the type's objects and reports."""
     old_type = _type_with_field_names(1, old_names)
     updated_type = _type_with_field_names(1, new_names)
+    reports_manager = MagicMock(name='reports_manager')
 
-    with patch(f'{PATH}.ManagerProvider.get_manager'), \
-         patch(f'{PATH}.realign_objects_to_type') as mock_realign, \
-         patch(f'{PATH}.clean_type_reports') as mock_reports:
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=reports_manager), \
+         patch(f'{PATH}.align_objects_to_type') as mock_align:
         realign_type_objects_if_fields_changed(MagicMock(), old_type, updated_type)
 
-    mock_realign.assert_called_once()
-    # The reports lose exactly the names the edit removed - read off the two type states
-    assert mock_reports.call_args.args[2] == set(old_names) - set(new_names)
+    mock_align.assert_called_once()
+    removed: set[str] = set(old_names) - set(new_names)
+
+    if removed:
+        # The reports lose exactly the names the edit removed - read off the two type states
+        assert reports_manager.strip_removed_fields_from_reports.call_args.args[1] == removed
+    else:
+        # An edit that only added fields leaves the reports alone, and does not even read them
+        reports_manager.strip_removed_fields_from_reports.assert_not_called()
+
+
+def test_a_forced_realign_runs_although_the_names_are_unchanged() -> None:
+    """alignment_pending: what the failed save changed is not known any more, so the objects are re-aligned"""
+    same = _type_with_field_names(1, ['a'])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager'), patch(f'{PATH}.align_objects_to_type') as mock_align:
+        realign_type_object_fields(MagicMock(), same, same, force=True)
+
+    mock_align.assert_called_once()
+
+
+def test_a_forced_report_cleanup_strips_every_undeclared_name() -> None:
+    """The names the reports still reference that the type no longer declares - not the object's own keys"""
+    same = _type_with_field_names(1, ['a'])
+    manager = MagicMock(name='manager')
+    manager.get_many_from_other_collection.return_value = [{'report': 1}]
+    report = MagicMock(name='report')
+    report.referenced_field_names.return_value = {'a', 'gone', CmdbObjectKey.PUBLIC_ID.value}
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=manager), \
+         patch(f'{PATH}.CmdbReport.from_data', return_value=report):
+        clean_type_reports_after_update(MagicMock(), same, same, force=True)
+
+    assert manager.strip_removed_fields_from_reports.call_args.args[1] == {'gone'}
+
+
+def test_an_unforced_report_cleanup_with_nothing_removed_reads_nothing() -> None:
+    """A metadata edit costs no report read"""
+    same = _type_with_field_names(1, ['a'])
+
+    with patch(f'{PATH}.ManagerProvider.get_manager') as mock_get:
+        clean_type_reports_after_update(MagicMock(), same, same)
+
+    mock_get.assert_not_called()
+
+
+def test_undeclared_report_field_names_are_the_stale_ones_across_reports() -> None:
+    """Union over the reports, minus the declared names and the object's own keys"""
+    reports = [MagicMock(), MagicMock()]
+    reports[0].referenced_field_names.return_value = {'a', 'x'}
+    reports[1].referenced_field_names.return_value = {'y', CmdbObjectKey.TYPE_ID.value}
+
+    with patch(f'{PATH}.CmdbReport.from_data', side_effect=reports):
+        assert undeclared_report_field_names([{}, {}], _type_with_field_names(1, ['a'])) == {'x', 'y'}
 
 
 # ------------------------------------------------- apply_type_update_side_effects ----------------------------------- #
 
-def test_apply_type_update_side_effects_skips_special_wiring_without_marker() -> None:
-    """A non-special type runs cleanup + location/MDS/field-realign propagation but no special wiring."""
-    updated_type = SimpleNamespace(public_id=7, special_type=None)
+STEP_PATCHES: tuple[str, ...] = (
+    'apply_type_changes_to_locations', 'apply_type_changes_to_mds', 'align_type_mds',
+    'realign_type_object_fields', 'clean_type_reports_after_update',
+)
+
+
+def _run_side_effects(old_type: Any, updated_type: Any, types_manager: Any = None) -> dict[str, MagicMock]:
+    """Runs apply_type_update_side_effects with every step patched; answers the patches by name"""
+    mocks: dict[str, MagicMock] = {}
 
     with patch(f'{PATH}.ManagerProvider.get_manager'), \
-         patch(f'{PATH}.apply_removed_global_template_cleanup') as mock_cleanup, \
          patch(f'{PATH}.handle_special_types') as mock_special, \
-         patch(f'{PATH}.apply_type_changes_to_locations') as mock_locations, \
-         patch(f'{PATH}.apply_type_changes_to_mds') as mock_mds, \
-         patch(f'{PATH}.realign_type_objects_if_fields_changed') as mock_realign, \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
-        apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
+        patches = [patch(f'{PATH}.{name}') for name in STEP_PATCHES]
+        for name, started in zip(STEP_PATCHES, (p.start() for p in patches)):
+            mocks[name] = started
+        try:
+            apply_type_update_side_effects(MagicMock(), types_manager or MagicMock(), old_type, updated_type)
+        finally:
+            for started_patch in patches:
+                started_patch.stop()
+        mocks['handle_special_types'] = mock_special
 
-    mock_cleanup.assert_called_once()
-    mock_locations.assert_called_once()
-    mock_mds.assert_called_once()
-    mock_realign.assert_called_once()
-    mock_special.assert_not_called()
+    return mocks
+
+
+def test_apply_type_update_side_effects_skips_special_wiring_without_marker() -> None:
+    """A non-special type runs location / MDS / field / report alignment but no special wiring."""
+    mocks = _run_side_effects(SimpleNamespace(alignment_pending=False), SimpleNamespace(public_id=7, special_type=None))
+
+    for name in ('apply_type_changes_to_locations', 'apply_type_changes_to_mds', 'realign_type_object_fields',
+                 'clean_type_reports_after_update'):
+        mocks[name].assert_called_once()
+    mocks['handle_special_types'].assert_not_called()
+    mocks['align_type_mds'].assert_not_called()
 
 
 def test_apply_type_update_side_effects_runs_special_wiring_with_marker() -> None:
     """A special type additionally runs the special-type ref_types wiring."""
-    updated_type = SimpleNamespace(public_id=7, special_type='SUBNET')
+    mocks = _run_side_effects(SimpleNamespace(alignment_pending=False),
+                              SimpleNamespace(public_id=7, special_type='SUBNET'))
+
+    mocks['handle_special_types'].assert_called_once()
+
+
+def test_the_marker_is_cleared_last() -> None:
+    """Only after every step: one targeted write of the flag"""
+    types_manager = MagicMock(name='types_manager')
+
+    _run_side_effects(SimpleNamespace(alignment_pending=False), SimpleNamespace(public_id=7, special_type=None),
+                      types_manager)
+
+    types_manager.update_type_field.assert_called_once_with(7, TypeSchemaKey.ALIGNMENT_PENDING.value, False)
+
+
+def test_a_pending_type_aligns_by_state() -> None:
+    """The stored type carried the marker: every step forced, the MDS aligned to the type as it is"""
+    mocks = _run_side_effects(SimpleNamespace(alignment_pending=True), SimpleNamespace(public_id=7, special_type=None))
+
+    mocks['align_type_mds'].assert_called_once()
+    mocks['apply_type_changes_to_mds'].assert_not_called()
+    assert mocks['apply_type_changes_to_locations'].call_args.args[3] is True
+    assert mocks['realign_type_object_fields'].call_args.args[3] is True
+    assert mocks['clean_type_reports_after_update'].call_args.args[3] is True
+
+
+def test_a_failed_step_stops_the_rest_and_keeps_the_marker() -> None:
+    """The step is named; nothing after it runs, the marker is not cleared"""
+    types_manager = MagicMock(name='types_manager')
 
     with patch(f'{PATH}.ManagerProvider.get_manager'), \
-         patch(f'{PATH}.apply_removed_global_template_cleanup'), \
-         patch(f'{PATH}.handle_special_types') as mock_special, \
          patch(f'{PATH}.apply_type_changes_to_locations'), \
-         patch(f'{PATH}.apply_type_changes_to_mds'), \
-         patch(f'{PATH}.realign_type_objects_if_fields_changed'), \
+         patch(f'{PATH}.apply_type_changes_to_mds', side_effect=TypesManagerUpdateMDSError('boom')), \
+         patch(f'{PATH}.realign_type_object_fields') as mock_fields, \
          patch.object(types_helper.CmdbType, 'to_json', return_value={}):
-        apply_type_update_side_effects(MagicMock(), MagicMock(), MagicMock(), updated_type, (set(), {}))
+        with pytest.raises(TypesManagerAlignmentError) as exc_info:
+            apply_type_update_side_effects(MagicMock(), types_manager, SimpleNamespace(alignment_pending=False),
+                                           SimpleNamespace(public_id=7, special_type=None))
 
-    mock_special.assert_called_once()
+    assert exc_info.value.step == TypeAlignmentStep.MULTI_DATA_SECTIONS.value
+    mock_fields.assert_not_called()
+    types_manager.update_type_field.assert_not_called()
+
+
+def test_run_alignment_step_wraps_with_the_error_itself() -> None:
+    """args[0] and __cause__ are the step's own error"""
+    cause = RuntimeError('boom')
+
+    def _fail() -> None:
+        raise cause
+
+    with pytest.raises(TypesManagerAlignmentError) as exc_info:
+        run_alignment_step(TypeAlignmentStep.LOCATIONS, _fail)
+
+    assert exc_info.value.args[0] is cause
+    assert exc_info.value.__cause__ is cause
+    assert exc_info.value.step == TypeAlignmentStep.LOCATIONS.value
+
+
+def test_run_alignment_step_lets_a_steps_own_answer_through() -> None:
+    """An abort inside a step (the size-limit 400) is answered as it is, not turned into the 500"""
+    def _abort() -> None:
+        raise BadRequest('too large')
+
+    with pytest.raises(BadRequest):
+        run_alignment_step(TypeAlignmentStep.MULTI_DATA_SECTIONS, _abort)
+
+
+@pytest.mark.parametrize('propagate', ['align_type_mds', 'apply_type_changes_to_mds'])
+def test_an_mds_statement_over_the_size_limit_answers_400(propagate: str) -> None:
+    """A row added past MongoDB's 16 MB limit answers the shared size-limit 400, like every other write"""
+    objects_manager = MagicMock(name='objects_manager')
+    objects_manager.apply_raw_updates.side_effect = _too_large_update_error()
+    old_type = SimpleNamespace(public_id=7)
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager), \
+         patch(f'{PATH}.build_mds_alignment_updates', return_value=['stmt']), \
+         patch(f'{PATH}.plan_mds_changes', return_value=SimpleNamespace(is_empty=False)), \
+         patch(f'{PATH}.build_mds_updates', return_value=['stmt']):
+        with pytest.raises(BadRequest) as exc_info:
+            if propagate == 'align_type_mds':
+                align_type_mds(MagicMock(), MagicMock())
+            else:
+                apply_type_changes_to_mds(MagicMock(), old_type, MagicMock())
+
+    assert exc_info.value.description == DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
+
+
+def _too_large_update_error() -> ObjectsManagerUpdateError:
+    """An objects-manager update error caused by the document size limit"""
+    cause = DocumentTooLargeError('16 MB')
+
+    try:
+        raise ObjectsManagerUpdateError(cause) from cause
+    except ObjectsManagerUpdateError as err:
+        return err
+
+
+def test_align_type_mds_runs_the_state_based_statements() -> None:
+    """build_mds_alignment_updates of the type, run by the objects manager"""
+    objects_manager = MagicMock(name='objects_manager')
+    updated_type = MagicMock(name='updated_type')
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=objects_manager), \
+         patch(f'{PATH}.build_mds_alignment_updates', return_value=['stmt']) as build:
+        align_type_mds(MagicMock(), updated_type)
+
+    build.assert_called_once_with(updated_type)
+    objects_manager.apply_raw_updates.assert_called_once_with(['stmt'])
+
+
+def test_a_forced_location_update_writes_all_three_values() -> None:
+    """Even the unchanged ones - a pending type cannot tell which its locations lack"""
+    same = SimpleNamespace(label='L', render_meta=SimpleNamespace(icon='i'), selectable_as_parent=True,
+                           get_public_id=lambda: 7)
+    locations_manager = MagicMock(name='locations_manager')
+
+    with patch(f'{PATH}.ManagerProvider.get_manager', return_value=locations_manager):
+        apply_type_changes_to_locations(MagicMock(), same, same, force=True)
+
+    assert set(locations_manager.update_locations_by_type.call_args.args[1]) == {
+        LocationKey.TYPE_LABEL, LocationKey.TYPE_ICON, LocationKey.TYPE_SELECTABLE,
+    }
 
 
 # --------------------------------------------------- apply_type_changes_to_mds -------------------------------------- #

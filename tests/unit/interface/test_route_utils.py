@@ -80,6 +80,7 @@ TYPED_EMAIL: str = ' User@Test.COM '
 NORMALISED_EMAIL: str = 'user@test.com'
 BASIC_HEADER: str = f'Basic {BASIC_CREDENTIALS}'
 BEARER_HEADER: str = 'Bearer sometoken'
+NO_TENANT_TOKEN_MSG: str = 'The token names no tenant database!'
 API_KEY_BASIC_HEADERS: dict[str, str] = {'Authorization': BASIC_HEADER, 'x-api-key': 'k'}
 
 DECODED_TOKEN: dict[str, Any] = {
@@ -673,6 +674,43 @@ class TestInsertRequestUser:
             with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
                 assert ru.insert_request_user(_handler)() == 'ran'
         assert captured['request_user'] is user
+
+    @pytest.mark.parametrize('database', [None, ''], ids=['null', 'empty'])
+    def test_a_cloud_token_naming_no_database_aborts_401(self, database: Any) -> None:
+        """
+        A cloud token without a tenant is refused before any user is read
+
+        A null database would bind the UsersManager to the process-wide database, where the token's user
+        id names another tenant's user or nobody
+        """
+        claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': {'public_id': 42, 'database': database}}}}
+        handler = MagicMock()
+
+        with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls, \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = claims
+            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(handler)()
+
+        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+        assert exc_info.value.description == NO_TENANT_TOKEN_MSG
+        users_manager_cls.return_value.get_user.assert_not_called()
+        handler.assert_not_called()
+
+    def test_an_on_premise_token_needs_no_database(self) -> None:
+        """On premise the token carries no database and the user is read from the one database"""
+        users_manager = MagicMock()
+        users_manager.get_user.return_value = SimpleNamespace(public_id=42, active=True)
+        claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': {'public_id': 42}}}}
+
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = claims
+            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                assert ru.insert_request_user(lambda **_: 'ran')() == 'ran'
 
     def test_missing_user_aborts_401(self) -> None:
         """When the user cannot be found the request aborts with 401."""

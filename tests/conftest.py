@@ -31,6 +31,8 @@ from cmdb.manager import (
     UsersManager,
 )
 
+from cmdb.database.database_services.collection_validator import CollectionValidator
+from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.security.key.generator import KeyGenerator
 from cmdb.models.user_management_constants import __FIXED_GROUPS__
 from cmdb.models.user_model import CmdbUser
@@ -82,7 +84,9 @@ def preset_database(database_manager: MongoDatabaseManager, database_name: str):
     Prepares the database before running tests
     
     This fixture resets the test database, generates cryptographic keys,
-    creates predefined user groups, and inserts an admin user.
+    creates predefined user groups, inserts an admin user, and seeds the root CmdbLocation with its
+    public_id counter the way a production boot does - without it the first node a test creates
+    takes the root's id, and a location test can pass by coincidence.
     
     Args:
         database_manager (MongoDatabaseManager): Instance of the database manager
@@ -118,3 +122,9 @@ def preset_database(database_manager: MongoDatabaseManager, database_name: str):
     )
 
     users_manager.insert_user(admin_user)
+
+    # The production boot seeds this (CollectionValidator._seed_root_location): the root node and a
+    # counter past it, so no other node is ever given the root's public_id
+    CollectionValidator(database_name, database_manager).set_root_location(
+        CmdbLocation.COLLECTION, database_name, create=True,
+    )

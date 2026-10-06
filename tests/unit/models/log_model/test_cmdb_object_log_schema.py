@@ -29,10 +29,11 @@ from unittest.mock import Mock
 import pytest
 from cerberus import Validator  # type: ignore
 
+from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.manager.logs_manager import LogsManager
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.log_action_enum import LogAction
-from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
+from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE, ObjectLogKey
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectLogComment
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     build_object_log_data,
@@ -42,7 +43,19 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
 OBJECT_ID: int = 42
 LOG_ID: int = 900
 VERSION: str = '1.0.1'
-RENDER: dict[str, Any] = {'object_information': {'object_id': OBJECT_ID}, 'fields': []}
+TYPE_ID: int = 7
+
+
+def _render() -> RenderResult:
+    """A RenderResult of the module's object, naming its type"""
+    render = RenderResult()
+    render.object_information = {'object_id': OBJECT_ID}
+    render.type_information = {'type_id': TYPE_ID}
+
+    return render
+
+
+RENDER: RenderResult = _render()
 FIELD_DIFF: dict[str, Any] = {'old': [{'name': 'dg-name', 'value': 'a'}], 'new': [{'name': 'dg-name', 'value': 'b'}]}
 
 #: Display names as `CmdbUser.get_display_name` answers them - first + last name, a plain user name, a cloud e-mail
@@ -109,6 +122,24 @@ class TestWhatTheWriterProduces:
         assert create['changes'] == []
         assert edit['log_type'] == OBJECT_LOG_TYPE
 
+    def test_the_entry_is_stamped_with_the_rendered_type(self) -> None:
+        """What the log reads are judged by - the type the render names, on every action"""
+        for shape in WRITTEN_SHAPES.values():
+            assert _stored(*shape)[ObjectLogKey.TYPE_ID.value] == TYPE_ID
+
+    def test_an_entry_whose_type_is_unknown_validates(self) -> None:
+        """The backfill stores null for a snapshot that names no type, and an entry older than the key has none"""
+        document: dict[str, Any] = _stored(*WRITTEN_SHAPES['edit'])
+
+        assert _errors({**document, ObjectLogKey.TYPE_ID.value: None}) == {}
+        assert _errors({key: value for key, value in document.items() if key != ObjectLogKey.TYPE_ID.value}) == {}
+
+    def test_the_type_reads_back_through_the_model(self) -> None:
+        """from_data / to_json carry it, so the list reads answer it"""
+        document: dict[str, Any] = _stored(*WRITTEN_SHAPES['edit'])
+
+        assert CmdbObjectLog.to_json(CmdbObjectLog.from_data(document))[ObjectLogKey.TYPE_ID.value] == TYPE_ID
+
     def test_the_log_type_constant_is_the_model_name(self) -> None:
         """The write paths pass CmdbObjectLog.__name__; the schema allows OBJECT_LOG_TYPE - they are one value"""
         assert CmdbObjectLog.__name__ == OBJECT_LOG_TYPE
@@ -128,9 +159,9 @@ class TestWhatItRefuses:
 
     @pytest.mark.parametrize('key, value', [
         ('action', 9), ('action_name', 'RENAME'), ('log_type', 'CmdbMetaLog'),
-        ('render_state', '{"a": 1}'), ('version', 101), ('changes', 'old->new'),
+        ('render_state', '{"a": 1}'), ('version', 101), ('changes', 'old->new'), ('type_id', '7'),
     ], ids=['unknown-action', 'unknown-action-name', 'other-log-type', 'string-render-state', 'integer-version',
-            'text-changes'])
+            'text-changes', 'text-type-id'])
     def test_a_value_the_writer_never_stores_is_refused(self, key: str, value: Any) -> None:
         """Each field is held to the type and values the chain produces"""
         assert key in _errors({**_stored(*WRITTEN_SHAPES['edit']), key: value})

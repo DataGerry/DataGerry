@@ -108,22 +108,26 @@ def validate_mount_shape(mount: dict[str, Any]) -> list[str]:
 
     errors.extend(_check_bound(start_slot, RackMountLimits.MIN_START_SLOT, RackMountError.INVALID_START_SLOT))
     errors.extend(_check_bound(height, RackMountLimits.MIN_HEIGHT, RackMountError.INVALID_MOUNT_HEIGHT))
-    errors.extend(_check_bound(position, RackMountLimits.MIN_POSITION, RackMountError.INVALID_POSITION))
+    errors.extend(_check_bound(
+        position, RackMountLimits.MIN_POSITION, RackMountError.INVALID_POSITION, RackMountLimits.MAX_POSITION,
+    ))
 
     return errors
 
 
-def _check_bound(value: Any, minimum: int, message: RackMountError) -> list[str]:
+def _check_bound(value: Any, minimum: int, message: RackMountError, maximum: int | None = None) -> list[str]:
     """
-    Checks one optional geometry value is a whole number at or above its lower bound
+    Checks one optional geometry value is a whole number within its bounds
 
     An absent value is not this function's concern - whether it is allowed to be absent depends on the
-    area and is decided by validate_mount_shape
+    area and is decided by validate_mount_shape. A slot and a height need no upper bound here, because
+    the fit rules measure them against the rack; an order index has nothing to be measured against
 
     Args:
         value (Any): The raw value, possibly None
         minimum (int): The lowest accepted value
         message (RackMountError): The message to format when the value is unusable
+        maximum (int | None): The highest accepted value; None for no upper bound. Defaults to None
 
     Returns:
         list[str]: A single message when the value is present and unusable, empty otherwise
@@ -133,8 +137,8 @@ def _check_bound(value: Any, minimum: int, message: RackMountError) -> list[str]
 
     coerced: int | None = coerce_slot_value(value)
 
-    if coerced is None or coerced < minimum:
-        return [message.format(minimum=minimum, value=value)]
+    if coerced is None or coerced < minimum or (maximum is not None and coerced > maximum):
+        return [message.format(minimum=minimum, maximum=maximum, value=value)]
 
     return []
 

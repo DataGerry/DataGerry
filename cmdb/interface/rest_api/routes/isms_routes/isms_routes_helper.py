@@ -16,20 +16,31 @@
 """
 Shared helper logic for the ISMS REST routes
 """
+from collections import Counter
 from logging import Logger, getLogger
 from typing import Any, Type
 
+from cerberus import Validator
 from flask import abort
+from pymongo import UpdateOne
 
 from cmdb.manager.generic_manager import GenericManager
 
+from cmdb.database.database_constants import PUBLIC_ID_FIELD
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.interface.blueprints.schema_error_format import ERRORS_SEPARATOR, flatten_schema_errors
 from cmdb.interface.rest_api.routes import routes_helper
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
-    BULK_ITEM_INVALID_ID_MSG,
-    BULK_ITEM_MISSING_ID_MSG,
-    BULK_ITEM_NOT_FOUND_MSG,
-    BULK_ITEM_UPDATE_FAILED_MSG,
+    BULK_ITEM_INVALID_ID_REASON,
+    BULK_ITEM_NOT_AN_OBJECT_REASON,
+    BULK_ITEM_REASON_SEPARATOR,
+    BULK_ITEM_SCHEMA_REASON,
+    BULK_UPDATE_DUPLICATE_IDS_MSG,
+    BULK_UPDATE_INVALID_ITEMS_MSG,
+    BULK_UPDATE_NOT_A_LIST_MSG,
+    BULK_UPDATE_NOT_FOUND_MSG,
+    BULK_UPDATE_TOO_MANY_ITEMS_MSG,
+    BULK_UPDATE_UNDO_INCOMPLETE_MSG,
     BulkItemResultKey,
     BulkItemStatus,
     ISMS_BULK_DELETE_DELETED_KEY,
@@ -189,76 +200,199 @@ def update_multiple_items(
         manager: GenericManager,
         model: Type[CmdbDAO],
         data: Any,
-        item_label: str,
-        log_tag: str) -> list[dict[str, Any]]:
+        schema: dict[str, Any],
+        label: IsmsEntityLabel,
+        max_items: int) -> list[dict[str, Any]]:
     """
-    Updates a list of ISMS items, reporting an independent success/failure result per item.
+    Updates a list of ISMS items all-or-nothing: every item is judged before any is written
 
-    Shared by the ISMS ``PUT``/``PATCH`` ``/multiple`` bulk-update routes. The set of existing
-    public_ids is resolved in a single batched query rather than one existence read per item, then
-    each item is updated on its own so a single failure does not abort the rest.
-
-    Each item is addressed by its own ``public_id``, which must be an integer. A bool is refused too:
-    ``True == 1`` in Python, so it would pass the existence check against id 1, while MongoDB does not
-    match a boolean against the stored integer and the update would write nothing yet report success.
+    Shared by the ISMS ``PUT``/``PATCH`` ``/multiple`` bulk-update routes. Each item is a whole document
+    addressed by its own integer ``public_id`` and judged by the same write schema as the single update.
+    The request is refused with one 400 naming every reason when the body is not a list, carries more
+    than ``max_items`` items, any item is invalid, an id is sent twice or an id does not exist. Only then
+    are the items written, in one ordered bulk write whose part-way failure is undone
 
     Args:
         manager (GenericManager): Manager whose items are updated
-        model (Type[CmdbDAO]): Model class used to deserialise each item via ``from_data``
-        data (Any): The parsed request body; must be a list of item dicts
-        item_label (str): Human-readable entity name used in the result messages (e.g. "RiskClass")
-        log_tag (str): Route identifier used as the log prefix
+        model (Type[CmdbDAO]): Model class each item is built and serialised with
+        data (Any): The parsed request body
+        schema (dict[str, Any]): The item write schema, without ``public_id``
+        label (IsmsEntityLabel): The entity, for the messages
+        max_items (int): The most items one request may carry
 
     Raises:
-        werkzeug.exceptions.BadRequest: Aborts with 400 when the body is not a list
+        werkzeug.exceptions.BadRequest: Aborts with 400 for any of the refusals above
 
     Returns:
-        list[dict[str, Any]]: Per-item results, each {"public_id", "status", and "message" on failure}
+        list[dict[str, Any]]: One ``{public_id, status: 'success'}`` entry per item, in request order
+    """
+    items: list[Any] = read_bulk_items_or_abort(data, label, max_items)
+
+    if not items:
+        return []
+
+    reasons, documents = validate_bulk_items(items, schema)
+
+    if reasons:
+        abort(400, BULK_UPDATE_INVALID_ITEMS_MSG.format(
+            entities=label.plural, reasons=BULK_ITEM_REASON_SEPARATOR.join(reasons),
+        ))
+
+    public_ids: list[int] = [public_id for public_id, _ in documents]
+    duplicates: list[int] = duplicate_bulk_ids(public_ids)
+
+    if duplicates:
+        abort(400, BULK_UPDATE_DUPLICATE_IDS_MSG.format(entities=label.plural, ids=duplicates))
+
+    stored: dict[int, dict[str, Any]] = {
+        doc[PUBLIC_ID_FIELD]: doc for doc in manager.find_all(criteria={PUBLIC_ID_FIELD: {"$in": public_ids}})
+    }
+    missing: list[int] = sorted(set(public_ids) - set(stored))
+
+    if missing:
+        abort(400, BULK_UPDATE_NOT_FOUND_MSG.format(entities=label.plural, ids=missing))
+
+    write_bulk_update(manager, build_bulk_update_operations(model, documents), stored, label)
+
+    return [
+        {BulkItemResultKey.PUBLIC_ID.value: public_id, BulkItemResultKey.STATUS.value: BulkItemStatus.SUCCESS.value}
+        for public_id in public_ids
+    ]
+
+
+def read_bulk_items_or_abort(data: Any, label: IsmsEntityLabel, max_items: int) -> list[Any]:
+    """
+    The items of a bulk-update body, refusing a body that is not a list or is longer than allowed
+
+    Args:
+        data (Any): The parsed request body
+        label (IsmsEntityLabel): The entity, for the messages
+        max_items (int): The most items one request may carry
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 for a non-list or an over-long list
+
+    Returns:
+        list[Any]: The items as sent
     """
     if not isinstance(data, list):
-        abort(400, f"The request body must be a list of {item_label}s!")
+        abort(400, BULK_UPDATE_NOT_A_LIST_MSG.format(entities=label.plural))
 
-    id_key: str = BulkItemResultKey.PUBLIC_ID.value
+    if len(data) > max_items:
+        abort(400, BULK_UPDATE_TOO_MANY_ITEMS_MSG.format(
+            max_items=max_items, entities=label.plural, count=len(data),
+        ))
 
-    # Resolve which requested ids exist in one batched query instead of a per-item existence read
-    requested_ids: list[int] = [
-        item[id_key] for item in data
-        if isinstance(item, dict) and _is_item_public_id(item.get(id_key))
-    ]
-    existing_ids: set[int] = {
-        doc[id_key] for doc in manager.find_all(criteria={id_key: {"$in": requested_ids}})
-    } if requested_ids else set()
+    return data
 
-    results: list[dict[str, Any]] = []
 
-    for item in data:
-        public_id = item.get(id_key) if isinstance(item, dict) else None
+def validate_bulk_items(
+        items: list[Any],
+        schema: dict[str, Any]) -> tuple[list[str], list[tuple[int, dict[str, Any]]]]:
+    """
+    Judges every item of a bulk update, collecting each reason instead of stopping at the first
 
-        if public_id is None:
-            results.append(_bulk_item_failure(None, BULK_ITEM_MISSING_ID_MSG))
+    An item must be an object with an integer ``public_id`` (a bool is refused: ``True == 1`` would address
+    id 1), and the rest of it must pass the write schema, whose unknown keys are purged
+
+    Args:
+        items (list[Any]): The items as sent
+        schema (dict[str, Any]): The item write schema, without ``public_id``
+
+    Returns:
+        tuple[list[str], list[tuple[int, dict[str, Any]]]]: The reasons, empty when every item is valid, and
+            each valid item's id with its cleaned document
+    """
+    reasons: list[str] = []
+    documents: list[tuple[int, dict[str, Any]]] = []
+
+    for index, item in enumerate(items, start=1):
+        if not isinstance(item, dict):
+            reasons.append(BULK_ITEM_NOT_AN_OBJECT_REASON.format(index=index))
             continue
+
+        public_id: Any = item.get(PUBLIC_ID_FIELD)
 
         if not _is_item_public_id(public_id):
-            results.append(_bulk_item_failure(public_id, BULK_ITEM_INVALID_ID_MSG))
+            reasons.append(BULK_ITEM_INVALID_ID_REASON.format(index=index))
             continue
 
-        if public_id not in existing_ids:
-            results.append(_bulk_item_failure(
-                public_id, BULK_ITEM_NOT_FOUND_MSG.format(item_label=item_label, public_id=public_id),
+        validator = Validator(schema, purge_unknown=True)
+        body: dict[str, Any] = {key: value for key, value in item.items() if key != PUBLIC_ID_FIELD}
+
+        if not validator.validate(body):
+            reasons.append(BULK_ITEM_SCHEMA_REASON.format(
+                index=index, public_id=public_id,
+                errors=ERRORS_SEPARATOR.join(flatten_schema_errors(validator.errors)),
             ))
             continue
 
-        try:
-            manager.update_item(public_id, model.from_data(item))
-            results.append({id_key: public_id, BulkItemResultKey.STATUS.value: BulkItemStatus.SUCCESS.value})
-        except Exception as err:
-            LOGGER.error("[%s] Failed to update %s ID %s: %s. Type: %s",
-                         log_tag, item_label, public_id, err, type(err))
-            results.append(_bulk_item_failure(
-                public_id, BULK_ITEM_UPDATE_FAILED_MSG.format(item_label=item_label, public_id=public_id),
-            ))
+        documents.append((public_id, validator.document))
 
-    return results
+    return reasons, documents
+
+
+def duplicate_bulk_ids(public_ids: list[int]) -> list[int]:
+    """
+    The ids a bulk update addresses more than once
+
+    Args:
+        public_ids (list[int]): The items' ids, in request order
+
+    Returns:
+        list[int]: Every repeated id once, ascending; empty when all are distinct
+    """
+    return sorted(public_id for public_id, count in Counter(public_ids).items() if count > 1)
+
+
+def build_bulk_update_operations(
+        model: Type[CmdbDAO],
+        documents: list[tuple[int, dict[str, Any]]]) -> list[UpdateOne]:
+    """
+    One whole-document update per item, each built through the model like the single update
+
+    The model serialises exactly its own keys, so a key the schema allowed but the model does not store
+    cannot reach the document, and an optional key left out is stored as the model's empty value
+
+    Args:
+        model (Type[CmdbDAO]): Model class each item is built and serialised with
+        documents (list[tuple[int, dict[str, Any]]]): Each item's id and validated document
+
+    Returns:
+        list[UpdateOne]: The operations, in request order
+    """
+    return [
+        UpdateOne(
+            {PUBLIC_ID_FIELD: public_id},
+            {'$set': model.to_json(model.from_data({**document, PUBLIC_ID_FIELD: public_id}))},
+        )
+        for public_id, document in documents
+    ]
+
+
+def write_bulk_update(
+        manager: GenericManager,
+        operations: list[UpdateOne],
+        stored: dict[int, dict[str, Any]],
+        label: IsmsEntityLabel) -> None:
+    """
+    Writes a bulk update in one ordered bulk write, putting every item back when it fails part-way
+
+    An ordered bulk write stops at its first failure with the earlier operations applied, and which ones
+    is not reported reliably - so every item's snapshot is recorded before the write, and on failure the
+    ledger replaces each with it; an item the write never reached is replaced by its own unchanged self
+
+    Args:
+        manager (GenericManager): Manager whose items are updated
+        operations (list[UpdateOne]): The operations, in request order
+        stored (dict[int, dict[str, Any]]): Each updated item as stored before the write
+        label (IsmsEntityLabel): The entity, for the message when the undo cannot finish
+    """
+    with routes_helper.undone_on_failure(BULK_UPDATE_UNDO_INCOMPLETE_MSG.format(entities=label.plural)) as ledger:
+        for public_id, prior in stored.items():
+            ledger.updated(manager, public_id, prior)
+
+        manager.bulk_write(operations)
 
 
 def bulk_delete_reporting_in_use(
@@ -358,21 +492,3 @@ def abort_on_unknown_control_measures(cm_assignment_manager: Any, assignments: l
 
     if missing_control_measures:
         abort(400, UNKNOWN_CONTROL_MEASURES_MSG.format(unknown=sorted(missing_control_measures)))
-
-
-def _bulk_item_failure(public_id: Any, message: str) -> dict[str, Any]:
-    """
-    Builds the per-item entry of a bulk update that did not go through
-
-    Args:
-        public_id (Any): The item's id as sent, or None when it carried none
-        message (str): Why the item failed
-
-    Returns:
-        dict[str, Any]: `{public_id, status: 'failed', message}`
-    """
-    return {
-        BulkItemResultKey.PUBLIC_ID.value: public_id,
-        BulkItemResultKey.STATUS.value: BulkItemStatus.FAILED.value,
-        BulkItemResultKey.MESSAGE.value: message,
-    }

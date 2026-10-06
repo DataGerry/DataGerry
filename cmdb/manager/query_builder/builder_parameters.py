@@ -19,6 +19,7 @@ Implementation of BuilderParameters
 from typing import Any
 
 from cmdb.utils import Builder
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               BuilderParameters - CLASS                                              #
@@ -28,7 +29,8 @@ class BuilderParameters:
     A class to represent query parameters for a builder.
 
     This class encapsulates filtering, pagination, and sorting parameters
-    for constructing database queries or similar operations.
+    for constructing database queries or similar operations, and the server-side time budget the
+    query runs under
     """
 
     def __init__(self,
@@ -36,7 +38,8 @@ class BuilderParameters:
                  limit: int = 0,
                  skip: int = 0,
                  sort: str = 'public_id',
-                 order: int = 1) -> None:
+                 order: int = 1,
+                 time_limit_ms: int | None = None) -> None:
         """
         Initializes the BuilderParameters
 
@@ -46,12 +49,16 @@ class BuilderParameters:
             skip (int, optional): The number of results to skip for pagination. Defaults to 0
             sort (str, optional): The field to sort by. Defaults to 'public_id'
             order (int, optional): The sorting order (1 for ascending, -1 for descending). Defaults to 1
+            time_limit_ms (int | None, optional): The server-side time budget of each aggregation the query
+                runs, in milliseconds. Defaults to None, which is QUERY_TIME_LIMIT_MS - the budget of a
+                query a client shapes
         """
         self.criteria = criteria
         self.limit = limit
         self.skip = skip
         self.sort = sort
         self.order = order
+        self.time_limit_ms: int = QUERY_TIME_LIMIT_MS if time_limit_ms is None else time_limit_ms
 
 
     def __repr__(self) -> str:
@@ -62,7 +69,7 @@ class BuilderParameters:
             str: A formatted string displaying the parameter values
         """
         return (f"BuilderParameters(criteria={self.criteria}, limit={self.limit}, "
-                f"skip={self.skip}, sort='{self.sort}', order={self.order})")
+                f"skip={self.skip}, sort='{self.sort}', order={self.order}, time_limit_ms={self.time_limit_ms})")
 
 
     def add_criteria(self, condition: dict[str, Any]) -> None:

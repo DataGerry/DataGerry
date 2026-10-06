@@ -22,6 +22,7 @@ on a cache miss.
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
+from cmdb.open_celium import CachedOcIdType
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import connection_in_subscription
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -45,17 +46,34 @@ class TestConnectionInSubscription:
         cached_manager.oc_id_exists.assert_called_once()
         dg_sp_manager.check_connection_in_sub.assert_not_called()
 
-    def test_falls_back_to_portal_when_not_cached(self) -> None:
-        """An uncached user is validated via the Service Portal check."""
+    def test_a_miss_is_seeded_from_the_portal_and_checked_in_the_cache(self) -> None:
+        """An uncached user is seeded once from the portal; the id is then looked up in the stored entry."""
+        cached_manager = MagicMock()
+        seeded = {'email': REQUEST_USER.email}
+        cached_manager.get_cached_user.side_effect = [None, seeded]
+        cached_manager.oc_id_exists.return_value = True
+        dg_sp_manager = MagicMock()
+        dg_sp_manager.get_dg_sp_user_data.return_value = {'email': REQUEST_USER.email}
+
+        result = connection_in_subscription(REQUEST_USER, CONNECTION_ID, cached_manager, dg_sp_manager)
+
+        assert result is True
+        cached_manager.insert_cached_user.assert_called_once_with({'email': REQUEST_USER.email})
+        cached_manager.oc_id_exists.assert_called_once_with(
+            seeded, REQUEST_USER.database, CachedOcIdType.CONNECTIONS, CONNECTION_ID,
+        )
+        dg_sp_manager.check_connection_in_sub.assert_not_called()
+
+    def test_a_user_the_portal_does_not_know_is_refused_without_a_second_call(self) -> None:
+        """No user anywhere means no subscription to hold the id - the portal is asked once, not twice."""
         cached_manager = MagicMock()
         cached_manager.get_cached_user.return_value = None
         dg_sp_manager = MagicMock()
-        dg_sp_manager.check_connection_in_sub.return_value = False
+        dg_sp_manager.get_dg_sp_user_data.return_value = None
 
         result = connection_in_subscription(REQUEST_USER, CONNECTION_ID, cached_manager, dg_sp_manager)
 
         assert result is False
-        cached_manager.oc_id_exists.assert_not_called()
-        dg_sp_manager.check_connection_in_sub.assert_called_once_with(
-            CONNECTION_ID, REQUEST_USER.email, REQUEST_USER.database
-        )
+        dg_sp_manager.get_dg_sp_user_data.assert_called_once_with(REQUEST_USER.email)
+        dg_sp_manager.check_connection_in_sub.assert_not_called()
+        cached_manager.insert_cached_user.assert_not_called()

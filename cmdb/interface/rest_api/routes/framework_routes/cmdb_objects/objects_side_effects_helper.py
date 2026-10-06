@@ -66,6 +66,7 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.object_log_constants import ObjectLogKey
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.rendering.render_constants import RenderTypeInfoKey
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.object_edit import ObjectWrite, ObjectWriteCallback
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
@@ -177,7 +178,8 @@ def build_object_log_data(
         object_id (int): public_id of the changed object
         version (str): The object's version the entry records
         comment (str): The comment stored on the entry
-        render_result (RenderResult): The object as rendered - the log view draws it with the renderer
+        render_result (RenderResult): The object as rendered - the log view draws it with the renderer, and
+            its type information names the type the entry is stamped with
         changes (Any): The field-level diff, or None when the action records none. Defaults to None
 
     Returns:
@@ -190,6 +192,8 @@ def build_object_log_data(
         ObjectLogKey.USER_NAME.value: request_user.get_display_name(),
         ObjectLogKey.COMMENT.value: comment,
         ObjectLogKey.RENDER_STATE.value: json.dumps(render_result, default=default).encode('UTF-8'),
+        # What the log reads are judged by: the type ACL stage matches on it, also once the object is gone
+        ObjectLogKey.TYPE_ID.value: render_result.type_information.get(RenderTypeInfoKey.TYPE_ID.value),
     }
 
     if changes is not None:

@@ -82,7 +82,13 @@ from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -234,6 +240,7 @@ def get_cmdb_ci_explorer_profiles(params: CollectionParameters, request_user: Cm
 
         return api_response.make_response()
     except CiExplorerProfileManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_ci_explorer_profiles] CiExplorerProfileManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve CiExplorer Profiles from the database!")
 

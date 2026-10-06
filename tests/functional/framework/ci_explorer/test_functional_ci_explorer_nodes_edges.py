@@ -178,7 +178,8 @@ def fixture_connector(database_manager) -> MongoConnector:
 def setup_ci_explorer_fixture(request, connector: MongoConnector, database_name):
     """
     Seeds types, objects, relations, object relations and locations once per test module
-    and drops every touched collection at teardown
+    and removes exactly what it seeded at teardown - the collections are shared with every other
+    module of the session, the root location among them, so none of them is dropped
     """
     db = connector.client.get_database(database_name)
     types = db.get_collection(CmdbType.COLLECTION)
@@ -186,6 +187,22 @@ def setup_ci_explorer_fixture(request, connector: MongoConnector, database_name)
     relations = db.get_collection(CmdbRelation.COLLECTION)
     object_relations = db.get_collection(CmdbObjectRelation.COLLECTION)
     locations = db.get_collection(CmdbLocation.COLLECTION)
+
+    seeded: list[tuple[Any, list[int]]] = [
+        (types, [TYPE_SERVER, TYPE_PRINTER, TYPE_NETWORK, TYPE_LOCATION]),
+        (objects, [OBJ_TARGET, OBJ_PARENT_SERVER, OBJ_CHILD_PRINTER, OBJ_CHILD_NETWORK, OBJ_EXTRA_1, OBJ_EXTRA_2,
+                   OBJ_EXTRA_3, OBJ_LOC_PARENT, OBJ_LOC_CHILD]),
+        (relations, [RELATION_CONNECTED]),
+        (object_relations, [OBJ_REL_PARENT_TO_TARGET, OBJ_REL_TARGET_TO_PRINTER, OBJ_REL_TARGET_TO_NETWORK,
+                            OBJ_REL_TARGET_TO_EXTRA_1, OBJ_REL_TARGET_TO_EXTRA_2, OBJ_REL_TARGET_TO_EXTRA_3]),
+        (locations, [LOC_FOR_LOC_PARENT_OBJECT, LOC_FOR_TARGET_OBJECT, LOC_FOR_LOC_CHILD_OBJECT]),
+    ]
+
+    def _purge_seeded():
+        for collection, public_ids in seeded:
+            collection.delete_many({'public_id': {'$in': public_ids}})
+
+    _purge_seeded()
 
     types.insert_many([
         _make_type(TYPE_SERVER, 'server', 'Server', '#1f77b4', 'fa-server'),
@@ -243,14 +260,7 @@ def setup_ci_explorer_fixture(request, connector: MongoConnector, database_name)
         _make_location(LOC_FOR_LOC_CHILD_OBJECT, LOC_FOR_TARGET_OBJECT, OBJ_LOC_CHILD, 'loc-child'),
     ])
 
-    def _drop_all():
-        types.drop()
-        objects.drop()
-        relations.drop()
-        object_relations.drop()
-        locations.drop()
-
-    request.addfinalizer(_drop_all)
+    request.addfinalizer(_purge_seeded)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

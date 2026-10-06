@@ -20,13 +20,19 @@ A CmdbCachedUser is a cloud user and their subscriptions, cached from the DataGe
 the shared cache database (collection ``cache.users``) so that not every request has to ask the
 portal again. The entries expire on their own through a TTL index - see
 ``cached_user_constants.CACHE_TTL_SECONDS``
+
+``CmdbCachedUser`` is a namespace, not a model: the document is the portal's, read and written as a dict by
+``CachedUserManager``; the class supplies the collection, the indexes and the date field, and the keys are named in
+``CachedUserKey`` / ``CachedSubscriptionKey`` / ``CachedOcIdListKey``
 """
-from .cached_user_constants import CACHE_TTL_SECONDS, CachedUserKey
+from .cached_user_constants import CACHE_TTL_SECONDS, CachedOcIdListKey, CachedSubscriptionKey, CachedUserKey
 from .cmdb_cached_user import CmdbCachedUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'CACHE_TTL_SECONDS',
+    'CachedOcIdListKey',
+    'CachedSubscriptionKey',
     'CachedUserKey',
     'CmdbCachedUser',
 ]

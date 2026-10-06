@@ -37,6 +37,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
 TOP_NODE_ID: int = 9971
 DOOMED_NODE_ID: int = 9972
 CHILD_NODE_ID: int = 9973
+# The top node's object - only its node is seeded; any real id, since object_id is unique and 0 is the root's
+TOP_OBJECT_ID: int = 9981
 DOOMED_OBJECT_ID: int = 9982
 CHILD_OBJECT_ID: int = 9983
 TYPE_ID: int = 9990
@@ -68,7 +70,8 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str):
         objects.delete_many({'public_id': {'$in': object_ids}})
 
     _purge()
-    nodes.insert_many([_node(TOP_NODE_ID, 0, ROOT_PARENT_ID), _node(DOOMED_NODE_ID, DOOMED_OBJECT_ID, TOP_NODE_ID),
+    nodes.insert_many([_node(TOP_NODE_ID, TOP_OBJECT_ID, ROOT_PARENT_ID),
+                       _node(DOOMED_NODE_ID, DOOMED_OBJECT_ID, TOP_NODE_ID),
                        _node(CHILD_NODE_ID, CHILD_OBJECT_ID, DOOMED_NODE_ID)])
     objects.insert_many([_object(DOOMED_OBJECT_ID, TOP_NODE_ID), _object(CHILD_OBJECT_ID, DOOMED_NODE_ID)])
 

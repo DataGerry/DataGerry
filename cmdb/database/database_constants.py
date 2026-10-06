@@ -34,6 +34,9 @@ MAX_DUPLICATE_KEY_RETRIES = 10
 # it is THIS index that was violated - a fresh public_id cannot resolve any other unique constraint
 PUBLIC_ID_FIELD: str = "public_id"
 
+# The stored identity MongoDB gives every document; never part of an API shape
+MONGO_ID_FIELD: str = "_id"
+
 # Keys of a pymongo DuplicateKeyError's 'details' dict, used to tell which unique index was violated:
 # 'keyPattern' names the indexed fields, 'keyValue' the values that collided. Both are reported by
 # MongoDB 4.2 and newer; a synthesised error may carry neither
@@ -56,11 +59,35 @@ BULK_WRITE_BATCH_SIZE: int = 500
 # Interval (in seconds) between background keep-alive pings to MongoDB
 KEEPALIVE_PING_INTERVAL_SECONDS: int = 50
 
+# How long the driver waits for any reply on a socket before it gives up (MongoClient's socketTimeoutMS). When it
+# does, it closes the connection and the server stops the operation on the disconnect (ClientDisconnect)
+MONGO_SOCKET_TIMEOUT_MS: int = 30000
+
+# The aggregation option that holds the server-side time budget of one aggregation
+MONGO_MAX_TIME_OPTION: str = "maxTimeMS"
+
+# The server-side time budget of an aggregation a client shapes: a list route's ?filter=, the search. Past it the
+# server stops the aggregation itself (MaxTimeMSExpired) instead of running until the socket times out. The server
+# checks the budget between documents, so a stage that is expensive PER document over few documents can run past
+# it - the socket timeout stays the backstop for that
+QUERY_TIME_LIMIT_MS: int = 10000
+
+# How far below the socket timeout the long budget stays, so the server's own "time limit exceeded" reaches the
+# driver before the driver gives up on the socket and reports a network failure instead
+QUERY_TIME_LIMIT_SOCKET_MARGIN_MS: int = 2000
+
+# The budget of the reads that legitimately run long - the object export, the ISMS reports: as long as the socket
+# allows, and still answered as a time limit
+LONG_QUERY_TIME_LIMIT_MS: int = MONGO_SOCKET_TIMEOUT_MS - QUERY_TIME_LIMIT_SOCKET_MARGIN_MS
+
 # MongoDB error code reported on a lock timeout (OperationFailure.code)
 MONGO_LOCK_TIMEOUT_ERROR_CODE: int = 24
 
 # MongoDB descending sort direction (mirrors pymongo.DESCENDING)
 MONGO_SORT_DESCENDING: int = -1
+
+# The BSON type aliases a stored Python int can take: 32-bit and 64-bit, chosen by the driver from its size
+INTEGER_BSON_TYPES: tuple[str, ...] = ("int", "long")
 
 # Environment variable holding a full MongoDB connection string. When set it replaces the
 # host/port pair AND decides whether the connector requests TLS - see MongoConnector.__init__

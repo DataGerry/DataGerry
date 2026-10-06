@@ -14,19 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for CmdbCachedUsers
+This module provides all errors for DocapiTemplates
 """
-from .cmdb_cached_user_errors import (
-    CmdbCachedUserError,
-    CmdbCachedUserInitError,
-    CmdbCachedUserInitFromDataError,
-    CmdbCachedUserToJsonError,
+from .docapi_template_errors import (
+    DocapiTemplateError,
+    DocapiTemplateInitFromDataError,
+    DocapiTemplateToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'CmdbCachedUserError',
-    'CmdbCachedUserInitError',
-    'CmdbCachedUserInitFromDataError',
-    'CmdbCachedUserToJsonError',
+    'DocapiTemplateError',
+    'DocapiTemplateInitFromDataError',
+    'DocapiTemplateToJsonError',
 ]

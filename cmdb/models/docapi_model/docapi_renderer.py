@@ -70,16 +70,20 @@ class DocApiRenderer:
             1. Fetch the template using the template ID (`doctpl_id`)
             2. Retrieve the CMDB object using the object ID (`object_id`)
             3. Fetch the object type information for the CMDB object
-            4. Create a `CmdbMultiRender` object to prepare the data
+            4. Create a `CmdbMultiRender` object to prepare the data, resolving references through the caller's
+               READ ACL
             5. Use `ObjectDocumentGenerator` to generate a PDF document
             6. Return the generated PDF as a BytesIO object
 
         Returns:
             BytesIO: A file-like object containing the generated PDF document
         """
+        # References are resolved - through the caller's READ ACL - so a template can read into a reference
+        # field or a reference section; without it the renderer clears a reference field's value
         cmdb_render_object: RenderResult = CmdbMultiRender(
             [self.target_object],
-            request_user
+            request_user,
+            ref_render=True,
         ).result(single_object=True)
 
         generator = ObjectDocumentGenerator(

@@ -86,9 +86,8 @@ __COLLECTIONS__: list[Any] = [
     CmdbPortInterfaceLink,
     CmdbObjectGroup,
     CmdbExtendableOption,
-    # Not a CmdbDAO, but it exposes the same COLLECTION + get_index_keys() contract, which is all
-    # CollectionValidator needs. Registered so its declared unique index on 'name' is actually
-    # built - the create route relies on that index as half of the name-uniqueness guarantee
+    # Registered so its declared unique index on 'name' is actually built - the create route relies on
+    # that index as half of the name-uniqueness guarantee
     DocapiTemplate,
     IsmsRisk,
     IsmsThreat,

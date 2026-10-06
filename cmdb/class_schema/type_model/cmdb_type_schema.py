@@ -143,6 +143,13 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'type': 'boolean',
             'default': False
         },
+        # Server-owned: True while a saved update has not yet been applied to this CmdbType's objects,
+        # locations and reports. Never accepted from a request - the write routes leave it out of their schema
+        'alignment_pending': {
+            'type': 'boolean',
+            'required': False,
+            'default': False
+        },
         # Position of the ports section among this CmdbType's sections (0 = first). Only meaningful
         # while 'uses_ports' is True - the write paths force it back to 0 when the flag is off
         'port_section_index': {

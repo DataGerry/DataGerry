@@ -25,7 +25,7 @@ from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat, TYPE_INFO_ID_KEY
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
-from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey, ExporterOptionKey
+from cmdb.framework.exporter.exporter_constants import ExporterOptionKey
 from cmdb.framework.rendering.render_result import RenderResult
 
 from cmdb.errors.exporter import ExporterCSVTypeError
@@ -52,6 +52,7 @@ class CsvExportFormat(BaseExporterFormat):
     ICON = "file-csv"
     DESCRIPTION = "Export as CSV (only of the same type)"
     ACTIVE = True
+    HUMAN_READABLE_SUPPORT = True
 
 
     def export(self, data: list[RenderResult], *args: Any) -> StringIO:
@@ -111,6 +112,10 @@ class CsvExportFormat(BaseExporterFormat):
         """
         Resolves the identity header, regular columns, MDS layout/columns and view for the export
 
+        A render-view `metadata` override selects the identity header and the regular columns, a key it
+        leaves out keeping the default (the identity columns, and the type's own fields); the selected
+        columns are narrowed to the fields the type owns
+
         Args:
             data (list[RenderResult]): The objects to export
             args (tuple[Any, ...]): The positional export args; `args[0]` (if present) is the options dict
@@ -119,20 +124,21 @@ class CsvExportFormat(BaseExporterFormat):
             tuple: `(header, regular_columns, mds_layout, mds_columns, view)` where `mds_layout` is the
                    `(section_id, field_names)` list and `mds_columns` the flattened MDS field names
         """
-        header: list[str] = list(DEFAULT_HEADER)
-
         # The MDS layout is derived from the (single, shared) type's rendered sections
         mds_layout = self.extract_mds_layout(data[0].sections) if data else []
         mds_columns: list[str] = [name for _, field_names in mds_layout for name in field_names]
 
         view, metadata = BaseExporterFormat.resolve_export_view(args)
-        if metadata:
-            header = metadata.get(ExporterMetadataKey.HEADER.value, header)
-            regular_columns = metadata.get(ExporterMetadataKey.COLUMNS.value, [])
-        else:
+        header, regular_columns = BaseExporterFormat.resolve_metadata_selection(metadata, DEFAULT_HEADER)
+
+        if not metadata:
             # CSV renders in the render view only when metadata explicitly selects the columns
             view = ExporterConfigType.NATIVE.value
-            regular_columns = [field[FieldKey.NAME.value] for field in data[0].fields] if data else []
+
+        # A selection naming fields the type does not have (a ZIP hands every type the same one) keeps the
+        # fields the type owns, in the order of the selection
+        owned: list[str] = [field[FieldKey.NAME.value] for field in data[0].fields] if data else []
+        regular_columns = self.select_owned_columns(regular_columns, owned)
 
         # MDS fields also appear (default-valued) in the flat field list; keep them out of the regular
         # columns so each one is emitted exactly once, as its row-expanded MDS column

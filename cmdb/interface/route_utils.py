@@ -62,6 +62,7 @@ from cmdb.errors.security import (
     RequestError,
 )
 from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
+from cmdb.interface.query_time_limit import abort_if_query_too_slow
 from cmdb.utils import find_cause
 from cmdb.errors.database import (
     SetDatabaseError,
@@ -297,8 +298,9 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
     to 400s states those rules with ``handle_manager_errors``, stacked directly below this decorator so
     its aborts pass through the HTTPException arm here
 
-    One failure is never a 500: a write refused on MongoDB's 16 MB document limit is the caller's, and is answered
-    with the shared 400 of ``abort_if_too_large`` before the 500 is considered
+    Two failures are never a 500: a write refused on MongoDB's 16 MB document limit is the caller's, and is answered
+    with the shared 400 of ``abort_if_too_large``; a query the server stopped on its time budget is answered with the
+    shared 503 of ``abort_if_query_too_slow``. Both are considered before the 500
 
     Args:
         message (str): What the route was doing, as a template over its arguments
@@ -323,6 +325,8 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
             except Exception as err:
                 # A document past the size limit is the caller's, not a server fault
                 abort_if_too_large(err)
+                # Nor is a query that ran past its time budget
+                abort_if_query_too_slow(err)
 
                 LOGGER.error(
                     "[%s] Exception: %s. Type: %s", func.__name__, err, type(err).__name__, exc_info=True,
@@ -381,7 +385,8 @@ def handle_manager_errors(
     hands through untouched, and every error it does not name still reaches that decorator's 500
 
     Before the table is consulted, a write refused on MongoDB's 16 MB document limit gets the shared 400 of
-    ``abort_if_too_large`` - the table's message for the write's error would read like a database failure
+    ``abort_if_too_large``, and a query the server stopped on its time budget the shared 503 of
+    ``abort_if_query_too_slow`` - the table's message for either error would read like a database failure
 
     Args:
         failures (dict[type[Exception], str]): Error class -> message, logged as an error
@@ -415,6 +420,8 @@ def handle_manager_errors(
             except Exception as err:
                 # Whatever this route's table says about the write that failed: the size limit has one answer
                 abort_if_too_large(err)
+                # ... and so has a query that ran past its time budget
+                abort_if_query_too_slow(err)
 
                 error_class: type[Exception] | None = closest_listed_error_class(messages, err)
 
@@ -574,7 +581,7 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     In cloud mode, an `x-api-key` request with HTTP Basic credentials is authenticated by
     `verify_api_access` instead, which injects the request user, so it is passed through without token
     validation (see `request_authenticates_by_api_key`). An `x-api-key` next to a Bearer token is
-    resolved from the token like any other request
+    resolved from the token like any other request. A cloud token naming no tenant database is a 401
 
     Once the user is resolved, a deactivated account is refused, and then the licence gates are
     enforced (`license_guard.enforce_request_licenses`): the feature of a gated blueprint and, for
@@ -626,6 +633,9 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
             if current_app.cloud_mode:
                 database = user_claim['database']
+                # No tenant would bind the manager to the process-wide database - another tenant's user, or none
+                if not database:
+                    abort(401, "The token names no tenant database!")
                 users_manager = UsersManager(current_app.database_manager, database)
 
             user = users_manager.get_user(user_id)
@@ -658,17 +668,30 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
 def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable[..., Any]:
     """
-    Decorator to verify API access based on authentication method and required API level
+    Decorator holding the cloud API key to a route's API level
+
+    Applies to one channel only: in cloud mode, a request with HTTP Basic credentials (and the `x-api-key` the
+    portal check needs) is authenticated against the Service Portal, its user injected as `request_user`, and its
+    account's level compared with `required_api_level` (`__check_api_level`; `LOCKED` is refused outright).
+    Everything else passes untouched:
+
+    - on-premise the decorator is a no-op: the licensed REST API (HTTP Basic) reaches every route its rights allow,
+      `LOCKED` ones included, and the frontend's token likewise
+    - a cloud request with a Bearer token skips the level check (the frontend's channel); the token is validated by
+      the route's `insert_request_user` - a route without one must refuse Bearer itself, as the setup routes do
+
+    What a caller may do is the rights' and ACLs' to decide, not this level's (see `ApiLevel`)
 
     Args:
-        required_api_level (ApiLevel | None): Minimum API access level required to execute the decorated function
-    
+        required_api_level (ApiLevel | None): The level the cloud API key must reach for the route
+
     Behavior:
-    - If the user does not meet the required API level, the request is aborted with a 403 status
-    - If authentication fails or an error occurs, the request is aborted with a 400 status
+    - If the cloud API key does not reach the required level (or the route is `LOCKED`), the request is aborted
+      with a 403 status
+    - If the portal check fails or an error occurs, the request is aborted with a 400 status
 
     Returns:
-        Callable[..., Any]: A decorator applying API access control to the decorated function
+        Callable[..., Any]: A decorator applying the cloud API's level to the decorated function
     """
     def decorator(func: Callable[..., Any]) -> Callable[..., Any]:
         @functools.wraps(func)

@@ -29,6 +29,11 @@ relation itself) and ``cascade_relation_update`` (everything that must then happ
 CmdbObjectRelations), so the route can report a failed cascade differently from a failed update: the
 first leaves nothing written, the second leaves the relation already updated.
 
+A bulk delete is judged by ``read_bulk_delete_selection`` (an object body, a non-empty list of ids, at most
+``MAX_BULK_DELETE_OBJECT_RELATIONS`` of them) and run by ``delete_object_relations``, one atomic read-and-delete per
+id, so the documents it collects - and the history the route writes from them - are exactly the ones THIS request
+removed.
+
 The log helpers are deliberately best-effort: a CmdbObjectRelation write must not fail because its
 history entry could not be stored, so they swallow (and log) the logs manager's errors. Every one of
 them is called AFTER the write it describes, so a failed write never leaves a log claiming a change
@@ -59,8 +64,13 @@ from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKe
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.security.acl.builder import resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import normalize_public_id_list, pin_public_id
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
+    MAX_BULK_DELETE_OBJECT_RELATIONS,
+    BulkDeleteKey,
+    OBJECT_RELATION_BULK_BODY_NOT_AN_OBJECT_MESSAGE,
+    OBJECT_RELATION_BULK_NO_IDS_MESSAGE,
+    OBJECT_RELATION_BULK_TOO_MANY_MESSAGE,
     OBJECT_RELATION_ENDPOINT_UNKNOWN_MESSAGE,
     OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE,
     OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE,
@@ -219,6 +229,70 @@ def log_object_relation_update(
     log_object_relation_change(
         object_relation_logs_manager, request_user, LogInteraction.CREATE, None, new_object_relation,
     )
+
+
+def read_bulk_delete_selection(body: Any) -> list[int]:
+    """
+    Reads the selection of an ObjectRelation bulk delete from its request body
+
+    The ids are normalised (numbers or digit strings) and de-duplicated in the order given, so an id named
+    twice is deleted - and logged - once
+
+    Args:
+        body (Any): The parsed JSON body, expected to be an object carrying 'target_ids'
+
+    Raises:
+        HTTPException: 400 when the body is no object, the selection is missing, empty, not a list of
+            positive ids, or names more than MAX_BULK_DELETE_OBJECT_RELATIONS distinct ids
+
+    Returns:
+        list[int]: The distinct public_ids to delete, in the order they were given
+    """
+    if not isinstance(body, dict):
+        abort(400, OBJECT_RELATION_BULK_BODY_NOT_AN_OBJECT_MESSAGE.format(key=BulkDeleteKey.TARGET_IDS.value))
+
+    target_ids: Any = body.get(BulkDeleteKey.TARGET_IDS.value)
+
+    if not target_ids:
+        abort(400, OBJECT_RELATION_BULK_NO_IDS_MESSAGE)
+
+    selection: list[int] = list(dict.fromkeys(normalize_public_id_list(target_ids)))
+
+    if len(selection) > MAX_BULK_DELETE_OBJECT_RELATIONS:
+        abort(400, OBJECT_RELATION_BULK_TOO_MANY_MESSAGE.format(
+            limit=MAX_BULK_DELETE_OBJECT_RELATIONS, count=len(selection),
+        ))
+
+    return selection
+
+
+def delete_object_relations(
+    object_relations_manager: ObjectRelationsManager,
+    public_ids: list[int],
+    deleted: list[dict[str, Any]],
+) -> None:
+    """
+    Deletes the CmdbObjectRelations one atomic read-and-delete at a time, collecting what was deleted
+
+    Each document is appended to `deleted` the moment it is gone, so a failure part-way leaves `deleted` holding
+    exactly what was removed before it - the caller still logs those. An id another writer deleted first (or
+    that never existed) is simply not collected
+
+    Args:
+        object_relations_manager (ObjectRelationsManager): Manager deleting the CmdbObjectRelations
+        public_ids (list[int]): The public_ids to delete
+        deleted (list[dict[str, Any]]): Receives every deleted document, in deletion order
+
+    Raises:
+        BaseManagerDeleteError: When a delete fails; the documents deleted before it are already in `deleted`
+    """
+    for public_id in public_ids:
+        document: dict[str, Any] | None = object_relations_manager.find_one_and_delete(
+            {ObjectRelationKey.PUBLIC_ID.value: public_id}
+        )
+
+        if document is not None:
+            deleted.append(document)
 
 
 def log_object_relation_deletions(

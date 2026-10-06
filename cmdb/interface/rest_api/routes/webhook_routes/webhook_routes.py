@@ -27,7 +27,8 @@ the query string instead (``read_write_payload``), so a client that only sends q
 working. ``parse_webhook_params`` then validates and normalises it and holds the result against
 ``CmdbWebhook.SCHEMA``
 
-The deliveries these webhooks produce are the CmdbWebhookEvents served by ``webhook_event_routes``
+The deliveries these webhooks produce are the CmdbWebhookEvents served by ``webhook_event_routes``, which the
+cloud API cannot read (``ApiLevel.LOCKED`` - that module says why)
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -42,7 +43,13 @@ from cmdb.manager import WebhooksManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse, UpdateSingleResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -181,6 +188,7 @@ def get_webhooks(params: CollectionParameters, request_user: CmdbUser) -> Respon
     try:
         iteration_result: IterationResult[CmdbWebhook] = webhooks_manager.iterate_items(builder_params)
     except WebhooksManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_webhooks] WebhooksManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to iterate Webhooks!")
 

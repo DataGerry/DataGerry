@@ -51,8 +51,8 @@ class GroupsManager(GenericManager):
     """
     Manages CmdbUserGroup documents on top of GenericManager
 
-    Keeps the named public API (``insert_group`` / ``get_group`` / ``iterate`` / ``update_group`` /
-    ``delete_group``) used by the existing route + bootstrap call sites. Insert overrides
+    Keeps the named public API (``insert_group`` / ``get_group`` / ``group_exists`` / ``iterate`` /
+    ``update_group`` / ``delete_group``) used by the existing route + bootstrap call sites. Insert overrides
     ``GenericManager.insert_item`` because ``CmdbUserGroup.to_json`` needs ``insert_mode=True`` to
     serialize rights as name strings; the reads (``get_group``, ``iterate``) and the write hydration build
     every model through ``_build_group``, which feeds the cached ``self.rights`` to
@@ -191,32 +191,50 @@ class GroupsManager(GenericManager):
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
-    def hydrate_group(self, data: dict[str, Any]) -> dict[str, Any]:
+    def hydrate_group(self, data: dict[str, Any]) -> CmdbUserGroup:
         """
-        Build the persisted (insert-mode) serialization of a CmdbUserGroup from raw payload data
+        Builds the CmdbUserGroup an update writes from a validated payload
 
-        Resolves the submitted right names through the manager's cached right tree
-        (``self.rights``) instead of recomputing ``flat_rights_tree(ALL_RIGHTS)`` per call, then
-        serializes with ``insert_mode=True`` so rights are stored as name strings - the form
-        ``canonical_right_names`` produces for a create
+        Resolves the submitted right names through the manager's cached right tree (``self.rights``), so the
+        model holds each known right once, in tree order. ``update_group`` stores it with its rights as name
+        strings - the form ``canonical_right_names`` produces for a create - and ``CmdbUserGroup.to_json``
+        answers it with full right dicts, the shape every group read answers
 
         Args:
             data (dict[str, Any]): Raw CmdbUserGroup payload (e.g. a validated request body)
 
         Returns:
-            dict[str, Any]: The insert-mode json of the hydrated CmdbUserGroup
+            CmdbUserGroup: The group the payload describes, its rights resolved through the tree
         """
-        group: CmdbUserGroup = self._build_group(data)
+        return self._build_group(data)
 
-        return CmdbUserGroup.to_json(group, True)
+
+    def group_exists(self, public_id: int) -> bool:
+        """
+        Reports whether a CmdbUserGroup with the given public_id exists
+
+        Reads only the id (``find_existing_public_ids``): a caller that needs no more than the answer does
+        not load the document or resolve its rights through the right tree
+
+        Args:
+            public_id (int): public_id of the CmdbUserGroup
+
+        Raises:
+            GroupsManagerGetError: When the lookup failed
+
+        Returns:
+            bool: True if a group with that public_id exists
+        """
+        return public_id in self.find_existing_public_ids([public_id])
 
 
     def canonical_right_names(self, right_names: list[str]) -> list[str]:
         """
         The stored form of a ``rights`` list: each known name once, in the order of the right tree
 
-        The same list ``hydrate_group`` stores on an update, so both write routes store one form. A create
-        needs it without building the model, which cannot exist before its public_id is drawn
+        The same list an update stores (``hydrate_group`` builds the model, ``update_group`` stores its rights
+        as these names), so both write routes store one form. A create needs it without building the model,
+        which cannot exist before its public_id is drawn
 
         Args:
             right_names (list[str]): The submitted right names

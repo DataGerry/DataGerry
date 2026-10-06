@@ -27,10 +27,13 @@ Six things govern a change here:
   and the owning object's location field - and every write route updates both. `LocationsManager` owns
   the node, `ObjectsManager.set_location_field_for_objects` the field; a route that touches one without
   the other leaves the tree and the objects disagreeing.
-* **A node's name is a read of its object.** Unless the request names it, a node is named after its
-  object's summary line (``resolve_location_name``), so ``POST /`` and ``PUT|PATCH /update_location``
-  read the object through the caller's READ ACL first (``read_linked_object``, 403) - the update even
-  answers the stored node. On the object write path the object's own write has already authorized it.
+* **A placement write is a READ and an UPDATE of its object.** A node is named after its object's summary
+  line unless the request names it (``resolve_location_name``), and every write stores the object's location
+  field. So all five write routes ask the caller's ACL for READ and UPDATE on the object's type, and an active
+  type, before any other check (``read_placeable_object`` / ``authorize_object_placement``, 403); the batch move
+  decides once per type and refuses the whole batch. The delete asks it for the node's own object only - the
+  re-pointed children follow their parent. On the object write path the object's own write has already
+  authorized it.
 * **Racks own their placed members.** Three routes call ``guard_rack_location_change`` before writing
   and ``reconcile_object_rack_membership`` after, so a drop onto a Rack's node becomes a membership and
   a drag off it ends one. A new write route needs both, not one.
@@ -64,7 +67,13 @@ from cmdb.manager import (
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -75,7 +84,8 @@ from cmdb.interface.rest_api.responses import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     resolve_location_name,
-    read_linked_object,
+    authorize_node_object_change,
+    read_placeable_object,
     validate_location_placement,
     build_location_forest,
     build_location_level,
@@ -83,6 +93,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     delete_location_with_reparenting,
     normalize_parent_id,
     validate_object_location_change,
+    validate_object_location_move,
     validate_object_location_moves,
     move_object_location,
     PlacementTarget,
@@ -129,8 +140,9 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
     Requires the ``base.framework.location.add`` right. Not called by the frontend - the object write
     path mirrors the location itself (see the module docstring)
 
-    Writes both halves of the mirror, under the same rules as every other placement: the linked object
-    is read through the caller's READ ACL (a node carries its summary as its name), it must declare a
+    Writes both halves of the mirror, under the same rules as every other placement: the caller's ACL has to
+    grant READ (a node carries the object's summary as its name) and UPDATE (the object's location field is
+    written) on the linked object's type, and the type has to be active - checked first; the object must declare a
     location field, the parent must exist, be selectable as a parent and not close a cycle, and the Rack
     rules apply. The node's type fields come from the object's own type, and the object's location
     field is pointed at the new parent
@@ -142,11 +154,11 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right or may not read the linked Object; 404 when the
-            linked Object does not exist; 400 when a required field is missing, `type_id` is not the
-            Object's type, the Object has no location field, the parent is invalid, a Rack rule refuses
-            the placement or the insert fails; 500 when the Object's type cannot be read or on an
-            unexpected error
+        HTTPException: 403 when the user lacks the right, may not read or change the linked Object, or its
+            Type is deactivated; 404 when the linked Object does not exist; 400 when a required field is
+            missing, `type_id` is not the Object's type, the Object has no location field, the parent is
+            invalid, a Rack rule refuses the placement or the insert fails; 500 when the Object's type cannot
+            be read or on an unexpected error
 
     Returns:
         DefaultResponse: The public_id of the newly created CmdbLocation
@@ -159,9 +171,11 @@ def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Respon
         object_id: int = parse_required_int(data, LocationKey.OBJECT_ID.value)
         parent: int = parse_required_int(data, LocationKey.PARENT.value)
 
-        linked_object: CmdbObject = read_linked_object(object_id, objects_manager, request_user)
+        # Before anything else: the caller has to be allowed to read the object and to change it
+        target: PlacementTarget = read_placeable_object(object_id, objects_manager, request_user)
+        linked_object: CmdbObject = target.cmdb_object
         object_type: CmdbType = validate_location_placement(
-            linked_object, parent, objects_manager, locations_manager,
+            linked_object, parent, objects_manager, locations_manager, target.object_type,
         ).object_type
 
         if data.get(LocationKey.TYPE_ID.value) is not None and \
@@ -250,6 +264,7 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
 
         return api_response.make_response()
     except LocationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_locations] LocationsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Locations from the database!")
 
@@ -613,8 +628,9 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
     """
     HTTP `PUT`/`PATCH` route to update the CmdbLocation linked to an object
 
-    The object is read through the caller's READ ACL first - the node's name is its summary, and the
-    answer echoes the node. The new parent is validated (must exist, be selectable-as-parent and not
+    The caller's ACL has to grant READ (the node's name is the object's summary, and the answer echoes the
+    node) and UPDATE (the object's location field is written) on the object's type, and the type has to be
+    active - checked first. The new parent is validated (must exist, be selectable-as-parent and not
     create a cycle) before the write. Both sides of the object<->location mirror are updated: the CmdbLocation node's
     parent/name and the owning object's location field value, so they cannot desync
 
@@ -627,9 +643,10 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
         request_user (CmdbUser): User requesting the update
 
     Raises:
-        HTTPException: 403 when the user lacks the right or may not read the CmdbObject; 404 when the
-            CmdbObject does not exist or has no CmdbLocation; 400 when a required field is missing, the new
-            parent is invalid, a Rack rule refuses the move or the write fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject, or its Type
+            is deactivated; 404 when the CmdbObject does not exist or has no CmdbLocation; 400 when a required
+            field is missing, the new parent is invalid, a Rack rule refuses the move or the write fails; 500 on
+            an unexpected error
 
     Returns:
         Response: The CmdbLocation node as stored after the update (UpdateSingleResponse)
@@ -645,8 +662,9 @@ def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser
         parent: int = parse_required_int(data, LocationKey.PARENT.value)
         location_update_params[LocationKey.PARENT.value] = parent
 
-        # A node carries its object's summary as its name, and this answer echoes it: a read of the object
-        linked_object: CmdbObject = read_linked_object(object_id, objects_manager, request_user)
+        # A node carries its object's summary as its name, and this answer echoes it: a read of the object. And
+        # the object's location field is written: an update of it. Both before anything else
+        linked_object: CmdbObject = read_placeable_object(object_id, objects_manager, request_user).cmdb_object
 
         to_update_location = locations_manager.get_location_for_object(object_id)
 
@@ -695,7 +713,8 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
 
     Powers a drag-and-drop of one node in the location tree. The body carries ``{parent}`` - the new
     parent CmdbLocation id (the root id to place at the top level, or null / a non-positive id to
-    remove the placement). The move is validated (parent exists, is selectable-as-parent, no cycle)
+    remove the placement). The caller's ACL has to grant READ and UPDATE on the object's type, and the type
+    has to be active - checked first. The move is validated (parent exists, is selectable-as-parent, no cycle)
     and mirrored to both the object's location field and its CmdbLocation node; an invalid drop is
     rejected 400 so the frontend can revert it
 
@@ -706,8 +725,9 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         request_user (CmdbUser): The user making the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when the CmdbObject does not exist;
-            400 when the drop target is invalid, a Rack rule refuses the move or the write fails;
+        HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject, or its Type
+            is deactivated; 404 when the CmdbObject does not exist; 400 when the drop target is invalid, a
+            Rack rule refuses the move or the write fails;
             500 on an unexpected error
 
     Returns:
@@ -721,11 +741,16 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
+        # First: the caller has to be allowed to read and change the object, and the drop has to be legal
+        target: PlacementTarget = validate_object_location_move(
+            object_id, parent, objects_manager, locations_manager, request_user,
+        )
+
         # A Rack owns where its PLACED members sit, so one may not be dragged out of its rack from here,
         # and a Rack may not be dropped into another Rack
         guard_rack_location_change(request_user, object_id, parent, locations_manager)
 
-        move_object_location(object_id, parent, request_user, objects_manager, locations_manager)
+        move_object_location(object_id, parent, request_user, objects_manager, locations_manager, target)
 
         # Dropping an object onto a Rack's node makes it a member of that Rack, and dragging it off ends
         # the membership - the tree and the rack say the same thing either way
@@ -756,10 +781,11 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
     HTTP `PATCH` route to move several objects' location placements under one common parent
 
     Powers a multi-select drag-and-drop. The body carries ``{object_ids: [...], parent}``. Every
-    listed object is validated FIRST (object exists + has a location field, parent exists, is
-    selectable-as-parent, no cycle); if any target is invalid the whole batch is rejected 400 and
-    nothing is written. Otherwise every placement is moved and mirrored. ``parent`` null /
-    non-positive removes the placement from each listed object
+    listed object is authorized FIRST (it exists, the caller's ACL grants READ and UPDATE on its type, the
+    type is active), then validated (it has a location field, the parent exists, is selectable-as-parent, no
+    cycle); if any target is denied (403) or invalid (400) the whole batch is rejected and nothing is
+    written. Otherwise every placement is moved and mirrored. ``parent`` null / non-positive removes the
+    placement from each listed object
 
     Requires the ``base.framework.location.edit`` right
 
@@ -772,8 +798,9 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The user making the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when a listed CmdbObject does not exist;
-            400 when ``object_ids`` is not a non-empty list of integers, a target is invalid, a Rack
+        HTTPException: 403 when the user lacks the right, may not read or change a listed CmdbObject, or its
+            Type is deactivated; 404 when a listed CmdbObject does not exist; 400 when ``object_ids`` is not a
+            non-empty list of integers, a target is invalid, a Rack
             rule refuses a move or a write fails; 500 on an unexpected error
 
     Returns:
@@ -797,16 +824,17 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        # Atomic pre-flight: every target is validated before anything is written, so an invalid one
-        # rejects the whole batch rather than leaving it half-applied. A Rack member is refused here too
+        # Atomic pre-flight: every target is authorized and validated before anything is written, so a denied
+        # or invalid one rejects the whole batch rather than leaving it half-applied. Batched: one $in read for
+        # the objects, one read and one ACL decision per distinct type, one parent check for all. Also hands each
+        # object and its type to the apply pass, so it re-reads neither
+        validated_targets: dict[int, PlacementTarget] = validate_object_location_moves(
+            object_ids, parent, objects_manager, locations_manager, request_user,
+        )
+
+        # A Rack member is refused here too
         for object_id in object_ids:
             guard_rack_location_change(request_user, object_id, parent, locations_manager)
-
-        # Batched: one $in read for the objects, one read per distinct type, one parent check for all.
-        # Also hands each object and its type to the apply pass, so it re-reads neither
-        validated_targets: dict[int, PlacementTarget] = validate_object_location_moves(
-            object_ids, parent, objects_manager, locations_manager
-        )
 
         for object_id in object_ids:
             move_object_location(
@@ -839,17 +867,21 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
     """
     HTTP `DELETE` route to delete the CmdbLocation linked to the given object_id
 
-    Requires the ``base.framework.location.delete`` right. Not called by the frontend, which deletes
-    an object together with its locations via ``DELETE /objects/<id>/locations`` (see the module
-    docstring)
+    Requires the ``base.framework.location.delete`` right, and the caller's READ and UPDATE on the node's
+    object's type (an active one). A node whose object - or whose object's type - is gone has no ACL left to
+    consult and is removable. The child objects whose location fields are re-pointed need no ACL of their own:
+    that is a consequence of removing their parent, as in the object delete cascade. Not called by the
+    frontend, which deletes an object together with its locations via ``DELETE /objects/<id>/locations`` (see
+    the module docstring)
 
     Args:
         object_id (int): public_id of the CmdbObject whose Location should be deleted
         request_user (CmdbUser): user making the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when the CmdbObject has no CmdbLocation;
-            400 when a Rack rule refuses the removal or the deletion fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right, may not read or change the node's CmdbObject, or its
+            Type is deactivated; 404 when the CmdbObject has no CmdbLocation; 400 when a Rack rule refuses the
+            removal or the deletion fails; 500 on an unexpected error
 
     Returns:
         Response: Acknowledgement of the deletion (DefaultResponse)
@@ -863,6 +895,9 @@ def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> R
 
         if not to_delete_location:
             abort(404, f"The Location linked to Object with ID: {object_id} was not found in the database!")
+
+        # Taking the object out of the tree is a placement write on it: READ + UPDATE, before anything else
+        authorize_node_object_change(object_id, objects_manager, request_user)
 
         # A Rack member leaves the tree when it leaves the rack, not from here. No parent is requested,
         # so this refuses every member outright

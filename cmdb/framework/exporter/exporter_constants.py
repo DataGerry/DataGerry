@@ -40,8 +40,8 @@ EXPORT_KIND_IPAM: str = 'ipam'
 # needed - the same template renders for every object, and the same object renders through every template
 EXPORT_SUBJECT_DOCUMENT_TEMPLATE: str = '{template}-{object_id}'
 
-# Subject of an object export when the selection is not one single type: JSON / XML / ZIP may span several
-# types (CSV and XLSX refuse a mixed selection), and a filter can match nothing at all
+# Subject of an object export when the selection is not one single type: JSON / XML / XLSX / ZIP may span
+# several types (CSV refuses a mixed selection), and a filter can match nothing at all
 EXPORT_SUBJECT_MANY_TYPES_TEMPLATE: str = '{count}-types'
 EXPORT_SUBJECT_NO_OBJECTS: str = 'no-objects'
 
@@ -62,6 +62,9 @@ EXPORT_FILENAME_REPLACEMENT: str = '-'
 # Length caps: the subject alone, and the assembled name without its extension
 EXPORT_FILENAME_SUBJECT_MAX_LENGTH: int = 40
 EXPORT_FILENAME_MAX_LENGTH: int = 120
+
+# Names a ZIP entry whose type name has nothing usable left once sanitized (the entry still carries the type id)
+ZIP_ENTRY_FALLBACK_NAME: str = 'type'
 
 # Import path prefix of the export format classes (dynamically loaded by class name via load_class)
 EXPORT_FORMAT_MODULE_PREFIX: str = 'cmdb.framework.exporter.format.'

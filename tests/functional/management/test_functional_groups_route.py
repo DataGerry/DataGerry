@@ -388,6 +388,74 @@ class TestPutAdminGroupMasterRight:
             _drop_group(database_manager, database_name, GROUP_ID_FOR_RIGHTS_UPDATE)
 
 
+class TestUpdateResponseShape:
+    """PUT / PATCH /groups/<id> answer the stored group in the shape every other group route answers."""
+
+    # Submitted out of tree order and with a duplicate; the update stores and answers each once, in tree order
+    SUBMITTED_RIGHTS: list[str] = ['base.framework.object.*', 'base.framework.type.view', 'base.framework.object.*']
+    STORED_RIGHT_NAMES: set[str] = {'base.framework.object.*', 'base.framework.type.view'}
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """Inserts the group to update directly via the DB and removes it after."""
+        _insert_group_doc(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+        yield
+        _drop_group(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+
+    @pytest.mark.parametrize('method', ['put', 'patch'])
+    def test_the_update_answers_what_a_following_get_answers(self, rest_api, method: str) -> None:
+        """Same rights, same full-dict shape, same tree order - the update used to answer name strings."""
+        response = getattr(rest_api, method)(
+            f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+            json=_group_payload(GROUP_ID_FOR_UPDATE, UPDATED_LABEL, rights=self.SUBMITTED_RIGHTS),
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        answered: dict[str, Any] = response.get_json()['result']
+        read: dict[str, Any] = rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}').get_json()['result']
+        assert answered == read
+        assert all(isinstance(right, dict) for right in answered['rights'])
+        assert {right['name'] for right in answered['rights']} == self.STORED_RIGHT_NAMES
+        assert answered['label'] == UPDATED_LABEL
+
+    def test_the_stored_rights_stay_name_strings(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """Only the answer is in the read shape: the document keeps the names the answer's dicts carry."""
+        response = rest_api.put(
+            f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+            json=_group_payload(GROUP_ID_FOR_UPDATE, rights=self.SUBMITTED_RIGHTS),
+        )
+
+        stored = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)\
+            .find_one({'public_id': GROUP_ID_FOR_UPDATE})
+        assert stored['rights'] == [right['name'] for right in response.get_json()['result']['rights']]
+
+    def test_the_update_and_the_create_answer_one_shape(
+        self,
+        rest_api,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """For the same rights the create and the update answer the same list."""
+        created = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_CREATE, rights=self.SUBMITTED_RIGHTS))
+        try:
+            updated = rest_api.put(
+                f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
+                json=_group_payload(GROUP_ID_FOR_UPDATE, rights=self.SUBMITTED_RIGHTS),
+            )
+
+            assert created.status_code == HTTPStatus.CREATED
+            assert updated.get_json()['result']['rights'] == created.get_json()['raw']['rights']
+        finally:
+            # The create draws its own public_id, so the row is removed by its (unique) name
+            database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)\
+                .delete_one({'name': f'group-{GROUP_ID_FOR_CREATE}'})
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       DELETE                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -578,6 +646,25 @@ def _patch_get_group(monkeypatch, ids, *, raises: Exception | None = None, retur
     monkeypatch.setattr(GroupsManager, 'get_group', _selective)
 
 
+def _patch_group_exists(monkeypatch, public_id: int, *, raises: Exception | None = None) -> None:
+    """
+    Selectively patches GroupsManager.group_exists for the given target id only
+
+    The target answers True (or raises); any other id delegates to the real check, as in
+    ``_patch_get_group``.
+    """
+    original = GroupsManager.group_exists
+
+    def _selective(self, requested_id):
+        if requested_id == public_id:
+            if raises is not None:
+                raise raises
+            return True
+        return original(self, requested_id)
+
+    monkeypatch.setattr(GroupsManager, 'group_exists', _selective)
+
+
 def _patch_group_snapshot(monkeypatch, public_id: int) -> None:
     """
     Makes the delete route's snapshot read find a stored document for a group only get_group was stubbed for
@@ -662,15 +749,15 @@ class TestErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/{GROUP_ID_FOR_GET}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_update_get_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A GroupsManagerGetError while loading the group to update surfaces as 400."""
-        _patch_get_group(monkeypatch, GROUP_ID_FOR_UPDATE, raises=GroupsManagerGetError('boom'))
+        """A GroupsManagerGetError while checking that the group to update exists surfaces as 400."""
+        _patch_group_exists(monkeypatch, GROUP_ID_FOR_UPDATE, raises=GroupsManagerGetError('boom'))
 
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
                             json=_group_payload(GROUP_ID_FOR_UPDATE)).status_code == HTTPStatus.BAD_REQUEST
 
     def test_an_update_error_that_is_no_duplicate_returns_500(self, rest_api, monkeypatch) -> None:
         """A GroupsManagerUpdateError alone says nothing about the request - a 500, not the old 400."""
-        _patch_get_group(monkeypatch, GROUP_ID_FOR_UPDATE, returns=object())
+        _patch_group_exists(monkeypatch, GROUP_ID_FOR_UPDATE)
         monkeypatch.setattr(GroupsManager, 'update_group', _raiser(GroupsManagerUpdateError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',
@@ -679,7 +766,7 @@ class TestErrorMapping:
 
     def test_update_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on update surfaces as 500."""
-        _patch_get_group(monkeypatch, GROUP_ID_FOR_UPDATE, returns=object())
+        _patch_group_exists(monkeypatch, GROUP_ID_FOR_UPDATE)
         monkeypatch.setattr(GroupsManager, 'update_group', _raiser(RuntimeError('boom')))
 
         assert rest_api.put(f'{ROUTE_URL}/{GROUP_ID_FOR_UPDATE}',

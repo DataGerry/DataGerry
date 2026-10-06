@@ -26,7 +26,7 @@ from typing import Any
 
 import pytest
 
-from cmdb.models.reports_model.cmdb_report import CmdbReport, clear_rules_of_field
+from cmdb.models.reports_model.cmdb_report import CmdbReport, clear_rules_of_field, collect_rule_fields
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
 from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportConditionLogic
 from cmdb.errors.cmdb_object import RequiredInitKeyNotFoundError
@@ -339,3 +339,25 @@ def test_index_declarations_and_schema_are_exposed() -> None:
     assert CmdbReport.COLLECTION == 'framework.reports'
     assert {entry['name'] for entry in CmdbReport.INDEX_KEYS} == {'report_category_id', 'type_id'}
     assert CmdbReport.SCHEMA['name']['required'] is True
+
+
+# ------------------------------------------------- referenced_field_names ------------------------------------------- #
+
+def test_collect_rule_fields_walks_every_group() -> None:
+    """Leaf rules at any depth; a leaf without a field contributes nothing"""
+    tree = _group(_leaf('a'), _group(_leaf('b'), {ReportConditionKey.OPERATOR: '='}))
+
+    assert collect_rule_fields(tree) == {'a', 'b'}
+
+
+def test_collect_rule_fields_of_no_tree_is_empty() -> None:
+    """None and an empty tree alike"""
+    assert collect_rule_fields(None) == set()
+    assert collect_rule_fields({}) == set()
+
+
+def test_a_report_references_its_columns_and_its_rule_fields() -> None:
+    """selected_fields and the condition tree together"""
+    report = CmdbReport.from_data(_report_document(selected_fields=['a', 'c'], conditions=_group(_leaf('b'))))
+
+    assert report.referenced_field_names() == {'a', 'b', 'c'}

@@ -28,6 +28,8 @@ from typing import Any
 import pytest
 
 from cmdb.manager.objects_propagation_helper import (
+    build_remove_undeclared_mds_fields_update,
+    build_remove_undeclared_mds_sections_update,
     RawUpdate,
     build_add_field_update,
     build_add_mds_field_update,
@@ -148,3 +150,23 @@ def test_no_statement_overwrites_a_whole_array(raw_update: RawUpdate) -> None:
     """
     assert set(raw_update.update) <= {'$push', '$pull'}
     assert raw_update.filter_query['type_id'] == TYPE_ID
+
+
+# ---------------------------------------------- the state-based MDS builders ---------------------------------------- #
+
+def test_undeclared_mds_sections_are_pulled_by_what_is_declared() -> None:
+    """Every object of the type, every section whose id is not declared"""
+    update = build_remove_undeclared_mds_sections_update(TYPE_ID, [SECTION_ID])
+
+    assert update.filter_query == {'type_id': TYPE_ID}
+    assert update.update == {'$pull': {'multi_data_sections': {'section_id': {'$nin': [SECTION_ID]}}}}
+    assert update.array_filters is None
+
+
+def test_undeclared_mds_row_fields_are_pulled_from_every_row_of_the_section() -> None:
+    """Only the named section's rows, every entry whose name the section does not declare"""
+    update = build_remove_undeclared_mds_fields_update(TYPE_ID, SECTION_ID, ['a', 'b'])
+
+    assert update.filter_query == {'type_id': TYPE_ID, 'multi_data_sections.section_id': SECTION_ID}
+    assert update.update == {'$pull': {'multi_data_sections.$[s].values.$[].data': {'name': {'$nin': ['a', 'b']}}}}
+    assert update.array_filters == [{'s.section_id': SECTION_ID}]

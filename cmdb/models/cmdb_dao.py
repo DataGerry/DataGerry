@@ -72,10 +72,10 @@ class CmdbDAO:
     The three are the only values ``update_version`` accepts, and it stores the result on the
     instance as well as returning it - see its docstring for what depended on that.
 
-    ``__init__`` turns every keyword it does not name into an attribute. Six models still rely on
-    that (CmdbSectionTemplate, CmdbReportCategory, CmdbReport, CmdbWebhook, CmdbWebhookEvent,
-    DocapiTemplate); the models migrated onto ``KEYS`` declare their parameters instead, so an
-    unknown document key is ignored rather than becoming a silent attribute
+    ``__init__`` turns every keyword it does not name into an attribute. Five models still rely on
+    that (CmdbSectionTemplate, CmdbReportCategory, CmdbReport, CmdbWebhook, CmdbWebhookEvent); the
+    models migrated onto ``KEYS`` declare their parameters instead, so an unknown document key is
+    ignored rather than becoming a silent attribute
 
     Note:
         COLLECTION and REQUIRED_INIT_KEYS should always be overwritten by inherited classes

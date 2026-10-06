@@ -18,13 +18,15 @@ The seed of the CmdbLocation write tests: objects a location node can be written
 the write routes apply
 
 * VISIBLE and HIDDEN types - both with a location field and a summary on their name field; only the
-  admin group may read HIDDEN
+  admin group may read (and change) HIDDEN
+* READ_ONLY type - the location editor may read its objects but not change them
+* DEACTIVATED type - an inactive type, whose objects no write may change
 * PLAIN type - no location field, so its objects can never sit in the tree
 * SUMMARY_REF type - a summary naming a reference field, to compare a render with and without reference
   expansion; and its summary also names the location field, to see what a move does to a derived name
 * a node that is not selectable as a parent
-* a LOCATION_EDITOR - a group holding the location rights alone, reading neither HIDDEN's objects nor
-  anything else the ACL grants the admin group only
+* a LOCATION_EDITOR - a group holding the location rights alone (view, add, edit, delete), reading neither
+  HIDDEN's objects nor anything else the ACL grants the admin group only
 
 Everything is written straight into the collections
 """
@@ -47,6 +49,8 @@ VISIBLE_TYPE_ID: int = 89501
 HIDDEN_TYPE_ID: int = 89502
 PLAIN_TYPE_ID: int = 89503
 SUMMARY_REF_TYPE_ID: int = 89504
+READ_ONLY_TYPE_ID: int = 89505
+DEACTIVATED_TYPE_ID: int = 89506
 MISSING_TYPE_ID: int = 89509
 
 VISIBLE_ID: int = 89511
@@ -54,6 +58,8 @@ HIDDEN_ID: int = 89512
 PLAIN_ID: int = 89513
 SUMMARY_REF_ID: int = 89514
 ORPHAN_ID: int = 89515
+READ_ONLY_ID: int = 89516
+DEACTIVATED_ID: int = 89517
 MISSING_OBJECT_ID: int = 89519
 
 PARENT_NODE_ID: int = 89521
@@ -78,8 +84,12 @@ PLAIN_VALUE: str = 'plain-location-value'
 SUMMARY_REF_VALUE: str = 'summary-ref-value'
 STORED_NODE_NAME: str = 'stored-node-name'
 
-ALL_TYPE_IDS: list[int] = [VISIBLE_TYPE_ID, HIDDEN_TYPE_ID, PLAIN_TYPE_ID, SUMMARY_REF_TYPE_ID]
-ALL_OBJECT_IDS: list[int] = [VISIBLE_ID, HIDDEN_ID, PLAIN_ID, SUMMARY_REF_ID, ORPHAN_ID]
+READ_ONLY_VALUE: str = 'read-only-location-value'
+DEACTIVATED_VALUE: str = 'deactivated-location-value'
+
+ALL_TYPE_IDS: list[int] = [VISIBLE_TYPE_ID, HIDDEN_TYPE_ID, PLAIN_TYPE_ID, SUMMARY_REF_TYPE_ID, READ_ONLY_TYPE_ID,
+                           DEACTIVATED_TYPE_ID]
+ALL_OBJECT_IDS: list[int] = [VISIBLE_ID, HIDDEN_ID, PLAIN_ID, SUMMARY_REF_ID, ORPHAN_ID, READ_ONLY_ID, DEACTIVATED_ID]
 ALL_NODE_IDS: list[int] = [PARENT_NODE_ID, UNSELECTABLE_NODE_ID, HIDDEN_NODE_ID, VISIBLE_NODE_ID, SUMMARY_REF_NODE_ID]
 
 
@@ -143,12 +153,19 @@ def seed(database_manager: MongoDatabaseManager, database_name: str, root_id: in
     reference_field: dict[str, Any] = {'type': FieldType.REFERENCE.value, 'name': REF_FIELD, 'label': 'Ref',
                                        'ref_types': [VISIBLE_TYPE_ID]}
     hidden: dict[str, Any] = _type_doc(HIDDEN_TYPE_ID)
-    hidden['acl'] = {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ']}}}
+    hidden['acl'] = {'activated': True, 'groups': {'includes': {str(ADMIN_GROUP_ID): ['READ', 'UPDATE']}}}
+    read_only: dict[str, Any] = _type_doc(READ_ONLY_TYPE_ID)
+    read_only['acl'] = {'activated': True, 'groups': {'includes': {
+        str(ADMIN_GROUP_ID): ['READ', 'UPDATE'], str(EDITOR_GROUP_ID): ['READ'],
+    }}}
+    deactivated: dict[str, Any] = _type_doc(DEACTIVATED_TYPE_ID)
+    deactivated['active'] = False
 
     database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_many([
         _type_doc(VISIBLE_TYPE_ID), hidden, _type_doc(PLAIN_TYPE_ID, with_location=False),
         _type_doc(SUMMARY_REF_TYPE_ID, summary=[NAME_FIELD, REF_FIELD, LOCATION_FIELD],
                   extra_fields=[reference_field]),
+        read_only, deactivated,
     ])
     database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_many([
         _object_doc(VISIBLE_ID, VISIBLE_TYPE_ID, VISIBLE_VALUE),
@@ -158,6 +175,8 @@ def seed(database_manager: MongoDatabaseManager, database_name: str, root_id: in
             {'type': FieldType.REFERENCE.value, 'name': REF_FIELD, 'value': VISIBLE_ID},
         ]),
         _object_doc(ORPHAN_ID, MISSING_TYPE_ID, PLAIN_VALUE),
+        _object_doc(READ_ONLY_ID, READ_ONLY_TYPE_ID, READ_ONLY_VALUE),
+        _object_doc(DEACTIVATED_ID, DEACTIVATED_TYPE_ID, DEACTIVATED_VALUE),
     ])
     database_manager.get_collection(CmdbLocation.COLLECTION, database_name).insert_many([
         node_doc(PARENT_NODE_ID, PARENT_NODE_OBJECT_ID, root_id),
@@ -165,7 +184,8 @@ def seed(database_manager: MongoDatabaseManager, database_name: str, root_id: in
     ])
     database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name).insert_one({
         'public_id': EDITOR_GROUP_ID, 'name': EDITOR_NAME, 'label': EDITOR_NAME,
-        'rights': [LocationRight.VIEW.value, LocationRight.ADD.value, LocationRight.EDIT.value],
+        'rights': [LocationRight.VIEW.value, LocationRight.ADD.value, LocationRight.EDIT.value,
+                   LocationRight.DELETE.value],
     })
     database_manager.get_collection(CmdbUser.COLLECTION, database_name).insert_one({
         'public_id': EDITOR_ID, 'user_name': EDITOR_NAME, 'active': True, 'group_id': EDITOR_GROUP_ID,

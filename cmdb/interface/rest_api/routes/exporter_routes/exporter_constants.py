@@ -26,13 +26,22 @@ from cmdb.utils import BaseStrEnum
 
 __all__: list[str] = [
     'ZIP_EXPORT_FORMAT',
+    'ZIP_AS_CLASSNAME_REFUSED_MSG',
+    'UNSUPPORTED_EXPORT_FORMAT_MSG',
     'DEFAULT_EXPORT_FORMAT',
     'ExporterQueryParam',
     'ExporterRight',
 ]
 
-# The 'zip' export packs an underlying format, so its class is a valid dynamic-load target too
+# The ZIP wrapper's class: chosen with the 'zip' flag around the format 'classname' names, never as a format itself
 ZIP_EXPORT_FORMAT: str = 'ZipExportFormat'
+
+# Refusals (HTTP 400) of an export format the request names: one that is no catalogue format, and the ZIP wrapper
+# named as a format of its own - it is chosen with zip=true and packs the format 'classname' names
+UNSUPPORTED_EXPORT_FORMAT_MSG: str = "Unsupported export format: {export_format}!"
+ZIP_AS_CLASSNAME_REFUSED_MSG: str = (
+    "ZIP is not an export format of its own: send zip=true with the 'classname' of the format to pack!"
+)
 
 # Export format used when the request does not specify a 'classname'
 DEFAULT_EXPORT_FORMAT: str = 'JsonExportFormat'

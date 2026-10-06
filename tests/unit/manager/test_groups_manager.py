@@ -307,37 +307,92 @@ class TestIterate:
 #                                                      hydrate_group                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestHydrateGroup:
-    """``hydrate_group`` resolves rights via the cached tree and serializes with insert_mode=True."""
+    """``hydrate_group`` builds the model an update writes, its rights resolved through the cached tree."""
 
-    def test_hydrates_via_cached_rights_and_insert_mode(self) -> None:
-        """from_data is fed ``self.rights``; the result is serialized via ``to_json(group, True)``."""
+    def test_builds_the_model_from_the_cached_rights(self) -> None:
+        """from_data is fed ``self.rights`` and the model itself is returned - nothing is serialised here."""
         mgr = _mock_manager()
         sentinel_group = MagicMock(spec=CmdbUserGroup)
 
         with patch.object(CmdbUserGroup, 'from_data', return_value=sentinel_group) as from_data_mock, \
-             patch.object(CmdbUserGroup, 'to_json', return_value=SERIALIZED_GROUP_DICT) as to_json_mock:
+             patch.object(CmdbUserGroup, 'to_json') as to_json_mock:
             result = GroupsManager.hydrate_group(mgr, SAMPLE_GROUP_DICT)
 
         from_data_mock.assert_called_once_with(SAMPLE_GROUP_DICT, mgr.rights)
-        to_json_mock.assert_called_once_with(sentinel_group, True)
-        assert result is SERIALIZED_GROUP_DICT
+        to_json_mock.assert_not_called()
+        assert result is sentinel_group
 
-    def test_rights_are_stored_once_each_in_tree_order(self) -> None:
+    def test_rights_are_held_once_each_in_tree_order(self) -> None:
         """Against the real tree: duplicates go and the order is the tree's, whatever was submitted."""
         mgr = _mock_manager()
         mgr.rights = flat_rights_tree(ALL_RIGHTS)
         first, second = mgr.rights[1].name, mgr.rights[2].name
 
-        result = GroupsManager.hydrate_group(mgr, {**SAMPLE_GROUP_DICT, 'rights': [second, first, second]})
+        group = GroupsManager.hydrate_group(mgr, {**SAMPLE_GROUP_DICT, 'rights': [second, first, second]})
 
-        assert result['rights'] == [first, second]
+        assert [right.name for right in group.rights] == [first, second]
+
+    def test_the_model_serialises_to_the_stored_and_the_read_form(self) -> None:
+        """One model: name strings for the write, full right dicts with the same names for the answer."""
+        mgr = _mock_manager()
+        mgr.rights = flat_rights_tree(ALL_RIGHTS)
+        names: list[str] = [mgr.rights[1].name, mgr.rights[2].name]
+
+        group = GroupsManager.hydrate_group(mgr, {**SAMPLE_GROUP_DICT, 'rights': names})
+
+        assert CmdbUserGroup.to_json(group, True)['rights'] == names
+        assert [right['name'] for right in CmdbUserGroup.to_json(group)['rights']] == names
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                      group_exists                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGroupExists:
+    """``group_exists`` asks the id-only lookup about one public_id."""
+
+    def test_an_existing_id_is_reported(self) -> None:
+        """The id the lookup returns exists; only that one id was asked about."""
+        mgr = _mock_manager()
+        mgr.find_existing_public_ids.return_value = {REGULAR_GROUP_PUBLIC_ID}
+
+        assert GroupsManager.group_exists(mgr, REGULAR_GROUP_PUBLIC_ID) is True
+        mgr.find_existing_public_ids.assert_called_once_with([REGULAR_GROUP_PUBLIC_ID])
+
+    def test_a_missing_id_is_not(self) -> None:
+        """An empty answer means no such group."""
+        mgr = _mock_manager()
+        mgr.find_existing_public_ids.return_value = set()
+
+        assert GroupsManager.group_exists(mgr, MISSING_GROUP_PUBLIC_ID) is False
+
+    def test_the_document_is_never_built(self) -> None:
+        """No model is built and no document read: the right tree is not touched."""
+        mgr = _mock_manager()
+        mgr.find_existing_public_ids.return_value = {REGULAR_GROUP_PUBLIC_ID}
+
+        with patch.object(CmdbUserGroup, 'from_data') as from_data_mock:
+            GroupsManager.group_exists(mgr, REGULAR_GROUP_PUBLIC_ID)
+
+        from_data_mock.assert_not_called()
+        mgr.get_item.assert_not_called()
+
+    def test_a_failed_lookup_propagates(self) -> None:
+        """The lookup's GroupsManagerGetError reaches the caller unchanged."""
+        mgr = _mock_manager()
+        failure = GroupsManagerGetError('boom')
+        mgr.find_existing_public_ids.side_effect = failure
+
+        with pytest.raises(GroupsManagerGetError) as exc_info:
+            GroupsManager.group_exists(mgr, REGULAR_GROUP_PUBLIC_ID)
+
+        assert exc_info.value is failure
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 canonical_right_names                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestCanonicalRightNames:
-    """``canonical_right_names`` is the create's form of the list ``hydrate_group`` stores on an update."""
+    """``canonical_right_names`` is the create's form of the list an update stores."""
 
     def test_each_name_once_in_tree_order(self) -> None:
         """Duplicates go and the order is the tree's."""
@@ -348,14 +403,14 @@ class TestCanonicalRightNames:
         assert GroupsManager.canonical_right_names(mgr, [second, first, second]) == [first, second]
 
     def test_equals_what_the_update_stores(self) -> None:
-        """For the same input the create's list is the update's."""
+        """For the same input the create's list is the update's: the hydrated model in its stored form."""
         mgr = _mock_manager()
         mgr.rights = flat_rights_tree(ALL_RIGHTS)
         submitted: list[str] = [mgr.rights[5].name, MASTER_RIGHT_NAME, mgr.rights[5].name]
 
         hydrated = GroupsManager.hydrate_group(mgr, {**SAMPLE_GROUP_DICT, 'rights': submitted})
 
-        assert GroupsManager.canonical_right_names(mgr, submitted) == hydrated['rights']
+        assert GroupsManager.canonical_right_names(mgr, submitted) == CmdbUserGroup.to_json(hydrated, True)['rights']
 
     def test_an_empty_list_stays_empty(self) -> None:
         """No rights in, no rights out."""

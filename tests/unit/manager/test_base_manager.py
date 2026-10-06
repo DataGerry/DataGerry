@@ -28,7 +28,10 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.query_builder import BuilderParameters
+from cmdb.utils import find_cause
 from cmdb.errors.database import (
+    DocumentQueryTimeLimitError,
     DocumentInsertError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
@@ -51,6 +54,7 @@ MODULE_PATH: str = 'cmdb.manager.base_manager'
 
 COLLECTION: str = 'framework.stub'
 DB_NAME: str = 'test-db'
+TIME_LIMIT_MS: int = 1234
 
 
 def _mock_manager() -> MagicMock:
@@ -113,6 +117,33 @@ def test_insert_many_wraps_failure() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                          count_from_other_collection                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
+def test_get_many_passes_the_criteria_and_no_projection() -> None:
+    """Without a projection the database layer's own default applies (it only drops `_id`)"""
+    mgr = _mock_manager()
+    mgr.dbm.find_all.return_value = []
+
+    BaseManager.get_many(mgr, type_id=7)
+
+    call = mgr.dbm.find_all.call_args
+    assert call.kwargs['collection'] == COLLECTION
+    assert call.kwargs['db_name'] == DB_NAME
+    assert call.kwargs['filter'] == {'type_id': 7}
+    assert 'projection' not in call.kwargs
+
+
+def test_get_many_forwards_a_projection_and_keeps_it_out_of_the_filter() -> None:
+    """A projection reaches the driver as one, not as a filter on a field named `projection`"""
+    mgr = _mock_manager()
+    mgr.dbm.find_all.return_value = []
+    projection = {'public_id': 1, '_id': 0}
+
+    BaseManager.get_many(mgr, projection=projection, type_id=7)
+
+    call = mgr.dbm.find_all.call_args
+    assert call.kwargs['projection'] is projection
+    assert call.kwargs['filter'] == {'type_id': 7}
+
+
 def test_get_many_from_other_collection_passes_the_criteria_and_no_projection() -> None:
     """Without a projection the database layer's own default applies (it only drops `_id`)"""
     mgr = _mock_manager()
@@ -210,33 +241,33 @@ def test_aggregate_query_returns_the_aggregated_documents() -> None:
     mgr = _mock_manager()
     mgr.query_builder.build.return_value = ['QUERY']
     docs = [{'public_id': 1}, {'public_id': 2}]
-    mgr.aggregate.return_value = iter(docs)
+    mgr.aggregate_within_time_limit.return_value = docs
     params = MagicMock()
 
     result = BaseManager.aggregate_query(mgr, params)
 
     assert result == docs
     mgr.query_builder.build.assert_called_once_with(params, None, None)
-    mgr.aggregate.assert_called_once_with(['QUERY'])
+    mgr.aggregate_within_time_limit.assert_called_once_with(['QUERY'], params.time_limit_ms)
 
 
 def test_aggregate_query_runs_no_count_pipeline() -> None:
     """The whole point of the method: exactly one aggregation, and no count query is built"""
     mgr = _mock_manager()
     mgr.query_builder.build.return_value = ['QUERY']
-    mgr.aggregate.return_value = iter([])
+    mgr.aggregate_within_time_limit.return_value = []
 
     BaseManager.aggregate_query(mgr, MagicMock())
 
     mgr.query_builder.count.assert_not_called()
-    assert mgr.aggregate.call_count == 1
+    assert mgr.aggregate_within_time_limit.call_count == 1
 
 
 def test_aggregate_query_forwards_user_and_permission() -> None:
     """The ACL arguments reach the query builder unchanged"""
     mgr = _mock_manager()
     mgr.query_builder.build.return_value = []
-    mgr.aggregate.return_value = iter([])
+    mgr.aggregate_within_time_limit.return_value = []
     params, user, permission = MagicMock(), MagicMock(), MagicMock()
 
     BaseManager.aggregate_query(mgr, params, user, permission)
@@ -253,6 +284,73 @@ def test_aggregate_query_wraps_failure() -> None:
         BaseManager.aggregate_query(mgr, MagicMock())
 
 
+def test_aggregate_query_runs_under_the_queries_time_budget() -> None:
+    """The budget the BuilderParameters carry is the data aggregation's"""
+    mgr = _mock_manager()
+    mgr.query_builder.build.return_value = ['QUERY']
+    mgr.aggregate_within_time_limit.return_value = []
+    params = BuilderParameters(criteria={}, time_limit_ms=TIME_LIMIT_MS)
+
+    BaseManager.aggregate_query(mgr, params)
+
+    mgr.aggregate_within_time_limit.assert_called_once_with(['QUERY'], TIME_LIMIT_MS)
+
+
+def test_iterate_query_counts_under_the_same_time_budget() -> None:
+    """The count pipeline is the client's criteria too, so it is held to the same budget"""
+    mgr = _mock_manager()
+    mgr.aggregate_query.return_value = []
+    mgr.query_builder.count.return_value = ['COUNT']
+    mgr.aggregate_within_time_limit.return_value = [{'total': 3}]
+    params = BuilderParameters(criteria={}, time_limit_ms=TIME_LIMIT_MS)
+
+    assert BaseManager.iterate_query(mgr, params) == ([], 3)
+    mgr.aggregate_within_time_limit.assert_called_once_with(['COUNT'], TIME_LIMIT_MS)
+
+
+def test_a_timed_out_query_keeps_the_typed_error_in_its_chain() -> None:
+    """Wrapped as the manager's iteration error, with the DocumentQueryTimeLimitError a route looks for inside"""
+    mgr = _mock_manager()
+    mgr.query_builder.build.return_value = ['QUERY']
+    timeout = DocumentQueryTimeLimitError('slow', TIME_LIMIT_MS)
+    wrapped = BaseManagerIterationError(timeout)
+    wrapped.__cause__ = timeout
+    mgr.aggregate_within_time_limit.side_effect = wrapped
+
+    with pytest.raises(BaseManagerIterationError) as exc_info:
+        BaseManager.aggregate_query(mgr, BuilderParameters(criteria={}))
+
+    assert find_cause(exc_info.value, DocumentQueryTimeLimitError) is timeout
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            aggregate_within_time_limit                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_aggregate_within_time_limit_delegates_to_the_database_layer() -> None:
+    """The manager's own collection and database, the pipeline, the budget and the further options"""
+    mgr = _mock_manager()
+    mgr.dbm.aggregate_within_time_limit.return_value = [{'public_id': 1}]
+
+    result = BaseManager.aggregate_within_time_limit(mgr, ['PIPE'], TIME_LIMIT_MS, allowDiskUse=True)
+
+    assert result == [{'public_id': 1}]
+    mgr.dbm.aggregate_within_time_limit.assert_called_once_with(
+        COLLECTION, DB_NAME, ['PIPE'], TIME_LIMIT_MS, allowDiskUse=True,
+    )
+
+
+def test_aggregate_within_time_limit_wraps_the_timeout_itself() -> None:
+    """A DocumentQueryTimeLimitError is an aggregation error: wrapped, and still the wrapper's args[0]"""
+    mgr = _mock_manager()
+    timeout = DocumentQueryTimeLimitError('slow', TIME_LIMIT_MS)
+    mgr.dbm.aggregate_within_time_limit.side_effect = timeout
+
+    with pytest.raises(BaseManagerIterationError) as exc_info:
+        BaseManager.aggregate_within_time_limit(mgr, ['PIPE'], TIME_LIMIT_MS)
+
+    assert exc_info.value.args[0] is timeout
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  iterate_query                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -262,7 +360,7 @@ def test_iterate_query_returns_results_and_total() -> None:
     docs = [{'public_id': 1}, {'public_id': 2}]
     mgr.aggregate_query.return_value = docs
     mgr.query_builder.count.return_value = ['COUNT']
-    mgr.aggregate.return_value = iter([{'total': 7}])
+    mgr.aggregate_within_time_limit.return_value = [{'total': 7}]
     params = MagicMock()
 
     result = BaseManager.iterate_query(mgr, params)
@@ -275,7 +373,7 @@ def test_iterate_query_delegates_the_data_half_to_aggregate_query() -> None:
     mgr = _mock_manager()
     mgr.aggregate_query.return_value = []
     mgr.query_builder.count.return_value = []
-    mgr.aggregate.return_value = iter([])
+    mgr.aggregate_within_time_limit.return_value = []
     params, user, permission = MagicMock(), MagicMock(), MagicMock()
 
     BaseManager.iterate_query(mgr, params, user, permission)
@@ -285,7 +383,7 @@ def test_iterate_query_delegates_the_data_half_to_aggregate_query() -> None:
     mgr.aggregate_query.assert_called_once_with(params)
     mgr.apply_acl_to_builder_params.assert_called_once_with(params, user, permission)
     # Only the count pipeline is aggregated directly; the data half went through aggregate_query
-    assert mgr.aggregate.call_count == 1
+    assert mgr.aggregate_within_time_limit.call_count == 1
 
 
 def test_iterate_query_counts_the_criteria_the_rows_were_read_with() -> None:
@@ -298,7 +396,7 @@ def test_iterate_query_counts_the_criteria_the_rows_were_read_with() -> None:
     mgr = _mock_manager()
     mgr.aggregate_query.return_value = []
     mgr.query_builder.count.return_value = []
-    mgr.aggregate.return_value = iter([])
+    mgr.aggregate_within_time_limit.return_value = []
     params = MagicMock()
 
     BaseManager.iterate_query(mgr, params, MagicMock(), MagicMock())
@@ -366,7 +464,7 @@ def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:
     mgr = _mock_manager()
     mgr.aggregate_query.return_value = []
     mgr.query_builder.count.return_value = []
-    mgr.aggregate.return_value = iter([])
+    mgr.aggregate_within_time_limit.return_value = []
 
     result = BaseManager.iterate_query(mgr, MagicMock())
 
@@ -520,6 +618,40 @@ def test_delete_wraps_document_delete_error() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                               find_one_and_delete                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_find_one_and_delete_answers_what_the_database_deleted() -> None:
+    """Forwarded to the manager's own collection and database, the deleted document answered as is"""
+    mgr = _mock_manager()
+    mgr.dbm.find_one_and_delete.return_value = {'public_id': 5}
+
+    result = BaseManager.find_one_and_delete(mgr, {'public_id': 5})
+
+    assert result == {'public_id': 5}
+    mgr.dbm.find_one_and_delete.assert_called_once_with(COLLECTION, DB_NAME, {'public_id': 5})
+
+
+def test_find_one_and_delete_answers_none_when_nothing_matched() -> None:
+    """Nothing deleted is None, not an error"""
+    mgr = _mock_manager()
+    mgr.dbm.find_one_and_delete.return_value = None
+
+    assert BaseManager.find_one_and_delete(mgr, {'public_id': 5}) is None
+
+
+def test_find_one_and_delete_wraps_failure() -> None:
+    """A DocumentDeleteError is wrapped in BaseManagerDeleteError, carrying it"""
+    mgr = _mock_manager()
+    failure = DocumentDeleteError('boom')
+    mgr.dbm.find_one_and_delete.side_effect = failure
+
+    with pytest.raises(BaseManagerDeleteError) as exc_info:
+        BaseManager.find_one_and_delete(mgr, {'public_id': 5})
+
+    assert exc_info.value.args[0] is failure
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                   delete_many                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_delete_many_spreads_filter_query_as_kwargs() -> None:
@@ -621,6 +753,8 @@ _ERROR_MAPPING_CASES = [
     ('get_many', (), 'find_all', DocumentGetError, BaseManagerGetError),
     ('aggregate', ([],), 'aggregate', DocumentAggregationError, BaseManagerIterationError),
     ('aggregate_from_other_collection', ('other', []), 'aggregate',
+     DocumentAggregationError, BaseManagerIterationError),
+    ('aggregate_within_time_limit', ([], 1), 'aggregate_within_time_limit',
      DocumentAggregationError, BaseManagerIterationError),
     ('get_next_public_id', (), 'get_next_public_id', DocumentGetError, BaseManagerGetError),
     ('reserve_public_ids', (5,), 'reserve_public_ids', DocumentGetError, BaseManagerGetError),

@@ -33,7 +33,13 @@ from cmdb.manager import (
 
 from cmdb.framework.results import IterationResult
 from cmdb.models.user_model import CmdbUser, CmdbUserKey
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
     apply_registration_time,
     guard_user_update,
@@ -182,6 +188,7 @@ def get_cmdb_users(params: CollectionParameters, request_user: CmdbUser) -> Resp
 
         return api_response.make_response()
     except UsersManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_users] %s", err, exc_info=True)
         abort(400, "Could not iterate the requested Users!")
     except Exception as err:

@@ -651,3 +651,26 @@ class TestUnreadableTimestampsAreRefused:
         built = CmdbType.from_data(_document(creation_time={'$date': 1772000000000}))
 
         assert isinstance(built.creation_time, datetime)
+
+
+# ---------------------------------------------------- alignment_pending -------------------------------------------- #
+
+def test_a_type_starts_without_the_alignment_marker() -> None:
+    """Absent from a stored document, it reads False"""
+    assert _type().alignment_pending is False
+
+
+def test_the_alignment_marker_round_trips() -> None:
+    """Read from the document and written back under its key"""
+    pending = CmdbType.from_data(_document(alignment_pending=True))
+
+    assert pending.alignment_pending is True
+    assert CmdbType.to_json(pending)[TypeSchemaKey.ALIGNMENT_PENDING.value] is True
+
+
+def test_the_marker_is_in_the_schema_with_a_false_default() -> None:
+    """A boolean the document schema knows, defaulting to False"""
+    rules = CmdbType.SCHEMA[TypeSchemaKey.ALIGNMENT_PENDING.value]
+
+    assert rules['type'] == 'boolean'
+    assert rules['default'] is False

@@ -31,18 +31,22 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.location_model.location_node import LocationNode
 from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.models.object_model.object_constants import ObjectWriteVerb
 from cmdb.models.location_model.location_constants import RootLocationDefault, LocationKey
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     LINKED_OBJECT_DENIED_MSG,
     LINKED_OBJECT_NOT_FOUND_MSG,
+    LINKED_OBJECT_UPDATE_DENIED_MSG,
     LOCATION_DELETE_UNDO_INCOMPLETE_MSG,
     OBJECT_ID_NAME_TEMPLATE,
     LOCATION_TREE_HAS_CHILDREN_KEY,
 )
 from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -120,6 +124,133 @@ def read_linked_object(object_id: int, objects_manager: ObjectsManager, request_
         abort(404, LINKED_OBJECT_NOT_FOUND_MSG.format(object_id=object_id))
 
     return linked_object
+
+
+def resolve_placed_object_type(cmdb_object: CmdbObject, objects_manager: ObjectsManager) -> CmdbType:
+    """
+    Resolves the CmdbType of an object a placement is written for
+
+    Args:
+        cmdb_object (CmdbObject): The CmdbObject being placed
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+
+    Raises:
+        HTTPException: 500 when the object's type cannot be resolved
+
+    Returns:
+        CmdbType: The object's CmdbType
+    """
+    object_type: CmdbType | None = objects_manager.get_object_type(cmdb_object.get_type_id())
+
+    if not object_type:
+        abort(500, f"Type of Object with ID:{cmdb_object.get_public_id()} not found in database!")
+
+    return object_type
+
+
+def authorize_object_placement(
+        cmdb_object: CmdbObject,
+        object_type: CmdbType,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser) -> None:
+    """
+    Refuses a placement write the caller may not make on the object it is for
+
+    A placement write is both a READ of the object - its node is named after the object's summary - and an
+    UPDATE of it, because the object's location field is written. So the caller's ACL has to grant both on
+    the object's type, and the type has to be active, as on every other object write
+    (``ObjectsManager.guard_writable_type``). Decided on the type alone, so a batch asks once per type
+
+    Args:
+        cmdb_object (CmdbObject): The CmdbObject the placement is written for
+        object_type (CmdbType): Its resolved CmdbType
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 403 when the caller may not read the object, may not change it, or its type is
+            deactivated - each with its own message
+    """
+    object_id: int = cmdb_object.get_public_id()
+
+    try:
+        verify_access(object_type, request_user, AccessControlPermission.READ)
+    except AccessDeniedError:
+        abort(403, LINKED_OBJECT_DENIED_MSG.format(object_id=object_id))
+
+    try:
+        objects_manager.guard_writable_type(
+            cmdb_object.get_type_id(), request_user, AccessControlPermission.UPDATE, ObjectsManagerGetError,
+            ObjectWriteVerb.UPDATED, object_type=object_type,
+        )
+    except AccessDeniedError as err:
+        if not object_type.active:
+            abort(403, str(err))
+
+        abort(403, LINKED_OBJECT_UPDATE_DENIED_MSG.format(object_id=object_id))
+
+
+def read_placeable_object(
+        object_id: int,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser) -> PlacementTarget:
+    """
+    Reads the CmdbObject a placement is written for and refuses the write the caller may not make
+
+    The first step of every placement write that names an object: read through the caller's READ ACL
+    (``read_linked_object``), the type resolved, then ``authorize_object_placement``. Runs before any other
+    check, so a caller who may not touch the object learns nothing else about the placement
+
+    Args:
+        object_id (int): public_id of the CmdbObject being placed
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 404 when the object does not exist; 403 when the caller may not read or change it or
+            its type is deactivated; 500 when its type cannot be resolved
+        ObjectsManagerGetError: When the read fails
+
+    Returns:
+        PlacementTarget: The object and its CmdbType, for the placement checks and the write to reuse
+    """
+    linked_object: CmdbObject = read_linked_object(object_id, objects_manager, request_user)
+    object_type: CmdbType = resolve_placed_object_type(linked_object, objects_manager)
+
+    authorize_object_placement(linked_object, object_type, objects_manager, request_user)
+
+    return PlacementTarget(linked_object, object_type)
+
+
+def authorize_node_object_change(object_id: int, objects_manager: ObjectsManager, request_user: CmdbUser) -> None:
+    """
+    Refuses the removal of a node whose object the caller may not change
+
+    Removing a node takes its object out of the tree, so the caller needs what every placement write needs on
+    that object (``authorize_object_placement``). A node whose object is gone, or whose object's type is gone,
+    has no ACL left to consult and is removable - the route exists to clean such nodes up too. The root's
+    sentinel object id reads as no object at all
+
+    Args:
+        object_id (int): public_id of the CmdbObject the node belongs to
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 403 when the caller may not read or change the object, or its type is deactivated
+        ObjectsManagerGetError: When the read fails
+    """
+    node_object: CmdbObject | None = objects_manager.get_object(object_id, as_dict=False)
+
+    if not node_object:
+        return
+
+    object_type: CmdbType | None = objects_manager.get_object_type(node_object.get_type_id())
+
+    if not object_type:
+        return
+
+    authorize_object_placement(node_object, object_type, objects_manager, request_user)
 
 
 def with_location_parent(cmdb_object: CmdbObject, parent: int | None) -> CmdbObject:
@@ -551,7 +682,8 @@ def validate_location_placement(
         current_object: CmdbObject,
         parent: int | None,
         objects_manager: ObjectsManager,
-        locations_manager: LocationsManager) -> PlacementTarget:
+        locations_manager: LocationsManager,
+        object_type: CmdbType | None = None) -> PlacementTarget:
     """
     Read-only validation of a placement for an object already read; returns it with its type
 
@@ -565,6 +697,7 @@ def validate_location_placement(
         parent (int | None): The new parent CmdbLocation id, or None to remove the placement
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
+        object_type (CmdbType | None): The object's type when the caller already resolved it; read here otherwise
 
     Raises:
         HTTPException: 400 when the object has no location field or the placement is invalid, 500 when
@@ -574,10 +707,9 @@ def validate_location_placement(
         PlacementTarget: The object and its resolved CmdbType
     """
     object_id: int = current_object.get_public_id()
-    object_type: CmdbType | None = objects_manager.get_object_type(current_object.get_type_id())
 
-    if not object_type:
-        abort(500, f"Type of Object with ID:{object_id} not found in database!")
+    if object_type is None:
+        object_type = resolve_placed_object_type(current_object, objects_manager)
 
     if not current_object.has_fields_of_type(FieldType.LOCATION):
         abort(400, f"Object with ID:{object_id} has no location field and cannot be placed in the location tree!")
@@ -591,78 +723,81 @@ def validate_object_location_move(
         object_id: int,
         parent: int | None,
         objects_manager: ObjectsManager,
-        locations_manager: LocationsManager) -> PlacementTarget:
+        locations_manager: LocationsManager,
+        request_user: CmdbUser) -> PlacementTarget:
     """
     Read-only validation of a placement move; returns the object and its type for the caller to reuse
 
-    Reads the object, then runs ``validate_location_placement``. Writes nothing, so a bulk move can
-    validate every target up front and reject the whole batch before any change
+    Reads the object and refuses a caller who may not move it (``read_placeable_object``), then runs
+    ``validate_location_placement``. Writes nothing
 
     Args:
         object_id (int): public_id of the CmdbObject to move
         parent (int | None): The new parent CmdbLocation id, or None to remove the placement
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
+        request_user (CmdbUser): The caller, whose READ and UPDATE the object's type has to grant
 
     Raises:
-        HTTPException: 404 when the object is missing, 400 when it has no location field or the
-            placement is invalid, 500 when the object's type cannot be resolved
+        HTTPException: 404 when the object is missing; 403 when the caller may not read or change it or its
+            type is deactivated; 400 when it has no location field or the placement is invalid; 500 when the
+            object's type cannot be resolved
 
     Returns:
         PlacementTarget: The moved object and its resolved CmdbType (reused by move_object_location)
     """
-    current_object: CmdbObject | None = objects_manager.get_object(object_id, as_dict=False)
+    target: PlacementTarget = read_placeable_object(object_id, objects_manager, request_user)
 
-    if not current_object:
-        abort(404, f"Object with ID:{object_id} not found!")
-
-    return validate_location_placement(current_object, parent, objects_manager, locations_manager)
+    return validate_location_placement(
+        target.cmdb_object, parent, objects_manager, locations_manager, target.object_type,
+    )
 
 
 def validate_object_location_moves(
         object_ids: list[int],
         parent: int | None,
         objects_manager: ObjectsManager,
-        locations_manager: LocationsManager) -> dict[int, PlacementTarget]:
+        locations_manager: LocationsManager,
+        request_user: CmdbUser) -> dict[int, PlacementTarget]:
     """
     Read-only validation of a BULK placement move; returns each object and its type for the caller to reuse
 
-    Runs the same checks as ``validate_object_location_move`` in the same order per object, but
-    without re-reading what the whole batch shares:
+    Runs the same checks as ``validate_object_location_move``, but without re-reading what the whole batch
+    shares:
 
     - the objects are fetched in ONE ``$in`` query instead of one read per object
-    - each distinct type is resolved ONCE, however many objects of it are in the batch
+    - each distinct type is resolved ONCE, and the caller's READ + UPDATE on it is decided once
+      (``authorize_object_placement``), however many objects of it are in the batch
     - the target parent is the same for the entire batch, so its existence and selectable-as-parent
       check runs once rather than per object (the per-object cycle check still runs individually,
       because it depends on where each object currently sits)
 
-    One consequence of validating the shared parent up front: when BOTH the parent is invalid and a
-    listed object is missing, the parent error is what the caller sees. Previously the first object's
-    404 won. The batch is rejected either way
+    Every object is found and authorized before anything about the placement is checked, so a caller who
+    may not move one of them learns nothing else: a missing object is the 404 and a denied one the 403,
+    whatever the parent is. One denied object refuses the whole batch
 
     Args:
         object_ids (list[int]): public_ids of the CmdbObjects to move
         parent (int | None): The new parent CmdbLocation id, or None to remove the placements
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
+        request_user (CmdbUser): The caller, whose READ and UPDATE every object's type has to grant
 
     Raises:
-        HTTPException: 404 when a listed object is missing, 400 when one has no location field or a
-            placement is invalid, 500 when an object's type cannot be resolved
+        HTTPException: 404 when a listed object is missing; 403 when the caller may not read or change one or
+            its type is deactivated; 400 when one has no location field or a placement is invalid; 500 when an
+            object's type cannot be resolved
 
     Returns:
         dict[int, PlacementTarget]: The object and its resolved CmdbType per object_id (reused by
             move_object_location)
     """
-    validate_shared_move_parent(parent, locations_manager)
-
     objects_by_id: dict[int, CmdbObject] = {
         current_object.get_public_id(): current_object
         for current_object in objects_manager.get_objects_by(public_id={'$in': object_ids})
     }
 
     types_by_id: dict[int, CmdbType] = {}
-    validated_targets: dict[int, PlacementTarget] = {}
 
     for object_id in object_ids:
         current_object: CmdbObject | None = objects_by_id.get(object_id)
@@ -673,12 +808,17 @@ def validate_object_location_moves(
         type_id: int = current_object.get_type_id()
 
         if type_id not in types_by_id:
-            object_type: CmdbType | None = objects_manager.get_object_type(type_id)
-
-            if not object_type:
-                abort(500, f"Type of Object with ID:{object_id} not found in database!")
-
+            object_type: CmdbType = resolve_placed_object_type(current_object, objects_manager)
+            authorize_object_placement(current_object, object_type, objects_manager, request_user)
             types_by_id[type_id] = object_type
+
+    validate_shared_move_parent(parent, locations_manager)
+
+    validated_targets: dict[int, PlacementTarget] = {}
+
+    for object_id in object_ids:
+        current_object = objects_by_id[object_id]
+        type_id = current_object.get_type_id()
 
         if not current_object.has_fields_of_type(FieldType.LOCATION):
             abort(400,
@@ -712,7 +852,8 @@ def move_object_location(
     Args:
         object_id (int): public_id of the CmdbObject to move
         parent (int | None): The new parent CmdbLocation id, or None to remove the placement
-        request_user (CmdbUser): The user making the request (used to derive the node name)
+        request_user (CmdbUser): The user making the request (authorized on the object when ``target`` is None,
+            and used to derive the node name)
         objects_manager (ObjectsManager): db interface for CmdbObjects
         locations_manager (LocationsManager): db interface for CmdbLocations
         target (PlacementTarget | None): The object and type validate_object_location_move(s) answered;
@@ -720,10 +861,10 @@ def move_object_location(
             reads it once
 
     Raises:
-        HTTPException: 404 / 400 / 500 as raised by validate_object_location_move
+        HTTPException: 404 / 403 / 400 / 500 as raised by validate_object_location_move
     """
     if target is None:
-        target = validate_object_location_move(object_id, parent, objects_manager, locations_manager)
+        target = validate_object_location_move(object_id, parent, objects_manager, locations_manager, request_user)
 
     objects_manager.set_location_field_for_objects([object_id], parent)
     sync_object_location(

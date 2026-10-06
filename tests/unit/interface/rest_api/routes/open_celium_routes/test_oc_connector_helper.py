@@ -67,21 +67,33 @@ class TestConnectorInSubscription:
         assert result is True
         cached_manager.get_cached_user.assert_called_once_with(REQUEST_USER.email)
 
-    def test_falls_back_to_portal_when_not_cached(self) -> None:
-        """An uncached user is validated via the Service Portal check."""
+    def test_a_user_the_portal_does_not_know_is_refused_without_a_second_call(self) -> None:
+        """An uncached user the portal knows no data for has no subscription - one portal call, not two."""
         cached_manager = MagicMock()
-        cached_manager.get_cached_user.return_value = None  # no cached user -> portal fallback
+        cached_manager.get_cached_user.return_value = None
         dg_sp_manager = MagicMock()
-        dg_sp_manager.check_connector_in_sub.return_value = False
+        dg_sp_manager.get_dg_sp_user_data.return_value = None
 
         result = connector_in_subscription(
             REQUEST_USER, CONNECTOR_ID, cached_manager, dg_sp_manager, cached_user=None
         )
 
         assert result is False
-        dg_sp_manager.check_connector_in_sub.assert_called_once_with(
-            CONNECTOR_ID, REQUEST_USER.email, REQUEST_USER.database
-        )
+        dg_sp_manager.get_dg_sp_user_data.assert_called_once_with(REQUEST_USER.email)
+        dg_sp_manager.check_connector_in_sub.assert_not_called()
+
+    def test_a_resolved_cache_entry_is_reused(self) -> None:
+        """A cached_user passed in is looked up directly: no cache read, no portal call."""
+        cached_manager = MagicMock()
+        cached_manager.oc_id_exists.return_value = True
+        dg_sp_manager = MagicMock()
+        cached_user: dict[str, Any] = {'email': REQUEST_USER.email}
+
+        assert connector_in_subscription(
+            REQUEST_USER, CONNECTOR_ID, cached_manager, dg_sp_manager, cached_user=cached_user
+        ) is True
+        cached_manager.get_cached_user.assert_not_called()
+        dg_sp_manager.get_dg_sp_user_data.assert_not_called()
 
 
 class TestValidateMasterPassword:

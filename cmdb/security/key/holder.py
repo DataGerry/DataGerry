@@ -22,10 +22,9 @@ from typing import Any
 from flask import current_app
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager import SettingsManager
+from cmdb.security.key.security_settings import read_security_setting
 from cmdb.security.key.secret_resolver import (
     ASYMMETRIC_KEY_SETTING,
-    SECURITY_SECTION,
     resolve_secret,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -65,12 +64,13 @@ class KeyHolder:
             with_private_key (bool): Whether to load the private key as well. Defaults to True
 
         Attributes:
-            settings_manager (SettingsManager): Manages the settings for the application
+            dbm (MongoDatabaseManager): Reads the stored keypair on premise (``security_settings``), from the
+                default database - an on-premise installation has one
             rsa_public (bytes): The RSA public key used for encryption
             rsa_private (bytes | None): The RSA private key used for decryption, None when it was
                 not asked for
         """
-        self.settings_manager: SettingsManager = SettingsManager(dbm)
+        self.dbm: MongoDatabaseManager = dbm
         self._stored_keypair: dict[str, Any] | None = None
         self.rsa_public: bytes = self.get_public_key()
         self.rsa_private: bytes | None = self.get_private_key() if with_private_key else None
@@ -137,6 +137,6 @@ class KeyHolder:
             bytes: The requested half of the RSA keypair
         """
         if self._stored_keypair is None:
-            self._stored_keypair = self.settings_manager.get_value(ASYMMETRIC_KEY_SETTING, SECURITY_SECTION)
+            self._stored_keypair = read_security_setting(self.dbm, None, ASYMMETRIC_KEY_SETTING)
 
         return self._stored_keypair[half]

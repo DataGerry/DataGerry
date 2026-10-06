@@ -185,6 +185,20 @@ class TestTheSchema:
 
         assert validator.validate(_document(name='', color='')) is False
 
+    def test_what_the_model_serialises_for_a_minimal_class_validates(self) -> None:
+        """The list read answers the model's nulls, and the reorder sends them back - they must be writable"""
+        minimal = IsmsRiskClass.from_data({RiskClassKey.PUBLIC_ID.value: PUBLIC_ID,
+                                           RiskClassKey.NAME.value: 'Low', RiskClassKey.COLOR.value: '#00ff00'})
+        serialised = IsmsRiskClass.to_json(minimal)
+
+        assert serialised[RiskClassKey.SORT.value] is None and serialised[RiskClassKey.DESCRIPTION.value] is None
+        assert Validator(get_isms_risk_class_schema()).validate(serialised) is True
+
+    @pytest.mark.parametrize('key', [RiskClassKey.SORT.value, RiskClassKey.DESCRIPTION.value])
+    def test_an_optional_key_still_refuses_the_wrong_type(self, key: str) -> None:
+        """Nullable, not untyped"""
+        assert Validator(get_isms_risk_class_schema()).validate(_document(**{key: ['x']})) is False
+
     def test_the_model_is_a_cmdb_dao(self) -> None:
         """The shared document machinery only applies to CmdbDAO subclasses"""
         assert issubclass(IsmsRiskClass, CmdbDAO)

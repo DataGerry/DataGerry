@@ -50,7 +50,12 @@ from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.utils import Builder, is_truthy_query_arg
 
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -67,6 +72,8 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_or_abort,
     shape_assignable_page,
 )
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.security.acl.builder import resolve_denied_type_ids
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -94,8 +101,10 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
     An object held by a DIFFERENT rack is offered, with `assigned_rack_id` / `assigned_rack_name` naming
     that rack: mounting it moves it. `?only_unmounted=true` narrows the list to the objects in no rack
 
-    Guarded by the Rack's view right: this is a question, not a change. No object ACL is applied (see
-    the module docstring)
+    Guarded by the Rack's view right: this is a question, not a change. The candidates are read through the
+    caller's READ ACL - a picker offers only what the caller may open, like the IPAM picker and
+    `GET /objects/` - and the page total follows. A holding rack the caller may not read keeps its id in the
+    hint, so the frontend still warns that the mount moves the object, and loses its name
 
     Args:
         params (CollectionParameters): Filtering, sorting and pagination parameters
@@ -141,16 +150,22 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
 
         # The raw aggregation documents, not hydrated CmdbObjects: a picker row is six keys, so building
         # a model instance per candidate only to project it away would be wasted work
-        object_docs, total = objects_manager.iterate_query(builder_params)
+        object_docs, total = objects_manager.iterate_query(
+            builder_params, request_user, AccessControlPermission.READ,
+        )
 
         return GetMultiResponse(
-            shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, object_docs),
+            shape_assignable_page(
+                objects_manager, types_manager, rack_mounts_manager, object_docs,
+                resolve_denied_type_ids(request_user, AccessControlPermission.READ),
+            ),
             total=total,
             params=params,
             url=request.url,
             body=request_wants_body(),
         ).make_response()
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_assignable_objects] %s", err, exc_info=True)
         abort(400, "Failed to retrieve the objects assignable to the Rack!")
     except RackMountsManagerGetError as err:

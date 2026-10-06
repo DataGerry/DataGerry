@@ -39,6 +39,10 @@ LINKED_OBJECT_NOT_FOUND_MSG: str = "The linked Object with ID:{object_id} was no
 # the object's summary as its name, so writing one is a read of the object. Format with its public_id
 LINKED_OBJECT_DENIED_MSG: str = "No permission to read the linked Object with ID:{object_id}!"
 
+# Forbidden (HTTP 403) when the caller may read but not change the CmdbObject a placement write is for: every
+# placement write stores the object's location field, so it is an UPDATE of the object. Format with its public_id
+LINKED_OBJECT_UPDATE_DENIED_MSG: str = "No permission to change the linked Object with ID:{object_id}!"
+
 # Bad request (HTTP 400) when POST /locations/ names a type the linked CmdbObject does not have. The node's type
 # fields are the object's own type's. Format with both ids
 LINKED_OBJECT_TYPE_MISMATCH_MSG: str = (

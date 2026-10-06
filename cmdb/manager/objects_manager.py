@@ -688,6 +688,30 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerIterationError(err) from err
 
 
+    def aggregate_objects_within_time_limit(
+            self,
+            pipeline: list[dict[str, Any]],
+            time_limit_ms: int) -> list[dict[str, Any]]:
+        """
+        Runs an aggregation on the CmdbObjects under a server-side time budget and reads every result
+
+        Args:
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            time_limit_ms (int): The server-side time budget, in milliseconds
+
+        Raises:
+            ObjectsManagerIterationError: If the aggregation failed - wrapping a DocumentQueryTimeLimitError
+                when it ran past its time budget
+
+        Returns:
+            list[dict[str, Any]]: Every result of the aggregation
+        """
+        try:
+            return self.aggregate_within_time_limit(pipeline, time_limit_ms)
+        except BaseManagerIterationError as err:
+            raise ObjectsManagerIterationError(err) from err
+
+
     def count_objects(
             self,
             criteria: dict[str, Any],

@@ -188,13 +188,17 @@ class BaseManager:
         (e.g. running a CmdbReport) pays for it twice otherwise. Use this whenever no total is needed
         and ``iterate_query`` when it is - the two build the identical data pipeline
 
+        The aggregation runs under the query's time budget (``builder_params.time_limit_ms``) and is read
+        to the end before it returns
+
         Args:
             builder_params (BuilderParameters): Parameters to define the query
             user (CmdbUser | None): The user making the request. Defaults to None
             permission (AccessControlPermission | None): Permission to check. Defaults to None
 
         Raises:
-            BaseManagerIterationError: If the aggregation process fails
+            BaseManagerIterationError: If the aggregation process fails - wrapping a
+                DocumentQueryTimeLimitError when it ran past its time budget
 
         Returns:
             list[dict[str, Any]]: The aggregation results
@@ -202,7 +206,7 @@ class BaseManager:
         try:
             query: list[dict[str, Any]] = self.query_builder.build(builder_params, user, permission)
 
-            return list(self.aggregate(query))
+            return self.aggregate_within_time_limit(query, builder_params.time_limit_ms)
         except Exception as err:
             raise BaseManagerIterationError(err) from err
 
@@ -276,9 +280,11 @@ class BaseManager:
             aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params)
 
             count_query: list[dict[str, Any]] = self.query_builder.count(builder_params.get_criteria())
-            total_cursor = self.aggregate(count_query)
+            count_result: list[dict[str, Any]] = self.aggregate_within_time_limit(
+                count_query, builder_params.time_limit_ms,
+            )
 
-            total = next(total_cursor, {}).get('total', 0)
+            total = next(iter(count_result), {}).get('total', 0)
 
             return aggregation_result , total
         except Exception as err:
@@ -484,6 +490,7 @@ class BaseManager:
         sort: str = 'public_id',
         direction: int = -1,
         limit: int=0,
+        projection: dict[str, Any] | None = None,
         **requirements: Any
     ) -> list[dict[str, Any]]:
         """
@@ -493,6 +500,10 @@ class BaseManager:
             sort (str): The field to sort the results by. Default is 'public_id'
             direction (int): The sorting direction. 1 for ascending, -1 for descending. Default is -1
             limit (int): The maximum number of documents to retrieve. 0 means no limit (default is 0)
+            projection (dict[str, Any] | None): The fields to return, as a MongoDB projection. When
+                given it replaces the database layer's default (which only drops `_id`), so a caller
+                reading a few keys of a large document does not pay for the rest - remember to
+                exclude `_id` explicitly, since MongoDB returns it unless told otherwise
             **requirements (dict): Dictionary of key-value pairs used as filters for the query
 
         Raises:
@@ -504,12 +515,14 @@ class BaseManager:
         try:
             requirements_filter = requirements if requirements else {}
             formatted_sort = [(sort, direction)]
+            find_options: dict[str, Any] = {} if projection is None else {'projection': projection}
 
             return self.dbm.find_all(collection=self.collection,
                                      db_name=self.db_name,
-                                    limit=limit,
-                                    filter=requirements_filter,
-                                    sort=formatted_sort)
+                                     limit=limit,
+                                     filter=requirements_filter,
+                                     sort=formatted_sort,
+                                     **find_options)
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
@@ -530,6 +543,37 @@ class BaseManager:
         """
         try:
             return self.dbm.aggregate(self.collection, self.db_name, *args, **kwargs)
+        except DocumentAggregationError as err:
+            raise BaseManagerIterationError(err) from err
+
+
+    def aggregate_within_time_limit(
+            self,
+            pipeline: list[dict[str, Any]],
+            time_limit_ms: int,
+            **kwargs: Any) -> list[dict[str, Any]]:
+        """
+        Runs an aggregation on the collection under a server-side time budget and reads every result
+
+        For an aggregation a client shapes: past the budget the server stops it, instead of it running until
+        the driver's socket timeout
+
+        Args:
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            time_limit_ms (int): The server-side time budget, in milliseconds
+            **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
+
+        Raises:
+            BaseManagerIterationError: If the aggregation failed - wrapping a DocumentQueryTimeLimitError when
+                it ran past its time budget
+
+        Returns:
+            list[dict[str, Any]]: Every result of the aggregation
+        """
+        try:
+            return self.dbm.aggregate_within_time_limit(
+                self.collection, self.db_name, pipeline, time_limit_ms, **kwargs,
+            )
         except DocumentAggregationError as err:
             raise BaseManagerIterationError(err) from err
 
@@ -836,6 +880,28 @@ class BaseManager:
             result = self.dbm.delete(target_collection, self.db_name, criteria)
 
             return result.acknowledged and result.deleted_count > 0
+        except DocumentDeleteError as err:
+            raise BaseManagerDeleteError(err) from err
+
+
+    def find_one_and_delete(self, criteria: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Deletes the first document of this manager's collection matching the criteria, answering it
+
+        Atomic: the document answered is the one this call deleted, so a caller recording what it removed
+        records nothing another writer removed in the meantime
+
+        Args:
+            criteria (dict[str, Any]): Filter selecting the document to delete
+
+        Raises:
+            BaseManagerDeleteError: If the deletion operation fails
+
+        Returns:
+            dict[str, Any] | None: The deleted document (without `_id`), or None when nothing matched
+        """
+        try:
+            return self.dbm.find_one_and_delete(self.collection, self.db_name, criteria)
         except DocumentDeleteError as err:
             raise BaseManagerDeleteError(err) from err
 

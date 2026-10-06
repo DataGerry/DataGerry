@@ -14,5 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Schema definitions for the classes of the cached_user_model
+Schema definitions for the classes of the docapi_model
 """

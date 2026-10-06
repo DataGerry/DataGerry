@@ -25,6 +25,8 @@ Functional tests for the shape of a CmdbType's ``acl`` block on every write that
     form the two access readers disagree on (a non-boolean ``activated``) is a 400 as well
   - every shape the frontend sends, and the partial shapes the create path completes, are still accepted
   - the import refuses such an entry in its partial report, and imports the entries beside it
+  - the type listing answers a stored block in its stored form (string group keys, sorted permission lists)
+    after reading it into the model, for every group it names
 """
 import json
 from http import HTTPStatus
@@ -148,6 +150,27 @@ class TestUpdate:
 
         assert response.status_code == HTTPStatus.ACCEPTED
         assert types.find_one({'public_id': STORED_TYPE_ID})[ACL_KEY] == changed
+
+
+class TestRead:
+    """GET /types/ reads each type into the model and answers the block it writes back"""
+
+    def test_the_listing_answers_the_stored_form(self, rest_api, types) -> None:
+        """Every group keeps its permissions, keyed by string, each list sorted"""
+        body = _store_type(types)
+        # Group 1 is the admin's, which needs READ to see the type in the listing at all
+        unsorted = {'activated': True, 'groups': {'includes': {
+            '1': ['UPDATE', 'READ'], '2': ['DELETE', 'CREATE'], '11': ['DELETE'],
+        }}}
+        types.update_one({'public_id': STORED_TYPE_ID}, {'$set': {ACL_KEY: unsorted}})
+
+        response = rest_api.get(f'{TYPES_URL}?filter={json.dumps({"public_id": body["public_id"]})}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['results'][0][ACL_KEY] == {
+            'activated': True,
+            'groups': {'includes': {'1': ['READ', 'UPDATE'], '2': ['CREATE', 'DELETE'], '11': ['DELETE']}},
+        }
 
 
 class TestImport:

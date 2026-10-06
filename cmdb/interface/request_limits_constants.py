@@ -16,7 +16,7 @@
 """
 How large a request, and the document it stores, may be
 
-Three limits, each answered before anything is written:
+Three size limits, each answered before anything is written:
 
 * ``RequestSizeLimit.MAX_CONTENT_LENGTH`` is Flask's ``MAX_CONTENT_LENGTH`` for every request - Werkzeug answers
   413 for a larger body before the route reads it. Every single document the API stores is held to MongoDB's
@@ -25,6 +25,10 @@ Three limits, each answered before anything is written:
   media library is a different order of size from a JSON body
 * a write whose document would still exceed MongoDB's 16 MB limit is refused by the database layer with a typed
   ``DocumentTooLargeError``, which every route answers with the same 400 (``route_utils.abort_if_too_large``)
+
+And one time limit: an aggregation a client shapes runs under a server-side budget
+(``database_constants.QUERY_TIME_LIMIT_MS``); one the server stopped on it is a typed ``DocumentQueryTimeLimitError``,
+which every route answers with the same 503 (``route_utils.abort_if_query_too_slow``)
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -46,3 +50,12 @@ class RequestSizeLimit:
 DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE: str = (
     "The data is too large to be stored: a single document may not exceed MongoDB's 16 MB limit!"
 )
+
+
+#: The 503 of a query the server stopped on its time budget, formatted with the budget in seconds
+QUERY_TIME_LIMIT_RESPONSE_MESSAGE: str = (
+    "The query took longer than its time limit of {seconds} seconds - narrow the filter and try again!"
+)
+
+#: Milliseconds per second, to name a budget in the unit the message uses
+MILLISECONDS_PER_SECOND: int = 1000

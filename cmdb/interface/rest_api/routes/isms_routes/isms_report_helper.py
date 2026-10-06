@@ -28,6 +28,7 @@ import re
 from typing import Any
 
 from cmdb.utils import Builder
+from cmdb.database.database_constants import MONGO_ID_FIELD
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     CALCULATION_BASIS_SEPARATOR,
@@ -37,6 +38,8 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     OBJECT_GROUP_TYPE_LABEL,
     PRIORITY_LABELS,
     PROTECTION_GOAL_VARIABLE,
+    UNKNOWN_OBJECT_GROUP_LABEL,
+    UNKNOWN_OBJECT_LABEL,
     ImpactCategoryRowKey,
     ReportAlias,
     ReportFacetKey,
@@ -262,12 +265,72 @@ def extract_report_page(aggregation_result: list[dict[str, Any]]) -> tuple[list[
     return rows, total
 
 
+def risk_reference_lookup_stages() -> list[dict[str, Any]]:
+    """
+    Builds the stages resolving a RiskAssessment's Risk (``risk``), its category (``risk_category``) and its
+    protection goals (``protection_goals``) - the same block in both risk reports
+
+    The risk is kept when it no longer resolves: both reports then list the same assessments, and a total
+    that silently drops one is worse than a row whose risk columns are blank
+
+    Returns:
+        list[dict[str, Any]]: The risk / category / protection-goal $lookup and $unwind stages
+    """
+    return [
+        Builder.lookup_(
+            IsmsRisk.COLLECTION,
+            RiskAssessmentKey.RISK_ID.value,
+            RiskKey.PUBLIC_ID.value,
+            ReportAlias.RISK.value,
+        ),
+        Builder.unwind_({"path": field_reference(ReportAlias.RISK), "preserveNullAndEmptyArrays": True}),
+        Builder.lookup_(
+            CmdbExtendableOption.COLLECTION,
+            field_path(ReportAlias.RISK, RiskKey.CATEGORY_ID),
+            ExtendableOptionKey.PUBLIC_ID.value,
+            ReportAlias.RISK_CATEGORY.value,
+        ),
+        Builder.unwind_({"path": field_reference(ReportAlias.RISK_CATEGORY), "preserveNullAndEmptyArrays": True}),
+        Builder.lookup_(
+            IsmsProtectionGoal.COLLECTION,
+            field_path(ReportAlias.RISK, RiskKey.PROTECTION_GOALS),
+            ProtectionGoalKey.PUBLIC_ID.value,
+            ReportAlias.PROTECTION_GOALS.value,
+        ),
+    ]
+
+
+def implementation_status_lookup_stages() -> list[dict[str, Any]]:
+    """
+    Builds the stages resolving a RiskAssessment's implementation status (``implementation_status``), an
+    ExtendableOption - the same block in both risk reports
+
+    Returns:
+        list[dict[str, Any]]: The $lookup and the null-preserving $unwind
+    """
+    return [
+        Builder.lookup_(
+            CmdbExtendableOption.COLLECTION,
+            RiskAssessmentKey.IMPLEMENTATION_STATUS.value,
+            ExtendableOptionKey.PUBLIC_ID.value,
+            ReportAlias.IMPLEMENTATION_STATUS.value,
+        ),
+        Builder.unwind_({
+            "path": field_reference(ReportAlias.IMPLEMENTATION_STATUS),
+            "preserveNullAndEmptyArrays": True,
+        }),
+    ]
+
+
 def object_reference_lookup_stages() -> list[dict[str, Any]]:
     """
     Builds the $lookup stages resolving a RiskAssessment's assessed object.
 
     Joins the CmdbObject (``object``), the CmdbObjectGroup (``object_group``) and, for objects, the
-    CmdbType (``object_type``) — the caller's projection picks the right one via object_id_ref_type.
+    CmdbType (``object_type``) — ``assessed_object_projection`` / ``assessed_object_type_projection`` pick
+    the right one via object_id_ref_type. Each join keeps only the one key the report reads: the object's
+    ``type_id``, the group's ``name`` and the type's ``label`` - a CmdbObject carries its whole ``fields``
+    array, and none of it is shown here
 
     Returns:
         list[dict[str, Any]]: The object / object group / type $lookup stages
@@ -278,20 +341,119 @@ def object_reference_lookup_stages() -> list[dict[str, Any]]:
             RiskAssessmentKey.OBJECT_ID.value,
             CmdbObjectKey.PUBLIC_ID.value,
             ReportAlias.OBJECT.value,
+            pipeline=[Builder.project_({MONGO_ID_FIELD: 0, CmdbObjectKey.TYPE_ID.value: 1})],
         ),
         Builder.lookup_(
             CmdbObjectGroup.COLLECTION,
             RiskAssessmentKey.OBJECT_ID.value,
             ObjectGroupKey.PUBLIC_ID.value,
             ReportAlias.OBJECT_GROUP.value,
+            pipeline=[Builder.project_({MONGO_ID_FIELD: 0, ObjectGroupKey.NAME.value: 1})],
         ),
         Builder.lookup_(
             CmdbType.COLLECTION,
             field_path(ReportAlias.OBJECT, CmdbObjectKey.TYPE_ID),
             TypeSchemaKey.PUBLIC_ID.value,
             ReportAlias.OBJECT_TYPE.value,
+            pipeline=[Builder.project_({MONGO_ID_FIELD: 0, TypeSchemaKey.LABEL.value: 1})],
         ),
     ]
+
+
+def is_object_group_reference() -> dict[str, Any]:
+    """
+    The expression telling an assessment of an object group from one of an object
+
+    Anything but OBJECT_GROUP is an object - a legacy assessment without ``object_id_ref_type`` included,
+    the same reading ``resolve_assessed_objects`` applies afterwards
+
+    Returns:
+        dict[str, Any]: An ``$eq`` expression over the assessment's ``object_id_ref_type``
+    """
+    return {"$eq": [field_reference(RiskAssessmentKey.OBJECT_ID_REF_TYPE), ObjectReferenceType.OBJECT_GROUP.value]}
+
+
+def assessed_object_projection() -> dict[str, Any]:
+    """
+    The projected value of a report's object column, before ``resolve_assessed_objects`` names it
+
+    A group row carries the group's name, absent when the group no longer exists. An object row carries
+    the assessment's OWN ``object_id``, not the joined object's: the id survives the object's deletion,
+    so the resolver can label the row 'Unknown object' instead of leaving it blank
+
+    Returns:
+        dict[str, Any]: A ``$cond`` expression for a ``$project``
+    """
+    return {
+        "$cond": [
+            is_object_group_reference(),
+            {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_GROUP, ObjectGroupKey.NAME), 0]},
+            field_reference(RiskAssessmentKey.OBJECT_ID),
+        ]
+    }
+
+
+def assessed_object_type_projection() -> dict[str, Any]:
+    """
+    The projected value of a report's object-type column: 'Object group', or the object's type label
+
+    Returns:
+        dict[str, Any]: A ``$cond`` expression for a ``$project``; absent for an object that no longer resolves
+    """
+    return {
+        "$cond": [
+            is_object_group_reference(),
+            OBJECT_GROUP_TYPE_LABEL,
+            {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_TYPE, TypeSchemaKey.LABEL), 0]},
+        ]
+    }
+
+
+def resolve_assessed_objects(rows: list[dict[str, Any]], object_key: str, objects_manager: Any) -> None:
+    """
+    Names every report row's assessed object, then drops the row's ``object_id_ref_type``
+
+    An object row's id is replaced by the object's summary line, the whole page resolved in a single batch;
+    an id that no longer resolves becomes 'Unknown object'. A group row whose group no longer exists - its
+    name projected absent - becomes 'Unknown object group'. A row with no assessed object at all is left
+    as it is. The discriminator is internal: both reports answer without it, and it stays available to
+    ``?filter=`` and ``?sort=``, which run inside the aggregation
+
+    Args:
+        rows (list[dict[str, Any]]): The report page, enriched in place
+        object_key (str): The key of the row's object column
+        objects_manager (Any): The ObjectsManager the summary lines are read through
+    """
+    object_rows: list[dict[str, Any]] = [
+        row for row in rows
+        if row.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) != ObjectReferenceType.OBJECT_GROUP
+        and _is_object_id(row.get(object_key))
+    ]
+
+    summaries: dict[int, str] = objects_manager.get_summary_lines_lookup(
+        [row[object_key] for row in object_rows], with_type=False,
+    ) if object_rows else {}
+
+    for row in object_rows:
+        row[object_key] = summaries.get(row[object_key], UNKNOWN_OBJECT_LABEL)
+
+    for row in rows:
+        if row.pop(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value, None) == ObjectReferenceType.OBJECT_GROUP \
+                and row.get(object_key) is None:
+            row[object_key] = UNKNOWN_OBJECT_GROUP_LABEL
+
+
+def _is_object_id(value: Any) -> bool:
+    """
+    Tells whether a projected object column still holds an object's public_id
+
+    Args:
+        value (Any): The column's value
+
+    Returns:
+        bool: True for an integer that is not a bool
+    """
+    return isinstance(value, int) and not isinstance(value, bool)
 
 
 def risk_matrix_class_lookup_stages(calculation_field: str, cell_field: str, class_field: str) -> list[dict[str, Any]]:
@@ -368,43 +530,11 @@ def risk_assessment_report_stages() -> list[dict[str, Any]]:
     after: str = RiskAssessmentKey.RISK_CALCULATION_AFTER.value
 
     return [
-        # Step 2: Lookup assigned Risk
-        Builder.lookup_(
-            IsmsRisk.COLLECTION,
-            RiskAssessmentKey.RISK_ID.value,
-            RiskKey.PUBLIC_ID.value,
-            ReportAlias.RISK.value,
-        ),
-        Builder.unwind_(field_reference(ReportAlias.RISK)),
-
-        # Step 3: Lookup risk category label (ExtendableOption)
-        Builder.lookup_(
-            CmdbExtendableOption.COLLECTION,
-            field_path(ReportAlias.RISK, RiskKey.CATEGORY_ID),
-            ExtendableOptionKey.PUBLIC_ID.value,
-            ReportAlias.RISK_CATEGORY.value,
-        ),
-        Builder.unwind_({"path": field_reference(ReportAlias.RISK_CATEGORY), "preserveNullAndEmptyArrays": True}),
-
-        # Step 4: Lookup Protection Goals
-        Builder.lookup_(
-            IsmsProtectionGoal.COLLECTION,
-            field_path(ReportAlias.RISK, RiskKey.PROTECTION_GOALS),
-            ProtectionGoalKey.PUBLIC_ID.value,
-            ReportAlias.PROTECTION_GOALS.value,
-        ),
+        # Steps 2-4: the assessed Risk, its category label and its protection goals
+        *risk_reference_lookup_stages(),
 
         # Step 5: Lookup Implementation Status
-        Builder.lookup_(
-            CmdbExtendableOption.COLLECTION,
-            RiskAssessmentKey.IMPLEMENTATION_STATUS.value,
-            ExtendableOptionKey.PUBLIC_ID.value,
-            ReportAlias.IMPLEMENTATION_STATUS.value,
-        ),
-        Builder.unwind_({
-            "path": field_reference(ReportAlias.IMPLEMENTATION_STATUS),
-            "preserveNullAndEmptyArrays": True,
-        }),
+        *implementation_status_lookup_stages(),
 
         # Lookup Object / ObjectGroup / type label for the assessed object
         *object_reference_lookup_stages(),
@@ -801,26 +931,8 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
                 "default": None
             }
         },
-        RiskAssessmentReportKey.ASSIGNED_OBJECT.value: {
-            "$cond": [
-                {"$eq": [
-                    field_reference(RiskAssessmentKey.OBJECT_ID_REF_TYPE),
-                    ObjectReferenceType.OBJECT_GROUP.value,
-                ]},
-                {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_GROUP, ObjectGroupKey.NAME), 0]},
-                {"$arrayElemAt": [field_reference(ReportAlias.OBJECT, CmdbObjectKey.PUBLIC_ID), 0]}
-            ]
-        },
-        RiskAssessmentReportKey.ASSIGNED_OBJECT_TYPE.value: {
-            "$cond": [
-                {"$eq": [
-                    field_reference(RiskAssessmentKey.OBJECT_ID_REF_TYPE),
-                    ObjectReferenceType.OBJECT_GROUP.value,
-                ]},
-                OBJECT_GROUP_TYPE_LABEL,
-                {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_TYPE, TypeSchemaKey.LABEL), 0]}
-            ]
-        },
+        RiskAssessmentReportKey.ASSIGNED_OBJECT.value: assessed_object_projection(),
+        RiskAssessmentReportKey.ASSIGNED_OBJECT_TYPE.value: assessed_object_type_projection(),
         RiskAssessmentReportKey.RISK_ASSESSOR.value: {
             "$ifNull": [field_reference(ReportAlias.RISK_ASSESSOR_PERSON, PersonKey.DISPLAY_NAME), None]
         },
@@ -884,7 +996,6 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
                 "else": None
             }
         },
-        "additional_information": 1,
         RiskAssessmentReportKey.RISK_TREATMENT_OPTION.value: {
             "$ifNull": [field_reference(RiskAssessmentKey.RISK_TREATMENT_OPTION), None]
         },
@@ -893,7 +1004,6 @@ def risk_assessment_report_projection_stage() -> dict[str, Any]:
         RiskAssessmentKey.ADDITIONAL_INFO.value: 1,
         RiskAssessmentKey.PLANNED_IMPLEMENTATION_DATE.value: 1,
         RiskAssessmentKey.FINISHED_IMPLEMENTATION_DATE.value: 1,
-        "implementation_finished_on": 1,
         RiskAssessmentKey.REQUIRED_RESOURCES.value: 1,
         RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION.value: 1,
         RiskAssessmentKey.COSTS_FOR_IMPLEMENTATION_CURRENCY.value: 1,

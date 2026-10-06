@@ -60,3 +60,13 @@ class ExporterColumnError(ExporterError):
     multi-data-section fields). If two fields resolve to the same column name the exported columns
     would collide, so the export is refused instead of silently overwriting a value
     """
+
+
+class ExporterCharacterError(ExporterError):
+    """
+    Raised when an XML export would have to carry a character XML 1.0 cannot represent
+
+    Control characters other than tab, line feed and carriage return (and lone surrogates) have no XML
+    1.0 spelling, not even as a character reference, so a document holding one could not be read back by
+    any XML parser. The export is refused instead of answering such a document
+    """

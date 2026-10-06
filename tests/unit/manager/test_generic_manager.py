@@ -238,9 +238,21 @@ def test_iterate_items_builds_iteration_result() -> None:
     with patch(f'{PATH}.IterationResult') as mock_iteration_result:
         out = GenericManager.iterate_items(mgr, params)
 
-    mgr.iterate_query.assert_called_once_with(params)
+    mgr.iterate_query.assert_called_once_with(params, None, None)
     mock_iteration_result.assert_called_once_with(results, 1, _StubModel)
     assert out is mock_iteration_result.return_value
+
+
+def test_iterate_items_forwards_the_user_and_permission() -> None:
+    """Given both, the read goes through the ACL stage iterate_query adds"""
+    mgr = _mock_manager()
+    mgr.iterate_query.return_value = ([], 0)
+    params, user, permission = MagicMock(), MagicMock(), MagicMock()
+
+    with patch(f'{PATH}.IterationResult'):
+        GenericManager.iterate_items(mgr, params, user, permission)
+
+    mgr.iterate_query.assert_called_once_with(params, user, permission)
 
 
 def test_iterate_items_wraps_failure_in_iterate_exception() -> None:

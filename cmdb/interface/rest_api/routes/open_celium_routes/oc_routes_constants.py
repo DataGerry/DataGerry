@@ -55,3 +55,21 @@ class OcLogQueryParam(BaseStrEnum):
 
 # HTTP request header carrying the OpenCelium master password
 MASTER_PW_HEADER: str = 'X-Master-Password'
+
+
+class OcAutomationMessage(BaseStrEnum):
+    """
+    What the Automation create answers when its body is incomplete, a step fails or its undo cannot finish
+
+    RESIDUE is formatted with ``residue``: the remote objects the undo could not remove
+    """
+    NO_CONNECTION_TITLE = "No 'connection.title' provided to create the Automation!"
+    NO_SCHEDULER_TITLE = "No 'scheduler.title' provided to create the Automation!"
+    PORTAL_REFUSED = "Failed to register the Automation with the Service Portal!"
+    RESIDUE = "The Automation could not be created, and its undo left these behind: {residue}"
+
+
+# The `collection` a remote write is recorded under in the WriteLedger: the service it lives in, as the residue
+# names it
+OPEN_CELIUM_SERVICE: str = 'OpenCelium'
+SERVICE_PORTAL: str = 'DataGerry Service Portal'

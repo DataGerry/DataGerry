@@ -37,6 +37,7 @@ from cmdb.errors.manager.rack_mounts_manager import (
 RACK_ID: int = 700
 OBJECT_ID: int = 800
 MOUNT_ID: int = 900
+HIGHEST_POSITION: int = 41
 
 
 def _manager() -> RackMountsManager:
@@ -153,22 +154,39 @@ def test_next_position_is_zero_for_an_empty_area() -> None:
     assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == 0
 
 
-def test_next_position_appends_after_the_highest_in_use() -> None:
+def test_next_position_is_one_past_the_highest_row_read() -> None:
     """A new member goes to the end of the list, not into a gap"""
     manager = _manager()
-    manager.find = MagicMock(return_value=[
-        _mount(1, position=0), _mount(2, position=4), _mount(3, position=2),
-    ])
+    manager.find = MagicMock(return_value=[{'position': HIGHEST_POSITION}])
 
-    assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == 5
+    assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == HIGHEST_POSITION + 1
 
 
-def test_next_position_ignores_mounts_without_a_position() -> None:
-    """A row with no position must not break the append"""
+def test_next_position_reads_only_the_highest_integer_index_of_the_area() -> None:
+    """One row, one key: the query sorts, limits and filters, so no area is loaded whole"""
     manager = _manager()
-    manager.find = MagicMock(return_value=[_mount(1, position=None), _mount(2, position=1)])
+    manager.find = MagicMock(return_value=[])
 
-    assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == 2
+    manager.get_next_position(RACK_ID, RackArea.RIGHT.value)
+
+    manager.find.assert_called_once_with(
+        criteria={'rack_id': RACK_ID, 'area': RackArea.RIGHT.value, 'position': {'$type': ['int', 'long']}},
+        projection={'position': 1, '_id': 0},
+        sort=[('position', -1)],
+        limit=1,
+    )
+
+
+def test_next_position_wraps_a_read_failure() -> None:
+    """The typed manager error carries the cause"""
+    manager = _manager()
+    cause = BaseManagerGetError('boom')
+    manager.find = MagicMock(side_effect=cause)
+
+    with pytest.raises(RackMountsManagerGetError) as raised:
+        manager.get_next_position(RACK_ID, RackArea.LEFT.value)
+
+    assert raised.value.__cause__ is cause
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    deletes                                                           #

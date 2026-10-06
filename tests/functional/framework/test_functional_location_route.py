@@ -40,7 +40,6 @@ import pytest
 from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.predefined_data.cmdb_data import get_root_location_data
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -202,12 +201,6 @@ def _location_doc(public_id: int, object_id: int, parent: int, name: str = ORIGI
         'type_icon': 'fas fa-cube',
         'type_selectable': True,
     }
-
-
-def _root_location_doc() -> dict[str, Any]:
-    """The predefined synthetic root document, re-keyed to the plain strings MongoDB stores."""
-    # str() of a (str, Enum) member is 'LocationKey.NAME', not its value - the value is the key
-    return {key.value: value for key, value in get_root_location_data().items()}
 
 
 def _location_payload(object_id: int, parent: int, name: str = ORIGINAL_NAME) -> dict[str, Any]:
@@ -723,8 +716,7 @@ class TestDeleteLocation:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """The root carries object_id 0, so this route reaches it - and the manager refuses it."""
-        # the test database is created empty, so the predefined root document is seeded here
-        _insert_location(database_manager, database_name, _root_location_doc())
+        # The session seeds the predefined root document, as a production boot does; it stays for every later test
         _insert_location(database_manager, database_name, _location_doc(
             ROOT_LOCATION_ID, ROOT_OBJECT_ID, ROOT_PARENT_ID,
         ))
@@ -736,7 +728,7 @@ class TestDeleteLocation:
             assert rest_api.get(f'{ROUTE_URL}/{ROOT_PARENT_ID}').status_code == HTTPStatus.OK
             assert rest_api.get(f'{ROUTE_URL}/{ROOT_LOCATION_ID}').get_json()['parent'] == ROOT_PARENT_ID
         finally:
-            _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID, ROOT_PARENT_ID])
+            _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID])
 
     def test_delete_missing_returns_404(self, rest_api) -> None:
         """A DELETE for an object with no location returns 404."""
@@ -816,10 +808,10 @@ class TestMoveRouteErrorTails:
     """The two move routes map manager failures and unmapped failures to 400 / 500."""
 
     def test_move_one_objects_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerUpdateError while moving one placement surfaces as 400."""
+        """An ObjectsManagerUpdateError while moving one placement surfaces as 400 (raised by its first step)."""
         monkeypatch.setattr(
             'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
-            '.move_object_location',
+            '.validate_object_location_move',
             _raiser(ObjectsManagerUpdateError('boom')),
         )
 
@@ -831,7 +823,7 @@ class TestMoveRouteErrorTails:
         """A LocationsManagerUpdateError while moving one placement surfaces as 400."""
         monkeypatch.setattr(
             'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
-            '.move_object_location',
+            '.validate_object_location_move',
             _raiser(LocationsManagerUpdateError('boom')),
         )
 
@@ -843,7 +835,7 @@ class TestMoveRouteErrorTails:
         """An unmapped failure while moving one placement."""
         monkeypatch.setattr(
             'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
-            '.move_object_location',
+            '.validate_object_location_move',
             _raiser(RuntimeError('boom')),
         )
 

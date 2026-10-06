@@ -14,17 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the classes of all CmdbCachedUser errors
+This module contains the classes of all DocapiTemplate errors
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
-class CmdbCachedUserError(Exception):
+class DocapiTemplateError(Exception):
     """
-    Raised to catch all CmdbCachedUser related errors
+    Raised to catch all DocapiTemplate related errors
     """
     def __init__(self, err: str | Exception) -> None:
         """
-        Raised to catch all CmdbCachedUser related errors
+        Raised to catch all DocapiTemplate related errors
 
         Takes the wrapped exception itself as readily as a message: str() reads the same either way,
         but args[0] then carries the error being wrapped, which a caller can branch on
@@ -34,21 +34,15 @@ class CmdbCachedUserError(Exception):
         """
         super().__init__(err)
 
-# ---------------------------------------------- CmdbCachedUser - ERRORS --------------------------------------------- #
+# --------------------------------------------- DocapiTemplate - ERRORS ---------------------------------------------- #
 
-class CmdbCachedUserInitError(CmdbCachedUserError):
+class DocapiTemplateInitFromDataError(DocapiTemplateError):
     """
-    Raised when a CmdbCachedUser could not be initialised
-    """
-
-
-class CmdbCachedUserInitFromDataError(CmdbCachedUserError):
-    """
-    Raised when a CmdbCachedUser could not be initialised from a dict
+    Raised when a DocapiTemplate could not be initialised from a dict
     """
 
 
-class CmdbCachedUserToJsonError(CmdbCachedUserError):
+class DocapiTemplateToJsonError(DocapiTemplateError):
     """
-    Raised when a CmdbCachedUser could not be transformed into a json compatible dict
+    Raised when a DocapiTemplate could not be transformed into a json compatible dict
     """

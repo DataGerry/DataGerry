@@ -60,7 +60,6 @@ from cmdb.framework.rendering.render_list import RenderList
 from cmdb.framework.search.object_list_search import build_object_search_stages
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.objects_propagation_helper import (
-    RawUpdate,
     build_add_field_update,
     build_field_entry,
     build_remove_undeclared_fields_update,
@@ -1285,6 +1284,28 @@ def guard_object_delete(
 
 # ------------------------------------------------- OBJECT RE-ALIGNMENT ---------------------------------------------- #
 
+def align_objects_to_type(objects_manager: ObjectsManager, type_instance: CmdbType) -> None:
+    """
+    Re-aligns every CmdbObject of a CmdbType with that type's current field definition, raising on failure
+
+    The statements of ``realign_objects_to_type`` without its HTTP mapping, for a caller that reports the failure
+    its own way (the type update names the step that failed)
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        type_instance (CmdbType): The CmdbType whose objects should be re-aligned
+
+    Raises:
+        ObjectsManagerUpdateError: When a statement fails
+    """
+    declared_names: list[str] = sorted(type_field[FieldKey.NAME] for type_field in type_instance.fields)
+    objects_manager.apply_raw_updates([
+        build_remove_undeclared_fields_update(type_instance.public_id, declared_names),
+        *(build_add_field_update(type_instance.public_id, build_field_entry(type_field))
+          for type_field in type_instance.fields),
+    ])
+
+
 def realign_objects_to_type(
         objects_manager: ObjectsManager,
         type_instance: CmdbType,
@@ -1306,16 +1327,8 @@ def realign_objects_to_type(
     Raises:
         HTTPException: 500 when a statement fails
     """
-    type_fields: list[dict[str, Any]] = type_instance.fields
-    declared_names: list[str] = sorted(type_field[FieldKey.NAME] for type_field in type_fields)
-
-    updates: list[RawUpdate] = [
-        build_remove_undeclared_fields_update(type_instance.public_id, declared_names),
-        *(build_add_field_update(type_instance.public_id, build_field_entry(type_field)) for type_field in type_fields),
-    ]
-
     try:
-        objects_manager.apply_raw_updates(updates)
+        align_objects_to_type(objects_manager, type_instance)
     except ObjectsManagerUpdateError as error:
         abort_if_too_large(error)
         LOGGER.error(

@@ -303,7 +303,7 @@ class TestReportReadFailures:
     ], ids=['base-iteration', 'risk-assessment-iteration'])
     def test_risk_treatment_plan_aggregation(self, rest_api, monkeypatch, error: Exception) -> None:
         """Both iteration errors the aggregation can surface answer the same 400."""
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _raiser(error))
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', _raiser(error))
 
         response = rest_api.get(f'{REPORTS_URL}/risk_treatment_plan')
 
@@ -316,9 +316,9 @@ class TestReportReadFailures:
     ])
     def test_object_summaries(self, rest_api, monkeypatch, report: str, message: IsmsReportErrorMessage) -> None:
         """The batched object summary lookup is a read of the report's data too."""
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', lambda *_a, **_k: iter([]))
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', lambda *_a, **_k: [])
         monkeypatch.setattr(isms_report_routes, 'extract_report_page', lambda _rows: ([{}], 1))
-        monkeypatch.setattr(isms_report_routes, '_replace_object_ids_with_summaries',
+        monkeypatch.setattr(isms_report_routes, 'resolve_assessed_objects',
                             _raiser(ObjectsManagerGetError('boom')))
 
         response = rest_api.get(f'{REPORTS_URL}/{report}')
@@ -328,7 +328,9 @@ class TestReportReadFailures:
 
     def test_risk_assessments_aggregation(self, rest_api, monkeypatch) -> None:
         """The RiskAssessment report reads through the same aggregation."""
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _raiser(BaseManagerIterationError('boom')))
+        monkeypatch.setattr(
+            RiskAssessmentManager, 'aggregate_within_time_limit', _raiser(BaseManagerIterationError('boom')),
+        )
 
         response = rest_api.get(f'{REPORTS_URL}/risk_assessments')
 

@@ -39,6 +39,7 @@ from cmdb.models.relation_model import CmdbRelation
 from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.object_model import CmdbObject
 from tests.utils.ipam_doc_builders import make_object_doc
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsManagerBuildError
 from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerInsertError,
@@ -812,10 +813,10 @@ class TestErrorMapping:
 
     def test_delete_many_error_returns_400(self, rest_api, monkeypatch,
                                            database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """An ObjectRelationsManagerDeleteError on the bulk delete surfaces as 400, like the single one."""
+        """A BaseManagerDeleteError on the bulk delete surfaces as 400, like the single one."""
         _insert_object_relation_doc(database_manager, database_name, OR_ID_FOR_BULK_A)
         monkeypatch.setattr(
-            ObjectRelationsManager, 'delete_many', _raise(ObjectRelationsManagerDeleteError('boom')),
+            ObjectRelationsManager, 'find_one_and_delete', _raise(BaseManagerDeleteError('boom')),
         )
         try:
             assert rest_api.post(f'{ROUTE_URL}/delete/many',
@@ -828,7 +829,7 @@ class TestErrorMapping:
                                                       database_name: str) -> None:
         """An error nobody anticipated on the bulk delete surfaces as 500."""
         _insert_object_relation_doc(database_manager, database_name, OR_ID_FOR_BULK_A)
-        monkeypatch.setattr(ObjectRelationsManager, 'find', _raise(RuntimeError('boom')))
+        monkeypatch.setattr(ObjectRelationsManager, 'find_one_and_delete', _raise(RuntimeError('boom')))
         try:
             assert rest_api.post(f'{ROUTE_URL}/delete/many',
                                  json={'target_ids': [OR_ID_FOR_BULK_A]}).status_code \

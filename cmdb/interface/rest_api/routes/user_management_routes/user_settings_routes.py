@@ -36,7 +36,13 @@ from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     GetListResponse,
@@ -136,6 +142,7 @@ def get_cmdb_user_settings(user_id: int, request_user: CmdbUser) -> Response:
 
         return GetListResponse(results=user_settings, body=request_wants_body()).make_response()
     except UserSettingsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_user_settings] UserSettingsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve UserSettings from the database!")
     except Exception as err:

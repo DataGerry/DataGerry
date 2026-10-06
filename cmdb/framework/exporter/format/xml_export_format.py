@@ -17,9 +17,9 @@
 Implementation of XmlExportFormat
 """
 from logging import Logger, getLogger
+import re
 from typing import Any
-import xml.dom.minidom
-import xml.etree.ElementTree as ET
+from xml.dom.minidom import Document, Element
 
 from cmdb.models.object_model.cmdb_object_key_enum import (
     CmdbObjectKey,
@@ -34,8 +34,9 @@ from cmdb.framework.exporter.format.base_exporter_format import (
     to_export_cell,
 )
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
-from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey
 from cmdb.framework.rendering.render_result import RenderResult
+
+from cmdb.errors.exporter import ExporterCharacterError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -57,12 +58,25 @@ XML_MDS_TAG: str = 'multi_data_sections'
 XML_SECTION_TAG: str = 'section'
 XML_ROW_TAG: str = 'row'
 
+# Every identity header entry becomes the tag of a <meta> child, so it has to be an XML element name. The
+# names are kept to ASCII letters, digits, `_`, `.` and `-`, not starting with a digit, `.` or `-`; a colon
+# is left out because it would name an undeclared namespace prefix
+XML_ELEMENT_NAME_PATTERN: re.Pattern[str] = re.compile(r'[A-Za-z_][A-Za-z0-9_.\-]*')
+
+# Characters XML 1.0 cannot carry at all - the C0 controls other than tab, line feed and carriage return,
+# the two non-characters U+FFFE / U+FFFF and lone surrogates
+XML_ILLEGAL_CHARACTER_PATTERN: re.Pattern[str] = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]')
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                XmlExportFormat - CLASS                                               #
 # -------------------------------------------------------------------------------------------------------------------- #
 class XmlExportFormat(BaseExporterFormat):
     """
     The XML export format class for exporting data as XML (.xml) files
+
+    One document holds the whole selection, also when it spans several types: each `<object>` carries the
+    fields of its own type only (as the JSON export does), so a field another type declares never appears on
+    it, and a `<field value="">` always is a field of the object's type that holds nothing
 
     Extends: BaseExporterFormat
     """
@@ -80,116 +94,172 @@ class XmlExportFormat(BaseExporterFormat):
         Exports the given objects as a formatted XML string
 
         The document is `<objects>` with one `<object>` per entry, each holding a `<meta>` block (the
-        identity/header columns) and a `<fields>` block. In the RENDER view a supplied `metadata`
-        override selects the header/columns; otherwise the header is the default identity columns and
-        the columns are the union of every object's field names. An empty object list yields `<objects/>`.
+        identity/header columns) and a `<fields>` block with the object's own fields. In the RENDER view a
+        supplied `metadata` override selects the header and the field columns; each object then carries the
+        selected fields its type owns, in the order of the selection. An empty object list yields `<objects/>`.
 
         Args:
             data (list[RenderResult]): The objects to be exported
             *args: Optional export parameters dict (`view`, `metadata`)
 
+        Raises:
+            ExporterMetadataError: If the metadata header names an entry that is no XML element name
+            ExporterCharacterError: If a value holds a character XML 1.0 cannot represent
+
         Returns:
             str: XML file content as a formatted (pretty-printed) string
         """
-        header, columns, view = self._get_export_settings(args, data)
-        cmdb_object_list = self._create_xml_structure(data, header, columns, view)
+        header, selected_columns, view = self._get_export_settings(args)
 
-        xml_string = xml.dom.minidom.parseString(
-            ET.tostring(cmdb_object_list, encoding='unicode', method='xml')
-        ).toprettyxml()
-
-        return xml_string
+        return self._create_xml_document(data, header, selected_columns, view).toprettyxml()
 
 
-    def _get_export_settings(self, args: tuple[Any, ...], data: list[RenderResult]) -> tuple[list[str], list[str], str]:
+    def _get_export_settings(self, args: tuple[Any, ...]) -> tuple[list[str], list[str] | None, str]:
         """
-        Resolves the header, columns and view for the export from the request args
+        Resolves the header, the field-column selection and the view for the export from the request args
 
-        The default header is the identity columns and the default columns are the union of the field
-        names across all objects (so a multi-type export keeps every type's fields). A render-view
-        `metadata` override replaces both; without such an override the export is forced to the NATIVE
-        view (a render view is only honoured when it explicitly selects the columns).
+        A render-view `metadata` override selects the header and the columns, a key it leaves out keeping the
+        default; without such an override the export is forced to the NATIVE view (a render view is only
+        honoured when it explicitly selects the columns). The header entries are checked here, before any
+        object is serialized, because each of them becomes an element name
 
         Args:
             args (tuple[Any, ...]): The positional export args; `args[0]` (if present) is the options dict
-            data (list[RenderResult]): The list of objects to be exported
+
+        Raises:
+            ExporterMetadataError: If a header entry is no XML element name
 
         Returns:
-            tuple[list[str], list[str], str]:
+            tuple[list[str], list[str] | None, str]:
                 - header (list[str]): Metadata/identity field names to include per object
-                - columns (list[str]): Data field names to include per object
+                - selected_columns (list[str] | None): The selected field names, None for every own field
                 - view (str): The resolved view type (`'native'` or `'render'`)
         """
-        header: list[str] = list(DEFAULT_HEADER)
-        columns: list[str] = self._collect_field_names(data)
-
         view, metadata = BaseExporterFormat.resolve_export_view(args)
+        header, selected_columns = BaseExporterFormat.resolve_metadata_selection(metadata, DEFAULT_HEADER)
 
-        if metadata:
-            header = metadata.get(ExporterMetadataKey.HEADER.value, header)
-            columns = metadata.get(ExporterMetadataKey.COLUMNS.value, columns)
-        else:
+        if not metadata:
             # XML renders in the render view only when metadata explicitly selects the columns
             view = ExporterConfigType.NATIVE.value
 
-        return header, columns, view
+        self._assert_element_names(header)
+
+        return header, selected_columns, view
 
 
     @staticmethod
-    def _collect_field_names(data: list[RenderResult]) -> list[str]:
+    def _assert_element_names(header: list[str]) -> None:
         """
-        Collects the ordered union of field names across all objects
-
-        Preserving first-seen order and de-duplicating keeps a multi-type export (XML supports multiple
-        types) from dropping the field names contributed by types other than the first object's.
+        Refuses a header entry that cannot be the tag of a `<meta>` child
 
         Args:
-            data (list[RenderResult]): The objects to be exported
+            header (list[str]): The identity header entries
 
-        Returns:
-            list[str]: The de-duplicated field names in first-seen order
+        Raises:
+            ExporterMetadataError: If an entry is not a string or no XML element name
         """
-        names: list[str] = []
-        seen: set[str] = set()
-
-        for obj in data:
-            for field in obj.fields:
-                name = field.get(FieldKey.NAME.value)
-                if name not in seen:
-                    seen.add(name)
-                    names.append(name)
-
-        return names
+        for head in header:
+            if not isinstance(head, str) or not XML_ELEMENT_NAME_PATTERN.fullmatch(head):
+                raise ExporterMetadataError(
+                    f"The export metadata header '{head}' is not usable as an XML element name!"
+                )
 
 
-    def _create_xml_structure(
+    def _create_xml_document(
             self,
             data: list[RenderResult],
             header: list[str],
-            columns: list[str],
-            view: str) -> ET.Element:
+            selected_columns: list[str] | None,
+            view: str) -> Document:
         """
-        Creates the XML structure for export
+        Creates the XML document for export
 
         Args:
             data (list[RenderResult]): The list of objects to be exported
             header (list[str]): List of metadata field names to be included in the export
-            columns (list[str]): List of data field names to be included in the export
+            selected_columns (list[str] | None): The selected field names, None for every own field
             view (str): The view type for rendering the export
 
         Returns:
-            xml.etree.ElementTree.Element: The root XML element containing all exported objects
+            Document: The document whose root `<objects>` element holds all exported objects
         """
-        cmdb_object_list = ET.Element(XML_ROOT_TAG)
+        document = Document()
+        cmdb_object_list = self._append_element(document, document, XML_ROOT_TAG)
 
         for obj in data:
             obj_fields_dict = self._extract_object_fields(obj, view)
-            cmdb_object = ET.SubElement(cmdb_object_list, XML_OBJECT_TAG)
-            self._add_meta_data(cmdb_object, obj, header)
-            self._add_field_data(cmdb_object, obj_fields_dict, columns)
-            self._add_multi_data_sections(cmdb_object, obj)
+            columns = BaseExporterFormat.select_owned_columns(selected_columns, list(obj_fields_dict))
 
-        return cmdb_object_list
+            cmdb_object = self._append_element(document, cmdb_object_list, XML_OBJECT_TAG)
+            self._add_meta_data(document, cmdb_object, obj, header)
+            self._add_field_data(document, cmdb_object, obj_fields_dict, columns)
+            self._add_multi_data_sections(document, cmdb_object, obj)
+
+        return document
+
+
+    @staticmethod
+    def _append_element(
+            document: Document,
+            parent: Document | Element,
+            tag: str,
+            attributes: dict[str, str] | None = None,
+            text: str | None = None) -> Element:
+        """
+        Appends one element with its attributes and its text to a parent node
+
+        The attributes keep their given order. An empty or absent text adds no text node, so the element is
+        written self-closing. Every attribute value and the text are checked for characters XML cannot carry
+
+        Args:
+            document (Document): The document creating the nodes
+            parent (Document | Element): The node the element is appended to
+            tag (str): The element's tag name
+            attributes (dict[str, str] | None): The element's attributes, in output order
+            text (str | None): The element's text content
+
+        Raises:
+            ExporterCharacterError: If an attribute value or the text holds a character XML cannot represent
+
+        Returns:
+            Element: The appended element
+        """
+        element = document.createElement(tag)
+
+        for name, value in (attributes or {}).items():
+            element.setAttribute(name, XmlExportFormat._checked_text(value))
+
+        if text:
+            element.appendChild(document.createTextNode(XmlExportFormat._checked_text(text)))
+
+        parent.appendChild(element)
+
+        return element
+
+
+    @staticmethod
+    def _checked_text(value: str) -> str:
+        """
+        Returns a value unchanged once it is known to hold only characters XML 1.0 can represent
+
+        Args:
+            value (str): The attribute value or element text
+
+        Raises:
+            ExporterCharacterError: If the value holds a character XML cannot represent
+
+        Returns:
+            str: The value
+        """
+        illegal = XML_ILLEGAL_CHARACTER_PATTERN.search(value)
+
+        if illegal:
+            raise ExporterCharacterError(
+                f"The value '{value[:illegal.start()]}…' holds the character U+{ord(illegal.group()):04X}, "
+                "which an XML document cannot carry!"
+            )
+
+        return value
 
 
     def _extract_object_fields(self, obj: RenderResult, view: str) -> dict[str, Any]:
@@ -201,7 +271,7 @@ class XmlExportFormat(BaseExporterFormat):
             view (str): The view type for rendering
 
         Returns:
-            dict[str, Any]: A dictionary of field names and their rendered values
+            dict[str, Any]: A dictionary of field names and their rendered values, in the type's field order
         """
         return {
             field.get(FieldKey.NAME.value): BaseExporterFormat.summary_renderer(obj, field, view)
@@ -209,7 +279,7 @@ class XmlExportFormat(BaseExporterFormat):
         }
 
 
-    def _add_meta_data(self, cmdb_object: ET.Element, obj: RenderResult, header: list[str]) -> None:
+    def _add_meta_data(self, document: Document, cmdb_object: Element, obj: RenderResult, header: list[str]) -> None:
         """
         Adds metadata elements to the XML structure
 
@@ -217,44 +287,50 @@ class XmlExportFormat(BaseExporterFormat):
         element from the type information, and every other header entry from the object information.
 
         Args:
-            cmdb_object (ET.Element): The parent XML element
+            document (Document): The document creating the nodes
+            cmdb_object (Element): The parent XML element
             obj (RenderResult): The object containing metadata
             header (list[str]): List of metadata fields
         """
-        cmdb_object_meta = ET.SubElement(cmdb_object, XML_META_TAG)
+        cmdb_object_meta = self._append_element(document, cmdb_object, XML_META_TAG)
 
         for head in header:
             if head == CmdbObjectKey.PUBLIC_ID.value:
-                cmdb_object_meta_id = ET.SubElement(cmdb_object_meta, head)
-                cmdb_object_meta_id.text = str(obj.object_information.get(OBJECT_INFO_ID_KEY, ''))
+                text = str(obj.object_information.get(OBJECT_INFO_ID_KEY, ''))
+                self._append_element(document, cmdb_object_meta, head, text=text)
             elif head == TYPE_INFO_LABEL_KEY:
-                cmdb_object_meta_type = ET.SubElement(cmdb_object_meta, XML_TYPE_TAG)
-                cmdb_object_meta_type.text = obj.type_information.get(TYPE_INFO_LABEL_KEY, '')
+                text = obj.type_information.get(TYPE_INFO_LABEL_KEY, '')
+                self._append_element(document, cmdb_object_meta, XML_TYPE_TAG, text=text)
             else:
-                cmdb_object_meta_id = ET.SubElement(cmdb_object_meta, head)
-                cmdb_object_meta_id.text = str(obj.object_information.get(head, ''))
+                text = str(obj.object_information.get(head, ''))
+                self._append_element(document, cmdb_object_meta, head, text=text)
 
 
-    def _add_field_data(self, cmdb_object: ET.Element, obj_fields_dict: dict[str, Any], columns: list[str]) -> None:
+    def _add_field_data(
+            self,
+            document: Document,
+            cmdb_object: Element,
+            obj_fields_dict: dict[str, Any],
+            columns: list[str]) -> None:
         """
         Adds field elements to the XML structure
 
         Args:
-            cmdb_object (ET.Element): The parent XML element
+            document (Document): The document creating the nodes
+            cmdb_object (Element): The parent XML element
             obj_fields_dict (dict[str, Any]): Dictionary of object fields and their values
-            columns (list[str]): List of field names to be included
+            columns (list[str]): The field names to include, all of them fields of the object's type
         """
-        cmdb_object_fields = ET.SubElement(cmdb_object, XML_FIELDS_TAG)
+        cmdb_object_fields = self._append_element(document, cmdb_object, XML_FIELDS_TAG)
 
         for field in columns:
-            field_attribs: dict[str, str] = {
+            self._append_element(document, cmdb_object_fields, XML_FIELD_TAG, {
                 FieldKey.NAME.value: str(field),
                 FieldKey.VALUE.value: to_export_cell(obj_fields_dict.get(field))
-            }
-            ET.SubElement(cmdb_object_fields, XML_FIELD_TAG, field_attribs)
+            })
 
 
-    def _add_multi_data_sections(self, cmdb_object: ET.Element, obj: RenderResult) -> None:
+    def _add_multi_data_sections(self, document: Document, cmdb_object: Element, obj: RenderResult) -> None:
         """
         Adds the object's multi-data sections as a nested `<multi_data_sections>` block
 
@@ -263,7 +339,8 @@ class XmlExportFormat(BaseExporterFormat):
         (each row's data reuses the same `<field name= value=/>` element as the regular fields block).
 
         Args:
-            cmdb_object (ET.Element): The parent `<object>` element
+            document (Document): The document creating the nodes
+            cmdb_object (Element): The parent `<object>` element
             obj (RenderResult): The object whose multi-data sections are serialized
         """
         sections = BaseExporterFormat.serialize_multi_data_sections(obj.multi_data_sections)
@@ -271,21 +348,21 @@ class XmlExportFormat(BaseExporterFormat):
         if not sections:
             return
 
-        mds_element = ET.SubElement(cmdb_object, XML_MDS_TAG)
+        mds_element = self._append_element(document, cmdb_object, XML_MDS_TAG)
 
         for section in sections:
-            section_element = ET.SubElement(mds_element, XML_SECTION_TAG, {
+            section_element = self._append_element(document, mds_element, XML_SECTION_TAG, {
                 CmdbObjectMdsKey.SECTION_ID.value: str(section.get(CmdbObjectMdsKey.SECTION_ID.value, '')),
                 CmdbObjectMdsKey.HIGHEST_ID.value: str(section.get(CmdbObjectMdsKey.HIGHEST_ID.value, '')),
             })
 
             for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
-                row_element = ET.SubElement(section_element, XML_ROW_TAG, {
+                row_element = self._append_element(document, section_element, XML_ROW_TAG, {
                     CmdbObjectMdsRowKey.MULTI_DATA_ID.value: str(row.get(CmdbObjectMdsRowKey.MULTI_DATA_ID.value, '')),
                 })
 
                 for entry in row.get(CmdbObjectMdsRowKey.DATA.value, []):
-                    ET.SubElement(row_element, XML_FIELD_TAG, {
+                    self._append_element(document, row_element, XML_FIELD_TAG, {
                         FieldKey.NAME.value: str(entry.get(FieldKey.NAME.value, '')),
                         FieldKey.VALUE.value: to_export_cell(entry.get(FieldKey.VALUE.value)),
                     })

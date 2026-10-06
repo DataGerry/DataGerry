@@ -31,13 +31,37 @@ def build_date_settings(data: dict[str, Any]) -> DateSettingsDAO:
     carried by a stored section (or any other extra keys) are ignored. Splatting a stored section
     directly into DateSettingsDAO would otherwise fail on the unexpected '_id' keyword.
 
+    A value that is missing, empty or not a string falls back to its default
+    (``DateSettingsDAO.__DEFAULT_SETTINGS__``), one key at a time. The write's schema never lets such a value
+    through, but a stored section the schema never saw - written before it, or by hand - is read on every page
+    by the frontend's date pipe and must not turn that read into a 500
+
     Args:
-        data (dict[str, Any]): A mapping containing at least the 'date_format' and 'timezone' keys
+        data (dict[str, Any]): A stored section or a validated request body
 
     Returns:
         DateSettingsDAO: The constructed date settings data object
     """
     return DateSettingsDAO(
-        date_format=data[DateSettingsKey.DATE_FORMAT],
-        timezone=data[DateSettingsKey.TIMEZONE],
+        date_format=_setting_or_default(data, DateSettingsKey.DATE_FORMAT),
+        timezone=_setting_or_default(data, DateSettingsKey.TIMEZONE),
     )
+
+
+def _setting_or_default(data: dict[str, Any], key: DateSettingsKey) -> str:
+    """
+    Reads one date setting, or its default when the stored value is unusable
+
+    Args:
+        data (dict[str, Any]): A stored section or a validated request body
+        key (DateSettingsKey): The setting to read
+
+    Returns:
+        str: The value when it is a non-empty string, otherwise the setting's default
+    """
+    value: Any = data.get(key)
+
+    if isinstance(value, str) and value:
+        return value
+
+    return DateSettingsDAO.__DEFAULT_SETTINGS__[key]
