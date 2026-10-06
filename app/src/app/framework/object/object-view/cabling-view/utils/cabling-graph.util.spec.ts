@@ -15,6 +15,8 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { PortSide } from '../../ports-overview/models/ports-overview.types';
+import { CablingEdge, CablingResponse } from '../models/cabling.types';
 import {
     CABLE_FRONT,
     CABLE_NAS,
@@ -22,15 +24,22 @@ import {
     FRONT_12,
     NAS_01,
     NAS_E0A,
+    NAS_E0B,
     PP_01,
     REAR_12,
     SW_01,
     SW_GI24,
+    SW_GI48,
     WEB_01,
     WEB_ETH0,
+    WEB_ETH1,
+    cabledPort,
+    cablingEdge,
+    cablingEnd,
     frontEdge,
     mockupRing,
     nasExpansion,
+    nasNode,
     ppNode,
     rearEdge,
     restrictedNode,
@@ -40,6 +49,24 @@ import {
 import { graphFromRing, graphWithExpansion, nodePorts, revealColumn, revealedObjectIds } from './cabling-graph.util';
 
 describe('cabling-graph.util', () => {
+    const CABLE_SIDE = 8904;
+
+    /** WEB-01's eth1 cabled straight to SW-01's Gi1/0/48, two neighbours of PP-01. */
+    const sideEdge = (): CablingEdge => cablingEdge(
+        CABLE_SIDE,
+        cablingEnd(WEB_01, WEB_ETH1, 'eth1', PortSide.SINGLE),
+        cablingEnd(SW_01, SW_GI48, 'Gi1/0/48', PortSide.SINGLE)
+    );
+
+    /** The mockup ring as the route answers it once WEB-01 and SW-01 are cabled to each other too. */
+    const sideCabledRing = (): CablingResponse => {
+        const web = webNode();
+        web.rows[1] = {
+            port: cabledPort(WEB_ETH1, 'eth1', { objectId: SW_01, label: 'SW-01', portId: SW_GI48, portName: 'Gi1/0/48' }, CABLE_SIDE)
+        };
+
+        return { focal_object_id: PP_01, nodes: [ppNode(), web, switchNode()], edges: [frontEdge(), rearEdge(), sideEdge()] };
+    };
 
     describe('revealColumn', () => {
         it('puts every patch panel in the one column left of the focal object', () => {
@@ -100,7 +127,7 @@ describe('cabling-graph.util', () => {
             expect([...graphFromRing(mockupRing()).edges.keys()]).toEqual([CABLE_FRONT, CABLE_REAR]);
         });
 
-        it('recovers a cable between two drawn objects from their rows when the edge list misses it', () => {
+        it('recovers a cable of the focal object from its rows when the edge list misses it', () => {
             const graph = graphFromRing({ ...mockupRing(), edges: [] });
 
             expect(graph.edges.get(CABLE_REAR)?.from.port_id).toBe(REAR_12);
@@ -111,6 +138,10 @@ describe('cabling-graph.util', () => {
             const graph = graphFromRing(mockupRing());
 
             expect(graph.edges.has(CABLE_NAS)).toBeFalse();
+        });
+
+        it('leaves a cable between two neighbours undrawn, though the ring lists it', () => {
+            expect([...graphFromRing(sideCabledRing()).edges.keys()]).toEqual([CABLE_FRONT, CABLE_REAR]);
         });
     });
 
@@ -144,6 +175,25 @@ describe('cabling-graph.util', () => {
             expect(graph.nodes.size).toBe(ring.nodes.size);
             expect(graph.reveals.get(WEB_01)).toBe(ring.reveals.get(WEB_01));
             expect(graph.nodes.get(WEB_01)).toBe(fresher);
+        });
+
+        it('draws a followed cable to an object already on the canvas without a second card', () => {
+            const ring = graphFromRing(sideCabledRing());
+            const graph = graphWithExpansion(ring, { focal_object_id: WEB_01, nodes: [switchNode()], edges: [sideEdge()] }, WEB_ETH1);
+
+            expect(graph.edges.has(CABLE_SIDE)).toBeTrue();
+            expect(graph.nodes.size).toBe(ring.nodes.size);
+            expect(graph.reveals.get(SW_01)).toBe(ring.reveals.get(SW_01));
+        });
+
+        it('draws only the followed cable, none of the revealed object\'s other cables', () => {
+            const nas = nasNode();
+            nas.rows[1] = {
+                port: cabledPort(NAS_E0B, 'e0b', { objectId: WEB_01, label: 'WEB-01', portId: WEB_ETH1, portName: 'eth1' }, CABLE_SIDE)
+            };
+            const graph = graphWithExpansion(graphFromRing(mockupRing()), { ...nasExpansion(), nodes: [nas] }, SW_GI24);
+
+            expect([...graph.edges.keys()]).toEqual([CABLE_FRONT, CABLE_REAR, CABLE_NAS]);
         });
 
         it('leaves the graph it was given untouched', () => {

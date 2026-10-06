@@ -114,7 +114,8 @@ export function farEndLabel(port: OverviewPort): string | null {
 }
 
 
-export function portView(port: OverviewPort, drawnObjectIds: ReadonlySet<number>): CablingPortView {
+/** A cable is offered to follow until it is drawn; one back to its own object leads nowhere. */
+export function portView(port: OverviewPort, objectId: number, drawnCables: ReadonlySet<number>): CablingPortView {
     const cabled = hasCable(port);
     const farObjectId = port.connected_object?.object_id ?? null;
     const farEnd = cabled ? farEndLabel(port) : null;
@@ -128,7 +129,7 @@ export function portView(port: OverviewPort, drawnObjectIds: ReadonlySet<number>
         connectionId: port.cable_connection_id ?? null,
         farEnd,
         meta: joinParts([port.port_type?.label, port.speed?.label, port.status?.label]) ?? joinParts([port.description]),
-        expandable: cabled && farObjectId != null && !drawnObjectIds.has(farObjectId),
+        expandable: cabled && farObjectId != null && farObjectId !== objectId && !drawnCables.has(port.cable_connection_id),
         expandLabel: `Show ${ farEnd ?? 'the far end' } of ${ name }`
     };
 }

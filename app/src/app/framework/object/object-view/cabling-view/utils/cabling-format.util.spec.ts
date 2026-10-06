@@ -17,7 +17,9 @@
 */
 import { DEFAULT_CABLE_STROKE, DEFAULT_NODE_ICON } from '../constants/cabling.constants';
 import {
+    CABLE_NAS,
     NAS_01,
+    SW_01,
     cabledPort,
     overviewPort,
     ppNode,
@@ -113,7 +115,7 @@ describe('cabling-format.util', () => {
         });
 
         it('names the far end and the port details', () => {
-            const view = portView(cabled(), new Set());
+            const view = portView(cabled(), SW_01, new Set());
 
             expect(view.cabled).toBeTrue();
             expect(view.farEnd).toBe('Device #8704 - NAS-01 · e0a');
@@ -121,12 +123,16 @@ describe('cabling-format.util', () => {
             expect(view.expandable).toBeTrue();
         });
 
-        it('stops offering to follow a cable once its far end is drawn', () => {
-            expect(portView(cabled(), new Set([NAS_01])).expandable).toBeFalse();
+        it('stops offering to follow a cable once it is drawn', () => {
+            expect(portView(cabled(), SW_01, new Set([CABLE_NAS])).expandable).toBeFalse();
+        });
+
+        it('never offers to follow a cable back to its own object', () => {
+            expect(portView(cabled(), NAS_01, new Set()).expandable).toBeFalse();
         });
 
         it('treats a port without a cable as free, whatever its connected flag says', () => {
-            const view = portView(overviewPort(8813, 'e0b', { connected: true }), new Set());
+            const view = portView(overviewPort(8813, 'e0b', { connected: true }), NAS_01, new Set());
 
             expect(view.cabled).toBeFalse();
             expect(view.farEnd).toBeNull();
@@ -138,7 +144,7 @@ describe('cabling-format.util', () => {
             port.connected_object = { object_id: 8705, label: null, restricted: true };
 
             expect(farEndLabel(port)).toBe('Restricted object');
-            expect(portView(port, new Set()).expandLabel).not.toContain('8705');
+            expect(portView(port, SW_01, new Set()).expandLabel).not.toContain('8705');
         });
     });
 });

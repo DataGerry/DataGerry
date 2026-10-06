@@ -116,6 +116,11 @@ describe('cabling-layout.util', () => {
         ]
     });
 
+    /** `crossRing` once WEB-01's eth0 was followed to PP-01's front. */
+    const crossRingFollowed = (): CablingGraph => graphWithExpansion(
+        graphFromRing(crossRing()), { focal_object_id: WEB_01, nodes: [ppNode()], edges: [frontEdge()] }, WEB_ETH0
+    );
+
     describe('layoutCablingNodes', () => {
         it('starts at the focal object and puts every plain neighbour in the column on its right', () => {
             const nodes = layout(graphFromRing(mockupRing()));
@@ -258,12 +263,22 @@ describe('cabling-layout.util', () => {
             expect(card.rows).toEqual([]);
         });
 
-        it('offers to follow a cable only while its far end is not drawn', () => {
+        it('offers to follow a cable only while it is not drawn', () => {
             const ring = graphFromRing(mockupRing());
             const gi24 = (graph: CablingGraph) => layout(graph, {}, [SW_01]).get(SW_01).rows[1].port;
 
             expect(gi24(ring).expandable).toBeTrue();
             expect(gi24(graphWithExpansion(ring, nasExpansion(), SW_GI24)).expandable).toBeFalse();
+        });
+
+        it('offers to follow a cable between two neighbours on the canvas until it is followed', () => {
+            const ring = layout(graphFromRing(crossRing()));
+            const followed = layout(crossRingFollowed());
+
+            expect(ring.get(WEB_01).rows[0].port.expandable).toBeTrue();
+            expect(ring.get(PP_01).rows[0].front.expandable).toBeTrue();
+            expect(followed.get(WEB_01).rows[0].port.expandable).toBeFalse();
+            expect(followed.get(PP_01).rows[0].front.expandable).toBeFalse();
         });
 
         it('stacks the neighbours sharing a column without letting them overlap', () => {
@@ -330,8 +345,12 @@ describe('cabling-layout.util', () => {
             expect(within(hook.to.y, panel)).toBeFalse();
         });
 
+        it('leaves a cable between two neighbours off the canvas until it is followed', () => {
+            expect(cable(routed(graphFromRing(crossRing())).edges, CABLE_FRONT)).toBeUndefined();
+        });
+
         it('curves a cable between the two sides straight across, behind the focal object', () => {
-            const { nodes, edges } = routed(graphFromRing(crossRing()));
+            const { nodes, edges } = routed(crossRingFollowed());
             const front = cable(edges, CABLE_FRONT);
 
             expect(nodes.get(PP_01).x).toBeLessThan(nodes.get(SW_01).x);

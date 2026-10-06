@@ -38,7 +38,6 @@ export function layoutCablingNodes(
     options: CablingDisplayOptions,
     expandedNodeIds: ReadonlySet<number>
 ): Map<number, CablingNodeLayout> {
-    const drawnIds = new Set(graph.nodes.keys());
     const drawnCables = new Set(graph.edges.keys());
     const layouts = new Map<number, CablingNodeLayout>();
 
@@ -48,7 +47,6 @@ export function layoutCablingNodes(
         graph.reveals.get(objectId),
         options,
         expandedNodeIds.has(objectId),
-        drawnIds,
         drawnCables
     )));
 

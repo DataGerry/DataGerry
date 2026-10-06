@@ -72,7 +72,7 @@ export function revealColumn(parentColumn: number, patchPanel: boolean): number 
 }
 
 
-/** The first ring: the focal object, and every object one cable away. */
+/** The first ring: the focal object, every object one cable away, and the focal object's own cables. */
 export function graphFromRing(response: CablingResponse): CablingGraph {
     const focalId = response.focal_object_id;
     const nodes = new Map<number, CablingNode>();
@@ -88,7 +88,7 @@ export function graphFromRing(response: CablingResponse): CablingGraph {
         }
     });
 
-    const edges = collectEdges(nodes, response.edges, new Map());
+    const edges = focalEdges(nodes, focalId, response.edges);
     const reveals = new Map<number, CablingReveal>();
 
     reveals.set(focalId, { parentId: null, parentPortId: null, ownPortId: null, column: 0, generation: 0 });
@@ -104,23 +104,25 @@ export function graphFromRing(response: CablingResponse): CablingGraph {
 }
 
 
-/** Adds what following one port revealed. A node already drawn keeps its place and takes the fresher rows. */
+/** Adds the followed cable, and its far object unless drawn; a drawn node keeps its place and takes the fresher rows. */
 export function graphWithExpansion(graph: CablingGraph, response: CablingResponse, portId: number): CablingGraph {
     const parentId = response.focal_object_id;
     const nodes = new Map(graph.nodes);
     const reveals = new Map(graph.reveals);
+    const edges = new Map(graph.edges);
     const revealed = response.nodes.filter((node) => !nodes.has(node.object_id));
+    const followed = response.edges.find((edge) => endOnPort(edge, portId) !== null) ?? null;
 
     response.nodes.forEach((node) => nodes.set(node.object_id, node));
 
-    const edges = collectEdges(nodes, response.edges, graph.edges);
+    if (followed && isDrawn(nodes, followed)) {
+        edges.set(followed.connection_id, followed);
+    }
 
     revealed.forEach((node) => {
-        const edge = response.edges.find((candidate) => candidate.from.port_id === portId || candidate.to.port_id === portId)
-            ?? edgeBetween(edges.values(), parentId, node.object_id);
-        const parentEnd = edge ? endOnPort(edge, portId) ?? endOn(edge, parentId) : null;
+        const parentEnd = followed ? endOnPort(followed, portId) : null;
 
-        reveals.set(node.object_id, revealBeside(reveals, parentId, parentEnd, edge, node));
+        reveals.set(node.object_id, revealBeside(reveals, parentId, parentEnd, followed, node));
     });
 
     return { ...graph, nodes, reveals, edges };
@@ -154,35 +156,41 @@ function revealBeside(
 }
 
 
-/**
- * The response's edges, plus every cable a drawn node's row names towards another drawn node.
- *
- * An expansion answers with one edge only, so a revealed node's other cables to objects already on
- * the canvas come from its rows.
- */
-function collectEdges(
+/** Only the focal object's cables; one between two neighbours waits until the user follows it. */
+function focalEdges(
     nodes: ReadonlyMap<number, CablingNode>,
-    responseEdges: CablingEdge[],
-    existing: ReadonlyMap<number, CablingEdge>
+    focalId: number,
+    responseEdges: CablingEdge[]
 ): Map<number, CablingEdge> {
-    const edges = new Map(existing);
-    const drawn = (end: CablingEnd) => end?.object_id != null && nodes.has(end.object_id);
+    const edges = new Map<number, CablingEdge>();
+    const focal = nodes.get(focalId);
 
     responseEdges
-        .filter((edge) => drawn(edge.from) && drawn(edge.to))
+        .filter((edge) => endsOn(edge, focalId) && isDrawn(nodes, edge))
         .forEach((edge) => edges.set(edge.connection_id, edge));
 
-    nodes.forEach((node) => nodePorts(node).forEach((port) => {
+    // A cable the edge list misses is still named by the focal object's rows.
+    (focal ? nodePorts(focal) : []).forEach((port) => {
         const connectionId = port.cable_connection_id;
         const farObjectId = port.connected_object?.object_id;
 
         if (hasCable(port) && farObjectId != null && port.connected_port && nodes.has(farObjectId)
             && !edges.has(connectionId)) {
-            edges.set(connectionId, edgeFromPort(node.object_id, port));
+            edges.set(connectionId, edgeFromPort(focalId, port));
         }
-    }));
+    });
 
     return edges;
+}
+
+
+function isDrawn(nodes: ReadonlyMap<number, CablingNode>, edge: CablingEdge): boolean {
+    return [edge.from, edge.to].every((end) => end?.object_id != null && nodes.has(end.object_id));
+}
+
+
+function endsOn(edge: CablingEdge, objectId: number): boolean {
+    return edge.from.object_id === objectId || edge.to.object_id === objectId;
 }
 
 

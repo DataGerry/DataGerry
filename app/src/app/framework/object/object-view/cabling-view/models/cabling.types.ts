@@ -139,7 +139,7 @@ export interface CablingPortView {
     farEnd: string | null;
     /** Port type, speed and status, shown in the detail density. */
     meta: string | null;
-    /** Cabled to an object that is not on the canvas yet. */
+    /** Cabled, but the cable is not drawn yet. */
     expandable: boolean;
     expandLabel: string;
 }

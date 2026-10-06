@@ -47,7 +47,6 @@ export function nodeFrame(
     reveal: CablingReveal | undefined,
     options: CablingDisplayOptions,
     expanded: boolean,
-    drawnIds: ReadonlySet<number>,
     drawnCables: ReadonlySet<number>
 ): CablingNodeLayout {
     const density = options.detail ? 'detail' : 'compact';
@@ -90,7 +89,7 @@ export function nodeFrame(
     let cursor = headerHeight + bodyPadding;
 
     const rows = visibleRows.map((row, index): CablingRowLayout => {
-        const layout = rowLayout(row, index, cursor, height, drawnIds);
+        const layout = rowLayout(row, index, cursor, height, node.object_id, drawnCables);
 
         [layout.port, layout.front, layout.rear]
             .filter((port) => !!port)
@@ -159,11 +158,12 @@ function rowLayout(
     index: number,
     top: number,
     height: number,
-    drawnIds: ReadonlySet<number>
+    objectId: number,
+    drawnCables: ReadonlySet<number>
 ): CablingRowLayout {
     if (isPanelRow(row)) {
-        const front = row.front ? portView(row.front, drawnIds) : null;
-        const rear = row.rear ? portView(row.rear, drawnIds) : null;
+        const front = row.front ? portView(row.front, objectId, drawnCables) : null;
+        const rear = row.rear ? portView(row.rear, objectId, drawnCables) : null;
 
         return {
             key: `pair-${ front?.portId ?? 'none' }-${ rear?.portId ?? 'none' }-${ index }`,
@@ -176,7 +176,7 @@ function rowLayout(
         };
     }
 
-    const port = row.port ? portView(row.port, drawnIds) : null;
+    const port = row.port ? portView(row.port, objectId, drawnCables) : null;
 
     return { key: `port-${ port?.portId ?? index }`, top, height, port, front: null, rear: null, paired: false };
 }
