@@ -227,6 +227,15 @@ $radius: 0.75rem;
   display: flex;
   align-items: center;
   min-width: 0;
+
+  // A pair row holds two ports, so the mark goes on the face rather than across the row.
+  &.is-highlighted {
+    align-self: stretch;
+    margin-left: -0.5rem;
+    padding-left: 0.5rem;
+    background: $row-highlight;
+    box-shadow: inset 3px 0 0 $primary;
+  }
 }
 
 .cabling-row__none {

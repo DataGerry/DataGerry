@@ -15,17 +15,8 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { AsyncPipe } from '@angular/common';
-import {
-    ChangeDetectionStrategy,
-    Component,
-    ElementRef,
-    computed,
-    inject,
-    input,
-    signal,
-    viewChild
-} from '@angular/core';
+import { AsyncPipe, NgTemplateOutlet } from '@angular/common';
+import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
 import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
@@ -37,17 +28,15 @@ import {
     CABLE_CASING_STROKE,
     CABLING_GEOMETRY,
     CABLING_PAN_STEP,
-    CABLING_ZOOM,
     DEFAULT_DISPLAY_OPTIONS
 } from './constants/cabling.constants';
-import {
-    CablingCableHover,
-    CablingPathProbe,
-    CablingPathSample,
-    CablingTooltipView
-} from './models/cabling-tooltip.types';
-import { CablingGesture, CablingSize, CablingViewport } from './models/cabling-viewport.types';
-import { CablingDisplayOptions, CablingNodeLayout, CablingPoint } from './models/cabling.types';
+import { CablingGesturesDirective } from './directives/cabling-gestures.directive';
+import { CablingSelection, CablingSpotlight } from './models/cabling-spotlight.types';
+import { CablingTooltipView } from './models/cabling-tooltip.types';
+import { CablingDisplayOptions, CablingNodeLayout } from './models/cabling.types';
+import { CablingCableHoverStore } from './services/cabling-cable-hover.store';
+import { CablingCanvasStore } from './services/cabling-canvas.store';
+import { CablingSpotlightStore } from './services/cabling-spotlight.store';
 import { CablingViewStore } from './services/cabling-view.store';
 import {
     cablingBounds,
@@ -55,28 +44,11 @@ import {
     layoutCablingNodes,
     offsetCablingNodes
 } from './utils/cabling-layout.util';
-import { nearestPointOnPath, samplePath } from './utils/cabling-path.util';
-import { cableTooltip, placeCableTooltip } from './utils/cabling-tooltip.util';
-import {
-    canvasToScreen,
-    centerViewport,
-    containsBounds,
-    fitViewport,
-    screenToCanvas,
-    visibleCanvas,
-    zoomAround
-} from './utils/cabling-viewport.util';
+import { cableTooltip } from './utils/cabling-tooltip.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** A press on one of these belongs to the control, not to a pan or a drag. */
-const INTERACTIVE_SELECTOR = 'a, button, input, label, select, textarea';
-
-/** How far one notch of Ctrl + wheel zooms; pixel deltas are small, line deltas are scaled up. */
-const WHEEL_ZOOM_RATE = 0.002;
-const WHEEL_LINE_HEIGHT = 16;
-
-/** Screen pixels a press may travel and still count as a click. */
-const DRAG_THRESHOLD = 4;
+/** A click on one of these has its own meaning: a link, a button, a cable or a cabled port. */
+const SELF_HANDLED_CLICK = 'a, button, .cabling-edge__hit, .cabling-port.is-cabled';
 
 
 /**
@@ -86,10 +58,18 @@ const DRAG_THRESHOLD = 4;
 @Component({
     selector: 'cmdb-cabling-view',
     standalone: true,
-    imports: [AsyncPipe, ReactiveFormsModule, CoreModule, CablingNodeComponent, CablingCableTooltipComponent],
+    imports: [
+        AsyncPipe,
+        NgTemplateOutlet,
+        ReactiveFormsModule,
+        CoreModule,
+        CablingGesturesDirective,
+        CablingNodeComponent,
+        CablingCableTooltipComponent
+    ],
     templateUrl: './cabling-view.component.html',
     styleUrls: ['./cabling-view.component.scss'],
-    providers: [CablingViewStore],
+    providers: [CablingViewStore, CablingCanvasStore, CablingSpotlightStore, CablingCableHoverStore],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class CablingViewComponent {
@@ -97,19 +77,17 @@ export class CablingViewComponent {
     public readonly objectId = input<number | null>(null);
 
     protected readonly store = inject(CablingViewStore);
+    protected readonly canvas = inject(CablingCanvasStore);
+    protected readonly spotlightStore = inject(CablingSpotlightStore);
+    private readonly cableHover = inject(CablingCableHoverStore);
     private readonly loaderService = inject(LoaderService);
 
     public readonly isLoading$ = this.loaderService.isLoading$;
 
-    public readonly viewport = signal<CablingViewport>({ x: 0, y: 0, zoom: 1 });
     public readonly hoveredConnectionId = signal<number | null>(null);
-    public readonly selectedConnectionId = signal<number | null>(null);
-    public readonly isPanning = signal(false);
-    public readonly animate = signal(false);
 
+    private readonly selection = signal<CablingSelection | null>(null);
     private readonly expandedNodeIds = signal<ReadonlySet<number>>(new Set());
-    private readonly offsets = signal<ReadonlyMap<number, CablingPoint>>(new Map());
-    private readonly cableHover = signal<CablingCableHover | null>(null);
 
     public readonly displayForm = new FormGroup({
         showFreePorts: new FormControl(false, { nonNullable: true })
@@ -126,10 +104,11 @@ export class CablingViewComponent {
     private readonly placedNodes = computed(() =>
         layoutCablingNodes(this.store.graph(), this.options(), this.expandedNodeIds()));
 
-    public readonly nodes = computed(() => offsetCablingNodes(this.placedNodes(), this.offsets()));
+    public readonly nodes = computed(() => offsetCablingNodes(this.placedNodes(), this.canvas.offsets()));
     public readonly nodeList = computed(() => [...this.nodes().values()]);
     public readonly edges = computed(() => layoutCablingEdges(this.nodes(), this.store.graph().edges.values()));
     public readonly bounds = computed(() => cablingBounds(this.nodeList()));
+    public readonly selectedConnectionId = computed(() => this.selection()?.connectionId ?? null);
     public readonly highlightedConnectionId = computed(() => this.selectedConnectionId() ?? this.hoveredConnectionId());
 
     /** Drawn a second time above the cards, so a cable running behind one can be followed. */
@@ -140,7 +119,16 @@ export class CablingViewComponent {
     });
     public readonly isEmpty = computed(() => this.store.loaded() && !this.edges().length);
 
-    private readonly hoveredCableId = computed(() => this.cableHover()?.connectionId ?? null);
+    /** The card a cable was picked from, lit with its port while everything else goes under the shade. */
+    public readonly spotlight = computed<CablingSpotlight | null>(() => {
+        const selection = this.selection();
+
+        return this.spotlightStore.active()
+            ? { objectId: selection?.objectId ?? null, portId: selection?.portId ?? null }
+            : null;
+    });
+
+    private readonly hoveredCableId = computed(() => this.cableHover.hover()?.connectionId ?? null);
 
     /** Keyed on the cable alone, so following the pointer does not rebuild its details. */
     private readonly hoveredCable = computed(() => {
@@ -152,43 +140,30 @@ export class CablingViewComponent {
 
     /** Gone once the canvas moves under the pointer; the next pointer move places it again. */
     public readonly tooltip = computed<CablingTooltipView | null>(() => {
-        const hover = this.cableHover();
+        const hover = this.cableHover.hover();
         const content = this.hoveredCable();
 
-        return hover && content && !this.isPanning() && hover.viewport === this.viewport()
+        return hover && content && !this.canvas.isPanning() && hover.viewport === this.canvas.viewport()
             ? { content, placement: hover.placement }
             : null;
-    });
-
-    public readonly transform = computed(() => {
-        const { x, y, zoom } = this.viewport();
-
-        return `translate(${ x }px, ${ y }px) scale(${ zoom })`;
     });
 
     public readonly casingStroke = CABLE_CASING_STROKE;
     public readonly endDotRadius = CABLING_GEOMETRY.endDotRadius;
 
-    /** Not named `viewport`: a template reference of that name would shadow the signal in the template. */
-    private readonly viewportRef = viewChild.required<ElementRef<HTMLElement>>('canvasFrame');
-    private gesture: CablingGesture | null = null;
-
-    /** Set when a press ended as a pan or a drag, so the click that follows it selects nothing. */
-    private gestureMoved = false;
-
-    private cableProbe: CablingPathProbe | null = null;
-
     private readonly keyActions: Readonly<Record<string, () => void>> = {
-        '+': () => this.zoomIn(),
-        '=': () => this.zoomIn(),
-        '-': () => this.zoomOut(),
-        '_': () => this.zoomOut(),
-        '0': () => this.fitToView(),
-        'Escape': () => this.selectedConnectionId.set(null),
-        'ArrowLeft': () => this.panBy(CABLING_PAN_STEP, 0),
-        'ArrowRight': () => this.panBy(-CABLING_PAN_STEP, 0),
-        'ArrowUp': () => this.panBy(0, CABLING_PAN_STEP),
-        'ArrowDown': () => this.panBy(0, -CABLING_PAN_STEP)
+        '+': () => this.canvas.zoomIn(),
+        '=': () => this.canvas.zoomIn(),
+        '-': () => this.canvas.zoomOut(),
+        '_': () => this.canvas.zoomOut(),
+        '0': () => this.canvas.fit(this.bounds()),
+        'Escape': () => this.dismiss(),
+        's': () => this.toggleSpotlight(),
+        'S': () => this.toggleSpotlight(),
+        'ArrowLeft': () => this.canvas.panBy(CABLING_PAN_STEP, 0),
+        'ArrowRight': () => this.canvas.panBy(-CABLING_PAN_STEP, 0),
+        'ArrowUp': () => this.canvas.panBy(0, CABLING_PAN_STEP),
+        'ArrowDown': () => this.canvas.panBy(0, -CABLING_PAN_STEP)
     };
 
 /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
@@ -203,7 +178,7 @@ export class CablingViewComponent {
 
         this.store.loaded$
             .pipe(takeUntilDestroyed())
-            .subscribe(() => this.fitToView(false));
+            .subscribe(() => this.canvas.fit(this.bounds(), false));
 
         this.store.revealed$
             .pipe(takeUntilDestroyed())
@@ -212,152 +187,47 @@ export class CablingViewComponent {
 
 /* ---------------------------------------------------- EVENTS ------------------------------------------------------ */
 
-    public onPointerDown(event: PointerEvent): void {
-        const target = event.target as Element | null;
-
-        if (event.button !== 0 || this.gesture || target?.closest(INTERACTIVE_SELECTOR)) {
-            return;
-        }
-
-        const card = target?.closest<HTMLElement>('[data-object-id]');
-        const objectId = card ? Number(card.dataset['objectId']) : NaN;
-        const isNode = Number.isFinite(objectId);
-        const { x, y } = this.viewport();
-
-        this.gestureMoved = false;
-        this.gesture = {
-            kind: isNode ? 'node' : 'pan',
-            pointerId: event.pointerId,
-            objectId: isNode ? objectId : null,
-            startX: event.clientX,
-            startY: event.clientY,
-            origin: isNode ? (this.offsets().get(objectId) ?? { x: 0, y: 0 }) : { x, y },
-            moved: false
-        };
-    }
-
-
-    public onPointerMove(event: PointerEvent): void {
-        const gesture = this.gesture;
-
-        if (!gesture || gesture.pointerId !== event.pointerId) {
-            return;
-        }
-
-        const dx = event.clientX - gesture.startX;
-        const dy = event.clientY - gesture.startY;
-
-        // Captured only once it moves: a captured pointer's click lands on the canvas, not the port.
-        if (!gesture.moved) {
-            if (Math.hypot(dx, dy) < DRAG_THRESHOLD) {
-                return;
-            }
-
-            gesture.moved = true;
-            this.animate.set(false);
-            this.isPanning.set(true);
-
-            try {
-                (event.currentTarget as HTMLElement | null)?.setPointerCapture?.(event.pointerId);
-            } catch {
-                // A pointer that is no longer active cannot be captured; the gesture still follows it.
-            }
-        }
-
-        if (gesture.kind === 'pan') {
-            this.viewport.update((viewport) => ({ ...viewport, x: gesture.origin.x + dx, y: gesture.origin.y + dy }));
-            return;
-        }
-
-        // A card moves in canvas units, so the pointer's screen distance is scaled back by the zoom.
-        const zoom = this.viewport().zoom;
-        this.offsets.update((offsets) => new Map(offsets).set(gesture.objectId, {
-            x: gesture.origin.x + dx / zoom,
-            y: gesture.origin.y + dy / zoom
-        }));
-    }
-
-
-    public onPointerUp(event: PointerEvent): void {
-        if (!this.gesture || this.gesture.pointerId !== event.pointerId) {
-            return;
-        }
-
-        const element = event.currentTarget as HTMLElement | null;
-
-        if (element?.hasPointerCapture?.(event.pointerId)) {
-            element.releasePointerCapture(event.pointerId);
-        }
-
-        this.gestureMoved = this.gesture.moved;
-        this.gesture = null;
-        this.isPanning.set(false);
-    }
-
-
-    /** Points the tooltip at the spot on the cable nearest the pointer; a touch only highlights. */
+    /** A touch only highlights; a pointer also gets the tooltip. */
     public onCableHover(event: PointerEvent, connectionId: number): void {
-        const path = event.currentTarget;
         this.hoveredConnectionId.set(connectionId);
-
-        if (event.pointerType === 'touch' || !(path instanceof SVGGeometryElement)) {
-            return;
-        }
-
-        const frame = this.viewportRef().nativeElement.getBoundingClientRect();
-        const viewport = this.viewport();
-        const pointer = screenToCanvas({ x: event.clientX - frame.left, y: event.clientY - frame.top }, viewport);
-        const spot = canvasToScreen(nearestPointOnPath(path, this.pathSamples(path), pointer), viewport);
-
-        this.cableHover.set({ connectionId, viewport, placement: placeCableTooltip(spot, frame) });
+        this.cableHover.track(event, connectionId);
     }
 
 
     public onCableLeave(): void {
-        this.cableProbe = null;
         this.hoveredConnectionId.set(null);
-        this.cableHover.set(null);
+        this.cableHover.clear();
     }
 
 
-    /** A second click on the same cable puts it back behind the cards. */
-    public onSelectConnection(connectionId: number): void {
-        if (!this.gestureMoved) {
-            this.selectedConnectionId.update((selected) => (selected === connectionId ? null : connectionId));
+    /** The same port, or the cable itself, a second time puts the cable back behind the cards. */
+    public onSelectConnection(selection: CablingSelection): void {
+        if (this.canvas.dragged) {
+            return;
         }
+
+        const current = this.selection();
+        const again = current?.connectionId === selection.connectionId
+            && (selection.portId == null || selection.portId === current.portId);
+
+        this.selection.set(again ? null : selection);
     }
 
 
-    /** A click anywhere but a cable or a cabled port drops the selection. */
+    /** The cable line itself was clicked, so no card or port is picked. */
+    public onSelectCable(connectionId: number): void {
+        this.onSelectConnection({ connectionId, objectId: null, portId: null });
+    }
+
+
+    /** Any other click puts back the selected cable, and then turns the spotlight off. */
     public onCanvasClick(event: MouseEvent): void {
-        const moved = this.gestureMoved;
-        this.gestureMoved = false;
+        const dragged = this.canvas.dragged;
+        this.canvas.dragged = false;
 
-        if (moved || (event.target as Element | null)?.closest('.cabling-edge__hit, .cabling-port.is-cabled')) {
-            return;
+        if (!dragged && !(event.target as Element | null)?.closest(SELF_HANDLED_CLICK)) {
+            this.dismiss();
         }
-
-        this.selectedConnectionId.set(null);
-    }
-
-
-    /** Only Ctrl or Cmd + wheel zooms (a pinch reports as that too); a plain wheel keeps scrolling the page. */
-    public onWheel(event: WheelEvent): void {
-        if (!event.ctrlKey && !event.metaKey) {
-            return;
-        }
-
-        event.preventDefault();
-
-        const rect = this.viewportRef().nativeElement.getBoundingClientRect();
-        const delta = event.deltaMode === WheelEvent.DOM_DELTA_LINE ? event.deltaY * WHEEL_LINE_HEIGHT : event.deltaY;
-
-        this.animate.set(false);
-        this.viewport.update((viewport) => zoomAround(
-            viewport,
-            viewport.zoom * Math.exp(-delta * WHEEL_ZOOM_RATE),
-            { x: event.clientX - rect.left, y: event.clientY - rect.top }
-        ));
     }
 
 
@@ -375,25 +245,9 @@ export class CablingViewComponent {
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    public zoomIn(): void {
-        this.zoomBy(CABLING_ZOOM.step);
-    }
-
-
-    public zoomOut(): void {
-        this.zoomBy(1 / CABLING_ZOOM.step);
-    }
-
-
-    public fitToView(animate = true): void {
-        this.animate.set(animate);
-        this.viewport.set(fitViewport(this.bounds(), this.measure(), this.viewport()));
-    }
-
-
-    public centerOn(point: CablingPoint): void {
-        this.animate.set(true);
-        this.viewport.set(centerViewport(point, this.measure(), this.viewport().zoom));
+    /** While on, everything goes under the shade but the card a cable is picked from, that port and the cable. */
+    public toggleSpotlight(): void {
+        this.spotlightStore.toggle();
     }
 
 
@@ -416,72 +270,40 @@ export class CablingViewComponent {
         });
     }
 
-
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private resetView(): void {
-        this.offsets.set(new Map());
+        this.spotlightStore.turnOff();
+        this.canvas.resetCards();
         this.expandedNodeIds.set(new Set());
-        this.cableProbe = null;
+        this.cableHover.clear();
         this.hoveredConnectionId.set(null);
-        this.cableHover.set(null);
-        this.selectedConnectionId.set(null);
+        this.selection.set(null);
     }
 
 
-    private zoomBy(factor: number): void {
-        const size = this.measure();
+    /** A selected cable is put back first; the spotlight goes out after it. */
+    private dismiss(): void {
+        if (this.selection()) {
+            this.selection.set(null);
+            return;
+        }
 
-        this.animate.set(true);
-        this.viewport.update((viewport) => zoomAround(
-            viewport,
-            viewport.zoom * factor,
-            { x: size.width / 2, y: size.height / 2 }
-        ));
-    }
-
-
-    private panBy(dx: number, dy: number): void {
-        this.animate.set(true);
-        this.viewport.update((viewport) => ({ ...viewport, x: viewport.x + dx, y: viewport.y + dy }));
+        this.spotlightStore.turnOff();
     }
 
 
     /** Moves the view only when a revealed card is off screen, and then onto it and the card it came from. */
     private bringIntoView(objectIds: number[]): void {
         const nodes = this.nodes();
-        const revealed = objectIds.map((objectId) => nodes.get(objectId)).filter((node): node is CablingNodeLayout => !!node);
-        const target = cablingBounds(revealed);
-
-        if (!target || containsBounds(visibleCanvas(this.viewport(), this.measure()), target)) {
-            return;
-        }
-
+        const revealed = objectIds
+            .map((objectId) => nodes.get(objectId))
+            .filter((node): node is CablingNodeLayout => !!node);
         const parents = objectIds
             .map((objectId) => this.store.graph().reveals.get(objectId)?.parentId)
             .map((parentId) => (parentId == null ? undefined : nodes.get(parentId)))
             .filter((node): node is CablingNodeLayout => !!node);
-        const focus = cablingBounds([...revealed, ...parents]);
 
-        this.centerOn({ x: (focus.minX + focus.maxX) / 2, y: (focus.minY + focus.maxY) / 2 });
-    }
-
-
-    /** Sampled once per path and shape, so following the pointer stays cheap. */
-    private pathSamples(path: SVGGeometryElement): CablingPathSample[] {
-        const d = path.getAttribute('d');
-
-        if (this.cableProbe?.path !== path || this.cableProbe.d !== d) {
-            this.cableProbe = { path, d, samples: samplePath(path) };
-        }
-
-        return this.cableProbe.samples;
-    }
-
-
-    private measure(): CablingSize {
-        const rect = this.viewportRef().nativeElement.getBoundingClientRect();
-
-        return { width: rect.width, height: rect.height };
+        this.canvas.reveal(cablingBounds(revealed), cablingBounds([...revealed, ...parents]));
     }
 }

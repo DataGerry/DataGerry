@@ -37,12 +37,12 @@
     @if (layout().rows.length) {
       <ul class="cabling-node__rows">
         @for (row of layout().rows; track row.key) {
-          <li class="cabling-row" [class.cabling-row--pair]="!row.port" [class.is-highlighted]="isRowHighlighted(row)"
+          <li class="cabling-row" [class.cabling-row--pair]="!row.port" [class.is-highlighted]="isHighlighted(row.port)"
             [style.height.px]="row.height">
             @if (row.port) {
               <ng-container [ngTemplateOutlet]="face" [ngTemplateOutletContext]="{ $implicit: row.port }"></ng-container>
             } @else {
-              <div class="cabling-row__face">
+              <div class="cabling-row__face" [class.is-highlighted]="isHighlighted(row.front)">
                 @if (row.front) {
                   <ng-container [ngTemplateOutlet]="face" [ngTemplateOutletContext]="{ $implicit: row.front }"></ng-container>
                 } @else {
@@ -59,7 +59,7 @@
                 }
               </div>
 
-              <div class="cabling-row__face">
+              <div class="cabling-row__face" [class.is-highlighted]="isHighlighted(row.rear)">
                 @if (row.rear) {
                   <ng-container [ngTemplateOutlet]="face" [ngTemplateOutletContext]="{ $implicit: row.rear }"></ng-container>
                 } @else {

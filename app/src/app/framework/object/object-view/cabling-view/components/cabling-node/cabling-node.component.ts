@@ -21,7 +21,8 @@ import { RouterLink } from '@angular/router';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { CABLING_GEOMETRY } from '../../constants/cabling.constants';
-import { CablingNodeLayout, CablingPortView, CablingRowLayout } from '../../models/cabling.types';
+import { CablingNodeLighting, CablingSelection, CablingSpotlight } from '../../models/cabling-spotlight.types';
+import { CablingNodeLayout, CablingPortView } from '../../models/cabling.types';
 import { withAlpha } from '../../utils/cabling-format.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -42,6 +43,8 @@ import { withAlpha } from '../../utils/cabling-format.util';
         '[class.cabling-node--restricted]': 'layout().restricted',
         '[class.cabling-node--panel]': 'layout().patchPanel',
         '[class.cabling-node--detail]': 'detail()',
+        '[class.cabling-node--lit]': 'lighting() === "lit"',
+        '[class.cabling-node--shaded]': 'lighting() === "shaded"',
         '[style.left.px]': 'layout().x',
         '[style.top.px]': 'layout().y',
         '[style.width.px]': 'layout().width',
@@ -57,17 +60,28 @@ export class CablingNodeComponent {
     public readonly detail = input(false);
     public readonly highlightedConnectionId = input<number | null>(null);
     public readonly expandingPortIds = input<ReadonlySet<number>>(new Set());
+    public readonly spotlight = input<CablingSpotlight | null>(null);
 
     public readonly expandPort = output<number>();
     public readonly toggleRows = output<void>();
     public readonly hoverConnection = output<number | null>();
-    public readonly selectConnection = output<number>();
+    public readonly selectConnection = output<CablingSelection>();
 
     protected readonly geometry = CABLING_GEOMETRY;
     protected readonly openQueryParams = { view: 'cabling' };
 
     protected readonly accentSoft = computed(() => withAlpha(this.layout().accent, 0.12));
     protected readonly accentLine = computed(() => withAlpha(this.layout().accent, 0.45));
+
+    protected readonly lighting = computed<CablingNodeLighting>(() => {
+        const spotlight = this.spotlight();
+
+        if (!spotlight) {
+            return 'off';
+        }
+
+        return spotlight.objectId === this.layout().objectId ? 'lit' : 'shaded';
+    });
 
     protected readonly portCountLabel = computed(() => {
         const count = this.layout().portCount;
@@ -114,21 +128,27 @@ export class CablingNodeComponent {
     /** A press on the port's own buttons belongs to them, not to the cable. */
     public onPortClick(event: MouseEvent, port: CablingPortView): void {
         if (port.connectionId != null && !(event.target as Element | null)?.closest('button')) {
-            this.selectConnection.emit(port.connectionId);
+            const { objectId } = this.layout();
+
+            this.selectConnection.emit({ connectionId: port.connectionId, objectId, portId: port.portId });
         }
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
+    /** Under the spotlight only the picked port is marked; otherwise both ends of the highlighted cable are. */
     public isHighlighted(port: CablingPortView | null): boolean {
-        const connectionId = this.highlightedConnectionId();
+        const spotlight = this.spotlight();
 
-        return connectionId != null && port?.connectionId === connectionId;
-    }
+        if (!port) {
+            return false;
+        }
 
+        if (spotlight) {
+            return port.portId === spotlight.portId;
+        }
 
-    public isRowHighlighted(row: CablingRowLayout): boolean {
-        return this.isHighlighted(row.port) || this.isHighlighted(row.front) || this.isHighlighted(row.rear);
+        return port.connectionId != null && port.connectionId === this.highlightedConnectionId();
     }
 
 

@@ -24,7 +24,35 @@ import { of } from 'rxjs';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CablingViewComponent } from './cabling-view.component';
 import { CablingService } from './services/cabling.service';
-import { PP_01, mockupRing } from './testing/cabling-fixtures';
+import {
+    CABLE_REAR,
+    NAS_01,
+    PP_01,
+    SW_01,
+    WEB_01,
+    mockupRing,
+    nasExpansion,
+    standardNode
+} from './testing/cabling-fixtures';
+
+/** Answers with the mockup ring until a test says otherwise. */
+const cablingServiceSpy = (): jasmine.SpyObj<CablingService> => {
+    const service = jasmine.createSpyObj<CablingService>('CablingService', ['getObjectCabling', 'getPortCabling']);
+    service.getObjectCabling.and.returnValue(of(mockupRing()));
+
+    return service;
+};
+
+const configureTestBed = (cablingService: CablingService): Promise<unknown> => TestBed.configureTestingModule({
+    imports: [CablingViewComponent],
+    providers: [
+        provideRouter([]),
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        { provide: CablingService, useValue: cablingService },
+        { provide: ToastService, useValue: jasmine.createSpyObj('ToastService', ['error', 'info']) }
+    ]
+}).compileComponents();
 
 describe('CablingViewComponent cable tooltip', () => {
     let fixture: ComponentFixture<CablingViewComponent>;
@@ -62,19 +90,7 @@ describe('CablingViewComponent cable tooltip', () => {
     const distance = (first: DOMPoint, second: DOMPoint) => Math.hypot(first.x - second.x, first.y - second.y);
 
     beforeEach(async () => {
-        const cablingService = jasmine.createSpyObj<CablingService>('CablingService', ['getObjectCabling', 'getPortCabling']);
-        cablingService.getObjectCabling.and.returnValue(of(mockupRing()));
-
-        await TestBed.configureTestingModule({
-            imports: [CablingViewComponent],
-            providers: [
-                provideRouter([]),
-                provideHttpClient(),
-                provideHttpClientTesting(),
-                { provide: CablingService, useValue: cablingService },
-                { provide: ToastService, useValue: jasmine.createSpyObj('ToastService', ['error', 'info']) }
-            ]
-        }).compileComponents();
+        await configureTestBed(cablingServiceSpy());
 
         fixture = TestBed.createComponent(CablingViewComponent);
         fixture.componentRef.setInput('objectId', PP_01);
@@ -121,7 +137,7 @@ describe('CablingViewComponent cable tooltip', () => {
 
     it('hides once the canvas moves under the pointer', () => {
         point('pointerenter', onCable(0.5));
-        fixture.componentInstance.zoomIn();
+        element().querySelector('.cabling-view__viewport').dispatchEvent(new KeyboardEvent('keydown', { key: '+' }));
         fixture.detectChanges();
 
         expect(tooltip()).toBeNull();
@@ -131,14 +147,218 @@ describe('CablingViewComponent cable tooltip', () => {
         expect(tooltip()).not.toBeNull();
     });
 
-    it('tells what a click on the cable does', () => {
-        point('pointerenter', onCable(0.5));
-
-        expect(tooltip().textContent).toContain('Click to bring to front');
+    it('brings a clicked cable to the front, and puts it back on a second click', () => {
+        const raised = () => element().querySelector('.cabling-view__edges--raised');
 
         cable().dispatchEvent(new MouseEvent('click', { bubbles: true }));
         fixture.detectChanges();
 
-        expect(tooltip().textContent).toContain('Click to put back');
+        expect(raised()).not.toBeNull();
+
+        cable().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        fixture.detectChanges();
+
+        expect(raised()).toBeNull();
+    });
+});
+
+
+describe('CablingViewComponent spotlight', () => {
+    let fixture: ComponentFixture<CablingViewComponent>;
+    let cablingService: jasmine.SpyObj<CablingService>;
+
+    const element = (): HTMLElement => fixture.nativeElement;
+    const viewport = (): HTMLElement => element().querySelector('.cabling-view__viewport');
+    const shade = (): HTMLElement | null => element().querySelector('.cabling-view__shade');
+    const card = (objectId: number): HTMLElement => element().querySelector(`[data-object-id="${ objectId }"]`);
+    const raisedCables = (): number => element().querySelectorAll('.cabling-view__edges--raised .cabling-edge').length;
+    const selected = (): number | null => fixture.componentInstance.selectedConnectionId();
+    const toolbarButton = (label: string): HTMLButtonElement => Array.from(
+        element().querySelectorAll<HTMLButtonElement>('.cabling-view__toolbar button')
+    ).find((button) => button.textContent.trim() === label);
+
+    const press = (key: string) => {
+        viewport().dispatchEvent(new KeyboardEvent('keydown', { key }));
+        fixture.detectChanges();
+    };
+
+    const click = (target: Element) => {
+        target.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        fixture.detectChanges();
+    };
+
+    const show = (objectId: number) => {
+        fixture.componentRef.setInput('objectId', objectId);
+        fixture.detectChanges();
+    };
+
+    const portOn = (objectId: number, portName: string): HTMLElement => Array.from(
+        card(objectId).querySelectorAll<HTMLElement>('.cabling-port')
+    ).find((port) => port.querySelector('.cabling-port__name').textContent.trim() === portName);
+
+    const rowOf = (objectId: number, portName: string): HTMLElement =>
+        portOn(objectId, portName).closest('.cabling-row');
+
+    const faceOf = (objectId: number, portName: string): HTMLElement =>
+        portOn(objectId, portName).closest('.cabling-row__face');
+
+    const markedInCards = (): number => element().querySelectorAll('cmdb-cabling-node .is-highlighted').length;
+
+    /** Follows the cable of the port with this name, on the card of this object. */
+    const expand = (objectId: number, portName: string) => {
+        click(portOn(objectId, portName).querySelector('.cabling-port__expand button'));
+    };
+
+    beforeEach(async () => {
+        cablingService = cablingServiceSpy();
+        await configureTestBed(cablingService);
+
+        fixture = TestBed.createComponent(CablingViewComponent);
+    });
+
+    it('is off until asked for, and a picked port then only brings its cable to the front', () => {
+        show(PP_01);
+
+        expect(toolbarButton('Spotlight').getAttribute('aria-pressed')).toBe('false');
+
+        click(portOn(WEB_01, 'eth0'));
+
+        expect(raisedCables()).toBe(1);
+        expect(shade()).toBeNull();
+        expect(card(WEB_01).classList).not.toContain('cabling-node--lit');
+        expect(rowOf(WEB_01, 'eth0').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Front 12').classList).toContain('is-highlighted');
+    });
+
+    it('puts every card under the shade until a port is picked', () => {
+        show(PP_01);
+        press('s');
+
+        expect(toolbarButton('Spotlight').getAttribute('aria-pressed')).toBe('true');
+        expect(shade()).not.toBeNull();
+        [PP_01, WEB_01, SW_01].forEach((objectId) => {
+            expect(card(objectId).classList).toContain('cabling-node--shaded');
+        });
+        expect(raisedCables()).toBe(0);
+    });
+
+    it('adds no scroll range to the canvas frame, so nothing can scroll the drawing away', () => {
+        show(PP_01);
+        const { scrollWidth, scrollHeight } = viewport();
+
+        press('s');
+
+        expect(viewport().scrollWidth).toBe(scrollWidth);
+        expect(viewport().scrollHeight).toBe(scrollHeight);
+    });
+
+    it('lights the card a port is picked on and marks only that port, not the one at the far end', () => {
+        cablingService.getPortCabling.and.returnValue(of(nasExpansion()));
+        show(PP_01);
+        expand(SW_01, 'Gi1/0/24');
+        press('s');
+        click(portOn(NAS_01, 'e0a'));
+
+        expect(card(NAS_01).classList).toContain('cabling-node--lit');
+        expect(card(SW_01).classList).toContain('cabling-node--shaded');
+        expect(rowOf(NAS_01, 'e0a').classList).toContain('is-highlighted');
+        expect(rowOf(SW_01, 'Gi1/0/24').classList).not.toContain('is-highlighted');
+        expect(raisedCables()).toBe(1);
+    });
+
+    it('lights nothing past the far end, so a patch panel and the cable behind it stay dark', () => {
+        show(PP_01);
+        press('s');
+        click(portOn(SW_01, 'Gi1/0/12'));
+
+        expect(card(SW_01).classList).toContain('cabling-node--lit');
+        expect(rowOf(SW_01, 'Gi1/0/12').classList).toContain('is-highlighted');
+        expect(card(PP_01).classList).toContain('cabling-node--shaded');
+        expect(card(PP_01).querySelector('.is-highlighted')).toBeNull();
+        expect(card(WEB_01).querySelector('.is-highlighted')).toBeNull();
+        expect(selected()).toBe(CABLE_REAR);
+        expect(raisedCables()).toBe(1);
+    });
+
+    it('moves the light to the other end when that port is picked', () => {
+        show(PP_01);
+        press('s');
+        click(portOn(SW_01, 'Gi1/0/12'));
+        click(portOn(PP_01, 'Rear 12'));
+
+        expect(card(PP_01).classList).toContain('cabling-node--lit');
+        expect(card(SW_01).classList).toContain('cabling-node--shaded');
+        expect(selected()).toBe(CABLE_REAR);
+    });
+
+    it('marks the picked face of a patch panel pair, not the whole row', () => {
+        show(PP_01);
+        press('s');
+        click(portOn(PP_01, 'Rear 12'));
+
+        expect(faceOf(PP_01, 'Rear 12').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Front 12').classList).not.toContain('is-highlighted');
+        expect(rowOf(PP_01, 'Rear 12').classList).not.toContain('is-highlighted');
+    });
+
+    it('marks no port while one is only pointed at', () => {
+        show(PP_01);
+        press('s');
+        portOn(WEB_01, 'eth0').dispatchEvent(new MouseEvent('mouseenter'));
+        fixture.detectChanges();
+
+        expect(markedInCards()).toBe(0);
+    });
+
+    it('lights only the cable when the cable itself is clicked', () => {
+        show(PP_01);
+        press('s');
+        click(element().querySelector('.cabling-edge__hit'));
+
+        expect(raisedCables()).toBe(1);
+        expect(element().querySelector('.cabling-node--lit')).toBeNull();
+        expect(markedInCards()).toBe(0);
+    });
+
+    it('puts the cable back on a second pick, on Escape or on a background click, then turns off', () => {
+        show(PP_01);
+        press('s');
+        click(portOn(WEB_01, 'eth0'));
+        click(portOn(WEB_01, 'eth0'));
+
+        expect(selected()).toBeNull();
+        expect(shade()).not.toBeNull();
+
+        click(portOn(WEB_01, 'eth0'));
+        press('Escape');
+
+        expect(selected()).toBeNull();
+        expect(shade()).not.toBeNull();
+
+        click(viewport());
+
+        expect(shade()).toBeNull();
+    });
+
+    it('turns off when another object is opened', () => {
+        show(PP_01);
+        press('s');
+        show(WEB_01);
+
+        expect(toolbarButton('Spotlight').getAttribute('aria-pressed')).toBe('false');
+        expect(shade()).toBeNull();
+    });
+
+    it('cannot be turned on while the object has no cables', () => {
+        cablingService.getObjectCabling.and.returnValue(of({
+            focal_object_id: PP_01,
+            nodes: [standardNode(PP_01, 'PP-01', [])],
+            edges: []
+        }));
+        show(PP_01);
+        press('s');
+
+        expect(toolbarButton('Spotlight').disabled).toBeTrue();
+        expect(shade()).toBeNull();
     });
 });

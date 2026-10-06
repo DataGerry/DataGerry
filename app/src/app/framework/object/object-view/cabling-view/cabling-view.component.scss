@@ -11,6 +11,12 @@ $panel-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $inset: 0.75rem;
 $brand-text: #c2410c;
 $toolbar-height: 48px;
+$shade: rgba(15, 23, 42, 0.46);
+
+// Stacking inside the canvas while the spotlight is on.
+$layer-shade: 1;
+$layer-lit-card: 2;
+$layer-raised-cable: 3;
 
 :host {
   display: block;
@@ -105,7 +111,37 @@ $toolbar-height: 48px;
 }
 
 .cabling-view__edges--raised {
+  z-index: $layer-raised-cable;
   pointer-events: none;
+}
+
+// A point with a vast spread shadow: it covers the canvas without widening the frame's scroll range, as a box would.
+.cabling-view__shade {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: $layer-shade;
+  box-shadow: 0 0 0 50000px $shade;
+  pointer-events: none;
+  animation: cabling-view-shade-in 240ms ease-out;
+}
+
+// The card hosts belong to this template; a shaded card comes up while focus is inside it, so the focus stays seen.
+.cabling-node--lit,
+.cabling-node--shaded:focus-within {
+  z-index: $layer-lit-card;
+}
+
+@keyframes cabling-view-shade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cabling-view__shade {
+    animation: none;
+  }
 }
 
 // Stroke and fill are bound per cable as attributes, so no rule here may declare them on those shapes.
@@ -239,7 +275,27 @@ $toolbar-height: 48px;
     box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
   }
 
+  &[aria-pressed="true"] {
+    background: rgba($primary, 0.1);
+    color: $brand-text;
+  }
+
+  &:disabled {
+    opacity: 0.45;
+    background: transparent;
+    color: $ink-label;
+  }
+
   i {
     margin: 0;
   }
+}
+
+:host ::ng-deep .cabling-view__tool--text {
+  gap: 0.4rem;
+  width: auto;
+  padding: 0 0.65rem;
+  font-size: 0.8rem;
+  font-weight: 600;
+  white-space: nowrap;
 }
