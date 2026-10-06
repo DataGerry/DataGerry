@@ -47,6 +47,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     derive_location_name,
     is_explicit_location_name,
     read_linked_object,
+    read_placeable_object,
+    resolve_placed_object_type,
+    authorize_object_placement,
+    authorize_node_object_change,
     validate_location_placement,
     with_location_parent,
     PlacementTarget,
@@ -54,7 +58,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     LINKED_OBJECT_DENIED_MSG,
     LINKED_OBJECT_NOT_FOUND_MSG,
+    LINKED_OBJECT_UPDATE_DENIED_MSG,
 )
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.models.object_model.object_constants import ObjectWriteVerb
 from cmdb.models.object_model import CmdbObject
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.security import AccessDeniedError
@@ -63,6 +70,8 @@ from cmdb.models.location_model.location_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper'
+# The caller of a validation whose ACL decision is patched out
+REQUEST_USER: MagicMock = MagicMock(name='request_user')
 
 OBJECT_ID: int = 4242
 ROOT_PUBLIC_ID: int = 1
@@ -193,7 +202,7 @@ class TestDeriveLocationName:
         """Derives with RenderList patched to answer `rendered`; answers the name and the constructor mock."""
         with patch(f'{HELPER_PATH}.RenderList') as render_list_ctor:
             render_list_ctor.return_value.render_result_list.return_value = rendered
-            return derive_location_name(_real_object(), MagicMock(name='request_user')), render_list_ctor
+            return derive_location_name(_real_object(), REQUEST_USER), render_list_ctor
 
     def test_the_summary_line_is_the_name(self) -> None:
         """The rendered summary line is used as it is."""
@@ -551,6 +560,12 @@ class TestNormalizeParentId:
 class TestValidateObjectLocationMove:
     """validate_object_location_move checks object/type/location-field, then runs placement validation."""
 
+    @pytest.fixture(autouse=True)
+    def _authorized(self):
+        """The ACL decision is authorize_object_placement's own (tested on its own): granted here"""
+        with patch(f'{HELPER_PATH}.authorize_object_placement') as authorize:
+            yield authorize
+
     @staticmethod
     def _object(has_location: bool) -> MagicMock:
         """A MagicMock CmdbObject with a type id and a configurable has-location-field answer."""
@@ -566,7 +581,7 @@ class TestValidateObjectLocationMove:
         objects_manager.get_object.return_value = None
 
         with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
-            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock())
+            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
         assert exc_info.value.code == HTTP_NOT_FOUND
 
@@ -577,7 +592,7 @@ class TestValidateObjectLocationMove:
         objects_manager.get_object_type.return_value = None
 
         with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
-            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock())
+            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
         assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
 
@@ -588,7 +603,7 @@ class TestValidateObjectLocationMove:
         objects_manager.get_object_type.return_value = MagicMock(name='type')
 
         with flask_app.test_request_context(), pytest.raises(HTTPException) as exc_info:
-            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock())
+            validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
 
@@ -602,7 +617,9 @@ class TestValidateObjectLocationMove:
         locations_manager = MagicMock(name='locations_manager')
 
         with patch(f'{HELPER_PATH}.validate_object_location_change') as validate_change:
-            result = validate_object_location_move(OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager)
+            result = validate_object_location_move(
+                OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager, REQUEST_USER,
+            )
 
         assert result == PlacementTarget(cmdb_object, object_type)
         cmdb_object.has_fields_of_type.assert_called_once_with(FieldType.LOCATION)
@@ -628,7 +645,9 @@ class TestMoveObjectLocation:
              patch(f'{HELPER_PATH}.sync_object_location') as sync:
             move_object_location(OBJECT_ID, NEW_PARENT_ID, request_user, objects_manager, locations_manager)
 
-        validate_move.assert_called_once_with(OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager)
+        validate_move.assert_called_once_with(
+            OBJECT_ID, NEW_PARENT_ID, objects_manager, locations_manager, request_user,
+        )
         objects_manager.set_location_field_for_objects.assert_called_once_with([OBJECT_ID], NEW_PARENT_ID)
         with_parent.assert_called_once_with(target.cmdb_object, NEW_PARENT_ID)
         sync.assert_called_once_with(
@@ -976,6 +995,12 @@ def _bulk_objects_manager(objects: list[MagicMock]) -> MagicMock:
 class TestValidateObjectLocationMoves:
     """The batched pre-flight validates the same things without re-reading what the batch shares."""
 
+    @pytest.fixture(autouse=True)
+    def _authorized(self):
+        """The ACL decision is authorize_object_placement's own (tested on its own): granted here"""
+        with patch(f'{HELPER_PATH}.authorize_object_placement') as authorize:
+            yield authorize
+
     def test_reads_every_object_in_one_query(self, flask_app: Flask) -> None:
         """
         One `$in` read for the whole batch instead of one get_object per object
@@ -989,7 +1014,7 @@ class TestValidateObjectLocationMoves:
         with flask_app.test_request_context('/'), \
              patch(f'{HELPER_PATH}.validate_object_location_change'), \
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
-            validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, objects_manager, MagicMock())
+            validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
         objects_manager.get_objects_by.assert_called_once_with(public_id={'$in': BULK_OBJECT_IDS})
         objects_manager.get_object.assert_not_called()
@@ -1002,7 +1027,9 @@ class TestValidateObjectLocationMoves:
         with flask_app.test_request_context('/'), \
              patch(f'{HELPER_PATH}.validate_object_location_change'), \
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
-            result = validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, objects_manager, MagicMock())
+            result = validate_object_location_moves(
+                BULK_OBJECT_IDS, PARENT_ID, objects_manager, MagicMock(), REQUEST_USER,
+            )
 
         assert objects_manager.get_object_type.call_count == 1
         assert set(result) == set(BULK_OBJECT_IDS)
@@ -1017,7 +1044,7 @@ class TestValidateObjectLocationMoves:
         with flask_app.test_request_context('/'), \
              patch(f'{HELPER_PATH}.validate_object_location_change'), \
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
-            result = validate_object_location_moves([11, 12, 13], PARENT_ID, objects_manager, MagicMock())
+            result = validate_object_location_moves([11, 12, 13], PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
         assert objects_manager.get_object_type.call_count == 2
         assert result[11].object_type is result[13].object_type
@@ -1031,7 +1058,7 @@ class TestValidateObjectLocationMoves:
              patch(f'{HELPER_PATH}.validate_object_location_change'), \
              patch(f'{HELPER_PATH}.validate_shared_move_parent') as shared_parent:
             validate_object_location_moves(
-                BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), MagicMock()
+                BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), MagicMock(), MagicMock(name='request_user')
             )
 
         shared_parent.assert_called_once()
@@ -1044,7 +1071,7 @@ class TestValidateObjectLocationMoves:
              patch(f'{HELPER_PATH}.validate_object_location_change') as per_object, \
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
             validate_object_location_moves(
-                BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), MagicMock()
+                BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects), MagicMock(), MagicMock(name='request_user')
             )
 
         assert per_object.call_count == len(BULK_OBJECT_IDS)
@@ -1057,7 +1084,7 @@ class TestValidateObjectLocationMoves:
              patch(f'{HELPER_PATH}.validate_object_location_change'), \
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
             with pytest.raises(HTTPException) as raised:
-                validate_object_location_moves([11, 12], PARENT_ID, objects_manager, MagicMock())
+                validate_object_location_moves([11, 12], PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
         assert raised.value.code == HTTP_NOT_FOUND
         assert '12' in raised.value.description
@@ -1072,7 +1099,7 @@ class TestValidateObjectLocationMoves:
              patch(f'{HELPER_PATH}.validate_object_location_change'), \
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
             with pytest.raises(HTTPException) as raised:
-                validate_object_location_moves([11], PARENT_ID, objects_manager, MagicMock())
+                validate_object_location_moves([11], PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
         assert raised.value.code == HTTP_INTERNAL_SERVER_ERROR
 
@@ -1086,9 +1113,53 @@ class TestValidateObjectLocationMoves:
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
             with pytest.raises(HTTPException) as raised:
                 validate_object_location_moves([11], PARENT_ID, _bulk_objects_manager([placeless]),
-                                               MagicMock())
+                                               MagicMock(), REQUEST_USER)
 
         assert raised.value.code == HTTP_BAD_REQUEST
+
+
+    def test_the_acl_is_decided_once_per_type(self, flask_app: Flask, _authorized: MagicMock) -> None:
+        """Three objects of two types: two decisions, each for the first object of its type"""
+        objects = [_bulk_object(11, SHARED_TYPE_ID), _bulk_object(12, OTHER_TYPE_ID),
+                   _bulk_object(13, SHARED_TYPE_ID)]
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent'):
+            validate_object_location_moves([11, 12, 13], PARENT_ID, _bulk_objects_manager(objects), MagicMock(),
+                                           REQUEST_USER)
+
+        assert [call.args[0] for call in _authorized.call_args_list] == [objects[0], objects[1]]
+        assert all(call.args[3] is REQUEST_USER for call in _authorized.call_args_list)
+
+    def test_a_denied_object_stops_the_batch_before_the_parent_is_judged(
+            self, flask_app: Flask, _authorized: MagicMock) -> None:
+        """The ACL comes first: neither the shared parent nor any cycle is checked"""
+        objects = [_bulk_object(object_id, SHARED_TYPE_ID) for object_id in BULK_OBJECT_IDS]
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_object_location_change') as per_object, \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent') as shared_parent:
+            _authorized.side_effect = HTTPException(description='denied')
+
+            with pytest.raises(HTTPException):
+                validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, _bulk_objects_manager(objects),
+                                               MagicMock(), REQUEST_USER)
+
+        shared_parent.assert_not_called()
+        per_object.assert_not_called()
+
+    def test_a_missing_object_is_found_before_the_parent_is_judged(self, flask_app: Flask) -> None:
+        """Every object is read and authorized first, so a missing one is the 404 whatever the parent"""
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.validate_shared_move_parent') as shared_parent:
+            with pytest.raises(HTTPException) as raised:
+                validate_object_location_moves([11, 12], PARENT_ID,
+                                               _bulk_objects_manager([_bulk_object(11, SHARED_TYPE_ID)]),
+                                               MagicMock(), REQUEST_USER)
+
+        assert raised.value.code == HTTP_NOT_FOUND
+        shared_parent.assert_not_called()
 
 
 class TestValidateSharedMoveParent:
@@ -1195,3 +1266,171 @@ class TestLocationFieldsPointAt:
         manager = self._objects({'public_id': 1, 'fields': [{'name': 't', 'type': 'text', 'value': 'x'}]})
 
         assert location_fields_point_at(manager, [1], OWN_LOCATION_ID) is True
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the placement ACL (READ + UPDATE)                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _placed(type_active: bool = True) -> tuple[MagicMock, MagicMock]:
+    """A CmdbObject stand-in and its type, active unless told otherwise."""
+    cmdb_object = MagicMock(name='cmdb_object')
+    cmdb_object.get_public_id.return_value = OBJECT_ID
+    cmdb_object.get_type_id.return_value = TYPE_ID
+    object_type = MagicMock(name='object_type')
+    object_type.active = type_active
+
+    return cmdb_object, object_type
+
+
+class TestAuthorizeObjectPlacement:
+    """READ on the type, then UPDATE and an active type through the object write guard."""
+
+    def test_granted_answers_nothing(self, flask_app: Flask) -> None:
+        """READ asked with READ; the guard asked for UPDATE on the already-resolved type"""
+        cmdb_object, object_type = _placed()
+        objects_manager = MagicMock(name='objects_manager')
+
+        with flask_app.test_request_context('/'), patch(f'{HELPER_PATH}.verify_access') as read_check:
+            authorize_object_placement(cmdb_object, object_type, objects_manager, REQUEST_USER)
+
+        read_check.assert_called_once_with(object_type, REQUEST_USER, AccessControlPermission.READ)
+        objects_manager.guard_writable_type.assert_called_once_with(
+            TYPE_ID, REQUEST_USER, AccessControlPermission.UPDATE, ObjectsManagerGetError, ObjectWriteVerb.UPDATED,
+            object_type=object_type,
+        )
+
+    def test_no_read_is_the_read_403_and_asks_no_further(self, flask_app: Flask) -> None:
+        """The caller may not see the object: the read message, and the update is not asked"""
+        cmdb_object, object_type = _placed()
+        objects_manager = MagicMock(name='objects_manager')
+
+        with flask_app.test_request_context('/'), \
+             patch(f'{HELPER_PATH}.verify_access', side_effect=AccessDeniedError('no')), \
+             pytest.raises(HTTPException) as raised:
+            authorize_object_placement(cmdb_object, object_type, objects_manager, REQUEST_USER)
+
+        assert raised.value.code == HTTP_FORBIDDEN
+        assert raised.value.description == LINKED_OBJECT_DENIED_MSG.format(object_id=OBJECT_ID)
+        objects_manager.guard_writable_type.assert_not_called()
+
+    def test_no_update_is_the_update_403(self, flask_app: Flask) -> None:
+        """Readable, not changeable"""
+        cmdb_object, object_type = _placed()
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.guard_writable_type.side_effect = AccessDeniedError('Protected by ACL permission!')
+
+        with flask_app.test_request_context('/'), patch(f'{HELPER_PATH}.verify_access'), \
+             pytest.raises(HTTPException) as raised:
+            authorize_object_placement(cmdb_object, object_type, objects_manager, REQUEST_USER)
+
+        assert raised.value.code == HTTP_FORBIDDEN
+        assert raised.value.description == LINKED_OBJECT_UPDATE_DENIED_MSG.format(object_id=OBJECT_ID)
+
+    def test_a_deactivated_type_is_the_guards_own_403(self, flask_app: Flask) -> None:
+        """The same message the object write path gives"""
+        cmdb_object, object_type = _placed(type_active=False)
+        objects_manager = MagicMock(name='objects_manager')
+        refusal = 'Objects cannot be updated because type `t` is deactivated.'
+        objects_manager.guard_writable_type.side_effect = AccessDeniedError(refusal)
+
+        with flask_app.test_request_context('/'), patch(f'{HELPER_PATH}.verify_access'), \
+             pytest.raises(HTTPException) as raised:
+            authorize_object_placement(cmdb_object, object_type, objects_manager, REQUEST_USER)
+
+        assert raised.value.code == HTTP_FORBIDDEN
+        assert raised.value.description == refusal
+
+
+class TestResolvePlacedObjectType:
+    """The type of a placed object, or a 500."""
+
+    def test_the_type_is_answered(self) -> None:
+        """Read by the object's own type id"""
+        cmdb_object, object_type = _placed()
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object_type.return_value = object_type
+
+        assert resolve_placed_object_type(cmdb_object, objects_manager) is object_type
+        objects_manager.get_object_type.assert_called_once_with(TYPE_ID)
+
+    def test_a_missing_type_is_a_500(self, flask_app: Flask) -> None:
+        """A server error, as everywhere a placement resolves the type"""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object_type.return_value = None
+
+        with flask_app.test_request_context('/'), pytest.raises(HTTPException) as raised:
+            resolve_placed_object_type(_placed()[0], objects_manager)
+
+        assert raised.value.code == HTTP_INTERNAL_SERVER_ERROR
+
+
+class TestReadPlaceableObject:
+    """Read through READ, resolve the type, authorize - in that order."""
+
+    def test_reads_resolves_and_authorizes(self) -> None:
+        """The object read with the caller, then its type, then the decision on both"""
+        cmdb_object, object_type = _placed()
+        objects_manager = MagicMock(name='objects_manager')
+
+        with patch(f'{HELPER_PATH}.read_linked_object', return_value=cmdb_object) as read, \
+             patch(f'{HELPER_PATH}.resolve_placed_object_type', return_value=object_type), \
+             patch(f'{HELPER_PATH}.authorize_object_placement') as authorize:
+            target = read_placeable_object(OBJECT_ID, objects_manager, REQUEST_USER)
+
+        assert target == PlacementTarget(cmdb_object, object_type)
+        read.assert_called_once_with(OBJECT_ID, objects_manager, REQUEST_USER)
+        authorize.assert_called_once_with(cmdb_object, object_type, objects_manager, REQUEST_USER)
+
+
+class TestAuthorizeNodeObjectChange:
+    """The delete's decision on the node's own object."""
+
+    def test_an_existing_object_is_authorized(self) -> None:
+        """Read unscoped - the decision is authorize_object_placement's"""
+        cmdb_object, object_type = _placed()
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = cmdb_object
+        objects_manager.get_object_type.return_value = object_type
+
+        with patch(f'{HELPER_PATH}.authorize_object_placement') as authorize:
+            authorize_node_object_change(OBJECT_ID, objects_manager, REQUEST_USER)
+
+        objects_manager.get_object.assert_called_once_with(OBJECT_ID, as_dict=False)
+        authorize.assert_called_once_with(cmdb_object, object_type, objects_manager, REQUEST_USER)
+
+    def test_a_dangling_node_asks_nothing(self) -> None:
+        """No object: nothing to protect"""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = None
+
+        with patch(f'{HELPER_PATH}.authorize_object_placement') as authorize:
+            authorize_node_object_change(OBJECT_ID, objects_manager, REQUEST_USER)
+
+        authorize.assert_not_called()
+
+    def test_an_orphaned_object_asks_nothing(self) -> None:
+        """Its type is gone: no ACL left to consult"""
+        objects_manager = MagicMock(name='objects_manager')
+        objects_manager.get_object.return_value = _placed()[0]
+        objects_manager.get_object_type.return_value = None
+
+        with patch(f'{HELPER_PATH}.authorize_object_placement') as authorize:
+            authorize_node_object_change(OBJECT_ID, objects_manager, REQUEST_USER)
+
+        authorize.assert_not_called()
+
+
+class TestValidateLocationPlacementWithAKnownType:
+    """A caller that already resolved the type hands it over."""
+
+    def test_the_type_is_not_read_again(self) -> None:
+        """No second get_object_type"""
+        objects_manager = MagicMock(name='objects_manager')
+        object_type = MagicMock(name='object_type')
+
+        with patch(f'{HELPER_PATH}.validate_object_location_change'):
+            target = validate_location_placement(_real_object(), NEW_PARENT_ID, objects_manager, MagicMock(),
+                                                 object_type)
+
+        assert target.object_type is object_type
+        objects_manager.get_object_type.assert_not_called()

@@ -20,7 +20,9 @@ Five endpoints: POST / (create), GET|HEAD / (list), GET|HEAD /<id> (single), PUT
 (update), DELETE /<id> (delete with optional user-redistribution). Every endpoint requires an
 authenticated user with API level ADMIN; per-route ``protect`` decorators check the matching
 ``base.user-management.group.*`` right. Both writes accept only right names the right tree knows
-and store them in one form (``GroupsManager.canonical_right_names`` / ``hydrate_group``). The delete
+and store them in one form, as name strings in tree order (``GroupsManager.canonical_right_names`` on
+create, ``hydrate_group`` + ``update_group`` on update). Every endpoint answers a group in one shape: its
+``rights`` as full right dicts (``CmdbUserGroup.to_json``). The delete
 endpoint additionally handles users that belonged to the deleted group via the ``action`` + ``group_id``
 query parameters, and is all-or-nothing: the member redistribution and the group delete run under a
 WriteLedger, so a failure part-way puts the members, their settings and the group back
@@ -47,7 +49,13 @@ from cmdb.interface.rest_api.responses.response_parameters import (
     GroupDeletionParameters,
     CollectionParameters,
 )
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 
 from cmdb.interface.rest_api.responses import (
@@ -217,6 +225,7 @@ def get_cmdb_user_groups(params: CollectionParameters, request_user: CmdbUser) -
 
         return api_response.make_response()
     except GroupsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_user_groups] %s", err, exc_info=True)
         abort(400, "Failed to iterate the UserGroups!")
 
@@ -273,9 +282,13 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 
     Validates the payload against ``CmdbUserGroup.SCHEMA``, refuses a right the right tree does not
     know (with the create's message), pins the identity to the URL public_id
-    (so a payload ``public_id`` can never rewrite the document's id), hydrates the submitted right
-    names through the manager's cached right tree, then persists with ``insert_mode`` serialization
-    (rights stored as name strings)
+    (so a payload ``public_id`` can never rewrite the document's id), builds the group from the payload
+    with its right names resolved through the manager's cached right tree (``hydrate_group``), and
+    stores it with its rights as name strings (``update_group``). The existence check reads only the id
+    (``group_exists``)
+
+    The response is the group as stored, in the shape every other group route answers: ``rights`` as
+    full right dicts, each once, in tree order - what a following ``GET`` returns
 
     The administrator group keeps one hard invariant: its payload must still carry the master
     right (see ``ensure_admin_group_keeps_master_right``), so it can never be edited into a state
@@ -283,13 +296,8 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
     bootstrap groups are otherwise not protected against editing here (unlike the delete route,
     which refuses them outright via ``is_protected_group``).
 
-    Note:
-        The response serializes ``rights`` as name strings (insert-mode), which differs from the
-        create / read routes (full right dicts); reconciling that shape is a pending FE-contract
-        decision.
-
     Status codes:
-        202 ACCEPTED: Update applied; body is the persisted serialization
+        202 ACCEPTED: Update applied; body is the stored group, ``rights`` as full right dicts
         400 BAD_REQUEST: The body fails the schema (a ``rights`` entry that is not a string included),
             ``rights`` names a right that does not exist, the administrator group's master right was
             dropped, the name is taken by
@@ -304,14 +312,12 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
         request_user (CmdbUser): User making the request (injected by ``@insert_request_user``)
 
     Returns:
-        Response: ``UpdateSingleResponse`` carrying the persisted serialization
+        Response: ``UpdateSingleResponse`` carrying the stored group
     """
     try:
         groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
 
-        to_update_group: CmdbUserGroup | None = groups_manager.get_group(public_id)
-
-        if not to_update_group:
+        if not groups_manager.group_exists(public_id):
             abort(404, f"The UserGroup with ID:{public_id} was not found!")
 
         # The administrator group may never lose the master right (it would lock everyone out)
@@ -324,10 +330,10 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
 
         abort_if_taken(groups_manager, {GroupKey.NAME.value: name}, taken_message, exclude_id=public_id)
 
-        group_dict: dict[str, Any] = groups_manager.hydrate_group(data)
+        group: CmdbUserGroup = groups_manager.hydrate_group(data)
 
         try:
-            groups_manager.update_group(public_id, group_dict)
+            groups_manager.update_group(public_id, group)
         except GroupsManagerUpdateError as err:
             # A rename that loses the race to a concurrent write is refused by the same unique index; any
             # other failure of the update is the server's (500)
@@ -335,7 +341,7 @@ def update_cmdb_user_group(public_id: int, data: dict[str, Any], request_user: C
             LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
             abort_if_duplicate(err, taken_message)
 
-        return UpdateSingleResponse(group_dict).make_response()
+        return UpdateSingleResponse(CmdbUserGroup.to_json(group)).make_response()
     except GroupsManagerGetError as err:
         LOGGER.error("[update_cmdb_user_group] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")

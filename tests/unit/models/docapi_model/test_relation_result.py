@@ -229,6 +229,8 @@ class TestFields:
             assert isinstance(aggregated, AggregatedFields)
             assert aggregated['city'] == 'NYC, NYC'
             multi_render.assert_called_once()
+            # References resolved for the caller, as for the root object
+            assert multi_render.call_args.kwargs == {'ref_render': True}
 
     def test_uncached_object_skipped(self) -> None:
         """An object_id absent from the cache contributes nothing and is not rendered."""

@@ -150,7 +150,7 @@ class RackMountError(BaseStrEnum):
                        '{bottom_slot}, below the bottom of the Rack!'
     # {slots} is a range text such as 'U3-U5, U9' (rack_mount_helpers.format_slot_ranges)
     SLOTS_OCCUPIED = 'Slots {slots} in the {area} area are already occupied by mount(s) {mount_ids}!'
-    INVALID_POSITION = 'The position must be a whole number of at least {minimum}, but was {value}!'
+    INVALID_POSITION = 'The position must be a whole number from {minimum} to {maximum}, but was {value}!'
 
 
 class RackOccupantError(BaseStrEnum):
@@ -183,8 +183,11 @@ class RackMountLimits:
     Bounds of a single mount's geometry
 
     MIN_START_SLOT reflects U numbering starting at 1, MIN_HEIGHT that a mount occupies at least one U,
-    and MIN_POSITION that the order index of an ordered area is zero-based
+    and MIN_POSITION that the order index of an ordered area is zero-based. MAX_POSITION caps the index a
+    client may choose far below the database's 64-bit integer, so appending one past the highest stored
+    index can never overflow it
     """
     MIN_START_SLOT: int = 1
     MIN_HEIGHT: int = 1
     MIN_POSITION: int = 0
+    MAX_POSITION: int = 2**31 - 1

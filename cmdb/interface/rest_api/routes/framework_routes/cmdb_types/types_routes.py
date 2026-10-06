@@ -60,7 +60,13 @@ from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.type_constants import TypeRight
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses.response_parameters import ParameterKey
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -92,6 +98,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     build_uses_ports_usage_payload,
     compute_removed_global_templates,
     apply_type_update_side_effects,
+    strip_removed_global_templates,
     build_types_overview_items,
     enforce_special_type_license,
     enforce_rack_selectable_as_parent,
@@ -100,6 +107,9 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     normalize_ci_explorer_label,
 )
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_template_helper import (
+    reconcile_global_template_copies,
+)
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import TypeIterationParameters
@@ -112,22 +122,28 @@ from cmdb.interface.rest_api.responses import (
     DefaultResponse,
 )
 
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TYPE_ALIGNMENT_FAILED_MESSAGE
+
 from cmdb.errors.manager import BaseManagerGetError
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.manager.types_manager import (
+    TypesManagerAlignmentError,
     TypesManagerGetError,
     TypesManagerInsertError,
     TypesManagerDeleteError,
     TypesManagerIterationError,
     TypesManagerUpdateError,
-    TypesManagerUpdateMDSError,
 )
-from cmdb.errors.manager.locations_manager import LocationsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 types_blueprint = APIBlueprint('types', __name__)
+
+# The request schema of the type writes: the identity and the alignment marker are the server's
+TYPE_WRITE_SCHEMA: dict[str, Any] = build_write_schema(
+    CmdbType.SCHEMA, server_owned={CmdbType.PUBLIC_ID_KEY, TypeSchemaKey.ALIGNMENT_PENDING.value},
+)
 
 # What each pre-check route is determining, interpolated into its failure messages
 LOCATION_FIELD_USAGE_SUBJECT: str = 'location-field usage'
@@ -140,7 +156,7 @@ USES_PORTS_USAGE_SUBJECT: str = 'port usage'
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.ADD.value)
-@types_blueprint.validate(build_write_schema(CmdbType.SCHEMA))
+@types_blueprint.validate(TYPE_WRITE_SCHEMA)
 @handle_route_errors("while creating the new Type")
 def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -150,7 +166,8 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     time are stamped server-side, the ``acl`` block is completed to the shape every other write path
     stores, a duplicate type name is refused, and for a SpecialType the IPAM license is checked and
     the SpecialType wiring (ref_types cross-wiring, predefined sections) runs before the response is
-    built
+    built. The payload's copy of each global section template it claims is put back in line with the stored
+    template first (``reconcile_global_template_copies``), so every guard judges what will be stored
 
     Note:
         A payload ``public_id`` is currently honoured - the database only generates one when the key
@@ -162,7 +179,8 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 403 when the user lacks the right or the IPAM license; 400 when the payload
-            carries no name, the name is already taken or the insert fails; 404 when the created
+            carries no name, the name is already taken, a claimed global template's section holds a field the
+            template does not own, or the insert fails; 404 when the created
             Type cannot be read back; 500 on an unexpected error
 
     Returns:
@@ -179,6 +197,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         # Declaring a Type as port-bearing requires a valid IPAM license
         enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
+
+        # The copy of each claimed global section template is the template's - before any guard judges the payload
+        reconcile_global_template_copies(data, request_user)
 
         # Where the frontend draws the ports section. Completed here for the same reason the ACL is:
         # the insert stores the payload as given, so an absent key would stay absent
@@ -299,6 +320,7 @@ def get_cmdb_types(params: TypeIterationParameters, request_user: CmdbUser) -> R
 
         return api_response.make_response()
     except TypesManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_types] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to iterate Types from the database!")
 
@@ -374,6 +396,7 @@ def get_cmdb_types_overview(params: TypeIterationParameters, request_user: CmdbU
 
         return api_response.make_response()
     except TypesManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_types_overview] %s: %s", type(err), err, exc_info=True)
         abort(400, "Failed to iterate Types from the database!")
 
@@ -600,7 +623,7 @@ def get_uses_ports_usage_of_cmdb_type(public_id: int, request_user: CmdbUser) ->
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @types_blueprint.protect(auth=True, right=TypeRight.EDIT.value)
-@types_blueprint.validate(build_write_schema(CmdbType.SCHEMA))
+@types_blueprint.validate(TYPE_WRITE_SCHEMA)
 @handle_route_errors("when trying to update the Type with ID: {public_id}")
 def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
@@ -613,10 +636,17 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     removing the location field while CmdbObjects still hold a location value, and turning
     'selectable_as_parent' off while CmdbObjects of the Type are placed in the tree
 
-    Once the document is written, the side effects run (dropped global templates removed,
-    SpecialType ref_types re-wired, label/icon/selectable propagated to the Type's CmdbLocations,
-    MDS field changes and the flat field set applied to its CmdbObjects); because those mutate the
-    document further, the response is a fresh read rather than the request payload
+    Before any of that is judged, the payload's copy of each global section template it claims is put back in line
+    with the stored template (``reconcile_global_template_copies``); a claim naming no stored template is dropped
+    without counting as a removed template, so the section and fields it named stay
+
+    The Type is written ONCE - with the dropped global templates already taken out of it and the
+    server-owned ``alignment_pending`` marker set. Then the SpecialType ref_types are re-wired and the
+    Type's CmdbLocations, the MDS rows and flat fields of its CmdbObjects and its CmdbReports are brought
+    in line with it; only when all of that succeeded is the marker cleared. Every step is idempotent, and a
+    Type that still carries the marker has every step run in full on its next save - so a save that
+    failed half-way is finished by saving the Type again, the same payload included. The response is a
+    fresh read of the stored Type
 
     Args:
         public_id (int): public_id of the CmdbType which should be updated
@@ -626,8 +656,10 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
     Raises:
         HTTPException: 403 when the user lacks the right or the IPAM license; 404 when the Type does
             not exist, disappeared before the write, or cannot be read back afterwards; 400 when a
-            guard refuses the change or the update, the location/MDS/object propagation fails;
-            500 on an unexpected error
+            guard refuses the change (a claimed global template's section holding a field the template does not
+            own among them) or the Type write fails; 500 when a step after the write fails
+            (the Type IS saved and carries ``alignment_pending``; the message names the step) or on an
+            unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the CmdbType
@@ -648,6 +680,10 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # Turning 'uses_ports' on requires a valid IPAM license. Only the requested value is gated,
         # so an unlicensed instance can still turn the flag back off
         enforce_uses_ports_license(request_user, data.get(TypeSchemaKey.USES_PORTS))
+
+        # The copy of each claimed global section template is the template's - before any guard judges the payload.
+        # A claim it drops (no such template here) is not the user removing the template: it keeps its section
+        dropped_claims: list[str] = reconcile_global_template_copies(data, request_user)
 
         # Applied before CmdbType.from_data below, so the validated (and, without ports, reset) index
         # is what reaches the instance that gets written
@@ -699,12 +735,18 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # payload (NOT the post-update type) and snapshot each removed template's section info
         # while it is still present on old_type - the blind update below wipes those sections
         removed_templates = compute_removed_global_templates(
-            old_type, set(data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS) or []),
+            old_type, set(data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS) or []) | set(dropped_claims),
         )
 
-        # Update the target CmdbType. The write is a full-document update that does not upsert, so
-        # matched_count reports whether the Type was still there - no extra read needed for that
-        update_result: UpdateResult = types_manager.update_type(public_id, CmdbType.to_json(new_type))
+        # The one write of the Type: the dropped templates already taken out of it, and the alignment marker set -
+        # cleared again only once everything that follows the Type is in line with it, so a save that fails
+        # half-way shows on the Type and its next save finishes the work
+        type_document: dict[str, Any] = strip_removed_global_templates(CmdbType.to_json(new_type), removed_templates)
+        type_document[TypeSchemaKey.ALIGNMENT_PENDING.value] = True
+        written_type: CmdbType = CmdbType.from_data(type_document)
+
+        # A full-document update that does not upsert, so matched_count reports whether the Type was still there
+        update_result: UpdateResult = types_manager.update_type(public_id, type_document)
 
         if update_result.matched_count == 0:
             LOGGER.warning(
@@ -712,10 +754,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
             )
             abort(404, f"The Type with ID:{public_id} no longer existed when its update was written!")
 
-        # Run the post-update persistence side effects (template cleanup, special-type wiring,
-        # location + MDS propagation). new_type IS what was just written, so it is used directly
-        # instead of reading the document back
-        apply_type_update_side_effects(request_user, types_manager, old_type, new_type, removed_templates)
+        # Bring the SpecialType wiring, the Locations, the Objects and the Reports in line with it, then clear the
+        # marker. written_type IS what was just written, so it is used directly instead of reading it back
+        apply_type_update_side_effects(request_user, types_manager, old_type, written_type)
 
         # Re-read the fully-persisted Type so server-side mutations applied by those side effects
         # (special-type ref_types cross-wiring, removed-template section cleanup) are reflected in
@@ -726,14 +767,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
             abort(404, f"The updated Type with ID:{public_id} could not be read back after its update!")
 
         return UpdateSingleResponse(final_type).make_response()
-    except LocationsManagerUpdateError as err:
-        abort_if_too_large(err)
-        LOGGER.error("[update_cmdb_type] LocationsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, "Although the Type got updated, the update of Locations failed!")
-    except ObjectsManagerUpdateError as err:
-        abort_if_too_large(err)
-        LOGGER.error("[update_cmdb_type] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, "Although the Type got updated, the update of correspondings Objects failed!")
+    except TypesManagerAlignmentError as err:
+        # The Type IS saved and carries alignment_pending: one answer for whichever step failed
+        abort(500, TYPE_ALIGNMENT_FAILED_MESSAGE.format(public_id=public_id, step=err.step))
     except ObjectsManagerGetError as err:
         LOGGER.error("[update_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to check location-field usage for Type with ID: {public_id}!")
@@ -744,9 +780,6 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         abort_if_too_large(err)
         LOGGER.error("[update_cmdb_type] TypesManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Type with ID: {public_id} from the database!")
-    except TypesManagerUpdateMDSError as err:
-        LOGGER.error("[update_cmdb_type] TypesManagerUpdateMDSError: %s", err, exc_info=True)
-        abort(400, "Although the Type got updated, the Multi-Data-Section updates failed!")
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 

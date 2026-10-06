@@ -49,7 +49,7 @@ from cmdb.security.auth.providers.local_auth_provider import LocalAuthentication
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
 from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
 from cmdb.errors.provider import AuthenticationError
-from cmdb.errors.manager import BaseManagerGetError, BaseManagerInsertError
+from cmdb.errors.manager import BaseManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.security.auth.auth_module'
@@ -82,7 +82,6 @@ class _StubProvider(BaseAuthenticationProvider):
 
     authenticate_result: Any = None
     authenticate_error: Exception | None = None
-    provider_is_active: bool = True
     calls: list[tuple[str, str]] = []
 
     def authenticate(self, user_name: str, password: str) -> CmdbUser:
@@ -93,10 +92,6 @@ class _StubProvider(BaseAuthenticationProvider):
             raise type(self).authenticate_error
 
         return type(self).authenticate_result
-
-    def is_active(self) -> bool:
-        """Reports the provider-level activation flag the test set."""
-        return type(self).provider_is_active
 
 
 class _StrictConfig(BaseAuthProviderConfig):
@@ -122,7 +117,6 @@ def _reset_stub(provider: type[_StubProvider], result: Any = None, error: Except
     """Resets a stand-in provider's canned behaviour."""
     provider.authenticate_result = result
     provider.authenticate_error = error
-    provider.provider_is_active = True
     provider.calls = []
 
 
@@ -541,15 +535,40 @@ class TestLogin:
         assert module.login(USER_NAME, PASSWORD) is expected_user
 
     def test_a_deactivated_provider_falls_back(self, cmdb_app) -> None:
-        """A provider whose instance reports inactive does not authenticate on the primary path."""
+        """A provider whose stored config is inactive authenticates neither on the primary path nor in the sweep"""
         module = self._module_with_stub(active=False)
         expected_user = self._user('_StubProvider')
         _reset_stub(_StubProvider, result=expected_user)
-        _StubProvider.provider_is_active = False
         module.users_manager.get_user_by.return_value = expected_user
 
         with pytest.raises(AuthenticationError):
             module.login(USER_NAME, PASSWORD)
+
+        assert _StubProvider.calls == []
+
+    def test_an_inactive_provider_is_never_built(self, cmdb_app) -> None:
+        """The primary attempt asks the class before building, as the sweep does"""
+        module = self._module_with_stub(active=False)
+        module.users_manager.get_user_by.return_value = self._user('_StubProvider')
+
+        with patch.object(module, 'build_provider_instance', wraps=module.build_provider_instance) as build:
+            with pytest.raises(AuthenticationError):
+                module.login(USER_NAME, PASSWORD)
+
+        assert _StubProvider not in [call.args[0] for call in build.call_args_list]
+
+    def test_a_provider_with_only_authenticate_wins_its_primary_attempt(self, cmdb_app) -> None:
+        """No instance-level activity method is needed - the sweep is never reached"""
+        module = self._module_with_stub()
+        expected_user = self._user('_StubProvider')
+        _reset_stub(_StubProvider, result=expected_user)
+        module.users_manager.get_user_by.return_value = expected_user
+
+        with patch.object(module, 'authenticate_with_any_provider') as sweep:
+            assert module.login(USER_NAME, PASSWORD) is expected_user
+
+        sweep.assert_not_called()
+        assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
 
     def test_an_external_provider_is_refused_when_external_is_disabled(self, cmdb_app) -> None:
         """With external providers disabled neither the primary attempt nor the sweep uses them."""
@@ -603,16 +622,19 @@ class TestLogin:
 
         assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
 
-    @pytest.mark.parametrize('manager_error', [BaseManagerGetError('x'), BaseManagerInsertError('x')])
-    def test_the_sweep_continues_after_a_manager_error(
-        self, cmdb_app, manager_error: Exception,
-    ) -> None:
-        """A provider that finds the user but cannot store it does not end the sweep either."""
+    @pytest.mark.parametrize('error', [RuntimeError('x'), BaseManagerGetError('x')], ids=['bug', 'manager'])
+    def test_a_provider_failing_with_anything_but_a_refusal_fails_the_login(self, cmdb_app, error: Exception) -> None:
+        """
+        Only an AuthenticationError hands the turn to the next provider
+
+        Every provider reports its own read and write failures as one; anything else is a defect, and
+        sweeping past it would hide it
+        """
         module = self._module_with_stub()
-        _reset_stub(_StubProvider, error=manager_error)
+        _reset_stub(_StubProvider, error=error)
         module.users_manager.get_user_by.return_value = None
 
-        with pytest.raises(AuthenticationError):
+        with pytest.raises(type(error)):
             module.login(USER_NAME, PASSWORD)
 
     def test_the_final_error_chains_the_primary_failure(self, cmdb_app) -> None:
@@ -624,6 +646,105 @@ class TestLogin:
             module.login(USER_NAME, PASSWORD)
 
         assert err.value.__cause__ is not None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          EXTERNAL PROVIDERS IN CLOUD MODE                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestExternalProvidersInCloud:
+    """External providers are on-premise only: a cloud login runs none, whatever the section says."""
+    # every test needs the app context for current_app.cloud_mode; most do not read the app object
+    # pylint: disable=unused-argument
+
+    @staticmethod
+    def _external_module(enable_external: bool = True, active: bool = True) -> AuthModule:
+        """Installs the external stand-in and builds a module whose section activates it."""
+        AuthModule.register_provider(_ExternalStubProvider)
+
+        return AuthModule(
+            _settings([
+                _stub_entry(LDAP_PROVIDER_NAME, active=False),
+                _stub_entry('_ExternalStubProvider', active=active),
+            ], enable_external=enable_external),
+            security_manager=MagicMock(),
+            users_manager=MagicMock(),
+        )
+
+    @staticmethod
+    def _external_user() -> MagicMock:
+        """A stored user the external stand-in owns, without a local password"""
+        user = MagicMock()
+        user.authenticator = '_ExternalStubProvider'
+        user.password = None
+        return user
+
+    @pytest.mark.parametrize(('cloud_mode', 'enable_external', 'expected'), [
+        (False, True, True),
+        (False, False, False),
+        (True, True, False),
+        (True, False, False),
+    ], ids=['on-premise', 'on-premise-disabled', 'cloud', 'cloud-disabled'])
+    def test_external_providers_are_allowed_only_on_premise_and_enabled(
+            self, cmdb_app, cloud_mode: bool, enable_external: bool, expected: bool) -> None:
+        """The one gate: the stored switch, and never in cloud mode"""
+        cmdb_app.cloud_mode = cloud_mode
+
+        assert self._external_module(enable_external=enable_external).external_providers_allowed() is expected
+
+    def test_the_primary_attempt_skips_the_users_external_provider_in_cloud(self, cmdb_app) -> None:
+        """A user owned by an active external provider is not authenticated by it in cloud mode"""
+        cmdb_app.cloud_mode = True
+        module = self._external_module()
+        _reset_stub(_ExternalStubProvider, result=self._external_user())
+        module.users_manager.get_user_by.return_value = self._external_user()
+
+        with pytest.raises(AuthenticationError):
+            module.login(USER_EMAIL, PASSWORD)
+
+        assert _ExternalStubProvider.calls == []
+
+    def test_the_sweep_never_builds_an_external_provider_in_cloud(self, cmdb_app) -> None:
+        """An unknown login is not handed to the external provider, which would provision a user"""
+        cmdb_app.cloud_mode = True
+        module = self._external_module()
+        module.users_manager.get_user_by.return_value = None
+
+        with patch.object(AuthModule, 'build_provider_instance', wraps=module.build_provider_instance) as build:
+            with pytest.raises(AuthenticationError):
+                module.login(USER_EMAIL, PASSWORD)
+
+        assert _ExternalStubProvider not in [call.args[0] for call in build.call_args_list]
+        assert _ExternalStubProvider.calls == []
+
+    def test_the_same_section_still_authenticates_on_premise(self, cmdb_app) -> None:
+        """The contrast: on premise the external provider wins its primary attempt"""
+        module = self._external_module()
+        expected_user = self._external_user()
+        _reset_stub(_ExternalStubProvider, result=expected_user)
+        module.users_manager.get_user_by.return_value = expected_user
+
+        assert module.login(USER_NAME, PASSWORD) is expected_user
+        assert _ExternalStubProvider.calls == [(USER_NAME, PASSWORD)]
+
+    def test_the_active_external_providers_are_named(self, cmdb_app) -> None:
+        """An active external provider is listed; the inactive LDAP entry and the internal providers are not"""
+        assert self._external_module().active_external_provider_names() == ['_ExternalStubProvider']
+
+    def test_an_inactive_external_provider_is_not_named(self, cmdb_app) -> None:
+        """Nothing to refuse when every external provider is off"""
+        assert not self._external_module(active=False).active_external_provider_names()
+
+    def test_an_active_ldap_entry_is_named(self, cmdb_app) -> None:
+        """The real LDAP provider, activated in the section, is what the cloud update refuses"""
+        module = _module([_stub_entry(LOCAL_PROVIDER_NAME), _stub_entry(LDAP_PROVIDER_NAME, active=True)])
+
+        assert module.active_external_provider_names() == [LDAP_PROVIDER_NAME]
+
+    def test_the_names_do_not_depend_on_the_external_switch(self, cmdb_app) -> None:
+        """An active provider is named even with `enable_external` off: the section still activates it"""
+        assert self._external_module(enable_external=False).active_external_provider_names() == [
+            '_ExternalStubProvider'
+        ]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -683,11 +804,16 @@ class TestIsActiveFor:
         """A provider that does not override the rule is as active as its configuration."""
         assert _StubProvider.is_active_for(_StubConfig(active=active)) is active
 
+    @pytest.mark.parametrize('provider', AuthModule.get_installed_providers(), ids=lambda cls: cls.__name__)
+    def test_no_installed_provider_has_an_instance_level_rule(self, provider: type) -> None:
+        """One rule, on the class: a second, instance-level answer could disagree with it"""
+        assert not hasattr(provider, 'is_active')
+
     @pytest.mark.parametrize('active', [True, False])
-    def test_a_built_ldap_provider_answers_what_its_class_does(self, active: bool) -> None:
-        """LDAP's `is_active` delegates, so the primary attempt and the sweep cannot disagree."""
+    def test_ldap_follows_its_config(self, active: bool) -> None:
+        """LDAP does not override the default rule"""
         config = LdapAuthenticationProviderConfig(
             **{**LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES, PROVIDER_ACTIVE_KEY: active}
         )
 
-        assert LdapAuthenticationProvider(config=config).is_active() is LdapAuthenticationProvider.is_active_for(config)
+        assert LdapAuthenticationProvider.is_active_for(config) is active

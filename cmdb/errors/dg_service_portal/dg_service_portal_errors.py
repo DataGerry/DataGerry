@@ -40,3 +40,12 @@ class DgServicePortalGetError(DgServicePortalError):
     """
     Raised when DataGerry fails to retrieve information from the DataGerry Service Portal
     """
+
+
+class DgServicePortalSaveError(DgServicePortalError):
+    """
+    Raised when the DataGerry Service Portal does not acknowledge an id DataGerry registers with it
+
+    The portal's save calls answer a bool; a False left unchecked registers nothing while the request carries on as if
+    it had - the created OpenCelium object then sits outside the user's subscription, invisible to every later check
+    """

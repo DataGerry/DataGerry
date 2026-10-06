@@ -192,6 +192,28 @@ class DocumentAggregationError(DataBaseError):
     """
 
 
+class DocumentQueryTimeLimitError(DocumentAggregationError):
+    """
+    Raised when the server stopped an aggregation because it ran past its time budget (``maxTimeMS``)
+
+    Still a DocumentAggregationError to every caller. A route finds it in the error chain with
+    ``cmdb.utils.find_cause`` and answers that the query took too long, naming the budget it carries
+
+    Attributes:
+        time_limit_ms (int): The budget the aggregation ran past, in milliseconds
+    """
+    def __init__(self, err: str | Exception, time_limit_ms: int) -> None:
+        """
+        Raised when the server stopped an aggregation because it ran past its time budget
+
+        Args:
+            err (str | Exception): The message, or the driver's ExecutionTimeout
+            time_limit_ms (int): The budget the aggregation ran past, in milliseconds
+        """
+        super().__init__(err)
+        self.time_limit_ms: int = time_limit_ms
+
+
 class PublicIdCounterInitError(DataBaseError):
     """
     Raised if a public_id counter could not be initialised

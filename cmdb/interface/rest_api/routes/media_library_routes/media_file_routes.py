@@ -57,6 +57,7 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants im
     UNPAGED_LIMIT,
 )
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
+    abort_unless_usable_parent,
     build_updated_file_data,
     build_upload_metadata,
     create_attachment_name,
@@ -67,6 +68,8 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     get_upload_from_request,
     recursive_delete_filter,
     stream_grid_file,
+    unique_name_filter,
+    validate_update_body,
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -145,7 +148,9 @@ def add_new_file(request_user: CmdbUser) -> Resp:
     HTTP `POST` route to upload a MediaFile into the library
 
     Requires the ``base.framework.object.edit`` right. The file arrives as the ``file`` form part and its
-    metadata as the ``metadata`` one; ``author_id`` and ``mime_type`` are server-owned
+    metadata as the ``metadata`` one; ``author_id`` and ``mime_type`` are server-owned. The metadata holds
+    only declared keys, each of its declared type (``MEDIA_FILE_METADATA_SCHEMA``), the file's name follows
+    the naming rule (``filename_problem``), and a ``parent`` names an existing folder
 
     Uploading over an entry of the same name in the same folder REPLACES it: the new content is written
     first and the old entry is removed only afterwards, so a refused or failing upload leaves the
@@ -157,7 +162,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
 
     Raises:
         HTTPException: 403 when the user lacks the right; 400 when the request carries no usable file or
-            metadata, or the insert fails; 500 on an unexpected error
+            metadata, its parent is no folder, or the insert fails; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The stored MediaFile and its public_id
@@ -167,6 +172,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
                                                                             request_user)
 
         upload, existing_filter, metadata = get_upload_from_request(request)
+        abort_unless_usable_parent(media_files_manager, metadata.get(MediaFileMetadataKey.PARENT.value))
 
         replaced_file: dict[str, Any] | None = None
 
@@ -202,9 +208,12 @@ def update_file(request_user: CmdbUser) -> Resp:
     """
     HTTP `PUT` route to update a MediaFile's name, folder or metadata
 
-    Requires the ``base.framework.object.edit`` right. The body is the whole MediaFile document; the
-    identity comes from the stored file, so a payload public_id can not rewrite it, and the author is
-    stamped as the last modifier
+    Requires the ``base.framework.object.edit`` right. The body is the whole MediaFile document, held to
+    ``MEDIA_FILE_UPDATE_SCHEMA``: an integer public_id, a usable filename and a metadata sub-document of
+    declared keys and types, stored whole as an upload's is. The identity comes from the stored file, so a
+    payload public_id can not rewrite it; the author is stamped as the last modifier and the mime type stays
+    the stored one. Whether the entry is a folder can not change, and a new ``parent`` has to be an existing
+    folder outside the moved entry's own subtree
 
     The ``attachment`` query parameter is required. With ``{"reference": true}`` the write only re-points
     a reference and the filename is taken as given; otherwise the name has to stay unique inside its
@@ -215,8 +224,9 @@ def update_file(request_user: CmdbUser) -> Resp:
 
     Raises:
         HTTPException: 403 when the user lacks the right; 400 when the body or the ``attachment``
-            parameter is unusable, or the update fails; 404 when no MediaFile carries the public_id;
-            500 on an unexpected error
+            parameter is unusable, the update would change the folder flag or move the entry under a
+            parent that is no folder or lies inside it, or the update fails; 404 when no MediaFile
+            carries the public_id; 500 on an unexpected error
 
     Returns:
         DefaultResponse: The updated MediaFile
@@ -227,23 +237,22 @@ def update_file(request_user: CmdbUser) -> Resp:
 
         new_file_data = json.loads(json.dumps(request.json), object_hook=json_util.object_hook)
         reference_attachment = get_reference_attachment_or_abort()
-
-        if MediaFileKey.PUBLIC_ID.value not in new_file_data:
-            abort(400, f"The request body is missing '{MediaFileKey.PUBLIC_ID.value}'!")
+        validate_update_body(new_file_data)
 
         stored_file = get_stored_file_or_abort(media_files_manager, new_file_data[MediaFileKey.PUBLIC_ID.value])
+        stored_parent = (stored_file.get(MediaFileKey.METADATA.value) or {}).get(MediaFileMetadataKey.PARENT.value)
         data = build_updated_file_data(stored_file, new_file_data, request_user.get_public_id())
+
+        # Only a move is judged: an entry that stays where it is keeps whatever parent it was stored with
+        new_parent = data[MediaFileKey.METADATA.value][MediaFileMetadataKey.PARENT.value]
+        if new_parent != stored_parent:
+            abort_unless_usable_parent(media_files_manager, new_parent, data[MediaFileKey.PUBLIC_ID.value])
 
         # A file keeps its own name only where nothing else in the folder claims it - unless this write
         # merely re-points a reference, which leaves the name alone
         if not reference_attachment.get(MediaFileRequestKey.REFERENCE.value):
-            checker = {
-                MediaFileKey.FILENAME.value: data[MediaFileKey.FILENAME.value],
-                f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.PARENT.value}':
-                    data[MediaFileKey.METADATA.value].get(MediaFileMetadataKey.PARENT.value),
-            }
             data[MediaFileKey.FILENAME.value] = create_attachment_name(
-                data[MediaFileKey.FILENAME.value], 0, checker, media_files_manager,
+                data[MediaFileKey.FILENAME.value], 0, unique_name_filter(data), media_files_manager,
             )
 
         media_files_manager.update_file(data)

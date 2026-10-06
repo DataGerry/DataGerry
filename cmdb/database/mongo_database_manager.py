@@ -54,6 +54,8 @@ from cmdb.database.database_constants import (
     MONGO_SORT_DESCENDING,
     MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES,
     DOCUMENT_TOO_LARGE_MESSAGE,
+    MONGO_SOCKET_TIMEOUT_MS,
+    MONGO_MAX_TIME_OPTION,
 )
 from cmdb.database.retry import retry_operation
 
@@ -75,6 +77,7 @@ from cmdb.errors.database import (
     DocumentUpdateTooLargeError,
     DocumentGetError,
     DocumentAggregationError,
+    DocumentQueryTimeLimitError,
     GetCollectionError,
     PublicIdCounterInitError,
     DocumentLockTimeoutError,
@@ -122,7 +125,7 @@ def typed_insert_failure(err: BaseException, collection: str) -> Exception:
 
     * a duplicate key -> the typed ``DocumentInsertDuplicateKeyError``, naming the violated index and value (the
       retry loop has already handled a public_id clash it could retry)
-    * a lock timeout (code 24) or an exceeded time limit -> ``DocumentLockTimeoutError``
+    * a lock timeout (code 24) -> ``DocumentLockTimeoutError``
     * the 16 MB document limit -> ``DocumentInsertTooLargeError`` (see ``is_document_too_large``)
     * a lost connection - ``ConnectionFailure``, which ``AutoReconnect``, ``NetworkTimeout`` and
       ``ServerSelectionTimeoutError`` all are -> ``DocumentNetworkError``
@@ -144,9 +147,6 @@ def typed_insert_failure(err: BaseException, collection: str) -> Exception:
         return DocumentInsertDuplicateKeyError(
             duplicate_key_message(collection, key_pattern, key_value), key_pattern=key_pattern, key_value=key_value,
         )
-
-    if isinstance(err, ExecutionTimeout):
-        return DocumentLockTimeoutError(f"Execution timeout: {err}")
 
     if isinstance(err, OperationFailure) and err.code == MONGO_LOCK_TIMEOUT_ERROR_CODE:
         return DocumentLockTimeoutError(f"Lock timeout: {err}")
@@ -283,7 +283,7 @@ class MongoDatabaseManager:
 
         self.client_options: dict[str, Any] = {
             'connectTimeoutMS': 10000,  # Timeout after 10 seconds if no connection is made
-            'socketTimeoutMS': 30000,  # Socket timeout (set to 30 seconds)
+            'socketTimeoutMS': MONGO_SOCKET_TIMEOUT_MS,
             'serverSelectionTimeoutMS': 10000, # Timeout for finding a suitable server in the cluster
             'maxIdleTimeMS': 30000,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
@@ -1595,6 +1595,46 @@ class MongoDatabaseManager:
 
 
     @retry_operation
+    def aggregate_within_time_limit(
+            self,
+            collection: str,
+            db_name: str,
+            pipeline: list[dict[str, Any]],
+            time_limit_ms: int,
+            **kwargs: Any) -> list[dict[str, Any]]:
+        """
+        Runs an aggregation under a server-side time budget and reads every result
+
+        The budget is the aggregation's ``maxTimeMS``: past it the server stops the aggregation itself - checked
+        between documents, so it bounds a read over many documents, not one expensive document. The cursor
+        is read to the end HERE, inside the error handling, because a later batch is computed while it is read - a
+        cursor handed back would fail in its caller, outside the sorting below
+
+        Args:
+            collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            time_limit_ms (int): The server-side time budget, in milliseconds
+            **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
+
+        Raises:
+            DocumentQueryTimeLimitError: If the server stopped the aggregation on its time budget
+            DocumentAggregationError: If the aggregation failed for any other reason
+
+        Returns:
+            list[dict[str, Any]]: Every result of the aggregation
+        """
+        try:
+            return list(self.get_collection(collection, db_name).aggregate(
+                pipeline, **{**kwargs, MONGO_MAX_TIME_OPTION: time_limit_ms},
+            ))
+        except ExecutionTimeout as err:
+            raise DocumentQueryTimeLimitError(err, time_limit_ms) from err
+        except Exception as err:
+            raise DocumentAggregationError(f"Aggregation operation failed: {err}") from err
+
+
+    @retry_operation
     def get_highest_id(self, collection: str, db_name: str) -> int:
         """
         Wrapper function that calls get_document_with_highest_id() and returns the highest public_id
@@ -1650,6 +1690,32 @@ class MongoDatabaseManager:
             return result
         except Exception as err:
             raise DocumentDeleteError(f"Error deleting document from collection '{collection}': {err}") from err
+
+
+    @retry_operation
+    def find_one_and_delete(self, collection: str, db_name: str, criteria: dict[str, Any]) -> dict[str, Any] | None:
+        """
+        Deletes the first document matching the criteria and answers the document it deleted
+
+        The read and the delete are one atomic step, so the answer is exactly what THIS call removed: a
+        document another writer deleted first is answered as None, never as a document of its own. `_id`
+        is left out, like every other read of this manager
+
+        Args:
+            collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
+            criteria (dict[str, Any]): Filter selecting the document to delete
+
+        Raises:
+            DocumentDeleteError: When the document could not be deleted
+
+        Returns:
+            dict[str, Any] | None: The deleted document, or None when nothing matched
+        """
+        try:
+            return self.get_collection(collection, db_name).find_one_and_delete(criteria, projection={'_id': 0})
+        except Exception as err:
+            raise DocumentDeleteError(f"Error deleting a document from collection '{collection}': {err}") from err
 
 
     @retry_operation

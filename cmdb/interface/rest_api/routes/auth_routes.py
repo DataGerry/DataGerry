@@ -38,7 +38,11 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.rest_api.routes.auth_helper import cloud_login, local_login
+from cmdb.interface.rest_api.routes.auth_helper import (
+    abort_if_external_provider_in_cloud,
+    cloud_login,
+    local_login,
+)
 
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -197,16 +201,24 @@ def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response
 @handle_route_errors("while updating auth settings")
 def update_auth_settings(request_user: CmdbUser) -> Response:
     """
-    Updates authentication settings for the given user
+    Updates the authentication settings section (in cloud mode: the tenant's)
 
-    This function retrieves new authentication settings from the request payload,
-    validates the data, and updates the authentication settings in the system.
+    Takes the WHOLE section (``require_complete``), puts back any credential the payload sends masked
+    (``restore_masked_secrets``), validates it as ``CmdbAuthSettings`` and stores it. In cloud mode a section
+    that activates an external provider (LDAP) is refused: external providers are on-premise only and a
+    cloud login never runs one. Everything else - the token lifetime among it - stays writable in cloud mode
+
+    Status codes:
+        200 OK: Stored; body is the stored section, credentials masked
+        400 BAD_REQUEST: No body, a section ``CmdbAuthSettings`` cannot be built from, in cloud mode an
+            active external provider (``CLOUD_EXTERNAL_PROVIDER_MSG``), or the write was not acknowledged
+        500: An unexpected error
 
     Args:
         request_user (CmdbUser): The user performing the update
 
     Returns:
-        DefaultResponse: A response object containing the updated authentication settings if successful
+        DefaultResponse: The stored section, credentials masked
     """
     new_auth_settings_values = request.get_json()
 
@@ -233,6 +245,8 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
         # A malformed auth-settings payload is a client error, not a server fault
         LOGGER.error("[update_auth_settings] Error: %s", err)
         abort(400, f"Could not initialise auth settings from the provided data: {err}")
+
+    abort_if_external_provider_in_cloud(new_auth_settings_values)
 
     update_result = settings_manager.write(
         _id=AUTH_SETTINGS_ID,

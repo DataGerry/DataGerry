@@ -32,6 +32,8 @@ from cmdb.framework.exporter.export_filename_helper import build_type_export_fil
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
     ZIP_EXPORT_FORMAT,
+    ZIP_AS_CLASSNAME_REFUSED_MSG,
+    UNSUPPORTED_EXPORT_FORMAT_MSG,
     DEFAULT_EXPORT_FORMAT,
     ExporterQueryParam,
 )
@@ -42,12 +44,13 @@ from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_constants impo
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-# Export format classes that may be packed inside a ZIP (the built-in formats, excluding ZIP itself)
+# Export format classes that may be packed inside a ZIP (the catalogue's formats - ZIP itself is none of them)
 ZIPPABLE_EXPORT_FORMATS: set[str] = set(SupportedExporterExtension().get_extensions())
 
-# Export format classes that may be dynamically loaded from cmdb.framework.exporter.format - a query
-# supplied 'classname' is validated against this set so an arbitrary class cannot be imported
-SUPPORTED_EXPORT_FORMATS: set[str] = ZIPPABLE_EXPORT_FORMATS | {ZIP_EXPORT_FORMAT}
+# Export format classes a query-supplied 'classname' may name - validated before the class is dynamically loaded
+# from cmdb.framework.exporter.format, so an arbitrary class cannot be imported. Exactly the catalogue's formats:
+# the ZIP wrapper is chosen by the 'zip' flag alone, because named as a format it would have no inner format to pack
+SUPPORTED_EXPORT_FORMATS: set[str] = set(ZIPPABLE_EXPORT_FORMATS)
 
 
 def resolve_export_format(optional: dict[str, Any]) -> str:
@@ -57,14 +60,16 @@ def resolve_export_format(optional: dict[str, Any]) -> str:
     A truthy `zip` flag forces the ZIP wrapper; in that case the `classname` it will pack is validated
     against `ZIPPABLE_EXPORT_FORMATS` (so the ZIP's own dynamic `load_class` of the inner format cannot
     import an arbitrary class, and zip-in-zip is rejected). Otherwise the `classname` parameter is used,
-    defaulting to `DEFAULT_EXPORT_FORMAT`, and validated against `SUPPORTED_EXPORT_FORMATS`. Both paths
-    guard `load_class` against arbitrary input
+    defaulting to `DEFAULT_EXPORT_FORMAT`, and validated against `SUPPORTED_EXPORT_FORMATS` - the catalogue's
+    formats. The ZIP wrapper named as the `classname` without the flag is refused: it would pack no inner format
+    and fail. Both paths guard `load_class` against arbitrary input
 
     Args:
         optional (dict[str, Any]): The request's optional/query parameters (`params.optional`)
 
     Raises:
-        HTTPException: 400 if the resolved (or, for zip, the inner) format is not supported
+        HTTPException: 400 if the resolved (or, for zip, the inner) format is not supported, or the ZIP wrapper is
+            named as the format without the zip flag
 
     Returns:
         str: The validated export format class name
@@ -73,14 +78,17 @@ def resolve_export_format(optional: dict[str, Any]) -> str:
         inner_format = optional.get(ExporterQueryParam.CLASSNAME.value)
 
         if inner_format not in ZIPPABLE_EXPORT_FORMATS:
-            abort(400, f"Unsupported export format: {inner_format}!")
+            abort(400, UNSUPPORTED_EXPORT_FORMAT_MSG.format(export_format=inner_format))
 
         return ZIP_EXPORT_FORMAT
 
     export_format = optional.get(ExporterQueryParam.CLASSNAME.value, DEFAULT_EXPORT_FORMAT)
 
+    if export_format == ZIP_EXPORT_FORMAT:
+        abort(400, ZIP_AS_CLASSNAME_REFUSED_MSG)
+
     if export_format not in SUPPORTED_EXPORT_FORMATS:
-        abort(400, f"Unsupported export format: {export_format}!")
+        abort(400, UNSUPPORTED_EXPORT_FORMAT_MSG.format(export_format=export_format))
 
     return export_format
 

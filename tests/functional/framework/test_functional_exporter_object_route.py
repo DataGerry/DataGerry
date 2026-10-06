@@ -33,6 +33,10 @@ from cmdb.manager import ObjectsManager
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
+    ZIP_AS_CLASSNAME_REFUSED_MSG,
+    ZIP_EXPORT_FORMAT,
+)
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -45,6 +49,10 @@ OBJECT_ID: int = 47511
 NAME_FIELD: str = 'dg-name'
 
 TYPE_FILTER: str = json.dumps({'type_id': TYPE_ID})
+
+# What GET /exporter/extensions answers: the pickable formats, each with the export menus' metadata
+CATALOGUE_FORMATS: list[str] = ['CsvExportFormat', 'JsonExportFormat', 'XlsxExportFormat', 'XmlExportFormat']
+CATALOGUE_ENTRY_KEYS: set[str] = {'extension', 'label', 'icon', 'multiTypeSupport', 'helperText', 'active'}
 
 
 def _type_doc() -> dict[str, Any]:
@@ -120,6 +128,17 @@ class TestExtensions:
         assert response.status_code == HTTPStatus.OK
         assert 'JsonExportFormat' in [item['extension'] for item in response.get_json()]
 
+    def test_the_catalogue_is_exactly_the_four_pickable_formats(self, rest_api) -> None:
+        """No ZIP entry: ZIP is a wrapper chosen with zip=true, never a format of its own"""
+        extensions = [item['extension'] for item in rest_api.get(EXTENSIONS_URL).get_json()]
+
+        assert extensions == CATALOGUE_FORMATS
+
+    def test_every_entry_carries_exactly_the_menu_metadata(self, rest_api) -> None:
+        """No per-format view: the user picks the view per export, and every format supports both"""
+        for item in rest_api.get(EXTENSIONS_URL).get_json():
+            assert set(item) == CATALOGUE_ENTRY_KEYS
+
     def test_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error building the catalogue surfaces as 500."""
         monkeypatch.setattr(SupportedExporterExtension, 'convert_to', _raiser(RuntimeError('boom')))
@@ -141,6 +160,35 @@ class TestExportObjects:
     def test_zip_export(self, rest_api) -> None:
         """A zip export (packing the JSON format) succeeds."""
         assert rest_api.get(_export_url(zip='true', classname='JsonExportFormat')).status_code == HTTPStatus.OK
+
+    def test_zip_named_as_the_format_is_a_400(self, rest_api) -> None:
+        """Without the flag it would pack no inner format - it answered 500 for any real object"""
+        response = rest_api.get(_export_url(classname=ZIP_EXPORT_FORMAT))
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == ZIP_AS_CLASSNAME_REFUSED_MSG
+
+    def test_zip_inside_zip_is_a_400(self, rest_api) -> None:
+        """The ZIP is no format it could pack either"""
+        assert rest_api.get(_export_url(zip='true', classname=ZIP_EXPORT_FORMAT)).status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('inner_format', [
+        'CsvExportFormat', 'JsonExportFormat', 'XlsxExportFormat', 'XmlExportFormat',
+    ])
+    def test_every_catalogue_format_can_be_zipped(self, rest_api, inner_format: str) -> None:
+        """zip=true packs whichever catalogue format classname names"""
+        response = rest_api.get(_export_url(zip='true', classname=inner_format))
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.headers['Content-Type'] == 'application/zip'
+
+    @pytest.mark.parametrize('view', ['native', 'render'])
+    @pytest.mark.parametrize('export_format', [
+        'CsvExportFormat', 'JsonExportFormat', 'XlsxExportFormat', 'XmlExportFormat',
+    ])
+    def test_every_catalogue_format_exports_either_view(self, rest_api, export_format: str, view: str) -> None:
+        """Why the catalogue carries no view: it is the user's choice per export"""
+        assert rest_api.get(_export_url(classname=export_format, view=view)).status_code == HTTPStatus.OK
 
     def test_unsupported_format_returns_400(self, rest_api) -> None:
         """An unknown export format is rejected with 400 (whitelist guard)."""

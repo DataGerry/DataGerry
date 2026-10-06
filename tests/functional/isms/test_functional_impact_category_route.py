@@ -41,6 +41,7 @@ from cmdb.errors.manager.impact_category_manager import (
 
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IMPACT_CATEGORY_LABEL,
+    MAX_ISMS_BULK_UPDATE_ITEMS,
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
@@ -57,6 +58,8 @@ CATEGORY_ID_MULTI_A: int = 95605
 CATEGORY_ID_MULTI_B: int = 95606
 MISSING_CATEGORY_ID: int = 95699
 RISK_ASSESSMENT_ID: int = 95650
+# One stored description entry, which a reorder must carry through unchanged
+IMPACT_DESCRIPTION: dict[str, Any] = {'impact_id': 3, 'value': 'Severe'}
 
 ALL_CATEGORY_IDS: list[int] = [
     CATEGORY_ID_FOR_GET, CATEGORY_ID_FOR_UPDATE, CATEGORY_ID_FOR_DELETE, CATEGORY_ID_FOR_INSERT,
@@ -176,33 +179,102 @@ class TestPutImpactCategory:
 
 
 class TestPutMultipleImpactCategories:
-    """PUT /isms/impact_categories/multiple bulk-updates records and guards the body shape."""
+    """
+    PUT /isms/impact_categories/multiple - the wizard's drag reorder, all or nothing
 
-    def test_non_list_body_returns_400(self, rest_api) -> None:
-        """A non-list JSON body is rejected with 400 rather than causing a 500."""
+    The same helper as the RiskClass reorder: every item judged by the single update's write schema first
+    """
+
+    def _stored(self, database_manager: MongoDatabaseManager, database_name: str) -> dict[int, dict[str, Any]]:
+        """The two bulk categories as stored"""
+        collection = database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name)
+
+        return {doc['public_id']: doc for doc in collection.find(
+            {'public_id': {'$in': [CATEGORY_ID_MULTI_A, CATEGORY_ID_MULTI_B]}}, {'_id': 0},
+        )}
+
+    @pytest.fixture(name='listed')
+    def fixture_listed(self, rest_api, database_manager: MongoDatabaseManager,
+                       database_name: str) -> list[dict[str, Any]]:
+        """Two stored categories, one without a sort, read back the way the wizard reads them: from the list"""
+        _insert_category(database_manager, database_name, CATEGORY_ID_MULTI_A)
+        database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name).insert_one(
+            {'public_id': CATEGORY_ID_MULTI_B, 'name': 'Unsorted', 'impact_descriptions': [IMPACT_DESCRIPTION]},
+        )
+
+        rows = rest_api.get(f'{ROUTE_URL}/', query_string={'limit': 0}).get_json()['results']
+
+        return [row for row in rows if row['public_id'] in (CATEGORY_ID_MULTI_A, CATEGORY_ID_MULTI_B)]
+
+    def test_the_wizards_reorder_round_trip_is_written(self, rest_api, listed, database_manager,
+                                                       database_name: str) -> None:
+        """A list row with a null sort, renumbered and sent back whole, is stored - its descriptions intact"""
+        assert None in {row['sort'] for row in listed}
+        reordered = [{**row, 'sort': index} for index, row in enumerate(reversed(listed))]
+
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=reordered)
+
+        assert response.status_code == HTTPStatus.OK, response.get_json()
+        stored = self._stored(database_manager, database_name)
+        assert {public_id: doc['sort'] for public_id, doc in stored.items()} == {
+            row['public_id']: row['sort'] for row in reordered
+        }
+        assert stored[CATEGORY_ID_MULTI_B]['impact_descriptions'] == [IMPACT_DESCRIPTION]
+
+    def test_descriptions_that_are_not_a_list_are_refused(self, rest_api, listed, database_manager,
+                                                          database_name: str) -> None:
+        """A string here used to be stored, and every later impact create then failed on it with a 500"""
+        before = self._stored(database_manager, database_name)
+
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=[
+            {**listed[0], 'sort': 3}, {**listed[1], 'impact_descriptions': 'zzz'},
+        ])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'item #2' in response.get_json()['message']
+        assert 'impact_descriptions: must be of list type' in response.get_json()['message']
+        assert self._stored(database_manager, database_name) == before
+
+    def test_a_malformed_description_entry_is_refused(self, rest_api, listed) -> None:
+        """The entries are checked too, not just the list"""
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=[
+            {**listed[0], 'impact_descriptions': [{'impact_id': 'one', 'value': 7}]},
+        ])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'impact_descriptions[0].impact_id: must be of integer type' in response.get_json()['message']
+
+    def test_an_unknown_id_refuses_the_whole_list(self, rest_api, listed, database_manager,
+                                                 database_name: str) -> None:
+        """Nothing is written"""
+        before = self._stored(database_manager, database_name)
+
+        response = rest_api.put(f'{ROUTE_URL}/multiple',
+                                json=[{**listed[0], 'name': 'Renamed'}, _category_payload(MISSING_CATEGORY_ID)])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == (
+            f'No ImpactCategories were updated, because these ids do not exist: [{MISSING_CATEGORY_ID}]'
+        )
+        assert self._stored(database_manager, database_name) == before
+
+    def test_more_items_than_the_bulk_cap_are_refused(self, rest_api) -> None:
+        """The categories have no cap of their own, so the bulk one applies"""
+        payload = [{'public_id': CATEGORY_ID_MULTI_A}] * (MAX_ISMS_BULK_UPDATE_ITEMS + 1)
+
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'].startswith(
+            f'At most {MAX_ISMS_BULK_UPDATE_ITEMS} ImpactCategories can be updated at once',
+        )
+
+    def test_a_body_that_is_not_a_list_is_refused(self, rest_api) -> None:
+        """Named with the real plural"""
         response = rest_api.put(f'{ROUTE_URL}/multiple', json={'public_id': CATEGORY_ID_MULTI_A})
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
-
-    def test_bulk_update_reports_per_item_status(self, rest_api,
-                                                database_manager: MongoDatabaseManager,
-                                                database_name: str) -> None:
-        """A mixed batch reports success for an existing item and failures for missing / id-less ones."""
-        _insert_category(database_manager, database_name, CATEGORY_ID_MULTI_A)
-
-        response = rest_api.put(f'{ROUTE_URL}/multiple', json=[
-            _category_payload(CATEGORY_ID_MULTI_A, 'Updated'),
-            _category_payload(MISSING_CATEGORY_ID),
-            {'name': 'No id'},
-        ])
-
-        assert response.status_code == HTTPStatus.OK
-        results = response.get_json()
-        by_id = {entry['public_id']: entry['status'] for entry in results}
-        assert by_id[CATEGORY_ID_MULTI_A] == 'success'
-        assert by_id[MISSING_CATEGORY_ID] == 'failed'
-        assert by_id[None] == 'failed'
-        assert rest_api.get(f'{ROUTE_URL}/{CATEGORY_ID_MULTI_A}').get_json()['result']['name'] == 'Updated'
+        assert response.get_json()['message'] == 'The request body must be a list of ImpactCategories!'
 
 
 class TestDeleteImpactCategory:

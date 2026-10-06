@@ -122,11 +122,14 @@ class TypeImportError(BaseStrEnum):
     SUMMARY_FIELD_NOT_DEFINED = 'The summary references field(s) the Type does not define: {names}'
     EXTERNAL_FIELD_NOT_DEFINED = 'External link(s) reference field(s) the Type does not define: {names}'
     NORMALIZATION_FAILED = 'Failed to prepare this Type for import: {detail}'
+    FOREIGN_FIELD_IN_TEMPLATE_SECTION = 'The section of the global section template "{template}" holds ' \
+                                        'field(s) the template does not own: {names}'
     REPAIRED_TYPE_INVALID = 'Completing this Type from its global section template(s) made it ' \
                             'invalid: {detail}'
     CREATE_SIDE_EFFECTS_FAILED = 'The Type was imported, but wiring up its SpecialType failed: {detail}'
-    UPDATE_SIDE_EFFECTS_FAILED = 'The Type was updated, but applying the follow-up changes to its ' \
-                                 'Objects, Locations and section templates failed: {detail}'
+    UPDATE_SIDE_EFFECTS_FAILED = 'The Type was updated, but applying it to its {step} failed - import or save ' \
+                                 'the Type again to finish: {detail}'
+    UNKNOWN_STEP = 'data'
     PUBLIC_ID_ASSIGNMENT_FAILED = 'Failed to assign a public_id to this Type: {detail}'
     INVALID_TYPE_DATA = 'Failed to create a Type instance from the provided data: {detail}'
     IMPORT_FAILED = 'Failed to import this Type: {detail}'

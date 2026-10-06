@@ -19,10 +19,12 @@ This module provides all errors for the ServicePortal
 from .dg_service_portal_errors import (
     DgServicePortalError,
     DgServicePortalGetError,
+    DgServicePortalSaveError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'DgServicePortalError',
     'DgServicePortalGetError',
+    'DgServicePortalSaveError',
 ]

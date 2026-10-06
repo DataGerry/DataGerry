@@ -42,6 +42,8 @@ ROOT_PARENT_ID: int = 1
 
 TOP_NODE_ID: int = 9941          # stays; the promotion target
 DOOMED_NODE_ID: int = 9942       # the node being deleted
+# The top node's object - only its node is seeded; object_id is unique, and 0 is the root's
+TOP_OBJECT_ID: int = 9951
 DOOMED_OBJECT_ID: int = 9952
 CHILD_NODE_ID: int = 9943        # hangs under the doomed node
 CHILD_OBJECT_ID: int = 9953      # owns the child node; its location field points at the doomed node
@@ -77,7 +79,7 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
     _purge()
     nodes.insert_many([
-        _node(TOP_NODE_ID, 0, ROOT_PARENT_ID),
+        _node(TOP_NODE_ID, TOP_OBJECT_ID, ROOT_PARENT_ID),
         _node(DOOMED_NODE_ID, DOOMED_OBJECT_ID, TOP_NODE_ID),
         _node(CHILD_NODE_ID, CHILD_OBJECT_ID, DOOMED_NODE_ID),
     ])

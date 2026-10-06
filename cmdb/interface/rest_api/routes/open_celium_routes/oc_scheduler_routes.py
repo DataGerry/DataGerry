@@ -34,10 +34,13 @@ from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper import (
     assert_scheduler_access,
     get_accessible_scheduler_ids,
+    AutomationWriters,
+    create_automation,
+    read_automation_body,
     unmap_scheduler_titles,
 )
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import connection_in_subscription
-from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcAutomationMessage, OcResponseKey
 
 from cmdb.errors.open_celium.scheduler import (
     OcSchedulerCreateError,
@@ -49,6 +52,7 @@ from cmdb.errors.open_celium.connection import (
     OcConnectionCreateError,
     OcConnectionGetError,
 )
+from cmdb.errors.dg_service_portal import DgServicePortalSaveError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -63,14 +67,24 @@ oc_schedulers_blueprint = APIBlueprint('oc_schedulers', __name__)
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 def create_oc_scheduler(request_user: CmdbUser) -> Response:
     """
-    POST route to create an OcScheduler in OpenCelium.
+    POST route to create an OcScheduler (an Automation) in OpenCelium, together with its connection
 
-    Cloud mode behavior:
-        - Map title for tenant
-        - Create connection if it does not exist
-        - Save new connectionId to DG SP
-        - Save new schedulerId to DG SP
-        - Delete cache *after* failed ID save OR after successful creation
+    **All or nothing, by compensation** (``oc_scheduler_helper.create_automation``). The create is up to four remote
+    writes - the connection and the scheduler in OpenCelium and, in cloud mode, each id registered with the DataGerry
+    Service Portal. Each is recorded in a WriteLedger as it succeeds; when a later step fails, the ones already made
+    are deleted again, newest first - the order the delete route uses - and the request answers the error it actually
+    hit. A portal registration the portal does not acknowledge is such a failure: stepping over it left the connection
+    or the Automation outside the user's subscription, refused by every later check. An undo that cannot finish
+    answers a 500 naming what it left behind
+
+    Both titles are checked before anything is written. In cloud mode the titles are mapped to the tenant and the
+    user's cache entry is evicted after each portal registration, since its OpenCelium ids are stale then
+
+    Status codes:
+        200 OK: The created scheduler (its title unmapped in cloud mode)
+        400 BAD_REQUEST: No ``connection`` / ``scheduler`` / either title, or the connection name exists
+        500: A step failed (connection create, name check, scheduler create, a portal registration) - everything
+            already made was undone; or the undo itself left something behind (``OcAutomationMessage.RESIDUE``)
 
     Returns:
         Response: The created scheduler
@@ -89,18 +103,7 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         dg_sp_manager = None
         cached_user_manager = None
 
-        params: dict[str, Any] = request.json
-
-        if not params.get(OcResponseKey.CONNECTION.value):
-            abort(400, "No 'connection' data provided to create the Automation!")
-
-        if not params.get(OcResponseKey.SCHEDULER.value):
-            abort(400, "No 'scheduler' data provided to create the Automation!")
-
-        created_connection: dict[str, Any] = None
-        conn_data = params[OcResponseKey.CONNECTION.value]
-        sched_data = params[OcResponseKey.SCHEDULER.value]
-
+        conn_data, sched_data = read_automation_body(request.json)
         conn_title = conn_data[OcResponseKey.TITLE.value]
 
         # CLOUD MODE → map connection title
@@ -120,41 +123,13 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 
             abort(400, f"The connection name: {conn_title} already exists!")
 
-        # Create connection in OC
-        created_connection = oc_connection_manager.create_connection(conn_data)
+        created_scheduler: dict[str, Any] = create_automation(
+            AutomationWriters(oc_connection_manager, oc_scheduler_manager, dg_sp_manager, cached_user_manager),
+            request_user, conn_data, sched_data,
+        )
 
-        # CLOUD MODE → save connectionId in DG SP
+        # Unmap title for frontend - outside the block: nothing after the last write may undo it
         if is_hosted_cloud():
-            dg_sp_manager.save_connection_id(
-                created_connection[OcResponseKey.CONNECTION_ID.value],
-                request_user.email,
-                request_user.database
-            )
-
-            # Clear cache because it now contains inconsistent IDs
-            cached_user_manager.delete_cached_user(request_user.email)
-
-        # Create scheduler
-        sched_data[OcResponseKey.CONNECTION_ID.value] = created_connection[OcResponseKey.CONNECTION_ID.value]
-
-        if is_hosted_cloud():
-            sched_data[OcResponseKey.TITLE.value] = map_oc_name(
-                request_user.database, sched_data[OcResponseKey.TITLE.value]
-            )
-
-        created_scheduler = oc_scheduler_manager.create_scheduler(sched_data)
-
-        # CLOUD MODE → save schedulerId in DG SP
-        if is_hosted_cloud():
-            dg_sp_manager.save_scheduler_id(
-                created_scheduler[OcResponseKey.SCHEDULER_ID.value],
-                request_user.email,
-                request_user.database
-            )
-
-            cached_user_manager.delete_cached_user(request_user.email)
-
-            # Unmap title for frontend
             created_scheduler[OcResponseKey.TITLE.value] = unmap_oc_name(
                 created_scheduler[OcResponseKey.TITLE.value]
             )
@@ -171,6 +146,9 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
     except OcSchedulerCreateError as err:
         LOGGER.error("[create_oc_scheduler] %s: %s", type(err).__name__, err, exc_info=True)
         abort(500, "Failed to create the Automation!")
+    except DgServicePortalSaveError as err:
+        LOGGER.error("[create_oc_scheduler] %s: %s", type(err).__name__, err, exc_info=True)
+        abort(500, OcAutomationMessage.PORTAL_REFUSED.value)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 

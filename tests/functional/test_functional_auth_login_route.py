@@ -30,7 +30,6 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.manager.system_manager.settings_manager import SettingsManager
-from cmdb.errors.provider import AuthenticationProviderNotActivated, AuthenticationProviderNotFoundError
 from cmdb.errors.security.security_errors import (
     InvalidCloudUserError,
     NoAccessTokenError,
@@ -100,20 +99,6 @@ class TestLocalLogin:
     def test_login_no_body_returns_400(self, rest_api) -> None:
         """An empty body is rejected with 400."""
         assert rest_api.post(LOGIN_URL, json={}).status_code == HTTPStatus.BAD_REQUEST
-
-    def test_login_provider_not_activated_returns_400(self, rest_api, monkeypatch) -> None:
-        """An AuthenticationProviderNotActivated maps to 400."""
-        monkeypatch.setattr(AuthModule, 'login', _raiser(AuthenticationProviderNotActivated('boom')))
-
-        assert rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'}).status_code \
-            == HTTPStatus.BAD_REQUEST
-
-    def test_login_provider_not_found_returns_400(self, rest_api, monkeypatch) -> None:
-        """An AuthenticationProviderNotFoundError maps to 400."""
-        monkeypatch.setattr(AuthModule, 'login', _raiser(AuthenticationProviderNotFoundError('boom')))
-
-        assert rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'}).status_code \
-            == HTTPStatus.BAD_REQUEST
 
     def test_login_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error in the local flow maps to 500."""

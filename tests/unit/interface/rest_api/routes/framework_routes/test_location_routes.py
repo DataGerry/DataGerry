@@ -143,7 +143,7 @@ def fixture_patched_provider(managers: dict[ManagerType, MagicMock]) -> Any:
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestInsertCmdbLocation:
     """
-    ``insert_cmdb_location`` reads the object under READ, validates the placement, then writes both halves
+    ``insert_cmdb_location`` reads and authorizes the object (READ + UPDATE), validates the placement, then writes
 
     The object read, the placement check, the rack guard and the rack reconcile are patched at the route
     module, so each test drives one branch of the route's own sequence
@@ -164,11 +164,14 @@ class TestInsertCmdbLocation:
 
     def _patched(self, object_type: MagicMock | None = None, **overrides: Any) -> dict[str, Any]:
         """The patches of the route's collaborators, each overridable by name."""
+        object_type = object_type or self._object_type()
         patches: dict[str, Any] = {
-            'read_linked_object': patch(f'{ROUTE_PATH}.read_linked_object', return_value=LINKED_OBJECT),
+            'read_placeable_object': patch(
+                f'{ROUTE_PATH}.read_placeable_object', return_value=PlacementTarget(LINKED_OBJECT, object_type),
+            ),
             'validate_location_placement': patch(
                 f'{ROUTE_PATH}.validate_location_placement',
-                return_value=PlacementTarget(LINKED_OBJECT, object_type or self._object_type()),
+                return_value=PlacementTarget(LINKED_OBJECT, object_type),
             ),
             'resolve_location_name': patch(f'{ROUTE_PATH}.resolve_location_name', return_value=RESOLVED_NAME),
             'guard_rack_location_change': patch(f'{ROUTE_PATH}.guard_rack_location_change'),
@@ -190,23 +193,23 @@ class TestInsertCmdbLocation:
     def test_the_object_is_read_through_the_callers_acl(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
-        """A node carries its object's summary as its name: the object is read with the caller, before anything"""
+        """A node carries its object's summary and writes its field: read and authorized with the caller, first"""
         del patched_provider
         request_user = MagicMock(name='request_user')
 
         started = self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(), request_user)
 
-        started['read_linked_object'].assert_called_once_with(OBJECT_ID, managers[ManagerType.OBJECTS], request_user)
+        started['read_placeable_object'].assert_called_once_with(OBJECT_ID, managers[ManagerType.OBJECTS], request_user)
 
     def test_a_denied_object_writes_nothing(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
         """The read's 403 is the answer; no node and no field are written"""
         del patched_provider
-        denied = patch(f'{ROUTE_PATH}.read_linked_object', side_effect=Forbidden())
+        denied = patch(f'{ROUTE_PATH}.read_placeable_object', side_effect=Forbidden())
 
         with pytest.raises(Forbidden):
-            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_linked_object=denied))
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_placeable_object=denied))
 
         managers[ManagerType.LOCATIONS].insert_location.assert_not_called()
         managers[ManagerType.OBJECTS].set_location_field_for_objects.assert_not_called()
@@ -221,6 +224,7 @@ class TestInsertCmdbLocation:
 
         started['validate_location_placement'].assert_called_once_with(
             LINKED_OBJECT, PARENT_ID, managers[ManagerType.OBJECTS], managers[ManagerType.LOCATIONS],
+            started['read_placeable_object'].return_value.object_type,
         )
 
     def test_an_invalid_placement_writes_nothing(
@@ -339,10 +343,10 @@ class TestInsertCmdbLocation:
     def test_objects_get_error_maps_to_400(self, flask_app: Flask, patched_provider: Any) -> None:
         """An ``ObjectsManagerGetError`` from the object read maps to HTTP 400."""
         del patched_provider
-        failing = patch(f'{ROUTE_PATH}.read_linked_object', side_effect=ObjectsManagerGetError('boom'))
+        failing = patch(f'{ROUTE_PATH}.read_placeable_object', side_effect=ObjectsManagerGetError('boom'))
 
         with pytest.raises(HTTPException) as excinfo:
-            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_linked_object=failing))
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_placeable_object=failing))
 
         assert excinfo.value.code == HTTP_BAD_REQUEST
 
@@ -385,10 +389,10 @@ class TestInsertCmdbLocation:
     def test_unexpected_error_maps_to_500(self, flask_app: Flask, patched_provider: Any) -> None:
         """Any other exception is translated to HTTP 500."""
         del patched_provider
-        failing = patch(f'{ROUTE_PATH}.read_linked_object', side_effect=RuntimeError('boom'))
+        failing = patch(f'{ROUTE_PATH}.read_placeable_object', side_effect=RuntimeError('boom'))
 
         with pytest.raises(HTTPException) as excinfo:
-            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_linked_object=failing))
+            self._run(flask_app, dict(INSERT_PAYLOAD), self._patched(read_placeable_object=failing))
 
         assert excinfo.value.code == HTTP_SERVER_ERROR
 
@@ -885,7 +889,8 @@ class TestUpdateCmdbLocationForObject:
         managers[ManagerType.LOCATIONS].get_location_for_object.return_value = SAMPLE_LOCATION_DICT
         request_user = MagicMock(name='request_user')
 
-        with patch(f'{ROUTE_PATH}.read_linked_object', return_value=LINKED_OBJECT) as read, \
+        with patch(f'{ROUTE_PATH}.read_placeable_object',
+                   return_value=PlacementTarget(LINKED_OBJECT, MagicMock(name='object_type'))) as read, \
              patch(f'{ROUTE_PATH}.resolve_location_name', return_value=RESOLVED_NAME) as resolve, \
              patch(f'{ROUTE_PATH}.validate_object_location_change'), \
              patch(f'{ROUTE_PATH}.UpdateSingleResponse'), \
@@ -901,7 +906,7 @@ class TestUpdateCmdbLocationForObject:
         """The read's 403 comes first: neither the node nor the object's field is written"""
         del patched_provider
 
-        with patch(f'{ROUTE_PATH}.read_linked_object', side_effect=Forbidden()), pytest.raises(Forbidden):
+        with patch(f'{ROUTE_PATH}.read_placeable_object', side_effect=Forbidden()), pytest.raises(Forbidden):
             self._call(flask_app, dict(UPDATE_PAYLOAD))
 
         managers[ManagerType.LOCATIONS].update_location.assert_not_called()

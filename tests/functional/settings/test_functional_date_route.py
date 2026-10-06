@@ -18,7 +18,9 @@ Functional smoke for the ``/date`` REST routes (DateSettings).
 
 Covers the default GET (no stored section), the POST/PUT update, the update->GET round-trip (the
 stored '_id' must not be splatted back into DateSettingsDAO, or the read answers 500), the empty-body
-400 (not masked as a 500), and the tolerance of an '_id' carried in the request body.
+400 (not masked as a 500), and the tolerance of an '_id' carried in the request body. The write's body is
+held to DateSettingsDAO.SCHEMA (a refused body writes nothing); the read answers a missing or unusable stored
+value as its default, and is open to a user without any system right while the write is not.
 """
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -29,11 +31,16 @@ from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.system_manager.settings_manager import SettingsManager
+from cmdb.settings.date_settings import DateSettingsDAO
+from cmdb.models.group_model import USER_GROUP_ID
+from cmdb.models.user_model import CmdbUser
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DATE_SECTION: str = 'date'
 DATE_FORMAT: str = 'DD.MM.YYYY'
 TIMEZONE: str = 'Europe/Berlin'
+# A member of the predefined 'user' group, which holds no base.system right
+PLAIN_USER_ID: int = 96951
 
 
 def _date_payload(date_format: str = DATE_FORMAT, timezone: str = TIMEZONE) -> dict[str, Any]:
@@ -126,6 +133,104 @@ class TestUpdateDateSettings:
     def test_empty_body_returns_400(self, rest_api) -> None:
         """An empty body is rejected with 400, not masked as a 500."""
         assert rest_api.post('/date/', json={}).status_code == HTTPStatus.BAD_REQUEST
+
+
+class TestUpdateBodyIsValidated:
+    """POST / PUT /date/ hold the body to DateSettingsDAO.SCHEMA; a refused body writes nothing."""
+
+    @staticmethod
+    def _stored(database_manager: MongoDatabaseManager, database_name: str) -> dict[str, Any] | None:
+        """The stored date section, or None"""
+        return database_manager.get_collection(SettingsManager.COLLECTION, database_name)\
+            .find_one({'_id': DATE_SECTION})
+
+    @pytest.mark.parametrize('method', ['post', 'put'])
+    @pytest.mark.parametrize('key', ['date_format', 'timezone'])
+    def test_a_missing_key_is_a_400_naming_it(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str, method: str, key: str) -> None:
+        """It used to reach a bare subscript and answer 500"""
+        body: dict[str, Any] = _date_payload()
+        body.pop(key)
+
+        response = getattr(rest_api, method)('/date/', json=body)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert key in response.get_json()['message']
+        assert self._stored(database_manager, database_name) is None
+
+    @pytest.mark.parametrize('key', ['date_format', 'timezone'])
+    @pytest.mark.parametrize('value', [None, '', 12, {'tz': 'UTC'}], ids=['null', 'empty', 'number', 'dict'])
+    def test_a_value_that_is_no_non_empty_string_is_a_400(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str, key: str, value: Any) -> None:
+        """It used to be stored and handed to the date pipe of every page"""
+        response = rest_api.put('/date/', json={**_date_payload(), key: value})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert self._stored(database_manager, database_name) is None
+
+    def test_a_refused_body_leaves_the_stored_settings_alone(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The section written before stays exactly as it was"""
+        rest_api.put('/date/', json=_date_payload())
+
+        assert rest_api.put('/date/', json={'date_format': ''}).status_code == HTTPStatus.BAD_REQUEST
+        assert self._stored(database_manager, database_name) == {'_id': DATE_SECTION, **_date_payload()}
+
+    def test_extra_keys_are_not_stored(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The validator drops what the schema does not declare"""
+        assert rest_api.put('/date/', json={**_date_payload(), 'unexpected': 'value'}).status_code == HTTPStatus.OK
+        assert self._stored(database_manager, database_name) == {'_id': DATE_SECTION, **_date_payload()}
+
+
+class TestReadOfAStoredSection:
+    """GET /date/ over a stored section the write's schema never saw"""
+
+    @staticmethod
+    def _store(database_manager: MongoDatabaseManager, database_name: str, document: dict[str, Any]) -> None:
+        """Writes the date section directly, as an older version or a hand edit would"""
+        database_manager.get_collection(SettingsManager.COLLECTION, database_name)\
+            .replace_one({'_id': DATE_SECTION}, {'_id': DATE_SECTION, **document}, upsert=True)
+
+    def test_a_missing_key_is_answered_as_its_default(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The read every page makes used to answer 500 here"""
+        self._store(database_manager, database_name, {'date_format': DATE_FORMAT})
+
+        response = rest_api.get('/date/')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == {'_id': DATE_SECTION, 'date_format': DATE_FORMAT,
+                                       'timezone': DateSettingsDAO.__DEFAULT_SETTINGS__['timezone']}
+
+    def test_an_unusable_value_is_answered_as_its_default(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A non-string or empty value stored before the schema existed"""
+        self._store(database_manager, database_name, {'date_format': 12, 'timezone': ''})
+
+        response = rest_api.get('/date/')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == {'_id': DATE_SECTION, **DateSettingsDAO.__DEFAULT_SETTINGS__}
+
+    def test_a_user_without_system_rights_may_read_but_not_write(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The read carries no right - the date pipe needs it for every account; the write needs system.edit"""
+        self._store(database_manager, database_name, _date_payload())
+        users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
+        users.delete_many({'public_id': PLAIN_USER_ID})
+        users.insert_one({'public_id': PLAIN_USER_ID, 'user_name': f'user-{PLAIN_USER_ID}', 'active': True,
+                          'group_id': USER_GROUP_ID, 'password': 'hashed-stub'})
+        plain_user = SimpleNamespace(public_id=PLAIN_USER_ID)
+        try:
+            read = rest_api.get('/date/', user=plain_user)
+            write = rest_api.put('/date/', json=_date_payload(timezone='UTC'), user=plain_user)
+
+            assert read.status_code == HTTPStatus.OK
+            assert read.get_json()['timezone'] == TIMEZONE
+            assert write.status_code == HTTPStatus.FORBIDDEN
+        finally:
+            users.delete_many({'public_id': PLAIN_USER_ID})
 
 
 class TestDateSettingsErrors:

@@ -17,6 +17,7 @@
 Unit tests for cmdb.framework.exporter.format.xlsx_export_format
 """
 import json
+import warnings
 from io import BytesIO
 from types import SimpleNamespace
 
@@ -26,6 +27,14 @@ from openpyxl import load_workbook
 from cmdb.framework.exporter.format.xlsx_export_format import XlsxExportFormat, MAX_SHEET_TITLE_LENGTH
 from cmdb.errors.exporter import ExporterColumnError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+SHARED_FIELD: str = 'name'
+SERVER_FIELD: str = 'rack-unit'
+ROUTER_FIELD: str = 'ip'
+
+# A label longer than Excel's title limit, and a second one that only differs after the limit
+LONG_LABEL: str = 'A' * 40
+LONG_LABEL_TWIN: str = LONG_LABEL + 'B'
 
 
 def _obj(
@@ -60,6 +69,16 @@ def _mds(section_id: str, entries: list) -> dict:
             for idx, entry in enumerate(entries)
         ],
     }
+
+
+def _field(name: str, value) -> dict:
+    """A rendered text field."""
+    return {'name': name, 'type': 'text', 'value': value}
+
+
+def _row(sheet, row_index: int) -> list:
+    """The non-empty cell values of one worksheet row, left to right."""
+    return [cell.value for cell in sheet[row_index] if cell.value is not None]
 
 
 def _workbook(data, *args):
@@ -105,6 +124,63 @@ class TestXlsxExport:
         router_sheet = workbook['Router']
         assert [router_sheet.cell(1, col).value for col in (1, 2, 3)] == ['public_id', 'active', 'ip']
         assert [router_sheet.cell(2, col).value for col in (1, 2, 3)] == ['11', 'True', '10.0.0.1']
+
+    def test_render_selection_is_narrowed_to_each_sheets_type(self) -> None:
+        """A column selection spanning types gives each sheet the selected fields its type owns, in selection order."""
+        server = _obj(10, type_id=5, type_label='Server',
+                      fields=[_field(SHARED_FIELD, 'x'), _field(SERVER_FIELD, 's')])
+        router = _obj(11, type_id=6, type_label='Router',
+                      fields=[_field(ROUTER_FIELD, '1'), _field(SHARED_FIELD, 'y')])
+        metadata = json.dumps({'header': ['public_id'], 'columns': [ROUTER_FIELD, SERVER_FIELD, SHARED_FIELD]})
+
+        workbook = _workbook([server, router], {'view': 'render', 'metadata': metadata})
+
+        assert _row(workbook['Server'], 1) == ['public_id', SERVER_FIELD, SHARED_FIELD]
+        assert _row(workbook['Server'], 2) == ['10', 's', 'x']
+        assert _row(workbook['Router'], 1) == ['public_id', ROUTER_FIELD, SHARED_FIELD]
+        assert _row(workbook['Router'], 2) == ['11', '1', 'y']
+
+    def test_render_metadata_without_columns_keeps_each_types_fields(self) -> None:
+        """A metadata override leaving `columns` out selects each type's own fields, not none at all."""
+        obj = _obj(10, fields=[_field(SHARED_FIELD, 'x'), _field(SERVER_FIELD, 's')])
+        metadata = json.dumps({'header': ['public_id']})
+
+        sheet = _workbook([obj], {'view': 'render', 'metadata': metadata})['Server']
+
+        assert _row(sheet, 1) == ['public_id', SHARED_FIELD, SERVER_FIELD]
+
+    def test_render_metadata_with_empty_columns_has_no_field_column(self) -> None:
+        """An empty `columns` list is a selection of its own: the identity columns alone."""
+        metadata = json.dumps({'header': ['public_id'], 'columns': []})
+
+        sheet = _workbook([_obj(10)], {'view': 'render', 'metadata': metadata})['Server']
+
+        assert _row(sheet, 1) == ['public_id']
+
+    def test_two_types_with_one_label_get_two_sheets(self) -> None:
+        """Two types sharing a label get one sheet each, the second numbered."""
+        workbook = _workbook([_obj(10, type_id=5, type_label='Server'), _obj(11, type_id=6, type_label='Server')])
+
+        assert workbook.sheetnames == ['Server', 'Server~2']
+        assert workbook['Server~2'].cell(2, 1).value == '11'
+
+    def test_labels_differing_only_in_case_get_two_sheets(self) -> None:
+        """Excel compares titles case-insensitively, so a label differing only in case is numbered too."""
+        workbook = _workbook([_obj(10, type_id=5, type_label='Server'), _obj(11, type_id=6, type_label='SERVER')])
+
+        assert workbook.sheetnames == ['Server', 'SERVER~2']
+
+    def test_long_labels_sharing_the_title_stay_within_the_limit(self) -> None:
+        """Labels alike up to Excel's limit get distinct titles, none of them longer than the limit."""
+        objects = [_obj(10 + index, type_id=5 + index, type_label=label)
+                   for index, label in enumerate([LONG_LABEL, LONG_LABEL_TWIN, LONG_LABEL])]
+
+        with warnings.catch_warnings():
+            warnings.simplefilter('error')
+            workbook = _workbook(objects)
+
+        assert workbook.sheetnames == ['A' * 31, 'A' * 29 + '~2', 'A' * 29 + '~3']
+        assert all(len(title) <= MAX_SHEET_TITLE_LENGTH for title in workbook.sheetnames)
 
     def test_multiple_objects_of_same_type_share_one_sheet(self) -> None:
         """Two objects of the same type are written as consecutive rows on one worksheet."""

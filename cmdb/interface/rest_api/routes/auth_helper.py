@@ -20,7 +20,8 @@ Holds the two login flows behind ``POST /auth/login`` (extracted from ``post_log
 complexity, behaviour unchanged): ``cloud_login`` (ServicePortal + subscription resolution) and
 ``local_login`` (the on-premise AuthModule flow), plus the shared ``generate_token_with_params`` token
 builder. Each flow keeps its own error-to-HTTP mapping; the route's outer handler only wraps the
-credential parsing.
+credential parsing. ``abort_if_external_provider_in_cloud`` is the auth-settings update's cloud rule:
+external providers are on-premise only.
 """
 from logging import Logger, getLogger
 from typing import Any, Tuple
@@ -38,6 +39,7 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.auth_module import AuthModule
+from cmdb.models.security_models.auth_settings_constants import CLOUD_EXTERNAL_PROVIDER_MSG
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.route_utils import (
     abort_if_too_large,
@@ -51,11 +53,7 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
 
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
-from cmdb.errors.provider import (
-    AuthenticationProviderNotActivated,
-    AuthenticationProviderNotFoundError,
-    AuthenticationError,
-)
+from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.security.security_errors import (
     InvalidCloudUserError,
     NoAccessTokenError,
@@ -229,11 +227,12 @@ def local_login(request_user_name: str, request_password: str) -> Response:
     Runs the on-premise (non-cloud) login flow behind ``POST /auth/login``
 
     Builds the AuthModule from the stored auth settings and delegates the credential check to it, then
-    returns a login token. Failed credentials (a provider ``AuthenticationError``) and the no-user path
-    map to 401; a provider that is not active / not found maps to 400. A user that authenticated but
-    whose account is deactivated is refused with 401 before any token is issued. The AuthModule construction is
-    intentionally outside the try, so a construction error propagates to the route's outer handler
-    rather than being mapped to a login error.
+    returns a login token. Every failed login is one 401 - ``AuthModule.login`` hands a missing user, an
+    unknown or deactivated provider and wrong credentials alike to its fallback sweep, which ends in an
+    ``AuthenticationError``, so the response never says which of them it was. A user that authenticated
+    but whose account is deactivated is refused with 401 before any token is issued. The AuthModule
+    construction is intentionally outside the try, so a construction error propagates to the route's
+    outer handler rather than being mapped to a login error.
 
     Args:
         request_user_name (str): The submitted user name
@@ -270,13 +269,33 @@ def local_login(request_user_name: str, request_password: str) -> Response:
         abort(401, 'Could not login!')
     except HTTPException as http_err:
         raise http_err
-    except AuthenticationProviderNotActivated:
-        abort(400, "The Authentication provider is not active!")
-    except AuthenticationProviderNotFoundError:
-        abort(400, "The authentication provider was not found!")
     except AuthenticationError as err:
         LOGGER.error("[local_login] AuthenticationError: %s", err)
         abort(401, "Invalid user credentials!")
     except Exception as err:  # pylint: disable=broad-exception-caught
         LOGGER.error("[local_login] Exception: %s, Type: %s", err, type(err))
         abort(500, "Could not login")
+
+
+def abort_if_external_provider_in_cloud(settings_values: dict[str, Any]) -> None:
+    """
+    Refuses, in cloud mode, an auth-settings section that activates an external provider
+
+    External providers are on-premise only: a cloud login never runs one
+    (``AuthModule.external_providers_allowed``), so storing one as active would only look like it worked.
+    The rest of the section - the token lifetime among it, which the tenant's tokens are issued with - stays
+    writable in cloud mode. On premise this does nothing
+
+    Args:
+        settings_values (dict[str, Any]): The whole auth section the update is about to store
+
+    Raises:
+        HTTPException: 400 naming every external provider the section activates, in cloud mode only
+    """
+    if not current_app.cloud_mode:
+        return
+
+    active_names: list[str] = AuthModule(settings_values).active_external_provider_names()
+
+    if active_names:
+        abort(400, CLOUD_EXTERNAL_PROVIDER_MSG.format(names=', '.join(active_names)))

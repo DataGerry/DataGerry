@@ -46,6 +46,7 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     fetch_only_active_objects,
     extract_public_ids,
     normalize_public_id_list,
+    PUBLIC_ID_LIST_NOT_A_LIST_MSG,
     update_item_from_payload,
     read_write_payload,
     abort_if_duplicate,
@@ -185,6 +186,17 @@ class TestNormalizePublicIdList:
     def test_accepts_an_empty_selection(self) -> None:
         """An empty list normalises to an empty list (the caller decides whether that is an error)."""
         assert normalize_public_id_list([]) == []
+
+    @pytest.mark.parametrize('selection, kind', [
+        ('12', 'str'), (5, 'int'), ({'7': 1}, 'dict'), (None, 'NoneType'), ((1, 2), 'tuple'),
+    ], ids=['digit-string', 'number', 'object', 'null', 'tuple'])
+    def test_a_selection_that_is_no_list_is_refused(self, selection: Any, kind: str) -> None:
+        """A string is iterable: '12' would address the ids 1 and 2 - every non-list is a 400 naming its kind"""
+        with pytest.raises(HTTPException) as exc_info:
+            normalize_public_id_list(selection)
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == PUBLIC_ID_LIST_NOT_A_LIST_MSG.format(kind=kind)
 
     @pytest.mark.parametrize(
         'value',

@@ -55,6 +55,9 @@ WRITE_PAYLOAD_NOT_AN_OBJECT_MSG: str = (
 # the ids refer to and the sorted unknown ids
 UNKNOWN_REFERENCES_MSG: str = "The following {entity_label} ID(s) do not exist: {unknown}!"
 
+# Refusal (HTTP 400) for a selection of public_ids that is not a list - a string would be read digit by digit
+PUBLIC_ID_LIST_NOT_A_LIST_MSG: str = "The public_ids have to be sent as a list, not as {kind}!"
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_file_in_request(file_name: str) -> FileStorage:
@@ -347,25 +350,30 @@ def extract_public_ids(public_ids: str) -> list[int]:
     return extracted_ids
 
 
-def normalize_public_id_list(values: list[Any]) -> list[int]:
+def normalize_public_id_list(values: Any) -> list[int]:
     """
     Normalises the public_ids of a JSON request body into a list of integers
 
     The body counterpart of `extract_public_ids`: a bulk operation may send its selection as JSON
     numbers or as strings, and both have to end up as the same positive integers. `isinstance(x, int)`
     alone is not enough - `bool` IS an `int` in Python, so a JSON `true` would silently become
-    public_id 1 and address a document the caller never named. Duplicates and ordering are preserved
-    for the caller to handle
+    public_id 1 and address a document the caller never named. The selection itself has to be a list
+    too: a string is iterable, and "12" would otherwise address the ids 1 and 2. Duplicates and ordering
+    are preserved for the caller to handle
 
     Args:
-        values (list[Any]): The raw public_ids taken from the request body
+        values (Any): The raw public_ids taken from the request body, expected to be a list
 
     Raises:
-        HTTPException: 400 naming the first value that is not a plain positive number
+        HTTPException: 400 when the selection is not a list, or naming the first value that is not a
+            plain positive number
 
     Returns:
         list[int]: The normalised public_ids, in the order they were given
     """
+    if not isinstance(values, list):
+        abort(400, PUBLIC_ID_LIST_NOT_A_LIST_MSG.format(kind=type(values).__name__))
+
     normalized_ids: list[int] = []
 
     for value in values:

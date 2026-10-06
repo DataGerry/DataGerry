@@ -401,14 +401,16 @@ class TestInsert:
         with pytest.raises(DocumentInsertError):
             mgr.insert(COLL, DB, {'name': 'x'})
 
-    def test_execution_timeout_maps_to_lock_timeout(self, mgr: MongoDatabaseManager) -> None:
-        """An ExecutionTimeout surfaces as DocumentLockTimeoutError (not re-wrapped as InsertError)."""
+    def test_execution_timeout_is_no_lock_timeout(self, mgr: MongoDatabaseManager) -> None:
+        """An insert carries no time budget: an ExecutionTimeout is a failed insert, not a 423-able lock timeout."""
         collection = _stub_collection(mgr)
         collection.insert_one.side_effect = ExecutionTimeout('slow')
         mgr.get_next_public_id = MagicMock(return_value=1)
 
-        with pytest.raises(DocumentLockTimeoutError):
+        with pytest.raises(DocumentInsertError) as exc_info:
             mgr.insert(COLL, DB, {'name': 'x'})
+
+        assert not isinstance(exc_info.value, DocumentLockTimeoutError)
 
     def test_operation_failure_lock_code_maps_to_lock_timeout(self, mgr: MongoDatabaseManager) -> None:
         """An OperationFailure carrying the lock-timeout code surfaces as DocumentLockTimeoutError."""
@@ -871,6 +873,13 @@ class TestUpdateAndDeleteErrors:
         with pytest.raises(DocumentDeleteError):
             mgr.delete_many(COLL, DB, public_id=1)
 
+    def test_find_one_and_delete_error(self, mgr: MongoDatabaseManager) -> None:
+        """A find_one_and_delete failure surfaces as DocumentDeleteError."""
+        _stub_collection(mgr).find_one_and_delete.side_effect = RuntimeError('boom')
+
+        with pytest.raises(DocumentDeleteError):
+            mgr.find_one_and_delete(COLL, DB, {'public_id': 1})
+
     def test_delete_many_raw_error(self, mgr: MongoDatabaseManager) -> None:
         """A delete_many_raw failure surfaces as DocumentDeleteError."""
         _stub_collection(mgr).delete_many.side_effect = RuntimeError('boom')
@@ -1007,6 +1016,16 @@ class TestWriteHappyPaths:
         mgr.delete(COLL, DB, {'public_id': 1})
 
         collection.delete_one.assert_called_once()
+
+    @pytest.mark.parametrize('deleted', [{'public_id': 1}, None], ids=['deleted', 'nothing-matched'])
+    def test_find_one_and_delete_answers_the_deleted_document(self, mgr: MongoDatabaseManager, deleted) -> None:
+        """One atomic call on the collection, `_id` left out, its answer passed through."""
+        collection = _stub_collection(mgr)
+        collection.find_one_and_delete.return_value = deleted
+
+        assert mgr.find_one_and_delete(COLL, DB, {'public_id': 1}) == deleted
+        collection.find_one_and_delete.assert_called_once_with({'public_id': 1}, projection={'_id': 0})
+        mgr.get_collection.assert_called_once_with(COLL, DB)
 
     def test_delete_many_delegates(self, mgr: MongoDatabaseManager) -> None:
         """delete_many calls delete_many on the collection."""

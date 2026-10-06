@@ -73,10 +73,15 @@ def _make_object(fields: list[dict[str, Any]], special_type: Any = None, public_
     )
 
 
+# The type the stand-in render result names - what a log entry built from it is stamped with
+RENDERED_TYPE_ID: int = 31
+
+
 def _rendered(object_id: int = 5, version: str = '1.0.1') -> MagicMock:
     """A RenderResult stand-in carrying the object_information a log entry reads."""
     rendered = MagicMock(spec=RenderResult)
     rendered.object_information = {'object_id': object_id, 'version': version}
+    rendered.type_information = {'type_id': RENDERED_TYPE_ID}
 
     return rendered
 
@@ -223,7 +228,7 @@ class TestBuildObjectLogData:
     """The entry every object write path stores."""
 
     def test_builds_the_entry_from_the_render(self) -> None:
-        """The user, the comment, the version and the JSON-encoded render"""
+        """The user, the comment, the version, the JSON-encoded render and the type the render names"""
         user = MagicMock()
         user.get_public_id.return_value = 1
         user.get_display_name.return_value = 'admin'
@@ -233,7 +238,7 @@ class TestBuildObjectLogData:
 
         assert entry == {
             'object_id': 5, 'version': '1.0.1', 'user_id': 1, 'user_name': 'admin', 'comment': 'note',
-            'render_state': b'{}', 'changes': {'old': 1, 'new': 2},
+            'render_state': b'{}', 'type_id': RENDERED_TYPE_ID, 'changes': {'old': 1, 'new': 2},
         }
 
     def test_an_action_without_changes_stores_no_changes_key(self) -> None:
@@ -422,8 +427,9 @@ class TestEmitObjectStateChangeEvents:
         before, after = self._objects()
         logs_manager = MagicMock()
 
-        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook:
-            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, True)
+        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook, \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, _rendered(), True)
 
         webhook.assert_called_once()
         logs_manager.insert_log.assert_called_once()
@@ -434,8 +440,9 @@ class TestEmitObjectStateChangeEvents:
         before, after = self._objects()
         logs_manager = MagicMock()
 
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')):
-            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, False)
+        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')), \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, _rendered(), False)
 
         logs_manager.insert_log.assert_called_once()
 
@@ -506,8 +513,7 @@ class TestHandleCreateObjectLog:
     def test_writes_the_log_entry(self) -> None:
         """The rendered object's id and version land on the persisted log document."""
         logs_manager = MagicMock()
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
+        rendered = _rendered()
 
         target = MagicMock()
         target.get_public_id.return_value = 5
@@ -524,8 +530,7 @@ class TestHandleCreateObjectLog:
     def test_a_delete_is_labelled_as_one(self) -> None:
         """The DELETE action gets its own comment."""
         logs_manager = MagicMock()
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
+        rendered = _rendered()
 
         with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
@@ -557,8 +562,7 @@ class TestHandleCreateObjectLog:
         """A logging problem must never fail the surrounding object operation - it is reported instead."""
         logs_manager = MagicMock()
         logs_manager.insert_log.side_effect = RuntimeError('logs collection down')
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
+        rendered = _rendered()
 
         with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
@@ -710,7 +714,7 @@ class TestEmitObjectStateChangeEventsErrorArm:
         with patch(f'{HELPER_PATH}.send_webhook_event'), \
              patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={}), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
-            emit_object_state_change_events(MagicMock(), logs_manager, before, MagicMock(), {}, True)
+            emit_object_state_change_events(MagicMock(), logs_manager, before, MagicMock(), _rendered(), True)
 
         logs_manager.insert_log.assert_called_once()
 

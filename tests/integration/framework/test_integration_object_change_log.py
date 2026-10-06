@@ -94,6 +94,19 @@ def test_a_written_entry_is_stored_and_findable(
     assert stored[ObjectLogKey.CHANGES.value] == {'old': 'w', 'new': 'x'}
 
 
+def test_the_stored_entry_is_stamped_with_the_rendered_type(
+        logs_manager: LogsManager, database_manager: MongoDatabaseManager, database_name: str,
+) -> None:
+    """The type the log reads are judged by is stored on the entry itself, readable by a query"""
+    write_object_log(logs_manager, LogAction.CREATE, build_object_log_data(_user(), OBJECT_ID, VERSION, 'c', _render()))
+
+    stored = database_manager.get_collection(CmdbMetaLog.COLLECTION, database_name).find_one(
+        {ObjectLogKey.OBJECT_ID.value: OBJECT_ID, ObjectLogKey.TYPE_ID.value: TYPE_ID},
+    )
+
+    assert stored is not None
+
+
 def test_the_stored_render_decodes_to_the_rendered_shape(
         logs_manager: LogsManager, database_manager: MongoDatabaseManager, database_name: str,
 ) -> None:

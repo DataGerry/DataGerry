@@ -28,7 +28,6 @@ from cmdb.framework.exporter.format.base_exporter_format import (
     TYPE_INFO_LABEL_KEY,
     OBJECT_INFO_ID_KEY,
 )
-from cmdb.framework.exporter.exporter_constants import ExporterMetadataKey
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -59,8 +58,9 @@ class JsonExportFormat(BaseExporterFormat):
         """
         Exports a list of RenderResult objects as a JSON-formatted string
 
-        In the RENDER view a supplied `metadata` override selects the header and columns; otherwise the
-        default header and every field are emitted. An empty object list yields `[]`.
+        In the RENDER view a supplied `metadata` override selects the header and columns, a key it leaves
+        out keeping the default; otherwise the default header and every field are emitted. An empty object
+        list yields `[]`.
 
         Args:
             data (list[RenderResult]): The objects to export
@@ -70,13 +70,7 @@ class JsonExportFormat(BaseExporterFormat):
             str: A JSON string of the exported objects (identity header, fields and MDS)
         """
         view, metadata = BaseExporterFormat.resolve_export_view(args)
-
-        header = list(DEFAULT_HEADER)
-        selected_columns = None
-
-        if metadata:
-            header = metadata.get(ExporterMetadataKey.HEADER.value, header)
-            selected_columns = metadata.get(ExporterMetadataKey.COLUMNS.value, [])
+        header, selected_columns = BaseExporterFormat.resolve_metadata_selection(metadata, DEFAULT_HEADER)
 
         output = []
 

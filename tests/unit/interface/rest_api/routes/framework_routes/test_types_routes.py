@@ -45,6 +45,7 @@ from cmdb.errors.manager.types_manager import (
     TypesManagerUpdateError,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import (
+    TYPE_WRITE_SCHEMA,
     insert_cmdb_type,
     get_cmdb_types,
     get_cmdb_types_overview,
@@ -908,3 +909,12 @@ class TestDeleteCmdbType:
             self._call(flask_app)
 
         assert exc_info.value.code == HTTP_SERVER_ERROR
+
+
+# -------------------------------------------------- the type write schema ------------------------------------------- #
+
+def test_the_write_schema_leaves_out_what_the_server_owns() -> None:
+    """The identity and the alignment marker are never read from a request body"""
+    assert 'public_id' not in TYPE_WRITE_SCHEMA
+    assert 'alignment_pending' not in TYPE_WRITE_SCHEMA
+    assert 'label' in TYPE_WRITE_SCHEMA

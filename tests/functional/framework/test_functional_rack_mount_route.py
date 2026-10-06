@@ -44,6 +44,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField, RackSection
 from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.framework.rack.rack_constants import RackMountLimits
 from cmdb.security.license.license_constants import LicenseFeature
 
 from tests.utils.update_response import assert_body_public_id_cannot_move
@@ -560,6 +561,122 @@ class TestUpdateMount:
         )
 
         assert response.get_json()['result']['object_id'] == OBJECT_ID
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         ordered-area positions                                                       #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+# Above the cap a client may choose, and past the 64-bit integer the database stores
+ABOVE_MAX_POSITION: int = RackMountLimits.MAX_POSITION + 1
+OVER_INT64_POSITION: int = 10**20
+SPREAD_POSITION: int = 5000
+
+
+class TestOrderedAreaPositions:
+    """
+    A side list and the unassigned bucket are ordered by `position`
+
+    A client sets it to reorder; a move into another list without one appends; an index past the cap is
+    refused, so one stored value can never stop the next append
+    """
+
+    def _patch(self, rest_api, mount_id: int, **body: Any):
+        """PATCHes a mount of the rack"""
+        return rest_api.patch(f'{ROUTE_URL}/{RACK_ID}/mounts/{mount_id}', json=body)
+
+    def _order(self, rest_api, area: RackArea) -> list[int]:
+        """The object ids of one list, in the order the overview draws them"""
+        overview = rest_api.get(f'{ROUTE_URL}/{RACK_ID}/overview').get_json()
+
+        return [row['object_id'] for row in overview['areas'][area.value]]
+
+    @pytest.mark.parametrize(('source', 'target'), [
+        (RackArea.LEFT, RackArea.RIGHT),
+        (RackArea.RIGHT, RackArea.UNASSIGNED),
+        (RackArea.UNASSIGNED, RackArea.LEFT),
+    ], ids=['left-to-right', 'side-to-tray', 'tray-to-side'])
+    def test_a_move_without_a_position_appends(self, rest_api, source: RackArea, target: RackArea) -> None:
+        """
+        The moved row lands behind the row already there, not at the index it held
+
+        Both rows start at index 0 of their own list, so keeping the old index would tie them, and the
+        older mount id would win the tie and draw the moved row FIRST
+        """
+        moved = _mount_id(_mount(rest_api, area=source.value))
+        assert _mount(rest_api, object_id=OTHER_OBJECT_ID, area=target.value).status_code == HTTPStatus.CREATED
+
+        response = self._patch(rest_api, moved, area=target.value)
+
+        assert response.status_code == HTTPStatus.ACCEPTED, response.get_json()
+        assert response.get_json()['result']['position'] == 1
+        assert self._order(rest_api, target) == [OTHER_OBJECT_ID, OBJECT_ID]
+
+    def test_a_move_after_a_spread_index_appends_past_it(self, rest_api) -> None:
+        """The append is one past the highest index in the new list, whatever the old one was"""
+        moved = _mount_id(_mount(rest_api, area=RackArea.LEFT.value, position=SPREAD_POSITION + 1))
+        _mount(rest_api, object_id=OTHER_OBJECT_ID, area=RackArea.RIGHT.value, position=SPREAD_POSITION)
+
+        response = self._patch(rest_api, moved, area=RackArea.RIGHT.value)
+
+        assert response.get_json()['result']['position'] == SPREAD_POSITION + 1
+
+    def test_a_move_that_names_a_position_takes_it(self, rest_api) -> None:
+        """A chosen index in the new list is a reorder, honoured as given"""
+        moved = _mount_id(_mount(rest_api, area=RackArea.LEFT.value, position=3))
+        _mount(rest_api, object_id=OTHER_OBJECT_ID, area=RackArea.RIGHT.value, position=1)
+
+        response = self._patch(rest_api, moved, area=RackArea.RIGHT.value, position=0)
+
+        assert response.get_json()['result']['position'] == 0
+        assert self._order(rest_api, RackArea.RIGHT) == [OBJECT_ID, OTHER_OBJECT_ID]
+
+    def test_echoing_the_area_keeps_the_index(self, rest_api) -> None:
+        """Re-saving a row in its own list is not a move"""
+        mount_id = _mount_id(_mount(rest_api, area=RackArea.LEFT.value, position=SPREAD_POSITION))
+
+        response = self._patch(rest_api, mount_id, area=RackArea.LEFT.value, label=None)
+
+        assert response.get_json()['result']['position'] == SPREAD_POSITION
+
+    def test_the_highest_allowed_index_still_lets_the_next_row_append(self, rest_api) -> None:
+        """The cap leaves room for one past it, so the list stays writable"""
+        created = _mount(rest_api, area=RackArea.LEFT.value, position=RackMountLimits.MAX_POSITION)
+        assert created.status_code == HTTPStatus.CREATED
+
+        appended = _mount(rest_api, object_id=OTHER_OBJECT_ID, area=RackArea.LEFT.value)
+
+        assert appended.status_code == HTTPStatus.CREATED, appended.get_json()
+        assert appended.get_json()['raw']['position'] == RackMountLimits.MAX_POSITION + 1
+
+    @pytest.mark.parametrize('position', [ABOVE_MAX_POSITION, OVER_INT64_POSITION, -1], ids=['cap+1', 'int64', '-1'])
+    def test_an_index_out_of_range_is_refused_on_create(self, rest_api, position: int) -> None:
+        """Refused with the rule, before anything is written"""
+        response = _mount(rest_api, area=RackArea.LEFT.value, position=position)
+        bounds = f'from {RackMountLimits.MIN_POSITION} to {RackMountLimits.MAX_POSITION}'
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert bounds in response.get_json()['message']
+        assert rest_api.get(f'{ROUTE_URL}/{RACK_ID}/mounts/').get_json() == []
+
+    @pytest.mark.parametrize('position', [ABOVE_MAX_POSITION, OVER_INT64_POSITION], ids=['cap+1', 'int64'])
+    def test_an_index_above_the_cap_is_refused_on_update(self, rest_api, position: int) -> None:
+        """The same rule, and the stored index is left alone"""
+        mount_id = _mount_id(_mount(rest_api, area=RackArea.LEFT.value))
+
+        response = self._patch(rest_api, mount_id, position=position)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'position must be a whole number' in response.get_json()['message']
+        assert rest_api.get(f'{ROUTE_URL}/{RACK_ID}/mounts/').get_json()[0]['position'] == 0
+
+    def test_the_dry_run_refuses_an_index_above_the_cap(self, rest_api) -> None:
+        """The pre-check runs the same rule"""
+        response = rest_api.post(f'{ROUTE_URL}/{RACK_ID}/mounts/validate',
+                                 json={'object_id': OBJECT_ID, 'area': RackArea.LEFT.value,
+                                       'position': ABOVE_MAX_POSITION})
+
+        assert response.get_json()['valid'] is False
+        assert 'position must be a whole number' in response.get_json()['errors'][0]['message']
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              remove from rack                                                        #

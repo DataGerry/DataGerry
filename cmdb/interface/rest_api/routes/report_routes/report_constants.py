@@ -54,6 +54,7 @@ class ReportKey(BaseStrEnum):
     Use these members instead of bare string literals when reading the report request payload or
     building a report document so a typo becomes an AttributeError instead of a silently missing key
     """
+    PUBLIC_ID = 'public_id'
     REPORT_CATEGORY_ID = 'report_category_id'
     NAME = 'name'
     TYPE_ID = 'type_id'
@@ -124,6 +125,16 @@ PREVIEW_LIMIT: int = 2
 REPORT_NOT_FOUND_MSG: str = "The Report with ID:{public_id} was not found!"
 REPORT_RETRIEVE_FAILED_MSG: str = "Failed to retrieve the Report with ID: {public_id} from the database!"
 REPORT_TYPE_MISSING_MSG: str = "The Report's Type with ID:{type_id} was not found!"
+
+# Refusals (HTTP 403) of a report whose CmdbType the caller may not read: a stored report (its definition names the
+# type's fields and the values its conditions filter on, and running it reads the type's objects), and a create /
+# update that would build a report over such a type
+REPORT_TYPE_ACCESS_DENIED_MSG: str = (
+    "The Report with ID:{public_id} is built over a Type whose Objects you may not read!"
+)
+REPORT_TARGET_TYPE_ACCESS_DENIED_MSG: str = (
+    "A Report can only be built over a Type whose Objects you may read - not over the Type with ID:{type_id}!"
+)
 REPORT_CATEGORY_MISSING_MSG: str = "The Report's Category with ID:{report_category_id} was not found!"
 REPORT_QUERY_CORRUPT_MSG: str = (
     "The stored query of the Report with ID: {public_id} could not be evaluated!"

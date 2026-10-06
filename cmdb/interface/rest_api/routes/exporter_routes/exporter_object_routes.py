@@ -47,7 +47,12 @@ from cmdb.framework.exporter.exporter_constants import EXPORT_FORMAT_MODULE_PREF
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import resolve_export_format
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import ExporterRight
@@ -72,14 +77,15 @@ exporter_blueprint = APIBlueprint('exporter', __name__)
 @exporter_blueprint.protect(auth=True, right=ExporterRight.OBJECT.value)
 def get_export_file_types(request_user: CmdbUser) -> Response:
     """
-    Endpoint to retrieve the supported export file types/extensions.
+    Endpoint to retrieve the catalogue of the export formats a user can pick
 
-    This route returns a list of the file types that the system can export.
-    The file types are returned in a format that is suitable for use in the
-    application, based on the implementation in the `SupportedExporterExtension` class.
+    One entry per format, with the metadata the export menus draw it with (``ExporterExtensionKey``). Not in it:
+    the view, which the user chooses per export (``?view=native|render`` on ``GET /exporter/``) and every format
+    supports, and ZIP, which is a wrapper chosen with ``zip=true`` around a catalogue format - see
+    ``SupportedExporterExtension``
 
     Returns:
-        DefaultResponse: The response object containing the supported export file types
+        DefaultResponse: The catalogue - one metadata dict per pickable export format
     """
     try:
         return DefaultResponse(SupportedExporterExtension().convert_to()).make_response()
@@ -112,8 +118,9 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
     Raises:
         400 Bad Request: If the requested export format is not supported, if the objects cannot be
             retrieved, or if the export cannot be produced as asked for - a CSV of a selection
-            spanning several types, an unusable `metadata` override, or a Type whose field names
-            would collide in a tabular column (every ExporterError)
+            spanning several types, an unusable `metadata` override (an XML header entry that is no
+            element name among them), a value an XML document cannot carry, or a Type whose field
+            names would collide in a tabular column (every ExporterError)
         403 Forbidden: If the user is not permitted to read the objects being exported
         500 Internal Server Error: If the resolved export format module cannot be imported, or on any
             other unexpected error
@@ -138,11 +145,12 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
         LOGGER.error("[export_objects] AccessDeniedError: %s", err)
         abort(403, "No permission to export the Objects!")
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[export_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Objects to export!")
     except ExporterError as err:
         # The export cannot be produced as asked for (mixed types in a CSV, an unusable metadata
-        # override, colliding column names) - the request is at fault, not the server
+        # override, a value XML cannot carry, colliding column names)
         LOGGER.error("[export_objects] ExporterError: %s", err)
         abort(400, str(err))
     except ModuleNotFoundError as err:

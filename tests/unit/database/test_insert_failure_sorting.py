@@ -69,7 +69,8 @@ PUBLIC_ID_DUPLICATE_DETAILS: dict[str, Any] = {'keyPattern': {'public_id': 1}, '
 
 SORTED_FAILURES: list[Any] = [
     pytest.param(DuplicateKeyError('dup', details=DUPLICATE_DETAILS), DocumentInsertDuplicateKeyError, id='duplicate'),
-    pytest.param(ExecutionTimeout('slow'), DocumentLockTimeoutError, id='time-limit'),
+    # An insert carries no time budget: a time-limit error is no lock timeout, just a failed insert
+    pytest.param(ExecutionTimeout('slow'), DocumentInsertError, id='time-limit'),
     pytest.param(OperationFailure('locked', code=LOCK_TIMEOUT_CODE), DocumentLockTimeoutError, id='lock-timeout'),
     pytest.param(DocumentTooLarge('too large'), DocumentInsertTooLargeError, id='too-large-driver'),
     pytest.param(WriteError('too large', code=BSON_OBJECT_TOO_LARGE), DocumentInsertTooLargeError,

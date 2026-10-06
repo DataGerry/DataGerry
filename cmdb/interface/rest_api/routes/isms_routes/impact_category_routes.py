@@ -45,6 +45,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IMPACT_CATEGORY_LABEL,
+    MAX_ISMS_BULK_UPDATE_ITEMS,
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -225,24 +226,29 @@ def update_isms_impact_category(public_id: int, data: dict[str, Any], request_us
 @handle_route_errors("while updating multiple ImpactCategories")
 def update_multiple_isms_impact_categories(request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT`/`PATCH` route to update multiple IsmsImpactCategory records.
+    HTTP `PUT`/`PATCH` route to update multiple IsmsImpactCategories at once - the frontend's reorder
+
+    The body is a list of whole IsmsImpactCategories, each addressed by its own `public_id` and judged by
+    the single update's write schema. All or nothing: an invalid item, a repeated or unknown id, or more
+    than MAX_ISMS_BULK_UPDATE_ITEMS items refuse the whole request with one 400 naming every reason, before
+    anything is written
 
     Args:
-        data (list of IsmsImpactCategory.SCHEMA): List of new IsmsImpactCategory data
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        DefaultResponse: Per-item summary of successes and failures
+        DefaultResponse: One `{public_id, status: 'success'}` entry per item
     """
     impact_category_manager: ImpactCategoryManager = ManagerProvider.get_manager(ManagerType.IMPACT_CATEGORY,
                                                                                  request_user)
 
-    results = update_multiple_items(
+    results: list[dict[str, Any]] = update_multiple_items(
         impact_category_manager,
         IsmsImpactCategory,
         request.get_json(silent=True),
-        "ImpactCategory",
-        "update_multiple_isms_impact_categories",
+        build_write_schema(IsmsImpactCategory.SCHEMA),
+        IMPACT_CATEGORY_LABEL,
+        MAX_ISMS_BULK_UPDATE_ITEMS,
     )
 
     return DefaultResponse(results).make_response()

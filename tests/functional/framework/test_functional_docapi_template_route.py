@@ -202,6 +202,56 @@ class TestUpdate:
         assert response.status_code == HTTPStatus.NOT_FOUND
 
 
+class TestTheModelOnCmdbDao:
+    """What the move onto CmdbDAO changes on the wire: an id sent as text, a document without `active`"""
+
+    def test_an_update_naming_its_id_as_text_is_refused(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The update schema wants the id as an integer - the model's own conversion is not reached"""
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        try:
+            payload = {**_template_payload(TPL_ID_FOR_UPDATE), 'public_id': str(TPL_ID_FOR_UPDATE),
+                       'template_data': UPDATED_TEMPLATE_DATA}
+
+            response = rest_api.put(f'{CRUD_URL}/', json=payload)
+
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert 'public_id' in response.get_json()['message']
+            assert collection.find_one({'public_id': TPL_ID_FOR_UPDATE})['template_data'] != UPDATED_TEMPLATE_DATA
+        finally:
+            collection.delete_one({'public_id': TPL_ID_FOR_UPDATE})
+
+    def test_a_template_stored_without_active_reads_as_active(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """It answered `active: null`, which the builder's checkbox showed - and saved - as false"""
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        collection.insert_one({'public_id': TPL_ID_FOR_GET, 'name': f'tpl-{TPL_ID_FOR_GET}', 'template_data': '<p/>'})
+        try:
+            response = rest_api.get(f'{CRUD_URL}/{TPL_ID_FOR_GET}')
+
+            assert response.status_code == HTTPStatus.OK
+            assert response.get_json()['active'] is True
+        finally:
+            collection.delete_one({'public_id': TPL_ID_FOR_GET})
+
+    def test_an_undeclared_body_key_is_not_stored(
+        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """The routes build the template from the raw body; only the declared keys reach the document"""
+        _insert_template_doc(database_manager, database_name, TPL_ID_FOR_UPDATE)
+        collection = database_manager.get_collection(DocapiTemplate.COLLECTION, database_name)
+        try:
+            response = rest_api.put(f'{CRUD_URL}/', json={**_template_payload(TPL_ID_FOR_UPDATE), 'evil': 1})
+
+            assert response.status_code == HTTPStatus.OK
+            assert 'evil' not in collection.find_one({'public_id': TPL_ID_FOR_UPDATE})
+        finally:
+            collection.delete_one({'public_id': TPL_ID_FOR_UPDATE})
+
+
 class TestDelete:
     """DELETE /docapi/template/<id>."""
 

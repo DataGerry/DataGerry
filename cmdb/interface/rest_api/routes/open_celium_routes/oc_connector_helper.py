@@ -16,9 +16,9 @@
 """
 Helper functions for the OpenCelium connector REST routes
 
-These consolidate the cache-first access checks (cache preferred, DG Service Portal fallback) that the
-cloud-mode connector handlers each performed inline. A resolved cached-user dict may be passed in to
-avoid re-reading (and potentially re-seeding) the cache within a single request.
+These consolidate the cache-first access checks that the cloud-mode connector handlers each performed inline. The
+cache entry is read through ``read_or_seed_cached_user`` (seeded from the DG Service Portal once on a miss); a resolved
+cached-user dict may be passed in to avoid re-reading it within a single request.
 
 `build_connector_manager` is the same extraction the template and execution-log routes have: the
 construction was written out at thirteen sites in this package, and on a hosted installation it is the
@@ -34,6 +34,10 @@ from cmdb.manager.open_celium_managers.oc_connector_manager import OcConnectorMa
 from cmdb.open_celium import CachedOcIdType
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_subscription_helper import (
+    oc_id_in_subscription,
+    read_or_seed_cached_user,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -66,8 +70,9 @@ def connector_in_subscription(
     """
     Checks whether an OpenCelium connector belongs to the requesting user's subscription
 
-    Prefers the local user cache and falls back to the DG Service Portal only when the user is not
-    cached. Pass an already-resolved `cached_user` to reuse it instead of re-reading the cache.
+    The connector case of ``oc_id_in_subscription``: the user's cache entry is read (seeded from the DG Service
+    Portal once on a miss) and the id looked up in it. Pass an already-resolved `cached_user` to reuse it instead
+    of re-reading the cache.
 
     Args:
         request_user (CmdbUser): The user making the request (its email + database scope the check)
@@ -79,21 +84,8 @@ def connector_in_subscription(
     Returns:
         bool: True if the connector belongs to the user's subscription, otherwise False
     """
-    if cached_user is None:
-        cached_user = cached_user_manager.get_cached_user(request_user.email)
-
-    if cached_user:
-        return cached_user_manager.oc_id_exists(
-            cached_user,
-            request_user.database,
-            CachedOcIdType.CONNECTORS,
-            connector_id,
-        )
-
-    return dg_sp_manager.check_connector_in_sub(
-        connector_id,
-        request_user.email,
-        request_user.database,
+    return oc_id_in_subscription(
+        request_user, CachedOcIdType.CONNECTORS, connector_id, cached_user_manager, dg_sp_manager, cached_user,
     )
 
 
@@ -120,7 +112,7 @@ def validate_master_password(
         bool: True if the master password is valid for the user's subscription, otherwise False
     """
     if cached_user is None:
-        cached_user = cached_user_manager.get_cached_user(request_user.email)
+        cached_user = read_or_seed_cached_user(cached_user_manager, dg_sp_manager, request_user.email)
 
     if cached_user:
         return cached_user_manager.check_cached_master_password(
@@ -154,7 +146,7 @@ def get_accessible_connector_ids(
     Returns:
         list[int] | None: The accessible connector ids, or None/empty when the user has none
     """
-    cached_user = cached_user_manager.get_cached_user(request_user.email)
+    cached_user = read_or_seed_cached_user(cached_user_manager, dg_sp_manager, request_user.email)
 
     if cached_user:
         return cached_user_manager.get_oc_ids(

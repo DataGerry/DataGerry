@@ -21,15 +21,17 @@ of the location grafters is covered by the functional smoke test
 ``test_with_locations_flips_location_semantics``
 """
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 from cmdb.framework.ci_explorer.locations import (
+    LOCATION_CHILDREN_SORT,
     ROOT_LOCATION_SENTINEL_PARENT,
     collect_location_children_objects,
     collect_location_parent_object,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+MODULE_PATH: str = 'cmdb.framework.ci_explorer.locations'
 TARGET_LOCATION_ID: int = 1001
 PARENT_LOCATION_ID: int = 1000
 TARGET_TYPE_ID: int = 10
@@ -255,3 +257,63 @@ def test_collect_location_children_objects_skips_cap_when_item_limit_inactive() 
     )
 
     assert len(result) == 3
+
+
+def _children_managers(child_ids: list[int]) -> tuple[MagicMock, MagicMock]:
+    """A locations manager naming the child object ids and an objects manager answering them"""
+    locations_manager = MagicMock()
+    locations_manager.get_child_object_ids.return_value = child_ids
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = [{'public_id': public_id, 'type_id': TARGET_TYPE_ID} for public_id in child_ids]
+
+    return locations_manager, objects_manager
+
+
+def test_collect_location_children_objects_reads_in_public_id_order() -> None:
+    """The cap keeps the same children on every request - natural order would not"""
+    locations_manager, objects_manager = _children_managers([3, 1, 2])
+
+    collect_location_children_objects(
+        _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+        locations_manager=locations_manager, objects_manager=objects_manager,
+    )
+
+    assert objects_manager.find.call_args.kwargs['sort'] == LOCATION_CHILDREN_SORT == [('public_id', 1)]
+
+
+def test_collect_location_children_objects_sorts_also_without_a_cap() -> None:
+    """One read path, sorted either way"""
+    locations_manager, objects_manager = _children_managers([3, 1])
+
+    collect_location_children_objects(
+        _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=0, item_limit_active=False,
+        locations_manager=locations_manager, objects_manager=objects_manager,
+    )
+
+    assert objects_manager.find.call_args.kwargs['sort'] == LOCATION_CHILDREN_SORT
+
+
+def test_collect_location_children_objects_logs_a_truncation() -> None:
+    """The payload has no field that could say the graph is partial, so the log does"""
+    locations_manager, objects_manager = _children_managers([1, 2, 3])
+
+    with patch(f'{MODULE_PATH}.LOGGER') as mock_logger:
+        collect_location_children_objects(
+            _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+            locations_manager=locations_manager, objects_manager=objects_manager,
+        )
+
+    assert any('truncated' in str(call) for call in mock_logger.warning.call_args_list)
+
+
+def test_collect_location_children_objects_logs_nothing_when_all_fit() -> None:
+    """A complete graph is not reported as truncated"""
+    locations_manager, objects_manager = _children_managers([1, 2])
+
+    with patch(f'{MODULE_PATH}.LOGGER') as mock_logger:
+        collect_location_children_objects(
+            _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+            locations_manager=locations_manager, objects_manager=objects_manager,
+        )
+
+    mock_logger.warning.assert_not_called()

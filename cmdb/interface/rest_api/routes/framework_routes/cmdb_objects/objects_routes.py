@@ -72,6 +72,7 @@ from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
     abort_if_too_large,
     handle_route_errors,
     insert_request_user,
@@ -347,6 +348,7 @@ def get_cmdb_objects(params: CollectionParameters, request_user: CmdbUser) -> Re
 
         return api_response.make_response()
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_objects] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
 
@@ -525,6 +527,7 @@ def group_cmdb_objects_by_type_id(value: str, request_user: CmdbUser) -> Respons
         LOGGER.error("[group_cmdb_objects_by_type_id] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the Type of an Object from the database!")
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[group_cmdb_objects_by_type_id] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
     except Exception as err:
@@ -705,6 +708,7 @@ def get_cmdb_object_references(public_id: int, params: CollectionParameters, req
         LOGGER.error("[get_cmdb_object_references] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve an Object from the database!")
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_references] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Objects from the database!")
     except AccessDeniedError as err:

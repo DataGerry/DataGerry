@@ -35,6 +35,7 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.port_connections_manager import (
     PortConnectionsManagerDeleteError,
     PortConnectionsManagerGetError,
@@ -679,6 +680,23 @@ class TestBulkActionErrorMapping:
         monkeypatch.setattr(
             PortConnectionsManager, 'find', _raiser(PortConnectionsManagerGetError('boom')),
         )
+
+        response = rest_api.delete(
+            f'{CONNECTIONS_URL}/object/{PANEL_OBJECT_ID}/bulk', json=self.RESOLVE_BODY,
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    @pytest.mark.parametrize('manager, method, error', [
+        (PortConnectionsManager, 'delete_many', BaseManagerDeleteError('boom')),
+        (PortConnectionsManager, 'find', BaseManagerGetError('boom')),
+        (PortsManager, 'get_ports_of_object', PortsManagerGetError('boom')),
+    ], ids=['delete-many', 'connection-read', 'port-read'])
+    def test_what_the_resolve_really_raises_is_a_400(
+        self, rest_api, monkeypatch, manager: type, method: str, error: Exception,
+    ) -> None:
+        """The errors find, delete_many and the port read actually raise - not only the manager-named ones"""
+        monkeypatch.setattr(manager, method, _raiser(error))
 
         response = rest_api.delete(
             f'{CONNECTIONS_URL}/object/{PANEL_OBJECT_ID}/bulk', json=self.RESOLVE_BODY,

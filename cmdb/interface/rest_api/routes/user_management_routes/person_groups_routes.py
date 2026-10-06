@@ -62,7 +62,13 @@ from cmdb.interface.rest_api.routes.user_management_routes.person_constants impo
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -186,6 +192,7 @@ def get_cmdb_person_groups(params: CollectionParameters, request_user: CmdbUser)
 
         return api_response.make_response()
     except PersonGroupsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_person_groups] PersonGroupsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve PersonGroups from the database!")
     except Exception as err:

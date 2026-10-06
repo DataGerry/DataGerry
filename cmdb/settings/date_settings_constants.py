@@ -23,12 +23,19 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'DATE_FORMAT_MAX_LENGTH',
     'DATE_SETTINGS_SECTION',
     'DateSettingsKey',
+    'TIMEZONE_MAX_LENGTH',
 ]
 
 # The '_id' of the settings document holding the date settings
 DATE_SETTINGS_SECTION: str = 'date'
+
+# Upper bounds of the two stored values. Generous for a moment.js format string; the longest IANA zone
+# name is 32 characters
+DATE_FORMAT_MAX_LENGTH: int = 128
+TIMEZONE_MAX_LENGTH: int = 64
 
 
 class DateSettingsKey(BaseStrEnum):

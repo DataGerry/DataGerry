@@ -38,6 +38,7 @@ __all__: list[str] = [
     'ObjectRelationTabParam',
     'TabInstancesKey',
     'BulkDeleteKey',
+    'MAX_BULK_DELETE_OBJECT_RELATIONS',
 ]
 
 # Page size used when the relation-tab instances route is called without an explicit 'limit'
@@ -142,6 +143,25 @@ class TabInstancesKey(BaseStrEnum):
     COUNT = 'count'
     RESULTS = 'results'
     COUNTERPART = 'counterpart'
+
+
+# Upper bound of one bulk delete's selection. Each id is its own atomic read-and-delete and its own history
+# entry, so the selection is bounded like the port bulk routes are; the frontend sends the rows a user ticked
+MAX_BULK_DELETE_OBJECT_RELATIONS: int = 5000
+
+# Refusals of the ObjectRelation bulk delete: a body that is no object, a selection that is missing, too large or
+# matches nothing (HTTP 400), and a delete that failed part-way, saying how many were deleted before it did
+OBJECT_RELATION_BULK_BODY_NOT_AN_OBJECT_MESSAGE: str = (
+    "The body of a bulk delete must be a JSON object carrying '{key}'!"
+)
+OBJECT_RELATION_BULK_NO_IDS_MESSAGE: str = "No public_ids provided of ObjectRelations which should be deleted!"
+OBJECT_RELATION_BULK_TOO_MANY_MESSAGE: str = (
+    "At most {limit} ObjectRelations can be deleted at once, {count} were requested!"
+)
+OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE: str = "No ObjectRelations exist with these IDs!"
+OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE: str = (
+    "Failed to delete the ObjectRelations! {deleted} of them were deleted before the failure."
+)
 
 
 class BulkDeleteKey(BaseStrEnum):

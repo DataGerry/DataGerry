@@ -39,6 +39,7 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_connector_helper impor
     validate_master_password,
     get_accessible_connector_ids,
 )
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_subscription_helper import read_or_seed_cached_user
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey, MASTER_PW_HEADER
 
 from cmdb.errors.open_celium.connector import (
@@ -181,7 +182,7 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
             dg_sp_manager = DgServicePortalManager()
             cached_user_manager = get_cached_user_manager()
 
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
+            cached_user = read_or_seed_cached_user(cached_user_manager, dg_sp_manager, request_user.email)
             pw_valid = validate_master_password(
                 request_user, provided_pw, cached_user_manager, dg_sp_manager, cached_user
             )
@@ -282,7 +283,7 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
             dg_sp_manager = DgServicePortalManager()
             cached_user_manager = get_cached_user_manager()
 
-            cached_user = cached_user_manager.get_cached_user(request_user.email)
+            cached_user = read_or_seed_cached_user(cached_user_manager, dg_sp_manager, request_user.email)
 
             if not connector_in_subscription(
                 request_user, connector_id, cached_user_manager, dg_sp_manager, cached_user
@@ -753,7 +754,7 @@ def get_internal_oc_connector(request_user: CmdbUser) -> Response:
                 cached_user_manager = get_cached_user_manager()
 
                 # Resolve the cached user once and reuse it for the id check below (avoids a 2nd portal seed)
-                cached_user = cached_user_manager.get_cached_user(request_user.email)
+                cached_user = read_or_seed_cached_user(cached_user_manager, dg_sp_manager, request_user.email)
                 pw_valid = validate_master_password(
                     request_user, provided_pw, cached_user_manager, dg_sp_manager, cached_user
                 )

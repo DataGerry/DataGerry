@@ -19,13 +19,21 @@ Unit tests for cmdb.framework.docapi.docapi_template.docapi_template.DocapiTempl
 Pure tests (no app context, no database). Covers from_data / to_json (round-trip and defaults), the
 DocapiTemplateType default, the string/dict getters (present and None branches) and get_public_id's
 NoPublicIDError guard.
+
+Also the CmdbDAO contract the model now shares: the shared from_data / to_json driven by DocapiTemplateKey
+(name and public_id required, public_id read as an integer, a wrong instance refused), the keyword-only
+constructor that drops undeclared keys, `active` defaulting to True, and the two declared indexes.
 """
+from types import SimpleNamespace
+
 import pytest
 
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.models.docapi_model import DocapiTemplateType
-from cmdb.errors.cmdb_object import NoPublicIDError
+from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.errors.cmdb_object import NoPublicIDError, RequiredInitKeyNotFoundError
+from cmdb.errors.models.docapi_template import DocapiTemplateInitFromDataError, DocapiTemplateToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 5
@@ -76,8 +84,11 @@ class TestFromData:
             DocapiTemplateKey.NAME: NAME,
         })
 
+        assert template.header == {}
         assert template.footer == {}
+        assert template.table_of_contents == {}
         assert template.cover_page == {}
+        assert template.page_config == {}
         assert template.label is None
 
     def test_default_template_type(self) -> None:
@@ -120,10 +131,14 @@ class TestGetPublicId:
         with pytest.raises(NoPublicIDError):
             _template(public_id=0).get_public_id()
 
-    def test_none_raises(self) -> None:
-        """A None public_id raises NoPublicIDError."""
-        with pytest.raises(NoPublicIDError):
-            _template(public_id=None).get_public_id()
+    def test_none_is_refused_when_read(self) -> None:
+        """A document whose public_id is null is no template: it is refused while being read."""
+        with pytest.raises(DocapiTemplateInitFromDataError):
+            _template(public_id=None)
+
+    def test_a_string_id_is_read_as_an_integer(self) -> None:
+        """CmdbDAO converts the id, so a lookup by it finds the stored template."""
+        assert _template(public_id=str(PUBLIC_ID)).get_public_id() == PUBLIC_ID
 
 
 class TestScalarGetters:
@@ -149,9 +164,20 @@ class TestScalarGetters:
         assert template.get_label() == ""
         assert template.get_description() == ""
 
-    def test_non_true_active_is_false(self) -> None:
-        """get_active returns False for any non-True value."""
-        assert _template(active=None).get_active() is False
+    def test_a_missing_or_null_active_reads_as_true(self) -> None:
+        """A document without the flag reads as the constructor's default - it used to read as null."""
+        data = {DocapiTemplateKey.PUBLIC_ID: PUBLIC_ID, DocapiTemplateKey.NAME: NAME}
+
+        assert DocapiTemplate.from_data(data).active is True
+        assert _template(active=None).get_active() is True
+
+    def test_a_stored_false_stays_false(self) -> None:
+        """Only an absent flag is defaulted."""
+        assert _template(active=False).get_active() is False
+
+    def test_a_non_true_active_is_false(self) -> None:
+        """get_active returns False for any value that is not True."""
+        assert _template(active='yes').get_active() is False
 
     def test_none_author_id_returned_as_none(self) -> None:
         """author_id is returned as-is (None allowed)."""
@@ -170,3 +196,57 @@ class TestComponentGetters:
         assert template.get_table_of_contents() == {}
         assert template.get_cover_page() == {}
         assert template.get_page_config() == PAGE_CONFIG
+
+
+class TestTheCmdbDaoContract:
+    """DocapiTemplate shares CmdbDAO's construction, serialisation and index rules."""
+
+    def test_it_is_a_cmdb_dao(self) -> None:
+        """The bespoke base is gone."""
+        assert issubclass(DocapiTemplate, CmdbDAO)
+
+    @pytest.mark.parametrize('missing', [DocapiTemplateKey.PUBLIC_ID, DocapiTemplateKey.NAME])
+    def test_a_document_missing_a_required_key_is_refused(self, missing: DocapiTemplateKey) -> None:
+        """public_id and name: the by-name route resolves a template by nothing else."""
+        data = {DocapiTemplateKey.PUBLIC_ID.value: PUBLIC_ID, DocapiTemplateKey.NAME.value: NAME}
+        del data[missing.value]
+
+        with pytest.raises(DocapiTemplateInitFromDataError):
+            DocapiTemplate.from_data(data)
+
+    def test_a_construction_without_public_id_is_refused(self) -> None:
+        """CmdbDAO.__new__ checks the required keys before the constructor runs."""
+        with pytest.raises(RequiredInitKeyNotFoundError):
+            DocapiTemplate(name=NAME)
+
+    def test_the_constructor_is_keyword_only(self) -> None:
+        """A positional call could never have passed __new__'s keyword check."""
+        with pytest.raises((TypeError, RequiredInitKeyNotFoundError)):
+            DocapiTemplate(PUBLIC_ID, NAME)  # pylint: disable=too-many-function-args
+
+    def test_an_undeclared_key_is_dropped(self) -> None:
+        """The routes construct from the raw body: a stray key becomes no attribute and no stored value."""
+        template = DocapiTemplate(public_id=PUBLIC_ID, name=NAME, evil=1)
+
+        assert not hasattr(template, 'evil')
+        assert 'evil' not in DocapiTemplate.to_json(template)
+
+    def test_to_json_refuses_another_model(self) -> None:
+        """A look-alike object is not serialised as a template."""
+        look_alike = SimpleNamespace(**DocapiTemplate.to_json(_template()))
+
+        with pytest.raises(DocapiTemplateToJsonError):
+            DocapiTemplate.to_json(look_alike)
+
+    def test_to_json_answers_plain_string_keys(self) -> None:
+        """The wire keys are the enum's values."""
+        keys = list(DocapiTemplate.to_json(_template()))
+
+        assert all(type(key) is str for key in keys)  # pylint: disable=unidiomatic-typecheck
+
+    def test_the_two_indexes_are_declared(self) -> None:
+        """The unique name index plus CmdbDAO's unique public_id index."""
+        indexes = {index.document['name']: index.document for index in DocapiTemplate.get_index_keys()}
+
+        assert set(indexes) == {'name', 'public_id'}
+        assert all(index['unique'] for index in indexes.values())

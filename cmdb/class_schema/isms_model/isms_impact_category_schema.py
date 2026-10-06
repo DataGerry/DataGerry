@@ -65,7 +65,8 @@ def get_isms_impact_category_schema() -> dict[str, Any]:
                 },
             },
         },
-        ImpactCategoryKey.SORT.value: {  # Sort order of the category
+        ImpactCategoryKey.SORT.value: {  # Sort order of the category; stored as null when unset
             'type': 'integer',
+            'nullable': True,
         },
     }

@@ -14,7 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Implementation of SupportedExporterExtension
+Implementation of SupportedExporterExtension - the catalogue behind ``GET /exporter/extensions``
+
+The catalogue lists the export formats a user can PICK, each with the metadata the frontend's export menus draw it
+with (``ExporterExtensionKey``: extension, label, icon, multiTypeSupport, helperText, active). Two things are
+deliberately not in it:
+
+* **the view.** Every format exports either view - ``?view=native`` (the stored values, for re-import) or
+  ``?view=render`` (the display values) - and the user chooses it per export ("Raw" / "Customer" export in the
+  menus), so a per-format ``view`` would be meaningless. The frontend model's ``view`` is that client-side choice
+* **ZIP.** ZIP is not a format but a wrapper around one: ``zip=true`` packs the format ``classname`` names into one
+  archive, one file per type. Listed as an entry it would offer a ZIP with nothing to pack, so it is never in the
+  catalogue and cannot be named as a ``classname`` either
 """
 from logging import Logger, getLogger
 from functools import lru_cache
@@ -62,7 +73,12 @@ def _build_extension_catalogue(extensions: tuple[str, ...]) -> tuple[dict[str, A
 #                                          SupportedExporterExtension - CLASS                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 class SupportedExporterExtension:
-    """Maintains the list of supported export format class names (CSV, JSON, XLSX, XML)."""
+    """
+    Maintains the list of supported export format class names (CSV, JSON, XLSX, XML)
+
+    The same list is the formats a ZIP may pack and the formats a request's ``classname`` may name - see the module
+    docstring for why neither the view nor ZIP is part of it
+    """
 
     DEFAULT_EXTENSIONS: list[str] = [
         "CsvExportFormat",

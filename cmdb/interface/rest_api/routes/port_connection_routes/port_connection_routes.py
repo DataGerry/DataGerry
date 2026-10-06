@@ -81,6 +81,7 @@ from cmdb.framework.port.assignable_cables import (
 )
 
 from cmdb.errors.security import AccessDeniedError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
 from cmdb.errors.manager.ports_manager import PortsManagerGetError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -92,7 +93,13 @@ from cmdb.errors.manager.port_connections_manager import (
 )
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import (
     DefaultResponse,
@@ -505,6 +512,7 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
         LOGGER.error("[get_unassigned_cables] PortConnectionsManagerGetError: %s", err, exc_info=True)
         abort(400, 'Failed to retrieve the Cables already used by a Port connection!')
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_unassigned_cables] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, 'Failed to retrieve the Cables assignable to a Port connection!')
     except TypesManagerGetError as err:
@@ -667,7 +675,8 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
 
     Raises:
         HTTPException: 400 when the selection is unusable, names no connection, or names one that does
-                       not touch this object; 500 on an unexpected error
+                       not touch this object, or when reading or deleting the selection fails; 500 on an
+                       unexpected error
 
     Returns:
         DefaultResponse: How many connections were resolved, and which
@@ -698,6 +707,13 @@ def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Res
             BulkActionKey.RESOLVED.value: len(connection_ids),
             BulkActionKey.CONNECTION_IDS.value: connection_ids,
         }).make_response()
-    except (PortConnectionsManagerGetError, PortConnectionsManagerDeleteError) as err:
+    except (
+        PortConnectionsManagerGetError,
+        PortConnectionsManagerDeleteError,
+        PortsManagerGetError,
+        BaseManagerGetError,
+        BaseManagerDeleteError,
+    ) as err:
+        # The selection is read with find and removed with delete_many, which raise the BaseManager errors
         LOGGER.error("[bulk_resolve_port_connections] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to resolve the selected Port connections of CmdbObject ID: {object_id}!')

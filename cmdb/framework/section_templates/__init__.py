@@ -19,8 +19,18 @@ Everything about the predefined ("global") section templates DataGerry ships wit
     section_template_creator.py     builds the predefined templates the first-boot seeding inserts
     predefined_section_guard.py     names the CmdbType fields a predefined template owns, so the
                                     write paths that edit field definitions can skip / reject them
+    global_template_reconcile.py    puts a CmdbType's copy of each global template it claims back in line
+                                    with the template on every type write (create, update, import)
 """
 from .section_template_creator import SectionTemplateCreator
+from .global_template_reconcile import (
+    GlobalTemplateReconcile,
+    TemplateSectionConflict,
+    claimed_template_names,
+    first_template_conflict,
+    reconcile_type_with_global_templates,
+    resolve_global_templates,
+)
 from .predefined_section_guard import (
     PREDEFINED_SELECT_OPTION_REJECTED,
     get_predefined_template_names,
@@ -31,6 +41,12 @@ from .predefined_section_guard import (
 
 __all__: list[str] = [
     'SectionTemplateCreator',
+    'GlobalTemplateReconcile',
+    'TemplateSectionConflict',
+    'claimed_template_names',
+    'first_template_conflict',
+    'reconcile_type_with_global_templates',
+    'resolve_global_templates',
     'PREDEFINED_SELECT_OPTION_REJECTED',
     'get_predefined_template_names',
     'predefined_select_fields',

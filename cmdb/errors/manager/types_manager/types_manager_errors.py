@@ -60,6 +60,25 @@ class TypesManagerUpdateMDSError(TypesManagerError):
     """
 
 
+class TypesManagerAlignmentError(TypesManagerError):
+    """
+    Raised when a saved CmdbType update could not be applied to everything that follows it
+
+    The type itself IS written by then, and carries ``alignment_pending``; ``step`` names what failed, so the answer
+    can say which part of the type's data is not yet in line with it
+    """
+    def __init__(self, err: str | Exception, step: str) -> None:
+        """
+        Raised when a saved CmdbType update could not be applied to everything that follows it
+
+        Args:
+            err (str | Exception): The message, or the error being wrapped
+            step (str): The alignment step that failed (a ``TypeAlignmentStep`` value)
+        """
+        super().__init__(err)
+        self.step: str = step
+
+
 class TypesManagerDeleteError(TypesManagerError):
     """
     Raised when TypesManager could not delete a CmdbType

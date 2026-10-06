@@ -20,8 +20,9 @@ Both write routes (``POST /groups/``, ``PUT /groups/<id>``) accept only right na
 that is not a string fails the schema, an unknown name is refused with one message naming it, and nothing is
 written either way. Both routes store the same form - each name once, in tree order.
 
-A group stored before the rule with an unhashable entry could not be read, edited or deleted, and every member
-was refused every request with a 500; after ``updater_20261002`` all of it works again
+A group stored before the rule with an unhashable entry cannot be read or deleted, and every member is refused
+every request with a 500; after ``updater_20261002`` all of it works again. A PUT is not locked out: the update
+checks only that the id exists, so a valid payload overwrites the bad entry and repairs the group by itself
 """
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -179,15 +180,24 @@ class TestRepairOfAStoredBadGroup:
         users.delete_many({'public_id': MEMBER_USER_ID})
 
     def test_locked_before_the_repair(self, rest_api, member) -> None:
-        """GET, PUT and DELETE answer 400, and the member's own request a 500"""
+        """GET and DELETE answer 400, and the member's own request a 500"""
         assert rest_api.get(f'{ROUTE_URL}/{BROKEN_GROUP_ID}').status_code == HTTPStatus.BAD_REQUEST
-        assert rest_api.put(
-            f'{ROUTE_URL}/{BROKEN_GROUP_ID}', json=_payload(f'group-{BROKEN_GROUP_ID}', [KNOWN_RIGHT]),
-        ).status_code == HTTPStatus.BAD_REQUEST
         assert rest_api.delete(f'{ROUTE_URL}/{BROKEN_GROUP_ID}').status_code == HTTPStatus.BAD_REQUEST
         assert rest_api.get(
             f'{ROUTE_URL}/{BROKEN_GROUP_ID}', user=member,
         ).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_a_put_repairs_it_without_the_migration(self, rest_api, member, groups) -> None:
+        """The update reads only the id, so a valid payload overwrites the bad entry and the group reads again"""
+        response = rest_api.put(
+            f'{ROUTE_URL}/{BROKEN_GROUP_ID}', json=_payload(f'group-{BROKEN_GROUP_ID}', [KNOWN_RIGHT]),
+        )
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert groups.find_one({'public_id': BROKEN_GROUP_ID})['rights'] == [KNOWN_RIGHT]
+        read = rest_api.get(f'{ROUTE_URL}/{BROKEN_GROUP_ID}')
+        assert read.status_code == HTTPStatus.OK
+        assert read.get_json()['result']['rights'] == response.get_json()['result']['rights']
 
     def test_usable_after_the_repair(
         self, rest_api, member, groups, database_manager: MongoDatabaseManager, database_name: str,

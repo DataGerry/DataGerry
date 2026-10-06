@@ -21,10 +21,14 @@ answered. The three routes here read and prune that log. They carry no rights of
 an event needs ``base.framework.webhook.view`` and deleting one ``base.framework.webhook.delete``,
 the rights of the webhook the event belongs to (see ``WebhookRight``)
 
-For the cloud API they are ``ApiLevel.LOCKED``, which is a deliberate refusal rather than a level:
-``__check_api_level`` denies a LOCKED route outright, so the delivery log is reachable from the
-DataGerry frontend only. Note the asymmetry with the sibling blueprint: the webhook DEFINITIONS are
-``ApiLevel.ADMIN``, so a cloud API client can create and edit a webhook but can not read its deliveries
+For the cloud API they are ``ApiLevel.LOCKED``, which is a refusal rather than a level:
+``__check_api_level`` denies a LOCKED route outright. The webhook DEFINITIONS are ``ApiLevel.ADMIN``, so a
+cloud API client can create and edit a webhook but cannot read its deliveries. That asymmetry is the API-level
+split every route follows - the core entities are ADMIN, the logs LOCKED - and it is kept for a second reason:
+each event records the receiver's response code, and a webhook's URL is checked for shape, not destination, so a
+readable log would tell an API client which internal hosts and ports answer. The refusal binds the Basic +
+``x-api-key`` channel only: ``verify_api_access`` checks no level for a Bearer token, which is how the DataGerry
+frontend reads the log
 
 Three properties of this log matter before changing anything here:
 
@@ -51,7 +55,12 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import WebhooksEventManager
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -195,6 +204,7 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
 
         return api_response.make_response()
     except (WebhooksEventManagerIterationError, BaseManagerGetError) as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_webhook_events] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Could not retrieve Webhook Events!")
 

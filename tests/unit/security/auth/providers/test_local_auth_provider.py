@@ -102,13 +102,9 @@ class TestConstruction:
         assert provider.users_manager is users_manager
         assert provider.security_manager is security_manager
 
-    def test_is_active_is_pinned(self) -> None:
-        """Local login is the way back into an instance, so it is never reported as inactive."""
-        assert LocalAuthenticationProvider(config=LocalAuthenticationProviderConfig(active=False)).is_active()
-
     @pytest.mark.parametrize('active', [True, False, None])
     def test_the_class_answers_active_for_every_config(self, active: bool | None) -> None:
-        """The sweep asks the class before building a provider, so the pin must hold there as well."""
+        """Local login is the way back into an instance: both halves of a login ask the class, which never says no"""
         assert LocalAuthenticationProvider.is_active_for(LocalAuthenticationProviderConfig(active=active)) is True
 
 
