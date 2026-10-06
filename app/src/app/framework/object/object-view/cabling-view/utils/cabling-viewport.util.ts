@@ -75,3 +75,13 @@ export function visibleCanvas(viewport: CablingViewport, size: CablingSize): Cab
 export function containsBounds(outer: CablingBounds, inner: CablingBounds): boolean {
     return inner.minX >= outer.minX && inner.maxX <= outer.maxX && inner.minY >= outer.minY && inner.maxY <= outer.maxY;
 }
+
+
+export function screenToCanvas(point: CablingPoint, viewport: CablingViewport): CablingPoint {
+    return { x: (point.x - viewport.x) / viewport.zoom, y: (point.y - viewport.y) / viewport.zoom };
+}
+
+
+export function canvasToScreen(point: CablingPoint, viewport: CablingViewport): CablingPoint {
+    return { x: point.x * viewport.zoom + viewport.x, y: point.y * viewport.zoom + viewport.y };
+}

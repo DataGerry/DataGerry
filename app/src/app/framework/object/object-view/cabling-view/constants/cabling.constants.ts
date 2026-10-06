@@ -60,6 +60,9 @@ export const CABLING_FIT_INSETS = { top: 48, right: 48, bottom: 48, left: 48 } a
 /** Arrow-key pan distance in screen pixels. */
 export const CABLING_PAN_STEP = 48;
 
+/** Cable tooltip in screen pixels; `maxHeight` is the tallest it renders, used to decide when it flips below. */
+export const CABLING_TOOLTIP = { width: 232, maxHeight: 180, gap: 20, margin: 8, arrowInset: 16 } as const;
+
 /** A cable without a paintable colour keeps the CI Explorer's cable colour. */
 export const DEFAULT_CABLE_STROKE = EDGE_STYLES.cable.stroke;
 

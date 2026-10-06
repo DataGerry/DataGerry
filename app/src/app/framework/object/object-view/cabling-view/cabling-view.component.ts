@@ -31,6 +31,7 @@ import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { CablingCableTooltipComponent } from './components/cabling-cable-tooltip/cabling-cable-tooltip.component';
 import { CablingNodeComponent } from './components/cabling-node/cabling-node.component';
 import {
     CABLE_CASING_STROKE,
@@ -39,6 +40,12 @@ import {
     CABLING_ZOOM,
     DEFAULT_DISPLAY_OPTIONS
 } from './constants/cabling.constants';
+import {
+    CablingCableHover,
+    CablingPathProbe,
+    CablingPathSample,
+    CablingTooltipView
+} from './models/cabling-tooltip.types';
 import { CablingGesture, CablingSize, CablingViewport } from './models/cabling-viewport.types';
 import { CablingDisplayOptions, CablingNodeLayout, CablingPoint } from './models/cabling.types';
 import { CablingViewStore } from './services/cabling-view.store';
@@ -48,10 +55,14 @@ import {
     layoutCablingNodes,
     offsetCablingNodes
 } from './utils/cabling-layout.util';
+import { nearestPointOnPath, samplePath } from './utils/cabling-path.util';
+import { cableTooltip, placeCableTooltip } from './utils/cabling-tooltip.util';
 import {
+    canvasToScreen,
     centerViewport,
     containsBounds,
     fitViewport,
+    screenToCanvas,
     visibleCanvas,
     zoomAround
 } from './utils/cabling-viewport.util';
@@ -75,7 +86,7 @@ const DRAG_THRESHOLD = 4;
 @Component({
     selector: 'cmdb-cabling-view',
     standalone: true,
-    imports: [AsyncPipe, ReactiveFormsModule, CoreModule, CablingNodeComponent],
+    imports: [AsyncPipe, ReactiveFormsModule, CoreModule, CablingNodeComponent, CablingCableTooltipComponent],
     templateUrl: './cabling-view.component.html',
     styleUrls: ['./cabling-view.component.scss'],
     providers: [CablingViewStore],
@@ -98,6 +109,7 @@ export class CablingViewComponent {
 
     private readonly expandedNodeIds = signal<ReadonlySet<number>>(new Set());
     private readonly offsets = signal<ReadonlyMap<number, CablingPoint>>(new Map());
+    private readonly cableHover = signal<CablingCableHover | null>(null);
 
     public readonly displayForm = new FormGroup({
         showFreePorts: new FormControl(false, { nonNullable: true })
@@ -128,6 +140,26 @@ export class CablingViewComponent {
     });
     public readonly isEmpty = computed(() => this.store.loaded() && !this.edges().length);
 
+    private readonly hoveredCableId = computed(() => this.cableHover()?.connectionId ?? null);
+
+    /** Keyed on the cable alone, so following the pointer does not rebuild its details. */
+    private readonly hoveredCable = computed(() => {
+        const connectionId = this.hoveredCableId();
+        const edge = connectionId == null ? undefined : this.store.graph().edges.get(connectionId);
+
+        return edge ? cableTooltip(edge, this.nodes()) : null;
+    });
+
+    /** Gone once the canvas moves under the pointer; the next pointer move places it again. */
+    public readonly tooltip = computed<CablingTooltipView | null>(() => {
+        const hover = this.cableHover();
+        const content = this.hoveredCable();
+
+        return hover && content && !this.isPanning() && hover.viewport === this.viewport()
+            ? { content, placement: hover.placement }
+            : null;
+    });
+
     public readonly transform = computed(() => {
         const { x, y, zoom } = this.viewport();
 
@@ -143,6 +175,8 @@ export class CablingViewComponent {
 
     /** Set when a press ended as a pan or a drag, so the click that follows it selects nothing. */
     private gestureMoved = false;
+
+    private cableProbe: CablingPathProbe | null = null;
 
     private readonly keyActions: Readonly<Record<string, () => void>> = {
         '+': () => this.zoomIn(),
@@ -261,6 +295,31 @@ export class CablingViewComponent {
     }
 
 
+    /** Points the tooltip at the spot on the cable nearest the pointer; a touch only highlights. */
+    public onCableHover(event: PointerEvent, connectionId: number): void {
+        const path = event.currentTarget;
+        this.hoveredConnectionId.set(connectionId);
+
+        if (event.pointerType === 'touch' || !(path instanceof SVGGeometryElement)) {
+            return;
+        }
+
+        const frame = this.viewportRef().nativeElement.getBoundingClientRect();
+        const viewport = this.viewport();
+        const pointer = screenToCanvas({ x: event.clientX - frame.left, y: event.clientY - frame.top }, viewport);
+        const spot = canvasToScreen(nearestPointOnPath(path, this.pathSamples(path), pointer), viewport);
+
+        this.cableHover.set({ connectionId, viewport, placement: placeCableTooltip(spot, frame) });
+    }
+
+
+    public onCableLeave(): void {
+        this.cableProbe = null;
+        this.hoveredConnectionId.set(null);
+        this.cableHover.set(null);
+    }
+
+
     /** A second click on the same cable puts it back behind the cards. */
     public onSelectConnection(connectionId: number): void {
         if (!this.gestureMoved) {
@@ -363,7 +422,9 @@ export class CablingViewComponent {
     private resetView(): void {
         this.offsets.set(new Map());
         this.expandedNodeIds.set(new Set());
+        this.cableProbe = null;
         this.hoveredConnectionId.set(null);
+        this.cableHover.set(null);
         this.selectedConnectionId.set(null);
     }
 
@@ -403,6 +464,18 @@ export class CablingViewComponent {
         const focus = cablingBounds([...revealed, ...parents]);
 
         this.centerOn({ x: (focus.minX + focus.maxX) / 2, y: (focus.minY + focus.maxY) / 2 });
+    }
+
+
+    /** Sampled once per path and shape, so following the pointer stays cheap. */
+    private pathSamples(path: SVGGeometryElement): CablingPathSample[] {
+        const d = path.getAttribute('d');
+
+        if (this.cableProbe?.path !== path || this.cableProbe.d !== d) {
+            this.cableProbe = { path, d, samples: samplePath(path) };
+        }
+
+        return this.cableProbe.samples;
     }
 
 

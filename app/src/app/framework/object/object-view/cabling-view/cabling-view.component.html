@@ -55,10 +55,10 @@
         @for (edge of edges(); track edge.connectionId) {
           <g class="cabling-edge" [class.is-highlighted]="edge.connectionId === highlightedConnectionId()">
             <path class="cabling-edge__hit" [attr.d]="edge.path"
-              (mouseenter)="hoveredConnectionId.set(edge.connectionId)" (mouseleave)="hoveredConnectionId.set(null)"
-              (click)="onSelectConnection(edge.connectionId)">
-              <title>{{ edge.description }}</title>
-            </path>
+              (pointerenter)="onCableHover($event, edge.connectionId)"
+              (pointermove)="onCableHover($event, edge.connectionId)"
+              (pointerleave)="onCableLeave()"
+              (click)="onSelectConnection(edge.connectionId)" />
             <path class="cabling-edge__casing" [attr.d]="edge.path" [attr.stroke]="casingStroke" />
             <path class="cabling-edge__core" [attr.d]="edge.path" [attr.stroke]="edge.stroke" />
             <circle class="cabling-edge__end" [attr.cx]="edge.from.x" [attr.cy]="edge.from.y" [attr.r]="endDotRadius"
@@ -95,6 +95,14 @@
         </svg>
       }
     </div>
+
+    @if (tooltip(); as tip) {
+      <cmdb-cabling-cable-tooltip
+        [tooltip]="tip.content"
+        [placement]="tip.placement"
+        [selected]="tip.content.connectionId === selectedConnectionId()">
+      </cmdb-cabling-cable-tooltip>
+    }
   </div>
 
   @if (store.loadFailed()) {

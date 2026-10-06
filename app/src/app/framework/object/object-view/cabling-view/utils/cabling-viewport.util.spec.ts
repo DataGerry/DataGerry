@@ -17,10 +17,12 @@
 */
 import { CABLING_FIT_INSETS, CABLING_ZOOM } from '../constants/cabling.constants';
 import {
+    canvasToScreen,
     centerViewport,
     clampZoom,
     containsBounds,
     fitViewport,
+    screenToCanvas,
     visibleCanvas,
     zoomAround
 } from './cabling-viewport.util';
@@ -73,5 +75,12 @@ describe('cabling-viewport.util', () => {
 
         expect((shown.minX + shown.maxX) / 2).toBeCloseTo(120);
         expect((shown.minY + shown.maxY) / 2).toBeCloseTo(80);
+    });
+
+    it('converts between screen and canvas points both ways', () => {
+        const viewport = { x: 40, y: -20, zoom: 2 };
+
+        expect(canvasToScreen({ x: 10, y: 30 }, viewport)).toEqual({ x: 60, y: 40 });
+        expect(screenToCanvas({ x: 60, y: 40 }, viewport)).toEqual({ x: 10, y: 30 });
     });
 });
