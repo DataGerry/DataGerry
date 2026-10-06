@@ -1,3 +1,4 @@
+@use "../graph-editor/styles/graph-editor-control-button" as ci;
 @import "src/scss/variables";
 
 $canvas: #f0f2f5;
@@ -9,8 +10,7 @@ $ink-muted: #6b7280;
 $panel-border: #e9ecef;
 $panel-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $inset: 0.75rem;
-$brand-text: #c2410c;
-$toolbar-height: 48px;
+$toolbar-height: 56px;
 $shade: rgba(15, 23, 42, 0.46);
 
 // Stacking inside the canvas while the spotlight is on.
@@ -35,8 +35,6 @@ $layer-raised-cable: 3;
   z-index: 1;
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
   box-sizing: border-box;
   height: $toolbar-height;
   padding: 0 $inset;
@@ -45,21 +43,19 @@ $layer-raised-cable: 3;
   box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.35);
 }
 
+// An auto margin, not flex-end, so a narrow toolbar overflows to the right instead of out of reach.
 .cabling-view__toolbar-group {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   min-width: 0;
+  margin-left: auto;
 }
 
 .cabling-view__zoom {
   display: flex;
   align-items: center;
-  gap: 2px;
-  padding: 2px;
-  background: #f8fafc;
-  border: 1px solid $panel-border;
-  border-radius: 0.6rem;
+  gap: 0.5rem;
 }
 
 .cabling-view__toolbar-divider {
@@ -251,51 +247,25 @@ $layer-raised-cable: 3;
 
 // app-button renders its own <button>, so the tool look has to cross that component's encapsulation.
 :host ::ng-deep .cabling-view__tool {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 2rem;
-  height: 2rem;
   padding: 0;
-  border: 0;
-  border-radius: 0.5rem;
-  background: transparent;
-  color: $ink-label;
-  font-size: 0.85rem;
   line-height: 1;
-  transition: background 150ms ease, color 150ms ease;
-
-  &:hover {
-    background: rgba($primary, 0.08);
-    color: $brand-text;
-  }
+  @include ci.control-button('[aria-pressed="true"]');
 
   &:focus-visible {
     outline: 0;
     box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
   }
 
-  &[aria-pressed="true"] {
-    background: rgba($primary, 0.1);
-    color: $brand-text;
-  }
-
   &:disabled {
     opacity: 0.45;
     background: transparent;
-    color: $ink-label;
+    box-shadow: none;
+    transform: none;
   }
 
+  // Font Awesome fills its em box, so 18px matches the CI Explorer's 22px Material icons.
   i {
     margin: 0;
+    font-size: 18px;
   }
-}
-
-:host ::ng-deep .cabling-view__tool--text {
-  gap: 0.4rem;
-  width: auto;
-  padding: 0 0.65rem;
-  font-size: 0.8rem;
-  font-weight: 600;
-  white-space: nowrap;
 }

@@ -1,21 +1,5 @@
 <div class="cabling-view">
   <div class="cabling-view__toolbar" role="toolbar" aria-label="Cabling tools">
-    <div class="cabling-view__toolbar-group" [formGroup]="displayForm">
-      <app-toggle [id]="'cabling-show-free-ports'" controlName="showFreePorts" label="Show free ports"></app-toggle>
-
-      <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
-
-      <app-button
-        label="Spotlight"
-        icon="fas fa-bullseye"
-        bootstrapClass="cabling-view__tool cabling-view__tool--text"
-        [ariaPressed]="spotlightStore.active()"
-        [disabled]="!spotlightStore.canLight()"
-        [title]="spotlightStore.active() ? 'Turn off the spotlight (S)' : 'Spotlight the port you click (S)'"
-        (clicked)="toggleSpotlight()">
-      </app-button>
-    </div>
-
     <div class="cabling-view__toolbar-group">
       <div class="cabling-view__zoom" role="group" aria-label="Zoom">
         <app-button
@@ -33,6 +17,29 @@
           title="Zoom in">
         </app-button>
       </div>
+
+      <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
+
+      <app-button
+        label=""
+        icon="fas fa-ethernet"
+        bootstrapClass="cabling-view__tool"
+        ariaLabel="Show free ports"
+        [ariaPressed]="showFreePorts()"
+        [title]="showFreePorts() ? 'Hide free ports' : 'Show free ports'"
+        (clicked)="toggleFreePorts()">
+      </app-button>
+
+      <app-button
+        label=""
+        icon="fas fa-bullseye"
+        bootstrapClass="cabling-view__tool"
+        ariaLabel="Spotlight"
+        [ariaPressed]="spotlightStore.active()"
+        [disabled]="!spotlightStore.canLight()"
+        [title]="spotlightStore.active() ? 'Turn off the spotlight (S)' : 'Spotlight the port you click (S)'"
+        (clicked)="toggleSpotlight()">
+      </app-button>
 
       <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
 
@@ -133,7 +140,7 @@
     the screen. Hold Ctrl while scrolling to zoom. Click a cable or a cabled port to bring the cable to the front,
     and press Escape to put it back. S turns the spotlight on: a click on a port then lights its card, that port and
     its cable, and everything else goes into the background. A click on the background or Escape puts the cable
-    back, and then turns the spotlight off.
+    back, and the spotlight stays on until S or the Spotlight button turns it off.
   </p>
 
   <app-loading-popup

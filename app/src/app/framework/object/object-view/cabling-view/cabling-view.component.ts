@@ -17,8 +17,7 @@
 */
 import { AsyncPipe, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
-import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
+import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -61,7 +60,6 @@ const SELF_HANDLED_CLICK = 'a, button, .cabling-edge__hit, .cabling-port.is-cabl
     imports: [
         AsyncPipe,
         NgTemplateOutlet,
-        ReactiveFormsModule,
         CoreModule,
         CablingGesturesDirective,
         CablingNodeComponent,
@@ -89,11 +87,7 @@ export class CablingViewComponent {
     private readonly selection = signal<CablingSelection | null>(null);
     private readonly expandedNodeIds = signal<ReadonlySet<number>>(new Set());
 
-    public readonly displayForm = new FormGroup({
-        showFreePorts: new FormControl(false, { nonNullable: true })
-    });
-
-    private readonly showFreePorts = toSignal(this.displayForm.controls.showFreePorts.valueChanges, { initialValue: false });
+    public readonly showFreePorts = signal(false);
 
     public readonly options = computed<CablingDisplayOptions>(() => ({
         ...DEFAULT_DISPLAY_OPTIONS,
@@ -157,7 +151,7 @@ export class CablingViewComponent {
         '-': () => this.canvas.zoomOut(),
         '_': () => this.canvas.zoomOut(),
         '0': () => this.canvas.fit(this.bounds()),
-        'Escape': () => this.dismiss(),
+        'Escape': () => this.selection.set(null),
         's': () => this.toggleSpotlight(),
         'S': () => this.toggleSpotlight(),
         'ArrowLeft': () => this.canvas.panBy(CABLING_PAN_STEP, 0),
@@ -220,13 +214,13 @@ export class CablingViewComponent {
     }
 
 
-    /** Any other click puts back the selected cable, and then turns the spotlight off. */
+    /** Any other click puts back the selected cable; only the toolbar turns the spotlight off. */
     public onCanvasClick(event: MouseEvent): void {
         const dragged = this.canvas.dragged;
         this.canvas.dragged = false;
 
         if (!dragged && !(event.target as Element | null)?.closest(SELF_HANDLED_CLICK)) {
-            this.dismiss();
+            this.selection.set(null);
         }
     }
 
@@ -244,6 +238,11 @@ export class CablingViewComponent {
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
+
+    public toggleFreePorts(): void {
+        this.showFreePorts.update((shown) => !shown);
+    }
+
 
     /** While on, everything goes under the shade but the card a cable is picked from, that port and the cable. */
     public toggleSpotlight(): void {
@@ -279,17 +278,6 @@ export class CablingViewComponent {
         this.cableHover.clear();
         this.hoveredConnectionId.set(null);
         this.selection.set(null);
-    }
-
-
-    /** A selected cable is put back first; the spotlight goes out after it. */
-    private dismiss(): void {
-        if (this.selection()) {
-            this.selection.set(null);
-            return;
-        }
-
-        this.spotlightStore.turnOff();
     }
 
 

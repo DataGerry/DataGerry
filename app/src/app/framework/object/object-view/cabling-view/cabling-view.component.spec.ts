@@ -173,9 +173,8 @@ describe('CablingViewComponent spotlight', () => {
     const card = (objectId: number): HTMLElement => element().querySelector(`[data-object-id="${ objectId }"]`);
     const raisedCables = (): number => element().querySelectorAll('.cabling-view__edges--raised .cabling-edge').length;
     const selected = (): number | null => fixture.componentInstance.selectedConnectionId();
-    const toolbarButton = (label: string): HTMLButtonElement => Array.from(
-        element().querySelectorAll<HTMLButtonElement>('.cabling-view__toolbar button')
-    ).find((button) => button.textContent.trim() === label);
+    const toolbarButton = (label: string): HTMLButtonElement =>
+        element().querySelector(`.cabling-view__toolbar button[aria-label="${ label }"]`);
 
     const press = (key: string) => {
         viewport().dispatchEvent(new KeyboardEvent('keydown', { key }));
@@ -214,6 +213,18 @@ describe('CablingViewComponent spotlight', () => {
         await configureTestBed(cablingService);
 
         fixture = TestBed.createComponent(CablingViewComponent);
+    });
+
+    it('shows the free ports while their toolbar toggle is pressed', () => {
+        show(PP_01);
+
+        expect(toolbarButton('Show free ports').getAttribute('aria-pressed')).toBe('false');
+        expect(fixture.componentInstance.options().onlyConnected).toBeTrue();
+
+        click(toolbarButton('Show free ports'));
+
+        expect(toolbarButton('Show free ports').getAttribute('aria-pressed')).toBe('true');
+        expect(fixture.componentInstance.options().onlyConnected).toBeFalse();
     });
 
     it('is off until asked for, and a picked port then only brings its cable to the front', () => {
@@ -320,7 +331,7 @@ describe('CablingViewComponent spotlight', () => {
         expect(markedInCards()).toBe(0);
     });
 
-    it('puts the cable back on a second pick, on Escape or on a background click, then turns off', () => {
+    it('puts the cable back on a second pick, on Escape or on a background click, and stays on', () => {
         show(PP_01);
         press('s');
         click(portOn(WEB_01, 'eth0'));
@@ -335,8 +346,27 @@ describe('CablingViewComponent spotlight', () => {
         expect(selected()).toBeNull();
         expect(shade()).not.toBeNull();
 
+        click(portOn(WEB_01, 'eth0'));
         click(viewport());
 
+        expect(selected()).toBeNull();
+        expect(shade()).not.toBeNull();
+    });
+
+    it('stays on through background clicks and Escape until the toolbar turns it off', () => {
+        show(PP_01);
+        press('s');
+        click(viewport());
+        click(viewport());
+        press('Escape');
+        press('Escape');
+
+        expect(toolbarButton('Spotlight').getAttribute('aria-pressed')).toBe('true');
+        expect(shade()).not.toBeNull();
+
+        click(toolbarButton('Spotlight'));
+
+        expect(toolbarButton('Spotlight').getAttribute('aria-pressed')).toBe('false');
         expect(shade()).toBeNull();
     });
 
