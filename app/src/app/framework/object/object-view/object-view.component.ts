@@ -39,6 +39,8 @@ import { RACK_VIEW_RIGHT } from './rack-overview/models/rack-overview.types';
 import { CI_EXPLORER_VIEW_RIGHT } from 'src/app/framework/models/ci-explorer.model';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { PORT_VIEW_RIGHT } from './ports-overview/models/ports-overview.types';
+import { PortsAccess } from './ports-overview/models/ports-license.types';
+import { PortsLicenseService } from './ports-overview/services/ports-license.service';
 import { ObjectViewMode } from './object-view-mode';
 
 const TOGGLE_ACTIVE_CLASS = 'btn-sm btn-primary object-view-toggle__btn';
@@ -91,10 +93,10 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
     return this.isRack && this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
   }
 
-  /** Cabling is drawn from ports: the type has to use them, and the port routes sit behind the IPAM licence. */
+  /** Cabling is drawn from ports: the type has to use them, and an expired license still shows it. */
   public get cablingAvailable(): boolean {
     return this.renderResult?.type_information?.uses_ports === true
-      && this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
+      && this.portsLicense.access() !== PortsAccess.LOCKED;
   }
 
   public get isGraphView(): boolean {
@@ -118,6 +120,7 @@ export class ObjectViewComponent implements OnInit, OnDestroy {
   private readonly objectChanges = inject(ObjectChangeNotifierService);
   private readonly loaderService = inject(LoaderService);
   private readonly premiumFeatureService = inject(PremiumFeatureService);
+  private readonly portsLicense = inject(PortsLicenseService);
   private readonly permissionService = inject(PermissionService);
 
   /** `?view=graph` and `?view=cabling` are links anyone can follow, so the rights decide whether they open. */

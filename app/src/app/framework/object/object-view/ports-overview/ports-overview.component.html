@@ -1,123 +1,141 @@
 <fieldset class="ports-section">
   <legend>Ports</legend>
 
-  @if (manageable) {
-    <div class="ports-toolbar">
-      <app-button
-        *permissionLink="[portAddRight]"
-        label="Add"
-        icon="fas fa-plus"
-        bootstrapClass="btn-success btn-sm"
-        title="Add ports to this object"
-        (clicked)="onAddPorts()">
-      </app-button>
+  @if (isLocked) {
+    <cmdb-premium-locked
+      [feature]="licenseFeature"
+      title="Port Connectivity is a Pro feature"
+      text="Adding ports, cabling them and the cabling view need a license that includes IPAM.">
+    </cmdb-premium-locked>
+  } @else if (access) {
+    @if (manageable) {
+      <div class="ports-toolbar">
+        @if (canAdd) {
+          <app-button
+            *permissionLink="[portAddRight]"
+            label="Add"
+            icon="fas fa-plus"
+            bootstrapClass="btn-success btn-sm"
+            title="Add ports to this object"
+            (clicked)="onAddPorts()">
+          </app-button>
+        }
 
-      @if (canEdit) {
-        <app-button
-          label="Bulk Change"
-          icon="fas fa-tasks"
-          bootstrapClass="btn-secondary btn-sm"
-          badgeClass="bg-primary"
-          [badge]="selectedRows.length"
-          [disabled]="!selectedRows.length"
-          [title]="selectedRows.length
-            ? 'Edit the ' + selectedRows.length + ' selected ports'
-            : 'Select ports to edit them together'"
-          (clicked)="onBulkEditPorts(selectedRows)">
-        </app-button>
+        @if (canEdit) {
+          <app-button
+            label="Bulk Change"
+            icon="fas fa-tasks"
+            bootstrapClass="btn-secondary btn-sm"
+            badgeClass="bg-primary"
+            [badge]="selectedRows.length"
+            [disabled]="!selectedRows.length"
+            [title]="selectedRows.length
+              ? 'Edit the ' + selectedRows.length + ' selected ports'
+              : 'Select ports to edit them together'"
+            (clicked)="onBulkEditPorts(selectedRows)">
+          </app-button>
+        }
+
+        @if (canDisconnect) {
+          <app-button
+            label="Disconnect Selected"
+            icon="fas fa-unlink"
+            bootstrapClass="btn-secondary btn-sm"
+            badgeClass="bg-primary"
+            [badge]="selectedConnectedRows.length"
+            [disabled]="!selectedConnectedRows.length"
+            [title]="selectedConnectedRows.length
+              ? 'Cut the cables of ' + selectedConnectedRows.length + ' selected ports'
+              : 'Select cabled ports to disconnect them'"
+            (clicked)="onBulkDisconnectPorts(selectedConnectedRows)">
+          </app-button>
+        }
+
+        @if (canDelete) {
+          <app-button
+            label="Delete Selected"
+            icon="far fa-trash-alt"
+            bootstrapClass="btn-danger btn-sm"
+            badgeClass="bg-secondary"
+            [badge]="selectedRows.length"
+            [disabled]="!selectedRows.length"
+            [title]="selectedRows.length
+              ? 'Delete the ' + selectedRows.length + ' selected ports'
+              : 'Select ports to delete them'"
+            (clicked)="onBulkDeletePorts(selectedRows)">
+          </app-button>
+        }
+      </div>
+
+      @if (isLapsed) {
+        <app-warning-alert
+          iconClass="fas fa-hourglass-end"
+          title="License expired:"
+          message="Existing ports can still be viewed and edited. Renew the license to add new ones.">
+        </app-warning-alert>
       }
+    }
 
-      @if (canDisconnect) {
-        <app-button
-          label="Disconnect Selected"
-          icon="fas fa-unlink"
-          bootstrapClass="btn-secondary btn-sm"
-          badgeClass="bg-primary"
-          [badge]="selectedConnectedRows.length"
-          [disabled]="!selectedConnectedRows.length"
-          [title]="selectedConnectedRows.length
-            ? 'Cut the cables of ' + selectedConnectedRows.length + ' selected ports'
-            : 'Select cabled ports to disconnect them'"
-          (clicked)="onBulkDisconnectPorts(selectedConnectedRows)">
-        </app-button>
-      }
+    @if (hasError) {
+      <app-warning-alert
+        title="Ports could not be loaded:"
+        message="Please reload the page. If the problem persists, contact your administrator.">
+      </app-warning-alert>
+    }
 
-      @if (canDelete) {
-        <app-button
-          label="Delete Selected"
-          icon="far fa-trash-alt"
-          bootstrapClass="btn-danger btn-sm"
-          badgeClass="bg-secondary"
-          [badge]="selectedRows.length"
-          [disabled]="!selectedRows.length"
-          [title]="selectedRows.length
-            ? 'Delete the ' + selectedRows.length + ' selected ports'
-            : 'Select ports to delete them'"
-          (clicked)="onBulkDeletePorts(selectedRows)">
-        </app-button>
-      }
-    </div>
-  }
-
-  @if (hasError) {
-    <app-warning-alert
-      title="Ports could not be loaded:"
-      message="Please reload the page. If the problem persists, contact your administrator.">
-    </app-warning-alert>
-  }
-
-  @if (deviceKind === patchPanel) {
-    <cmdb-patch-panel-table
-      [rows]="panelRows"
-      [totalRows]="totalRows"
-      [page]="page"
-      [pageSize]="pageSize"
-      [sort]="sort"
-      [canEdit]="canEdit"
-      [canDelete]="canDelete"
-      [canConnect]="canConnect"
-      [canEditConnection]="canEditConnection"
-      [canDisconnect]="canDisconnect"
-      [canViewInterfaces]="canViewInterfaces"
-      [emptyMessage]="emptyMessage"
-      [loading]="(isLoading$ | async) === true"
-      (pageChange)="onPageChange($event)"
-      (pageSizeChange)="onPageSizeChange($event)"
-      (sortChange)="onSortChange($event)"
-      (editPort)="onEditPort($event)"
-      (deletePort)="onDeletePort($event)"
-      (connectPort)="onConnectPort($event)"
-      (editConnection)="onEditConnection($event)"
-      (disconnectPort)="onDisconnectPort($event)"
-      (manageInterfaces)="onManageInterfaces($event)"
-      (selectedRowsChange)="onSelectedPanelRowsChange($event)">
-    </cmdb-patch-panel-table>
-  } @else {
-    <cmdb-ports-table
-      [rows]="rows"
-      [totalRows]="totalRows"
-      [page]="page"
-      [pageSize]="pageSize"
-      [sort]="sort"
-      [canEdit]="canEdit"
-      [canDelete]="canDelete"
-      [canConnect]="canConnect"
-      [canEditConnection]="canEditConnection"
-      [canDisconnect]="canDisconnect"
-      [canViewInterfaces]="canViewInterfaces"
-      [emptyMessage]="emptyMessage"
-      [loading]="(isLoading$ | async) === true"
-      (pageChange)="onPageChange($event)"
-      (pageSizeChange)="onPageSizeChange($event)"
-      (sortChange)="onSortChange($event)"
-      (editPort)="onEditPort($event)"
-      (deletePort)="onDeletePort($event)"
-      (connectPort)="onConnectPort($event)"
-      (editConnection)="onEditConnection($event)"
-      (disconnectPort)="onDisconnectPort($event)"
-      (manageInterfaces)="onManageInterfaces($event)"
-      (selectedRowsChange)="onSelectedRowsChange($event)">
-    </cmdb-ports-table>
+    @if (deviceKind === patchPanel) {
+      <cmdb-patch-panel-table
+        [rows]="panelRows"
+        [totalRows]="totalRows"
+        [page]="page"
+        [pageSize]="pageSize"
+        [sort]="sort"
+        [canEdit]="canEdit"
+        [canDelete]="canDelete"
+        [canConnect]="canConnect"
+        [canEditConnection]="canEditConnection"
+        [canDisconnect]="canDisconnect"
+        [canViewInterfaces]="canViewInterfaces"
+        [emptyMessage]="emptyMessage"
+        [loading]="(isLoading$ | async) === true"
+        (pageChange)="onPageChange($event)"
+        (pageSizeChange)="onPageSizeChange($event)"
+        (sortChange)="onSortChange($event)"
+        (editPort)="onEditPort($event)"
+        (deletePort)="onDeletePort($event)"
+        (connectPort)="onConnectPort($event)"
+        (editConnection)="onEditConnection($event)"
+        (disconnectPort)="onDisconnectPort($event)"
+        (manageInterfaces)="onManageInterfaces($event)"
+        (selectedRowsChange)="onSelectedPanelRowsChange($event)">
+      </cmdb-patch-panel-table>
+    } @else {
+      <cmdb-ports-table
+        [rows]="rows"
+        [totalRows]="totalRows"
+        [page]="page"
+        [pageSize]="pageSize"
+        [sort]="sort"
+        [canEdit]="canEdit"
+        [canDelete]="canDelete"
+        [canConnect]="canConnect"
+        [canEditConnection]="canEditConnection"
+        [canDisconnect]="canDisconnect"
+        [canViewInterfaces]="canViewInterfaces"
+        [emptyMessage]="emptyMessage"
+        [loading]="(isLoading$ | async) === true"
+        (pageChange)="onPageChange($event)"
+        (pageSizeChange)="onPageSizeChange($event)"
+        (sortChange)="onSortChange($event)"
+        (editPort)="onEditPort($event)"
+        (deletePort)="onDeletePort($event)"
+        (connectPort)="onConnectPort($event)"
+        (editConnection)="onEditConnection($event)"
+        (disconnectPort)="onDisconnectPort($event)"
+        (manageInterfaces)="onManageInterfaces($event)"
+        (selectedRowsChange)="onSelectedRowsChange($event)">
+      </cmdb-ports-table>
+    }
   }
 </fieldset>
 

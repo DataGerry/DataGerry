@@ -1,0 +1,302 @@
+@import "src/scss/variables";
+
+$surface: #111827;
+$surface-line: rgba(255, 255, 255, 0.1);
+$surface-raised: rgba(255, 255, 255, 0.06);
+$ink: #f8fafc;
+$ink-soft: #e2e8f0;
+$ink-body: #cbd5e1;
+$ink-muted: #94a3b8;
+// Lighter than the canvas casing, so a dark cable still shows on the dark surface.
+$casing: #94a3b8;
+$canvas-casing: #64748b;
+$radius: 0.65rem;
+$pad-y: 0.55rem;
+$pad-x: 0.65rem;
+$arrow: 10px;
+$spot: 9px;
+$stop-size: 0.5rem;
+$end-height: 1.125rem;
+$route-pad-y: 0.3rem;
+$route-pad-x: 0.45rem;
+
+// A zero-size anchor on the spot, moved by a transform alone so following the pointer never triggers layout.
+:host {
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 2;
+  width: 0;
+  height: 0;
+  pointer-events: none;
+  will-change: transform;
+}
+
+// Marks where on the cable the details belong.
+.cabling-cable-tooltip__spot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  transform: translate(-50%, -50%);
+
+  &::before,
+  &::after {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    border-radius: 50%;
+    background: var(--cable-stroke);
+    transform: translate(-50%, -50%);
+  }
+
+  &::before {
+    width: 1.375rem;
+    height: 1.375rem;
+    opacity: 0.22;
+  }
+
+  &::after {
+    width: $spot;
+    height: $spot;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 3px $canvas-casing, 0 2px 6px rgba(15, 23, 42, 0.35);
+  }
+}
+
+.cabling-cable-tooltip__bubble {
+  position: absolute;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  box-sizing: border-box;
+  padding: $pad-y $pad-x;
+  background: $surface;
+  border: 1px solid $surface-line;
+  border-radius: $radius;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.05);
+  color: $ink;
+  line-height: 1.35;
+  filter: drop-shadow(0 10px 18px rgba(15, 23, 42, 0.3)) drop-shadow(0 2px 4px rgba(15, 23, 42, 0.22));
+  animation: cabling-cable-tooltip-in 110ms ease-out;
+
+  // The tail towards the spot; its two outer sides carry the bubble's border.
+  &::after {
+    content: '';
+    position: absolute;
+    bottom: -($arrow * 0.5);
+    left: var(--arrow-x);
+    width: $arrow;
+    height: $arrow;
+    margin-left: -($arrow * 0.5);
+    box-sizing: border-box;
+    background: $surface;
+    border-right: 1px solid $surface-line;
+    border-bottom: 1px solid $surface-line;
+    border-bottom-right-radius: 2px;
+    transform: rotate(45deg);
+  }
+}
+
+:host(.is-below) .cabling-cable-tooltip__bubble::after {
+  top: -($arrow * 0.5);
+  bottom: auto;
+  border: 0;
+  border-top: 1px solid $surface-line;
+  border-left: 1px solid $surface-line;
+  border-radius: 2px 0 0;
+}
+
+@keyframes cabling-cable-tooltip-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cabling-cable-tooltip__bubble {
+    animation: none;
+  }
+}
+
+.cabling-cable-tooltip__header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+// The cable as the canvas draws it, so the colour reads the same in both places.
+.cabling-cable-tooltip__sample {
+  display: inline-flex;
+  flex-shrink: 0;
+  width: 1.5rem;
+  height: 1.5rem;
+  border-radius: 0.45rem;
+  background: $surface-raised;
+  box-shadow: inset 0 0 0 1px $surface-line;
+
+  svg {
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.cabling-cable-tooltip__sample-casing,
+.cabling-cable-tooltip__sample-core {
+  fill: none;
+  stroke-linecap: round;
+}
+
+.cabling-cable-tooltip__sample-casing {
+  stroke: $casing;
+  stroke-width: 5;
+}
+
+.cabling-cable-tooltip__sample-core {
+  stroke: var(--cable-stroke);
+  stroke-width: 3;
+}
+
+.cabling-cable-tooltip__sample-end {
+  fill: var(--cable-stroke);
+  stroke: $casing;
+  stroke-width: 1.5;
+}
+
+.cabling-cable-tooltip__heading {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.cabling-cable-tooltip__title,
+.cabling-cable-tooltip__details,
+.cabling-cable-tooltip__object,
+.cabling-cable-tooltip__port {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.cabling-cable-tooltip__title {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: $ink;
+}
+
+.cabling-cable-tooltip__details {
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: $ink-muted;
+}
+
+// The rail runs from the first stop's centre to the last one's.
+.cabling-cable-tooltip__route {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+  margin: 0;
+  padding: $route-pad-y $route-pad-x;
+  border: 1px solid $surface-line;
+  border-radius: 0.45rem;
+  background: rgba(255, 255, 255, 0.03);
+  list-style: none;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: calc(#{$route-pad-y} + #{$end-height} / 2);
+    bottom: calc(#{$route-pad-y} + #{$end-height} / 2);
+    left: calc(#{$route-pad-x} + #{$stop-size} / 2 - 1px);
+    width: 2px;
+    border-radius: 1px;
+    background: var(--cable-stroke);
+    box-shadow: 0 0 0 1px rgba($casing, 0.5);
+  }
+}
+
+.cabling-cable-tooltip__end {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  height: $end-height;
+}
+
+.cabling-cable-tooltip__stop {
+  position: relative;
+  flex-shrink: 0;
+  width: $stop-size;
+  height: $stop-size;
+  border-radius: 50%;
+  background: var(--cable-stroke);
+  box-shadow: 0 0 0 1.5px $casing;
+}
+
+.cabling-cable-tooltip__object {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: $ink;
+
+  i {
+    margin-right: 0.25rem;
+    font-size: 0.7rem;
+  }
+}
+
+.cabling-cable-tooltip__end.is-restricted .cabling-cable-tooltip__object {
+  color: $ink-muted;
+  font-style: italic;
+}
+
+// Its full name up to half the row; the object takes the rest.
+.cabling-cable-tooltip__port {
+  flex: 0 0 auto;
+  max-width: 50%;
+  padding: 0 0.35rem;
+  border-radius: 0.3rem;
+  background: rgba(255, 255, 255, 0.08);
+  color: $ink-soft;
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.cabling-cable-tooltip__side {
+  margin-right: 0.2rem;
+  color: $ink-muted;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.cabling-cable-tooltip__description {
+  display: -webkit-box;
+  margin: 0;
+  overflow: hidden;
+  color: $ink-body;
+  font-size: 0.75rem;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.cabling-cable-tooltip__hint {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  margin: 0 (-$pad-x) (-$pad-y);
+  padding: 0.3rem $pad-x;
+  border-top: 1px solid $surface-line;
+  border-radius: 0 0 ($radius - 0.0625rem) ($radius - 0.0625rem);
+  background: rgba(255, 255, 255, 0.03);
+  color: $ink-muted;
+  font-size: 0.72rem;
+
+  i {
+    margin: 0;
+    color: $primary;
+    font-size: 0.7rem;
+  }
+}

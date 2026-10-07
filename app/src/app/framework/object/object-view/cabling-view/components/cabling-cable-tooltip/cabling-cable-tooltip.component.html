@@ -1,0 +1,52 @@
+<span class="cabling-cable-tooltip__spot"></span>
+
+<div class="cabling-cable-tooltip__bubble"
+  [style.left.px]="placement().offset"
+  [style.width.px]="width"
+  [style.bottom.px]="placement().below ? null : gap"
+  [style.top.px]="placement().below ? gap : null"
+  [style.--arrow-x]="arrow()">
+  <div class="cabling-cable-tooltip__header">
+    <span class="cabling-cable-tooltip__sample">
+      <svg viewBox="0 0 32 32" focusable="false">
+        <path class="cabling-cable-tooltip__sample-casing" d="M7 22C16 22 16 10 25 10" />
+        <path class="cabling-cable-tooltip__sample-core" d="M7 22C16 22 16 10 25 10" />
+        <circle class="cabling-cable-tooltip__sample-end" cx="7" cy="22" r="3" />
+        <circle class="cabling-cable-tooltip__sample-end" cx="25" cy="10" r="3" />
+      </svg>
+    </span>
+
+    <span class="cabling-cable-tooltip__heading">
+      <span class="cabling-cable-tooltip__title">{{ tooltip().title }}</span>
+      @if (tooltip().details) {
+        <span class="cabling-cable-tooltip__details">{{ tooltip().details }}</span>
+      }
+    </span>
+  </div>
+
+  <ol class="cabling-cable-tooltip__route">
+    @for (end of tooltip().ends; track $index) {
+      <li class="cabling-cable-tooltip__end" [class.is-restricted]="end.restricted">
+        <span class="cabling-cable-tooltip__stop"></span>
+        <span class="cabling-cable-tooltip__object">
+          @if (end.restricted) {
+            <i class="fas fa-lock"></i>
+          }
+          {{ end.title }}
+        </span>
+        @if (end.port) {
+          <span class="cabling-cable-tooltip__port">
+            @if (end.side) {
+              <span class="cabling-cable-tooltip__side">{{ end.side }}</span>
+            }
+            {{ end.port }}
+          </span>
+        }
+      </li>
+    }
+  </ol>
+
+  @if (tooltip().description) {
+    <p class="cabling-cable-tooltip__description">{{ tooltip().description }}</p>
+  }
+</div>
