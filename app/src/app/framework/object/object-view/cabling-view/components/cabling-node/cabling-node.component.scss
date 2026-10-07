@@ -1,4 +1,5 @@
 @use "sass:color";
+@use "../../styles/cabling-layers" as layers;
 @import "src/scss/variables";
 
 $ink-strong: #1f2937;
@@ -238,6 +239,12 @@ $radius: 0.75rem;
   }
 }
 
+// A shaded card is no stacking context, so the ports on the trace can rise above the view's shade.
+:host(.cabling-node--shaded) .is-highlighted {
+  position: relative;
+  z-index: layers.$above-shade;
+}
+
 .cabling-row__none {
   font-size: 0.75rem;
   color: $ink-faint;
@@ -325,9 +332,21 @@ $radius: 0.75rem;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   min-width: 3.25rem;
   font-size: 0.72rem;
   color: $ink-muted;
+
+  // Both faces on the trace: the band runs through the link between them.
+  &.is-highlighted {
+    --row-bg: #{$row-highlight};
+    --pair-link: #{$primary};
+
+    align-self: stretch;
+    margin-left: -0.5rem;
+    padding-left: 0.5rem;
+    background: var(--row-bg);
+  }
 }
 
 .cabling-pair__link {
@@ -335,7 +354,7 @@ $radius: 0.75rem;
   display: flex;
   justify-content: center;
   width: 3rem;
-  color: $ink-label;
+  color: var(--pair-link, #{$ink-label});
 
   &::before {
     content: '';
@@ -343,7 +362,7 @@ $radius: 0.75rem;
     top: 50%;
     right: 0;
     left: 0;
-    border-top: 2px dashed $pair-line;
+    border-top: 2px dashed var(--pair-link, #{$pair-line});
   }
 
   i {

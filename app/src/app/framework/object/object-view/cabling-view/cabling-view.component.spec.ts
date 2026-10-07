@@ -30,9 +30,16 @@ import {
     PP_01,
     SW_01,
     WEB_01,
+    frontEdge,
     mockupRing,
+    nasEdge,
     nasExpansion,
-    standardNode
+    nasNode,
+    ppNode,
+    rearEdge,
+    standardNode,
+    switchNode,
+    webNode
 } from './testing/cabling-fixtures';
 
 /** Answers with the mockup ring until a test says otherwise. */
@@ -236,7 +243,7 @@ describe('CablingViewComponent spotlight', () => {
 
         expect(raisedCables()).toBe(1);
         expect(shade()).toBeNull();
-        expect(card(WEB_01).classList).not.toContain('cabling-node--lit');
+        expect(card(WEB_01).classList).not.toContain('cabling-node--shaded');
         expect(rowOf(WEB_01, 'eth0').classList).toContain('is-highlighted');
         expect(faceOf(PP_01, 'Front 12').classList).toContain('is-highlighted');
     });
@@ -263,42 +270,91 @@ describe('CablingViewComponent spotlight', () => {
         expect(viewport().scrollHeight).toBe(scrollHeight);
     });
 
-    it('lights the card a port is picked on and marks only that port, not the one at the far end', () => {
+    it('leaves even the picked card dark and marks only the ports on the route back to this object', () => {
         cablingService.getPortCabling.and.returnValue(of(nasExpansion()));
         show(PP_01);
         expand(SW_01, 'Gi1/0/24');
         press('s');
         click(portOn(NAS_01, 'e0a'));
 
-        expect(card(NAS_01).classList).toContain('cabling-node--lit');
-        expect(card(SW_01).classList).toContain('cabling-node--shaded');
+        [NAS_01, SW_01, PP_01, WEB_01].forEach((objectId) => {
+            expect(card(objectId).classList).toContain('cabling-node--shaded');
+        });
         expect(rowOf(NAS_01, 'e0a').classList).toContain('is-highlighted');
-        expect(rowOf(SW_01, 'Gi1/0/24').classList).not.toContain('is-highlighted');
-        expect(raisedCables()).toBe(1);
+        expect(rowOf(SW_01, 'Gi1/0/24').classList).toContain('is-highlighted');
+        expect(rowOf(SW_01, 'Gi1/0/12').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Rear 12').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Front 12').classList).not.toContain('is-highlighted');
+        expect(card(WEB_01).querySelector('.is-highlighted')).toBeNull();
+        expect(raisedCables()).toBe(2);
     });
 
-    it('lights nothing past the far end, so a patch panel and the cable behind it stay dark', () => {
+    it('lights the same route when the nearer end of the cable is picked', () => {
+        cablingService.getPortCabling.and.returnValue(of(nasExpansion()));
+        show(PP_01);
+        expand(SW_01, 'Gi1/0/24');
+        press('s');
+        click(portOn(SW_01, 'Gi1/0/24'));
+
+        expect(card(SW_01).classList).toContain('cabling-node--shaded');
+        expect(rowOf(SW_01, 'Gi1/0/24').classList).toContain('is-highlighted');
+        expect(rowOf(NAS_01, 'e0a').classList).toContain('is-highlighted');
+        expect(rowOf(SW_01, 'Gi1/0/12').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Rear 12').classList).toContain('is-highlighted');
+        expect(raisedCables()).toBe(2);
+    });
+
+    it('stops at this object, so its cable on the other face stays dark', () => {
         show(PP_01);
         press('s');
         click(portOn(SW_01, 'Gi1/0/12'));
 
-        expect(card(SW_01).classList).toContain('cabling-node--lit');
+        expect(card(SW_01).classList).toContain('cabling-node--shaded');
         expect(rowOf(SW_01, 'Gi1/0/12').classList).toContain('is-highlighted');
         expect(card(PP_01).classList).toContain('cabling-node--shaded');
-        expect(card(PP_01).querySelector('.is-highlighted')).toBeNull();
+        expect(faceOf(PP_01, 'Rear 12').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Front 12').classList).not.toContain('is-highlighted');
+        expect(card(PP_01).querySelector('.cabling-pair.is-highlighted')).toBeNull();
         expect(card(WEB_01).querySelector('.is-highlighted')).toBeNull();
         expect(selected()).toBe(CABLE_REAR);
         expect(raisedCables()).toBe(1);
     });
 
-    it('moves the light to the other end when that port is picked', () => {
+    it('runs the route through a patch panel\'s internal link', () => {
+        cablingService.getObjectCabling.and.returnValue(of({
+            focal_object_id: SW_01,
+            nodes: [switchNode(), ppNode(), nasNode()],
+            edges: [rearEdge(), nasEdge()]
+        }));
+        cablingService.getPortCabling.and.returnValue(of({
+            focal_object_id: PP_01,
+            nodes: [webNode()],
+            edges: [frontEdge()]
+        }));
+        show(SW_01);
+        expand(PP_01, 'Front 12');
+        press('s');
+        click(portOn(WEB_01, 'eth0'));
+
+        expect(card(WEB_01).classList).toContain('cabling-node--shaded');
+        expect(rowOf(WEB_01, 'eth0').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Front 12').classList).toContain('is-highlighted');
+        expect(faceOf(PP_01, 'Rear 12').classList).toContain('is-highlighted');
+        expect(card(PP_01).querySelector('.cabling-pair').classList).toContain('is-highlighted');
+        expect(rowOf(SW_01, 'Gi1/0/12').classList).toContain('is-highlighted');
+        expect(rowOf(SW_01, 'Gi1/0/24').classList).not.toContain('is-highlighted');
+        expect(raisedCables()).toBe(2);
+    });
+
+    it('keeps the cable lit when its other end is picked', () => {
         show(PP_01);
         press('s');
         click(portOn(SW_01, 'Gi1/0/12'));
         click(portOn(PP_01, 'Rear 12'));
 
-        expect(card(PP_01).classList).toContain('cabling-node--lit');
-        expect(card(SW_01).classList).toContain('cabling-node--shaded');
+        expect(faceOf(PP_01, 'Rear 12').classList).toContain('is-highlighted');
+        expect(rowOf(SW_01, 'Gi1/0/12').classList).toContain('is-highlighted');
+        expect(raisedCables()).toBe(1);
         expect(selected()).toBe(CABLE_REAR);
     });
 
@@ -327,7 +383,6 @@ describe('CablingViewComponent spotlight', () => {
         click(element().querySelector('.cabling-edge__hit'));
 
         expect(raisedCables()).toBe(1);
-        expect(element().querySelector('.cabling-node--lit')).toBeNull();
         expect(markedInCards()).toBe(0);
     });
 

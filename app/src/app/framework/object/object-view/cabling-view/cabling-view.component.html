@@ -96,12 +96,14 @@
         <div class="cabling-view__shade" aria-hidden="true"></div>
       }
 
-      @if (selectedEdge(); as edge) {
+      @if (raisedEdges().length) {
         <svg class="cabling-view__edges cabling-view__edges--raised" aria-hidden="true" focusable="false">
-          <g class="cabling-edge is-highlighted">
-            <ng-container [ngTemplateOutlet]="cableShape"
-              [ngTemplateOutletContext]="{ $implicit: edge }"></ng-container>
-          </g>
+          @for (edge of raisedEdges(); track edge.connectionId) {
+            <g class="cabling-edge is-highlighted">
+              <ng-container [ngTemplateOutlet]="cableShape"
+                [ngTemplateOutletContext]="{ $implicit: edge }"></ng-container>
+            </g>
+          }
         </svg>
       }
     </div>
@@ -138,9 +140,10 @@
   <p id="cabling-view-keys" class="visually-hidden">
     Drag the canvas to pan and a card to move it. Arrow keys pan, plus and minus zoom, and 0 fits the cabling to
     the screen. Hold Ctrl while scrolling to zoom. Click a cable or a cabled port to bring the cable to the front,
-    and press Escape to put it back. S turns the spotlight on: a click on a port then lights its card, that port and
-    its cable, and everything else goes into the background. A click on the background or Escape puts the cable
-    back, and the spotlight stays on until S or the Spotlight button turns it off.
+    and press Escape to put it back. S turns the spotlight on: a click on a port then lights that port, its cable and
+    the cables and ports on the way back to this object, and everything else goes into the background. A click on
+    the background or Escape puts the cable back, and the spotlight stays on until S or the Spotlight button turns it
+    off.
   </p>
 
   <app-loading-popup

@@ -50,7 +50,7 @@
                 }
               </div>
 
-              <div class="cabling-pair">
+              <div class="cabling-pair" [class.is-highlighted]="isPairHighlighted(row)">
                 @if (row.paired) {
                   <span class="cabling-pair__label">Internal</span>
                   <span class="cabling-pair__link" aria-hidden="true">
