@@ -121,7 +121,7 @@ import { ProfileManagerModalComponent } from './object-view/graph-editor/modals/
 import { ProfileDeleteModalComponent } from './object-view/graph-editor/modals/profile-delete/profile-delete-modal.component';
 import { CiExplorerLabelModalComponent } from './object-view/graph-editor/modals/ci-explorer-label/ci-explorer-label-modal.component';
 import { ConnectionDetailsModalComponent } from './object-view/graph-editor/modals/connection-details/connection-details-modal.component';
-import { CablingViewComponent } from './object-view/graph-editor/cabling-view/cabling-view.component';
+import { CablingViewComponent } from './object-view/cabling-view/cabling-view.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @NgModule({

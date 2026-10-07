@@ -41,6 +41,7 @@ import {
     CmdbPortConnection
 } from './models/port-connection.types';
 import { PortDeviceKind } from './models/port-bulk.types';
+import { PORTS_LICENSE_FEATURE, PortsAccess } from './models/ports-license.types';
 import {
     CmdbPort,
     PORT_ADD_RIGHT,
@@ -54,6 +55,7 @@ import {
 import { PortConnectionService } from './services/port-connection.service';
 import { PortDialogService } from './services/port-dialog.service';
 import { PortService } from './services/port.service';
+import { PortsLicenseService } from './services/ports-license.service';
 import { distinctCableConnectionIds } from './utils/port-bulk.util';
 import {
     clampPage,
@@ -92,6 +94,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     private readonly permission = inject(PermissionService);
     private readonly toastService = inject(ToastService);
     private readonly changesRef = inject(ChangeDetectorRef);
+    private readonly portsLicense = inject(PortsLicenseService);
 
     @Input() public objectId: number | null = null;
 
@@ -123,7 +126,12 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     public pageSize = DEFAULT_PAGE_SIZE;
     public sort: Sort = { name: 'port_number', order: SortDirection.ASCENDING };
     public hasError = false;
+
+    /** `null` until the license is known; nothing is read before. */
+    public access: PortsAccess | null = null;
+
     public readonly isLoading$ = this.loaderService.isLoading$;
+    public readonly licenseFeature = PORTS_LICENSE_FEATURE;
     public readonly portAddRight = PORT_ADD_RIGHT;
     public readonly patchPanel = PortDeviceKind.PATCH_PANEL;
 
@@ -149,6 +157,14 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
                 takeUntil(this.destroy$)
             )
             .subscribe((overview) => this.applyOverview(overview));
+
+        this.portsLicense.access$()
+            .pipe(takeUntil(this.destroy$))
+            .subscribe((access) => {
+                this.access = access;
+                this.load();
+                this.changesRef.markForCheck();
+            });
     }
 
     public ngOnChanges(changes: SimpleChanges): void {
@@ -197,7 +213,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
     /** One dialog for one port or many; the count decides, the object's kind limits the device type. */
     public onAddPorts(): void {
-        if (this.objectId == null) {
+        if (this.objectId == null || !this.canAdd) {
             return;
         }
 
@@ -321,6 +337,24 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
+    /** Without a license there are no ports to read, so the section shows the upgrade offer instead. */
+    public get isLocked(): boolean {
+        return this.access === PortsAccess.LOCKED;
+    }
+
+
+    /** An expired license keeps the existing ports but adds no new ones. */
+    public get isLapsed(): boolean {
+        return this.access === PortsAccess.LAPSED;
+    }
+
+
+    /** The add right is checked on the button itself. */
+    public get canAdd(): boolean {
+        return this.manageable && this.access === PortsAccess.FULL;
+    }
+
+
     /** Each gates one action of the table and, together, they gate its whole actions column. */
     public get canEdit(): boolean {
         return this.manageable && this.hasRight(PORT_EDIT_RIGHT);
@@ -356,7 +390,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
     /** Without an object there is nothing to list yet, which the empty state says instead of the default. */
     public get emptyMessage(): string {
-        return this.objectId == null
+        return this.objectId == null && !this.isLapsed
             ? 'Ports can be added once the object has been saved.'
             : 'No ports to display.';
     }
@@ -415,7 +449,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
 
     private load(): void {
-        if (this.objectId == null) {
+        if (this.objectId == null || this.access === null || this.isLocked) {
             this.reset();
             return;
         }

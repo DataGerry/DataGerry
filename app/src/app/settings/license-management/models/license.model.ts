@@ -134,6 +134,8 @@ export interface LicenseEntitlements {
   is_active: boolean;
   type: string;
   features: LicenseFeature[];
+  /** Verification outcome of the stored license, as on `/current`; `null` when none is stored. */
+  status?: LicenseVerificationStatus | null;
 }
 
 /** Domain model the UI consumes: the verification flags plus the entitlement grouped together. */

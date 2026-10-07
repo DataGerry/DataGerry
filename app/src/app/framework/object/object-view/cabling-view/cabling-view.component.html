@@ -1,0 +1,160 @@
+<div class="cabling-view">
+  <div class="cabling-view__toolbar" role="toolbar" aria-label="Cabling tools">
+    <div class="cabling-view__toolbar-group">
+      <div class="cabling-view__zoom" role="group" aria-label="Zoom">
+        <app-button
+          label=""
+          icon="fas fa-magnifying-glass-minus"
+          bootstrapClass="cabling-view__tool"
+          ariaLabel="Zoom out"
+          title="Zoom out">
+        </app-button>
+        <app-button
+          label=""
+          icon="fas fa-magnifying-glass-plus"
+          bootstrapClass="cabling-view__tool"
+          ariaLabel="Zoom in"
+          title="Zoom in">
+        </app-button>
+      </div>
+
+      <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
+
+      <app-button
+        label=""
+        icon="fas fa-ethernet"
+        bootstrapClass="cabling-view__tool"
+        ariaLabel="Show free ports"
+        [ariaPressed]="showFreePorts()"
+        [title]="showFreePorts() ? 'Hide free ports' : 'Show free ports'"
+        (clicked)="toggleFreePorts()">
+      </app-button>
+
+      <app-button
+        label=""
+        icon="fas fa-bullseye"
+        bootstrapClass="cabling-view__tool"
+        ariaLabel="Spotlight"
+        [ariaPressed]="spotlightStore.active()"
+        [disabled]="!spotlightStore.canLight()"
+        [title]="spotlightStore.active() ? 'Turn off the spotlight (S)' : 'Spotlight the port you click (S)'"
+        (clicked)="toggleSpotlight()">
+      </app-button>
+
+      <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
+
+      <app-button
+        label=""
+        icon="fas fa-expand"
+        bootstrapClass="cabling-view__tool"
+        ariaLabel="Full screen"
+        title="Full screen">
+      </app-button>
+    </div>
+  </div>
+
+  <div
+    class="cabling-view__viewport"
+    cmdbCablingGestures
+    tabindex="0"
+    role="region"
+    aria-label="Cabling canvas"
+    aria-describedby="cabling-view-keys"
+    (keydown)="onKeydown($event)"
+    (click)="onCanvasClick($event)">
+
+    <div class="cabling-view__canvas" [class.is-animated]="canvas.animate()" [style.transform]="canvas.transform()">
+      <svg class="cabling-view__edges" aria-hidden="true" focusable="false">
+        @for (edge of edges(); track edge.connectionId) {
+          <g class="cabling-edge" [class.is-highlighted]="edge.connectionId === highlightedConnectionId()">
+            <path class="cabling-edge__hit" [attr.d]="edge.path"
+              (pointerenter)="onCableHover($event, edge.connectionId)"
+              (pointermove)="onCableHover($event, edge.connectionId)"
+              (pointerleave)="onCableLeave()"
+              (click)="onSelectCable(edge.connectionId)" />
+            <ng-container [ngTemplateOutlet]="cableShape"
+              [ngTemplateOutletContext]="{ $implicit: edge }"></ng-container>
+          </g>
+        }
+      </svg>
+
+      @for (node of nodeList(); track node.objectId) {
+        <cmdb-cabling-node
+          [layout]="node"
+          [detail]="options().detail"
+          [highlightedConnectionId]="highlightedConnectionId()"
+          [expandingPortIds]="store.expandingPortIds()"
+          [spotlight]="spotlight()"
+          (expandPort)="store.expandPort($event)"
+          (toggleRows)="toggleRows(node.objectId)"
+          (hoverConnection)="hoveredConnectionId.set($event)"
+          (selectConnection)="onSelectConnection($event)">
+        </cmdb-cabling-node>
+      }
+
+      @if (spotlight()) {
+        <div class="cabling-view__shade" aria-hidden="true"></div>
+      }
+
+      @if (selectedEdge(); as edge) {
+        <svg class="cabling-view__edges cabling-view__edges--raised" aria-hidden="true" focusable="false">
+          <g class="cabling-edge is-highlighted">
+            <ng-container [ngTemplateOutlet]="cableShape"
+              [ngTemplateOutletContext]="{ $implicit: edge }"></ng-container>
+          </g>
+        </svg>
+      }
+    </div>
+
+    @if (tooltip(); as tip) {
+      <cmdb-cabling-cable-tooltip
+        [tooltip]="tip.content"
+        [placement]="tip.placement"
+        [selected]="tip.content.connectionId === selectedConnectionId()">
+      </cmdb-cabling-cable-tooltip>
+    }
+  </div>
+
+  @if (store.loadFailed()) {
+    <div class="cabling-view__state" role="alert">
+      <i class="fas fa-triangle-exclamation" aria-hidden="true"></i>
+      <p>The cabling could not be loaded.</p>
+      <app-button
+        label="Try again"
+        icon="fas fa-rotate-right"
+        bootstrapClass="btn-primary btn-sm"
+        (clicked)="resetGraph()">
+      </app-button>
+    </div>
+  } @else if (isEmpty()) {
+    <p class="cabling-view__hint" role="status">No cables are connected to this object yet.</p>
+  }
+
+  <ul class="visually-hidden" aria-label="Cables on the canvas">
+    @for (edge of edges(); track edge.connectionId) {
+      <li>{{ edge.description }}</li>
+    }
+  </ul>
+  <p id="cabling-view-keys" class="visually-hidden">
+    Drag the canvas to pan and a card to move it. Arrow keys pan, plus and minus zoom, and 0 fits the cabling to
+    the screen. Hold Ctrl while scrolling to zoom. Click a cable or a cabled port to bring the cable to the front,
+    and press Escape to put it back. S turns the spotlight on: a click on a port then lights its card, that port and
+    its cable, and everything else goes into the background. A click on the background or Escape puts the cable
+    back, and the spotlight stays on until S or the Spotlight button turns it off.
+  </p>
+
+  <app-loading-popup
+    [isVisible]="isLoading$ | async"
+    message="We're Processing the Data..."
+  ></app-loading-popup>
+</div>
+
+<!-- One cable as drawn in every layer; the svg: prefix keeps the shapes in the SVG namespace. -->
+<ng-template #cableShape let-edge>
+  <svg:path class="cabling-edge__casing" [attr.d]="edge.path" [attr.stroke]="casingStroke" />
+  <svg:path class="cabling-edge__core" [attr.d]="edge.path" [attr.stroke]="edge.stroke" />
+  <svg:circle class="cabling-edge__end" [attr.cx]="edge.from.x" [attr.cy]="edge.from.y" [attr.r]="endDotRadius"
+    [attr.fill]="edge.stroke" [attr.stroke]="casingStroke" />
+  <svg:circle class="cabling-edge__end" [attr.cx]="edge.to.x" [attr.cy]="edge.to.y" [attr.r]="endDotRadius"
+    [attr.fill]="edge.stroke" [attr.stroke]="casingStroke" />
+</ng-template>
