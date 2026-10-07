@@ -1,0 +1,127 @@
+@if (layout().focal) {
+  <span class="cabling-node__crown" aria-hidden="true">
+    <i class="fas fa-crown"></i>
+  </span>
+}
+
+<div class="cabling-node__header" [style.height.px]="geometry.headerHeight">
+  <span class="cabling-node__chip" aria-hidden="true">
+    <i [class]="layout().icon"></i>
+  </span>
+
+  <span class="cabling-node__heading">
+    <span class="cabling-node__title" [title]="layout().title">{{ layout().title }}</span>
+    @if (layout().subtitle) {
+      <span class="cabling-node__subtitle" [title]="layout().subtitle">{{ layout().subtitle }}</span>
+    }
+  </span>
+
+  @if (!layout().restricted) {
+    <span class="cabling-node__badge" [title]="portCountLabel()" aria-hidden="true">{{ layout().portCount }}</span>
+  }
+
+  @if (!layout().focal && !layout().restricted) {
+    <a class="cabling-node__open"
+      [routerLink]="['/framework/object/view', layout().objectId]"
+      [queryParams]="openQueryParams"
+      [attr.aria-label]="'Open the cabling of ' + layout().title"
+      [title]="'Open the cabling of ' + layout().title">
+      <i class="fas fa-arrow-up-right-from-square" aria-hidden="true"></i>
+    </a>
+  }
+</div>
+
+@if (layout().rows.length || layout().emptyMessage || layout().footer) {
+  <div class="cabling-node__body" [style.padding-top.px]="geometry.bodyPadding"
+    [style.padding-bottom.px]="geometry.bodyPadding">
+    @if (layout().rows.length) {
+      <ul class="cabling-node__rows">
+        @for (row of layout().rows; track row.key) {
+          <li class="cabling-row" [class.cabling-row--pair]="!row.port" [class.is-highlighted]="isHighlighted(row.port)"
+            [style.height.px]="row.height">
+            @if (row.port) {
+              <ng-container [ngTemplateOutlet]="face" [ngTemplateOutletContext]="{ $implicit: row.port }"></ng-container>
+            } @else {
+              <div class="cabling-row__face" [class.is-highlighted]="isHighlighted(row.front)">
+                @if (row.front) {
+                  <ng-container [ngTemplateOutlet]="face" [ngTemplateOutletContext]="{ $implicit: row.front }"></ng-container>
+                } @else {
+                  <span class="cabling-row__none">No front port</span>
+                }
+              </div>
+
+              <div class="cabling-pair">
+                @if (row.paired) {
+                  <span class="cabling-pair__label">Internal</span>
+                  <span class="cabling-pair__link" aria-hidden="true">
+                    <i class="fas fa-right-left"></i>
+                  </span>
+                }
+              </div>
+
+              <div class="cabling-row__face" [class.is-highlighted]="isHighlighted(row.rear)">
+                @if (row.rear) {
+                  <ng-container [ngTemplateOutlet]="face" [ngTemplateOutletContext]="{ $implicit: row.rear }"></ng-container>
+                } @else {
+                  <span class="cabling-row__none">No rear port</span>
+                }
+              </div>
+            }
+          </li>
+        }
+      </ul>
+    }
+
+    @if (layout().emptyMessage) {
+      <p class="cabling-node__empty" [style.height.px]="geometry.emptyHeight">{{ layout().emptyMessage }}</p>
+    }
+
+    @if (layout().footer; as footer) {
+      <div class="cabling-node__footer" [style.height.px]="geometry.footerHeight">
+        <app-button
+          [label]="footerLabel()"
+          [icon]="footer.expanded ? 'fas fa-minus' : 'fas fa-plus'"
+          bootstrapClass="btn-link btn-sm cabling-node__fold"
+          padding="0 0.25rem"
+          [ariaExpanded]="footer.expanded"
+          (clicked)="toggleRows.emit()">
+        </app-button>
+      </div>
+    }
+  </div>
+}
+
+<ng-template #face let-port>
+  <div class="cabling-port" [class.is-cabled]="port.cabled" [class.is-highlighted]="isHighlighted(port)"
+    (mouseenter)="onPortEnter(port)" (mouseleave)="onPortLeave(port)" (click)="onPortClick($event, port)">
+    <span class="cabling-port__dot" aria-hidden="true"></span>
+    <span class="cabling-port__name" [title]="port.name">{{ port.name }}</span>
+    <span class="cabling-port__state">({{ port.cabled ? 'connected' : 'free' }})</span>
+
+    @if (detail() && (port.farEnd || port.meta)) {
+      <span class="cabling-port__meta" [title]="port.farEnd || port.meta">
+        @if (port.farEnd) {
+          <i class="fas fa-arrow-right-long" aria-hidden="true"></i>
+          <span class="visually-hidden">to</span>
+          {{ port.farEnd }}
+        } @else {
+          {{ port.meta }}
+        }
+      </span>
+    }
+
+    @if (port.expandable) {
+      <app-button
+        class="cabling-port__expand"
+        label=""
+        [icon]="isExpanding(port) ? 'fas fa-spinner fa-spin' : 'fas fa-circle-plus'"
+        bootstrapClass="btn-link btn-sm cabling-port__expand-btn"
+        padding="0 0.25rem"
+        [ariaLabel]="port.expandLabel"
+        [title]="port.expandLabel"
+        [disabled]="isExpanding(port)"
+        (clicked)="expandPort.emit(port.portId)">
+      </app-button>
+    }
+  </div>
+</ng-template>

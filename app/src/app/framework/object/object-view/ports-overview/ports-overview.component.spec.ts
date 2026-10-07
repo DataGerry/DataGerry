@@ -19,7 +19,7 @@ import { SimpleChange, SimpleChanges } from '@angular/core';
 import { TestBed } from '@angular/core/testing';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
-import { of } from 'rxjs';
+import { BehaviorSubject, Subject, of } from 'rxjs';
 
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { FullscreenModalService } from 'src/app/core/services/fullscreen-modal.service';
@@ -28,6 +28,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { CONNECTION_DELETE_RIGHT } from './models/port-connection.types';
 import { PortDeviceKind } from './models/port-bulk.types';
+import { PortsAccess } from './models/ports-license.types';
 import {
     OverviewPort,
     PORT_DELETE_RIGHT,
@@ -39,6 +40,7 @@ import {
 import { PortsOverviewComponent } from './ports-overview.component';
 import { PortConnectionService } from './services/port-connection.service';
 import { PortService } from './services/port.service';
+import { PortsLicenseService } from './services/ports-license.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 describe('PortsOverviewComponent', () => {
@@ -49,6 +51,7 @@ describe('PortsOverviewComponent', () => {
     let modalService: jasmine.SpyObj<NgbModal>;
     let portConnectionService: jasmine.SpyObj<PortConnectionService>;
     let toast: jasmine.SpyObj<ToastService>;
+    let licenseAccess: Subject<PortsAccess>;
 
     const port = (portId: number, name: string, side = PortSide.SINGLE): OverviewPort => ({
         port_id: portId,
@@ -94,6 +97,7 @@ describe('PortsOverviewComponent', () => {
         deleteModal = jasmine.createSpyObj<DeleteModalService>('DeleteModalService', ['confirmDelete']);
         modalService = jasmine.createSpyObj<NgbModal>('NgbModal', ['open']);
         toast = jasmine.createSpyObj<ToastService>('ToastService', ['success', 'error']);
+        licenseAccess = new BehaviorSubject<PortsAccess>(PortsAccess.FULL);
 
         const loader = jasmine.createSpyObj<LoaderService>(
             'LoaderService', ['show', 'hide'], { isLoading$: of(false) });
@@ -115,7 +119,8 @@ describe('PortsOverviewComponent', () => {
                 { provide: DeleteModalService, useValue: deleteModal },
                 { provide: FullscreenModalService, useValue: new FullscreenModalService() },
                 { provide: NgbModal, useValue: modalService },
-                { provide: ToastService, useValue: toast }
+                { provide: ToastService, useValue: toast },
+                { provide: PortsLicenseService, useValue: { access$: () => licenseAccess } }
             ]
         }).overrideComponent(PortsOverviewComponent, { set: { template: '' } });
 
@@ -313,12 +318,88 @@ describe('PortsOverviewComponent', () => {
     describe('adding ports', () => {
         it('opens the add dialog with the kind the object already is', () => {
             portService.getPortOverview.and.returnValue(of(patchPanel));
+            component.manageable = true;
             component.ngOnChanges(objectIdChange(20));
 
             component.onAddPorts();
 
             expect(modalService.open.calls.mostRecent().returnValue.componentInstance.existingKind)
                 .toBe(PortDeviceKind.PATCH_PANEL);
+        });
+    });
+
+    describe('license', () => {
+        beforeEach(() => component.manageable = true);
+
+        it('reads nothing before the license is known', () => {
+            licenseAccess = new Subject<PortsAccess>();
+            const pending = TestBed.createComponent(PortsOverviewComponent).componentInstance;
+            pending.objectId = 20;
+
+            pending.ngOnChanges(objectIdChange(20));
+            expect(portService.getPortOverview).not.toHaveBeenCalled();
+
+            licenseAccess.next(PortsAccess.FULL);
+            expect(portService.getPortOverview).toHaveBeenCalledOnceWith(20);
+        });
+
+        it('adds ports with a license', () => {
+            component.ngOnChanges(objectIdChange(20));
+
+            expect(component.canAdd).toBeTrue();
+            expect(component.isLocked).toBeFalse();
+            expect(component.isLapsed).toBeFalse();
+        });
+
+        it('lists and edits the ports on an expired license, but adds none', () => {
+            licenseAccess.next(PortsAccess.LAPSED);
+            component.ngOnChanges(objectIdChange(20));
+
+            component.onAddPorts();
+
+            expect(component.isLapsed).toBeTrue();
+            expect(component.rows.length).toBe(2);
+            expect(component.canEdit).toBeTrue();
+            expect(component.canAdd).toBeFalse();
+            expect(modalService.open).not.toHaveBeenCalled();
+        });
+
+        it('promises no adding in the add form on an expired license', () => {
+            licenseAccess.next(PortsAccess.LAPSED);
+            component.objectId = null;
+
+            expect(component.emptyMessage).toBe('No ports to display.');
+        });
+
+        it('reads no ports and adds none without a license', () => {
+            licenseAccess.next(PortsAccess.LOCKED);
+            component.ngOnChanges(objectIdChange(20));
+
+            component.onAddPorts();
+
+            expect(component.isLocked).toBeTrue();
+            expect(component.canAdd).toBeFalse();
+            expect(portService.getPortOverview).not.toHaveBeenCalled();
+            expect(modalService.open).not.toHaveBeenCalled();
+        });
+
+        it('drops the listed ports once the license is removed', () => {
+            component.ngOnChanges(objectIdChange(20));
+
+            licenseAccess.next(PortsAccess.LOCKED);
+
+            expect(component.rows).toEqual([]);
+            expect(component.totalRows).toBe(0);
+        });
+
+        it('reads the ports once a license is imported', () => {
+            licenseAccess.next(PortsAccess.LOCKED);
+            component.ngOnChanges(objectIdChange(20));
+
+            licenseAccess.next(PortsAccess.FULL);
+
+            expect(portService.getPortOverview).toHaveBeenCalledOnceWith(20);
+            expect(component.canAdd).toBeTrue();
         });
     });
 
