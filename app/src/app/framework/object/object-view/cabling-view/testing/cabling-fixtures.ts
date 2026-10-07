@@ -27,7 +27,7 @@ import {
 } from '../models/cabling.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Object ids of the mockup: PP-01 in the middle, WEB-01 on its front, SW-01 on its rear, NAS-01 and BACKUP-01 beyond. */
+/** Object ids : PP-01 in the middle, WEB-01 on its front, SW-01 on its rear, NAS-01 and BACKUP-01 beyond. */
 export const PP_01 = 8701;
 export const SW_01 = 8702;
 export const WEB_01 = 8703;
