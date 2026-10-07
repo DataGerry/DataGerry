@@ -475,7 +475,7 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
         return
 
     # Delete all affected relations
-    object_relations_manager.delete_many_raw(related_relations_query)
+    object_relations_manager.delete_many(related_relations_query)
 
     # Prepare Log data
     logs_to_create: list[dict[str, Any]] = []

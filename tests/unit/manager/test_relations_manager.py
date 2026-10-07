@@ -130,19 +130,19 @@ class TestUpdateRelation:
 # ------------------------------------------------- remove_type_from_relations --------------------------------------- #
 
 class TestRemoveTypeFromRelations:
-    """remove_type_from_relations issues a single server-side update_many."""
+    """remove_type_from_relations issues a single server-side $pull (update_many_raw)."""
 
     def test_pulls_type_id_from_parent_and_child_lists(self) -> None:
-        """A single update_many pulls the type id from both parent and child id lists."""
+        """A single raw update pulls the type id from both parent and child id lists."""
         mgr = _mock_manager()
 
         RelationsManager.remove_type_from_relations(mgr, REMOVED_TYPE_ID)
 
-        mgr.update_many.assert_called_once_with(
-            criteria={'$or': [{'parent_type_ids': REMOVED_TYPE_ID}, {'child_type_ids': REMOVED_TYPE_ID}]},
-            update={'$pull': {'parent_type_ids': REMOVED_TYPE_ID, 'child_type_ids': REMOVED_TYPE_ID}},
-            plain=True,
+        mgr.update_many_raw.assert_called_once_with(
+            {'$or': [{'parent_type_ids': REMOVED_TYPE_ID}, {'child_type_ids': REMOVED_TYPE_ID}]},
+            {'$pull': {'parent_type_ids': REMOVED_TYPE_ID, 'child_type_ids': REMOVED_TYPE_ID}},
         )
+        mgr.update_many.assert_not_called()
 
 
 # ----------------------------------------------------- delete_relation ---------------------------------------------- #

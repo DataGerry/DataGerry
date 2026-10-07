@@ -19,10 +19,12 @@ This module provides all Updater errors
 from .updater_errors import (
     UpdaterError,
     UpdaterException,
+    TenantUpdatesFailedError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'UpdaterError',
     'UpdaterException',
+    'TenantUpdatesFailedError',
 ]

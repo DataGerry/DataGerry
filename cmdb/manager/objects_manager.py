@@ -51,6 +51,7 @@ from pymongo.results import UpdateResult
 from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_constants import PUBLIC_ID_FIELD
 from cmdb.database.json_codec import object_hook
 from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
@@ -220,8 +221,8 @@ class ObjectsManager(BaseManager):
         except (DocumentLockTimeoutError, DocumentNetworkError) as err:
             # Propagated unchanged, the same rule MongoDatabaseManager.insert applies one layer down:
             # re-wrapping these as an insert error hides the one thing that distinguishes them - they
-            # are transient and the request can simply be retried. The route maps them to 423 / 503
-            # through `handle_db_errors`
+            # are transient and the request can simply be retried. The app's error handlers answer them
+            # with 423 / 503 (`responses/error_handlers.py`)
             raise err
         except Exception as err:
             LOGGER.error("[insert_object] Exception: %s. Type: %s", err, type(err))
@@ -378,7 +379,8 @@ class ObjectsManager(BaseManager):
         direction: int = -1,
         user: CmdbUser | None = None,
         permission: AccessControlPermission | None = None,
-        **requirements: Any,
+        *,
+        criteria: dict[str, Any] | None = None,
     ) -> list[CmdbObject]:
         """
         Retrieves a list of CmdbObjects based on the provided filters
@@ -392,7 +394,7 @@ class ObjectsManager(BaseManager):
             direction (int): The direction of sorting; -1 for descending, 1 for ascending. Defaults to -1
             user (CmdbUser | None): The user for access control verification. Defaults to None
             permission (AccessControlPermission | None): The required permission
-            **requirements: Additional filter criteria passed as keyword arguments
+            criteria (dict[str, Any] | None): The filter, as one dict. None reads every CmdbObject
 
         Raises:
             ObjectsManagerGetError: If an error occurs while retrieving or processing the objects
@@ -403,7 +405,7 @@ class ObjectsManager(BaseManager):
         try:
             valid_objects = []
 
-            objects = self.get_many(sort=sort, direction=direction, **requirements)
+            objects = self.get_many(sort=sort, direction=direction, criteria=criteria)
             cmdb_objects: list[CmdbObject] = [CmdbObject.from_data(obj) for obj in objects]
 
             # Batch-load the types once instead of one get_object_type call per object (no N+1):
@@ -1326,7 +1328,7 @@ class ObjectsManager(BaseManager):
             return {}
 
         type_docs: list[dict[str, Any]] = self.get_many_from_other_collection(
-            CmdbType.COLLECTION, public_id={'$in': type_ids},
+            CmdbType.COLLECTION, criteria={PUBLIC_ID_FIELD: {'$in': type_ids}},
         )
         lookup: dict[int, CmdbType] = {}
 

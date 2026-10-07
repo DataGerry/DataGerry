@@ -441,4 +441,4 @@ class ObjectRelationsManager(GenericManager):
             })
         ]
 
-        self.update_many({ObjectRelationKey.RELATION_ID.value: relation_id}, pipeline, plain=True)
+        self.update_many_raw({ObjectRelationKey.RELATION_ID.value: relation_id}, pipeline)

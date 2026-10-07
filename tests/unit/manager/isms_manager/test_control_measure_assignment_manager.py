@@ -68,7 +68,7 @@ def test_reads_only_the_public_ids_of_the_measures() -> None:
     manager.get_many_from_other_collection.assert_called_once_with(
         IsmsControlMeasure.COLLECTION,
         projection=CONTROL_MEASURE_ID_PROJECTION,
-        public_id={'$in': [EXISTING_ID]},
+        criteria={'public_id': {'$in': [EXISTING_ID]}},
     )
     assert CONTROL_MEASURE_ID_PROJECTION == {ControlMeasureKey.PUBLIC_ID.value: 1, '_id': 0}
 

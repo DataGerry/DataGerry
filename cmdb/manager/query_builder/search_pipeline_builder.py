@@ -270,7 +270,7 @@ class SearchPipelineBuilder(PipelineBuilder):
 
         criteria = label_patterns[0] if len(label_patterns) == 1 else self.or_(label_patterns)
 
-        for category in categories_manager.get_categories_by(**criteria):
+        for category in categories_manager.get_categories_by(criteria):
             self.add_pipe(self.match_(self.in_(CmdbObjectKey.TYPE_ID.value, category.types)))
 
 

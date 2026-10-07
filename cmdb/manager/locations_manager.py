@@ -361,7 +361,7 @@ class LocationsManager(BaseManager):
             list[dict[str, Any]]: The canonical documents of the direct children, name-ascending
         """
         try:
-            documents: list[dict[str, Any]] = self.get_many(**{LocationKey.PARENT.value: parent_id})
+            documents: list[dict[str, Any]] = self.get_many(criteria={LocationKey.PARENT.value: parent_id})
         except BaseManagerGetError as err:
             raise LocationsManagerGetError(err) from err
         except Exception as err:
@@ -581,7 +581,7 @@ class LocationsManager(BaseManager):
 
             # One $in over all sibling levels at once (children of the root + of each ancestor)
             documents: list[dict[str, Any]] = self.get_many(
-                **{LocationKey.PARENT.value: {'$in': list(expand_parents)}}
+                criteria={LocationKey.PARENT.value: {'$in': list(expand_parents)}}
             )
 
             return sort_locations_by_name([to_location_document(document) for document in documents])

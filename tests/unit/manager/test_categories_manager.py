@@ -152,9 +152,9 @@ class TestGetCategoriesBy:
         hydrated = [MagicMock(name='cat1'), MagicMock(name='cat2')]
 
         with patch.object(CmdbCategory, 'from_data', side_effect=hydrated) as from_data_mock:
-            result = CategoriesManager.get_categories_by(mgr, sort='label', parent=PARENT_CATEGORY_PUBLIC_ID)
+            result = CategoriesManager.get_categories_by(mgr, {'parent': PARENT_CATEGORY_PUBLIC_ID}, sort='label')
 
-        mgr.get_many.assert_called_once_with(sort='label', parent=PARENT_CATEGORY_PUBLIC_ID)
+        mgr.get_many.assert_called_once_with(sort='label', criteria={'parent': PARENT_CATEGORY_PUBLIC_ID})
         assert [c.args[0] for c in from_data_mock.call_args_list] == SAMPLE_CATEGORY_DICTS
         assert result == hydrated
 
@@ -164,7 +164,7 @@ class TestGetCategoriesBy:
         mgr.get_many.side_effect = BaseManagerGetError('db down')
 
         with pytest.raises(CategoriesManagerGetError):
-            CategoriesManager.get_categories_by(mgr)
+            CategoriesManager.get_categories_by(mgr, {})
 
     def test_from_data_error_wraps_as_categories_get_error(self) -> None:
         """An ``CmdbCategoryInitFromDataError`` during rehydration is wrapped as ``CategoriesManagerGetError``."""
@@ -173,7 +173,7 @@ class TestGetCategoriesBy:
 
         with patch.object(CmdbCategory, 'from_data', side_effect=CmdbCategoryInitFromDataError('malformed')):
             with pytest.raises(CategoriesManagerGetError):
-                CategoriesManager.get_categories_by(mgr)
+                CategoriesManager.get_categories_by(mgr, {})
 
     def test_unexpected_error_wraps_as_categories_get_error(self) -> None:
         """A generic exception is wrapped as ``CategoriesManagerGetError``."""
@@ -181,7 +181,7 @@ class TestGetCategoriesBy:
         mgr.get_many.side_effect = RuntimeError('boom')
 
         with pytest.raises(CategoriesManagerGetError):
-            CategoriesManager.get_categories_by(mgr)
+            CategoriesManager.get_categories_by(mgr, {})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -476,7 +476,7 @@ class TestFindUnknownTypeIds:
         assert CategoriesManager.find_unknown_type_ids(mgr, [9, 2, 7]) == [7, 9]
         kwargs = mgr.get_many_from_other_collection.call_args.kwargs
         assert kwargs['projection'] == {'public_id': 1, '_id': 0}
-        assert kwargs['public_id'] == {'$in': [9, 2, 7]}
+        assert kwargs['criteria'] == {'public_id': {'$in': [9, 2, 7]}}
 
     def test_no_ids_cost_no_read(self) -> None:
         """Nothing to look up"""

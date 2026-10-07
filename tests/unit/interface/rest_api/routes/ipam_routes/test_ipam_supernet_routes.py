@@ -259,12 +259,13 @@ def test_export_route_body_parses_as_valid_csv(
         IpamOverviewKey.USAGE_PERCENT: 1.17,
     }]
 
-    # Patch the data source + the family resolver (IPv4) so the real build runs and emits real bytes.
+    # Patch the data source, the supernet read and its family (IPv4) so the real build runs and emits real bytes.
     # The real builder also resolves the caller's ACL read scope, which reaches ManagerProvider deep in
     # the framework - patched at ITS OWN path rather than through the route module
     # patched by accident (patching an attribute of the shared class silences it everywhere)
-    with patch('cmdb.framework.ipam.subnet_export.load_assigned_subnet_rows', return_value=rows), \
-         patch('cmdb.framework.ipam.subnet_export.resolve_supernet_family', return_value=IpAddressFamily.IPV4), \
+    with patch('cmdb.framework.ipam.subnet_export.load_subnet_usage_rows', return_value=rows), \
+         patch('cmdb.framework.ipam.subnet_export.load_supernet_object', return_value={}), \
+         patch('cmdb.framework.ipam.subnet_export.supernet_family', return_value=IpAddressFamily.IPV4), \
          patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
          patch(f'{MANAGER_PROVIDER_PATH}.get_manager', return_value=MagicMock()), \
          flask_app.test_request_context('/'):

@@ -28,11 +28,14 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.base_manager_constants import EMPTY_DELETE_FILTER_MSG
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import find_cause
 from cmdb.errors.database import (
     DocumentQueryTimeLimitError,
     DocumentInsertError,
+    DocumentInsertDuplicateKeyError,
+    DocumentInsertTooLargeError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
     DocumentGetError,
@@ -68,49 +71,114 @@ def _mock_manager() -> MagicMock:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   insert_many                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_insert_many_skip_public_delegates_without_id_generation() -> None:
-    """skip_public=True inserts the documents as-is and never generates a public_id"""
+def _insert_manager(reserved: list[int] | None = None) -> MagicMock:
+    """A stand-in manager whose id assignment is the real one, over a dbm that reserves the given block"""
     mgr = _mock_manager()
+    mgr.dbm.reserve_public_ids.return_value = reserved or []
+    # The stand-in is a MagicMock, so the real helper is wired in by hand
+    mgr._assign_public_ids.side_effect = (  # pylint: disable=protected-access
+        lambda data: BaseManager._assign_public_ids(mgr, data)  # pylint: disable=protected-access
+    )
+    return mgr
+
+
+def test_insert_many_skip_public_delegates_without_id_generation() -> None:
+    """skip_public=True inserts the documents as-is and never reserves a public_id"""
+    mgr = _insert_manager()
     docs = [{'public_id': 1}, {'public_id': 2}]
 
     BaseManager.insert_many(mgr, docs, skip_public=True)
 
-    mgr.dbm.insert_many.assert_called_once_with(COLLECTION, DB_NAME, docs, True)
-    mgr.dbm.get_next_public_id.assert_not_called()
+    mgr.dbm.insert_many.assert_called_once_with(COLLECTION, DB_NAME, docs, skip_public=True)
+    mgr.dbm.reserve_public_ids.assert_not_called()
 
 
 def test_insert_many_assigns_public_id_to_documents_missing_one() -> None:
-    """With skip_public=False, every document without a public_id gets the next generated one"""
-    mgr = _mock_manager()
-    mgr.dbm.get_next_public_id.side_effect = [10, 11]
+    """Every document without a public_id gets one, in list order, from the reserved block"""
+    mgr = _insert_manager(reserved=[10, 11])
     docs = [{'name': 'a'}, {'name': 'b'}]
 
     BaseManager.insert_many(mgr, docs)
 
-    assert docs[0]['public_id'] == 10
-    assert docs[1]['public_id'] == 11
-    mgr.dbm.insert_many.assert_called_once_with(COLLECTION, DB_NAME, docs)
+    assert [doc['public_id'] for doc in docs] == [10, 11]
+
+
+def test_insert_many_reserves_one_block_for_the_whole_batch() -> None:
+    """One counter write for N documents, not one per document"""
+    mgr = _insert_manager(reserved=[10, 11, 12])
+
+    BaseManager.insert_many(mgr, [{'name': 'a'}, {'name': 'b'}, {'name': 'c'}])
+
+    mgr.dbm.reserve_public_ids.assert_called_once_with(COLLECTION, DB_NAME, 3)
+    mgr.dbm.get_next_public_id.assert_not_called()
+
+
+def test_insert_many_tells_the_database_layer_the_ids_are_settled() -> None:
+    """The database layer would otherwise run its own id loop over the same documents"""
+    mgr = _insert_manager(reserved=[10])
+    docs = [{'name': 'a'}]
+
+    BaseManager.insert_many(mgr, docs)
+
+    mgr.dbm.insert_many.assert_called_once_with(COLLECTION, DB_NAME, docs, skip_public=True)
 
 
 def test_insert_many_preserves_existing_public_id() -> None:
-    """A document that already carries a public_id is left untouched; only missing ones are filled"""
-    mgr = _mock_manager()
-    mgr.dbm.get_next_public_id.side_effect = [10]
+    """A document that already carries a public_id keeps it; the block is sized for the missing ones only"""
+    mgr = _insert_manager(reserved=[10])
     docs = [{'public_id': 99}, {'name': 'b'}]
 
     BaseManager.insert_many(mgr, docs)
 
     assert docs[0]['public_id'] == 99
     assert docs[1]['public_id'] == 10
-    mgr.dbm.get_next_public_id.assert_called_once_with(COLLECTION, DB_NAME, inc_id=True)
+    mgr.dbm.reserve_public_ids.assert_called_once_with(COLLECTION, DB_NAME, 1)
 
 
-def test_insert_many_wraps_failure() -> None:
-    """Any failure during a bulk insert is wrapped in BaseManagerInsertError"""
-    mgr = _mock_manager()
-    mgr.dbm.insert_many.side_effect = RuntimeError('boom')
+def test_insert_many_reserves_nothing_when_every_document_has_an_id() -> None:
+    """No counter write at all for a batch that brings its own ids"""
+    mgr = _insert_manager()
 
-    with pytest.raises(BaseManagerInsertError):
+    BaseManager.insert_many(mgr, [{'public_id': 5}, {'public_id': 6}])
+
+    mgr.dbm.reserve_public_ids.assert_not_called()
+
+
+@pytest.mark.parametrize('failure', [
+    DocumentInsertError('boom'),
+    DocumentInsertDuplicateKeyError('duplicate'),
+    DocumentInsertTooLargeError('too large'),
+], ids=['insert', 'duplicate-key', 'too-large'])
+def test_insert_many_wraps_an_insert_failure(failure: Exception) -> None:
+    """The insert's own errors - the typed refusals among them - are wrapped, the error itself as args[0]"""
+    mgr = _insert_manager()
+    mgr.dbm.insert_many.side_effect = failure
+
+    with pytest.raises(BaseManagerInsertError) as caught:
+        BaseManager.insert_many(mgr, [{'public_id': 1}], skip_public=True)
+
+    assert caught.value.args[0] is failure
+
+
+def test_insert_many_wraps_a_failed_reservation() -> None:
+    """The ids could not be reserved: an insert failure, and nothing is inserted"""
+    mgr = _insert_manager()
+    failure = DocumentGetError('counter')
+    mgr.dbm.reserve_public_ids.side_effect = failure
+
+    with pytest.raises(BaseManagerInsertError) as caught:
+        BaseManager.insert_many(mgr, [{'name': 'a'}])
+
+    assert caught.value.args[0] is failure
+    mgr.dbm.insert_many.assert_not_called()
+
+
+def test_insert_many_lets_a_programming_error_through() -> None:
+    """A bug is not a database failure: it surfaces as itself, not as BaseManagerInsertError"""
+    mgr = _insert_manager()
+    mgr.dbm.insert_many.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
         BaseManager.insert_many(mgr, [{'public_id': 1}], skip_public=True)
 
 
@@ -122,7 +190,7 @@ def test_get_many_passes_the_criteria_and_no_projection() -> None:
     mgr = _mock_manager()
     mgr.dbm.find_all.return_value = []
 
-    BaseManager.get_many(mgr, type_id=7)
+    BaseManager.get_many(mgr, criteria={'type_id': 7})
 
     call = mgr.dbm.find_all.call_args
     assert call.kwargs['collection'] == COLLECTION
@@ -137,7 +205,7 @@ def test_get_many_forwards_a_projection_and_keeps_it_out_of_the_filter() -> None
     mgr.dbm.find_all.return_value = []
     projection = {'public_id': 1, '_id': 0}
 
-    BaseManager.get_many(mgr, projection=projection, type_id=7)
+    BaseManager.get_many(mgr, projection=projection, criteria={'type_id': 7})
 
     call = mgr.dbm.find_all.call_args
     assert call.kwargs['projection'] is projection
@@ -149,7 +217,7 @@ def test_get_many_from_other_collection_passes_the_criteria_and_no_projection() 
     mgr = _mock_manager()
     mgr.dbm.find_all.return_value = []
 
-    BaseManager.get_many_from_other_collection(mgr, 'framework.objects', type_id=7)
+    BaseManager.get_many_from_other_collection(mgr, 'framework.objects', criteria={'type_id': 7})
 
     call = mgr.dbm.find_all.call_args
     assert call.kwargs['collection'] == 'framework.objects'
@@ -169,24 +237,73 @@ def test_get_many_from_other_collection_forwards_a_projection() -> None:
     projection = {'public_id': 1, '_id': 0}
 
     BaseManager.get_many_from_other_collection(
-        mgr, 'framework.objects', projection=projection, type_id=7,
+        mgr, 'framework.objects', projection=projection, criteria={'type_id': 7},
     )
 
     assert mgr.dbm.find_all.call_args.kwargs['projection'] is projection
 
 
 def test_get_many_from_other_collection_accepts_a_dotted_filter_key() -> None:
-    """The MDS narrowing is a dotted path, which is a valid keyword here even though it is no identifier"""
+    """The MDS narrowing is a dotted path - a plain key of the criteria dict"""
     mgr = _mock_manager()
     mgr.dbm.find_all.return_value = []
 
     BaseManager.get_many_from_other_collection(
-        mgr, 'framework.objects', **{'multi_data_sections.section_id': {'$in': ['sec-a']}},
+        mgr, 'framework.objects', criteria={'multi_data_sections.section_id': {'$in': ['sec-a']}},
     )
 
     assert mgr.dbm.find_all.call_args.kwargs['filter'] == {
         'multi_data_sections.section_id': {'$in': ['sec-a']},
     }
+
+
+@pytest.mark.parametrize('option_named_field', ['sort', 'direction', 'limit', 'projection'])
+def test_get_many_filters_on_a_field_named_like_an_option(option_named_field: str) -> None:
+    """The criteria are one dict, so a stored `sort` key (ISMS impact categories, risk classes) is a filter field"""
+    mgr = _mock_manager()
+    mgr.dbm.find_all.return_value = []
+
+    BaseManager.get_many(mgr, criteria={option_named_field: 3})
+
+    call = mgr.dbm.find_all.call_args
+    assert call.kwargs['filter'] == {option_named_field: 3}
+    assert call.kwargs['sort'] == [('public_id', -1)]
+    assert call.kwargs['limit'] == 0
+    assert 'projection' not in call.kwargs
+
+
+def test_get_many_from_other_collection_filters_on_a_field_named_collection() -> None:
+    """`collection` used to be the method's own parameter; as a criteria key it is a filter field"""
+    mgr = _mock_manager()
+    mgr.dbm.find_all.return_value = []
+
+    BaseManager.get_many_from_other_collection(mgr, 'framework.objects', criteria={'collection': 'x'})
+
+    call = mgr.dbm.find_all.call_args
+    assert call.kwargs['collection'] == 'framework.objects'
+    assert call.kwargs['filter'] == {'collection': 'x'}
+
+
+@pytest.mark.parametrize('method', ['get_many', 'get_many_from_other_collection'])
+def test_the_reads_take_no_filter_keyword_arguments(method: str) -> None:
+    """A stray keyword is a TypeError now, never a silent filter field"""
+    mgr = _mock_manager()
+    leading: tuple = ('framework.objects',) if method == 'get_many_from_other_collection' else ()
+
+    with pytest.raises(TypeError):
+        getattr(BaseManager, method)(mgr, *leading, type_id=7)
+
+
+@pytest.mark.parametrize('method', ['get_many', 'get_many_from_other_collection'])
+def test_the_reads_without_criteria_read_everything(method: str) -> None:
+    """No criteria is the empty filter"""
+    mgr = _mock_manager()
+    mgr.dbm.find_all.return_value = []
+    leading: tuple = ('framework.objects',) if method == 'get_many_from_other_collection' else ()
+
+    getattr(BaseManager, method)(mgr, *leading)
+
+    assert mgr.dbm.find_all.call_args.kwargs['filter'] == {}
 
 
 def test_count_from_other_collection_delegates_to_other_collection() -> None:
@@ -275,12 +392,24 @@ def test_aggregate_query_forwards_user_and_permission() -> None:
     mgr.query_builder.build.assert_called_once_with(params, user, permission)
 
 
-def test_aggregate_query_wraps_failure() -> None:
-    """A failure while building/aggregating is wrapped in BaseManagerIterationError"""
+def test_aggregate_query_passes_the_aggregation_error_on_unwrapped() -> None:
+    """aggregate_within_time_limit already raised the manager error: it is not wrapped a second time"""
     mgr = _mock_manager()
-    mgr.query_builder.build.side_effect = RuntimeError('boom')
+    failure = BaseManagerIterationError(DocumentQueryTimeLimitError('slow', TIME_LIMIT_MS))
+    mgr.aggregate_within_time_limit.side_effect = failure
 
-    with pytest.raises(BaseManagerIterationError):
+    with pytest.raises(BaseManagerIterationError) as caught:
+        BaseManager.aggregate_query(mgr, BuilderParameters(criteria={}, time_limit_ms=TIME_LIMIT_MS))
+
+    assert caught.value is failure
+
+
+def test_aggregate_query_lets_a_programming_error_through() -> None:
+    """A bug while building the pipeline surfaces as itself"""
+    mgr = _mock_manager()
+    mgr.query_builder.build.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
         BaseManager.aggregate_query(mgr, MagicMock())
 
 
@@ -471,12 +600,58 @@ def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:
     assert result == ([], 0)
 
 
-def test_iterate_query_wraps_failure() -> None:
-    """A failure while aggregating the data half or the count is wrapped in BaseManagerIterationError"""
+@pytest.mark.parametrize('failure', [
+    BaseManagerGetError('types unreadable'),
+    BaseManagerInitError('no manager'),
+], ids=['types-read', 'manager-wiring'])
+def test_iterate_query_wraps_a_failed_access_control_read(failure: Exception) -> None:
+    """The denied types could not be read: one iteration error for the caller, the read's error as args[0]"""
     mgr = _mock_manager()
-    mgr.aggregate_query.side_effect = RuntimeError('boom')
+    mgr.apply_acl_to_builder_params.side_effect = failure
 
-    with pytest.raises(BaseManagerIterationError):
+    with pytest.raises(BaseManagerIterationError) as caught:
+        BaseManager.iterate_query(mgr, MagicMock(), MagicMock(), MagicMock())
+
+    assert caught.value.args[0] is failure
+    mgr.aggregate_query.assert_not_called()
+
+
+@pytest.mark.parametrize('half', ['data', 'count'])
+def test_iterate_query_passes_an_aggregation_error_on_unwrapped(half: str) -> None:
+    """Either aggregation already raised the manager error; the time-limit cause stays one hop down"""
+    mgr = _mock_manager()
+    timeout = DocumentQueryTimeLimitError('slow', TIME_LIMIT_MS)
+    failure = BaseManagerIterationError(timeout)
+    mgr.aggregate_query.return_value = []
+    mgr.aggregate_within_time_limit.return_value = []
+
+    if half == 'data':
+        mgr.aggregate_query.side_effect = failure
+    else:
+        mgr.aggregate_within_time_limit.side_effect = failure
+
+    with pytest.raises(BaseManagerIterationError) as caught:
+        BaseManager.iterate_query(mgr, BuilderParameters(criteria={}, time_limit_ms=TIME_LIMIT_MS))
+
+    assert caught.value is failure
+    assert caught.value.args[0] is timeout
+
+
+def test_iterate_query_lets_a_bug_in_the_access_control_step_through() -> None:
+    """Only the denied-types READ is wrapped; a bug around it (a group id that is no number) surfaces as itself"""
+    mgr = _mock_manager()
+    mgr.apply_acl_to_builder_params.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
+        BaseManager.iterate_query(mgr, MagicMock(), MagicMock(), MagicMock())
+
+
+def test_iterate_query_lets_a_programming_error_through() -> None:
+    """A bug in the read surfaces as itself, not as BaseManagerIterationError"""
+    mgr = _mock_manager()
+    mgr.aggregate_query.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
         BaseManager.iterate_query(mgr, MagicMock())
 
 
@@ -517,19 +692,50 @@ def test_find_wraps_document_get_error() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     update                                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_update_uses_manager_collection_by_default() -> None:
-    """Without col, the update targets this manager's own collection.
+def test_update_many_pull_builds_the_pull_and_sends_it_raw() -> None:
+    """The $pull is built here and sent through update_many_raw - the database layer has no pull method"""
+    mgr = _mock_manager()
 
-    add_to_set/plain are forwarded as KEYWORDS, never as trailing positionals - otherwise they
-    would land in dbm.update's *args and reach update_one() as upsert=True (a silent-upsert bug)
+    BaseManager.update_many_pull(mgr, {'types_filter': 5}, {'types_filter': 5})
+
+    mgr.dbm.update_many_raw.assert_called_once_with(
+        collection=COLLECTION, db_name=DB_NAME, filter_query={'types_filter': 5}, update={'$pull': {'types_filter': 5}},
+    )
+
+
+@pytest.mark.parametrize('add_to_set', [False, True], ids=['set', 'add-to-set'])
+def test_update_many_forwards_only_the_add_to_set_choice(add_to_set: bool) -> None:
+    """No plain flag any more: field values and the $set / $addToSet choice, nothing else"""
+    mgr = _mock_manager()
+
+    BaseManager.update_many(mgr, {'x': 1}, {'tags': 'a'}, add_to_set=add_to_set)
+
+    mgr.dbm.update_many.assert_called_once_with(COLLECTION, DB_NAME, {'x': 1}, {'tags': 'a'}, add_to_set)
+
+
+def test_update_many_raw_passes_a_pipeline_through() -> None:
+    """A pipeline (a list of stages) is a raw update"""
+    mgr = _mock_manager()
+    pipeline = [{'$set': {'x': 1}}]
+
+    BaseManager.update_many_raw(mgr, {'relation_id': 3}, pipeline)
+
+    mgr.dbm.update_many_raw.assert_called_once_with(
+        collection=COLLECTION, db_name=DB_NAME, filter_query={'relation_id': 3}, update=pipeline, array_filters=None,
+    )
+
+
+def test_update_uses_manager_collection_by_default() -> None:
+    """Without col, the update targets this manager's own collection, and nothing is added to the call
+
+    No wrapping flag is forwarded: anything extra would land in dbm.update's *args / **kwargs and reach
+    update_one() (a trailing True there is upsert=True - a silent upsert)
     """
     mgr = _mock_manager()
 
     BaseManager.update(mgr, {'public_id': 1}, {'name': 'x'})
 
-    mgr.dbm.update.assert_called_once_with(
-        COLLECTION, DB_NAME, {'public_id': 1}, {'name': 'x'}, add_to_set=True, plain=False
-    )
+    mgr.dbm.update.assert_called_once_with(COLLECTION, DB_NAME, {'public_id': 1}, {'name': 'x'})
 
 
 def test_update_uses_given_collection_when_collection_set() -> None:
@@ -654,31 +860,73 @@ def test_find_one_and_delete_wraps_failure() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   delete_many                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_delete_many_spreads_filter_query_as_kwargs() -> None:
-    """delete_many forwards the filter_query entries as keyword arguments (current behaviour)"""
+@pytest.mark.parametrize('filter_query', [
+    {'public_id': 5, 'active': True},
+    {'$or': [{'public_id': 1}, {'public_id': 2}]},
+    {'collection': 'x', 'db_name': 'y'},
+], ids=['plain', 'top-level-operator', 'keys-named-like-parameters'])
+def test_delete_many_hands_the_filter_over_as_one_dict(filter_query: dict) -> None:
+    """Whatever its keys - an operator, or a field named like a parameter - the filter reaches MongoDB as it is"""
+    mgr = _mock_manager()
+    sentinel = MagicMock(name='delete_result')
+    mgr.dbm.delete_many_raw.return_value = sentinel
+
+    result = BaseManager.delete_many(mgr, filter_query)
+
+    mgr.dbm.delete_many_raw.assert_called_once_with(collection=COLLECTION, db_name=DB_NAME, filter_query=filter_query)
+    assert result is sentinel
+
+
+def test_delete_many_refuses_an_empty_filter() -> None:
+    """{} would match every document: refused before the database is asked, naming the collection"""
     mgr = _mock_manager()
 
-    BaseManager.delete_many(mgr, {'public_id': 5, 'active': True})
+    with pytest.raises(BaseManagerDeleteError) as caught:
+        BaseManager.delete_many(mgr, {})
 
-    mgr.dbm.delete_many.assert_called_once_with(collection=COLLECTION, db_name=DB_NAME, public_id=5, active=True)
+    assert caught.value.args[0] == EMPTY_DELETE_FILTER_MSG.format(collection=COLLECTION)
+    mgr.dbm.delete_many_raw.assert_not_called()
 
 
 def test_delete_many_wraps_document_delete_error() -> None:
     """A DocumentDeleteError is wrapped in BaseManagerDeleteError"""
     mgr = _mock_manager()
-    mgr.dbm.delete_many.side_effect = DocumentDeleteError('boom')
+    mgr.dbm.delete_many_raw.side_effect = DocumentDeleteError('boom')
 
     with pytest.raises(BaseManagerDeleteError):
         BaseManager.delete_many(mgr, {'public_id': 5})
 
 
+def test_base_manager_has_one_delete_many() -> None:
+    """The raw twin is gone: one same-collection bulk delete, one convention"""
+    assert not hasattr(BaseManager, 'delete_many_raw')
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                       __init__ + fully-uncovered delegations                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_init_wraps_failure_as_base_manager_init_error() -> None:
-    """A failure while wiring the manager (here: a None dbm with no db_name) becomes BaseManagerInitError"""
-    with pytest.raises(BaseManagerInitError):
+def test_init_lets_a_programming_error_through() -> None:
+    """A None dbm with no db_name is a caller's bug: it surfaces as itself, not as a manager error"""
+    with pytest.raises(AttributeError):
         BaseManager(COLLECTION, None, None)
+
+
+def test_init_reads_the_database_name_from_the_dbm_when_none_is_given() -> None:
+    """The tenant database when one is named, the dbm's own otherwise"""
+    dbm = MagicMock()
+    dbm.db_name = 'default-db'
+
+    assert BaseManager(COLLECTION, dbm, None).db_name == 'default-db'
+    assert BaseManager(COLLECTION, dbm, DB_NAME).db_name == DB_NAME
+
+
+def test_get_distinct_lets_a_programming_error_through() -> None:
+    """Only the database layer's DocumentGetError is wrapped"""
+    mgr = _mock_manager()
+    mgr.dbm.get_distinct.side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
+        BaseManager.get_distinct(mgr, 'type_id', {})
 
 
 def test_get_distinct_delegates_and_returns_values() -> None:
@@ -724,20 +972,6 @@ def test_bulk_write_answers_the_database_layers_modified_count() -> None:
     mgr.dbm.bulk_write.assert_called_once_with(COLLECTION, DB_NAME, operations)
 
 
-def test_delete_many_raw_delegates_with_filter_query() -> None:
-    """delete_many_raw forwards the raw filter as filter_query and returns the delete result"""
-    mgr = _mock_manager()
-    sentinel = MagicMock(name='delete_result')
-    mgr.dbm.delete_many_raw.return_value = sentinel
-
-    result = BaseManager.delete_many_raw(mgr, {'public_id': {'$in': [1, 2]}})
-
-    mgr.dbm.delete_many_raw.assert_called_once_with(
-        collection=COLLECTION, db_name=DB_NAME, filter_query={'public_id': {'$in': [1, 2]}}
-    )
-    assert result is sentinel
-
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                   delegation error-mapping (database -> manager)                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -760,16 +994,15 @@ _ERROR_MAPPING_CASES = [
     ('reserve_public_ids', (5,), 'reserve_public_ids', DocumentGetError, BaseManagerGetError),
     ('count_documents', (), 'count', DocumentGetError, BaseManagerGetError),
     ('update_many', ({'x': 1}, {'y': 2}), 'update_many', DocumentUpdateError, BaseManagerUpdateError),
-    ('update_many_pull', ({'x': 1}, {'$pull': {}}), 'update_many_pull', DocumentUpdateError, BaseManagerUpdateError),
+    ('update_many_pull', ({'x': 1}, {'tags': 1}), 'update_many_raw', DocumentUpdateError, BaseManagerUpdateError),
     ('update_many_raw', ({'x': 1}, {'$set': {}}), 'update_many_raw', DocumentUpdateError, BaseManagerUpdateError),
     ('bulk_write', ([],), 'bulk_write', DocumentInsertError, BaseManagerUpdateError),
-    ('delete_many_raw', ({'x': 1},), 'delete_many_raw', DocumentDeleteError, BaseManagerDeleteError),
     ('count_from_other_collection', ('other', {}), 'count', DocumentGetError, BaseManagerGetError),
     ('update', ({'x': 1}, {'y': 2}), 'update', DocumentUpdateError, BaseManagerUpdateError),
     ('replace', (7, {'y': 2}), 'replace', DocumentUpdateError, BaseManagerUpdateError),
     ('upsert', ({'x': 1}, {'y': 2}), 'upsert', DocumentUpdateError, BaseManagerUpdateError),
     ('delete', ({'x': 1},), 'delete', DocumentDeleteError, BaseManagerDeleteError),
-    ('delete_many', ({'x': 1},), 'delete_many', DocumentDeleteError, BaseManagerDeleteError),
+    ('delete_many', ({'x': 1},), 'delete_many_raw', DocumentDeleteError, BaseManagerDeleteError),
     ('delete_many_from_other_collection', ('other', {'x': 1}), 'delete_many_raw',
      DocumentDeleteError, BaseManagerDeleteError),
 ]
@@ -841,4 +1074,3 @@ def test_replace_addresses_the_document_by_its_public_id() -> None:
     BaseManager.replace(mgr, 7, {'public_id': 7, 'name': 'x'})
 
     mgr.dbm.replace.assert_called_once_with(COLLECTION, DB_NAME, {'public_id': 7}, {'public_id': 7, 'name': 'x'})
-

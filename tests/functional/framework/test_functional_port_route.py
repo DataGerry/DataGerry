@@ -651,26 +651,24 @@ class TestErrorMapping:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert response.get_json()['message'] == PORT_CREATED_NOT_READABLE_MESSAGE
 
-    @pytest.mark.parametrize('failure', [
-        DocumentNetworkError('connection lost'),
-        DocumentInsertError('Operation failure: document failed validation'),
+    @pytest.mark.parametrize('failure, expected', [
+        (DocumentNetworkError('connection lost'), HTTPStatus.SERVICE_UNAVAILABLE),
+        (DocumentInsertError('Operation failure: document failed validation'), HTTPStatus.INTERNAL_SERVER_ERROR),
     ], ids=['outage', 'other-insert-failure'])
     def test_a_create_that_fails_for_any_other_reason_is_never_a_taken_name(
-            self, rest_api, monkeypatch, failure: Exception) -> None:
+            self, rest_api, monkeypatch, failure: Exception, expected: HTTPStatus) -> None:
         """
         Only the unique index's refusal is the caller's clash
 
         The database write is failed for real, below every manager, so the whole chain runs: an outage
-        and any other insert failure are the server's - a 500 - and never "that name already exists".
-        An outage is left unwrapped all the way up and answered by Flask's catch-all, so the test runs
-        with exception propagation off, as production does.
+        (503) and any other insert failure (500) are the server's - never "that name already exists".
+        An outage is left unwrapped all the way up and answered by the app's error handler: a 503
         """
-        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
         monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(failure))
 
         response = _create(rest_api)
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == expected
         assert 'already exists' not in response.get_json()['message']
 
     def test_create_unexpected_error_is_500(self, rest_api, monkeypatch) -> None:

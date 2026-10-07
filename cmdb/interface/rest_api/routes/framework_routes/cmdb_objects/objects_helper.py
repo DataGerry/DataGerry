@@ -65,7 +65,6 @@ from cmdb.manager.objects_propagation_helper import (
     build_remove_undeclared_fields_update,
 )
 from cmdb.manager import (
-    LogsManager,
     LocationsManager,
     ObjectsManager,
     ReportsManager,
@@ -138,6 +137,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     extract_object_location_parent, validate_object_location_change, sync_object_location,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import (
+    LocationChange,
+    ObjectWriteContext,
 )
 from cmdb.security.license.license_constants import LicenseFeature
 
@@ -1031,180 +1034,261 @@ def apply_object_insert(
     return new_object_id
 
 
-# Cohesive single-object update orchestration (fetch -> guard -> validate -> persist -> side effects);
-# the local count is inherent to the sequence, so the too-many-locals check is scoped off here
-# too-many-locals: this is the object update ORCHESTRATOR - 8 arguments plus one local per pipeline
-# step (candidate payload, resolved type, location placement, invariants, version bump, re-read,
-# events). Extracting a step does not help: every candidate split has to hand 9+ values across the
-# seam, which trips max-args instead and hides the order the steps must run in. Getting under the
-# limit needs a parameter object for the managers, which changes the signature the object routes and
-# the PATCH path call
-def apply_object_update(  # pylint: disable=too-many-locals
+def apply_object_update(
         obj_id: int,
         payload: dict[str, Any],
         active_state: bool | None,
-        request_user: CmdbUser,
-        objects_manager: ObjectsManager,
-        types_manager: TypesManager,
-        logs_manager: LogsManager,
-        type_cache: dict[int, CmdbType] | None = None,
+        context: ObjectWriteContext,
     ) -> dict[str, Any]:
     """
     Applies a full-object update to a single CmdbObject and runs its side effects
 
-    DataGerry has no partial-update semantics: the complete object is always sent, so the payload
-    fields are authoritative. Refuses a special_type change, enforces the IPAM license + invariants,
-    computes the version bump, persists the object, syncs new select options and emits the update
-    webhook + edit log
+    DataGerry has no partial-update semantics: the complete object is always sent, so the payload fields are
+    authoritative. The steps run in a fixed order, and the order is load-bearing:
+
+    1. read the stored object (404) and refuse a special_type change (400); resolve its type
+    2. build the candidate (``_build_update_candidate``): server-owned values stamped, the transient
+       ``comment`` and ``location_name`` taken off
+    3. validate it (``_validate_update_candidate``): fields, required values, value rules, the location
+       placement, the IPAM licence and every feature's write invariants, the predefined select options -
+       all before anything is written
+    4. compute the version bump and write
+    5. the consequences, measured against what is now stored: the location mirror, the Rack consequences,
+       the Rack membership a location implies; then the re-read (404 when it vanished), the select-option
+       sync and the update webhook + edit log
 
     Args:
         obj_id (int): public_id of the CmdbObject to update
-        payload (dict[str, Any]): The validated full-object payload (shared across bulk targets)
+        payload (dict[str, Any]): The validated full-object payload (shared across bulk targets, never mutated)
         active_state (bool | None): The active flag to apply, or None to keep the object's current
-        request_user (CmdbUser): The CmdbUser making the request
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes (IPAM license/invariant checks)
-        logs_manager (LogsManager): Manager used to persist the edit log
-        type_cache (dict[int, CmdbType] | None): Types already resolved by the caller, extended in
-                                                 place. A bulk update usually targets objects of the
-                                                 same type, so passing one turns N type reads into one
-                                                 per distinct type. Defaults to None (always read)
+        context (ObjectWriteContext): The caller, the managers and the type cache shared by a bulk update
 
     Returns:
         dict[str, Any]: The persisted object document (one entry of the update response)
 
     Raises:
         HTTPException: 404 when the object is missing before/after the write, 400 on a special_type
-            change or an IPAM invariant violation, 500 when the object's type cannot be resolved
+            change, an invalid field, a refused location or an IPAM invariant violation, 500 when the
+            object's type cannot be resolved
     """
-    new_data: dict[str, Any] = copy.deepcopy(payload)
-
-    current_object_instance: CmdbObject | None = objects_manager.get_object(
-        obj_id,
-        request_user,
-        AccessControlPermission.READ,
-        as_dict=False,
+    current_object: CmdbObject | None = context.objects_manager.get_object(
+        obj_id, context.request_user, AccessControlPermission.READ, as_dict=False,
     )
 
-    if not current_object_instance:
+    if not current_object:
         abort(404, f"Object with ID:{obj_id} not found!")
 
-    if is_special_type_changed(
-        current_object_instance.special_type, new_data.get(CmdbObjectKey.SPECIAL_TYPE.value),
-    ):
+    if is_special_type_changed(current_object.special_type, payload.get(CmdbObjectKey.SPECIAL_TYPE.value)):
         abort(400, f"SpecialType of an Object is not changable. Occured for Object with ID: {obj_id}")
 
-    current_type_instance: CmdbType = resolve_object_type(
-        objects_manager, current_object_instance.get_type_id(), type_cache,
+    current_type: CmdbType = resolve_object_type(
+        context.objects_manager, current_object.get_type_id(), context.type_cache,
     )
 
-    pin_public_id(new_data, obj_id)
-    new_data.update({
-        CmdbObjectKey.CREATION_TIME.value: current_object_instance.creation_time,
-        CmdbObjectKey.AUTHOR_ID.value: current_object_instance.author_id,
-        CmdbObjectKey.ACTIVE.value: (
-            active_state if active_state in [True, False] else current_object_instance.active
-        ),
-        CmdbObjectKey.VERSION.value: payload.get(CmdbObjectKey.VERSION.value, current_object_instance.version),
-        CmdbObjectKey.LAST_EDIT_TIME.value: datetime.now(timezone.utc),
-        CmdbObjectKey.EDITOR_ID.value: request_user.public_id,
-    })
-
-    update_comment: str = new_data.pop('comment', "")
-    location_name: str | None = new_data.pop('location_name', None)  # transient, never stored
-
-    # Validate fields have a type (and backfill it) - the full payload is the source of truth
-    validate_and_fill_object_fields(objects_manager, new_data)
-
-    # A field the type marks required may not be saved without a value
-    validate_required_object_fields(new_data, current_type_instance)
-
-    # No CHANGED value longer than its field kind allows, none breaking its field's pattern
-    validate_object_field_values(new_data, current_type_instance, CmdbObject.to_json(current_object_instance))
-
-    # Location placement is validated BEFORE the write; the CmdbLocation mirror runs best-effort after
-    has_location_field, location_parent = extract_object_location_parent(
-        new_data.get(CmdbObjectKey.FIELDS.value, []),
+    new_data, update_comment, location_name = _build_update_candidate(
+        obj_id, payload, active_state, current_object, context.request_user,
     )
-    locations_manager: LocationsManager | None = None
-
-    if has_location_field:
-        locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        validate_object_location_change(obj_id, location_parent, locations_manager)
-        # A Rack owns where its PLACED members sit, so one may not be pointed somewhere else from the
-        # object form - unplace it in the Rack view first. An unassigned member may leave (its membership
-        # follows below), and a Rack may not be pointed into another Rack at all
-        guard_rack_location_change(request_user, obj_id, location_parent, locations_manager)
-
-    previous_object: dict[str, Any] = CmdbObject.to_json(current_object_instance)
-
-    # Editing an IPAM special-type object (or adding/changing an interface subnet) needs an IPAM license
-    guard_object_write_license(types_manager, request_user, new_data, previous_object)
-
-    # Every feature's write invariants (IPAM, Rack) - also canonicalises values on the candidate
-    if invariant_error := enforce_object_write_invariants(
-        objects_manager,
-        types_manager,
-        new_data,
-        previous_object=previous_object,
-    ):
-        abort(400, invariant_error)
-
-    # An unknown select value may not extend a predefined section template's field - reject before the write
-    guard_predefined_select_options(
-        request_user,
-        new_data.get(CmdbObjectKey.FIELDS.value),
-        new_data.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value),
-        current_type_instance,
+    previous_object: dict[str, Any] = CmdbObject.to_json(current_object)
+    location_change: LocationChange | None = _validate_update_candidate(
+        obj_id, new_data, current_type, previous_object, context,
     )
 
     update_object_instance: CmdbObject = to_normalized_cmdb_object(new_data)
+    new_data[CmdbObjectKey.VERSION.value], changes = compute_object_version(current_object, update_object_instance)
 
-    new_version, changes = compute_object_version(current_object_instance, update_object_instance)
-    new_data[CmdbObjectKey.VERSION.value] = new_version
+    context.objects_manager.update_object(obj_id, new_data, context.request_user, AccessControlPermission.UPDATE)
 
-    objects_manager.update_object(obj_id, new_data, request_user, AccessControlPermission.UPDATE)
+    _run_update_consequences(obj_id, new_data, previous_object, current_type, location_change, location_name, context)
 
-    if has_location_field:
-        sync_object_location(obj_id, location_parent, location_name, current_type_instance,
-                             request_user, objects_manager, locations_manager)
-
-    # Rack consequences of the write, after the object's own location has been mirrored above: a lowered
-    # height unplaces the mounts that no longer fit, and the members follow the rack in the location tree.
-    # Post-write on purpose - both measure against what is now stored, so a failed write changes nothing
-    handle_rack_object_updated(
-        request_user, obj_id, new_data, previous_object, objects_manager, types_manager, locations_manager,
+    object_after: dict[str, Any] | None = context.objects_manager.get_object(
+        obj_id, context.request_user, AccessControlPermission.READ,
     )
-
-    # The other direction: a location pointing at a Rack's node IS membership of that Rack, so the mount
-    # row is created, moved or removed to match what the object's location now says
-    if has_location_field:
-        reconcile_object_rack_membership(
-            request_user, obj_id, location_parent, objects_manager, types_manager, locations_manager,
-        )
-
-    object_after: dict[str, Any] | None = objects_manager.get_object(obj_id, request_user, AccessControlPermission.READ)
 
     if not object_after:
         abort(404, f"Updated Object with ID:{obj_id} not found in database!")
 
-    object_after: CmdbObject = CmdbObject.from_data(object_after)
+    after_instance: CmdbObject = CmdbObject.from_data(object_after)
 
-    # sync select fields
-    if object_after.has_fields_of_type(FieldType.SELECT):
-        sync_select_field_options(request_user, object_after, current_type_instance)
+    if after_instance.has_fields_of_type(FieldType.SELECT):
+        sync_select_field_options(context.request_user, after_instance, current_type)
 
     emit_object_update_events(
-        request_user,
-        logs_manager,
-        current_object_instance,
-        object_after,
-        update_object_instance,
-        changes,
-        update_comment,
+        context.request_user, context.logs_manager, current_object, after_instance, update_object_instance,
+        changes, update_comment,
     )
 
     return new_data
+
+
+def _build_update_candidate(
+        obj_id: int,
+        payload: dict[str, Any],
+        active_state: bool | None,
+        current_object: CmdbObject,
+        request_user: CmdbUser,
+    ) -> tuple[dict[str, Any], str, str | None]:
+    """
+    Builds the document an update writes from the payload and the stored object
+
+    The payload is copied, never changed - a bulk update applies one payload to every target. The id is pinned
+    to the route's, the creation time and author stay the stored ones, the active flag is applied or kept, the
+    edit time and editor are stamped, and the version starts from the payload's (the write computes the bump).
+    ``comment`` (for the edit log) and ``location_name`` (for the location mirror) are taken off: neither is
+    ever stored
+
+    Args:
+        obj_id (int): public_id of the CmdbObject being updated
+        payload (dict[str, Any]): The full-object payload
+        active_state (bool | None): The active flag to apply, or None to keep the stored one
+        current_object (CmdbObject): The stored object
+        request_user (CmdbUser): The CmdbUser making the request, stamped as the editor
+
+    Returns:
+        tuple[dict[str, Any], str, str | None]: The candidate document, the update comment ('' when none) and
+            the transient location name (None when none)
+    """
+    new_data: dict[str, Any] = copy.deepcopy(payload)
+
+    pin_public_id(new_data, obj_id)
+    new_data.update({
+        CmdbObjectKey.CREATION_TIME.value: current_object.creation_time,
+        CmdbObjectKey.AUTHOR_ID.value: current_object.author_id,
+        CmdbObjectKey.ACTIVE.value: active_state if active_state in [True, False] else current_object.active,
+        CmdbObjectKey.VERSION.value: payload.get(CmdbObjectKey.VERSION.value, current_object.version),
+        CmdbObjectKey.LAST_EDIT_TIME.value: datetime.now(timezone.utc),
+        CmdbObjectKey.EDITOR_ID.value: request_user.public_id,
+    })
+
+    return new_data, new_data.pop('comment', ""), new_data.pop('location_name', None)
+
+
+def _validate_update_candidate(
+        obj_id: int,
+        new_data: dict[str, Any],
+        current_type: CmdbType,
+        previous_object: dict[str, Any],
+        context: ObjectWriteContext,
+    ) -> LocationChange | None:
+    """
+    Runs every check an update must pass before anything is written
+
+    In order: each field has a type (backfilled from the type), no required field is empty, no CHANGED value
+    breaks its field's length or pattern, the location placement is allowed (``_prepare_location_change``),
+    the IPAM licence covers an IPAM object or interface change, every feature's write invariants hold (which
+    also canonicalises values on the candidate), and no unknown select value extends a predefined section
+    template's field
+
+    Args:
+        obj_id (int): public_id of the CmdbObject being updated
+        new_data (dict[str, Any]): The candidate document; canonicalised in place by the invariants
+        current_type (CmdbType): The object's type
+        previous_object (dict[str, Any]): The stored object as a document
+        context (ObjectWriteContext): The caller and the managers
+
+    Raises:
+        HTTPException: 400 when a check refuses the candidate, 403 when the IPAM licence is missing
+
+    Returns:
+        LocationChange | None: The placement to mirror after the write, None without a location field
+    """
+    validate_and_fill_object_fields(context.objects_manager, new_data)
+    validate_required_object_fields(new_data, current_type)
+    validate_object_field_values(new_data, current_type, previous_object)
+
+    location_change: LocationChange | None = _prepare_location_change(obj_id, new_data, context.request_user)
+
+    guard_object_write_license(context.types_manager, context.request_user, new_data, previous_object)
+
+    if invariant_error := enforce_object_write_invariants(
+        context.objects_manager, context.types_manager, new_data, previous_object=previous_object,
+    ):
+        abort(400, invariant_error)
+
+    guard_predefined_select_options(
+        context.request_user,
+        new_data.get(CmdbObjectKey.FIELDS.value),
+        new_data.get(CmdbObjectKey.MULTI_DATA_SECTIONS.value),
+        current_type,
+    )
+
+    return location_change
+
+
+def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user: CmdbUser) -> LocationChange | None:
+    """
+    Validates where an update places the object in the location tree, before the write
+
+    Only a candidate with a location field moves anything. Its placement must be a valid one, and a Rack owns
+    where its PLACED members sit, so such a member may not be pointed elsewhere from the object form - it is
+    unplaced in the Rack view first. An unassigned member may leave (its membership follows after the write),
+    and a Rack may not be pointed into another Rack at all
+
+    Args:
+        obj_id (int): public_id of the CmdbObject being updated
+        new_data (dict[str, Any]): The candidate document
+        request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        HTTPException: 400 when the placement is refused
+
+    Returns:
+        LocationChange | None: The parent and the locations manager, None without a location field
+    """
+    has_location_field, location_parent = extract_object_location_parent(new_data.get(CmdbObjectKey.FIELDS.value, []))
+
+    if not has_location_field:
+        return None
+
+    locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+    validate_object_location_change(obj_id, location_parent, locations_manager)
+    guard_rack_location_change(request_user, obj_id, location_parent, locations_manager)
+
+    return LocationChange(location_parent, locations_manager)
+
+
+def _run_update_consequences(
+        obj_id: int,
+        new_data: dict[str, Any],
+        previous_object: dict[str, Any],
+        current_type: CmdbType,
+        location_change: LocationChange | None,
+        location_name: str | None,
+        context: ObjectWriteContext,
+    ) -> None:
+    """
+    Runs what a written update implies for the location tree and the Rack layout
+
+    After the write on purpose - each step measures against what is now stored, so a failed write changes
+    nothing. The object's own location is mirrored first; then the Rack consequences (a lowered height unplaces
+    the mounts that no longer fit, members follow their Rack in the tree); then the other direction - a
+    location pointing at a Rack's node IS membership of that Rack, so the mount row is created, moved or
+    removed to match
+
+    Args:
+        obj_id (int): public_id of the updated CmdbObject
+        new_data (dict[str, Any]): The written document
+        previous_object (dict[str, Any]): The object as it was stored before the write
+        current_type (CmdbType): The object's type
+        location_change (LocationChange | None): The placement validated before the write, None without one
+        location_name (str | None): The transient display name for the location mirror
+        context (ObjectWriteContext): The caller and the managers
+    """
+    locations_manager: LocationsManager | None = location_change.locations_manager if location_change else None
+
+    if location_change:
+        sync_object_location(obj_id, location_change.parent, location_name, current_type,
+                             context.request_user, context.objects_manager, locations_manager)
+
+    handle_rack_object_updated(
+        context.request_user, obj_id, new_data, previous_object, context.objects_manager, context.types_manager,
+        locations_manager,
+    )
+
+    if location_change:
+        reconcile_object_rack_membership(
+            context.request_user, obj_id, location_change.parent, context.objects_manager, context.types_manager,
+            locations_manager,
+        )
 
 
 # --------------------------------------------------- DELETE GUARD --------------------------------------------------- #

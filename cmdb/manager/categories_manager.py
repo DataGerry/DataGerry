@@ -217,7 +217,7 @@ class CategoriesManager(GenericManager):
                 for document in self.get_many_from_other_collection(
                     CmdbType.COLLECTION,
                     projection={CategoryKey.PUBLIC_ID.value: 1, '_id': 0},
-                    **{CategoryKey.PUBLIC_ID.value: {'$in': list(type_ids)}},
+                    criteria={CategoryKey.PUBLIC_ID.value: {'$in': list(type_ids)}},
                 )
             }
         except BaseManagerGetError as err:
@@ -302,22 +302,22 @@ class CategoriesManager(GenericManager):
             raise CategoriesManagerIterationError(err) from err
 
 
-    def get_categories_by(self, sort: str = 'public_id', **requirements: Any) -> list[CmdbCategory]:
+    def get_categories_by(self, criteria: dict[str, Any], sort: str = 'public_id') -> list[CmdbCategory]:
         """
-        Retrieves a list of CmdbCategories matching the given requirements
+        Retrieves a list of CmdbCategories matching the criteria
 
         Args:
+            criteria (dict[str, Any]): The filter, as one dict - an operator-keyed one (`$or`) included
             sort (str, optional): Key by which the results should be sorted. Defaults to 'public_id'
-            **requirements (Any): Key-value pairs used as filters for the query
 
         Raises:
             CategoriesManagerGetError: When the CmdbCategories could not be retrieved
 
         Returns:
-            list[CmdbCategory]: List of CmdbCategories matching the requirements
+            list[CmdbCategory]: List of CmdbCategories matching the criteria
         """
         try:
-            raw_categories = self.get_many(sort=sort, **requirements)
+            raw_categories = self.get_many(sort=sort, criteria=criteria)
 
             return [CmdbCategory.from_data(category) for category in raw_categories]
         except (BaseManagerGetError, CmdbCategoryInitFromDataError) as err:

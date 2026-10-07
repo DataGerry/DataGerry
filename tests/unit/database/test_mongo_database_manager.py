@@ -22,6 +22,7 @@ helpers and, for every wrapper, the ``except -> raise <typed error>`` mapping. E
 plain Exception, i.e. a deterministic failure, so the @retry_operation decorator reports it on the
 first attempt instead of repeating it - its policy and budget are tested in test_retry.py.
 """
+import inspect
 import logging
 from unittest.mock import MagicMock, patch
 
@@ -38,6 +39,7 @@ from pymongo.database import Database
 
 import cmdb.database.mongo_database_manager as mdm
 from cmdb.database.mongo_database_manager import MongoDatabaseManager, is_public_id_conflict
+from cmdb.manager.base_manager import BaseManager
 from cmdb.database.database_constants import (
     MAX_DUPLICATE_KEY_RETRIES,
     MONGO_DUPLICATE_KEY_ERROR_CODE,
@@ -866,13 +868,6 @@ class TestUpdateAndDeleteErrors:
         with pytest.raises(DocumentDeleteError):
             mgr.delete(COLL, DB, {'public_id': 1})
 
-    def test_delete_many_error(self, mgr: MongoDatabaseManager) -> None:
-        """A delete_many failure surfaces as DocumentDeleteError."""
-        _stub_collection(mgr).delete_many.side_effect = RuntimeError('boom')
-
-        with pytest.raises(DocumentDeleteError):
-            mgr.delete_many(COLL, DB, public_id=1)
-
     def test_find_one_and_delete_error(self, mgr: MongoDatabaseManager) -> None:
         """A find_one_and_delete failure surfaces as DocumentDeleteError."""
         _stub_collection(mgr).find_one_and_delete.side_effect = RuntimeError('boom')
@@ -889,7 +884,7 @@ class TestUpdateAndDeleteErrors:
 
 
 class TestUpsertAndMoreWrappers:
-    """status, upsert(_set), unset_update_many, update_many_pull, aggregate and find_one paths."""
+    """status, upsert(_set), aggregate and find_one paths."""
 
     def test_status_delegates(self, mgr: MongoDatabaseManager) -> None:
         """status reports the connector's connection state."""
@@ -944,28 +939,6 @@ class TestUpsertAndMoreWrappers:
 
         with pytest.raises(DocumentUpdateError):
             mgr.upsert(COLL, DB, {'_id': 'x'}, {'a': 1})
-
-    def test_unset_update_many_delegates(self, mgr: MongoDatabaseManager) -> None:
-        """unset_update_many removes a field across matching documents."""
-        collection = _stub_collection(mgr)
-
-        mgr.unset_update_many(COLL, DB, {}, 'stale')
-
-        collection.update_many.assert_called_once()
-
-    def test_unset_update_many_error(self, mgr: MongoDatabaseManager) -> None:
-        """An unset failure surfaces as DocumentUpdateError."""
-        _stub_collection(mgr).update_many.side_effect = RuntimeError('boom')
-
-        with pytest.raises(DocumentUpdateError):
-            mgr.unset_update_many(COLL, DB, {}, 'stale')
-
-    def test_update_many_pull_error(self, mgr: MongoDatabaseManager) -> None:
-        """An update_many_pull failure surfaces as DocumentUpdateError."""
-        _stub_collection(mgr).update_many.side_effect = RuntimeError('boom')
-
-        with pytest.raises(DocumentUpdateError):
-            mgr.update_many_pull(COLL, DB, {}, {'field': 1})
 
     def test_aggregate_delegates(self, mgr: MongoDatabaseManager) -> None:
         """aggregate forwards the pipeline to the collection."""
@@ -1027,25 +1000,43 @@ class TestWriteHappyPaths:
         collection.find_one_and_delete.assert_called_once_with({'public_id': 1}, projection={'_id': 0})
         mgr.get_collection.assert_called_once_with(COLL, DB)
 
-    def test_delete_many_delegates(self, mgr: MongoDatabaseManager) -> None:
-        """delete_many calls delete_many on the collection."""
+    def test_delete_many_raw_hands_the_filter_to_the_collection(self, mgr: MongoDatabaseManager) -> None:
+        """delete_many_raw passes its filter to the collection's delete_many unchanged."""
         collection = _stub_collection(mgr)
 
-        mgr.delete_many(COLL, DB, public_id=1)
+        mgr.delete_many_raw(COLL, DB, {'$or': [{'public_id': 1}, {'collection': 'x'}]})
 
-        collection.delete_many.assert_called_once()
+        collection.delete_many.assert_called_once_with({'$or': [{'public_id': 1}, {'collection': 'x'}]})
+
+    def test_the_kwargs_delete_is_gone(self) -> None:
+        """One bulk delete per layer: the filter-as-keyword-arguments variant was removed."""
+        assert not hasattr(MongoDatabaseManager, 'delete_many')
 
 
 class TestUpdateVariantBranches:
-    """The update/read wrappers cover their plain / add_to_set / array-filter / projection branches."""
+    """The update/read wrappers cover their add_to_set / array-filter / projection branches."""
 
-    def test_update_plain_passes_data_verbatim(self, mgr: MongoDatabaseManager) -> None:
-        """plain=True passes the update document through without a $set wrapper."""
+    @pytest.mark.parametrize('data, sent', [
+        ({'x': 1}, {'$set': {'x': 1}}),
+        ({'$inc': {'n': 1}}, {'$inc': {'n': 1}}),
+    ], ids=['field-values', 'operators'])
+    def test_update_wraps_field_values_and_passes_operators(self, mgr: MongoDatabaseManager, data: dict,
+                                                            sent: dict) -> None:
+        """Field values are wrapped in $set; an update document of operators is sent as it is - no flag decides it."""
         collection = _stub_collection(mgr)
 
-        mgr.update(COLL, DB, {'public_id': 1}, {'$inc': {'n': 1}}, plain=True)
+        mgr.update(COLL, DB, {'public_id': 1}, data)
 
-        assert collection.update_one.call_args.args[1] == {'$inc': {'n': 1}}
+        assert collection.update_one.call_args.args[1] == sent
+
+    @pytest.mark.parametrize('flag', ['add_to_set', 'plain'])
+    def test_update_takes_no_wrapping_flag(self, flag: str) -> None:
+        """The two flags are gone from both layers: nothing set them, and add_to_set meant $set here"""
+        parameters = inspect.signature(MongoDatabaseManager.update).parameters
+        manager_parameters = inspect.signature(BaseManager.update).parameters
+
+        assert flag not in parameters
+        assert flag not in manager_parameters
 
     def test_update_many_add_to_set_branch(self, mgr: MongoDatabaseManager) -> None:
         """add_to_set=True wraps the update in $addToSet."""
@@ -1055,21 +1046,29 @@ class TestUpdateVariantBranches:
 
         assert '$addToSet' in collection.update_many.call_args.args[1]
 
-    def test_update_many_plain_branch(self, mgr: MongoDatabaseManager) -> None:
-        """plain=True passes the update document through unchanged."""
+    @pytest.mark.parametrize('add_to_set, operator', [(False, '$set'), (True, '$addToSet')], ids=['set', 'add-to-set'])
+    def test_update_many_wraps_the_values_in_its_operator(self, mgr: MongoDatabaseManager, add_to_set: bool,
+                                                          operator: str) -> None:
+        """update_many takes field values and wraps them - $set, or $addToSet for array members."""
         collection = _stub_collection(mgr)
 
-        mgr.update_many(COLL, DB, {}, {'$set': {'x': 1}}, plain=True)
+        mgr.update_many(COLL, DB, {}, {'x': 1}, add_to_set)
 
-        assert collection.update_many.call_args.args[1] == {'$set': {'x': 1}}
+        assert collection.update_many.call_args.args[1] == {operator: {'x': 1}}
 
-    def test_update_many_pull_wraps_in_pull(self, mgr: MongoDatabaseManager) -> None:
-        """update_many_pull wraps the update in a $pull operator."""
+    def test_update_many_raw_sends_a_pipeline_unchanged(self, mgr: MongoDatabaseManager) -> None:
+        """A pipeline (a list of stages) is a raw update: it reaches the collection as given."""
         collection = _stub_collection(mgr)
+        pipeline = [{'$set': {'x': {'$toDate': '$x'}}}]
 
-        mgr.update_many_pull(COLL, DB, {}, {'types_filter': 5})
+        mgr.update_many_raw(COLL, DB, {}, pipeline)
 
-        assert collection.update_many.call_args.args[1] == {'$pull': {'types_filter': 5}}
+        assert collection.update_many.call_args.args[1] == pipeline
+
+    @pytest.mark.parametrize('method', ['unset_update_many', 'update_many_pull'])
+    def test_the_operator_wrappers_are_gone(self, method: str) -> None:
+        """A $pull or $unset is a raw update: update_many_raw is the one method that takes operators."""
+        assert not hasattr(MongoDatabaseManager, method)
 
     def test_update_many_raw_with_array_filters(self, mgr: MongoDatabaseManager) -> None:
         """update_many_raw forwards array_filters when given."""
@@ -1177,12 +1176,6 @@ class TestRemainingBranches:
 
         with pytest.raises(DocumentInsertError):
             mgr.insert(COLL, DB, {'name': 'x'})
-
-    def test_unset_update_many_logs_when_none_matched(self, mgr: MongoDatabaseManager) -> None:
-        """When no documents match, unset_update_many still returns (logging a warning)."""
-        _stub_collection(mgr).update_many.return_value = MagicMock(modified_count=0)
-
-        mgr.unset_update_many(COLL, DB, {}, 'stale')
 
     def test_find_one_returns_none_when_absent(self, mgr: MongoDatabaseManager) -> None:
         """find_one returns None when the cursor yields no document."""

@@ -391,7 +391,7 @@ def clear_dangling_acl_groups(type_entry: Any, types_manager: TypesManager) -> l
 
     existing_rows = types_manager.get_many_from_other_collection(
         CmdbUserGroup.COLLECTION,
-        **{TypeSchemaKey.PUBLIC_ID.value: {'$in': sorted(set(wanted.values()))}},
+        criteria={TypeSchemaKey.PUBLIC_ID.value: {'$in': sorted(set(wanted.values()))}},
     )
     existing_ids = {row.get(TypeSchemaKey.PUBLIC_ID.value) for row in existing_rows}
     dangling = sorted(str(key) for key, group_id in wanted.items() if group_id not in existing_ids)

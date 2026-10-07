@@ -136,12 +136,11 @@ def convert_wrapped_dates(dbm: MongoDatabaseManager, db_name: str, collection: s
     Returns:
         int: Number of documents whose field was rewritten
     """
-    result = dbm.update_many(
+    result = dbm.update_many_raw(
         collection,
         db_name,
         build_wrapped_date_filter(field),
         build_date_conversion_pipeline(field),
-        plain=True,
     )
 
     return result.modified_count

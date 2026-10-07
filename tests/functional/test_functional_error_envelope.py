@@ -24,25 +24,26 @@ route runs, so no `abort()` in the route layer produces it and no census of the 
 it. One handler registered for the `HTTPException` class covers every status, instead of a
 hand-picked list with Flask's HTML page as the fallthrough.
 
-**A database lock timeout answers 423, not `500 internal server error`.**
-`route_utils.handle_db_errors` maps `DocumentLockTimeoutError` to 423 and `DocumentNetworkError` to
-503 - but it is the *outermost* decorator, so it only sees what escapes the handler. The error must
-therefore survive the manager and the route's own `except Exception: abort(500, …)` catch-all
-unwrapped; re-wrapped on the way, a retryable condition would be reported as an internal server error.
+**A database lock timeout answers 423 and a lost connection 503, not `500 internal server error`.**
+The app registers a handler for each (`responses/error_handlers.py`), so every route answers them the same
+way - as long as the error survives the manager and the route's tail unwrapped. `handle_route_errors` re-raises
+them; a route with a hand-written `except Exception` of its own would need an arm that re-raises them first.
 """
 from http import HTTPStatus
-from unittest.mock import MagicMock, patch
+from unittest.mock import patch
 
 import pytest
-from werkzeug.exceptions import HTTPException
 
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
-from cmdb.interface.route_utils import handle_db_errors
+from cmdb.interface.rest_api.responses.error_handlers import DATABASE_LOCKED_MSG, DATABASE_UNAVAILABLE_MSG
+from cmdb.manager import TypesManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ENVELOPE_KEYS: set[str] = {'description', 'message', 'response', 'status'}
 
 ROUTES_MODULE: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes'
+# A body the object create's schema accepts, so the request reaches the insert
+OBJECT_PAYLOAD: dict = {'type_id': 1, 'fields': [], 'active': True, 'version': '1.0.0', 'author_id': 1}
 
 
 class TestEveryFailureIsJson:
@@ -88,64 +89,47 @@ class TestATransientDatabaseErrorIsReportedAsTransient:
     """
     423 / 503 rather than 500 - the difference between "retry" and "something is broken"
 
-    The decorated route is rebuilt here rather than called through the client, because provoking a
-    real Mongo lock timeout is not something a test can do reliably. What is exercised is whether the
-    error survives the route body long enough for the decorator to map it.
+    Provoking a real Mongo lock timeout is not something a test can do reliably, so the error is raised where the
+    database layer would raise it, and the request goes through the client: the app's handlers answer it even under
+    the test client, which otherwise lets an unhandled error through
     """
 
-    @staticmethod
-    def _guarded_route():
-        """The route handler with its `handle_db_errors` decorator, minus auth and validation."""
-        from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects import objects_routes
+    @pytest.mark.parametrize('error, expected, message', [
+        (DocumentLockTimeoutError('lock timeout'), HTTPStatus.LOCKED, DATABASE_LOCKED_MSG),
+        (DocumentNetworkError('network error'), HTTPStatus.SERVICE_UNAVAILABLE, DATABASE_UNAVAILABLE_MSG),
+    ], ids=['lock timeout -> 423', 'network error -> 503'])
+    def test_the_object_create_answers_it(self, rest_api, error, expected, message) -> None:
+        """The route's shared tail (handle_route_errors) re-raises them to the app's handler"""
+        with patch(f'{ROUTES_MODULE}.apply_object_insert', side_effect=error):
+            response = rest_api.post('/objects/', json=OBJECT_PAYLOAD)
 
-        body = objects_routes.insert_cmdb_object
-
-        while hasattr(body, '__wrapped__'):
-            body = body.__wrapped__
-
-        return handle_db_errors(body)
+        assert response.status_code == expected
+        assert set(response.get_json()) == ENVELOPE_KEYS
+        assert response.get_json()['message'] == message
 
     @pytest.mark.parametrize('error, expected', [
         (DocumentLockTimeoutError('lock timeout'), HTTPStatus.LOCKED),
         (DocumentNetworkError('network error'), HTTPStatus.SERVICE_UNAVAILABLE),
     ], ids=['lock timeout -> 423', 'network error -> 503'])
-    def test_it_reaches_the_status_the_decorator_maps_it_to(self, rest_api, error, expected) -> None:
-        """The route's own `except Exception` must not claim them first and answer 500."""
-        with patch(f'{ROUTES_MODULE}.apply_object_insert', side_effect=error), \
-             patch(f'{ROUTES_MODULE}.ManagerProvider.get_manager', return_value=MagicMock()), \
-             rest_api.application.test_request_context('/objects/', method='POST', json={}):
-            with pytest.raises(HTTPException) as exc_info:
-                self._guarded_route()(data={'type_id': 1, 'fields': []}, request_user=MagicMock())
-
-        assert exc_info.value.code == expected
-
-    def test_an_ordinary_failure_is_still_a_500(self, rest_api) -> None:
+    def test_a_route_on_the_shared_tail_answers_it(self, rest_api, monkeypatch, error, expected) -> None:
         """
-        The arm that must not widen
-
-        Re-raising the two transient database errors is only correct while everything else still
-        ends in the route's own catch-all.
+        GET /types/<id> ends in handle_route_errors, which re-raises the pair. With no handler for them the error
+        escaped every one and Flask answered a bare 500 - this is the route family the fix is for
         """
-        with patch(f'{ROUTES_MODULE}.apply_object_insert', side_effect=RuntimeError('something else')), \
-             patch(f'{ROUTES_MODULE}.ManagerProvider.get_manager', return_value=MagicMock()), \
-             rest_api.application.test_request_context('/objects/', method='POST', json={}):
-            with pytest.raises(HTTPException) as exc_info:
-                self._guarded_route()(data={'type_id': 1, 'fields': []}, request_user=MagicMock())
+        def _raise(*_args, **_kwargs):
+            raise error
 
-        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        monkeypatch.setattr(TypesManager, 'get_type', _raise)
 
-    def test_a_423_answers_the_json_envelope_over_the_wire(self, rest_api) -> None:
-        """
-        The two halves, joined
+        response = rest_api.get('/types/1')
 
-        423 is reachable through the route *and* it is answered as JSON.
-        """
-        from cmdb.interface.rest_api.responses.error_handlers import http_exception
-        from werkzeug.exceptions import Locked
+        assert response.status_code == expected
+        assert set(response.get_json()) == ENVELOPE_KEYS
 
-        with rest_api.application.test_request_context('/objects/', method='POST'):
-            response = http_exception(Locked('Database collection currently in use. Please try again!'))
+    def test_an_ordinary_failure_of_the_object_create_is_still_its_500(self, rest_api) -> None:
+        """Everything else still ends in the route's own catch-all"""
+        with patch(f'{ROUTES_MODULE}.apply_object_insert', side_effect=RuntimeError('something else')):
+            response = rest_api.post('/objects/', json=OBJECT_PAYLOAD)
 
-        assert response.status_code == HTTPStatus.LOCKED
-        assert response.mimetype == 'application/json'
-        assert response.get_json()['message'] == 'Database collection currently in use. Please try again!'
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.get_json()['message'] not in (DATABASE_LOCKED_MSG, DATABASE_UNAVAILABLE_MSG)

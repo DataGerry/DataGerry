@@ -63,11 +63,10 @@ from cmdb.errors.security import (
 )
 from cmdb.interface.request_limits_constants import DOCUMENT_TOO_LARGE_RESPONSE_MESSAGE
 from cmdb.interface.query_time_limit import abort_if_query_too_slow
+from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
 from cmdb.utils import find_cause
 from cmdb.errors.database import (
     SetDatabaseError,
-    DocumentNetworkError,
-    DocumentLockTimeoutError,
     DocumentTooLargeError,
     TRANSIENT_DATABASE_ERRORS,
 )
@@ -145,37 +144,6 @@ def user_has_right(required_right: str, request_user: CmdbUser) -> bool:
         return False
 
     return group.has_right(required_right) or group.has_extended_right(required_right)
-
-
-def handle_db_errors(func: Callable[..., Any]) -> Callable[..., Any]:
-    """
-    Maps the two transient database errors onto statuses that tell a caller to retry
-
-    Catches:
-        - DocumentNetworkError -> 503 Service Unavailable
-        - DocumentLockTimeoutError -> 423 Locked
-
-    **It only sees what escapes the view**, being the outermost decorator. A route ending in
-    `except Exception: abort(500, ...)`, or a manager re-wrapping the raw errors into its own type,
-    makes it inert: neither status is ever emitted and a lock timeout is reported as an internal
-    server error. Both layers therefore re-raise these two unchanged
-
-    So a route decorated with this **must not** swallow them in a blanket `except Exception` of its
-    own; if it does, the decorator silently does nothing and the failure looks like a server fault
-    rather than a retryable one
-    """
-    @functools.wraps(func)
-    def wrapper(*args: Any, **kwargs: Any) -> Any:
-        try:
-            return func(*args, **kwargs)
-        except DocumentNetworkError as err:
-            LOGGER.error("[DB Network Error] %s: %s", type(err), err, exc_info=True)
-            abort(503, "Database connection issue. Please try again!")
-        except DocumentLockTimeoutError as err:
-            LOGGER.error("[DB Lock Timeout] %s: %s", type(err), err, exc_info=True)
-            abort(423, "Database collection currently in use. Please try again!")
-
-    return wrapper
 
 
 def format_route_message(
@@ -318,8 +286,8 @@ def handle_route_errors(message: str) -> Callable[..., Any]:
             except HTTPException:
                 raise
             except TRANSIENT_DATABASE_ERRORS:
-                # A TRANSIENT database failure is not an internal error: `@handle_db_errors` maps it to
-                # 423 / 503 so the caller knows to retry, and it only ever sees what escapes this
+                # A TRANSIENT database failure is not an internal error: the app's error handlers answer it
+                # with 423 / 503 so the caller knows to retry, and they only ever see what escapes this
                 # wrapper. Claiming it here would make that a flat 500 instead
                 raise
             except Exception as err:
@@ -581,7 +549,8 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     In cloud mode, an `x-api-key` request with HTTP Basic credentials is authenticated by
     `verify_api_access` instead, which injects the request user, so it is passed through without token
     validation (see `request_authenticates_by_api_key`). An `x-api-key` next to a Bearer token is
-    resolved from the token like any other request. A cloud token naming no tenant database is a 401
+    resolved from the token like any other request. A cloud token naming no tenant database is a 401,
+    and one naming a tenant that failed its startup update a 503 (`abort_if_tenant_unavailable`)
 
     Once the user is resolved, a deactivated account is refused, and then the licence gates are
     enforced (`license_guard.enforce_request_licenses`): the feature of a gated blueprint and, for
@@ -601,8 +570,6 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
     """
     @functools.wraps(func)
     def get_request_user(*args: Any, **kwargs: Any) -> Any:
-        with current_app.app_context():
-            users_manager: UsersManager = UsersManager(current_app.database_manager)
         # Outside the try below: an error raised by the route is the route's, not a token failure
         if request_authenticates_by_api_key():
             return func(*args, **kwargs)
@@ -614,8 +581,7 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
             token = parse_authorization_header(auth_header)
 
-            with current_app.app_context():
-                decrypted_token = decode_request_token(token)
+            decrypted_token = decode_request_token(token)
         except HTTPException as http_err:
             raise http_err
         except TokenKeyMaterialError as err:
@@ -631,14 +597,17 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
             user_claim = token_user_claim(decrypted_token)
             user_id = user_claim['public_id']
 
+            database: str | None = None
+
             if current_app.cloud_mode:
                 database = user_claim['database']
                 # No tenant would bind the manager to the process-wide database - another tenant's user, or none
                 if not database:
                     abort(401, "The token names no tenant database!")
-                users_manager = UsersManager(current_app.database_manager, database)
 
-            user = users_manager.get_user(user_id)
+                abort_if_tenant_unavailable(database)
+
+            user = UsersManager(current_app.database_manager, database).get_user(user_id)
 
             if user:
                 kwargs.update({'request_user': user})
@@ -686,6 +655,8 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable
         required_api_level (ApiLevel | None): The level the cloud API key must reach for the route
 
     Behavior:
+    - If the account's tenant database failed its startup update, the request is aborted with a 503 status before
+      the tenant is touched (`abort_if_tenant_unavailable`)
     - If the cloud API key does not reach the required level (or the route is `LOCKED`), the request is aborted
       with a 403 status
     - If the portal check fails or an error occurs, the request is aborted with a 400 status
@@ -714,6 +685,7 @@ def verify_api_access(*, required_api_level: ApiLevel | None = None) -> Callable
 
                     # Set the user as request User
                     if required_api_level != ApiLevel.SUPER_ADMIN:
+                        abort_if_tenant_unavailable(user_instance['subscriptions'][0]['database'])
                         set_admin_user(user_instance, user_instance['subscriptions'][0])
                         user_model = retrieve_user(user_instance, user_instance['subscriptions'][0]['database'])
 
@@ -773,8 +745,7 @@ def __get_request_api_user() -> dict[str, str] | None:
         if auth_type == "basic":
             email, password = base64.b64decode(auth_info).split(b":", 1)
 
-            with current_app.app_context():
-                return {'email': email.decode("utf-8"), 'password': password.decode("utf-8")}
+            return {'email': email.decode("utf-8"), 'password': password.decode("utf-8")}
 
         return None
     except Exception as err:
@@ -860,9 +831,8 @@ def _request_cache(key: str) -> dict[str, Any] | None:
     """
     Returns the per-request cache under the given key, creating it on first use
 
-    Kept on the REQUEST object rather than on `flask.g`: `g` is bound to the application context,
-    and two of the three decorators push one of their own around the decode - so a `g`-based cache
-    would be thrown away with that inner context and never hit
+    Kept on the REQUEST object, which lives exactly as long as the request. `flask.g` would too, as long as nothing
+    pushes an application context of its own inside the request - and none of the decorators does
 
     Args:
         key (str): The request attribute holding the cache
@@ -999,51 +969,50 @@ def _authenticate_basic(auth_info: str) -> str | None:
     try:
         username, password = base64.b64decode(auth_info).split(b":", 1)
 
-        with current_app.app_context():
-            username = strip_login(username.decode("utf-8"))
-            password = password.decode("utf-8")
+        username = strip_login(username.decode("utf-8"))
+        password = password.decode("utf-8")
 
-            db_name = None
-            if current_app.cloud_mode:
-                user_data = check_user_in_service_portal(username, password)
+        db_name = None
+        if current_app.cloud_mode:
+            user_data = check_user_in_service_portal(username, password)
 
-                if not user_data:
-                    return None
-
-                # The tenant user is stored under the address the portal answers with, whatever spelling
-                # the caller typed - the login route and the x-api-key path look it up the same way
-                username = user_data.get(CmdbUserKey.EMAIL.value) or username
-
-                if current_app.local_mode:
-                    # Test API only with user with 1 subscription
-                    db_name = user_data['subscriptions'][0]['database']
-                else:
-                    db_name = user_data['database']
-
-            users_manager = UsersManager(current_app.database_manager, db_name)
-            security_manager = SecurityManager(current_app.database_manager, db_name)
-            settings_manager = SettingsManager(current_app.database_manager, db_name)
-
-            auth_settings = settings_manager.get_all_values_from_section('auth', AuthModule.__DEFAULT_SETTINGS__)
-            auth_module = AuthModule(auth_settings,
-                                     security_manager=security_manager,
-                                     users_manager=users_manager)
-
-            try:
-                user_instance = auth_module.login(username, password)
-            except Exception:
+            if not user_data:
                 return None
 
-            if not user_instance:
-                return None
+            # The tenant user is stored under the address the portal answers with, whatever spelling
+            # the caller typed - the login route and the x-api-key path look it up the same way
+            username = user_data.get(CmdbUserKey.EMAIL.value) or username
 
-            token_payload = {'user': {'public_id': user_instance.get_public_id()}}
+            if current_app.local_mode:
+                # Test API only with user with 1 subscription
+                db_name = user_data['subscriptions'][0]['database']
+            else:
+                db_name = user_data['database']
 
-            if current_app.cloud_mode:
-                token_payload['user']['database'] = user_instance.database
+        users_manager = UsersManager(current_app.database_manager, db_name)
+        security_manager = SecurityManager(current_app.database_manager, db_name)
+        settings_manager = SettingsManager(current_app.database_manager, db_name)
 
-            # The token lifetime is the tenant's own setting: db_name is the tenant database in cloud mode
-            return TokenGenerator(current_app.database_manager, db_name).generate_token(payload=token_payload)
+        auth_settings = settings_manager.get_all_values_from_section('auth', AuthModule.__DEFAULT_SETTINGS__)
+        auth_module = AuthModule(auth_settings,
+                                 security_manager=security_manager,
+                                 users_manager=users_manager)
+
+        try:
+            user_instance = auth_module.login(username, password)
+        except Exception:
+            return None
+
+        if not user_instance:
+            return None
+
+        token_payload = {'user': {'public_id': user_instance.get_public_id()}}
+
+        if current_app.cloud_mode:
+            token_payload['user']['database'] = user_instance.database
+
+        # The token lifetime is the tenant's own setting: db_name is the tenant database in cloud mode
+        return TokenGenerator(current_app.database_manager, db_name).generate_token(payload=token_payload)
     except SetDatabaseError as err:
         LOGGER.error("[_authenticate_basic] SetDatabaseError: %s", err)
         return None
@@ -1063,11 +1032,10 @@ def _validate_bearer(auth_info: str) -> str | None:
         str | None: The token when it decodes and validates, otherwise None
     """
     try:
-        with current_app.app_context():
-            validator = TokenValidator(current_app.database_manager)
-            decoded_token = validator.decode_token(auth_info)
-            validator.validate_claims(decoded_token)
-            validator.validate_issuer(decoded_token, __title__)
+        validator = TokenValidator(current_app.database_manager)
+        decoded_token = validator.decode_token(auth_info)
+        validator.validate_claims(decoded_token)
+        validator.validate_issuer(decoded_token, __title__)
 
         # The claims are what every decorator of the route is about to ask for; handing them to the
         # request cache here means the token is decoded ONCE per request instead of once per
@@ -1114,7 +1082,10 @@ def check_user_in_service_portal(
         InvalidCloudUserError: If the user is invalid in the cloud authentication system
         RequestTimeoutError: If the authentication request times out
         RequestError: For general request failures
-        Exception: For any other unexpected errors
+        MissingApiKeyError: If the portal requires an x-api-key the request did not send
+
+        Any other error - a failed read or write of the user cache, a key the password HMAC cannot be computed without -
+        propagates as itself, unwrapped
 
     Returns:
         dict | None: A dictionary representing the user if authentication is successful, otherwise None
@@ -1126,48 +1097,43 @@ def check_user_in_service_portal(
     if current_app.local_mode:
         return _load_local_test_user(email, password)
 
-    # Validation through service portal
-    try:
-        # Early out if no api_key is provided when it is required
-        if api_key_required and not x_api_key:
-            return None
+    # Validation through service portal. Nothing here is caught: every error - a portal refusal, a failed cache
+    # read - reaches the caller as itself, so the caller's own except arms decide its answer
+    # Early out if no api_key is provided when it is required
+    if api_key_required and not x_api_key:
+        return None
 
-        cached_user_manager: CachedUserManager = get_cached_user_manager()
-        security_manager = SecurityManager(current_app.database_manager)
+    cached_user_manager: CachedUserManager = get_cached_user_manager()
+    security_manager = SecurityManager(current_app.database_manager)
 
-        user_exists_in_cache = cached_user_manager.cached_user_exists(email)
-        # 1. Check cache first
-        if user_exists_in_cache:
-            cached_user: dict[str, Any] | None = cached_user_manager.get_validated_user_data(
-                                                                    email,
-                                                                    security_manager.generate_hmac(password),
-                                                                    x_api_key,
-                                                                    api_key_required
-                                                                )
+    user_exists_in_cache = cached_user_manager.cached_user_exists(email)
+    # 1. Check cache first
+    if user_exists_in_cache:
+        cached_user: dict[str, Any] | None = cached_user_manager.get_validated_user_data(
+                                                                email,
+                                                                security_manager.generate_hmac(password),
+                                                                x_api_key,
+                                                                api_key_required
+                                                            )
 
-            if cached_user:
-                return cached_user
+        if cached_user:
+            return cached_user
 
-        # 2. Not cached or invalid data → validate against portal, then sync the cache
-        user_data: dict[str, Any] = validate_subscription_user(email, password, x_api_key, api_key_required)
+    # 2. Not cached or invalid data → validate against portal, then sync the cache
+    user_data: dict[str, Any] = validate_subscription_user(email, password, x_api_key, api_key_required)
 
-        if user_data:
-            user_data["password"] = security_manager.generate_hmac(user_data["password"])
+    if user_data:
+        user_data["password"] = security_manager.generate_hmac(user_data["password"])
 
-            if api_key_required and x_api_key:
-                _sync_api_cached_user(
-                    cached_user_manager, security_manager, email, password, x_api_key,
-                    user_data, user_exists_in_cache
-                )
-            else:
-                _sync_frontend_cached_user(cached_user_manager, email, user_data, user_exists_in_cache)
+        if api_key_required and x_api_key:
+            _sync_api_cached_user(
+                cached_user_manager, security_manager, email, password, x_api_key,
+                user_data, user_exists_in_cache
+            )
+        else:
+            _sync_frontend_cached_user(cached_user_manager, email, user_data, user_exists_in_cache)
 
-        return user_data
-    except (NoAccessTokenError, MissingApiKeyError, InvalidCloudUserError, RequestTimeoutError, RequestError) as err:
-        raise err from err
-    except Exception as err:
-        #TODO: ERROR-FIX (proper exception required)
-        raise Exception(err) from err
+    return user_data
 
 
 def _load_local_test_user(email: str, password: str) -> dict[str, Any] | None:
@@ -1369,9 +1335,8 @@ def set_admin_user(user_data: dict[str, Any], subscription: dict[str, Any]) -> N
         UsersManagerInsertError: If creating/updating the admin user fails, including a subscription
             whose api_level or config_item_limit is not a number
     """
-    with current_app.app_context():
-        users_manager = UsersManager(current_app.database_manager, subscription['database'])
-        scm = SecurityManager(current_app.database_manager, subscription['database'])
+    users_manager = UsersManager(current_app.database_manager, subscription['database'])
+    scm = SecurityManager(current_app.database_manager, subscription['database'])
 
     try:
         api_level: int = int(subscription['api_level'])
@@ -1427,8 +1392,7 @@ def retrieve_user(user_data: dict[str, Any], database: str) -> CmdbUser | None:
     Returns:
         CmdbUser | None: The matching user if found, or None if it does not exist / an error occurs
     """
-    with current_app.app_context():
-        users_manager = UsersManager(current_app.database_manager, database)
+    users_manager = UsersManager(current_app.database_manager, database)
 
     try:
         return users_manager.get_user_by({CmdbUserKey.EMAIL.value: user_data[CmdbUserKey.EMAIL.value]})

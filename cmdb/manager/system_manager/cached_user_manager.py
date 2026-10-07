@@ -259,10 +259,10 @@ class CachedUserManager(GenericManager):
         Returns:
             int: The number of cached users that were removed - 0 when none of the emails was cached
         """
-        result = self.dbm.delete_many(
+        result = self.dbm.delete_many_raw(
             collection=CmdbCachedUser.COLLECTION,
             db_name=self.db_name,
-            **{CachedUserKey.EMAIL.value: {'$in': emails}}
+            filter_query={CachedUserKey.EMAIL.value: {'$in': emails}},
         )
 
         return result.deleted_count
@@ -272,9 +272,9 @@ class CachedUserManager(GenericManager):
         """
         Removes every cached user (admin / debug)
 
-        Uses ``delete_many_raw`` because ``delete_many`` takes its filter as **kwargs: passing an
-        empty filter to it is impossible, and passing one under a keyword makes the keyword itself
-        the filter field
+        The one deliberate full delete: an empty filter, sent to the database layer directly.
+        ``BaseManager.delete_many`` refuses an empty filter, so a filter that came out empty by mistake
+        cannot do this anywhere else
 
         Returns:
             int: The number of cached users that were removed

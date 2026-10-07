@@ -344,7 +344,7 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
         risk[RiskKey.PUBLIC_ID.value]: risk
         for risk in risk_manager.get_many_from_other_collection(
             IsmsRisk.COLLECTION,
-            public_id={'$in': list(risk_ids)}
+            criteria={RiskKey.PUBLIC_ID.value: {'$in': list(risk_ids)}},
         )
     }
 

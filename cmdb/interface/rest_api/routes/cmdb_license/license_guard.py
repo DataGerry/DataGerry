@@ -52,6 +52,11 @@ LICENSE_REQUIRED_FEATURES_ATTR: str = 'license_required_features'
 # Attribute on a `gate_blueprint` hook naming the feature it records - lets a census find the gated blueprints
 GATED_FEATURE_ATTR: str = 'gated_feature'
 
+# ValueError message when a blueprint already gated behind one feature is gated behind another
+GATE_CONFLICT_MESSAGE: str = (
+    "Blueprint '{blueprint}' is already gated behind {gated} and cannot also be gated behind {feature}!"
+)
+
 
 # 403 body when a feature is not unlocked; `{feature}` is filled with a human-readable feature label
 FEATURE_NOT_LICENSED_MESSAGE: str = "The {feature} feature requires a valid license!"
@@ -181,18 +186,56 @@ def gate_blueprint(blueprint: Blueprint, feature: LicenseFeature) -> None:
     `insert_request_user` enforces the recorded features through `enforce_request_licenses` once the
     caller is authenticated, so every route on a gated blueprint must carry it. Because the hook never
     refuses, a CORS preflight `OPTIONS` - which carries no token and never reaches a route decorator -
-    is never gated. Use `requires_feature` to gate individual routes. Must be called BEFORE the
-    blueprint is registered on the app (Flask runs a blueprint's deferred setup at registration time)
+    is never gated. Use `requires_feature` to gate individual routes.
+
+    **Gate before the first registration; gating again is a no-op.** Flask runs a blueprint's deferred
+    setup at registration time and refuses (`AssertionError`) a new hook on a blueprint already registered,
+    so the first gate must come before the first registration. The blueprints are module-level singletons
+    that every app built in the process registers, and Flask replays the hook onto each of them - so a
+    blueprint already gated behind the same feature is left as it is, which is what lets `create_rest_api`
+    build more than one app per process. A blueprint already gated behind ANOTHER feature would belong to
+    two licensed groups: that is a wiring mistake and fails at startup
 
     Args:
         blueprint (Blueprint): The blueprint whose routes are gated
         feature (LicenseFeature): The feature the blueprint belongs to
+
+    Raises:
+        ValueError: When the blueprint is already gated behind a different feature
     """
+    current: LicenseFeature | None = gated_feature(blueprint)
+
+    if current == feature:
+        return
+
+    if current is not None:
+        raise ValueError(GATE_CONFLICT_MESSAGE.format(blueprint=blueprint.name, gated=current, feature=feature))
+
     def record_required_feature() -> None:
         require_feature_for_request(feature)
 
     setattr(record_required_feature, GATED_FEATURE_ATTR, feature)
     blueprint.before_request(record_required_feature)
+
+
+def gated_feature(blueprint: Blueprint) -> LicenseFeature | None:
+    """
+    Returns the feature a blueprint's gate records, or None when the blueprint is not gated
+
+    Args:
+        blueprint (Blueprint): The blueprint to inspect
+
+    Returns:
+        LicenseFeature | None: The feature of its `gate_blueprint` hook, None without one
+    """
+    return next(
+        (
+            getattr(hook, GATED_FEATURE_ATTR)
+            for hook in blueprint.before_request_funcs.get(None, [])
+            if hasattr(hook, GATED_FEATURE_ATTR)
+        ),
+        None,
+    )
 
 
 def require_feature_for_request(feature: LicenseFeature) -> None:

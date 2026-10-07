@@ -46,9 +46,9 @@ FIELD: str = 'risk_assessment_date'
 
 
 def _dbm(modified: int = 0) -> MagicMock:
-    """Builds a database-manager stub whose update_many reports the given modified count"""
+    """Builds a database-manager stub whose update_many_raw reports the given modified count"""
     dbm = MagicMock()
-    dbm.update_many.return_value = MagicMock(modified_count=modified)
+    dbm.update_many_raw.return_value = MagicMock(modified_count=modified)
 
     return dbm
 
@@ -125,24 +125,24 @@ class TestPipeline:
 class TestConvertWrappedDates:
     """The single-field conversion call."""
 
-    def test_sends_the_pipeline_as_a_plain_update(self) -> None:
+    def test_sends_the_pipeline_as_a_raw_update(self) -> None:
         """
         A pipeline update must not be wrapped in a '$set' operator.
 
-        update_many wraps its update by default, which would make the pipeline an invalid update
-        document.
+        update_many wraps its update in an operator, which would make the pipeline an invalid update
+        document - so it goes through update_many_raw.
         """
         dbm = _dbm()
 
         convert_wrapped_dates(dbm, DB_NAME, IsmsRiskAssessment.COLLECTION, FIELD)
 
-        dbm.update_many.assert_called_once_with(
+        dbm.update_many_raw.assert_called_once_with(
             IsmsRiskAssessment.COLLECTION,
             DB_NAME,
             build_wrapped_date_filter(FIELD),
             build_date_conversion_pipeline(FIELD),
-            plain=True,
         )
+        dbm.update_many.assert_not_called()
 
     def test_reports_how_many_documents_were_rewritten(self) -> None:
         """The count is what start_update logs, so an operator can see the migration did something."""

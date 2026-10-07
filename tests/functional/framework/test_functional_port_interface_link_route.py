@@ -871,24 +871,24 @@ class TestErrorMapping:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == LINK_ALREADY_EXISTS_MESSAGE.format(port_id=PORT_ID)
 
-    @pytest.mark.parametrize('failure', [
-        DocumentNetworkError('connection lost'),
-        DocumentInsertError('Operation failure: document failed validation'),
+    @pytest.mark.parametrize('failure, expected', [
+        (DocumentNetworkError('connection lost'), HTTPStatus.SERVICE_UNAVAILABLE),
+        (DocumentInsertError('Operation failure: document failed validation'), HTTPStatus.INTERNAL_SERVER_ERROR),
     ], ids=['outage', 'other-insert-failure'])
     def test_a_create_that_fails_for_any_other_reason_is_never_an_existing_link(
-            self, rest_api, monkeypatch, failure: Exception) -> None:
+            self, rest_api, monkeypatch, failure: Exception, expected: HTTPStatus) -> None:
         """
         Only the unique index's refusal is an existing link
 
         It used to be: every insert failure answered "already linked". Failed below every manager, so the
-        whole chain runs; an outage is left unwrapped up to Flask's catch-all, hence propagation off.
+        whole chain runs; an outage is left unwrapped up to the app's
+        error handler, a 503
         """
-        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
         monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(failure))
 
         response = _create(rest_api)
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == expected
         assert 'already linked' not in response.get_json()['message']
 
     def test_a_manager_insert_error_without_a_duplicate_is_500(self, rest_api, monkeypatch) -> None:

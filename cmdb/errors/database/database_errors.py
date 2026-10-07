@@ -240,5 +240,6 @@ class DocumentNetworkError(DataBaseError):
 
 # The two failures that say nothing about the request: the operation may succeed if simply repeated. Every
 # layer that wraps errors lets these through unchanged, so the route layer can answer them as a server
-# error (423 / 503 under handle_db_errors) instead of as the operation's own - usually 400 - failure
+# error (423 / 503, the app's error handlers in responses/error_handlers.py) instead of as the operation's own -
+# usually 400 - failure
 TRANSIENT_DATABASE_ERRORS: tuple[type[DataBaseError], ...] = (DocumentLockTimeoutError, DocumentNetworkError)

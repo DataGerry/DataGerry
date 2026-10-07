@@ -395,9 +395,9 @@ def duplicate_isms_risk_assessment(
     # Fetch the source assignments and the assignment manager once, not per duplicated target
     if copy_cma:
         original_assignments = risk_assessment_manager.get_many_from_other_collection(
-                                                            IsmsControlMeasureAssignment.COLLECTION,
-                                                            risk_assessment_id=initial_risk_assessment_id
-                                                        )
+            IsmsControlMeasureAssignment.COLLECTION,
+            criteria={ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: initial_risk_assessment_id},
+        )
         cma_manager: ControlMeasureAssignmentManager | None = ManagerProvider.get_manager(
             ManagerType.CONTROL_MEASURE_ASSIGNMENT, request_user
         )
@@ -709,7 +709,9 @@ def update_isms_risk_assessment(public_id: int, data: dict[str, Any], request_us
         owned_cmas = {
             cma[ControlMeasureAssignmentKey.PUBLIC_ID.value]: cma
             for cma in risk_assessment_manager.get_many_from_other_collection(
-                IsmsControlMeasureAssignment.COLLECTION, risk_assessment_id=public_id)
+                IsmsControlMeasureAssignment.COLLECTION,
+                criteria={ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: public_id},
+            )
         }
 
     # EVERY refusal before the first write: one RiskAssessment may not mutate another's assignments, and a

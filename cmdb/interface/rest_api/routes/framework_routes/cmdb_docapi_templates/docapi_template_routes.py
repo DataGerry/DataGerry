@@ -243,9 +243,9 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
     minimal = request.args.get('minimal', 'false') in ['True', 'true']
 
     if minimal:
-        tpl = docapi_manager.get_minimal_templates_by(**filterdict)
+        tpl = docapi_manager.get_minimal_templates_by(filterdict)
     else:
-        tpl = docapi_manager.get_templates_by(**filterdict)
+        tpl = docapi_manager.get_templates_by(filterdict)
 
     api_response = DefaultResponse(tpl)
 

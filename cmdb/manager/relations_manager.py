@@ -158,7 +158,7 @@ class RelationsManager(GenericManager):
             }
         }
 
-        self.update_many(criteria=criteria, update=update, plain=True)
+        self.update_many_raw(criteria, update)
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
