@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { CABLING_COLUMNS, CABLING_GEOMETRY, CABLING_WRAP_AFTER } from '../constants/cabling.constants';
-import { CablingColumnFrame, CablingSpan } from '../models/cabling-placement.types';
+import { CablingColumnFrame, CablingSpan, CablingStepDirection } from '../models/cabling-placement.types';
 import { CablingGraph, CablingNodeLayout } from '../models/cabling.types';
 import { anchorOffset } from './cabling-node-frame.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -87,21 +87,26 @@ function placeWithinColumns(
     [...batches.keys()].sort((first, second) => first - second).forEach((generation) => {
         batches.get(generation).forEach((objectIds, column) => {
             const spans = placed.get(column) ?? [];
-            const under = objectIds.filter((objectId) => sharesParentColumn(graph, layouts, objectId));
-            const beside = objectIds.filter((objectId) => !under.includes(objectId));
+            const stacked = objectIds.filter((objectId) => sharesParentColumn(graph, layouts, objectId));
+            const above = stacked.filter((objectId) => parentOf(graph, layouts, objectId).focal);
+            const under = stacked.filter((objectId) => !above.includes(objectId));
+            const beside = objectIds.filter((objectId) => !stacked.includes(objectId));
             const frame = columns.get(column);
 
-            if (frame?.wrapped) {
+            // Only the first batch alternates; a card revealed later steps clear like anywhere else.
+            if (frame?.wrapped && !spans.length) {
                 placeWrapped(graph, layouts, beside, frame, spans);
             } else {
                 placeBeside(graph, layouts, beside, spans);
             }
 
+            placeAboveFocal(graph, layouts, above, spans);
+
             under.forEach((objectId) => {
                 const layout = layouts.get(objectId);
-                const parent = layouts.get(graph.reveals.get(objectId).parentId);
+                const parent = parentOf(graph, layouts, objectId);
 
-                placeAt(layout, freeTop(parent.y + parent.height + nodeGap, layout.height, spans, true), spans);
+                placeAt(layout, freeTop(parent.y + parent.height + nodeGap, layout.height, spans, 'down'), spans);
             });
 
             placed.set(column, spans);
@@ -187,18 +192,41 @@ function placeWrapped(
 }
 
 
+/** Panels cabled to the focal object stack up from it; the one on its topmost port stands nearest, so brackets nest. */
+function placeAboveFocal(
+    graph: CablingGraph,
+    layouts: ReadonlyMap<number, CablingNodeLayout>,
+    objectIds: number[],
+    spans: CablingSpan[]
+): void {
+    const portTop = (objectId: number) => anchorOffset(parentOf(graph, layouts, objectId), graph.reveals.get(objectId).parentPortId);
+
+    [...objectIds].sort((first, second) => portTop(first) - portTop(second)).forEach((objectId) => {
+        const layout = layouts.get(objectId);
+        const focal = parentOf(graph, layouts, objectId);
+
+        placeAt(layout, freeTop(focal.y - nodeGap - layout.height, layout.height, spans, 'up'), spans);
+    });
+}
+
+
 function placeAt(layout: CablingNodeLayout, top: number, spans: CablingSpan[]): void {
     layout.y = Math.round(top);
     spans.push({ top: layout.y, bottom: layout.y + layout.height });
 }
 
 
-/** Only the column limit puts a card in its parent's column; it then hangs below the parent. */
+/** A panel cabled to a plain focal object stands above it; past the column limit a card hangs below its parent. */
 function sharesParentColumn(graph: CablingGraph, layouts: ReadonlyMap<number, CablingNodeLayout>, objectId: number): boolean {
     const parentId = graph.reveals.get(objectId)?.parentId;
 
     return parentId != null && parentId !== objectId && layouts.has(parentId)
         && layouts.get(parentId).column === layouts.get(objectId).column;
+}
+
+
+function parentOf(graph: CablingGraph, layouts: ReadonlyMap<number, CablingNodeLayout>, objectId: number): CablingNodeLayout {
+    return layouts.get(graph.reveals.get(objectId).parentId);
 }
 
 
@@ -214,8 +242,8 @@ function desiredTop(graph: CablingGraph, layouts: ReadonlyMap<number, CablingNod
 }
 
 
-/** The free top nearest to the wanted one, or the nearest below it. Below the lowest node is always free. */
-function freeTop(desired: number, height: number, spans: CablingSpan[], downwardOnly = false): number {
+/** The free top nearest to the wanted one, optionally only above or below it. Past the outermost nodes is always free. */
+function freeTop(desired: number, height: number, spans: CablingSpan[], only?: CablingStepDirection): number {
     const clashes = (top: number) => spans.some((span) => top < span.bottom + nodeGap && top + height + nodeGap > span.top);
 
     if (!clashes(desired)) {
@@ -224,6 +252,15 @@ function freeTop(desired: number, height: number, spans: CablingSpan[], downward
 
     return spans
         .flatMap((span) => [span.bottom + nodeGap, span.top - nodeGap - height])
-        .filter((top) => !clashes(top) && (!downwardOnly || top >= desired))
+        .filter((top) => !clashes(top) && isOnSide(top, desired, only))
         .reduce((best, top) => (Math.abs(top - desired) < Math.abs(best - desired) ? top : best));
+}
+
+
+function isOnSide(top: number, desired: number, only?: CablingStepDirection): boolean {
+    if (only === 'up') {
+        return top <= desired;
+    }
+
+    return only !== 'down' || top >= desired;
 }

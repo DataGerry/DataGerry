@@ -34,8 +34,8 @@ export function planEdge(
         return null;
     }
 
-    const fromSide = anchorSide(fromNode, edge.from.side, toNode, focal);
-    const toSide = anchorSide(toNode, edge.to.side, fromNode, focal);
+    const fromSide = anchorSide(fromNode, edge.from.side, toNode, edge.to.side, focal);
+    const toSide = anchorSide(toNode, edge.to.side, fromNode, edge.from.side, focal);
     const from = { node: fromNode, point: anchorPoint(fromNode, edge.from.port_id, fromSide), side: fromSide };
     const to = { node: toNode, point: anchorPoint(toNode, edge.to.port_id, toSide), side: toSide };
 
@@ -79,19 +79,21 @@ function sharesColumn(first: CablingNodeLayout, second: CablingNodeLayout): bool
 }
 
 
-/** A panel's front is its left face and its rear the right; a plain port faces its peer, or outwards when level. */
+/**
+ * A panel's front is its left face and its rear the right. A plain port faces its peer: the panel face it meets
+ * when they share a column, else the peer's side, or outwards when level.
+ */
 function anchorSide(
     layout: CablingNodeLayout,
     side: PortSide | null,
     peer: CablingNodeLayout,
+    peerSide: PortSide | null,
     focal: CablingNodeLayout | null
 ): CablingAnchorSide {
-    if (layout.patchPanel && side === PortSide.FRONT) {
-        return 'left';
-    }
+    const face = panelFace(layout, side) ?? (sharesColumn(layout, peer) ? panelFace(peer, peerSide) : null);
 
-    if (layout.patchPanel && side === PortSide.REAR) {
-        return 'right';
+    if (face) {
+        return face;
     }
 
     const own = centre(layout);
@@ -102,6 +104,19 @@ function anchorSide(
     }
 
     return focal && own < centre(focal) ? 'left' : 'right';
+}
+
+
+function panelFace(layout: CablingNodeLayout, side: PortSide | null): CablingAnchorSide | null {
+    if (!layout.patchPanel) {
+        return null;
+    }
+
+    if (side === PortSide.FRONT) {
+        return 'left';
+    }
+
+    return side === PortSide.REAR ? 'right' : null;
 }
 
 

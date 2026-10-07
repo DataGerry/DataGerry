@@ -18,6 +18,7 @@
 import {
     OverviewPort,
     PatchPanelOverviewRow,
+    PortSide,
     StandardOverviewRow
 } from '../../ports-overview/models/ports-overview.types';
 import {
@@ -39,6 +40,14 @@ export const EMPTY_CABLING_GRAPH: CablingGraph = {
     edges: new Map()
 };
 
+const FOCAL_REVEAL: CablingReveal = {
+    parentId: null,
+    parentPortId: null,
+    ownPortId: null,
+    column: CABLING_COLUMNS.focal,
+    generation: 0
+};
+
 
 export function isPanelRow(row: StandardOverviewRow | PatchPanelOverviewRow): row is PatchPanelOverviewRow {
     return 'front' in row || 'rear' in row;
@@ -56,19 +65,24 @@ export function nodePorts(node: CablingNode): OverviewPort[] {
 }
 
 
-/** Panels share one column; anything else flows away from the focal object, never past the outer columns. */
-export function revealColumn(parentColumn: number, patchPanel: boolean): number {
-    if (patchPanel) {
-        return CABLING_COLUMNS.panels;
+/**
+ * A panel keeps what is cabled to its front on its left and to its rear on its right. A panel reached from a
+ * plain device steps one column back towards the focal object, where there is room. Anything else flows away.
+ */
+export function revealColumn(parent: CablingReveal, parentFace: PortSide | null, patchPanel: boolean): number {
+    if (parentFace) {
+        return withinColumns(parent.column, parent.column + faceStep(parentFace));
     }
 
-    if (parentColumn === CABLING_COLUMNS.focal) {
+    if (patchPanel) {
+        return parent.column - Math.sign(parent.column);
+    }
+
+    if (parent.column === CABLING_COLUMNS.focal) {
         return CABLING_COLUMNS.neighbours;
     }
 
-    const next = parentColumn + Math.sign(parentColumn);
-
-    return next < CABLING_COLUMNS.first || next > CABLING_COLUMNS.last ? parentColumn : next;
+    return withinColumns(parent.column, parent.column + Math.sign(parent.column));
 }
 
 
@@ -91,12 +105,12 @@ export function graphFromRing(response: CablingResponse): CablingGraph {
     const edges = focalEdges(nodes, focalId, response.edges);
     const reveals = new Map<number, CablingReveal>();
 
-    reveals.set(focalId, { parentId: null, parentPortId: null, ownPortId: null, column: 0, generation: 0 });
+    reveals.set(focalId, FOCAL_REVEAL);
 
     nodes.forEach((node, objectId) => {
         if (!reveals.has(objectId)) {
             const edge = edgeBetween(edges.values(), focalId, objectId);
-            reveals.set(objectId, revealBeside(reveals, focalId, edge ? endOn(edge, focalId) : null, edge, node));
+            reveals.set(objectId, revealBeside(nodes, reveals, focalId, edge ? endOn(edge, focalId) : null, edge, node));
         }
     });
 
@@ -122,7 +136,7 @@ export function graphWithExpansion(graph: CablingGraph, response: CablingRespons
     revealed.forEach((node) => {
         const parentEnd = followed ? endOnPort(followed, portId) : null;
 
-        reveals.set(node.object_id, revealBeside(reveals, parentId, parentEnd, followed, node));
+        reveals.set(node.object_id, revealBeside(nodes, reveals, parentId, parentEnd, followed, node));
     });
 
     return { ...graph, nodes, reveals, edges };
@@ -137,22 +151,43 @@ export function revealedObjectIds(graph: CablingGraph, response: CablingResponse
 /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
 function revealBeside(
+    nodes: ReadonlyMap<number, CablingNode>,
     reveals: ReadonlyMap<number, CablingReveal>,
     parentId: number,
     parentEnd: CablingEnd | null,
     edge: CablingEdge | null | undefined,
     node: CablingNode
 ): CablingReveal {
-    const parent = reveals.get(parentId);
+    const parent = reveals.get(parentId) ?? FOCAL_REVEAL;
     const ownEnd = edge && parentEnd ? otherEnd(edge, parentEnd) : null;
 
     return {
         parentId,
         parentPortId: parentEnd?.port_id ?? null,
         ownPortId: ownEnd?.port_id ?? null,
-        column: revealColumn(parent?.column ?? CABLING_COLUMNS.focal, isPatchPanelNode(node)),
-        generation: (parent?.generation ?? 0) + 1
+        column: revealColumn(parent, panelFace(nodes.get(parentId), parentEnd), isPatchPanelNode(node)),
+        generation: parent.generation + 1
     };
+}
+
+
+/** The panel face a cable meets; null on a plain device. */
+function panelFace(node: CablingNode | undefined, end: CablingEnd | null): PortSide | null {
+    const side = end?.side;
+
+    return isPatchPanelNode(node) && (side === PortSide.FRONT || side === PortSide.REAR) ? side : null;
+}
+
+
+/** A panel's front faces left, its rear right. */
+function faceStep(face: PortSide): number {
+    return face === PortSide.FRONT ? -1 : 1;
+}
+
+
+/** Past the outer columns a card stays in its parent's column. */
+function withinColumns(parentColumn: number, column: number): number {
+    return column < CABLING_COLUMNS.first || column > CABLING_COLUMNS.last ? parentColumn : column;
 }
 
 

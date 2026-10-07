@@ -29,3 +29,7 @@ export interface CablingColumnFrame {
     slot: number;
     wrapped: boolean;
 }
+
+
+/** Which way a card may step to clear the cards already placed. */
+export type CablingStepDirection = 'up' | 'down';

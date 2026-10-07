@@ -25,28 +25,31 @@ import {
     CablingResponse
 } from '../models/cabling.types';
 import {
+    BACKUP_01,
+    CABLE_BACKUP,
     CABLE_FRONT,
-    CABLE_NAS,
     CABLE_REAR,
     FRONT_12,
     NAS_01,
+    NAS_E0B,
     PP_01,
     REAR_12,
     SW_01,
     SW_GI12,
     SW_GI24,
+    SW_GI48,
     WEB_01,
     WEB_ETH0,
     WEB_ETH1,
+    backupExpansion,
     cabledPort,
     cablingEdge,
     cablingEnd,
     frontEdge,
     mockupRing,
-    nasEdge,
     nasExpansion,
-    nasNode,
     overviewPort,
+    panelNode,
     ppNode,
     rearEdge,
     restrictedNode,
@@ -61,6 +64,10 @@ import { anchorOffset } from './cabling-node-frame.util';
 describe('cabling-layout.util', () => {
     const SW_GI1 = 8820;
     const CABLE_DIRECT = 8950;
+    const CABLE_SIDE = 8904;
+    const PP_02 = 8716;
+    const PP_02_FRONT = 8830;
+    const CABLE_PP_02 = 8930;
 
     /** Free ports shown, so folding is tested on every row; the default hides them. */
     const options = (overrides: Partial<CablingDisplayOptions> = {}): CablingDisplayOptions =>
@@ -121,25 +128,98 @@ describe('cabling-layout.util', () => {
         graphFromRing(crossRing()), { focal_object_id: WEB_01, nodes: [ppNode()], edges: [frontEdge()] }, WEB_ETH0
     );
 
-    describe('layoutCablingNodes', () => {
-        it('starts at the focal object and puts every plain neighbour in the column on its right', () => {
-            const nodes = layout(graphFromRing(mockupRing()));
+    /** PP-02 with a single front port, cabled to one of SW-01's ports. */
+    const pp02 = (switchPortId: number, switchPortName: string) => panelNode(PP_02, 'PP-02', [{
+        front: cabledPort(PP_02_FRONT, 'Front 1', {
+            objectId: SW_01, label: 'SW-01', portId: switchPortId, portName: switchPortName
+        }, CABLE_PP_02, undefined, { side: PortSide.FRONT }),
+        rear: null,
+        paired: false
+    }]);
 
-            expect(nodes.get(PP_01).x).toBeLessThan(nodes.get(WEB_01).x);
-            expect(nodes.get(WEB_01).x).toBe(nodes.get(SW_01).x);
-            expect(overlaps(nodes.get(WEB_01), nodes.get(SW_01))).toBeFalse();
+    const pp02Edge = (switchPortId: number, switchPortName: string) => cablingEdge(
+        CABLE_PP_02,
+        cablingEnd(SW_01, switchPortId, switchPortName, PortSide.SINGLE),
+        cablingEnd(PP_02, PP_02_FRONT, 'Front 1', PortSide.FRONT)
+    );
+
+    /** SW-01 cabled to PP-01's rear on its first port and to PP-02's front on its second; PP-02 listed first. */
+    const twoPanelRing = (): CablingGraph => graphFromRing({
+        focal_object_id: SW_01,
+        nodes: [
+            standardNode(SW_01, 'SW-01', [
+                cabledPort(SW_GI12, 'Gi1/0/12', {
+                    objectId: PP_01, label: 'PP-01', portId: REAR_12, portName: 'Rear 12', side: PortSide.REAR
+                }, CABLE_REAR),
+                cabledPort(SW_GI24, 'Gi1/0/24', {
+                    objectId: PP_02, label: 'PP-02', portId: PP_02_FRONT, portName: 'Front 1', side: PortSide.FRONT
+                }, CABLE_PP_02)
+            ]),
+            pp02(SW_GI24, 'Gi1/0/24'),
+            ppNode()
+        ],
+        edges: [rearEdge(), pp02Edge(SW_GI24, 'Gi1/0/24')]
+    });
+
+    /** The mockup ring once WEB-01's eth1, cabled to SW-01's Gi1/0/48, was followed. */
+    const sideFollowed = (): CablingGraph => {
+        const web = webNode();
+        const side = cablingEdge(
+            CABLE_SIDE, cablingEnd(WEB_01, WEB_ETH1, 'eth1', PortSide.SINGLE), cablingEnd(SW_01, SW_GI48, 'Gi1/0/48', PortSide.SINGLE)
+        );
+        web.rows[1] = {
+            port: cabledPort(WEB_ETH1, 'eth1', { objectId: SW_01, label: 'SW-01', portId: SW_GI48, portName: 'Gi1/0/48' }, CABLE_SIDE)
+        };
+        const ring = graphFromRing({ focal_object_id: PP_01, nodes: [ppNode(), web, switchNode()], edges: [frontEdge(), rearEdge(), side] });
+
+        return graphWithExpansion(ring, { focal_object_id: WEB_01, nodes: [switchNode()], edges: [side] }, WEB_ETH1);
+    };
+
+    describe('layoutCablingNodes', () => {
+        it('puts what a focal panel\'s front reaches on its left and what its rear reaches on its right', () => {
+            const nodes = layout(graphFromRing(mockupRing()));
+            const panel = nodes.get(PP_01);
+
+            expect(nodes.get(WEB_01).x + nodes.get(WEB_01).width).toBeLessThan(panel.x);
+            expect(nodes.get(SW_01).x).toBeGreaterThan(panel.x + panel.width);
         });
 
-        it('puts a patch panel neighbour in the column left of the focal object', () => {
+        it('stands a patch panel cabled to a plain focal object right above it', () => {
             const nodes = layout(graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), ppNode()], edges: [frontEdge()] }));
+            const panel = nodes.get(PP_01);
+            const web = nodes.get(WEB_01);
 
-            expect(nodes.get(PP_01).x + nodes.get(PP_01).width).toBeLessThan(nodes.get(WEB_01).x);
+            expect(panel.column).toBe(web.column);
+            expect(panel.y + panel.height + CABLING_GEOMETRY.nodeGap).toBe(web.y);
+        });
+
+        it('stacks several panels above the focal object, the one on its topmost port nearest', () => {
+            const nodes = layout(twoPanelRing());
+            const sw = nodes.get(SW_01);
+            const nearest = nodes.get(PP_01);
+            const farther = nodes.get(PP_02);
+
+            expect(nearest.y + nearest.height + CABLING_GEOMETRY.nodeGap).toBe(sw.y);
+            expect(farther.y + farther.height + CABLING_GEOMETRY.nodeGap).toBe(nearest.y);
+        });
+
+        it('stands a panel reached from a neighbour in the room beside the focal object', () => {
+            const nodes = layout(graphWithExpansion(
+                graphFromRing(mockupRing()),
+                { focal_object_id: SW_01, nodes: [pp02(SW_GI48, 'Gi1/0/48')], edges: [pp02Edge(SW_GI48, 'Gi1/0/48')] },
+                SW_GI48
+            ));
+            const focal = nodes.get(PP_01);
+            const panel = nodes.get(PP_02);
+
+            expect(panel.column).toBe(focal.column);
+            expect(panel.y).toBeGreaterThanOrEqual(focal.y + focal.height + CABLING_GEOMETRY.nodeGap);
         });
 
         it('keeps a gap for the cable label between two columns', () => {
             const nodes = layout(graphFromRing(mockupRing()));
 
-            expect(nodes.get(WEB_01).x - (nodes.get(PP_01).x + nodes.get(PP_01).width))
+            expect(nodes.get(SW_01).x - (nodes.get(PP_01).x + nodes.get(PP_01).width))
                 .toBeGreaterThanOrEqual(CABLING_GEOMETRY.columnGap - 1);
         });
 
@@ -303,6 +383,45 @@ describe('cabling-layout.util', () => {
         });
     });
 
+    describe('layoutCablingNodes in a split column', () => {
+        const NAS_X = 9810;
+        const PP_X = 9500;
+
+        /** `busyRing(10, 10)` followed from SRV-0 to NAS-X, then from NAS-X to the front of panel PP-X. */
+        const panelBehindServer = (): CablingGraph => {
+            const throughServer = graphWithExpansion(busyRing(10, 10), {
+                focal_object_id: 9200,
+                nodes: [standardNode(NAS_X, 'NAS-X', [
+                    cabledPort(9811, 'e0a', { objectId: 9200, label: 'SRV-0', portId: 9320, portName: 'eth1' }, 9720),
+                    cabledPort(9812, 'e0b', { objectId: PP_X, label: 'PP-X', portId: 9600, portName: 'Front 1', side: PortSide.FRONT }, 9721)
+                ])],
+                edges: [cablingEdge(9720, cablingEnd(9200, 9320, 'eth1', PortSide.SINGLE), cablingEnd(NAS_X, 9811, 'e0a', PortSide.SINGLE))]
+            }, 9320);
+
+            return graphWithExpansion(throughServer, {
+                focal_object_id: NAS_X,
+                nodes: [panelNode(PP_X, 'PP-X', [{
+                    front: cabledPort(9600, 'Front 1', { objectId: NAS_X, label: 'NAS-X', portId: 9812, portName: 'e0b' }, 9721, undefined, {
+                        side: PortSide.FRONT
+                    }),
+                    rear: null,
+                    paired: false
+                }])],
+                edges: [cablingEdge(9721, cablingEnd(NAS_X, 9812, 'e0b', PortSide.SINGLE), cablingEnd(PP_X, 9600, 'Front 1', PortSide.FRONT))]
+            }, 9812);
+        };
+
+        it('steps a card revealed later into a split neighbours column clear of the cards there', () => {
+            const nodes = layout(panelBehindServer());
+            const cards = [...nodes.values()];
+
+            expect(nodes.get(PP_X).column).toBe(1);
+            cards.forEach((card, index) => cards.slice(index + 1).forEach((other) => {
+                expect(overlaps(card, other)).withContext(`${ card.title } / ${ other.title }`).toBeFalse();
+            }));
+        });
+    });
+
     describe('layoutCablingEdges', () => {
         const routed = (graph: CablingGraph) => {
             const nodes = layout(graph);
@@ -320,11 +439,9 @@ describe('cabling-layout.util', () => {
         };
 
         it('runs a cable straight when both ends were placed level with each other', () => {
-            const { edges } = routed(graphFromRing({
-                focal_object_id: SW_01, nodes: [switchNode(), ppNode(), nasNode()], edges: [rearEdge(), nasEdge()]
-            }));
+            const { edges } = routed(graphWithExpansion(graphFromRing(mockupRing()), nasExpansion(), SW_GI24));
 
-            expect(edges.length).toBe(2);
+            expect(edges.length).toBe(3);
             edges.forEach((edge) => expect(edge.from.y).withContext(edge.label).toBe(edge.to.y));
         });
 
@@ -336,13 +453,33 @@ describe('cabling-layout.util', () => {
             expect(cable(edges, CABLE_REAR).from.x).toBe(panel.x + panel.width);
         });
 
+        it('loops a cable between the focal object and a panel above it out on the panel face it meets', () => {
+            const { nodes, edges } = routed(twoPanelRing());
+            const sw = nodes.get(SW_01);
+            const rear = cable(edges, CABLE_REAR);
+            const front = cable(edges, CABLE_PP_02);
+            const rearLoop = firstCurve(rear.path);
+            const frontLoop = firstCurve(front.path);
+
+            expect(rear.from.x).toBe(nodes.get(PP_01).x + nodes.get(PP_01).width);
+            expect(rear.to.x).toBe(sw.x + sw.width);
+            expect(rearLoop.from.x).toBeGreaterThan(rear.from.x);
+            expect(rearLoop.to.x).toBeGreaterThan(rear.to.x);
+            expect(front.from.x).toBe(sw.x);
+            expect(front.to.x).toBe(nodes.get(PP_02).x);
+            expect(frontLoop.from.x).toBeLessThan(front.from.x);
+            expect(frontLoop.to.x).toBeLessThan(front.to.x);
+        });
+
         it('turns a cable back around a panel whose front faces away from its peer', () => {
-            const { nodes, edges } = routed(graphFromRing(mockupRing()));
+            const { nodes, edges } = routed(crossRingFollowed());
             const panel = nodes.get(PP_01);
             const hook = firstCurve(cable(edges, CABLE_FRONT).path);
 
+            expect(nodes.get(WEB_01).x).toBeGreaterThan(panel.x + panel.width);
             expect(hook.from.x).toBeLessThan(panel.x);
             expect(within(hook.to.y, panel)).toBeFalse();
+            expect(within(hook.to.y, nodes.get(SW_01))).toBeFalse();
         });
 
         it('leaves a cable between two neighbours off the canvas until it is followed', () => {
@@ -350,17 +487,13 @@ describe('cabling-layout.util', () => {
         });
 
         it('curves a cable between the two sides straight across, behind the focal object', () => {
-            const { nodes, edges } = routed(crossRingFollowed());
-            const front = cable(edges, CABLE_FRONT);
+            const { nodes, edges } = routed(sideFollowed());
+            const side = cable(edges, CABLE_SIDE);
+            const focal = nodes.get(PP_01);
 
-            expect(nodes.get(PP_01).x).toBeLessThan(nodes.get(SW_01).x);
-            expect(nodes.get(WEB_01).x).toBeGreaterThan(nodes.get(SW_01).x);
-            const focal = nodes.get(SW_01);
-
-            expect(within(firstCurve(front.path).to.y, nodes.get(PP_01))).toBeFalse();
-            expect(front.labelAt.x).toBeGreaterThan(focal.x);
-            expect(front.labelAt.x).toBeLessThan(focal.x + focal.width);
-            expect(within(front.labelAt.y, focal)).toBeTrue();
+            expect(side.path.match(/C/g)?.length).toBe(1);
+            expect(side.labelAt.x).toBeGreaterThan(focal.x);
+            expect(side.labelAt.x).toBeLessThan(focal.x + focal.width);
         });
 
         it('runs each cable to the second sub-column through a gap of the first', () => {
@@ -384,16 +517,15 @@ describe('cabling-layout.util', () => {
         });
 
         it('hangs a card past the last column below its parent, its cable looping out on the outer side', () => {
-            const ring = graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), ppNode()], edges: [frontEdge()] });
-            const beyond = graphWithExpansion(ring, { focal_object_id: PP_01, nodes: [switchNode()], edges: [rearEdge()] }, REAR_12);
-            const { nodes, edges } = routed(graphWithExpansion(beyond, nasExpansion(), SW_GI24));
-            const sw = nodes.get(SW_01);
-            const nas = nodes.get(NAS_01);
+            const nas = graphWithExpansion(graphFromRing(mockupRing()), nasExpansion(), SW_GI24);
+            const { nodes, edges } = routed(graphWithExpansion(nas, backupExpansion(), NAS_E0B));
+            const parent = nodes.get(NAS_01);
+            const backup = nodes.get(BACKUP_01);
 
-            expect(nas.x).toBe(sw.x);
-            expect(nas.y).toBeGreaterThanOrEqual(sw.y + sw.height);
-            expect(cable(edges, CABLE_NAS).from.x).toBe(sw.x);
-            expect(cable(edges, CABLE_NAS).to.x).toBe(nas.x);
+            expect(backup.x).toBe(parent.x);
+            expect(backup.y).toBeGreaterThanOrEqual(parent.y + parent.height);
+            expect(cable(edges, CABLE_BACKUP).from.x).toBe(parent.x + parent.width);
+            expect(cable(edges, CABLE_BACKUP).to.x).toBe(backup.x + backup.width);
         });
 
         it('skips a cable whose far object is not on the canvas', () => {
@@ -421,7 +553,7 @@ describe('cabling-layout.util', () => {
             const nodes = layout(graphFromRing(mockupRing()));
             const bounds = cablingBounds(nodes.values());
 
-            expect(bounds.minX).toBe(nodes.get(PP_01).x);
+            expect(bounds.minX).toBe(nodes.get(WEB_01).x);
             expect(bounds.maxX).toBe(nodes.get(SW_01).x + nodes.get(SW_01).width);
         });
 

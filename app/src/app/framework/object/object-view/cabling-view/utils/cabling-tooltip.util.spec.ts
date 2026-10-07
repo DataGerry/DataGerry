@@ -93,9 +93,9 @@ describe('cabling-tooltip.util', () => {
                 cablingEnd(PP_01, FRONT_12, 'Front 12', PortSide.FRONT)
             );
 
-            expect(nodes.get(PP_01).x).toBeLessThan(nodes.get(WEB_01).x);
-            expect(cableTooltip(reversed, nodes).ends.map((end) => end.title)).toEqual(['PP-01', 'WEB-01']);
-            expect(cableTooltip(frontEdge(), nodes).ends.map((end) => end.title)).toEqual(['PP-01', 'WEB-01']);
+            expect(nodes.get(WEB_01).x).toBeLessThan(nodes.get(PP_01).x);
+            expect(cableTooltip(reversed, nodes).ends.map((end) => end.title)).toEqual(['WEB-01', 'PP-01']);
+            expect(cableTooltip(frontEdge(), nodes).ends.map((end) => end.title)).toEqual(['WEB-01', 'PP-01']);
         });
 
         it('adds the panel face only when the port name does not say it', () => {
@@ -106,10 +106,10 @@ describe('cabling-tooltip.util', () => {
                 cablingEnd(WEB_01, WEB_ETH0, 'eth0', PortSide.SINGLE)
             );
 
-            expect(cableTooltip(frontEdge(), nodes).ends[0]).toEqual(
+            expect(cableTooltip(frontEdge(), nodes).ends[1]).toEqual(
                 { title: 'PP-01', port: 'Front 12', side: null, restricted: false });
-            expect(cableTooltip(numbered, nodes).ends[0].side).toBe('Front');
-            expect(cableTooltip(numbered, nodes).ends[1].side).toBeNull();
+            expect(cableTooltip(numbered, nodes).ends[1].side).toBe('Front');
+            expect(cableTooltip(numbered, nodes).ends[0].side).toBeNull();
         });
 
         it('names a restricted end without a port', () => {
@@ -124,7 +124,7 @@ describe('cabling-tooltip.util', () => {
                 edges: [masked, rearEdge()]
             });
 
-            expect(cableTooltip(masked, nodes).ends[1]).toEqual(
+            expect(cableTooltip(masked, nodes).ends[0]).toEqual(
                 { title: 'Restricted object', port: null, side: null, restricted: true });
         });
 

@@ -40,8 +40,8 @@ export const CABLING_GEOMETRY = {
     endDotRadius: 4
 } as const;
 
-/** Columns counted from the focal object; every patch panel shares the one on its left. */
-export const CABLING_COLUMNS = { first: -2, panels: -1, focal: 0, neighbours: 1, last: 2 } as const;
+/** Columns counted from the focal object. */
+export const CABLING_COLUMNS = { first: -2, focal: 0, neighbours: 1, last: 2 } as const;
 
 /** Past this many cards the neighbours column splits into two sub-columns. */
 export const CABLING_WRAP_AFTER = 6;

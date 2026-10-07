@@ -16,8 +16,9 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { PortSide } from '../../ports-overview/models/ports-overview.types';
-import { CablingEdge, CablingResponse } from '../models/cabling.types';
+import { CablingEdge, CablingResponse, CablingReveal } from '../models/cabling.types';
 import {
+    BACKUP_01,
     CABLE_FRONT,
     CABLE_NAS,
     CABLE_REAR,
@@ -33,6 +34,7 @@ import {
     WEB_01,
     WEB_ETH0,
     WEB_ETH1,
+    backupExpansion,
     cabledPort,
     cablingEdge,
     cablingEnd,
@@ -69,29 +71,43 @@ describe('cabling-graph.util', () => {
     };
 
     describe('revealColumn', () => {
-        it('puts every patch panel in the one column left of the focal object', () => {
-            expect(revealColumn(0, true)).toBe(-1);
-            expect(revealColumn(1, true)).toBe(-1);
-            expect(revealColumn(-2, true)).toBe(-1);
+        const focal: CablingReveal = { parentId: null, parentPortId: null, ownPortId: null, column: 0, generation: 0 };
+        const at = (column: number): CablingReveal => ({ parentId: PP_01, parentPortId: null, ownPortId: null, column, generation: 1 });
+
+        it('puts what a panel\'s front reaches on its left and what its rear reaches on its right', () => {
+            expect(revealColumn(focal, PortSide.FRONT, false)).toBe(-1);
+            expect(revealColumn(focal, PortSide.REAR, false)).toBe(1);
+            expect(revealColumn(at(1), PortSide.REAR, true)).toBe(2);
+            expect(revealColumn(at(-1), PortSide.FRONT, false)).toBe(-2);
         });
 
-        it('flows right from the focal object and on from each neighbour', () => {
-            expect(revealColumn(0, false)).toBe(1);
-            expect(revealColumn(1, false)).toBe(2);
+        it('stands a panel cabled to a plain focal object in the focal column', () => {
+            expect(revealColumn(focal, null, true)).toBe(0);
         });
 
-        it('flows left from a panel', () => {
-            expect(revealColumn(-1, false)).toBe(-2);
+        it('steps a panel reached from a plain device one column back towards the focal object', () => {
+            expect(revealColumn(at(1), null, true)).toBe(0);
+            expect(revealColumn(at(2), null, true)).toBe(1);
+            expect(revealColumn(at(-1), null, true)).toBe(0);
+            expect(revealColumn(at(-2), null, true)).toBe(-1);
+        });
+
+        it('flows right from a plain focal object and on away from it', () => {
+            expect(revealColumn(focal, null, false)).toBe(1);
+            expect(revealColumn(at(1), null, false)).toBe(2);
+            expect(revealColumn(at(-1), null, false)).toBe(-2);
         });
 
         it('keeps a card past the outer columns in its parent\'s', () => {
-            expect(revealColumn(2, false)).toBe(2);
-            expect(revealColumn(-2, false)).toBe(-2);
+            expect(revealColumn(at(2), null, false)).toBe(2);
+            expect(revealColumn(at(-2), null, false)).toBe(-2);
+            expect(revealColumn(at(2), PortSide.REAR, false)).toBe(2);
+            expect(revealColumn(at(-2), PortSide.FRONT, false)).toBe(-2);
         });
     });
 
     describe('graphFromRing', () => {
-        it('starts at the focal object and puts every plain neighbour on its right, whichever face it is cabled to', () => {
+        it('starts at a focal panel and puts what its front reaches on its left, what its rear reaches on its right', () => {
             const graph = graphFromRing(mockupRing());
 
             expect(graph.focalId).toBe(PP_01);
@@ -99,21 +115,21 @@ describe('cabling-graph.util', () => {
                 { parentId: null, parentPortId: null, ownPortId: null, column: 0, generation: 0 }
             );
             expect(graph.reveals.get(WEB_01)).toEqual(
-                { parentId: PP_01, parentPortId: FRONT_12, ownPortId: WEB_ETH0, column: 1, generation: 1 }
+                { parentId: PP_01, parentPortId: FRONT_12, ownPortId: WEB_ETH0, column: -1, generation: 1 }
             );
             expect(graph.reveals.get(SW_01)?.column).toBe(1);
         });
 
-        it('puts a patch panel neighbour on the left', () => {
+        it('stands a patch panel neighbour in the focal column', () => {
             const graph = graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), ppNode()], edges: [frontEdge()] });
 
-            expect(graph.reveals.get(PP_01)?.column).toBe(-1);
+            expect(graph.reveals.get(PP_01)?.column).toBe(0);
         });
 
         it('treats a restricted neighbour as a plain device', () => {
-            const graph = graphFromRing({ focal_object_id: PP_01, nodes: [ppNode(), restrictedNode(SW_01)], edges: [rearEdge()] });
+            const graph = graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), restrictedNode(PP_01)], edges: [frontEdge()] });
 
-            expect(graph.reveals.get(SW_01)?.column).toBe(1);
+            expect(graph.reveals.get(PP_01)?.column).toBe(1);
         });
 
         it('puts the focal object first even when the response lists it later', () => {
@@ -155,16 +171,22 @@ describe('cabling-graph.util', () => {
             expect(graph.edges.has(CABLE_NAS)).toBeTrue();
         });
 
-        it('flows left from a panel, and no further than one column beyond it', () => {
-            const ring = graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), ppNode()], edges: [frontEdge()] });
-            const graph = graphWithExpansion(
-                ring, { focal_object_id: PP_01, nodes: [switchNode()], edges: [rearEdge()] }, REAR_12
-            );
-            const further = graphWithExpansion(graph, nasExpansion(), SW_GI24);
+        it('follows a panel standing above the focal object out of its front to the left and its rear to the right', () => {
+            const fromWeb = graphFromRing({ focal_object_id: WEB_01, nodes: [webNode(), ppNode()], edges: [frontEdge()] });
+            const fromSwitch = graphFromRing({ focal_object_id: SW_01, nodes: [switchNode(), ppNode()], edges: [rearEdge()] });
+            const rearFollowed = graphWithExpansion(fromWeb, { focal_object_id: PP_01, nodes: [switchNode()], edges: [rearEdge()] }, REAR_12);
+            const frontFollowed = graphWithExpansion(fromSwitch, { focal_object_id: PP_01, nodes: [webNode()], edges: [frontEdge()] }, FRONT_12);
 
-            expect(ring.reveals.get(PP_01)?.column).toBe(-1);
-            expect(graph.reveals.get(SW_01)?.column).toBe(-2);
-            expect(further.reveals.get(NAS_01)?.column).toBe(-2);
+            expect(rearFollowed.reveals.get(SW_01)?.column).toBe(1);
+            expect(frontFollowed.reveals.get(WEB_01)?.column).toBe(-1);
+        });
+
+        it('flows on away from the focal object, no further than the outer column', () => {
+            const nas = graphWithExpansion(graphFromRing(mockupRing()), nasExpansion(), SW_GI24);
+            const backup = graphWithExpansion(nas, backupExpansion(), NAS_E0B);
+
+            expect(backup.reveals.get(BACKUP_01)?.column).toBe(2);
+            expect(backup.reveals.get(BACKUP_01)?.parentId).toBe(NAS_01);
         });
 
         it('adds no second card for a node already drawn, keeps its place and takes its fresher rows', () => {

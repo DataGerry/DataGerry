@@ -27,11 +27,12 @@ import {
 } from '../models/cabling.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** Object ids of the mockup: PP-01 in the middle, WEB-01 on its front, SW-01 on its rear, NAS-01 beyond. */
+/** Object ids of the mockup: PP-01 in the middle, WEB-01 on its front, SW-01 on its rear, NAS-01 and BACKUP-01 beyond. */
 export const PP_01 = 8701;
 export const SW_01 = 8702;
 export const WEB_01 = 8703;
 export const NAS_01 = 8704;
+export const BACKUP_01 = 8706;
 
 export const FRONT_12 = 8804;
 export const REAR_12 = 8803;
@@ -42,10 +43,12 @@ export const SW_GI24 = 8809;
 export const SW_GI48 = 8811;
 export const NAS_E0A = 8812;
 export const NAS_E0B = 8813;
+export const BACKUP_ETH0 = 8814;
 
 export const CABLE_FRONT = 8901;
 export const CABLE_REAR = 8902;
 export const CABLE_NAS = 8903;
+export const CABLE_BACKUP = 8907;
 
 
 export function resolvedCable(overrides: Partial<ResolvedCable> = {}): ResolvedCable {
@@ -226,4 +229,18 @@ export const nasExpansion = (): CablingResponse => ({
     focal_object_id: SW_01,
     nodes: [nasNode()],
     edges: [nasEdge()]
+});
+
+
+/** `GET /ports/8813/cabling`: following NAS-01's e0b reveals BACKUP-01. */
+export const backupExpansion = (): CablingResponse => ({
+    focal_object_id: NAS_01,
+    nodes: [standardNode(BACKUP_01, 'BACKUP-01', [
+        cabledPort(BACKUP_ETH0, 'eth0', { objectId: NAS_01, label: 'Device #8704 - NAS-01', portId: NAS_E0B, portName: 'e0b' }, CABLE_BACKUP)
+    ])],
+    edges: [cablingEdge(
+        CABLE_BACKUP,
+        cablingEnd(NAS_01, NAS_E0B, 'e0b', PortSide.SINGLE),
+        cablingEnd(BACKUP_01, BACKUP_ETH0, 'eth0', PortSide.SINGLE)
+    )]
 });
