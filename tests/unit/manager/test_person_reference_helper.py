@@ -118,11 +118,11 @@ class TestRemoveMemberFromDocuments:
 
         remove_member_from_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, [10])
 
-        dbm.update_many_pull.assert_called_once_with(
+        dbm.update_many_raw.assert_called_once_with(
             COLLECTION,
             DB_NAME,
             {ARRAY_KEY: MEMBER_ID, 'public_id': {'$in': [10]}},
-            {ARRAY_KEY: MEMBER_ID},
+            {'$pull': {ARRAY_KEY: MEMBER_ID}},
         )
 
     def test_reaches_every_listing_document_when_none_are_named(self) -> None:
@@ -136,11 +136,11 @@ class TestRemoveMemberFromDocuments:
 
         remove_member_from_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID)
 
-        dbm.update_many_pull.assert_called_once_with(
+        dbm.update_many_raw.assert_called_once_with(
             COLLECTION,
             DB_NAME,
             {ARRAY_KEY: MEMBER_ID},
-            {ARRAY_KEY: MEMBER_ID},
+            {'$pull': {ARRAY_KEY: MEMBER_ID}},
         )
 
     def test_an_empty_selection_pulls_from_nothing(self) -> None:
@@ -154,7 +154,7 @@ class TestRemoveMemberFromDocuments:
 
         remove_member_from_documents(dbm, DB_NAME, COLLECTION, ARRAY_KEY, MEMBER_ID, [])
 
-        assert dbm.update_many_pull.call_args.args[2] == {ARRAY_KEY: MEMBER_ID, 'public_id': {'$in': []}}
+        assert dbm.update_many_raw.call_args.args[2] == {ARRAY_KEY: MEMBER_ID, 'public_id': {'$in': []}}
 
 
 class TestClearPolymorphicRiskAssessmentReferences:

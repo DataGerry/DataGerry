@@ -597,7 +597,7 @@ class TestHandleDeleteInvalidObjectRelations:
         with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
             handle_delete_invalid_object_relations(MagicMock(), 5)
 
-        relations_manager.delete_many_raw.assert_not_called()
+        relations_manager.delete_many.assert_not_called()
         logs_manager.insert_many.assert_not_called()
 
     def test_reads_back_only_the_keys_the_log_needs(self) -> None:
@@ -621,7 +621,7 @@ class TestHandleDeleteInvalidObjectRelations:
         with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
             handle_delete_invalid_object_relations(MagicMock(), 5)
 
-        relations_manager.delete_many_raw.assert_called_once_with({'$or': []})
+        relations_manager.delete_many.assert_called_once_with({'$or': []})
         logs_manager.reserve_public_ids.assert_called_once_with(2)
         logs_manager.insert_many.assert_called_once_with(
             [{'a': 1, 'public_id': 10}, {'b': 2, 'public_id': 11}], skip_public=True,
@@ -646,7 +646,7 @@ class TestHandleDeleteInvalidObjectRelations:
         with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
             handle_delete_invalid_object_relations(MagicMock(), 5)
 
-        relations_manager.delete_many_raw.assert_called_once()
+        relations_manager.delete_many.assert_called_once()
         logs_manager.reserve_public_ids.assert_not_called()
         logs_manager.insert_many.assert_not_called()
 

@@ -20,7 +20,10 @@ The ServicePortal decides whether the credentials are right; the tenant's stored
 decides whether that tenant's account may be used. What is pinned: a user the tenant stored as
 deactivated is a 401 with the deactivation message and no token is generated, an active user is
 issued one, and credentials the portal refused are the portal's refusal - the account's state is
-never reached
+never reached.
+
+A tenant whose database failed its startup update is a 503 on both subscription paths (the only one, and
+the one the user selected), before the database is created, written or read
 """
 from http import HTTPStatus
 from types import SimpleNamespace
@@ -31,6 +34,7 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.route_utils import USER_DEACTIVATED_MESSAGE
+from cmdb.interface.tenant_availability_constants import TENANT_UNAVAILABLE_RESPONSE_MESSAGE
 from cmdb.interface.rest_api.routes import auth_helper
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -42,13 +46,24 @@ PORTAL_USER: dict[str, Any] = {
                        'config_item_limit': 10}],
 }
 PORTAL_REFUSAL: str = 'Invalid user data. Failed to login!'
+OTHER_TENANT_DATABASE: str = 'other_tenant_db'
+MULTI_SUBSCRIPTION_USER: dict[str, Any] = {
+    **PORTAL_USER,
+    'subscriptions': [
+        {'id': 1, 'name': 'sub', 'database': TENANT_DATABASE, 'api_level': 1, 'config_item_limit': 10},
+        {'id': 2, 'name': 'other', 'database': OTHER_TENANT_DATABASE, 'api_level': 1, 'config_item_limit': 10},
+    ],
+}
 
 
 def _login(portal_answer: dict[str, Any] | None,
-           stored_user: Any) -> tuple[HTTPException | None, MagicMock, MagicMock]:
+           stored_user: Any,
+           unavailable_tenants: frozenset[str] = frozenset(),
+           subscription: dict[str, Any] | None = None) -> tuple[HTTPException | None, MagicMock, MagicMock]:
     """Runs cloud_login against a stubbed portal and tenant store; returns the refusal, token and retrieve mocks."""
     app = Flask(__name__)
     app.database_manager = MagicMock()
+    app.unavailable_tenants = unavailable_tenants
 
     with app.test_request_context(), \
          patch(f'{PATH}.check_user_in_service_portal', return_value=portal_answer), \
@@ -58,7 +73,7 @@ def _login(portal_answer: dict[str, Any] | None,
          patch(f'{PATH}.generate_token_with_params', return_value=('t', 1, 2)) as token, \
          patch(f'{PATH}.LoginResponse'):
         try:
-            auth_helper.cloud_login(PORTAL_USER['email'], PORTAL_USER['password'], None)
+            auth_helper.cloud_login(PORTAL_USER['email'], PORTAL_USER['password'], subscription)
         except HTTPException as refused:
             return refused, token, retrieve
 
@@ -92,3 +107,42 @@ def test_a_portal_refusal_never_reaches_the_account() -> None:
     assert refused.description == PORTAL_REFUSAL
     retrieve.assert_not_called()
     token.assert_not_called()
+
+
+def test_the_only_subscription_of_an_unavailable_tenant_is_a_503() -> None:
+    """A single-subscription login to a tenant that failed its startup update reads and writes nothing"""
+    with patch(f'{PATH}.init_db_routine') as init_db, patch(f'{PATH}.check_db_exists') as db_exists:
+        refused, token, retrieve = _login(
+            PORTAL_USER, SimpleNamespace(active=True, password='x'), frozenset({TENANT_DATABASE}),
+        )
+
+    assert refused.code == HTTPStatus.SERVICE_UNAVAILABLE
+    assert refused.description == TENANT_UNAVAILABLE_RESPONSE_MESSAGE
+    db_exists.assert_not_called()
+    init_db.assert_not_called()
+    retrieve.assert_not_called()
+    token.assert_not_called()
+
+
+def test_a_selected_subscription_of_an_unavailable_tenant_is_a_503() -> None:
+    """The subscription the user chose is checked too"""
+    refused, token, retrieve = _login(
+        MULTI_SUBSCRIPTION_USER, SimpleNamespace(active=True, password='x'),
+        frozenset({OTHER_TENANT_DATABASE}), {'id': 2},
+    )
+
+    assert refused.code == HTTPStatus.SERVICE_UNAVAILABLE
+    retrieve.assert_not_called()
+    token.assert_not_called()
+
+
+def test_a_subscription_beside_an_unavailable_tenant_logs_in() -> None:
+    """Choosing a healthy tenant works while another of the user's tenants is fenced off"""
+    refused, token, retrieve = _login(
+        MULTI_SUBSCRIPTION_USER, SimpleNamespace(active=True, password='x'),
+        frozenset({OTHER_TENANT_DATABASE}), {'id': 1},
+    )
+
+    assert refused is None
+    retrieve.assert_called_once_with(MULTI_SUBSCRIPTION_USER, TENANT_DATABASE)
+    token.assert_called_once()

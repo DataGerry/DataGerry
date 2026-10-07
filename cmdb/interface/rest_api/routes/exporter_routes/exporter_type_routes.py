@@ -30,6 +30,7 @@ from cmdb.manager import TypesManager
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
@@ -126,7 +127,7 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
         types: list[CmdbType] = types_manager.get_types_by(
             sort='public_id',
             direction=CmdbDAO.DAO_ASCENDING,
-            public_id={'$in': requested_ids},
+            criteria={TypeSchemaKey.PUBLIC_ID.value: {'$in': requested_ids}},
         )
 
         return build_types_json_export_response(types)

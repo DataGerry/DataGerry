@@ -1016,7 +1016,7 @@ class TestValidateObjectLocationMoves:
              patch(f'{HELPER_PATH}.validate_shared_move_parent'):
             validate_object_location_moves(BULK_OBJECT_IDS, PARENT_ID, objects_manager, MagicMock(), REQUEST_USER)
 
-        objects_manager.get_objects_by.assert_called_once_with(public_id={'$in': BULK_OBJECT_IDS})
+        objects_manager.get_objects_by.assert_called_once_with(criteria={'public_id': {'$in': BULK_OBJECT_IDS}})
         objects_manager.get_object.assert_not_called()
 
     def test_resolves_each_distinct_type_once(self, flask_app: Flask) -> None:

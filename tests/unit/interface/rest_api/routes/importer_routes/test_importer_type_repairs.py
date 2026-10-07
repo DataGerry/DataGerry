@@ -417,10 +417,10 @@ class TestClearDanglingAclGroups:
 
         clear_dangling_acl_groups(_acl_entry({'2': ['READ'], '3': ['UPDATE']}), types_manager)
 
-        (collection, requirements), = types_manager.group_lookups
+        (collection, criteria), = types_manager.group_lookups
 
         assert collection == 'management.groups'
-        assert requirements == {'public_id': {'$in': [2, 3]}}
+        assert criteria == {'public_id': {'$in': [2, 3]}}
 
     @pytest.mark.parametrize(
         'entry',

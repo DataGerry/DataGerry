@@ -97,7 +97,7 @@ class LikelihoodManager(GenericManager):
             })
         ]
 
-        self.dbm.update_many(IsmsRiskAssessment.COLLECTION, self.db_name, criteria, update_data, plain=True)
+        self.dbm.update_many_raw(IsmsRiskAssessment.COLLECTION, self.db_name, criteria, update_data)
 
         return IsmsLikelihood.to_json(likelihood)
 

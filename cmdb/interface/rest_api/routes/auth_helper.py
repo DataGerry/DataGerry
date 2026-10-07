@@ -51,6 +51,7 @@ from cmdb.interface.route_utils import (
     refuse_inactive_user,
 )
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
+from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
 
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.provider import AuthenticationError
@@ -113,8 +114,10 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
     Authenticates the user against the ServicePortal, resolves which subscription/database to log into
     (auto for a single subscription, the selected one when provided, or the list of options when the
     user has several and none was chosen), initialises the target database on first use, retrieves the
-    user and returns a login token. A user this tenant stored as deactivated gets no token, even though
-    the ServicePortal accepted the credentials - the flag is the tenant's own decision about the account
+    user and returns a login token. A tenant whose database failed its startup update is answered 503
+    before anything touches it (``abort_if_tenant_unavailable``). A user this tenant stored as
+    deactivated gets no token, even though the ServicePortal accepted the credentials - the flag is the
+    tenant's own decision about the account
 
     Args:
         request_user_name (str): The submitted email (normalised by ``check_user_in_service_portal``)
@@ -138,6 +141,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
         # If only one subscription directly login the user
         if len(user_data['subscriptions']) == 1:
             user_database = user_data['subscriptions'][0]['database']
+            abort_if_tenant_unavailable(user_database)
 
             if not check_db_exists(user_database):
                 init_db_routine(user_database)
@@ -155,6 +159,7 @@ def cloud_login(  # pylint: disable=too-many-branches, too-many-statements
                 abort(400, "Target subscription not found!")
 
             user_database = selected_subscription['database']
+            abort_if_tenant_unavailable(user_database)
 
             if not check_db_exists(user_database):
                 init_db_routine(user_database)

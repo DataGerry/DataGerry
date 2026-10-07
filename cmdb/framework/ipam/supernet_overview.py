@@ -67,6 +67,15 @@ from cmdb.framework.ipam.references import (
 from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The only two keys a subnet row is built from: the id it is addressed by, and the `fields` list its CIDR and
+# address-family selector are read out of (`extract_field_value` looks nowhere else). Without a projection every
+# subnet document is loaded whole - multi-data sections, ACL, audit fields - only to be discarded, and the overview
+# and the export both load every subnet of the supernet
+SUBNET_ROW_PROJECTION: dict[str, Any] = {
+    CmdbObjectKey.PUBLIC_ID.value: 1,
+    CmdbObjectKey.FIELDS.value: 1,
+}
+
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  PURE HELPERS                                                        #
@@ -858,11 +867,10 @@ def _build_linked_subnet_rows(
     """
     Loads every SUBNET under the supernet, shapes overview rows and links parents by CIDR
 
-    Encapsulates the DB-and-link step that both orchestrators share: load the subnet objects,
-    count interface IPs per subnet, batch-load VLANs referencing those subnets, shape one row
-    per subnet, run ``sort_and_link_subnets`` so each row carries a ``parent_id`` pointing at
-    its most-specific CIDR-enclosing sibling (or None when top-level), and attach the per-row
-    VLAN list (empty when no VLAN references the subnet)
+    Encapsulates the DB-and-link step that both orchestrators share: the usage rows of
+    ``load_subnet_usage_rows`` (subnet load, per-subnet interface-IP count, CIDR sort and
+    ``parent_id`` linking), plus the per-row VLAN list batch-loaded for those subnets (empty when
+    no VLAN references the subnet)
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -873,12 +881,11 @@ def _build_linked_subnet_rows(
         list[dict[str, Any]]: Subnet rows sorted by ascending CIDR with ``parent_id`` set and
             ``vlans`` populated; rows with unparsable CIDRs trail the sorted block
     """
-    ordered: list[dict[str, Any]] = _build_linked_rows_skeleton(
+    ordered: list[dict[str, Any]] = load_subnet_usage_rows(
         objects_manager, types_manager, supernet_public_id, denied_type_ids,
     )
     subnet_ids: list[int] = _collect_row_ids(ordered)
 
-    _annotate_usage(ordered, _count_used_ips_per_subnet(objects_manager, subnet_ids))
     _attach_vlans_to_rows(ordered, load_vlans_by_subnets(objects_manager, types_manager, subnet_ids))
 
     return ordered
@@ -897,7 +904,8 @@ def _build_linked_rows_skeleton(
     come back with zeroed usage figures (used_ips=0, free_ips=total) and no 'vlans' key -
     callers scope the expensive enrichment (``_annotate_usage`` / ``_attach_vlans_to_rows``)
     to exactly the rows they will return. The full-overview path enriches every row; the
-    direct-children path enriches only the requested subnet's children
+    direct-children path enriches only the requested subnet's children. The subnets are loaded
+    through ``SUBNET_ROW_PROJECTION``, the two keys ``compute_subnet_row`` reads
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -909,7 +917,7 @@ def _build_linked_rows_skeleton(
             usage figures zeroed, no VLANs attached
     """
     subnet_objs: list[dict[str, Any]] = load_subnets_for_supernet(
-        objects_manager, types_manager, supernet_public_id, denied_type_ids=denied_type_ids,
+        objects_manager, types_manager, supernet_public_id, SUBNET_ROW_PROJECTION, denied_type_ids,
     )
 
     return sort_and_link_subnets([compute_subnet_row(s, 0) for s in subnet_objs])
@@ -968,31 +976,42 @@ def _annotate_usage(rows: list[dict[str, Any]], used_per_subnet: dict[int, int])
             row[IpamOverviewKey.USAGE_PERCENT] = _percent(used, total)
 
 
-def load_assigned_subnet_rows(
+def load_subnet_usage_rows(
     objects_manager: ObjectsManager,
     types_manager: TypesManager,
     supernet_public_id: int,
     denied_type_ids: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """
-    Returns every assigned subnet of a supernet as overview rows, without pagination
+    Returns every subnet of a supernet as an overview row with its usage figures, without pagination
 
-    Validates that the supernet exists and is a SUPERNET (aborting otherwise, exactly like the
-    overview routes), then returns all subnet rows referencing it - every nesting depth - sorted
-    by ascending CIDR with parent_id and vlans populated. Intended for callers that need the full
-    set rather than a page (e.g. the subnets export)
+    All subnet rows referencing the supernet - every nesting depth - sorted by ascending CIDR with
+    ``parent_id`` set and used / free / usage figures filled in by one interface-IP aggregation. No
+    VLANs are loaded: callers that show them add them (``_build_linked_subnet_rows``), callers that
+    do not - the subnets export - skip the query.
+
+    **The supernet is not validated here.** The caller loads it first with ``load_supernet_object``,
+    which aborts on a bad id, and usually needs the document anyway (the export reads its family
+    from it), so validating again would read it twice
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        supernet_public_id (int): public_id of the SUPERNET whose assigned subnets are returned
+        supernet_public_id (int): public_id of the SUPERNET whose subnets are returned
+        denied_type_ids (list[int] | None): CmdbType ids the caller may not read; their objects are
+            left out. None leaves nothing out
 
     Returns:
-        list[dict[str, Any]]: All assigned subnet rows (see compute_subnet_row / _build_linked_subnet_rows)
+        list[dict[str, Any]]: Subnet rows (see compute_subnet_row) with ``parent_id`` and usage figures;
+            rows with unparsable CIDRs trail the sorted block
     """
-    load_supernet_object(objects_manager, types_manager, supernet_public_id, denied_type_ids)
+    ordered: list[dict[str, Any]] = _build_linked_rows_skeleton(
+        objects_manager, types_manager, supernet_public_id, denied_type_ids,
+    )
 
-    return _build_linked_subnet_rows(objects_manager, types_manager, supernet_public_id, denied_type_ids)
+    _annotate_usage(ordered, _count_used_ips_per_subnet(objects_manager, _collect_row_ids(ordered)))
+
+    return ordered
 
 
 def resolve_supernet_family(
@@ -1005,9 +1024,9 @@ def resolve_supernet_family(
     Returns the address family ('ipv4' / 'ipv6') of a SUPERNET, loading and validating it first
 
     Loads the supernet exactly like the overview routes (aborting 400/404 on a bad id) and
-    resolves its family via ``supernet_family`` (CIDR-first, selector fallback). Intended for
-    callers that need the family without the subnet rows - e.g. the subnets export, which uses
-    it to decide whether the IPv4-only 'Usage (%)' column belongs in the sheet
+    resolves its family via ``supernet_family`` (CIDR-first, selector fallback). For callers that
+    need the family alone; a caller that also needs the document loads it with
+    ``load_supernet_object`` and calls ``supernet_family`` on it, so the supernet is read once
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects

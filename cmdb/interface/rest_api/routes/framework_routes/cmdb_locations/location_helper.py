@@ -794,7 +794,9 @@ def validate_object_location_moves(
     """
     objects_by_id: dict[int, CmdbObject] = {
         current_object.get_public_id(): current_object
-        for current_object in objects_manager.get_objects_by(public_id={'$in': object_ids})
+        for current_object in objects_manager.get_objects_by(
+            criteria={CmdbObjectKey.PUBLIC_ID.value: {'$in': object_ids}},
+        )
     }
 
     types_by_id: dict[int, CmdbType] = {}

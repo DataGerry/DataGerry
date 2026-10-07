@@ -17,14 +17,22 @@
 Unit tests for cmdb.framework.ipam.subnet_export
 
 Covers the IP-range cell formatting, the per-row mapping to export cells, and the full CSV build:
-the rows are stubbed (load_assigned_subnet_rows / build_subnet_ip_export_rows are patched) and the
+the rows are stubbed (load_subnet_usage_rows / build_subnet_ip_export_rows are patched) and the
 produced CSV bytes are read back with the csv module to assert the header row and data rows. CSV is
 text, so numeric cells round-trip as their string form (and large IPv6 counts keep full precision).
+
+The supernet export's reads are pinned too: the supernet is read once and its family taken from that
+document, the read scope reaches both reads, no VLAN query runs (the real row loader is exercised with
+its DB helpers patched), and there is no row limit - more rows than the subnet IP export allows are
+all written.
 """
 import csv
 from io import StringIO
 from typing import Any
 from unittest.mock import MagicMock, patch
+
+import pytest
+from werkzeug.exceptions import HTTPException, NotFound
 
 from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
@@ -32,7 +40,9 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSubnetIpsExport,
     IpamRowStatus,
     IpAddressFamily,
+    SubnetField,
 )
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.ipam.subnet_export import (
     _format_ip_range,
     _subnet_export_row,
@@ -40,9 +50,22 @@ from cmdb.framework.ipam.subnet_export import (
     build_supernet_subnets_csv,
     build_subnet_ips_csv,
 )
+from tests.utils.ipam_doc_builders import make_field, make_object_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE: str = 'cmdb.framework.ipam.subnet_export'
+OVERVIEW_MODULE: str = 'cmdb.framework.ipam.supernet_overview'
+
+SUPERNET_PUBLIC_ID: int = 42
+SUBNET_TYPE_ID: int = 11
+SUBNET_PUBLIC_ID_A: int = 201
+SUBNET_PUBLIC_ID_B: int = 202
+SUBNET_RANGE_A: str = '10.0.0.0/24'
+SUBNET_RANGE_B: str = '10.0.1.0/24'
+USED_IPS_A: int = 3
+USED_IPS_B: int = 9
+DENIED_TYPE_IDS: list[int] = [7]
+SUPERNET_DOC: dict[str, Any] = {CmdbObjectKey.PUBLIC_ID: SUPERNET_PUBLIC_ID}
 
 ROW_A: dict[str, Any] = {
     IpamOverviewKey.CIDR: '10.0.0.0/24',
@@ -100,9 +123,10 @@ def test_subnet_export_row_omits_usage_for_ipv6() -> None:
 
 def test_build_supernet_subnets_csv_ipv4_includes_usage_column() -> None:
     """An IPv4 supernet's CSV carries the trailing 'Usage (%)' header and per-row usage cell"""
-    with patch(f'{MODULE}.resolve_supernet_family', return_value=IpAddressFamily.IPV4), \
-         patch(f'{MODULE}.load_assigned_subnet_rows', return_value=[ROW_A, ROW_DEGENERATE]):
-        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), 42)
+    with patch(f'{MODULE}.load_supernet_object', return_value=SUPERNET_DOC), \
+         patch(f'{MODULE}.supernet_family', return_value=IpAddressFamily.IPV4), \
+         patch(f'{MODULE}.load_subnet_usage_rows', return_value=[ROW_A, ROW_DEGENERATE]):
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), SUPERNET_PUBLIC_ID)
 
     rows: list[list[str]] = _read_csv(content)
     assert rows[0] == IpamExport.HEADERS + [IpamExport.USAGE_HEADER]
@@ -121,9 +145,10 @@ def test_build_supernet_subnets_csv_ipv6_omits_usage_column() -> None:
         IpamOverviewKey.USAGE_PERCENT: None,
     }
 
-    with patch(f'{MODULE}.resolve_supernet_family', return_value=IpAddressFamily.IPV6), \
-         patch(f'{MODULE}.load_assigned_subnet_rows', return_value=[row_v6]):
-        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), 42)
+    with patch(f'{MODULE}.load_supernet_object', return_value=SUPERNET_DOC), \
+         patch(f'{MODULE}.supernet_family', return_value=IpAddressFamily.IPV6), \
+         patch(f'{MODULE}.load_subnet_usage_rows', return_value=[row_v6]):
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), SUPERNET_PUBLIC_ID)
 
     rows: list[list[str]] = _read_csv(content)
     # No 'Usage (%)' column for IPv6: header + data row are both 4 cells. Unlike the old xlsx export,
@@ -134,11 +159,86 @@ def test_build_supernet_subnets_csv_ipv6_omits_usage_column() -> None:
 
 def test_build_supernet_subnets_csv_emits_header_only_when_no_subnets() -> None:
     """With no assigned subnets the CSV still carries just the (family-appropriate) header row"""
-    with patch(f'{MODULE}.resolve_supernet_family', return_value=IpAddressFamily.IPV4), \
-         patch(f'{MODULE}.load_assigned_subnet_rows', return_value=[]):
-        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), 42)
+    with patch(f'{MODULE}.load_supernet_object', return_value=SUPERNET_DOC), \
+         patch(f'{MODULE}.supernet_family', return_value=IpAddressFamily.IPV4), \
+         patch(f'{MODULE}.load_subnet_usage_rows', return_value=[]):
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), SUPERNET_PUBLIC_ID)
 
     assert _read_csv(content) == [IpamExport.HEADERS + [IpamExport.USAGE_HEADER]]
+
+
+def test_build_supernet_subnets_csv_reads_the_supernet_once_and_takes_its_family_from_it() -> None:
+    """One supernet read, scoped to the caller; the family is derived from that same document"""
+    objects_manager, types_manager, request_user = MagicMock(), MagicMock(), MagicMock()
+
+    with patch(f'{MODULE}.resolve_read_scope', return_value=DENIED_TYPE_IDS) as scope_mock, \
+         patch(f'{MODULE}.load_supernet_object', return_value=SUPERNET_DOC) as supernet_mock, \
+         patch(f'{MODULE}.supernet_family', return_value=IpAddressFamily.IPV4) as family_mock, \
+         patch(f'{MODULE}.load_subnet_usage_rows', return_value=[]):
+        build_supernet_subnets_csv(objects_manager, types_manager, SUPERNET_PUBLIC_ID, request_user)
+
+    scope_mock.assert_called_once_with(request_user)
+    supernet_mock.assert_called_once_with(objects_manager, types_manager, SUPERNET_PUBLIC_ID, DENIED_TYPE_IDS)
+    family_mock.assert_called_once_with(SUPERNET_DOC)
+
+
+def test_build_supernet_subnets_csv_scopes_the_rows_to_the_caller() -> None:
+    """The subnet rows are loaded for the same supernet, with the caller's denied type ids"""
+    objects_manager, types_manager = MagicMock(), MagicMock()
+
+    with patch(f'{MODULE}.resolve_read_scope', return_value=DENIED_TYPE_IDS), \
+         patch(f'{MODULE}.load_supernet_object', return_value=SUPERNET_DOC), \
+         patch(f'{MODULE}.supernet_family', return_value=IpAddressFamily.IPV4), \
+         patch(f'{MODULE}.load_subnet_usage_rows', return_value=[]) as rows_mock:
+        build_supernet_subnets_csv(objects_manager, types_manager, SUPERNET_PUBLIC_ID, MagicMock())
+
+    rows_mock.assert_called_once_with(objects_manager, types_manager, SUPERNET_PUBLIC_ID, DENIED_TYPE_IDS)
+
+
+def test_build_supernet_subnets_csv_stops_on_a_supernet_abort() -> None:
+    """A supernet that cannot be read aborts before any subnet row is loaded"""
+    with patch(f'{MODULE}.load_supernet_object', side_effect=NotFound('missing')), \
+         patch(f'{MODULE}.load_subnet_usage_rows') as rows_mock, \
+         pytest.raises(HTTPException):
+        build_supernet_subnets_csv(MagicMock(), MagicMock(), SUPERNET_PUBLIC_ID)
+
+    rows_mock.assert_not_called()
+
+
+def _subnet_doc(public_id: int, cidr: str) -> dict[str, Any]:
+    """Builds a SUBNET object document carrying only its network range."""
+    return make_object_doc(public_id, SUBNET_TYPE_ID, [make_field(SubnetField.NETWORK_RANGE, cidr)])
+
+
+def test_build_supernet_subnets_csv_runs_no_vlan_query() -> None:
+    """Through the real row loader: usage figures are written, and the VLAN query never runs"""
+    subnet_docs = [_subnet_doc(SUBNET_PUBLIC_ID_B, SUBNET_RANGE_B), _subnet_doc(SUBNET_PUBLIC_ID_A, SUBNET_RANGE_A)]
+    used = {SUBNET_PUBLIC_ID_A: USED_IPS_A, SUBNET_PUBLIC_ID_B: USED_IPS_B}
+
+    with patch(f'{MODULE}.load_supernet_object', return_value=SUPERNET_DOC), \
+         patch(f'{MODULE}.supernet_family', return_value=IpAddressFamily.IPV4), \
+         patch(f'{OVERVIEW_MODULE}.load_subnets_for_supernet', return_value=subnet_docs), \
+         patch(f'{OVERVIEW_MODULE}._count_used_ips_per_subnet', return_value=used), \
+         patch(f'{OVERVIEW_MODULE}.load_vlans_by_subnets') as vlans_mock:
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), SUPERNET_PUBLIC_ID)
+
+    vlans_mock.assert_not_called()
+    # ascending CIDR order, each row with its own used count
+    assert [(row[0], row[2]) for row in _read_csv(content)[1:]] == [
+        (SUBNET_RANGE_A, str(USED_IPS_A)), (SUBNET_RANGE_B, str(USED_IPS_B)),
+    ]
+
+
+def test_build_supernet_subnets_csv_has_no_row_limit() -> None:
+    """More rows than the subnet IP export allows are all written - this export has no limit"""
+    row_count: int = IpamSubnetIpsExport.MAX_EXPORT_ROWS + 1
+
+    with patch(f'{MODULE}.load_supernet_object', return_value=SUPERNET_DOC), \
+         patch(f'{MODULE}.supernet_family', return_value=IpAddressFamily.IPV4), \
+         patch(f'{MODULE}.load_subnet_usage_rows', return_value=[ROW_A] * row_count):
+        content: bytes = build_supernet_subnets_csv(MagicMock(), MagicMock(), SUPERNET_PUBLIC_ID)
+
+    assert len(_read_csv(content)) == row_count + 1
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

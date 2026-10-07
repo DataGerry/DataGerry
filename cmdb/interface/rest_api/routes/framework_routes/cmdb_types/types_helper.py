@@ -836,7 +836,7 @@ def clean_type_reports_after_update(
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
     reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
     reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
-        CmdbReport.COLLECTION, type_id=updated_type.public_id,
+        CmdbReport.COLLECTION, criteria={ReportKey.TYPE_ID.value: updated_type.public_id},
     )
 
     if force:

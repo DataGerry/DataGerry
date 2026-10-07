@@ -131,8 +131,8 @@ def typed_insert_failure(err: BaseException, collection: str) -> Exception:
       ``ServerSelectionTimeoutError`` all are -> ``DocumentNetworkError``
     * anything else, every other ``PyMongoError`` included -> ``DocumentInsertError``
 
-    The two transient ones are what every wrapping layer lets through to ``@handle_db_errors``; a refusal no retry
-    can fix must never be one of them
+    The two transient ones are what every wrapping layer lets through to the app's error handlers (423 / 503); a
+    refusal no retry can fix must never be one of them
 
     Args:
         err (BaseException): The error ``insert_one`` raised
@@ -584,6 +584,7 @@ class MongoDatabaseManager:
             raise CreateIndexesError(f"Failed to create indexes for collection '{collection}': {err}") from err
 
 
+    @retry_operation
     def drop_index(self, collection: str, db_name: str, index_name: str) -> bool:
         """
         Drops a single named index from a collection if it is present
@@ -775,6 +776,7 @@ class MongoDatabaseManager:
             )
 
 
+    @retry_operation
     def insert_many(
         self,
         collection: str,
@@ -988,20 +990,19 @@ class MongoDatabaseManager:
         criteria: dict[str, Any],
         data: dict[str, Any],
         *args: Any,
-        add_to_set: bool = True,
-        plain: bool = False,
         **kwargs: Any
     ) -> UpdateResult:
         """
         Updates a document inside the specified collection
 
+        ``data`` is either field values, which are wrapped in ``$set``, or an update document whose keys are
+        operators (``$set``, ``$unset``, ``$push``, ...), which is sent as it is
+
         Args:
             collection (str): The name of the database collection.
             db_name (str): Name of the database owning the collection
             criteria (dict): The filter used to match the document to be updated
-            data (dict): The update data to apply
-            add_to_set (bool): If True, wraps `data` in '$set' unless it already contains update operators. 
-                                         Defaults to True.
+            data (dict): The field values to set, or an update document of operators
             *args: Additional positional arguments for the update operation
             **kwargs: Additional keyword arguments for the update operation
 
@@ -1013,10 +1014,7 @@ class MongoDatabaseManager:
         """
         try:
             # Apply '$set' only if no update operators are present
-            if not plain:
-                update_data = {'$set': data} if add_to_set and not any(k.startswith('$') for k in data) else data
-            else:
-                update_data = data
+            update_data = data if any(key.startswith('$') for key in data) else {'$set': data}
 
             result = self.get_collection(collection, db_name).update_one(criteria, update_data, *args, **kwargs)
 
@@ -1087,6 +1085,7 @@ class MongoDatabaseManager:
             raise DocumentUpdateError(f"Failed to replace document in '{collection}': {err}") from err
 
 
+    @retry_operation
     def upsert_set(self, collection:str, db_name: str, data: dict[str, Any]) -> UpdateResult:
         """
         Performs an upsert operation on a specified MongoDB collection.
@@ -1173,66 +1172,27 @@ class MongoDatabaseManager:
 
 
     @retry_operation
-    def unset_update_many(
-        self,
-        collection: str,
-        db_name: str,
-        criteria: dict[str, Any],
-        field: str,
-        *args: Any,
-        **kwargs: Any
-    ) -> UpdateResult:
-        """
-        Removes a field from multiple documents in the specified collection
-
-        Args:
-            collection (str): The name of the database collection
-            db_name (str): Name of the database owning the collection
-            criteria (dict): The filter used to match documents for updating
-            field (str): The field to remove from the matched documents
-            *args: Additional positional arguments for the update operation
-            **kwargs: Additional keyword arguments for the update operation
-
-        Raises:
-            DocumentUpdateError: If the update operation fails
-
-        Returns:
-            UpdateResult: The result of the update operation
-        """
-        try:
-            update_data = {'$unset': {field: 1}}
-
-            result = self.get_collection(collection, db_name).update_many(criteria, update_data, *args, **kwargs)
-
-            if result.modified_count == 0:
-                LOGGER.warning(
-                    "[unset_update_many] No documents matched criteria: %s in collection: %s", criteria, collection
-                )
-
-            return result
-        except Exception as err:
-            raise DocumentUpdateError(f"Failed to unset field '{field}' in '{collection}': {err}") from err
-
-
-    @retry_operation
     def update_many(
             self,
             collection: str,
             db_name: str,
             criteria: dict[str, Any],
-            update: dict[str, Any] | list[dict[str, Any]],
-            add_to_set: bool = False,
-            plain: bool = False) -> UpdateResult:
+            update: dict[str, Any],
+            add_to_set: bool = False) -> UpdateResult:
         """
-        Updates multiple documents that match the filter in a collection
+        Sets fields - or adds array members - on every document matching the filter
+
+        ``update`` holds field values, not operators: it is wrapped in ``$set``, or in ``$addToSet`` when
+        ``add_to_set`` is True. An update that brings its own operators, or is a pipeline, goes to
+        ``update_many_raw``
 
         Args:
             collection (str): Name of database collection
             db_name (str): Name of the database owning the collection
             criteria (dict): The filter used to match the documents for updating
-            update (dict | list): The modifications to apply
-            add_to_set(bool): If True, uses '$addToSet' to add values to an array without duplicates.
-                              If False, uses '$set' to update fields. Defaults to False.
+            update (dict): The field values to set, or the array members to add
+            add_to_set (bool): If True, wraps ``update`` in '$addToSet' (adds each value to its array unless it
+                is already there); if False, in '$set'. Defaults to False
 
         Raises:
             DocumentUpdateError: If the update operation fails
@@ -1241,13 +1201,9 @@ class MongoDatabaseManager:
             UpdateResult: The result of the update operation
         """
         try:
-            if not plain:
-                update_operator = "$addToSet" if add_to_set else "$set"
-                formatted_data = {update_operator: update}
-            else:
-                formatted_data = update
+            update_operator = "$addToSet" if add_to_set else "$set"
 
-            return self.get_collection(collection, db_name).update_many(criteria, formatted_data)
+            return self.get_collection(collection, db_name).update_many(criteria, {update_operator: update})
         except Exception as err:
             if is_document_too_large(err):
                 raise DocumentUpdateTooLargeError(
@@ -1256,54 +1212,27 @@ class MongoDatabaseManager:
             raise DocumentUpdateError(f"Failed to update documents in '{collection}': {err}") from err
 
 
-    def update_many_pull(
-            self,
-            collection: str,
-            db_name: str,
-            criteria: dict[str, Any],
-            update: dict[str, Any]) -> UpdateResult:
-        """
-        Removes array elements from documents matching the filter using a `$pull` update
-
-        The given `update` is wrapped in a `$pull` operator, so `criteria={'types_filter': 5}` with
-        `update={'types_filter': 5}` removes 5 from the `types_filter` array of every matching document
-
-        Args:
-            collection (str): Name of database collection
-            db_name (str): Name of the database holding the collection
-            criteria (dict): The filter used to match the documents for updating
-            update (dict): The `$pull` specification of the array elements to remove
-
-        Raises:
-            DocumentUpdateError: If the update operation fails
-
-        Returns:
-            UpdateResult: The result of the update operation
-        """
-        try:
-            formatted_data = {"$pull": update}
-
-            return self.get_collection(collection, db_name).update_many(criteria, formatted_data)
-        except Exception as err:
-            raise DocumentUpdateError(f"Failed to update documents in '{collection}': {err}") from err
-
-
+    @retry_operation
     def update_many_raw(
         self,
         collection: str,
         db_name: str,
         filter_query: dict[str, Any],
-        update: dict[str, Any],
+        update: dict[str, Any] | list[dict[str, Any]],
         array_filters: list[dict[str, Any]] | None = None,
     ) -> UpdateResult:
         """
         Updates multiple documents using a raw update document (no '$set' wrapping)
 
+        The one many-document update that takes its operators from the caller: ``$pull``, ``$unset``, ``$inc``
+        or an aggregation pipeline (a list of stages) reach MongoDB as given
+
         Args:
             collection (str): Name of the database collection
             db_name (str): Name of the database owning the collection
             filter_query (dict[str, Any]): Filter selecting the documents to update
-            update (dict[str, Any]): Raw update document; must already contain its update operators
+            update (dict[str, Any] | list[dict[str, Any]]): Raw update document carrying its own operators, or
+                an aggregation pipeline
             array_filters (list[dict[str, Any]] | None, optional): Positional array filters for
                                                                    targeting nested array elements.
                                                                    Defaults to None.
@@ -1716,28 +1645,6 @@ class MongoDatabaseManager:
             return self.get_collection(collection, db_name).find_one_and_delete(criteria, projection={'_id': 0})
         except Exception as err:
             raise DocumentDeleteError(f"Error deleting a document from collection '{collection}': {err}") from err
-
-
-    @retry_operation
-    def delete_many(self, collection: str, db_name: str, **requirements: Any) -> DeleteResult:
-        """
-        Removes all documents that match the filter from the collection
-
-        Args:
-            collection (str): Name of the database collection
-            db_name (str): Name of the database owning the collection
-            requirements (Any): Specifies the deletion criteria using query operators
-
-        Raises:
-            DocumentDeleteError: When documents could not be deleted
-
-        Returns:
-            DeleteResult: The result of the delete operation, including the number of documents deleted
-        """
-        try:
-            return self.get_collection(collection, db_name).delete_many(requirements)
-        except Exception as err:
-            raise DocumentDeleteError(f"Error deleting documents from collection '{collection}': {err}") from err
 
 
     @retry_operation

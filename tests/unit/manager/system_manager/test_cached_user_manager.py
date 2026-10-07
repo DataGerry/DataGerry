@@ -29,7 +29,7 @@ import pytest
 from cmdb.database.database_constants import DG_CACHE_DB
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.manager.system_manager.cached_user_manager import CachedUserManager
-from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
+from cmdb.models.cached_user_model import CachedUserKey, CmdbCachedUser
 from cmdb.open_celium import CachedOcIdType
 from cmdb.errors.open_celium import OcNoSubError, OcMasterPwNotSetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -420,11 +420,26 @@ def test_delete_cached_user_reflects_deleted_count() -> None:
 def test_delete_multiple_cached_users_returns_the_deleted_count() -> None:
     """delete_multiple_cached_users answers how many documents were removed - the setup route logs it."""
     mock_self = MagicMock()
-    mock_self.dbm.delete_many.return_value = MagicMock(deleted_count=2)
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=2)
     assert CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL, 'x@y']) == 2
 
-    mock_self.dbm.delete_many.return_value = MagicMock(deleted_count=0)
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=0)
     assert CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL]) == 0
+
+
+def test_delete_multiple_cached_users_hands_the_filter_over_as_one_dict() -> None:
+    """The email list is the filter's $in, passed as the filter itself rather than spread as keyword arguments"""
+    mock_self = MagicMock()
+    mock_self.db_name = 'cache-db'
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=1)
+
+    CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL])
+
+    assert mock_self.dbm.delete_many_raw.call_args.kwargs == {
+        'collection': CmdbCachedUser.COLLECTION,
+        'db_name': 'cache-db',
+        'filter_query': {CachedUserKey.EMAIL.value: {'$in': [EMAIL]}},
+    }
 
 
 def test_clear_cache_returns_deleted_count() -> None:
@@ -447,5 +462,4 @@ def test_clear_cache_deletes_with_a_match_all_filter() -> None:
 
     CachedUserManager.clear_cache(mock_self)
 
-    mock_self.dbm.delete_many.assert_not_called()
     assert mock_self.dbm.delete_many_raw.call_args.kwargs['filter_query'] == {}

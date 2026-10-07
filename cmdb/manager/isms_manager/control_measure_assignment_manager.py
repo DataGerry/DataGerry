@@ -85,7 +85,7 @@ class ControlMeasureAssignmentManager(GenericManager):
             for control_measure in self.get_many_from_other_collection(
                 IsmsControlMeasure.COLLECTION,
                 projection=CONTROL_MEASURE_ID_PROJECTION,
-                public_id={'$in': list(referenced_ids)},
+                criteria={ControlMeasureKey.PUBLIC_ID.value: {'$in': list(referenced_ids)}},
             )
         }
 

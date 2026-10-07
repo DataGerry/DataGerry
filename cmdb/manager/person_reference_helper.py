@@ -192,12 +192,7 @@ def remove_member_from_documents(
     if document_ids is not None:
         criteria[PUBLIC_ID_KEY] = {'$in': list(document_ids)}
 
-    dbm.update_many_pull(
-        collection,
-        db_name,
-        criteria,
-        {array_key: member_id},
-    )
+    dbm.update_many_raw(collection, db_name, criteria, {'$pull': {array_key: member_id}})
 
 
 def polymorphic_reference_filter(key: str, referenced_id: int, reference_type: PersonReferenceType) -> dict[str, Any]:

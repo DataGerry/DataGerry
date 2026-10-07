@@ -74,7 +74,7 @@ class TestRemoveIdFromFilter:
 
         assert CiExplorerProfileManager._remove_id_from_filter(mgr, TYPES_FILTER_FIELD, TYPE_ID) == []
 
-        mgr.delete_many_raw.assert_not_called()
+        mgr.delete_many.assert_not_called()
         mgr.update_many_pull.assert_called_once_with(
             {TYPES_FILTER_FIELD: TYPE_ID}, {TYPES_FILTER_FIELD: TYPE_ID},
         )
@@ -97,7 +97,7 @@ class TestRemoveIdFromFilter:
         deleted = CiExplorerProfileManager._remove_id_from_filter(mgr, TYPES_FILTER_FIELD, TYPE_ID)
 
         assert deleted == [EMPTIED_PROFILE['public_id']]
-        mgr.delete_many_raw.assert_called_once_with({'public_id': {'$in': [EMPTIED_PROFILE['public_id']]}})
+        mgr.delete_many.assert_called_once_with({'public_id': {'$in': [EMPTIED_PROFILE['public_id']]}})
 
     def test_the_deletion_runs_before_the_pull(self) -> None:
         """Pulled first, an emptied profile could not be told from one saved empty on purpose"""
@@ -105,8 +105,8 @@ class TestRemoveIdFromFilter:
 
         CiExplorerProfileManager._remove_id_from_filter(mgr, TYPES_FILTER_FIELD, TYPE_ID)
 
-        writes = [entry for entry in mgr.mock_calls if entry[0] in ('delete_many_raw', 'update_many_pull')]
-        assert [entry[0] for entry in writes] == ['delete_many_raw', 'update_many_pull']
+        writes = [entry for entry in mgr.mock_calls if entry[0] in ('delete_many', 'update_many_pull')]
+        assert [entry[0] for entry in writes] == ['delete_many', 'update_many_pull']
 
     def test_an_emptied_profile_is_logged_by_name(self, caplog) -> None:
         """The deletion is logged at WARNING, naming the profile, since nobody asked for it"""
@@ -117,7 +117,7 @@ class TestRemoveIdFromFilter:
 
         assert EMPTIED_PROFILE['name'] in caplog.text
 
-    @pytest.mark.parametrize('failing', ['find', 'delete_many_raw', 'update_many_pull'])
+    @pytest.mark.parametrize('failing', ['find', 'delete_many', 'update_many_pull'])
     def test_wraps_any_failure_as_update_error(self, failing: str) -> None:
         """A failure of the lookup, the deletion or the pull surfaces as CiExplorerProfileManagerUpdateError"""
         mgr = _mock_manager([EMPTIED_PROFILE])
