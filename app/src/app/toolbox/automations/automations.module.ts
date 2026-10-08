@@ -44,6 +44,7 @@ import { AutomationProgressListComponent } from './components/automation-progres
 import { AutomationRunLogComponent } from './components/automation-run-log/automation-run-log.component';
 import { AutomationRunPanelComponent } from './components/automation-run-panel/automation-run-panel.component';
 import { SaveBeforeRunModalComponent } from './components/save-before-run-modal/save-before-run-modal.component';
+import { GraphqlQueryEditorComponent } from './wizard/components/graphql-query-editor/graphql-query-editor.component';
 
 @NgModule({
   declarations: [
@@ -65,7 +66,8 @@ import { SaveBeforeRunModalComponent } from './components/save-before-run-modal/
     AutomationProgressListComponent,
     AutomationRunLogComponent,
     AutomationRunPanelComponent,
-    SaveBeforeRunModalComponent
+    SaveBeforeRunModalComponent,
+    GraphqlQueryEditorComponent
   ],
   exports: [
     AutomationRunLogComponent,

@@ -721,6 +721,21 @@ describe('AutomationCompilerService', () => {
         });
 
 
+        /* A GraphQL query answers what it selects, which the invoker written for every query cannot say. */
+        it('replaces what the call answers, keeping the envelope the invoker gave it', () => {
+            const definition = incomingDefinition();
+            const answer = { data: { devices: { findAll: [{ id: '', name: '' }] } } };
+            definition.overrides = { '1_0': { response: answer } };
+
+            const { payload } = compiler.compileForCreate(definition, context());
+            const method = payload.connection.fromConnector.methods[1];
+
+            expect(method.response.success.body.fields).toEqual(answer);
+            expect(method.response.success.body.format).toBe('json');
+            expect(method.response.responseId).toContain('response-');
+        });
+
+
         it('sets a body value the mapping does not write', () => {
             const definition = incomingDefinition();
             definition.overrides = { '1_0': { body: { 'params.category': 'hardware' } } };

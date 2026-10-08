@@ -38,6 +38,17 @@ import {
     OC_FREE_REQUEST,
     OC_LOOP_ITERATOR
 } from '../../../models/opencelium-connection.model';
+import {
+    BodyKind,
+    bodyKindOf,
+    fieldsToXml,
+    isXmlAttributePath,
+    soapOperationOf,
+    soapPayloadPrefix,
+    xmlPayloadPath,
+    XML_ATTRIBUTES
+} from '../../../models/body-format.model';
+import { GraphqlEdit } from '../../graphql-query-editor/graphql-query-editor.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /**
@@ -75,6 +86,15 @@ export interface WirePair {
 
     /** True when this value was entered by hand rather than worked out. */
     changed: boolean;
+
+    /**
+     * The key as a reader needs it, when that is shorter than the path: inside a SOAP message, the
+     * part after the envelope every value shares.
+     */
+    display?: string;
+
+    /** True for an XML attribute - a namespace, typically - rather than content. */
+    attribute?: boolean;
 }
 
 /**
@@ -366,6 +386,23 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
     /** The address of the selected call, cut up the same way as the pairs. */
     public endpointTokens: ValueToken[] = [];
 
+    /** What the selected call's body is written in, which decides how it is edited. */
+    public bodyKind: BodyKind = 'json';
+
+    /** For a GraphQL call, what its editor is handed; null for any other call. */
+    public graphql: {
+        query: string;
+        variables: Record<string, string>;
+        response: unknown;
+        schemaKey: string;
+    } | null = null;
+
+    /** For an XML call: the SOAP operation it carries, and the message as XML for reading. */
+    public soapOperation = '';
+    public xmlPreview = '';
+    public showXml = false;
+    public showXmlAttributes = false;
+
     /**
      * Which value is open for typing, as `part:key`.
      *
@@ -462,6 +499,10 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
 
         this.headerRows = step ? this.headersOf(step) : [];
         this.bodyRows = step ? this.bodyOf(step) : [];
+        this.bodyKind = bodyKindOf(step?.method?.request?.body);
+        this.graphql = step && this.bodyKind === 'graphql' ? this.graphqlOf(step) : null;
+        this.soapOperation = step && this.bodyKind === 'xml' ? soapOperationOf(step.method?.request?.body?.fields) : '';
+        this.xmlPreview = step && this.bodyKind === 'xml' ? fieldsToXml(step.method?.request?.body?.fields) : '';
         this.endpointTokens = step ? tokensOf(this.endpointOf(step)) : [];
         this.valueSources = this.buildValueSources(step);
         this.addSources = this.buildValueSources(step, true);
@@ -694,8 +735,61 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
             // one too, and locking those left the reader with a value they had just chosen, a
             // note telling them to change it elsewhere, and nowhere else to change it. What makes
             // a value someone else's is that this step never set it.
-            return { ...decorated, bound: bound.has(pair.key) && !decorated.changed };
+            const own = { ...decorated, bound: bound.has(pair.key) && !decorated.changed };
+
+            return bodyKindOf(step.method?.request?.body) === 'xml'
+                ? { ...own, display: xmlPayloadPath(pair.key), attribute: isXmlAttributePath(pair.key) }
+                : own;
         });
+    }
+
+
+    /** The XML rows that carry attributes, which the table folds away unless asked for. */
+    public get xmlAttributeCount(): number {
+        return this.bodyRows.filter(pair => pair.attribute).length;
+    }
+
+
+    /**
+     * What the GraphQL editor works on: the query as last written, the variables' values and the
+     * answer shape. Read from the compiled call, which already carries whatever was typed.
+     */
+    private graphqlOf(step: FlowStep): NonNullable<WizardStepFlowComponent['graphql']> {
+        const fields = step.method?.request?.body?.fields ?? {};
+        const query = typeof fields.query === 'string' ? fields.query : '';
+        const variables = fields.variables && typeof fields.variables === 'object'
+            ? Object.fromEntries(Object.entries(fields.variables as Record<string, unknown>)
+                .map(([name, value]) => [name, value === null || value === undefined ? '' : String(value)]))
+            : {};
+
+        return {
+            query,
+            variables,
+            response: this.valuesOf(step).response ?? step.method?.response?.success?.body?.fields ?? null,
+            schemaKey: step.method?.connector?.title ?? ''
+        };
+    }
+
+
+    /**
+     * Stores a GraphQL change in one write: the query, its answer and the variables travel
+     * together, because a query that is saved without its answer leaves every reference behind.
+     */
+    public onGraphqlEdit(step: FlowStep, edit: GraphqlEdit): void {
+        const current = this.valuesOf(step);
+        const body: Record<string, string | null> = { ...(current.body ?? {}), query: edit.query };
+
+        for (const [name, value] of Object.entries(edit.variables)) {
+            const key = `variables.${name}`;
+
+            if (value === null) {
+                delete body[key];
+            } else {
+                body[key] = value;
+            }
+        }
+
+        this.writeValues(step, { ...current, body, response: edit.response });
     }
 
 
@@ -730,7 +824,15 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
         }
 
         this.draft[part] = { key: '', value: '' };
-        this.onEdit(step, part, key.trim(), value);
+
+        // Inside a SOAP message a field is named as the table shows it - from the operation on -
+        // and placed under the envelope it belongs in. A full path is taken as it is.
+        const prefix = part === 'body' && this.bodyKind === 'xml'
+            ? soapPayloadPrefix(step.method?.request?.body?.fields)
+            : '';
+        const path = prefix && !key.trim().startsWith(prefix.split('.')[0]) ? `${prefix}.${key.trim()}` : key.trim();
+
+        this.onEdit(step, part, path, value);
     }
 
 
@@ -786,7 +888,7 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
         const extra = this.extraFor(step);
 
         return extra
-            ? { endpoint: extra.endpoint, headers: extra.headers, body: extra.body }
+            ? { endpoint: extra.endpoint, headers: extra.headers, body: extra.body, response: extra.response }
             : (this.definition.overrides[step.index] ?? {});
     }
 
@@ -1041,12 +1143,14 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
                 ? `${method.connector.title} · ${method.name}`
                 : method.name;
 
+            const shown = displayPathFor(method.response?.success?.body);
+
             for (const entry of schemaPaths(method.response?.success?.body?.fields, loops)) {
                 sources.push({
                     group,
-                    label: entry.path,
+                    label: shown(entry.path),
                     reference: ocFieldReference(method.color, 'response', entry.path),
-                    ...describeValuePath(entry.path),
+                    ...describeValuePath(shown(entry.path)),
                     isList: entry.isList
                 });
             }
@@ -1927,13 +2031,26 @@ export function valueSourcesAfterSequence(connection: OcConnection | null): Valu
 
     return connection.fromConnector.methods
         .filter(method => method.methodType !== OC_FREE_REQUEST)
-        .flatMap(method => schemaPaths(method.response?.success?.body?.fields, loops).map(entry => ({
-            group: method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name,
-            label: entry.path,
-            reference: ocFieldReference(method.color, 'response', entry.path),
-            ...describeValuePath(entry.path),
-            isList: entry.isList
-        })));
+        .flatMap(method => {
+            const shown = displayPathFor(method.response?.success?.body);
+
+            return schemaPaths(method.response?.success?.body?.fields, loops).map(entry => ({
+                group: method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name,
+                label: shown(entry.path),
+                reference: ocFieldReference(method.color, 'response', entry.path),
+                ...describeValuePath(shown(entry.path)),
+                isList: entry.isList
+            }));
+        });
+}
+
+
+/**
+ * How a path into an answer is shown: as it is, or for a SOAP answer from the operation's result
+ * on. Only the shown name is shortened - the reference keeps the whole path, which is what runs.
+ */
+function displayPathFor(body: { data?: string; format?: string } | undefined): (path: string) => string {
+    return bodyKindOf(body) === 'xml' ? xmlPayloadPath : (path: string) => path;
 }
 
 
@@ -1962,7 +2079,9 @@ function schemaPaths(
         return prefix ? [{ path: prefix }] : [];
     }
 
+    // An XML element's attributes are namespaces and markup, not values anyone reads.
     return Object.entries(node as Record<string, unknown>)
+        .filter(([key]) => key !== XML_ATTRIBUTES)
         .flatMap(([key, value]) => schemaPaths(value, loops, prefix ? `${prefix}.${key}` : key));
 }
 

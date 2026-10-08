@@ -375,6 +375,14 @@ export interface AutomationCallOverride {
 
     /** Request body values by dotted path inside the body's fields; null removes the value. */
     body?: Record<string, string | null>;
+
+    /**
+     * What the call answers, as the invoker's response fields - replacing the invoker's own.
+     *
+     * For a call whose answer depends on what it is asked: a GraphQL query answers exactly the
+     * fields it selects, which the invoker, written once for every query, cannot describe.
+     */
+    response?: Record<string, unknown>;
 }
 
 
@@ -422,6 +430,9 @@ export interface AutomationExtraCall {
     body?: Record<string, string>;
     headers?: Record<string, string>;
     endpoint?: string;
+
+    /** What the call answers, when that is not what its invoker says; see AutomationCallOverride. */
+    response?: Record<string, unknown>;
 }
 
 

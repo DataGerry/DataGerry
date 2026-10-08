@@ -1,0 +1,162 @@
+<div class="gql">
+  <div class="gql__bar">
+    <span class="gql__badge">GraphQL</span>
+    <span class="gql__bar-hint">
+      Write the query here - what it asks for is what the next steps can read.
+    </span>
+    <button type="button" class="btn btn-link btn-sm" [disabled]="!!error" (click)="format()">
+      <i class="fas fa-align-left me-1"></i>Format
+    </button>
+  </div>
+
+  <div class="gql__grid">
+    <div class="gql__main">
+      <textarea
+        class="form-control gql__query"
+        [class.is-invalid]="!!error"
+        rows="12"
+        spellcheck="false"
+        autocomplete="off"
+        placeholder="{ devices { findAll { id name serialNumber } } }"
+        [value]="text"
+        (input)="onType($any($event.target).value)"
+        (blur)="commit()"></textarea>
+
+      @if (error) {
+        <div class="gql__error"><i class="fas fa-circle-exclamation me-1"></i>{{ error }}</div>
+      }
+
+      @if (declared.length > 0) {
+        <div class="gql__section-title">Variables</div>
+        <table class="gql__vars">
+          @for (name of declared; track name) {
+            <tr>
+              <td class="gql__var-name">${{ name }}</td>
+              <td>
+                <div class="gql__var-value">
+                  @if (isReference(variables[name])) {
+                    <span class="gql__token" [title]="variables[name]">{{ referenceName(variables[name]) }}</span>
+                  } @else {
+                    <input
+                      type="text"
+                      class="form-control form-control-sm"
+                      placeholder="Value"
+                      [value]="variables[name] ?? ''"
+                      (change)="onVariable(name, $any($event.target).value)">
+                  }
+                  <button type="button" class="gql__icon" title="Take the value from an earlier step" (click)="pickVariable.emit(name)">
+                    <i class="fas fa-link"></i>
+                  </button>
+                  @if (variables[name]) {
+                    <button type="button" class="gql__icon" title="Clear" (click)="onVariable(name, '')">
+                      <i class="fas fa-times"></i>
+                    </button>
+                  }
+                </div>
+              </td>
+            </tr>
+          }
+        </table>
+      }
+    </div>
+
+    <aside class="gql__side">
+      @if (schema) {
+        <div class="gql__side-head">
+          <span class="gql__section-title mb-0">Fields of {{ rootTypeLabel }}</span>
+          <button type="button" class="btn btn-link btn-sm p-0" (click)="forgetSchema()" title="Forget the loaded schema">
+            Forget schema
+          </button>
+        </div>
+        <p class="gql__side-hint">Tick a field to add it to the query; untick to take it out.</p>
+
+        <ul class="gql__tree">
+          @for (node of explorer; track node.path.join('.')) {
+            <li class="gql__tree-row" [style.padding-left.rem]="node.depth * 1">
+              @if (!node.field.leaf) {
+                <button type="button" class="gql__caret" (click)="toggleOpen(node)" [attr.aria-expanded]="node.open">
+                  <i class="fas" [class.fa-caret-right]="!node.open" [class.fa-caret-down]="node.open"></i>
+                </button>
+              } @else {
+                <span class="gql__caret-space"></span>
+              }
+              <label class="gql__field">
+                <input type="checkbox" [checked]="node.selected" (change)="toggleField(node)">
+                <span>{{ node.name }}</span>
+              </label>
+              <span class="gql__type">{{ node.field.list ? '[' + node.field.type + ']' : node.field.type }}</span>
+              @if (node.field.args.length > 0) {
+                <span class="gql__args" [title]="'Arguments: ' + node.field.args.join(', ')">({{ node.field.args.length }})</span>
+              }
+            </li>
+          } @empty {
+            <li class="gql__side-hint">The schema has no fields for this operation.</li>
+          }
+        </ul>
+      } @else {
+        <div class="gql__section-title">What the query answers</div>
+
+        @if (answer.length > 0) {
+          <p class="gql__side-hint">
+            Without the server's schema, mark which objects are lists - a loop can only walk a list.
+          </p>
+          <ul class="gql__tree">
+            @for (node of answer; track node.path) {
+              <li class="gql__tree-row" [style.padding-left.rem]="node.depth * 1">
+                <span class="gql__answer-key">{{ node.key }}</span>
+                @if (node.isObject) {
+                  <button
+                    type="button"
+                    class="gql__kind"
+                    [class.is-list]="node.isList"
+                    [title]="node.isList ? 'Answered as a list - click if it is a single object' : 'Answered as one object - click if it is a list'"
+                    (click)="toggleList(node)">
+                    {{ node.isList ? 'list' : 'object' }}
+                  </button>
+                }
+              </li>
+            }
+          </ul>
+        } @else {
+          <p class="gql__side-hint">Fields appear here as soon as the query selects some.</p>
+        }
+
+        <button type="button" class="btn btn-secondary btn-sm mt-2" (click)="schemaImportOpen = !schemaImportOpen">
+          <i class="fas fa-sitemap me-2"></i>Load the server's schema
+        </button>
+      }
+
+      @if (schemaImportOpen && !schema) {
+        <div class="gql__import">
+          <ol class="gql__steps">
+            <li>
+              Send this query to the server, e.g. with curl or from JDisc's own GraphQL page.
+              <button type="button" class="btn btn-link btn-sm p-0 ms-1" (click)="copyIntrospection()">
+                {{ copied ? 'Copied' : 'Copy query' }}
+              </button>
+            </li>
+            <li>Paste the answer below. It is kept in this browser for this connector.</li>
+          </ol>
+          <textarea class="form-control form-control-sm gql__schema-input" rows="5" spellcheck="false"
+                    placeholder='{ "data": { "__schema": { ... } } }'
+                    [(ngModel)]="schemaText"></textarea>
+          @if (schemaError) {
+            <div class="gql__error">{{ schemaError }}</div>
+          }
+          <button type="button" class="btn btn-primary btn-sm mt-2" [disabled]="!schemaText.trim()" (click)="importSchema()">
+            Use this schema
+          </button>
+        </div>
+      }
+    </aside>
+  </div>
+
+  @if (readable.length > 0) {
+    <div class="gql__reads">
+      <span class="gql__reads-title">Later steps can read</span>
+      @for (path of readable; track path) {
+        <code class="gql__read">{{ path }}</code>
+      }
+    </div>
+  }
+</div>

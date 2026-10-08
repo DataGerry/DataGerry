@@ -1,0 +1,252 @@
+$accent: #e94d18;
+$border: #e5e7eb;
+$muted: #6b7280;
+$graphql: #c2185b;
+
+.gql {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  &__bar {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+    flex-wrap: wrap;
+  }
+
+  &__badge {
+    padding: 0.1rem 0.5rem;
+    border-radius: 999px;
+    background: rgba(194, 24, 91, 0.1);
+    color: $graphql;
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+  }
+
+  &__bar-hint {
+    flex: 1;
+    min-width: 12rem;
+    font-size: 0.8125rem;
+    color: $muted;
+  }
+
+  &__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) minmax(0, 2fr);
+    gap: 1rem;
+
+    @media (max-width: 900px) {
+      grid-template-columns: minmax(0, 1fr);
+    }
+  }
+
+  &__query {
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+    line-height: 1.5;
+    tab-size: 2;
+    resize: vertical;
+    min-height: 12rem;
+  }
+
+  &__error {
+    margin-top: 0.4rem;
+    font-size: 0.8rem;
+    color: #b91c1c;
+  }
+
+  &__section-title {
+    margin: 0.9rem 0 0.4rem;
+    font-size: 0.72rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: $muted;
+  }
+
+  &__vars {
+    width: 100%;
+    font-size: 0.85rem;
+
+    td {
+      padding: 0.2rem 0;
+      vertical-align: middle;
+    }
+  }
+
+  &__var-name {
+    width: 1%;
+    padding-right: 0.75rem !important;
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    color: $graphql;
+    white-space: nowrap;
+  }
+
+  &__var-value {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+  }
+
+  &__token {
+    padding: 0.15rem 0.5rem;
+    border-radius: 6px;
+    background: rgba(233, 77, 24, 0.1);
+    color: $accent;
+    font-size: 0.8rem;
+  }
+
+  &__icon {
+    border: 0;
+    background: none;
+    color: $muted;
+    padding: 0.2rem 0.35rem;
+    cursor: pointer;
+
+    &:hover {
+      color: $accent;
+    }
+  }
+
+  &__side {
+    padding: 0.75rem;
+    border: 1px solid $border;
+    border-radius: 8px;
+    background: #fafafa;
+    min-width: 0;
+
+    .gql__section-title:first-child {
+      margin-top: 0;
+    }
+  }
+
+  &__side-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.5rem;
+  }
+
+  &__side-hint {
+    margin: 0.25rem 0 0.5rem;
+    font-size: 0.78rem;
+    color: $muted;
+  }
+
+  &__tree {
+    max-height: 22rem;
+    margin: 0;
+    padding: 0;
+    overflow-y: auto;
+    list-style: none;
+  }
+
+  &__tree-row {
+    display: flex;
+    align-items: center;
+    gap: 0.35rem;
+    min-height: 1.7rem;
+    font-size: 0.82rem;
+  }
+
+  &__caret,
+  &__caret-space {
+    width: 1rem;
+    flex: none;
+  }
+
+  &__caret {
+    border: 0;
+    background: none;
+    padding: 0;
+    color: $muted;
+    cursor: pointer;
+  }
+
+  &__field {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    margin: 0;
+    cursor: pointer;
+  }
+
+  &__type {
+    color: #9ca3af;
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  &__args {
+    color: #9ca3af;
+    font-size: 0.72rem;
+  }
+
+  &__answer-key {
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.8rem;
+  }
+
+  &__kind {
+    padding: 0 0.45rem;
+    border: 1px solid $border;
+    border-radius: 999px;
+    background: #fff;
+    color: $muted;
+    font-size: 0.7rem;
+    cursor: pointer;
+
+    &.is-list {
+      border-color: rgba(233, 77, 24, 0.4);
+      background: rgba(233, 77, 24, 0.08);
+      color: $accent;
+    }
+  }
+
+  &__import {
+    margin-top: 0.75rem;
+    padding-top: 0.75rem;
+    border-top: 1px solid $border;
+  }
+
+  &__steps {
+    margin: 0 0 0.5rem;
+    padding-left: 1.1rem;
+    font-size: 0.78rem;
+    color: #374151;
+  }
+
+  &__schema-input {
+    font-family: SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 0.72rem;
+  }
+
+  &__reads {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.35rem;
+    padding: 0.6rem 0.75rem;
+    border-radius: 8px;
+    background: #f9fafb;
+  }
+
+  &__reads-title {
+    margin-right: 0.25rem;
+    font-size: 0.75rem;
+    color: $muted;
+  }
+
+  &__read {
+    padding: 0.05rem 0.4rem;
+    border-radius: 4px;
+    background: #fff;
+    border: 1px solid $border;
+    font-size: 0.72rem;
+  }
+}

@@ -380,10 +380,41 @@
 
             <div class="wire__block">
               <div class="wire__label">Body</div>
+              @if (bodyKind === 'graphql' && graphql) {
+                <app-graphql-query-editor
+                  [query]="graphql.query"
+                  [variables]="graphql.variables"
+                  [response]="graphql.response"
+                  [schemaKey]="graphql.schemaKey"
+                  (edit)="onGraphqlEdit(step, $event)"
+                  (pickVariable)="openPicker('body', 'variables.' + $event)">
+                </app-graphql-query-editor>
+              } @else {
+              @if (bodyKind === 'xml') {
+                <div class="wire__xml-bar">
+                  <span class="wire__xml-badge">{{ soapOperation ? 'SOAP' : 'XML' }}</span>
+                  @if (soapOperation) {
+                    <span class="wire__xml-operation" title="The fields below are the content of this element">{{ soapOperation }}</span>
+                  }
+                  <span class="wire__xml-spacer"></span>
+                  @if (xmlAttributeCount > 0) {
+                    <button type="button" class="btn btn-link btn-sm p-0" (click)="showXmlAttributes = !showXmlAttributes">
+                      {{ showXmlAttributes ? 'Hide' : 'Show' }} namespaces and attributes ({{ xmlAttributeCount }})
+                    </button>
+                  }
+                  <button type="button" class="btn btn-link btn-sm p-0" (click)="showXml = !showXml">
+                    <i class="fas fa-code me-1"></i>{{ showXml ? 'Hide XML' : 'Show as XML' }}
+                  </button>
+                </div>
+                @if (showXml) {
+                  <pre class="wire__xml">{{ xmlPreview }}</pre>
+                }
+              }
               <table class="wire__table">
                 @for (pair of bodyRows; track pair.key) {
-                  <tr>
-                    <td class="wire__key">{{ pair.key }}</td>
+                  @if (!pair.attribute || showXmlAttributes) {
+                  <tr [class.wire__row--attribute]="pair.attribute">
+                    <td class="wire__key" [title]="pair.key">{{ pair.display ?? pair.key }}</td>
                     <td>
                       @if (pair.bound) {
                         <span class="wire__ref" title="Written by the field assignment - change it there">
@@ -447,6 +478,7 @@
                       }
                     </td>
                   </tr>
+                  }
                 }
 
                 <tr class="wire__new">
@@ -454,7 +486,7 @@
                     <input
                       type="text"
                       class="form-control form-control-sm"
-                      placeholder="Field, e.g. params.title"
+                      [placeholder]="bodyKind === 'xml' && soapOperation ? 'Field, e.g. Filter' : 'Field, e.g. params.title'"
                       [(ngModel)]="draft.body.key">
                   </td>
                   <td>
@@ -488,6 +520,7 @@
                 can be typed in or taken from a step that has already run — a foreign API often wants
                 something no field covers.
               </p>
+              }
             </div>
 
           }
