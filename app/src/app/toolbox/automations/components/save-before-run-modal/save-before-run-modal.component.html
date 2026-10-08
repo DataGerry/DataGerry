@@ -1,0 +1,35 @@
+<div class="modal-header">
+  <h4 class="modal-title">Unsaved changes</h4>
+  <button type="button" class="btn-close btn-close-white" aria-label="Close" (click)="cancel()"></button>
+</div>
+
+<div class="modal-body">
+  @if (canSave) {
+    <p>
+      A run executes the last saved version of this automation, not the changes on screen.
+      Save the changes first so the run tests them?
+    </p>
+
+    <div class="form-check">
+      <input id="save-before-run-remember" type="checkbox" class="form-check-input" [(ngModel)]="remember">
+      <label for="save-before-run-remember" class="form-check-label">
+        Always save before a run, don't ask again
+      </label>
+    </div>
+  } @else {
+    <p>
+      The changes on screen cannot be saved until the listed problems are resolved, so a run would
+      execute the last saved version of this automation.
+    </p>
+  }
+</div>
+
+<div class="modal-footer">
+  <button type="button" class="btn btn-secondary" (click)="cancel()">Cancel</button>
+  <button type="button" class="btn btn-outline-secondary" (click)="choose('run-saved')">Run saved version</button>
+  @if (canSave) {
+    <button type="button" class="btn btn-primary" (click)="choose('save')">
+      <i class="fas fa-floppy-disk me-2"></i>Save and run
+    </button>
+  }
+</div>

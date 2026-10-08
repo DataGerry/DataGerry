@@ -16,6 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, EventEmitter, Input, Output } from '@angular/core';
+import { Observable } from 'rxjs';
 
 import {
     AutomationDefinition,
@@ -62,6 +63,12 @@ export class WizardStepReviewComponent {
      */
     @Input() public schedulerId: number | null = null;
     @Input() public connectionId: number | null = null;
+
+    /** Whether what is on screen differs from what a run would execute. */
+    @Input() public unsavedChanges = false;
+
+    /** Saves the changes without leaving the editor, so a run can execute them. */
+    @Input() public saveChanges: (() => Observable<void>) | null = null;
 
     @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
     @Output() public loadSample = new EventEmitter<void>();

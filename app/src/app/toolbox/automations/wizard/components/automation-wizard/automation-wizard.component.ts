@@ -17,7 +17,7 @@
 */
 import { Component, inject, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
-import { combineLatest, finalize } from 'rxjs';
+import { combineLatest, finalize, map, Observable, tap, throwError } from 'rxjs';
 
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { WizardStep } from 'src/app/core/components/base/wizard-stepper/wizard-stepper.component';
@@ -177,6 +177,15 @@ export class AutomationWizardComponent implements OnInit {
     private existingConnection: any = null;
 
     /**
+     * The definition as it was last loaded or saved, in the form it is stored in.
+     *
+     * A run executes what is stored, not what is on screen, so the last step has to know whether
+     * the two differ. Comparing the stored form rather than counting edits means a change that is
+     * undone again no longer counts as one.
+     */
+    private savedSnapshot: string | null = null;
+
+    /**
      * True when an existing automation carries no business model - it was built with the old editor.
      * The wizard then shows the technical view read-only instead of guessing what the user meant.
      */
@@ -237,6 +246,7 @@ export class AutomationWizardComponent implements OnInit {
                     }
 
                     this.refresh();
+                    this.markSaved();
                 },
                 error: (err) => {
                     this.toast.error(err?.error?.message);
@@ -462,13 +472,55 @@ export class AutomationWizardComponent implements OnInit {
             return;
         }
 
+        this.persist()?.subscribe({
+            next: () => {
+                this.toast.success(
+                    this.mode === 'create' ? 'Automation created successfully' : 'Automation updated successfully'
+                );
+                this.router.navigate(['/automations']);
+            },
+            error: (err) => this.toast.error(err?.error?.message)
+        });
+    }
+
+
+    /**
+     * Saves the changes and stays in the editor, for the run started from the last step.
+     *
+     * Only an automation that exists can be run, so this is always an update. The run panel says
+     * how it went; a failure is passed on rather than shown here, because the run must not start.
+     */
+    public readonly saveForRun = (): Observable<void> => {
+        if (this.validationErrors.length > 0) {
+            return throwError(() => ({ error: { message: 'The changes cannot be saved until the listed problems are resolved.' } }));
+        }
+
+        return this.persist() ?? throwError(() => ({
+            error: { message: 'The internal DataGerry connector or the target system is not available.' }
+        }));
+    };
+
+
+    /** True when what is on screen is not what a run would execute. */
+    public get hasUnsavedChanges(): boolean {
+        return this.savedSnapshot !== null && this.snapshot() !== this.savedSnapshot;
+    }
+
+
+    /**
+     * Sends the automation to OpenCelium. Null when it cannot be compiled at all.
+     *
+     * The stored form is remembered once the request succeeds, so whatever the caller does next
+     * starts from "nothing unsaved".
+     */
+    private persist(): Observable<void> | null {
         const context = this.compileContext();
 
         if (!context) {
-            return;
+            return null;
         }
 
-        const description = this.codec.encode(this.definition.description, this.definition);
+        const description = this.snapshot();
 
         if (this.codec.exceedsSizeBudget(description)) {
             this.toast.warning(
@@ -486,15 +538,28 @@ export class AutomationWizardComponent implements OnInit {
                 this.updatePayload(context, description)
             );
 
-        request$.pipe(finalize(() => this.loaderService.hide())).subscribe({
-            next: () => {
-                this.toast.success(
-                    this.mode === 'create' ? 'Automation created successfully' : 'Automation updated successfully'
-                );
-                this.router.navigate(['/automations']);
-            },
-            error: (err) => this.toast.error(err?.error?.message)
-        });
+        return request$.pipe(
+            finalize(() => this.loaderService.hide()),
+            tap(() => {
+                this.savedSnapshot = description;
+            }),
+            map(() => undefined)
+        );
+    }
+
+
+    /** The definition in its stored form. */
+    private snapshot(): string {
+        return this.codec.encode(this.definition.description, this.definition);
+    }
+
+
+    /**
+     * Takes what is on screen as what is stored. An automation from the old editor has no
+     * definition to compare, and the wizard cannot save it, so it never counts as changed.
+     */
+    private markSaved(): void {
+        this.savedSnapshot = this.legacyWithoutDefinition ? null : this.snapshot();
     }
 
 
