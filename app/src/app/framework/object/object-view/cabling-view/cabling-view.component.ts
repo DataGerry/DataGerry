@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { AsyncPipe, NgTemplateOutlet } from '@angular/common';
+import { AsyncPipe, DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
 import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
 
@@ -91,6 +91,9 @@ export class CablingViewComponent {
     private readonly expandedNodeIds = signal<ReadonlySet<number>>(new Set());
 
     public readonly showFreePorts = signal(false);
+    public readonly isFullscreen = signal(false);
+
+    protected readonly canFullscreen = inject(DOCUMENT).fullscreenEnabled;
 
     public readonly options = computed<CablingDisplayOptions>(() => ({
         ...DEFAULT_DISPLAY_OPTIONS,
@@ -241,6 +244,13 @@ export class CablingViewComponent {
 
         event.preventDefault();
         action();
+    }
+
+
+    /** Also fires on Escape; the frame changed size, so the drawing is fitted to it again. */
+    public onFullscreenChange(active: boolean): void {
+        this.isFullscreen.set(active);
+        this.fitToScreen();
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */

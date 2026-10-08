@@ -1,4 +1,4 @@
-<div class="cabling-view">
+<div class="cabling-view" dgFullscreen #fullscreen="dgFullscreen" (fullscreenChange)="onFullscreenChange($event)">
   <div class="cabling-view__toolbar" role="toolbar" aria-label="Cabling tools">
     <div class="cabling-view__toolbar-group">
       <div class="cabling-view__zoom" role="group" aria-label="Zoom">
@@ -58,10 +58,13 @@
 
       <app-button
         label=""
-        icon="fas fa-expand"
+        [icon]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'"
         bootstrapClass="cabling-view__tool"
         ariaLabel="Full screen"
-        title="Full screen">
+        [ariaPressed]="isFullscreen()"
+        [disabled]="!canFullscreen"
+        [title]="isFullscreen() ? 'Exit full screen' : 'Full screen'"
+        (clicked)="fullscreen.toggle()">
       </app-button>
     </div>
   </div>

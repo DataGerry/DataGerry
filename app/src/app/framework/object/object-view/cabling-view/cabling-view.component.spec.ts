@@ -24,6 +24,7 @@ import { of } from 'rxjs';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CablingViewComponent } from './cabling-view.component';
 import { CABLING_ZOOM } from './constants/cabling.constants';
+import { CablingCanvasStore } from './services/cabling-canvas.store';
 import { CablingService } from './services/cabling.service';
 import {
     CABLE_REAR,
@@ -484,5 +485,58 @@ describe('CablingViewComponent spotlight', () => {
 
         expect(toolbarButton('Spotlight').disabled).toBeTrue();
         expect(shade()).toBeNull();
+    });
+});
+
+describe('CablingViewComponent full screen', () => {
+    let fixture: ComponentFixture<CablingViewComponent>;
+    let fullscreenElement: jasmine.Spy;
+
+    const element = (): HTMLElement => fixture.nativeElement;
+    const view = (): HTMLElement => element().querySelector('.cabling-view');
+    const fullscreenButton = (): HTMLButtonElement =>
+        element().querySelector('.cabling-view__toolbar button[aria-label="Full screen"]');
+
+    /** The browser entering or leaving full screen, Escape included. */
+    const browserFullscreen = (target: Element | null) => {
+        fullscreenElement.and.returnValue(target);
+        document.dispatchEvent(new Event('fullscreenchange'));
+        fixture.detectChanges();
+    };
+
+    beforeEach(async () => {
+        await configureTestBed(cablingServiceSpy());
+        spyOnProperty(document, 'fullscreenEnabled').and.returnValue(true);
+        fullscreenElement = spyOnProperty(document, 'fullscreenElement').and.returnValue(null);
+
+        fixture = TestBed.createComponent(CablingViewComponent);
+        fixture.componentRef.setInput('objectId', PP_01);
+        fixture.detectChanges();
+    });
+
+    it('asks the browser to show the whole view full screen', () => {
+        const request = spyOn(HTMLElement.prototype, 'requestFullscreen').and.resolveTo();
+
+        fullscreenButton().dispatchEvent(new MouseEvent('click', { bubbles: true }));
+
+        expect(request).toHaveBeenCalledTimes(1);
+        expect(request.calls.mostRecent().object).toBe(view());
+    });
+
+    it('follows the browser in and out of full screen and fits the drawing each time', () => {
+        const fit = spyOn(fixture.debugElement.injector.get(CablingCanvasStore), 'fit');
+
+        browserFullscreen(view());
+
+        expect(fullscreenButton().getAttribute('aria-pressed')).toBe('true');
+        expect(fullscreenButton().title).toBe('Exit full screen');
+        expect(fullscreenButton().querySelector('i').className).toContain('fa-compress');
+
+        browserFullscreen(null);
+
+        expect(fullscreenButton().getAttribute('aria-pressed')).toBe('false');
+        expect(fullscreenButton().title).toBe('Full screen');
+        expect(fullscreenButton().querySelector('i').className).toContain('fa-expand');
+        expect(fit).toHaveBeenCalledTimes(2);
     });
 });

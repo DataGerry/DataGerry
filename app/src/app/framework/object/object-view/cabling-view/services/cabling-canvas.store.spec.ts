@@ -58,6 +58,26 @@ describe('CablingCanvasStore', () => {
         expect(canvas.viewport().y).toBeCloseTo(300 - 300 * CABLING_ZOOM.step);
     });
 
+    it('keeps a fitted drawing fitted while the frame resizes, until the view moves', async () => {
+        const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+
+        canvas.fit({ minX: 0, minY: 0, maxX: 1800, maxY: 900 });
+        const fittedZoom = canvas.viewport().zoom;
+
+        frame.style.width = '500px';
+        await nextFrame();
+
+        expect(canvas.viewport().zoom).toBeLessThan(fittedZoom);
+
+        canvas.zoomIn();
+        const zoomed = canvas.viewport();
+
+        frame.style.width = '1000px';
+        await nextFrame();
+
+        expect(canvas.viewport()).toBe(zoomed);
+    });
+
     it('stops zooming at either limit', () => {
         expect(canvas.canZoomIn()).toBeTrue();
         expect(canvas.canZoomOut()).toBeTrue();
