@@ -28,7 +28,7 @@ import {
     StandardOverviewRow
 } from '../models/ports-overview.types';
 import { summarisePortInterfaces } from './interface-row.util';
-import { cableLabel } from './port-connection.util';
+import { cableLabel, cableSourceBadge } from './port-connection.util';
 import { normalizeSide } from './port-side.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -76,6 +76,7 @@ export function toPortRow(port: OverviewPort): PortRow {
         description: port.description ?? null,
         connectionState: cabled ? PortConnectionState.CABLED : PortConnectionState.FREE,
         connectionLabel: cabled ? cableLabel(port.cable) || 'Cable' : 'Free',
+        cableSource: cabled ? cableSourceBadge(port.cable) : null,
         cableConnectionId: port.cable_connection_id ?? null,
         farEndLabel: cabled ? farEndLabelOf(port) : null,
         interfaces,

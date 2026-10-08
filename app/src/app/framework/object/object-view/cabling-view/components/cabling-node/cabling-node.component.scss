@@ -242,7 +242,32 @@ $expand-bg-hover: color.mix($primary, #fff, 16%);
   }
 }
 
-// A shaded card is no stacking context, so the ports on the trace can rise above the view's shade.
+// The view's shade lies under the cables, so a shaded card tints itself; focus inside it lifts the tint.
+:host(.cabling-node--shaded:not(:focus-within)) {
+  box-shadow: 0 0 0 1px layers.$shade-tint, 0 0 0 1px var(--node-accent-line), $card-shadow;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: layers.$shade;
+    border-radius: inherit;
+    background: layers.$shade-tint;
+    pointer-events: none;
+  }
+}
+
+:host(.cabling-node--shaded.cabling-node--focal:not(:focus-within)) {
+  box-shadow: 0 0 0 2px layers.$shade-tint, 0 0 0 2px $primary, 0 0 0 6px rgba($primary, 0.06), $card-shadow;
+
+  // Overhangs the card, so it dims on its own above the card's tint.
+  .cabling-node__crown {
+    z-index: layers.$above-shade;
+    filter: brightness(0.54);
+  }
+}
+
+// A shaded card is no stacking context, so the ports on the trace can rise above its tint.
 :host(.cabling-node--shaded) .is-highlighted {
   position: relative;
   z-index: layers.$above-shade;

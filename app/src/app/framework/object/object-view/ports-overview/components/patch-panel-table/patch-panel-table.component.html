@@ -42,6 +42,12 @@
       <span class="ports-state" [class.ports-state--connected]="port.connectionState === connectionState.CABLED">
         <span class="ports-state__dot" aria-hidden="true"></span>
         {{ port.connectionLabel }}
+
+        @if (port.cableSource; as badge) {
+          <span class="ports-badge ports-source" [class.ports-source--metadata]="badge.source === cableSource.INLINE">
+            {{ badge.label }}
+          </span>
+        }
       </span>
 
       @if (port.farEndLabel) {

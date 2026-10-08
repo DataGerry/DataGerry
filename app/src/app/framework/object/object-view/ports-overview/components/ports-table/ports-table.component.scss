@@ -31,8 +31,21 @@
     border-color: var(--dg-border);
 }
 
+.ports-source {
+    padding: 0.05rem 0.45rem;
+    font-size: 0.7rem;
+    font-weight: 600;
+}
+
+.ports-source--metadata {
+    background-color: var(--dg-surface);
+    color: var(--dg-label);
+    border-color: var(--dg-border);
+}
+
 .ports-state {
     display: inline-flex;
+    flex-wrap: wrap;
     align-items: center;
     gap: 0.4rem;
     font-size: 0.8125rem;

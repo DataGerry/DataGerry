@@ -38,6 +38,9 @@ import {
     cablingEnd,
     mockupRing,
     nasExpansion,
+    overviewPort,
+    panelNode,
+    standardNode,
     switchNode
 } from '../testing/cabling-fixtures';
 import { graphFromRing, graphWithExpansion } from './cabling-graph.util';
@@ -59,6 +62,39 @@ describe('cabling-spotlight.util', () => {
             cablingEnd(SW_01, SW_GI48, 'Gi1/0/48', PortSide.SINGLE)
         )]
     }, WEB_ETH1);
+
+    const CORE = 9701;
+    const LAPTOP = 9702;
+    const FAR = 9703;
+    const [CORE_1, CORE_2, LAPTOP_GIO, LAPTOP_GI, LAPTOP_ETH5, FAR_ETH1] = [9801, 9802, 9803, 9804, 9805, 9806];
+    const [CABLE_GIO, CABLE_GI, CABLE_FAR] = [9901, 9902, 9903];
+
+    const end = (objectId: number, portId: number, side = PortSide.SINGLE) => cablingEnd(objectId, portId, null, side);
+
+    /** CORE with two cables to LAPTOP (or to a panel), and the laptop's eth5 followed to FAR. */
+    const withParallelCables = (laptopIsPanel = false): CablingGraph => {
+        const side = laptopIsPanel ? PortSide.FRONT : PortSide.SINGLE;
+        const laptop = laptopIsPanel
+            ? panelNode(LAPTOP, 'PP', [
+                { front: overviewPort(LAPTOP_GIO, 'F1'), rear: overviewPort(LAPTOP_ETH5, 'R1'), paired: true },
+                { front: overviewPort(LAPTOP_GI, 'F2'), rear: null, paired: false }
+            ])
+            : standardNode(LAPTOP, 'Laptop', [LAPTOP_GIO, LAPTOP_GI, LAPTOP_ETH5].map((id) => overviewPort(id, `p${ id }`)));
+        const ring = graphFromRing({
+            focal_object_id: CORE,
+            nodes: [standardNode(CORE, 'Core', [overviewPort(CORE_1, '1'), overviewPort(CORE_2, '2')]), laptop],
+            edges: [
+                cablingEdge(CABLE_GIO, end(CORE, CORE_1), end(LAPTOP, LAPTOP_GIO, side)),
+                cablingEdge(CABLE_GI, end(CORE, CORE_2), end(LAPTOP, LAPTOP_GI, side))
+            ]
+        });
+
+        return graphWithExpansion(ring, {
+            focal_object_id: LAPTOP,
+            nodes: [standardNode(FAR, 'Far', [overviewPort(FAR_ETH1, 'eth1')])],
+            edges: [cablingEdge(CABLE_FAR, end(LAPTOP, LAPTOP_ETH5, laptopIsPanel ? PortSide.REAR : side), end(FAR, FAR_ETH1))]
+        }, LAPTOP_ETH5);
+    };
 
     const pick = (connectionId: number, objectId: number | null, portId: number | null): CablingSelection =>
         ({ connectionId, objectId, portId });
@@ -99,6 +135,30 @@ describe('cabling-spotlight.util', () => {
             spotlightTrace(withSideCable(), pick(CABLE_SIDE, SW_01, SW_GI48)),
             [CABLE_SIDE, CABLE_REAR],
             [WEB_ETH1, SW_GI48, SW_GI12, REAR_12]
+        );
+    });
+
+    it('lights every cable between a card on the trace and the card it was revealed from', () => {
+        expectTrace(
+            spotlightTrace(withParallelCables(), pick(CABLE_FAR, FAR, FAR_ETH1)),
+            [CABLE_FAR, CABLE_GIO, CABLE_GI],
+            [FAR_ETH1, LAPTOP_ETH5, LAPTOP_GIO, CORE_1, LAPTOP_GI, CORE_2]
+        );
+    });
+
+    it('keeps a parallel cable dark when its sibling to the focal object is picked', () => {
+        expectTrace(
+            spotlightTrace(withParallelCables(), pick(CABLE_GI, LAPTOP, LAPTOP_GI)),
+            [CABLE_GI],
+            [LAPTOP_GI, CORE_2]
+        );
+    });
+
+    it('follows only the reveal cable through a panel, whose other ports lead elsewhere', () => {
+        expectTrace(
+            spotlightTrace(withParallelCables(true), pick(CABLE_FAR, FAR, FAR_ETH1)),
+            [CABLE_FAR, CABLE_GIO],
+            [FAR_ETH1, LAPTOP_ETH5, LAPTOP_GIO, CORE_1]
         );
     });
 

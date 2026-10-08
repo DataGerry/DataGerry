@@ -22,7 +22,7 @@ import {
     PortConnectionState,
     ResolvedCable
 } from '../models/port-connection.types';
-import { cableSummary, indexConnectionsByPort, peerPortIdOf } from './port-connection.util';
+import { cableSourceBadge, cableSummary, indexConnectionsByPort, peerPortIdOf } from './port-connection.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 function cable(overrides: Partial<ResolvedCable> = {}): ResolvedCable {
@@ -135,6 +135,28 @@ describe('port-connection.util', () => {
 
         it('says nothing for a link that has no cable, such as a panel pairing', () => {
             expect(cableSummary(connection({ cable: null }))).toBe('');
+        });
+    });
+
+
+    describe('cableSourceBadge', () => {
+        it('names the linked cable CI', () => {
+            const badge = cableSourceBadge(cable({ source: CableSource.CI, cable_ci_id: 9950, name: 'CAB-000471' }));
+
+            expect(badge).toEqual({ source: CableSource.CI, label: 'CI #9950' });
+        });
+
+        it('still marks a CI cable whose id is missing', () => {
+            expect(cableSourceBadge(cable({ source: CableSource.CI }))?.label).toBe('CI');
+        });
+
+        it('marks a cable described on the connection as metadata', () => {
+            expect(cableSourceBadge(cable({ name: 'Patch A-12' }))).toEqual({ source: CableSource.INLINE, label: 'Metadata' });
+        });
+
+        it('shows no chip without a cable or a known source', () => {
+            expect(cableSourceBadge(null)).toBeNull();
+            expect(cableSourceBadge(cable({ source: undefined }))).toBeNull();
         });
     });
 });

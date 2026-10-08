@@ -17,9 +17,10 @@
 */
 import { CablingSelection, CablingTrace } from '../models/cabling-spotlight.types';
 import { CablingEdge, CablingGraph, CablingReveal } from '../models/cabling.types';
+import { isPatchPanelNode } from './cabling-format.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** The picked cable, both its ends, and the reveal chain from its nearer end back to the focal object. */
+/** The picked cable, both its ends, and every cable on the reveal chain from its nearer end back to the focal object. */
 export function spotlightTrace(graph: CablingGraph, selection: CablingSelection): CablingTrace {
     const connectionIds = new Set([selection.connectionId]);
     const portIds = new Set(selection.portId == null ? [] : [selection.portId]);
@@ -52,24 +53,43 @@ function generation(graph: CablingGraph, objectId: number | null): number {
 }
 
 
-/** The cable each card was revealed by, from this card back to the focal object. */
+/** The cables between each card and the one it was revealed from, from this card back to the focal object. */
 function revealChain(graph: CablingGraph, objectId: number | null): CablingEdge[] {
     const chain: CablingEdge[] = [];
-    let reveal = objectId == null ? undefined : graph.reveals.get(objectId);
+    let cardId = objectId;
+    let reveal = cardId == null ? undefined : graph.reveals.get(cardId);
 
-    // Reveals form a tree; the length bound only stops a malformed one from looping.
-    while (reveal?.parentId != null && chain.length < graph.reveals.size) {
-        const cable = revealCable(graph, reveal);
+    // Reveals form a tree; the hop bound only stops a malformed one from looping.
+    for (let hops = 0; cardId != null && reveal?.parentId != null && hops < graph.reveals.size; hops++) {
+        const parentId = reveal.parentId;
+        const cables = hopCables(graph, cardId, parentId, reveal);
 
-        if (!cable) {
+        if (!cables.length) {
             break;
         }
 
-        chain.push(cable);
-        reveal = graph.reveals.get(reveal.parentId);
+        chain.push(...cables);
+        cardId = parentId;
+        reveal = graph.reveals.get(parentId);
     }
 
     return chain;
+}
+
+
+/** The cable a card was revealed by, plus every other drawn cable between the same two cards. */
+function hopCables(graph: CablingGraph, cardId: number, parentId: number, reveal: CablingReveal): CablingEdge[] {
+    const cable = revealCable(graph, reveal);
+
+    if (!cable) {
+        return [];
+    }
+
+    // Each port of a panel on the way leads to its own pair, so only the reveal cable is on the trace.
+    const viaPanel = isPatchPanelNode(graph.nodes.get(cardId))
+        || (parentId !== graph.focalId && isPatchPanelNode(graph.nodes.get(parentId)));
+
+    return viaPanel ? [cable] : [...graph.edges.values()].filter((edge) => joins(edge, cardId, parentId));
 }
 
 
@@ -81,4 +101,11 @@ function revealCable(graph: CablingGraph, reveal: CablingReveal): CablingEdge | 
 
 function hasPort(edge: CablingEdge, portId: number | null): boolean {
     return portId != null && (edge.from.port_id === portId || edge.to.port_id === portId);
+}
+
+
+function joins(edge: CablingEdge, firstId: number, secondId: number): boolean {
+    const ends = [edge.from.object_id, edge.to.object_id];
+
+    return ends.includes(firstId) && ends.includes(secondId);
 }

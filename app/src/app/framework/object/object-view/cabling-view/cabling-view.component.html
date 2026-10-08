@@ -75,6 +75,11 @@
     (click)="onCanvasClick($event)">
 
     <div class="cabling-view__canvas" [class.is-animated]="canvas.animate()" [style.transform]="canvas.transform()">
+      <!-- First in the canvas, so the cables are drawn over it and keep their own colour. -->
+      @if (spotlight()) {
+        <div class="cabling-view__shade" aria-hidden="true"></div>
+      }
+
       <svg class="cabling-view__edges" aria-hidden="true" focusable="false">
         @for (edge of edges(); track edge.connectionId) {
           <g class="cabling-edge" [class.is-highlighted]="edge.connectionId === highlightedConnectionId()">
@@ -101,10 +106,6 @@
           (hoverConnection)="hoveredConnectionId.set($event)"
           (selectConnection)="onSelectConnection($event)">
         </cmdb-cabling-node>
-      }
-
-      @if (spotlight()) {
-        <div class="cabling-view__shade" aria-hidden="true"></div>
       }
 
       @if (raisedEdges().length) {

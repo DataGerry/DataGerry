@@ -303,6 +303,16 @@ describe('CablingViewComponent spotlight', () => {
         expect(raisedCables()).toBe(0);
     });
 
+    it('lays the shade under the cables, so every cable keeps its own colour', () => {
+        show(PP_01);
+        press('s');
+
+        const cables = element().querySelector('.cabling-view__edges');
+
+        expect(shade().compareDocumentPosition(cables) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+        expect(getComputedStyle(shade()).zIndex).toBe('auto');
+    });
+
     it('adds no scroll range to the canvas frame, so nothing can scroll the drawing away', () => {
         show(PP_01);
         const { scrollWidth, scrollHeight } = viewport();

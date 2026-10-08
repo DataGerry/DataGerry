@@ -12,7 +12,6 @@ $panel-border: #e9ecef;
 $panel-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $inset: 0.75rem;
 $toolbar-height: 56px;
-$shade: rgba(15, 23, 42, 0.46);
 
 :host {
   display: block;
@@ -118,15 +117,9 @@ $shade: rgba(15, 23, 42, 0.46);
   position: absolute;
   top: 0;
   left: 0;
-  z-index: layers.$shade;
-  box-shadow: 0 0 0 50000px $shade;
+  box-shadow: 0 0 0 50000px layers.$shade-tint;
   pointer-events: none;
   animation: cabling-view-shade-in 240ms ease-out;
-}
-
-// The card hosts belong to this template; a shaded card comes up while focus is inside it, so the focus stays seen.
-.cabling-node--shaded:focus-within {
-  z-index: layers.$above-shade;
 }
 
 @keyframes cabling-view-shade-in {

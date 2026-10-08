@@ -29,7 +29,7 @@ import {
 } from '@angular/core';
 
 import { Column, Sort, SortDirection } from 'src/app/layout/table/table.types';
-import { PortConnectionState } from '../../models/port-connection.types';
+import { CableSource, PortConnectionState } from '../../models/port-connection.types';
 import { PatchPanelRow, PortRow } from '../../models/ports-overview.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -89,6 +89,7 @@ export class PatchPanelTableComponent implements OnInit, OnChanges {
     public selectedRows: PatchPanelRow[] = [];
 
     public readonly connectionState = PortConnectionState;
+    public readonly cableSource = CableSource;
 
     /** The columns the user unticked. Kept for this view only - nothing is persisted. */
     private readonly hiddenColumnNames = new Set<string>();
