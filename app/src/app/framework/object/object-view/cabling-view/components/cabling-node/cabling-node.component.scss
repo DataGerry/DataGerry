@@ -242,8 +242,8 @@ $expand-bg-hover: color.mix($primary, #fff, 16%);
   }
 }
 
-// The view's shade lies under the cables, so a shaded card tints itself; focus inside it lifts the tint.
-:host(.cabling-node--shaded:not(:focus-within)) {
+// The view's shade lies under the cables, so a shaded card tints itself.
+:host(.cabling-node--shaded) {
   box-shadow: 0 0 0 1px layers.$shade-tint, 0 0 0 1px var(--node-accent-line), $card-shadow;
 
   &::after {
@@ -257,7 +257,7 @@ $expand-bg-hover: color.mix($primary, #fff, 16%);
   }
 }
 
-:host(.cabling-node--shaded.cabling-node--focal:not(:focus-within)) {
+:host(.cabling-node--shaded.cabling-node--focal) {
   box-shadow: 0 0 0 2px layers.$shade-tint, 0 0 0 2px $primary, 0 0 0 6px rgba($primary, 0.06), $card-shadow;
 
   // Overhangs the card, so it dims on its own above the card's tint.
@@ -267,10 +267,20 @@ $expand-bg-hover: color.mix($primary, #fff, 16%);
   }
 }
 
-// A shaded card is no stacking context, so the ports on the trace can rise above its tint.
-:host(.cabling-node--shaded) .is-highlighted {
-  position: relative;
-  z-index: layers.$above-shade;
+// A shaded card is no stacking context, so the ports on the trace and a keyboard-focused control rise above its tint.
+:host(.cabling-node--shaded) {
+  .is-highlighted,
+  .cabling-node__open:focus-visible,
+  app-button:has(:focus-visible) {
+    position: relative;
+    z-index: layers.$above-shade;
+  }
+
+  .cabling-node__open:focus-visible,
+  .cabling-node__footer app-button:has(:focus-visible) {
+    border-radius: 0.5rem;
+    background: #fff;
+  }
 }
 
 .cabling-row__none {
