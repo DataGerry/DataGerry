@@ -134,9 +134,15 @@ export interface AutomationRunEntry {
  * the difference instead of printing an empty field.
  */
 export interface RunConditionRule {
+    /** Readable form: the colour that names a step replaced by the step's name. */
     left: string;
-    operator: string;
     right: string;
+
+    /** The reference exactly as the connection stores it, for the people who need it verbatim. */
+    leftRaw: string;
+    rightRaw: string;
+
+    operator: string;
     expression: string;
     leftValue?: string;
     rightValue?: string;
