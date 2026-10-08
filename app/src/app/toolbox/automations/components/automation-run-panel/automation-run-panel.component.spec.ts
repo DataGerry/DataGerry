@@ -17,6 +17,7 @@
 */
 import { fakeAsync, flushMicrotasks, TestBed } from '@angular/core/testing';
 import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
+import { SimpleChange } from '@angular/core';
 import { of, throwError } from 'rxjs';
 
 import { AutomationRunPanelComponent } from './automation-run-panel.component';
@@ -60,7 +61,13 @@ describe('AutomationRunPanelComponent - saving before a run', () => {
         window.localStorage.removeItem(STORAGE_KEY);
         order = [];
 
-        automations = jasmine.createSpyObj<AutomationsService>('AutomationsService', ['executeScheduler']);
+        automations = jasmine.createSpyObj<AutomationsService>(
+            'AutomationsService',
+            ['executeScheduler', 'getRunningSchedulers', 'getScheduler', 'getSchedulerLogs']
+        );
+        automations.getRunningSchedulers.and.returnValue(of([]));
+        automations.getScheduler.and.returnValue(of({ lastExecution: { success: { duration: 40000 } } }));
+        automations.getSchedulerLogs.and.returnValue(of([]));
         automations.executeScheduler.and.callFake(() => {
             order.push('run');
 
@@ -191,4 +198,59 @@ describe('AutomationRunPanelComponent - saving before a run', () => {
         expect(automations.executeScheduler).not.toHaveBeenCalled();
         expect(component.starting).toBeFalse();
     }));
+
+
+    describe('following a run', () => {
+
+        it('measures the progress against the last run, and never shows it finished early', () => {
+            const component = panel(false);
+            component.expectedMs = 40000;
+
+            component.elapsedMs = 10000;
+            expect(component.progress).toBe(25);
+            expect(component.progressText).toBe('10 s of about 40 s');
+
+            component.elapsedMs = 90000;
+            expect(component.progress).toBe(95);
+            expect(component.progressText).toBe('1 min 30 s - longer than the last run (40 s)');
+        });
+
+
+        it('still moves without a previous run, short of full', () => {
+            const component = panel(false);
+            component.expectedMs = null;
+            component.elapsedMs = 600000;
+
+            expect(component.progress).toBeGreaterThan(90);
+            expect(component.progress).toBeLessThanOrEqual(95);
+            expect(component.progressText).toBe('10 min so far');
+        });
+
+
+        it('reads the expected length and picks up a run already going when it opens', () => {
+            automations.getRunningSchedulers.and.returnValue(of([{ schedulerId: 173 }]));
+            const component = panel(false);
+
+            component.ngOnChanges({ schedulerId: new SimpleChange(null, 173, true) });
+
+            expect(component.expectedMs).toBe(40000);
+            expect(component.running).toBeTrue();
+            component.ngOnDestroy();
+        });
+
+
+        /* OpenCelium may answer the start only when the run ends, and the request gives up first. */
+        it('counts a start that timed out as started when the run is going', () => {
+            automations.executeScheduler.and.returnValue(throwError(() => ({ error: { message: 'timeout' } })));
+            automations.getRunningSchedulers.and.returnValue(of([{ schedulerId: 173, avgDuration: 5000 }]));
+            const component = panel(false);
+            component.expectedMs = null;
+
+            component.start();
+
+            expect(component.running).toBeTrue();
+            expect(component.expectedMs).toBe(5000);
+            component.ngOnDestroy();
+        });
+    });
 });

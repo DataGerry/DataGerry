@@ -146,3 +146,22 @@ $mono: "Consolas", "SFMono-Regular", "Menlo", monospace;
     }
   }
 }
+
+/* A run reports nothing until it ends, so the bar is measured against the last run's length. */
+.run-panel__progress {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  margin: 0.75rem 0 0.25rem;
+  max-width: 32rem;
+}
+
+.run-panel__progress-text {
+  font-size: 0.8rem;
+  color: #374151;
+  font-variant-numeric: tabular-nums;
+}
+
+.run-panel__progress-note {
+  color: #6b7280;
+}

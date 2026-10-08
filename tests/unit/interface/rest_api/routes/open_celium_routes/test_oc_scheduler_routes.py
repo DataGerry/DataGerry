@@ -28,6 +28,8 @@ These pin the handler glue: the manager call, the success payload, the request-v
 scheduler) and the per-error abort mapping.
 """
 from http import HTTPStatus
+import threading
+import time
 from types import SimpleNamespace
 from typing import Any, Callable
 from unittest.mock import MagicMock, patch
@@ -339,6 +341,28 @@ class TestExecuteOcScheduler:
                 _unwrap(execute_oc_scheduler)(request_user=REQUEST_USER, scheduler_id=SCHEDULER_ID)
 
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_answers_before_a_long_run_ends(self, flask_app, sched_manager, conn_manager, patched_managers) -> None:
+        """OpenCelium holding the call open for the whole run does not hold the request."""
+        del patched_managers, conn_manager
+        release = threading.Event()
+
+        def long_run(_scheduler_id: int) -> bool:
+            release.wait(5)
+            return True
+
+        sched_manager.execute_scheduler.side_effect = long_run
+
+        with patch(f'{ROUTE_PATH}.EXECUTE_ANSWER_WAIT_SECONDS', 0.2), flask_app.test_request_context():
+            started = time.monotonic()
+            response = _unwrap(execute_oc_scheduler)(request_user=REQUEST_USER, scheduler_id=SCHEDULER_ID)
+            waited = time.monotonic() - started
+
+        release.set()
+
+        assert response.status_code == HTTPStatus.OK
+        assert waited < 2
+        sched_manager.execute_scheduler.assert_called_once_with(SCHEDULER_ID)
 
 
 # --------------------------------------------------- update_oc_scheduler -------------------------------------------- #

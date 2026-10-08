@@ -16,6 +16,7 @@
 """
 All API routes for OpenCelium Schedulers
 """
+from concurrent.futures import Future, ThreadPoolExecutor, TimeoutError as FutureTimeout
 from logging import Logger, getLogger
 from typing import Any
 
@@ -47,6 +48,15 @@ from cmdb.errors.open_celium.connection import (
 LOGGER: Logger = getLogger(__name__)
 
 oc_schedulers_blueprint = APIBlueprint('oc_schedulers', __name__)
+
+# Starting a run is handed to a worker so the request can answer before the run ends. OpenCelium
+# may hold the execute call open for the whole run, and the client then either waits all that time
+# or gives up after OC_REQUEST_TIMEOUT and reports a failure for a run that is going on.
+_EXECUTE_WORKERS = ThreadPoolExecutor(max_workers=4, thread_name_prefix='oc-execute')
+
+# How long the request waits for OpenCelium's answer before it reports the run as started. Long
+# enough for an immediate refusal - unknown automation, OpenCelium unreachable - to come back.
+EXECUTE_ANSWER_WAIT_SECONDS: float = 3.0
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -450,8 +460,20 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
             if not is_valid:
                 abort(400, f"The target Automation with ID:{scheduler_id} was not found!")
 
-        # Execute Scheduler
-        scheduler_result = oc_scheduler_manager.execute_scheduler(scheduler_id)
+        # Execute Scheduler - see _EXECUTE_WORKERS for why this does not wait for the run to end
+        app = current_app._get_current_object()
+
+        def execute() -> bool:
+            with app.app_context():
+                return oc_scheduler_manager.execute_scheduler(scheduler_id)
+
+        pending: Future = _EXECUTE_WORKERS.submit(execute)
+
+        try:
+            scheduler_result = pending.result(timeout=EXECUTE_ANSWER_WAIT_SECONDS)
+        except FutureTimeout:
+            pending.add_done_callback(lambda done: _log_late_execute_failure(done, scheduler_id))
+            scheduler_result = True
 
         return DefaultResponse(scheduler_result).make_response()
     except HTTPException as http_err:
@@ -459,6 +481,24 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     except OcSchedulerGetError as err:
         LOGGER.error("[execute_oc_scheduler] %s: %s.", type(err).__name__, err, exc_info=True)
         abort(500, f"Failed to execute Automation with ID: {scheduler_id}!")
+
+def _log_late_execute_failure(done: Future, scheduler_id: int) -> None:
+    """
+    Logs what OpenCelium answered after the request had already reported the run as started.
+
+    A timeout here is expected for a long run - OpenCelium keeps running it - so only a real error
+    is worth more than a debug line.
+    """
+    error = done.exception()
+
+    if error is None:
+        return
+
+    if 'timeout' in type(error).__name__.lower():
+        LOGGER.debug("[execute_oc_scheduler] Scheduler %s still running when OpenCelium's answer timed out.",
+                     scheduler_id)
+    else:
+        LOGGER.error("[execute_oc_scheduler] Scheduler %s: %s: %s", scheduler_id, type(error).__name__, error)
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

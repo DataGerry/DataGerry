@@ -48,6 +48,11 @@ export class AutomationsService extends BaseApiService<any> {
     return this.handleGetRequest<any[]>(`${this.servicePrefix}/templates/all/${fromConnectorId}/${toConnectorId}`, params);
   }
 
+  // GET SCHEDULER - carries lastExecution, whose durations say how long a run usually takes
+  getScheduler(schedulerId: number): Observable<any> {
+    return this.handleGetRequest<any>(`${this.servicePrefix}/schedulers/${schedulerId}`, new HttpParams());
+  }
+
   // GET CONNECTION
   getConnection(connectionId: number): Observable<any> {
     const params = new HttpParams();
