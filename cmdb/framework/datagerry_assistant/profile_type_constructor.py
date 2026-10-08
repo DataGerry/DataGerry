@@ -66,12 +66,14 @@ FIELD_EXTRA_KEYS: list[str] = [
 class ProfileTypeConstructor:
     """Creates valid section and field data for types in order to be stored in the DB"""
 
-    def __init__(self, template_provider: PredefinedTemplateProvider) -> None:
+    def __init__(self, template_provider: PredefinedTemplateProvider, author_id: int) -> None:
         """
         Args:
             template_provider (PredefinedTemplateProvider): Provider of the predefined section templates
+            author_id (int): public_id of the user running the assistant - every created type's author
         """
         self.template_provider: PredefinedTemplateProvider = template_provider
+        self.author_id: int = author_id
         self.type_config: dict[str, Any] = {}
 
 # --------------------------------------------------- TYPE BUILDER --------------------------------------------------- #
@@ -168,7 +170,7 @@ class ProfileTypeConstructor:
             TypeSchemaKey.PORT_SECTION_INDEX: DEFAULT_PORT_SECTION_INDEX,
             TypeSchemaKey.GLOBAL_TEMPLATE_IDS: [],
             TypeSchemaKey.ACTIVE: True,
-            TypeSchemaKey.AUTHOR_ID: TypeDefault.AUTHOR_ID,
+            TypeSchemaKey.AUTHOR_ID: self.author_id,
             TypeSchemaKey.CREATION_TIME: datetime.now(timezone.utc),
             TypeSchemaKey.EDITOR_ID: None,
             TypeSchemaKey.LAST_EDIT_TIME: None,

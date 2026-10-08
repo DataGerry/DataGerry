@@ -26,6 +26,12 @@ CmdbRelation it references. The routes fall into three groups:
       tab with the counterpart object resolved per row
     - nothing else - the CmdbRelation definitions themselves live in `relations_routes`
 
+Every read route asks for `base.framework.objectRelation.view`, and every read answers a CmdbObjectRelation only
+when the caller may read BOTH of its objects, judged by the type ids stamped on it: the lists and the tabs leave
+the others out of their rows and their totals, and a single read refuses one with a 403. The relation tabs of an
+object are moreover as readable as the object itself - 403 when the caller may not read it, 404 when it does not
+exist
+
 Two invariants the write routes enforce, both of them server-side only:
 
     - the referenced CmdbRelation must still exist, and the two endpoints must be different CmdbObjects
@@ -85,6 +91,9 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     DEFAULT_TAB_PAGE_SIZE,
     MAX_TAB_PAGE_SIZE,
     SORT_DIRECTIONS,
+    TAB_SORT_KEYS,
+    TAB_SORT_KEY_INVALID_MESSAGE,
+    OBJECT_RELATION_ACCESS_DENIED_MESSAGE,
     ObjectRelationRight,
     ObjectRelationTabParam,
     TabInstancesKey,
@@ -95,6 +104,9 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     get_existing_relation_or_abort,
     guard_object_relation_field_values,
+    is_object_relation_readable,
+    read_tab_object_or_abort,
+    resolve_unreadable_type_ids_or_abort,
     resolve_object_relation_endpoints,
     resolve_counterpart_summaries,
     log_object_relation_change,
@@ -236,12 +248,16 @@ def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUs
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbObjectRelations
 
+    A CmdbObjectRelation with an object the caller may not read at either end is left out, ahead of the
+    caller's own filter and of the paging, so the total counts the same set as the rows
+
     Args:
         params (CollectionParameters): Filter for requested CmdbObjectRelations
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the iteration fails, 500 on an unexpected error
+        HTTPException: 400 if the types the caller may not read cannot be resolved or the iteration fails,
+                       500 on an unexpected error
 
     Returns:
         GetMultiResponse: All the CmdbObjectRelations matching the CollectionParameters
@@ -254,7 +270,9 @@ def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUs
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        iteration_result: IterationResult[CmdbObjectRelation] = object_relations_manager.iterate(builder_params)
+        iteration_result: IterationResult[CmdbObjectRelation] = object_relations_manager.iterate(
+            builder_params, resolve_unreadable_type_ids_or_abort(request_user),
+        )
 
         object_relation_list = [CmdbObjectRelation.to_json(object_relation) for object_relation
                                 in iteration_result.results]
@@ -275,7 +293,7 @@ def get_cmdb_object_relations(params: CollectionParameters, request_user: CmdbUs
 @object_relations_blueprint.route('/tabs/<int:object_id>', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-# NOTE: no .protect right yet - general gating for this route will be added later
+@object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.VIEW.value)
 @handle_route_errors("while retrieving the ObjectRelation tabs")
 def get_cmdb_object_relation_tabs(object_id: int, request_user: CmdbUser) -> Response:
     """
@@ -283,14 +301,19 @@ def get_cmdb_object_relation_tabs(object_id: int, request_user: CmdbUser) -> Res
 
     Returns one descriptor per (relation_id, role) group - relation_id, role, role-oriented label /
     icon / color and the instance count - so the frontend can build the relation tabs without
-    loading any CmdbObjectRelation instances
+    loading any CmdbObjectRelation instances.
+
+    The tabs are as readable as the object, and a relation whose other object the caller may not read is not
+    counted - a group made only of such relations is no tab at all
 
     Args:
         object_id (int): public_id of the CmdbObject whose relation tabs are requested
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the aggregation fails, 500 on an unexpected error
+        HTTPException: 403 if the caller may not read the object, 404 if it does not exist, 400 if reading it,
+                       resolving the types the caller may not read or the aggregation fails, 500 on an
+                       unexpected error
 
     Returns:
         DefaultResponse: ``{'results': [...]}`` with one entry per relation tab
@@ -298,8 +321,13 @@ def get_cmdb_object_relation_tabs(object_id: int, request_user: CmdbUser) -> Res
     try:
         object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
             ManagerType.OBJECT_RELATIONS, request_user)
+        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        tabs = object_relations_manager.get_relation_tabs(object_id)
+        read_tab_object_or_abort(object_id, request_user, objects_manager)
+
+        tabs = object_relations_manager.get_relation_tabs(
+            object_id, resolve_unreadable_type_ids_or_abort(request_user),
+        )
 
         return DefaultResponse({TabInstancesKey.RESULTS.value: tabs}).make_response()
     except ObjectRelationsManagerIterationError as err:
@@ -311,7 +339,7 @@ def get_cmdb_object_relation_tabs(object_id: int, request_user: CmdbUser) -> Res
 @object_relations_blueprint.route('/tabs/<int:object_id>/instances', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
-# NOTE: no .protect right yet - general gating for this route will be added later
+@object_relations_blueprint.protect(auth=True, right=ObjectRelationRight.VIEW.value)
 @handle_route_errors("while retrieving the ObjectRelation tab instances")
 def get_cmdb_object_relation_tab_instances(object_id: int, request_user: CmdbUser) -> Response:
     """
@@ -319,16 +347,20 @@ def get_cmdb_object_relation_tab_instances(object_id: int, request_user: CmdbUse
 
     A tab is identified by the ``relation_id`` and ``role`` query parameters (role 'parent' or
     'child'). Returns the paginated instances of that group, each with its own field_values and the
-    resolved counterpart (the object on the other side; null when it is missing / inactive /
-    ACL-hidden). ``total`` is the raw group size and drives the table pagination
+    resolved counterpart (the object on the other side; null when it is missing or inactive).
+    ``total`` is the group size and drives the table pagination.
+
+    The tab is as readable as the object, and a relation whose other object is of a type the caller may not
+    read is left out of the page and of ``total``. Only ``public_id`` sorts a tab
 
     Args:
         object_id (int): public_id of the CmdbObject whose relations are listed
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 if the tab or the pagination parameters are invalid or the query fails,
-                       500 on an unexpected error
+        HTTPException: 403 if the caller may not read the object, 404 if it does not exist, 400 if the tab or
+                       the pagination parameters are invalid, or reading the object, resolving the types the
+                       caller may not read or the query fails, 500 on an unexpected error
 
     Returns:
         DefaultResponse: ``{'total': int, 'count': int, 'results': [...]}``
@@ -346,8 +378,12 @@ def get_cmdb_object_relation_tab_instances(object_id: int, request_user: CmdbUse
             ManagerType.OBJECT_RELATIONS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
+        read_tab_object_or_abort(object_id, request_user, objects_manager)
+
         instances, total = object_relations_manager.get_relation_tab_instances(
-            object_id, relation_id, role, limit=limit, skip=skip, sort=sort, order=order)
+            object_id, relation_id, role, limit=limit, skip=skip, sort=sort, order=order,
+            denied_type_ids=resolve_unreadable_type_ids_or_abort(request_user),
+        )
 
         results = _build_tab_instance_rows(instances, role, request_user, objects_manager)
 
@@ -371,12 +407,15 @@ def get_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Response
     """
     HTTP `GET`/`HEAD` route to retrieve a single CmdbObjectRelation
 
+    Refused with a 403 when the caller may not read the object at either end
+
     Args:
         public_id (int): public_id of the CmdbObjectRelation
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 404 if no such CmdbObjectRelation exists, 400 if the read fails,
+        HTTPException: 404 if no such CmdbObjectRelation exists, 403 if the caller may not read one of its
+                       objects, 400 if the read or resolving the types the caller may not read fails,
                        500 on an unexpected error
 
     Returns:
@@ -389,6 +428,10 @@ def get_cmdb_object_relation(public_id: int, request_user: CmdbUser) -> Response
         requested_object_relation = object_relations_manager.get_object_relation(public_id)
 
         if requested_object_relation:
+            if not is_object_relation_readable(requested_object_relation,
+                                               resolve_unreadable_type_ids_or_abort(request_user)):
+                abort(403, OBJECT_RELATION_ACCESS_DENIED_MESSAGE.format(public_id=public_id))
+
             api_response = GetSingleResponse(requested_object_relation, body=request_wants_body())
 
             return api_response.make_response()
@@ -623,13 +666,16 @@ def _parse_tab_page_params() -> tuple[int, int, str, int]:
     """
     Reads and validates the pagination parameters of the relation-tab instances route
 
-    Every parameter is optional. An out-of-range `limit` or an `order` that is not a MongoDB sort
-    direction is refused instead of being clamped: `limit=0` would mean "no limit" and could dump a
-    whole tab in one response, and an unknown direction would otherwise silently sort ascending
+    Every parameter is optional. An out-of-range `limit`, a `sort` key outside TAB_SORT_KEYS or an
+    `order` that is not a MongoDB sort direction is refused instead of being clamped: `limit=0` would
+    mean "no limit" and could dump a whole tab in one response, any other sort key leaves the tab's
+    index and sorts the whole group in memory, and an unknown direction would otherwise silently sort
+    ascending
 
     Raises:
         HTTPException: 400 if a parameter is not a whole number, `limit` is outside
-                       1..MAX_TAB_PAGE_SIZE, `page` is below 1 or `order` is not 1 / -1
+                       1..MAX_TAB_PAGE_SIZE, `page` is below 1, `sort` is not in TAB_SORT_KEYS or
+                       `order` is not 1 / -1
 
     Returns:
         tuple[int, int, str, int]: The page size, the number of documents to skip, the sort field and
@@ -645,6 +691,9 @@ def _parse_tab_page_params() -> tuple[int, int, str, int]:
 
     if page < 1:
         abort(400, "'page' must be 1 or higher!")
+
+    if sort not in TAB_SORT_KEYS:
+        abort(400, TAB_SORT_KEY_INVALID_MESSAGE.format(allowed=', '.join(TAB_SORT_KEYS)))
 
     if order not in SORT_DIRECTIONS:
         abort(400, "'order' must be 1 (ascending) or -1 (descending)!")
@@ -663,7 +712,8 @@ def _build_tab_instance_rows(
 
     The counterpart is the object on the other side of the relation, so the side to resolve is the
     opposite of the tab's role. All counterparts of the page are rendered in one ACL-scoped batch;
-    a row whose counterpart is missing, inactive or ACL-hidden carries `None`
+    a row whose counterpart is missing or inactive carries `None`. A counterpart the caller may not read
+    never reaches this point - the manager leaves its relation out of the page
 
     Args:
         instances (list[dict[str, Any]]): The page's CmdbObjectRelation documents

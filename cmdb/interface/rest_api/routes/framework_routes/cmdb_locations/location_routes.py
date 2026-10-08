@@ -21,35 +21,28 @@ object_id it belongs to, the parent node it hangs under, and the object's type m
 Every route is guarded by a ``base.framework.location.*`` right (see ``LocationRight``) on top of
 ``ApiLevel.ADMIN``
 
-Six things govern a change here:
+Five things govern a change here:
 
+* **The placement writes are the two moves.** ``PATCH /<object_id>/parent`` places, moves or - with a null or
+  non-positive parent - removes one object's placement (its node's children are promoted onto the node's parent);
+  ``PATCH /parents`` moves several at once. There is no separate create, update or delete route: the object write
+  path mirrors the location itself, and an object delete removes its node in the delete cascade.
 * **The mirror must not desync.** A placement lives in two places - the CmdbLocation node's ``parent``
-  and the owning object's location field - and every write route updates both. `LocationsManager` owns
-  the node, `ObjectsManager.set_location_field_for_objects` the field; a route that touches one without
-  the other leaves the tree and the objects disagreeing.
-* **A placement write is a READ and an UPDATE of its object.** A node is named after its object's summary
-  line unless the request names it (``resolve_location_name``), and every write stores the object's location
-  field. So all five write routes ask the caller's ACL for READ and UPDATE on the object's type, and an active
-  type, before any other check (``read_placeable_object`` / ``authorize_object_placement``, 403); the batch move
-  decides once per type and refuses the whole batch. The delete asks it for the node's own object only - the
-  re-pointed children follow their parent. On the object write path the object's own write has already
-  authorized it.
-* **Racks own their placed members.** Three routes call ``guard_rack_location_change`` before writing
-  and ``reconcile_object_rack_membership`` after, so a drop onto a Rack's node becomes a membership and
-  a drag off it ends one. A new write route needs both, not one.
+  and the owning object's location field - and every write updates both (``move_object_location``).
+  `LocationsManager` owns the node, `ObjectsManager.set_location_field_for_objects` the field; a write that
+  touches one without the other leaves the tree and the objects disagreeing.
+* **A placement write is a READ and an UPDATE of its object.** Both moves ask the caller's ACL for READ and
+  UPDATE on the object's type, and an active type, before any other check (``read_placeable_object`` /
+  ``authorize_object_placement``, 403); the batch move decides once per type and refuses the whole batch. On the
+  object write path the object's own write has already authorized it.
+* **Racks own their placed members.** Both moves call ``guard_rack_location_change`` before writing and
+  ``reconcile_object_rack_membership`` after, so a drop onto a Rack's node becomes a membership and a drag off it
+  ends one. A new write route needs both, not one.
 * **The tree is read lazily.** ``/tree/roots`` + ``/tree/<id>/children`` walk one level at a time,
   ``/tree/path/<id>`` opens straight to a node and ``/tree/search`` returns a pruned forest; each node
   carries ``has_children`` so the frontend can offer an expand without fetching the subtree. No route
   returns the whole forest in one response. Every level is name-ordered by the manager
   (case-insensitive, public_id as tie-break), so no route sorts.
-* **The synthetic root is reachable here.** It is a CmdbLocation like any other, and it carries the
-  ``object_id`` sentinel 0 - so ``DELETE /0/object`` addresses the root. ``delete_location`` refuses it
-  (400); no route may work around that, because promoting the root's children onto its own ``parent``
-  sentinel would empty the tree.
-* **Three write routes have no frontend caller.** ``POST /``, ``PUT|PATCH /update_location`` and
-  ``DELETE /<object_id>/object`` are unused by ``location.service.ts`` - the object write path mirrors
-  the location itself, and an object delete removes its node in the delete cascade. They remain public
-  API; whether to keep them is a filed decision, not an oversight.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -64,8 +57,6 @@ from cmdb.manager import (
     ObjectsManager,
 )
 
-from cmdb.models.object_model import CmdbObject
-from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import (
     abort_if_query_too_slow,
@@ -78,21 +69,13 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
-    UpdateSingleResponse,
     GetMultiResponse,
     DefaultResponse,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
-    resolve_location_name,
-    authorize_node_object_change,
-    read_placeable_object,
-    validate_location_placement,
     build_location_forest,
     build_location_level,
-    parse_required_int,
-    delete_location_with_reparenting,
     normalize_parent_id,
-    validate_object_location_change,
     validate_object_location_move,
     validate_object_location_moves,
     move_object_location,
@@ -104,18 +87,14 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     BULK_MOVE_OBJECT_IDS_KEY,
-    LINKED_OBJECT_TYPE_MISMATCH_MSG,
     LocationRight,
 )
 from cmdb.models.location_model.location_constants import RootLocationDefault, LocationKey
 
-from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
 from cmdb.errors.manager.locations_manager import (
-    LocationsManagerInsertError,
     LocationsManagerGetError,
     LocationsManagerUpdateError,
-    LocationsManagerDeleteError,
     LocationsManagerIterationError,
 )
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
@@ -124,103 +103,6 @@ from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 LOGGER: Logger = getLogger(__name__)
 
 location_blueprint = APIBlueprint('locations', __name__)
-
-# --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
-
-@location_blueprint.route('/', methods=['POST'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right=LocationRight.ADD.value)
-@location_blueprint.parse_request_body()
-@handle_route_errors("while creating the new Location")
-def insert_cmdb_location(data: dict[str, Any], request_user: CmdbUser) -> Response:
-    """
-    HTTP `POST` route to insert a CmdbLocation into the database
-
-    Requires the ``base.framework.location.add`` right. Not called by the frontend - the object write
-    path mirrors the location itself (see the module docstring)
-
-    Writes both halves of the mirror, under the same rules as every other placement: the caller's ACL has to
-    grant READ (a node carries the object's summary as its name) and UPDATE (the object's location field is
-    written) on the linked object's type, and the type has to be active - checked first; the object must declare a
-    location field, the parent must exist, be selectable as a parent and not close a cycle, and the Rack
-    rules apply. The node's type fields come from the object's own type, and the object's location
-    field is pointed at the new parent
-
-    Args:
-        data (dict): JSON payload of the CmdbLocation which should be inserted (expects `object_id` and
-                     `parent`; `name` is optional and derived from the object when absent; `type_id` is
-                     optional and, when sent, must be the object's own type)
-        request_user (CmdbUser): User requesting this data
-
-    Raises:
-        HTTPException: 403 when the user lacks the right, may not read or change the linked Object, or its
-            Type is deactivated; 404 when the linked Object does not exist; 400 when a required field is
-            missing, `type_id` is not the Object's type, the Object has no location field, the parent is
-            invalid, a Rack rule refuses the placement or the insert fails; 500 when the Object's type cannot
-            be read or on an unexpected error
-
-    Returns:
-        DefaultResponse: The public_id of the newly created CmdbLocation
-    """
-    try:
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-
-        object_id: int = parse_required_int(data, LocationKey.OBJECT_ID.value)
-        parent: int = parse_required_int(data, LocationKey.PARENT.value)
-
-        # Before anything else: the caller has to be allowed to read the object and to change it
-        target: PlacementTarget = read_placeable_object(object_id, objects_manager, request_user)
-        linked_object: CmdbObject = target.cmdb_object
-        object_type: CmdbType = validate_location_placement(
-            linked_object, parent, objects_manager, locations_manager, target.object_type,
-        ).object_type
-
-        if data.get(LocationKey.TYPE_ID.value) is not None and \
-                parse_required_int(data, LocationKey.TYPE_ID.value) != object_type.public_id:
-            abort(400, LINKED_OBJECT_TYPE_MISMATCH_MSG.format(
-                object_id=object_id, object_type_id=object_type.public_id, type_id=data[LocationKey.TYPE_ID.value],
-            ))
-
-        # This route writes a node directly, so it needs the same Rack rules as every other placement
-        guard_rack_location_change(request_user, object_id, parent, locations_manager)
-
-        created_location_id = locations_manager.insert_location({
-            LocationKey.OBJECT_ID.value: object_id,
-            LocationKey.PARENT.value: parent,
-            LocationKey.TYPE_ID.value: object_type.public_id,
-            LocationKey.TYPE_LABEL.value: object_type.label,
-            LocationKey.TYPE_ICON.value: object_type.get_icon(),
-            LocationKey.TYPE_SELECTABLE.value: object_type.selectable_as_parent,
-            LocationKey.NAME.value: resolve_location_name(
-                data.get(LocationKey.NAME.value), linked_object, request_user,
-            ),
-        })
-
-        # The other half of the mirror: the object's location field holds the same parent as its node
-        objects_manager.set_location_field_for_objects([object_id], parent)
-
-        reconcile_object_rack_membership(
-            request_user, object_id, parent, objects_manager, types_manager, locations_manager,
-        )
-
-        return DefaultResponse(created_location_id).make_response()
-    except TypesManagerGetError as err:
-        LOGGER.error("[insert_cmdb_location] TypesManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the Type of the linked Object from the database!")
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[insert_cmdb_location] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the linked Object from the database!")
-    except ObjectsManagerUpdateError as err:
-        abort_if_too_large(err)
-        LOGGER.error("[insert_cmdb_location] ObjectsManagerUpdateError: %s", err, exc_info=True)
-        abort(400, "Failed to point the linked Object at its new Location!")
-    except LocationsManagerInsertError as err:
-        abort_if_too_large(err)
-        LOGGER.error("[insert_cmdb_location] LocationsManagerInsertError: %s", err, exc_info=True)
-        abort(400, "Failed to insert the new Location in the database!")
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -616,90 +498,6 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[get_cmdb_children] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve Location for Object with ID: {object_id} from the database!")
 
-# --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
-
-@location_blueprint.route('/update_location', methods=['PUT', 'PATCH'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right=LocationRight.EDIT.value)
-@location_blueprint.parse_request_body()
-@handle_route_errors("while updating a Location")
-def update_cmdb_location_for_object(data: dict[str, Any], request_user: CmdbUser) -> Response:
-    """
-    HTTP `PUT`/`PATCH` route to update the CmdbLocation linked to an object
-
-    The caller's ACL has to grant READ (the node's name is the object's summary, and the answer echoes the
-    node) and UPDATE (the object's location field is written) on the object's type, and the type has to be
-    active - checked first. The new parent is validated (must exist, be selectable-as-parent and not
-    create a cycle) before the write. Both sides of the object<->location mirror are updated: the CmdbLocation node's
-    parent/name and the owning object's location field value, so they cannot desync
-
-    Requires the ``base.framework.location.edit`` right. Not called by the frontend (see the module
-    docstring)
-
-    Args:
-        data (dict[str, Any]): JSON payload with the location parameters
-                               (expects `object_id`, `parent` and `name`)
-        request_user (CmdbUser): User requesting the update
-
-    Raises:
-        HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject, or its Type
-            is deactivated; 404 when the CmdbObject does not exist or has no CmdbLocation; 400 when a required
-            field is missing, the new parent is invalid, a Rack rule refuses the move or the write fails; 500 on
-            an unexpected error
-
-    Returns:
-        Response: The CmdbLocation node as stored after the update (UpdateSingleResponse)
-    """
-    try:
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        location_update_params: dict[str, Any] = {}
-
-        object_id: int = parse_required_int(data, LocationKey.OBJECT_ID.value)
-        parent: int = parse_required_int(data, LocationKey.PARENT.value)
-        location_update_params[LocationKey.PARENT.value] = parent
-
-        # A node carries its object's summary as its name, and this answer echoes it: a read of the object. And
-        # the object's location field is written: an update of it. Both before anything else
-        linked_object: CmdbObject = read_placeable_object(object_id, objects_manager, request_user).cmdb_object
-
-        to_update_location = locations_manager.get_location_for_object(object_id)
-
-        if not to_update_location:
-            abort(404, f"The Location for Object with ID:{object_id} was not found!")
-
-        # Reject an invalid new parent (missing / not selectable-as-parent / cycle) before writing
-        validate_object_location_change(object_id, parent, locations_manager)
-        # ... and the Rack rules, which this route may not skip
-        guard_rack_location_change(request_user, object_id, parent, locations_manager)
-
-        location_update_params[LocationKey.NAME.value] = resolve_location_name(
-            data.get(LocationKey.NAME.value), linked_object, request_user,
-        )
-
-        locations_manager.update_location(object_id, location_update_params)
-
-        # Keep the mirror in sync: the object's location field holds the same parent id as the node
-        objects_manager.set_location_field_for_objects([object_id], parent)
-
-        reconcile_object_rack_membership(
-            request_user, object_id, parent, objects_manager, types_manager, locations_manager,
-        )
-
-        # The write is a partial $set whose name is resolved server-side, so the stored node is read back
-        # rather than echoing the request: that read is the only thing that knows the full document
-        return UpdateSingleResponse(locations_manager.get_location_for_object(object_id)).make_response()
-    except ObjectsManagerGetError as err:
-        LOGGER.error("[update_cmdb_location_for_object] ObjectsManagerGetError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the linked Object from the database!")
-    except (LocationsManagerUpdateError, ObjectsManagerUpdateError) as err:
-        abort_if_too_large(err)
-        LOGGER.error("[update_cmdb_location_for_object] Update error: %s", err, exc_info=True)
-        abort(400, "Failed to update the Location in the database!")
-
 # ---------------------------------------------- CRUD - MOVE (drag & drop) ------------------------------------------- #
 
 @location_blueprint.route('/<int:object_id>/parent', methods=['PATCH'])
@@ -855,65 +653,3 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
         abort_if_too_large(err)
         LOGGER.error("[move_cmdb_locations] LocationsManager error: %s", err, exc_info=True)
         abort(400, "Failed to move the Locations of the requested Objects!")
-
-# --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
-
-@location_blueprint.route('/<int:object_id>/object', methods=['DELETE'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.ADMIN)
-@location_blueprint.protect(auth=True, right=LocationRight.DELETE.value)
-@handle_route_errors("while deleting an Location for Object with ID:{object_id}")
-def delete_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Response:
-    """
-    HTTP `DELETE` route to delete the CmdbLocation linked to the given object_id
-
-    Requires the ``base.framework.location.delete`` right, and the caller's READ and UPDATE on the node's
-    object's type (an active one). A node whose object - or whose object's type - is gone has no ACL left to
-    consult and is removable. The child objects whose location fields are re-pointed need no ACL of their own:
-    that is a consequence of removing their parent, as in the object delete cascade. Not called by the
-    frontend, which deletes an object together with its locations via ``DELETE /objects/<id>/locations`` (see
-    the module docstring)
-
-    Args:
-        object_id (int): public_id of the CmdbObject whose Location should be deleted
-        request_user (CmdbUser): user making the request
-
-    Raises:
-        HTTPException: 403 when the user lacks the right, may not read or change the node's CmdbObject, or its
-            Type is deactivated; 404 when the CmdbObject has no CmdbLocation; 400 when a Rack rule refuses the
-            removal or the deletion fails; 500 on an unexpected error
-
-    Returns:
-        Response: Acknowledgement of the deletion (DefaultResponse)
-    """
-    try:
-        locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-
-        to_delete_location = locations_manager.get_location_for_object(object_id)
-
-        if not to_delete_location:
-            abort(404, f"The Location linked to Object with ID: {object_id} was not found in the database!")
-
-        # Taking the object out of the tree is a placement write on it: READ + UPDATE, before anything else
-        authorize_node_object_change(object_id, objects_manager, request_user)
-
-        # A Rack member leaves the tree when it leaves the rack, not from here. No parent is requested,
-        # so this refuses every member outright
-        guard_rack_location_change(request_user, object_id, None, locations_manager)
-
-        # Deleting a location promotes its direct children - both the location nodes and the mirrored
-        # object location fields - onto this location's own parent, so a location with children is
-        # deletable (see delete_location_with_reparenting)
-        ack = delete_location_with_reparenting(to_delete_location, locations_manager, objects_manager)
-
-        # Losing its location ends an unassigned member's membership; a placed one never gets here
-        reconcile_object_rack_membership(
-            request_user, object_id, None, objects_manager, types_manager, locations_manager,
-        )
-
-        return DefaultResponse(ack).make_response()
-    except LocationsManagerDeleteError as err:
-        LOGGER.error("[delete_cmdb_location_for_object] LocationsManagerDeleteError: %s", err, exc_info=True)
-        abort(400, f"Failed to delete the Location linked to Object with ID: {object_id} from the database!")

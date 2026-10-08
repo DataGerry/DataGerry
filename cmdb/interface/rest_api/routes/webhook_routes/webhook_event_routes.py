@@ -32,13 +32,14 @@ frontend reads the log
 
 Three properties of this log matter before changing anything here:
 
-* **It is append-only and unbounded.** Every object write produces one document per matching active
-  webhook. There is no retention policy and no bulk prune - the delete route removes one row - and
-  deleting a CmdbWebhook deliberately leaves its events behind, so orphans accumulate. The indexes
-  declared on ``CmdbWebhookEvent`` are what keep reading it from degrading as it grows.
-* **Each row holds the full object documents.** ``object_before`` and ``object_after`` are complete
-  serialised CmdbObjects, and this route returns them for every row even though the frontend's table
-  renders four scalar columns.
+* **It grows with every delivery and is kept as long as its webhook.** Every object write produces one
+  document per matching active webhook, and there is no retention: an event lives until it is deleted here
+  (one row) or its CmdbWebhook is deleted, which takes the webhook's whole log with it (``delete_webhook``).
+  The indexes declared on ``CmdbWebhookEvent`` are what keep reading it from degrading as it grows.
+* **Each stored event holds what was sent, object documents included.** A create carries ``object_after``, a
+  delete ``object_before``, an update or a state change both plus ``changes`` - complete serialised CmdbObjects.
+  The LIST answers only each event's scalar summary (``webhook_event_summary``); the single read answers the
+  whole event.
 * **Reading it applies the object ACL to the values, not to the rows.** For an object whose type the caller may
   not READ, ``object_before``, ``object_after`` and ``changes`` come back ``null`` - on the list and on the single
   read alike - while the rest of the row stays (``webhook_event_access``). The list masks them in the pipeline,
@@ -71,11 +72,13 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_access import (
     denied_object_type_ids,
     mask_event_object_values,
 )
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_event_summary import (
+    build_event_list_criteria,
+    summarize_webhook_event,
+)
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
-from cmdb.framework.results import IterationResult
 
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.webhooks_event_manager import (
     WebhooksEventManagerGetError,
     WebhooksEventManagerDeleteError,
@@ -161,9 +164,11 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
       (``$addFields`` + ``$match``, built in ``webhook-log-viewer.component.ts``), not as a plain
       criteria dict. Those stages reach the pipeline as given, which is why the filter shape can not
       simply be locked down on this route alone
-    - each row carries the complete ``object_before`` / ``object_after`` documents, while the table
-      renders only four scalar columns. For an object whose type the caller may not READ, those two and
-      ``changes`` are ``null`` - blanked by the first stage of the pipeline, before the caller's ones
+    - **a row is the event's summary** - ``public_id``, ``webhook_id``, ``operation``, ``event_time``, ``status``,
+      ``response_code`` (``WEBHOOK_EVENT_SUMMARY_KEYS``), never the object snapshots or the diff; the database
+      projects them away in the pipeline's LAST stage (``webhook_event_summary``), so the caller's ``?filter=``
+      still sees every field. ``GET /webhook_events/<id>`` answers the whole event. The object-ACL mask still runs
+      FIRST, so a filter cannot match a value the caller may not read
 
     The collection is indexed on ``webhook_id`` and ``event_time`` (see ``CmdbWebhookEvent``), the two
     keys this route is sorted and searched by
@@ -185,25 +190,23 @@ def get_webhook_events(params: CollectionParameters, request_user: CmdbUser) -> 
 
         builder_params: BuilderParameters = build_searchable_builder_params(params, WEBHOOK_EVENT_SEARCHABLE_FIELDS)
 
-        # First, before the caller's ?filter= stages: what is masked here cannot be matched on after it
-        masking_stage: dict[str, Any] | None = build_event_masking_stage(denied_object_type_ids(request_user))
+        # The mask first, before the caller's ?filter= stages: what is masked here cannot be matched on after it.
+        # The summary projection last: the filter still sees every field, the database sends only the scalars
+        builder_params.criteria = build_event_list_criteria(
+            build_event_masking_stage(denied_object_type_ids(request_user)), builder_params.get_criteria(),
+        )
 
-        if masking_stage:
-            builder_params.criteria = [masking_stage, *builder_params.get_criteria()]
-
-        iteration_result: IterationResult[CmdbWebhookEvent] = webhook_events_manager.iterate_items(builder_params)
-        webhook_event_list: list[dict[str, Any]] = [
-            CmdbWebhookEvent.to_json(webhook_event) for webhook_event in iteration_result.results
-        ]
+        documents, total = webhook_events_manager.iterate_query(builder_params)
+        webhook_event_list: list[dict[str, Any]] = [summarize_webhook_event(document) for document in documents]
 
         api_response = GetMultiResponse(webhook_event_list,
-                                        total=iteration_result.total,
+                                        total=total,
                                         params=params,
                                         url=request.url,
                                         body=request_wants_body())
 
         return api_response.make_response()
-    except (WebhooksEventManagerIterationError, BaseManagerGetError) as err:
+    except (WebhooksEventManagerIterationError, BaseManagerIterationError, BaseManagerGetError) as err:
         abort_if_query_too_slow(err)
         LOGGER.error("[get_webhook_events] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, "Could not retrieve Webhook Events!")

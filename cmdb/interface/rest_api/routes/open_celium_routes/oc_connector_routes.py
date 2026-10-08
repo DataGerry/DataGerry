@@ -15,6 +15,9 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 All API routes for OpenCelium Connectors
+
+Guarded by the ``base.openCelium.connector.*`` rights (``OcRight``); the invoker routes ask for
+``base.openCelium.connector.view`` too. Gated behind the AUTOMATIONS licence
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -40,7 +43,11 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_connector_helper impor
     get_accessible_connector_ids,
 )
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_subscription_helper import read_or_seed_cached_user
-from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey, MASTER_PW_HEADER
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import (
+    OcResponseKey,
+    MASTER_PW_HEADER,
+    OcRight,
+)
 
 from cmdb.errors.open_celium.connector import (
     OcConnectorCreateError,
@@ -57,10 +64,10 @@ oc_connectors_blueprint = APIBlueprint('oc_connectors', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @oc_connectors_blueprint.route('/connectors', methods=['POST'])
-@handle_oc_errors("creating an OpenCelium Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.add')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_ADD.value)
+@handle_oc_errors("creating an OpenCelium Connector!")
 def create_oc_connector(request_user: CmdbUser) -> Response:
     """
     POST route to create an OcConnector in OpenCelium
@@ -119,10 +126,10 @@ def create_oc_connector(request_user: CmdbUser) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors/check', methods=['POST'])
-@handle_oc_errors("checking the credentials of the OpenCelium Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.add')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_ADD.value)
+@handle_oc_errors("checking the credentials of the OpenCelium Connector!")
 def check_oc_connector(request_user: CmdbUser) -> Response:
     """
     POST route validate credentials of the Invoker of the Connector
@@ -144,10 +151,10 @@ def check_oc_connector(request_user: CmdbUser) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors/with_pw', methods=['POST'])
-@handle_oc_errors("checking the master password!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("checking the master password!")
 def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
     """
     POST route to check the master password for connectors.
@@ -248,10 +255,10 @@ def check_oc_connector_master_pw(request_user: CmdbUser) -> Response:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("retrieving the OpenCelium Connector!")
 def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     """
     GET/HEAD route to retrieve an OcConnector with the given connector_id.
@@ -331,10 +338,10 @@ def get_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors/master_password', methods=['GET', 'HEAD'])
-@handle_oc_errors("checking master password!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("checking master password!")
 def check_master_password(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route to verify the OC master password
@@ -367,10 +374,10 @@ def check_master_password(request_user: CmdbUser) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors/master_password/exists', methods=['GET', 'HEAD'])
-@handle_oc_errors("checking master password existance!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("checking master password existance!")
 def check_master_password_exists(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route to verify if the OC master password exists
@@ -395,10 +402,10 @@ def check_master_password_exists(request_user: CmdbUser) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving OpenCelium Connectors!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("retrieving OpenCelium Connectors!")
 def get_all_oc_connectors(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route for retrieving multiple OcConnectors.
@@ -451,10 +458,10 @@ def get_all_oc_connectors(request_user: CmdbUser) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors/exists/<string:title>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("retrieving the OpenCelium Connector!")
 def check_oc_connector_exists(request_user: CmdbUser, title: str) -> Response:
     """
     GET/HEAD route to check if a connector with the given title exists
@@ -484,10 +491,10 @@ def check_oc_connector_exists(request_user: CmdbUser, title: str) -> Response:
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['PUT'])
-@handle_oc_errors("updating an OpenCelium Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.edit')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_EDIT.value)
+@handle_oc_errors("updating an OpenCelium Connector!")
 def update_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     """
     PUT route to update an OcConnector.
@@ -541,10 +548,10 @@ def update_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @oc_connectors_blueprint.route('/connectors/<int:connector_id>', methods=['DELETE'])
-@handle_oc_errors("deleting the OpenCelium Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.delete')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_DELETE.value)
+@handle_oc_errors("deleting the OpenCelium Connector!")
 def delete_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
     """
     HTTP DELETE route to delete an OcConnector.
@@ -589,10 +596,10 @@ def delete_oc_connector(request_user: CmdbUser, connector_id: int) -> Response:
 # -------------------------------------------------- INTERNAL ROUTES ------------------------------------------------- #
 
 @oc_connectors_blueprint.route('/connectors/internal', methods=['POST'])
-@handle_oc_errors("creating the internal DG Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.add')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_ADD.value)
+@handle_oc_errors("creating the internal DG Connector!")
 def create_oc_internal_connector(request_user: CmdbUser) -> Response:
     """
     POST route to create an internal OcConnector in OpenCelium.
@@ -645,10 +652,10 @@ def create_oc_internal_connector(request_user: CmdbUser) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors/internal', methods=['PUT'])
-@handle_oc_errors("updating the internal Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.edit')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_EDIT.value)
+@handle_oc_errors("updating the internal Connector!")
 def update_internal_oc_connector(request_user: CmdbUser) -> Response:
     """
     PUT route to update the internal OcConnector.
@@ -707,10 +714,10 @@ def update_internal_oc_connector(request_user: CmdbUser) -> Response:
 
 
 @oc_connectors_blueprint.route('/connectors/internal/get', methods=['POST'])
-@handle_oc_errors("retrieving the internal Connector!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connectors_blueprint.protect(auth=True, right='base.openCelium.connector.view')
+@oc_connectors_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("retrieving the internal Connector!")
 def get_internal_oc_connector(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route to retrive the internal OC Connector

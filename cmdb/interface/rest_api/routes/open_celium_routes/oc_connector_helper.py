@@ -28,6 +28,7 @@ from typing import Any
 
 from flask import current_app
 
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.manager import DgServicePortalManager, CachedUserManager
 from cmdb.manager.open_celium_managers.oc_connector_manager import OcConnectorManager
 
@@ -57,7 +58,7 @@ def build_connector_manager(request_user: CmdbUser) -> OcConnectorManager:
     Returns:
         OcConnectorManager: The manager to talk to OpenCelium with
     """
-    return OcConnectorManager(current_app.database_manager, request_user.database)
+    return OcConnectorManager(current_app.database_manager, ManagerProvider.tenant_database(request_user))
 
 
 def connector_in_subscription(

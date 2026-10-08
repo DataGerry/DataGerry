@@ -26,12 +26,20 @@ The document's own keys live with the model (``ObjectRelationKey``, ``ObjectRela
 ``cmdb.models.log_model``) because the managers read the very same keys.
 """
 from cmdb.utils import BaseStrEnum
+from cmdb.models.object_relation_model import ObjectRelationKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
     'DEFAULT_TAB_PAGE_SIZE',
     'MAX_TAB_PAGE_SIZE',
     'SORT_DIRECTIONS',
+    'TAB_SORT_KEYS',
+    'TAB_SORT_KEY_INVALID_MESSAGE',
+    'OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE',
+    'OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE',
+    'OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE',
+    'OBJECT_RELATION_ACCESS_DENIED_MESSAGE',
+    'OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE',
     'RelationRight',
     'ObjectRelationRight',
     'ObjectRelationLogRight',
@@ -50,6 +58,28 @@ MAX_TAB_PAGE_SIZE: int = 1000
 
 # Sort directions accepted by the relation-tab instances route, in MongoDB's own encoding
 SORT_DIRECTIONS: tuple[int, ...] = (1, -1)
+
+# Sort keys accepted by the relation-tab instances route. A tab is served by the compound
+# (relation_id, side, public_id) index, so only public_id sorts a page without an in-memory sort
+TAB_SORT_KEYS: tuple[str, ...] = (ObjectRelationKey.PUBLIC_ID.value,)
+
+TAB_SORT_KEY_INVALID_MESSAGE: str = "'sort' must be one of: {allowed}!"
+
+# Refusals of the relation-tab routes. The tabs of an object are as readable as the object itself:
+# 403 when the caller may not read it, 404 when it does not exist, 400 when reading it failed
+OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE: str = (
+    "You may not read the relations of the Object with ID:{object_id}!"
+)
+OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE: str = "The Object with ID:{object_id} was not found!"
+OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE: str = (
+    "Failed to read the Object with ID:{object_id} whose relations are requested!"
+)
+
+# The 403 of a single CmdbObjectRelation read when the caller may not read one of its two objects
+OBJECT_RELATION_ACCESS_DENIED_MESSAGE: str = "You may not read the ObjectRelation with ID:{public_id}!"
+
+# The 400 of an object-relation read when the types the caller may not read could not be resolved
+OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE: str = "Failed to resolve which Objects you may read!"
 
 
 # Refusals (HTTP 400) for a CmdbRelation payload that is not internally consistent. A relation

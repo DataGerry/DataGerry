@@ -24,6 +24,7 @@ from cmdb.utils import BaseStrEnum
 
 __all__: list[str] = [
     'OBJECT_VALUE_KEYS',
+    'WEBHOOK_EVENT_SUMMARY_KEYS',
     'WebhookEventKey',
 ]
 
@@ -46,4 +47,15 @@ OBJECT_VALUE_KEYS: tuple[WebhookEventKey, ...] = (
     WebhookEventKey.OBJECT_BEFORE,
     WebhookEventKey.OBJECT_AFTER,
     WebhookEventKey.CHANGES,
+)
+
+# What a row of the event LIST carries: every scalar key, none of the object values. The single read answers the
+# whole event; the list leaves out the snapshots no table shows, so a page costs scalars rather than documents
+WEBHOOK_EVENT_SUMMARY_KEYS: tuple[WebhookEventKey, ...] = (
+    WebhookEventKey.PUBLIC_ID,
+    WebhookEventKey.WEBHOOK_ID,
+    WebhookEventKey.OPERATION,
+    WebhookEventKey.EVENT_TIME,
+    WebhookEventKey.STATUS,
+    WebhookEventKey.RESPONSE_CODE,
 )

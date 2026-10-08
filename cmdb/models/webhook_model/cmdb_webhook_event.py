@@ -46,10 +46,11 @@ class CmdbWebhookEvent(CmdbDAO):
     COLLECTION = 'framework.webhookEvents'
     DEFAULT_VERSION: str = '1.0.0'
 
-    # This collection is append-only and unbounded - one document per object write per matching active
-    # webhook - and it is never read by public_id from the UI. The log table sorts by webhook_id (its
-    # default) and searches webhook_id / event_time, so without these two declarations every page view
-    # is a collection scan plus an in-memory sort over a collection that only ever grows
+    # This collection grows with every delivery - one document per object write per matching active webhook,
+    # kept until its webhook is deleted (which deletes the webhook's events too) - and it is never read by
+    # public_id from the UI. The log table sorts by webhook_id (its default) and searches webhook_id /
+    # event_time, so without these two declarations every page view is a collection scan plus an in-memory
+    # sort over a collection that keeps growing
     INDEX_KEYS: list[dict[str, Any]] = [
         {
             'keys': [('webhook_id', CmdbDAO.DAO_ASCENDING)],

@@ -131,6 +131,11 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
 
     app.config.from_object(app_config[config_name_for_mode(cmdb.__MODE__)])
 
+    # Error bodies go through Flask's own JSON provider, which pretty-prints whenever DEBUG is on - and the
+    # development and testing configs set it. Compact always, so an error answers in the same encoding as
+    # every success body (DEFAULT_JSON_INDENT)
+    app.json.compact = True
+
     # The mount point belongs to whoever knows it. DispatcherMiddleware mounts this app at /rest,
     # so it is set here rather than on the shared Config class - where it also reached the SPA host,
     # which is mounted at /

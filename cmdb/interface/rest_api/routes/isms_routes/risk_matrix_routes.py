@@ -26,7 +26,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import IsmsRiskMatrix
-from cmdb.models.isms_model.isms_helper import ensure_risk_matrix_matches_scales
+from cmdb.models.isms_model.isms_helper import ensure_default_risk_matrix, ensure_risk_matrix_matches_scales
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -47,6 +47,7 @@ from cmdb.interface.rest_api.responses import (
 
 from cmdb.errors.manager.risk_matrix_manager import (
     RiskMatrixManagerGetError,
+    RiskMatrixManagerInsertError,
     RiskMatrixManagerUpdateError,
 )
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
@@ -65,6 +66,7 @@ risk_matrix_blueprint = APIBlueprint('risk_matrices', __name__)
 @handle_route_errors("while retrieving the RiskMatrix with ID: {public_id}")
 @handle_manager_errors(manager_error_messages(RISK_MATRIX_LABEL, {
     RiskMatrixManagerGetError: IsmsManagerErrorMessage.GET,
+    RiskMatrixManagerInsertError: IsmsManagerErrorMessage.INSERT,
 }))
 def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
     """
@@ -76,25 +78,35 @@ def get_isms_risk_matrix(public_id: int, request_user: CmdbUser) -> Response:
     minimum-configuration guard does, and what a restored dump can do. `ensure_risk_matrix_matches_scales`
     costs one count per scale when the grid is current and rebuilds it when it is not, carrying every
     existing risk-class assignment over. Only the singleton is healed: any other public_id is a 404 and
-    has no scales to be measured against
+    has no scales to be measured against.
+
+    **A missing singleton is recreated here**, as the empty default (``ensure_default_risk_matrix``), and then
+    built from the scales - this read is behind ``base.isms.riskMatrix.view``, which is what makes a write on
+    it acceptable. ``GET /isms/config/status`` needs no right and only reports a missing matrix as not ready
 
     Args:
         public_id (int): public_id of the IsmsRiskMatrix
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 404 for any public_id but the singleton's when it does not exist, 400 when reading or
+                       recreating the matrix fails, 500 on an unexpected error
+
     Returns:
-        GetSingleResponse: The requested IsmsRiskMatrix, rebuilt first if its shape was stale
+        GetSingleResponse: The requested IsmsRiskMatrix, recreated and rebuilt first if it was missing or stale
     """
     risk_matrix_manager: RiskMatrixManager = ManagerProvider.get_manager(
                                                                 ManagerType.RISK_MATRIX,
                                                                 request_user
                                                                      )
 
-    requested_risk_matrix = get_item_or_404(risk_matrix_manager, public_id,
-                                             f"The RiskMatrix with ID:{public_id} was not found!")
-
     if public_id == RISK_MATRIX_PUBLIC_ID:
-        requested_risk_matrix = ensure_risk_matrix_matches_scales(request_user, requested_risk_matrix)
+        requested_risk_matrix = ensure_risk_matrix_matches_scales(
+            request_user, ensure_default_risk_matrix(risk_matrix_manager),
+        )
+    else:
+        requested_risk_matrix = get_item_or_404(risk_matrix_manager, public_id,
+                                                 f"The RiskMatrix with ID:{public_id} was not found!")
 
     return GetSingleResponse(requested_risk_matrix, body=request_wants_body()).make_response()
 

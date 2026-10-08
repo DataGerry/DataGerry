@@ -19,7 +19,8 @@ Integration tests: what every location writer really stores satisfies ``CmdbLoca
 The schema is the stored document's contract and no write runs it, so it is only true if the writers produce what it
 says. Each writer is driven for real against MongoDB and its stored document validated:
 
-- ``POST /locations/`` (the route that builds the document from three ids and the object's type)
+- ``PATCH /locations/<object_id>/parent`` placing an unplaced object (the route builds the node from the object
+  and its type)
 - the object mirror (``location_helper.sync_object_location``) creating a node, then moving it - a partial ``$set``
   that must not leave the node short of a required key
 - the seeded root (``get_root_location_data``), as inserted
@@ -116,12 +117,10 @@ def _assert_satisfies_the_schema(document: dict[str, Any] | None) -> None:
 class TestEveryWriterSatisfiesTheSchema:
     """The three ways a location document comes to exist."""
 
-    def test_the_create_route(self, rest_api, locations) -> None:
-        """POST /locations/ builds the document from three ids and the object's type"""
-        response = rest_api.post('/locations/', json={
-            LocationKey.OBJECT_ID.value: ROUTE_OBJECT_ID,
+    def test_the_move_route(self, rest_api, locations) -> None:
+        """PATCH /locations/<object_id>/parent builds the node from the object and its type"""
+        response = rest_api.patch(f'/locations/{ROUTE_OBJECT_ID}/parent', json={
             LocationKey.PARENT.value: RootLocationDefault.PUBLIC_ID,
-            LocationKey.TYPE_ID.value: TYPE_ID,
         })
 
         assert response.status_code == 200

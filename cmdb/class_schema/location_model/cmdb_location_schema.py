@@ -20,11 +20,11 @@ A CmdbLocation is a node in the location tree that wraps a CmdbObject
 (collection ``framework.locations``).
 
 This module is the written-down contract of the **stored document**, exposed as CmdbLocation.SCHEMA. It is not a
-request validator, and no write runs it: ``POST /locations/`` takes two ids, an optional type id and an optional
-name and builds the rest from the object's own type (so its body is not this document), and every other write is
-the object mirror (``location_helper.sync_object_location``). What the schema says is held to the model by tests - the keys it requires
-are ``CmdbLocation.REQUIRED_INIT_KEYS``, the five the read path refuses a document without, and its defaults are
-``CmdbLocationDefault``'s - so the two descriptions of one document cannot drift apart.
+request validator, and no write runs it: every write is the object mirror (``location_helper.sync_object_location``,
+reached from the object write path and from the move routes through ``move_object_location``). What the schema
+says is held to the model by tests - the keys it requires are ``CmdbLocation.REQUIRED_INIT_KEYS``, the five the
+read path refuses a document without, and its defaults are ``CmdbLocationDefault``'s - so the two descriptions of
+one document cannot drift apart.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #

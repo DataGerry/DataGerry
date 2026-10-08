@@ -196,49 +196,69 @@ class ManagerProvider:
         return manager_class(*manager_args)
 
 
-    @staticmethod
-    def __get_manager_args(request_user: CmdbUser | None) -> tuple[Any, ...]:
+    @classmethod
+    def __get_manager_args(cls, request_user: CmdbUser | None) -> tuple[Any, ...]:
         """
         Returns the positional arguments a registered manager class is constructed from
 
         Local mode passes the process-wide database handle alone; cloud mode appends the database
-        of the requesting user, which is what routes the call to that user's tenant
+        of the requesting user (``tenant_database``), which is what routes the call to that user's tenant
 
         Args:
             request_user (CmdbUser | None): The user which is making the API call. Required in
                 cloud mode, ignored in local mode
 
+        Raises:
+            BaseManagerInitError: In cloud mode, without a request user or without its database
+
         Returns:
             tuple[Any, ...]: Arguments for the manager class initialisation - `(dbm,)` in local
                 mode, `(dbm, database)` in cloud mode
-
-        The tenant name is refused when it is falsy, not defaulted. `BaseManager` binds to
-        `dbm.db_name` for a None or empty `db_name`, so letting one through would silently serve a
-        cloud user out of the process-wide database - another tenant's - instead of failing. The
-        stored `database` may legitimately be absent (the schema allows null) which is exactly why
-        the check is here, where cloud mode is known
-
-        Raises:
-            BaseManagerInitError: If cloud mode is active and no request_user was given, or the
-                request_user carries no usable database name - in both cases there is no tenant
-                database to bind the manager to
         """
         common_args: tuple[Any, ...] = (current_app.database_manager,)
+        database: str | None = cls.tenant_database(request_user)
 
-        if current_app.cloud_mode:
-            if request_user is None:
-                LOGGER.error("[__get_manager_args] No request_user provided while in cloud mode!")
-                raise BaseManagerInitError("A request user is required to select the database in cloud mode")
+        return common_args if database is None else common_args + (database,)
 
-            if not request_user.database:
-                LOGGER.error(
-                    "[__get_manager_args] CmdbUser ID:%s carries no database while in cloud mode!",
-                    request_user.public_id,
-                )
-                raise BaseManagerInitError(
-                    f"The request user (ID: {request_user.public_id}) has no database to select in cloud mode"
-                )
 
-            return common_args + (request_user.database,)
+    @staticmethod
+    def tenant_database(request_user: CmdbUser | None) -> str | None:
+        """
+        Returns the database a request's managers are bound to: the user's tenant in cloud mode, None otherwise
 
-        return common_args
+        None means "the manager's own default" - the configured database of an on-premise installation, whatever
+        the user document says. A manager or connector built outside this provider (the OpenCelium ones) asks
+        here too, so no code path reads ``request_user.database`` on premise.
+
+        The tenant name is refused when it is falsy, not defaulted. ``BaseManager`` binds to ``dbm.db_name`` for
+        a None or empty ``db_name``, so letting one through would silently serve a cloud user out of the
+        process-wide database - another tenant's - instead of failing. The stored ``database`` may legitimately
+        be absent (the schema allows null; the model has no fallback), which is exactly why the check is here,
+        where cloud mode is known
+
+        Args:
+            request_user (CmdbUser | None): The user making the request. Required in cloud mode, ignored otherwise
+
+        Raises:
+            BaseManagerInitError: In cloud mode, without a request user or without its database
+
+        Returns:
+            str | None: The tenant database in cloud mode, None on premise
+        """
+        if not current_app.cloud_mode:
+            return None
+
+        if request_user is None:
+            LOGGER.error("[tenant_database] No request_user provided while in cloud mode!")
+            raise BaseManagerInitError("A request user is required to select the database in cloud mode")
+
+        if not request_user.database:
+            LOGGER.error(
+                "[tenant_database] CmdbUser ID:%s carries no database while in cloud mode!",
+                request_user.public_id,
+            )
+            raise BaseManagerInitError(
+                f"The request user (ID: {request_user.public_id}) has no database to select in cloud mode"
+            )
+
+        return request_user.database

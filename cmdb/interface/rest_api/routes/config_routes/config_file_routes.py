@@ -22,7 +22,8 @@ the configured values themselves never leave the backend
 
 The route is gated on the Automations licence on its own (``requires_feature``), not through the blueprint: the
 blueprint is the home of every config-file status route, and a status route for another section must not inherit
-the OpenCelium route's licence
+the OpenCelium route's licence. It asks for ``base.openCelium.connection.view`` (``OcRight``), the right every
+OpenCelium read asks for - the automations list, the one page that reads it, is guarded by the same right
 """
 from logging import Logger, getLogger
 from typing import Any, Callable
@@ -38,6 +39,7 @@ from cmdb.interface.route_utils import handle_route_errors, insert_request_user,
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcRight
 from cmdb.interface.rest_api.routes.config_routes.config_file_constants import (
     MIN_VALID_PORT,
     OcConfigStatusKey,
@@ -58,6 +60,7 @@ config_file_blueprint = APIBlueprint('config_file', __name__)
 @config_file_blueprint.route('/status/opencelium', methods=['GET', 'HEAD'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@config_file_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
 @requires_feature(LicenseFeature.AUTOMATIONS)
 @handle_route_errors("while checking the config file status for OpenCelium")
 def get_oc_config_status(request_user: CmdbUser) -> Response:
@@ -69,12 +72,17 @@ def get_oc_config_status(request_user: CmdbUser) -> Response:
     at all, or in cloud mode (where the OpenCelium connection comes from the service portal instead
     of `etc/cmdb.conf`); an incomplete section still reports `section: True` plus a False flag for
     every setting it does not define. `status` is True only when every setting is usable, which is
-    what the frontend gates the Automations view on. On-premise the route needs the Automations
-    licence (403 otherwise); any unexpected failure answers 500
+    what the frontend gates the Automations view on. It asks for ``base.openCelium.connection.view``, and
+    on-premise for the Automations licence; any unexpected failure answers 500
 
     Args:
         request_user (CmdbUser): The requesting user; unused in the body - the route only reads
-                                 process-wide config, but the user is injected to authenticate
+                                 process-wide config, but the user is injected to authenticate it and to
+                                 check its right
+
+    Raises:
+        HTTPException: 401 without a valid token, 403 without ``base.openCelium.connection.view`` or (on
+                       premise) without the Automations licence, 500 on an unexpected failure
 
     Returns:
         Response: A Flask Response object holding `status` and `section` (see `OcConfigStatusKey`)

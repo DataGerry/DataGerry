@@ -70,14 +70,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     RELATION_DELETE_LOG_PROJECTION,
-    build_type_object_counts,
     emit_object_state_change_events,
     emit_object_update_events,
     handle_create_object_log,
     handle_delete_invalid_object_relations,
     handle_delete_object_location,
     handle_notify_webhooks,
-    handle_sync_config_item_count,
     render_single_object,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
@@ -171,6 +169,19 @@ class TestRenderOrNative:
         result = render_or_native(ObjectViewMode.VALUES, objects, MagicMock())
 
         assert result == [{'public_id': 1, 'fields': {'hostname': 'srv-01'}, 'multi_data_sections': {}}]
+
+    def test_values_answers_one_view_per_object_in_order(self) -> None:
+        """A list page keeps its order, and each object is reshaped on its own"""
+        objects = [SimpleNamespace(public_id=public_id,
+                                   fields=[{'name': 'hostname', 'value': f'srv-{public_id}', 'type': 'text'}],
+                                   multi_data_sections=[])
+                   for public_id in (3, 1, 2)]
+
+        result = render_or_native(ObjectViewMode.VALUES, objects, MagicMock())
+
+        assert [(view['public_id'], view['fields']) for view in result] == [
+            (3, {'hostname': 'srv-3'}), (1, {'hostname': 'srv-1'}), (2, {'hostname': 'srv-2'}),
+        ]
 
     def test_values_never_renders(self) -> None:
         """
@@ -841,7 +852,7 @@ class TestApplyObjectUpdate:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             build_type_object_counts                                                #
+#                                               guard_object_delete                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGuardObjectDelete:
     """guard_object_delete is the one-target form of the shared delete guard."""
@@ -1396,6 +1407,10 @@ class TestApplyObjectUpdateFullPath:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              build_field_value_map                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
+DOTTED_FIELD_NAME: str = 'ip.address'
+DOTTED_FIELD_VALUE: str = '10.0.0.1'
+
+
 class TestBuildFieldValueMap:
     """build_field_value_map turns a stored fields list into a name-keyed value map."""
 
@@ -1445,6 +1460,18 @@ class TestBuildFieldValueMap:
     def test_a_non_string_name_is_skipped(self, name: Any) -> None:
         """A name that cannot be a JSON key is skipped instead of raising."""
         assert build_field_value_map([{'name': name, 'value': 1}]) == {}
+
+    def test_a_dotted_name_is_one_key(self) -> None:
+        """
+        A name is the key verbatim - a dot does not nest it
+
+        Names derived from labels may carry a dot, so a consumer must look the name up whole rather than
+        split it into a path
+        """
+        result = build_field_value_map([{'name': DOTTED_FIELD_NAME, 'value': DOTTED_FIELD_VALUE}])
+
+        assert result == {DOTTED_FIELD_NAME: DOTTED_FIELD_VALUE}
+        assert DOTTED_FIELD_NAME.split('.', maxsplit=1)[0] not in result
 
     def test_a_duplicate_name_resolves_to_the_last_entry(self) -> None:
         """

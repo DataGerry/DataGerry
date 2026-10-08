@@ -40,8 +40,8 @@ ADMIN: str = 'ADMIN'
 SUPER_ADMIN: str = 'SUPER_ADMIN'
 LOCKED: str = 'LOCKED'
 
-# The routes there were when the census was introduced - it must not silently shrink
-MIN_ROUTES: int = 364
+# The routes there are - the count must not silently shrink; a route removed on purpose lowers it here
+MIN_ROUTES: int = 360
 
 # route file -> the level its routes require
 FILE_LEVELS: dict[str, str] = {

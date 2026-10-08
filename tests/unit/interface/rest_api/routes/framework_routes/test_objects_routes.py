@@ -441,12 +441,12 @@ class TestBulkDeleteSyncsCloudCount:
         with flask_app.test_request_context('/', method='DELETE'):
             with patch(f'{ROUTE_PATH}.guard_objects_delete'), \
                  patch(f'{BULK_DELETE_PATH}.handle_delete_object_location'), \
-                 patch(f'{BULK_DELETE_PATH}.handle_delete_invalid_object_relations'), \
                  patch(f'{BULK_DELETE_PATH}.handle_rack_object_deleted'), \
                  patch(f'{BULK_DELETE_PATH}.handle_port_object_deleted'), \
                  patch(f'{BULK_DELETE_PATH}.handle_notify_webhooks'), \
                  patch(f'{BULK_DELETE_PATH}.handle_create_object_log'), \
                  patch(f'{ROUTE_PATH}.handle_delete_from_object_groups'), \
+                 patch(f'{ROUTE_PATH}.handle_delete_invalid_object_relations') as relation_cascade, \
                  patch(f'{ROUTE_PATH}.handle_sync_config_item_count') as sync:
                 response = _unwrap(delete_many_cmdb_objects)(
                     public_ids='1', request_user=SimpleNamespace(public_id=1),
@@ -455,6 +455,9 @@ class TestBulkDeleteSyncsCloudCount:
         assert response.get_json()['successfully'] == [1]
         sync.assert_called_once()
         assert sync.call_args.args[1] == 4  # the POST-delete total, read after the loop
+        # the relations of the whole selection go in one cascade, for the objects actually deleted
+        relation_cascade.assert_called_once()
+        assert relation_cascade.call_args.args[1] == [1]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -46,7 +46,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     REPORT_TARGET_TYPE_ACCESS_DENIED_MSG,
     REPORT_TYPE_ACCESS_DENIED_MSG,
     PREVIEW_LIMIT,
-    PREVIEW_PARAM,
     REPORT_REQUIRED_PARAMS,
     REPORT_WRITE_KEYS,
     ReportKey,
@@ -70,7 +69,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     collect_condition_field_names,
     load_report_or_404,
     normalize_report_params,
-    parse_boolean_param,
     resolve_report_query,
     resolve_report_type,
     strip_unknown_report_keys,
@@ -394,24 +392,6 @@ def test_strip_unknown_report_keys_keeps_only_the_whitelisted_keys() -> None:
     params = _valid_params(public_id='1', report_query='{}', injected='value')
 
     assert set(strip_unknown_report_keys(params)) == set(REPORT_WRITE_KEYS)
-
-
-# ------------------------------------------------- parse_boolean_param ---------------------------------------------- #
-
-@pytest.mark.parametrize('raw_value,expected', [('true', True), ('false', False), ('TRUE', True), (True, True)])
-def test_parse_boolean_param_accepts_the_boolean_literals(raw_value: Any, expected: bool) -> None:
-    """'true' / 'false' (any case) and native bools are accepted."""
-    assert parse_boolean_param(raw_value, PREVIEW_PARAM) is expected
-
-
-@pytest.mark.parametrize('raw_value', ['1', 'yes', '', 'maybe', None])
-def test_parse_boolean_param_rejects_anything_else_with_400(raw_value: Any) -> None:
-    """An unrecognised flag is a bad request, not an internal error from str_to_bool's ValueError."""
-    with pytest.raises(HTTPException) as exc_info:
-        parse_boolean_param(raw_value, PREVIEW_PARAM)
-
-    assert exc_info.value.code == HTTP_BAD_REQUEST
-    assert PREVIEW_PARAM in exc_info.value.description
 
 
 # ------------------------------------------------- load_report_or_404 ----------------------------------------------- #

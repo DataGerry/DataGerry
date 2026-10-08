@@ -44,6 +44,8 @@ from cmdb.interface.rest_api.routes.routes_helper import (
     get_file_in_request,
     get_element_from_data_request,
     fetch_only_active_objects,
+    read_boolean_query_param,
+    BOOLEAN_PARAM_INVALID_MSG,
     extract_public_ids,
     normalize_public_id_list,
     PUBLIC_ID_LIST_NOT_A_LIST_MSG,
@@ -126,6 +128,36 @@ class TestFetchOnlyActiveObjects:
         """A missing flag defaults to False."""
         with app.test_request_context('/'):
             assert fetch_only_active_objects() is False
+
+
+FLAG_PARAM: str = 'flag'
+
+
+class TestReadBooleanQueryParam:
+    """The API's one rule for a boolean query flag: absent is the default, true / false set it, anything else is 400."""
+
+    @pytest.mark.parametrize('default', [True, False])
+    def test_absent_answers_the_default(self, default: bool) -> None:
+        """Nothing sent, nothing to judge"""
+        with app.test_request_context('/'):
+            assert read_boolean_query_param(FLAG_PARAM, default) is default
+
+    @pytest.mark.parametrize('value, expected', [
+        ('true', True), ('false', False), ('TRUE', True), ('False', False), ('%20true%20', True),
+    ], ids=['true', 'false', 'upper', 'title', 'padded'])
+    def test_true_and_false_set_it(self, value: str, expected: bool) -> None:
+        """Any casing, surrounding whitespace ignored - whatever the default"""
+        with app.test_request_context(f'/?{FLAG_PARAM}={value}'):
+            assert read_boolean_query_param(FLAG_PARAM, not expected) is expected
+
+    @pytest.mark.parametrize('value', ['', '0', '1', 'no', 'yes', 'off', 'null', 'maybe'])
+    def test_anything_else_is_refused(self, value: str) -> None:
+        """Refused rather than guessed at - the empty value included"""
+        with app.test_request_context(f'/?{FLAG_PARAM}={value}'), pytest.raises(HTTPException) as refused:
+            read_boolean_query_param(FLAG_PARAM, True)
+
+        assert refused.value.code == HTTPStatus.BAD_REQUEST
+        assert refused.value.description == BOOLEAN_PARAM_INVALID_MSG.format(param=FLAG_PARAM)
 
 
 class TestExtractPublicIds:

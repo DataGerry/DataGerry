@@ -15,11 +15,24 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 All API routes for OpenCelium Schedulers
+
+A scheduler is the runnable half of an **Automation**; the create makes its OpenCelium connection with it and the
+delete removes both, so every route asks for the connection right of the same operation (``OcRight``) - the
+rights the frontend's automation screens are guarded by:
+
+    - ``base.openCelium.connection.view``: the scheduler, the list, the running ones, the execution logs
+    - ``base.openCelium.connection.add``: the create (it creates the connection too)
+    - ``base.openCelium.connection.edit``: the update, and running an Automation (``/schedulers/execute/<id>``)
+    - ``base.openCelium.connection.delete``: the delete (it deletes the connection too)
+
+The blueprint is gated behind the AUTOMATIONS licence (``init_rest_api``). In cloud mode every route that addresses
+one scheduler checks that it belongs to the caller's subscription (``assert_scheduler_access``). Running an
+Automation is a GET, which a safe method should not be - backend backlog **T328**
 """
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request, current_app
+from flask import abort, request
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
 
@@ -32,6 +45,8 @@ from cmdb.interface.route_utils import insert_request_user, verify_api_access, h
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper import (
+    build_scheduler_manager,
+    read_scheduler_update_body,
     assert_scheduler_access,
     get_accessible_scheduler_ids,
     AutomationWriters,
@@ -39,8 +54,15 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper impor
     read_automation_body,
     unmap_scheduler_titles,
 )
-from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import connection_in_subscription
-from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcAutomationMessage, OcResponseKey
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import (
+    build_connection_manager,
+    connection_in_subscription,
+)
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import (
+    OcAutomationMessage,
+    OcResponseKey,
+    OcRight,
+)
 
 from cmdb.errors.open_celium.scheduler import (
     OcSchedulerCreateError,
@@ -62,9 +84,10 @@ oc_schedulers_blueprint = APIBlueprint('oc_schedulers', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers', methods=['POST'])
-@handle_oc_errors("creating an Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("creating an Automation!")
 def create_oc_scheduler(request_user: CmdbUser) -> Response:
     """
     POST route to create an OcScheduler (an Automation) in OpenCelium, together with its connection
@@ -90,14 +113,8 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
         Response: The created scheduler
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
-        oc_connection_manager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         # Cloud-only collaborators; left None on-premise where the cloud branches are skipped
         dg_sp_manager = None
@@ -153,9 +170,10 @@ def create_oc_scheduler(request_user: CmdbUser) -> Response:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Automation!")
 def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     GET/HEAD route to retrieve an OcScheduler by schedulerId.
@@ -163,12 +181,13 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     Cloud mode:
         - Validate access using cache first, then DG SP
         - Unmap title for frontend display
+
+    Raises:
+        HTTPException: 403 without ``base.openCelium.connection.view``; in cloud mode 400 for an Automation outside the
+                       subscription; 500 when OpenCelium cannot answer it
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
 
         # In cloud mode, verify the Automation belongs to the requesting user (cache-first)
         assert_scheduler_access(request_user, scheduler_id)
@@ -191,9 +210,10 @@ def get_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 
 
 @oc_schedulers_blueprint.route('/schedulers', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving Automations!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving Automations!")
 def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route to retrieve all accessible OcSchedulers.
@@ -204,12 +224,12 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
 
     Local mode:
         - Returns all schedulers directly.
+
+    Raises:
+        HTTPException: 403 without ``base.openCelium.connection.view``; 500 when OpenCelium cannot answer the list
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
 
         # CLOUD MODE → Retrieve scheduler IDs (CACHE FIRST)
         if is_hosted_cloud():
@@ -237,18 +257,20 @@ def get_all_oc_schedulers(request_user: CmdbUser) -> Response:
 
 
 @oc_schedulers_blueprint.route('/schedulers/running', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving running Automations!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving running Automations!")
 def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route to retrieve running schedulers
+
+    Raises:
+        HTTPException: 403 without ``base.openCelium.connection.view``; 500 when OpenCelium cannot answer the running
+                       ones
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
 
         running_schedulers: list[dict[str, Any]] = oc_scheduler_manager.get_running_schedulers()
 
@@ -283,14 +305,19 @@ def get_oc_running_schedulers(request_user: CmdbUser) -> Response:
 
 
 @oc_schedulers_blueprint.route('/schedulers/logs', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving Automation logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving Automation logs!")
 def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route to retrieve logs of an OC scheduler
 
     status (str): It can either be s (success) or f (failed)
+
+    Raises:
+        HTTPException: 403 without ``base.openCelium.connection.view``; 400 for a missing or unknown log status, 500
+                       when OpenCelium cannot answer
     """
     try:
         scheduler_id: int | None = request.args.get("scheduler_id", type=int)
@@ -305,10 +332,7 @@ def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
         if not status in ["s", "f"]:
             abort(400, "Invalid status provided. Status can be either 's' for success or 'f' for failed logs!")
 
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
 
         # In cloud mode, verify the Automation belongs to the requesting user (cache-first)
         assert_scheduler_access(request_user, scheduler_id)
@@ -325,21 +349,23 @@ def get_oc_scheduler_logs(request_user: CmdbUser) -> Response:
 
 
 @oc_schedulers_blueprint.route('/schedulers/execute/<int:scheduler_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("executing the Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_EDIT.value)
+@handle_oc_errors("executing the Automation!")
 def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     GET/HEAD route to execute an OC Scheduler with the given scheduler_id.
 
     Cloud mode:
         - Scheduler ID validity is checked via cache first, then DG SP.
+
+    Raises:
+        HTTPException: 403 without ``base.openCelium.connection.edit``; in cloud mode 400 for an Automation outside the
+                       subscription; 500 when OpenCelium cannot run it
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
 
         # In cloud mode, verify the Automation belongs to the requesting user (cache-first)
         assert_scheduler_access(request_user, scheduler_id)
@@ -357,9 +383,10 @@ def execute_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['PUT'])
-@handle_oc_errors("updating an Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_EDIT.value)
+@handle_oc_errors("updating an Automation!")
 def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     PUT route to update an OcScheduler.
@@ -367,18 +394,19 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     Cloud mode:
         - Scheduler ID access validated via cache first, then DG Service Portal
         - Title is mapped/unmapped per tenant
+
+    Raises:
+        HTTPException: 403 without ``base.openCelium.connection.edit``; in cloud mode 400 for an Automation outside the
+                       subscription; 400 when the body is no object or its title is missing (cloud mode), blank or no
+                       text, or the update fails
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
 
         # In cloud mode, verify the Automation belongs to the requesting user (cache-first)
         assert_scheduler_access(request_user, scheduler_id)
 
-        # UPDATE PARAMS
-        params: dict[str, Any] = request.json
+        params: dict[str, Any] = read_scheduler_update_body(request.json, title_required=is_hosted_cloud())
 
         # Map titles
         if is_hosted_cloud():
@@ -400,9 +428,10 @@ def update_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
 @oc_schedulers_blueprint.route('/schedulers/<int:scheduler_id>', methods=['DELETE'])
-@handle_oc_errors("deleting the Automation!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_schedulers_blueprint.protect(auth=True, right=OcRight.CONNECTION_DELETE.value)
+@handle_oc_errors("deleting the Automation!")
 def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
     """
     DELETE route to delete an OcScheduler
@@ -411,16 +440,14 @@ def delete_oc_scheduler(request_user: CmdbUser, scheduler_id: int) -> Response:
         - Validate schedulerId and its connectionId via cache first,
           then Service Portal.
         - Remove deleted IDs from Service Portal.
+
+    Raises:
+        HTTPException: 403 without ``base.openCelium.connection.delete``; in cloud mode 400 for an Automation outside
+                       the subscription; 500 when a delete fails
     """
     try:
-        oc_scheduler_manager = OcSchedulerManager(
-            current_app.database_manager,
-            request_user.database
-        )
-        oc_connection_manager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_scheduler_manager: OcSchedulerManager = build_scheduler_manager(request_user)
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         # Cloud-only collaborators; left None on-premise where the cloud branches are skipped
         dg_sp_manager = None

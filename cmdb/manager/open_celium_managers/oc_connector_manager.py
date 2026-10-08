@@ -91,7 +91,7 @@ class OcConnectorManager(OcBaseManager):
 
     Extends: OcBaseManager
     """
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str | None) -> None:
         """
         Initialises the OcConnectorManager
 
@@ -102,7 +102,8 @@ class OcConnectorManager(OcBaseManager):
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
-            db_name (str): Name of the database the OpenCelium credentials are read from
+            db_name (str | None): Name of the database the OpenCelium token is cached in - the caller's tenant in
+                cloud mode, None (the configured database) on premise
 
         Raises:
             OcConnectorMasterPasswordError: On a hosted installation whose environment carries no

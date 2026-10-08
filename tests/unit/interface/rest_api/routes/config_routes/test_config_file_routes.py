@@ -26,6 +26,8 @@ generic error tail is still part of what is called - inside a Flask test_request
 The hosting app carries a `cloud_mode` flag because the route branches on it, mirroring
 `BaseCmdbApp`.
 """
+import ast
+import inspect
 from typing import Any, Callable
 
 from unittest.mock import MagicMock, patch
@@ -40,6 +42,7 @@ from cmdb.interface.rest_api.routes.config_routes.config_file_routes import (
     _setting_check,
     get_oc_config_status,
 )
+from cmdb.interface.rest_api.routes.config_routes import config_file_routes
 from cmdb.open_celium.oc_constants import OC_CONFIG_KEYS, OcConfigKey
 from cmdb.errors.system_config import ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -274,4 +277,39 @@ def test_each_setting_has_exactly_one_check(key: OcConfigKey) -> None:
     expected = _is_valid_port if key is OcConfigKey.PORT else _is_configured
 
     assert _setting_check(key) is expected
+
+
+# ----------------------------------------------------- the gate ----------------------------------------------------- #
+
+STATUS_ROUTE_ORDER: list[str] = [
+    'route', 'insert_request_user', 'verify_api_access', 'protect', 'requires_feature', 'handle_route_errors',
+]
+
+
+def _status_route_decorators() -> list[ast.expr]:
+    """The status route's decorators, outermost first"""
+    tree = ast.parse(inspect.getsource(config_file_routes))
+
+    return next(node for node in ast.walk(tree)
+                if isinstance(node, ast.FunctionDef) and node.name == 'get_oc_config_status').decorator_list
+
+
+def _name(decorator: ast.expr) -> str:
+    """`bp.protect(...)` -> 'protect'"""
+    target = decorator.func if isinstance(decorator, ast.Call) else decorator
+
+    return target.attr if isinstance(target, ast.Attribute) else getattr(target, 'id', '')
+
+
+def test_the_status_route_asks_for_the_connection_view_right() -> None:
+    """The right every OpenCelium read asks for"""
+    rights = [ast.unparse(keyword.value) for decorator in _status_route_decorators()
+              if _name(decorator) == 'protect' for keyword in decorator.keywords if keyword.arg == 'right']
+
+    assert rights == ['OcRight.CONNECTION_VIEW.value']
+
+
+def test_the_status_route_keeps_the_house_order() -> None:
+    """Authentication, level, right, licence, then the error tail - like OpenCelium's own licence routes"""
+    assert [_name(decorator) for decorator in _status_route_decorators()] == STATUS_ROUTE_ORDER
 

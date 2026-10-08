@@ -27,7 +27,7 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.wrappers import Request
 
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.utils import Builder, find_cause
+from cmdb.utils import Builder, find_cause, str_to_bool
 from cmdb.errors.database import DocumentDuplicateKeyError
 from cmdb.framework.write_ledger import LedgerResidue, WriteLedger
 from cmdb.models.cmdb_dao import CmdbDAO
@@ -57,6 +57,9 @@ UNKNOWN_REFERENCES_MSG: str = "The following {entity_label} ID(s) do not exist: 
 
 # Refusal (HTTP 400) for a selection of public_ids that is not a list - a string would be read digit by digit
 PUBLIC_ID_LIST_NOT_A_LIST_MSG: str = "The public_ids have to be sent as a list, not as {kind}!"
+
+# Refusal (HTTP 400) of a boolean query parameter spelled anything but true / false
+BOOLEAN_PARAM_INVALID_MSG: str = "The '{param}' parameter must be 'true' or 'false'!"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -104,6 +107,35 @@ def get_element_from_data_request(element: str, _request: Request) -> dict[str, 
     except (KeyError, TypeError, json.JSONDecodeError):
         LOGGER.debug("[get_element_from_data_request] Field '%s' is absent or not valid JSON", element)
         return None
+
+
+def read_boolean_query_param(name: str, default: bool) -> bool:
+    """
+    Reads a boolean query parameter by the API's one rule for flags
+
+    Absent, the parameter is ``default``. Present, it must be ``true`` or ``false`` - any casing, surrounding
+    whitespace ignored (``str_to_bool``) - and **anything else is refused**, the empty value included: a caller who
+    sends ``?flag=`` or ``?flag=0`` meant something, and guessing what would answer the opposite as often as not
+
+    Args:
+        name (str): The query parameter's name
+        default (bool): The value when the parameter is absent
+
+    Raises:
+        HTTPException: 400 naming the parameter and the two accepted spellings
+
+    Returns:
+        bool: The flag
+    """
+    raw_value: str | None = request.args.get(name)
+
+    if raw_value is None:
+        return default
+
+    try:
+        return str_to_bool(raw_value)
+    except ValueError:
+        abort(400, BOOLEAN_PARAM_INVALID_MSG.format(param=name))
 
 
 def fetch_only_active_objects() -> bool:

@@ -15,7 +15,16 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Pure helper logic for the ISMS configuration-status route
+
+``GET /isms/config/status`` needs no right, so it only reads: the counts and the stored IsmsRiskMatrix go in,
+the five readiness flags come out. The matrix is judged as stored, without the repair
+``GET /isms/risk_matrix/1`` performs - ``is_risk_matrix_ready`` holds a missing matrix, and a grid whose shape
+no longer matches the scales, to "not ready" instead of fixing them
 """
+from typing import Any
+
+from cmdb.models.isms_model.isms_helper import check_risk_classes_set_in_matrix
+from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixKey
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsConfigStatusKey,
     MIN_CONFIGURED_RISK_CLASSES,
@@ -24,6 +33,34 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     MIN_CONFIGURED_IMPACT_CATEGORIES,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+def is_risk_matrix_ready(risk_matrix: dict[str, Any] | None, impact_amount: int, likelihood_amount: int) -> bool:
+    """
+    Judges whether the stored IsmsRiskMatrix is finished, without repairing it
+
+    Ready means: it exists, it holds exactly one cell per (impact, likelihood) pair of the current scales, and
+    every cell has a risk class. A grid of another size is stale - a restored dump, or one built under the old
+    minimum-configuration guard - and ``GET /isms/risk_matrix/1`` rebuilds it on its next read, possibly with
+    unassigned cells, so it is not counted as finished before that
+
+    Args:
+        risk_matrix (dict[str, Any] | None): The stored IsmsRiskMatrix, or None when it does not exist
+        impact_amount (int): Number of IsmsImpacts
+        likelihood_amount (int): Number of IsmsLikelihoods
+
+    Returns:
+        bool: True when the matrix is current and fully classed
+    """
+    if not risk_matrix:
+        return False
+
+    cells: list[Any] = risk_matrix.get(RiskMatrixKey.RISK_MATRIX) or []
+
+    if len(cells) != impact_amount * likelihood_amount:
+        return False
+
+    return check_risk_classes_set_in_matrix(risk_matrix)
 
 
 def build_isms_config_status(
@@ -44,7 +81,8 @@ def build_isms_config_status(
         likelihood_amount (int): Number of configured IsmsLikelihoods
         impact_amount (int): Number of configured IsmsImpacts
         impact_category_amount (int): Number of configured IsmsImpactCategories
-        risk_matrix_classes_set (bool): Whether every RiskMatrix cell has a risk_class_id assigned
+        risk_matrix_classes_set (bool): Whether the RiskMatrix is current and every cell has a risk class
+            (``is_risk_matrix_ready``)
 
     Returns:
         dict[str, bool]: Readiness flag per configuration section

@@ -53,6 +53,8 @@ from cmdb.errors.open_celium.connection import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_routes'
+# The manager is built in the helper (build_connection_manager), so it is patched there
+CONN_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper'
 
 CONNECTION_ID: int = 5
 CHANNEL_ID: int = 3
@@ -96,7 +98,7 @@ def fixture_oc_manager() -> MagicMock:
 @pytest.fixture(name='patched_managers')
 def fixture_patched_managers(oc_manager: MagicMock) -> Any:
     """Patches the three managers the connection handlers construct at the route module path."""
-    with patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=oc_manager), \
+    with patch(f'{CONN_HELPER}.OcConnectionManager', return_value=oc_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=MagicMock()), \
          patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=MagicMock()):
         yield
@@ -320,7 +322,7 @@ def fixture_cloud_managers(oc_manager: MagicMock) -> Any:
     """Patches the managers in cloud mode; yields the cached-user + service-portal mocks to configure."""
     cached = MagicMock()
     dg_sp = MagicMock()
-    with patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=oc_manager), \
+    with patch(f'{CONN_HELPER}.OcConnectionManager', return_value=oc_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
          patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=cached):
         yield SimpleNamespace(cached=cached, dg_sp=dg_sp)

@@ -44,6 +44,7 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpAddressFamily,
     IpamUnassignLimits,
     IpamSubnetIpsExport,
+    IpamValidationLimits,
 )
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -176,7 +177,7 @@ def _seed_ipam_route_topology(request, database_manager, database_name):
 #                                                   TREE ROUTES                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestIpamTreeRoutes:
-    """Smoke-level wire contract of the three sidebar-tree routes."""
+    """Smoke-level wire contract of the two sidebar-tree routes."""
 
     def test_tree_root_returns_supernets_and_unassigned(self, rest_api):
         """GET /ipam/tree/ delivers both blocks with the seeded entries"""
@@ -203,12 +204,9 @@ class TestIpamTreeRoutes:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
-    def test_tree_unassigned_returns_the_orphan_block(self, rest_api):
-        """GET /ipam/tree/unassigned delivers the flat orphan list"""
-        response = rest_api.get(f'{TREE_URL}unassigned')
-
-        assert response.status_code == HTTPStatus.OK
-        assert [s['public_id'] for s in response.get_json()['unassigned']] == [SUBNET_ORPHAN_ID]
+    def test_there_is_no_separate_unassigned_route(self, rest_api):
+        """The 'unassigned' block comes with GET /ipam/tree/ - the retired route answers 404"""
+        assert rest_api.get(f'{TREE_URL}unassigned').status_code == HTTPStatus.NOT_FOUND
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -446,6 +444,25 @@ class TestIpamValidationRoutes:
         body = response.get_json()
         assert body['valid'] is False
         assert any('is required' in e['message'] for e in body['errors'])
+
+    def test_validate_interface_route_refuses_a_batch_over_the_cap(self, rest_api):
+        """One row over the cap: 400 naming the cap - the frontend reads a failed pre-check as 'no result'"""
+        rows: list[dict[str, Any]] = [{'row_index': index}
+                                      for index in range(IpamValidationLimits.MAX_VALIDATION_ROWS + 1)]
+
+        response = rest_api.post(f'{VALIDATE_URL}/interface', json={'rows': rows})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert str(IpamValidationLimits.MAX_VALIDATION_ROWS) in response.get_json()['message']
+
+    def test_validate_interface_route_checks_a_batch_of_exactly_the_cap(self, rest_api):
+        """The cap itself is checked: placeholder rows are accepted silently"""
+        rows: list[dict[str, Any]] = [{'row_index': index} for index in range(IpamValidationLimits.MAX_VALIDATION_ROWS)]
+
+        response = rest_api.post(f'{VALIDATE_URL}/interface', json={'rows': rows})
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['valid'] is True
 
 
 class TestInterfaceEditDoesNotCollideWithItself:

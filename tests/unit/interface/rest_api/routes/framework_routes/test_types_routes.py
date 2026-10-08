@@ -36,6 +36,7 @@ from werkzeug.exceptions import HTTPException, BadRequest, NotFound
 
 from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.models.object_model import CmdbObjectKey
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
@@ -402,45 +403,42 @@ class TestGetCmdbType:
 #                                              count_objects_of_cmdb_type                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestCountObjectsOfCmdbType:
-    """``count_objects_of_cmdb_type`` counts objects of a type, honouring the active-only flag."""
+    """``count_objects_of_cmdb_type`` answers the delete guard's own count, whatever the request asks."""
 
     @staticmethod
-    def _call(flask_app: Flask) -> Any:
-        with flask_app.test_request_context('/count_objects/7'):
+    def _call(flask_app: Flask, query: str = '') -> Any:
+        with flask_app.test_request_context(f'/count_objects/7{query}'):
             return _unwrap(count_objects_of_cmdb_type)(public_id=TYPE_PUBLIC_ID, request_user=MagicMock())
 
-    def test_counts_all_objects(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
-        """Without the active-only flag, the count query has no 'active' key and the count is returned."""
+    def test_answers_the_shared_count(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
+        """The number is count_objects_of_type's - the one verify_type_deletable refuses on"""
         del patched_manager_provider
-        mgr.count_documents.return_value = 5
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', return_value=False), \
+        with patch(f'{ROUTE_PATH}.count_objects_of_type', return_value=5) as count, \
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_ctor:
             self._call(flask_app)
 
-        assert 'active' not in mgr.count_documents.call_args.args[0]
+        count.assert_called_once_with(mgr, TYPE_PUBLIC_ID)
         response_ctor.assert_called_once_with(5)
 
-    def test_active_only_adds_active_filter(
+    def test_the_active_only_flag_is_ignored(
         self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any,
     ) -> None:
-        """With the active-only flag the count query carries active=True."""
+        """A pre-check that left out inactive objects would answer 0 for a Type the delete refuses"""
         del patched_manager_provider
         mgr.count_documents.return_value = 2
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', return_value=True), \
-             patch(f'{ROUTE_PATH}.DefaultResponse'):
-            self._call(flask_app)
+        with patch(f'{ROUTE_PATH}.DefaultResponse'):
+            self._call(flask_app, '?onlyActiveObjCookie=true')
 
-        assert mgr.count_documents.call_args.args[0]['active'] is True
+        mgr.count_documents.assert_called_once_with({CmdbObjectKey.TYPE_ID: TYPE_PUBLIC_ID})
 
     def test_get_error_maps_to_400(self, flask_app: Flask, mgr: MagicMock, patched_manager_provider: Any) -> None:
         """An ObjectsManagerGetError maps to HTTP 400."""
         del patched_manager_provider
         mgr.count_documents.side_effect = ObjectsManagerGetError('x')
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', return_value=False), \
-             pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
 
         assert exc_info.value.code == HTTP_BAD_REQUEST
@@ -451,7 +449,7 @@ class TestCountObjectsOfCmdbType:
         """An HTTPException raised inside the route body is re-raised, not masked as a 500."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', side_effect=BadRequest()), \
+        with patch(f'{ROUTE_PATH}.count_objects_of_type', side_effect=BadRequest()), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
 
@@ -463,7 +461,7 @@ class TestCountObjectsOfCmdbType:
         """Any other exception maps to HTTP 500."""
         del patched_manager_provider
 
-        with patch(f'{ROUTE_PATH}.fetch_only_active_objects', side_effect=RuntimeError('boom')), \
+        with patch(f'{ROUTE_PATH}.count_objects_of_type', side_effect=RuntimeError('boom')), \
              pytest.raises(HTTPException) as exc_info:
             self._call(flask_app)
 

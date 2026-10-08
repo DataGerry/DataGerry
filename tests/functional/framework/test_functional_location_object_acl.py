@@ -17,8 +17,8 @@
 What every CmdbLocation write demands of the object it places
 
 A placement write is a READ of its object (the node is named after the object's summary) and an UPDATE of it (the
-object's location field is written). So POST /locations/, PUT /locations/update_location, both drag-and-drop moves
-and the delete ask the caller's ACL for both on the object's type, and an active type, before any other check - a
+object's location field is written). So both moves - the only placement writes, placing, re-parenting and removing
+alike - ask the caller's ACL for both on the object's type, and an active type, before any other check - a
 denial is a 403 and nothing is written. Requested as a group holding the location rights alone: it reads and
 changes VISIBLE, reads but may not change READ_ONLY, and may not read HIDDEN. DEACTIVATED is refused to the admin
 """
@@ -39,18 +39,15 @@ from cmdb.models.object_model import CmdbObject
 from tests.utils import location_acl_seed as seed
 # -------------------------------------------------------------------------------------------------------------------- #
 
-CREATE_URL: str = '/locations/'
-UPDATE_URL: str = '/locations/update_location'
 BULK_MOVE_URL: str = '/locations/parents'
 BULK_MOVE_IDS_KEY: str = 'object_ids'
 DEACTIVATED_MARKER: str = 'deactivated'
 ROUTES_MODULE: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
 
-# Nodes this module writes itself, under PARENT_NODE_ID: one for each object an update / delete starts from
+# Nodes this module writes itself, under PARENT_NODE_ID: one for each object a move starts from
 OWN_NODE_IDS: dict[int, int] = {
     seed.VISIBLE_ID: 89561, seed.HIDDEN_ID: 89562, seed.READ_ONLY_ID: 89563, seed.DEACTIVATED_ID: 89564,
 }
-DANGLING_NODE_ID: int = 89565
 CHILD_NODE_ID: int = 89566
 
 
@@ -61,7 +58,7 @@ def _seeded(database_manager: MongoDatabaseManager, database_name: str):
     yield
     seed.purge(database_manager, database_name)
     database_manager.get_collection(CmdbLocation.COLLECTION, database_name).delete_many(
-        {'public_id': {'$in': [*OWN_NODE_IDS.values(), DANGLING_NODE_ID, CHILD_NODE_ID]}})
+        {'public_id': {'$in': [*OWN_NODE_IDS.values(), CHILD_NODE_ID]}})
 
 
 def _place(database_manager: MongoDatabaseManager, database_name: str, object_id: int,
@@ -107,66 +104,6 @@ def _assert_refused(response: Any, message: str | None) -> None:
         assert response.get_json()['message'] == message
 
 
-class TestTheCreate:
-    """POST /locations/."""
-
-    @pytest.mark.parametrize('object_id, as_editor, message', REFUSALS)
-    def test_a_refused_object_gets_no_node(self, rest_api, database_manager, database_name, object_id: int,
-                                           as_editor: bool, message: str | None) -> None:
-        """403, and neither half of the mirror is written"""
-        response = rest_api.post(CREATE_URL, json={LocationKey.OBJECT_ID.value: object_id,
-                                                   LocationKey.PARENT.value: seed.PARENT_NODE_ID},
-                                 **(_editor() if as_editor else {}))
-
-        _assert_refused(response, message)
-        assert seed.stored_node(database_manager, database_name, object_id) is None
-        assert seed.location_value(database_manager, database_name, object_id) is None
-
-    def test_an_object_the_editor_may_change_is_placed(self, rest_api, database_manager, database_name) -> None:
-        """READ and UPDATE granted: the node is written"""
-        response = rest_api.post(CREATE_URL, json={LocationKey.OBJECT_ID.value: seed.VISIBLE_ID,
-                                                   LocationKey.PARENT.value: seed.PARENT_NODE_ID}, **_editor())
-
-        assert response.status_code == HTTPStatus.OK
-        assert seed.location_value(database_manager, database_name, seed.VISIBLE_ID) == seed.PARENT_NODE_ID
-
-    def test_the_acl_answers_before_the_parent_is_judged(self, rest_api) -> None:
-        """A read-only object under an unselectable parent: the 403, not the parent's 400"""
-        response = rest_api.post(CREATE_URL, json={LocationKey.OBJECT_ID.value: seed.READ_ONLY_ID,
-                                                   LocationKey.PARENT.value: seed.UNSELECTABLE_NODE_ID}, **_editor())
-
-        assert response.status_code == HTTPStatus.FORBIDDEN
-
-
-class TestTheUpdate:
-    """PUT /locations/update_location."""
-
-    @pytest.mark.parametrize('object_id, as_editor, message', REFUSALS)
-    def test_a_refused_object_keeps_its_node(self, rest_api, database_manager, database_name, object_id: int,
-                                             as_editor: bool, message: str | None) -> None:
-        """403, and the node and the field stay where they were"""
-        _place(database_manager, database_name, object_id)
-
-        response = rest_api.put(UPDATE_URL, json={LocationKey.OBJECT_ID.value: object_id,
-                                                  LocationKey.PARENT.value: RootLocationDefault.PUBLIC_ID},
-                                **(_editor() if as_editor else {}))
-
-        _assert_refused(response, message)
-        assert seed.stored_node(database_manager, database_name, object_id)['parent'] == seed.PARENT_NODE_ID
-        assert seed.location_value(database_manager, database_name, object_id) == seed.PARENT_NODE_ID
-
-    def test_an_object_the_editor_may_change_is_moved(self, rest_api, database_manager, database_name) -> None:
-        """READ and UPDATE granted: the node is re-parented"""
-        _place(database_manager, database_name, seed.VISIBLE_ID)
-
-        response = rest_api.put(UPDATE_URL, json={LocationKey.OBJECT_ID.value: seed.VISIBLE_ID,
-                                                  LocationKey.PARENT.value: RootLocationDefault.PUBLIC_ID},
-                                **_editor())
-
-        assert response.status_code == HTTPStatus.ACCEPTED
-        assert seed.location_value(database_manager, database_name, seed.VISIBLE_ID) == RootLocationDefault.PUBLIC_ID
-
-
 class TestTheSingleMove:
     """PATCH /locations/<object_id>/parent - the tree organizer's drag-and-drop."""
 
@@ -190,6 +127,42 @@ class TestTheSingleMove:
 
         assert response.status_code == HTTPStatus.OK
         assert seed.location_value(database_manager, database_name, seed.VISIBLE_ID) == seed.PARENT_NODE_ID
+
+    def test_a_placed_object_the_editor_may_change_is_re_parented(
+            self, rest_api, database_manager, database_name) -> None:
+        """READ and UPDATE granted: node and field both follow the drop"""
+        _place(database_manager, database_name, seed.VISIBLE_ID)
+
+        response = rest_api.patch(f'/locations/{seed.VISIBLE_ID}/parent',
+                                  json={LocationKey.PARENT.value: RootLocationDefault.PUBLIC_ID}, **_editor())
+
+        assert response.status_code == HTTPStatus.OK
+        node: dict[str, Any] = seed.stored_node(database_manager, database_name, seed.VISIBLE_ID)
+        assert node['parent'] == RootLocationDefault.PUBLIC_ID
+        assert seed.location_value(database_manager, database_name, seed.VISIBLE_ID) == RootLocationDefault.PUBLIC_ID
+
+    def test_a_changeable_objects_placement_is_removed(self, rest_api, database_manager, database_name) -> None:
+        """A null parent: the node goes and the field is cleared"""
+        _place(database_manager, database_name, seed.VISIBLE_ID)
+
+        response = rest_api.patch(f'/locations/{seed.VISIBLE_ID}/parent', json={LocationKey.PARENT.value: None},
+                                  **_editor())
+
+        assert response.status_code == HTTPStatus.OK
+        assert seed.stored_node(database_manager, database_name, seed.VISIBLE_ID) is None
+        assert seed.location_value(database_manager, database_name, seed.VISIBLE_ID) is None
+
+    def test_a_re_pointed_child_needs_no_acl_of_its_own(self, rest_api, database_manager, database_name) -> None:
+        """A read-only child follows its removed parent onto the grandparent - a consequence of the removal"""
+        _place(database_manager, database_name, seed.VISIBLE_ID)
+        _place(database_manager, database_name, seed.READ_ONLY_ID, node_id=CHILD_NODE_ID,
+               parent=OWN_NODE_IDS[seed.VISIBLE_ID])
+
+        response = rest_api.patch(f'/locations/{seed.VISIBLE_ID}/parent', json={LocationKey.PARENT.value: None},
+                                  **_editor())
+
+        assert response.status_code == HTTPStatus.OK
+        assert seed.location_value(database_manager, database_name, seed.READ_ONLY_ID) == seed.PARENT_NODE_ID
 
     def test_the_acl_answers_before_the_drop_target_is_judged(self, rest_api) -> None:
         """A hidden object dropped onto an unselectable node: the 403, not the target's 400"""
@@ -240,50 +213,6 @@ class TestTheBatchMove:
         assert seed.location_value(database_manager, database_name, seed.SUMMARY_REF_ID) == seed.PARENT_NODE_ID
 
 
-class TestTheDelete:
-    """DELETE /locations/<object_id>/object."""
-
-    @pytest.mark.parametrize('object_id, as_editor, message', REFUSALS)
-    def test_a_refused_objects_node_stays(self, rest_api, database_manager, database_name, object_id: int,
-                                          as_editor: bool, message: str | None) -> None:
-        """403, and the node is still there"""
-        _place(database_manager, database_name, object_id)
-
-        response = rest_api.delete(f'/locations/{object_id}/object', **(_editor() if as_editor else {}))
-
-        _assert_refused(response, message)
-        assert seed.stored_node(database_manager, database_name, object_id) is not None
-
-    def test_a_changeable_objects_node_is_removed(self, rest_api, database_manager, database_name) -> None:
-        """READ and UPDATE granted: the node goes"""
-        _place(database_manager, database_name, seed.VISIBLE_ID)
-
-        response = rest_api.delete(f'/locations/{seed.VISIBLE_ID}/object', **_editor())
-
-        assert response.status_code == HTTPStatus.OK
-        assert seed.stored_node(database_manager, database_name, seed.VISIBLE_ID) is None
-
-    def test_a_dangling_node_is_removable(self, rest_api, database_manager, database_name) -> None:
-        """Its object is gone: no ACL left to consult"""
-        database_manager.get_collection(CmdbLocation.COLLECTION, database_name).insert_one(
-            seed.node_doc(DANGLING_NODE_ID, seed.MISSING_OBJECT_ID, seed.PARENT_NODE_ID))
-
-        response = rest_api.delete(f'/locations/{seed.MISSING_OBJECT_ID}/object', **_editor())
-
-        assert response.status_code == HTTPStatus.OK
-
-    def test_a_re_pointed_child_needs_no_acl_of_its_own(self, rest_api, database_manager, database_name) -> None:
-        """A read-only child follows its parent onto the grandparent - a consequence of the removal"""
-        _place(database_manager, database_name, seed.VISIBLE_ID)
-        _place(database_manager, database_name, seed.READ_ONLY_ID, node_id=CHILD_NODE_ID,
-               parent=OWN_NODE_IDS[seed.VISIBLE_ID])
-
-        response = rest_api.delete(f'/locations/{seed.VISIBLE_ID}/object', **_editor())
-
-        assert response.status_code == HTTPStatus.OK
-        assert seed.location_value(database_manager, database_name, seed.READ_ONLY_ID) == seed.PARENT_NODE_ID
-
-
 class TestTheAclComesBeforeTheRackRules:
     """A caller who may not touch the object learns nothing of the Rack rules either."""
 
@@ -297,23 +226,6 @@ class TestTheAclComesBeforeTheRackRules:
 
         monkeypatch.setattr(f'{ROUTES_MODULE}.guard_rack_location_change', _refuse)
 
-    def test_the_create(self, rest_api) -> None:
-        """POST /locations/"""
-        response = rest_api.post(CREATE_URL, json={LocationKey.OBJECT_ID.value: seed.READ_ONLY_ID,
-                                                   LocationKey.PARENT.value: seed.PARENT_NODE_ID}, **_editor())
-
-        assert response.status_code == HTTPStatus.FORBIDDEN
-
-    def test_the_update(self, rest_api, database_manager, database_name) -> None:
-        """PUT /locations/update_location"""
-        _place(database_manager, database_name, seed.READ_ONLY_ID)
-
-        response = rest_api.put(UPDATE_URL, json={LocationKey.OBJECT_ID.value: seed.READ_ONLY_ID,
-                                                  LocationKey.PARENT.value: RootLocationDefault.PUBLIC_ID},
-                                **_editor())
-
-        assert response.status_code == HTTPStatus.FORBIDDEN
-
     def test_the_single_move(self, rest_api) -> None:
         """PATCH /locations/<object_id>/parent"""
         response = rest_api.patch(f'/locations/{seed.READ_ONLY_ID}/parent',
@@ -325,14 +237,6 @@ class TestTheAclComesBeforeTheRackRules:
         """PATCH /locations/parents"""
         response = rest_api.patch(BULK_MOVE_URL, json={BULK_MOVE_IDS_KEY: [seed.READ_ONLY_ID],
                                                        LocationKey.PARENT.value: seed.PARENT_NODE_ID}, **_editor())
-
-        assert response.status_code == HTTPStatus.FORBIDDEN
-
-    def test_the_delete(self, rest_api, database_manager, database_name) -> None:
-        """DELETE /locations/<object_id>/object"""
-        _place(database_manager, database_name, seed.READ_ONLY_ID)
-
-        response = rest_api.delete(f'/locations/{seed.READ_ONLY_ID}/object', **_editor())
 
         assert response.status_code == HTTPStatus.FORBIDDEN
 

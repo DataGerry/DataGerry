@@ -127,8 +127,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     handle_delete_from_object_groups,
     handle_delete_invalid_object_relations,
     handle_notify_webhooks,
-    handle_sync_config_item_count,
 )
+from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     ObjectViewMode,
     ObjectPatchKey,
@@ -429,7 +429,7 @@ def delete_one_cascade(
     handle_delete_from_object_groups(request_user, deleted_object.get_public_id())
 
     # Remove invalid CmdbObjectRelations since the object no longer exists
-    handle_delete_invalid_object_relations(request_user, deleted_object.get_public_id())
+    handle_delete_invalid_object_relations(request_user, [deleted_object.get_public_id()])
 
     # Remove the Rack state the object leaves behind: a deleted Rack takes its whole layout and its
     # members' place in the tree with it, a deleted member loses just its own membership

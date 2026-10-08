@@ -49,6 +49,7 @@ from cmdb.interface.rest_api.responses.response_constants import (
 BASE_PATH: str = 'cmdb.interface.rest_api.responses.base_api_response'
 
 PAYLOAD: dict[str, Any] = {'value': 1}
+NESTED_PAYLOAD: dict[str, Any] = {'outer': {'inner': [1, 2]}}
 
 
 class _Response(BaseAPIResponse):
@@ -221,17 +222,19 @@ class TestMakeApiResponse:
 
         assert response.headers[ResponseHeader.API_VERSION.value] == API_VERSION
 
-    def test_the_body_is_pretty_printed(self) -> None:
+    def test_the_body_is_compact(self) -> None:
         """
-        Pinned deliberately: it costs +63% body size on a 50-object page
+        No indent and no newline - pinned, so a pretty-printed default comes back only by decision
 
-        The test is here so that changing it is a decision rather than an accident.
+        A nested payload, so an indent would have somewhere to show
         """
-        assert b'\n' in _response().make_api_response(PAYLOAD).get_data()
+        body: bytes = _response().make_api_response(NESTED_PAYLOAD).get_data()
 
-    def test_a_compact_dump_can_be_asked_for(self) -> None:
-        """The indent is a parameter, which is what a later decision on #215 would flip"""
-        assert _response().make_api_response(PAYLOAD, indent=None).get_data() == b'{"value": 1}'
+        assert body == b'{"outer": {"inner": [1, 2]}}'
+
+    def test_an_indent_can_still_be_asked_for(self) -> None:
+        """The parameter stays - a caller wanting a readable body asks for it explicitly"""
+        assert b'\n' in _response().make_api_response(NESTED_PAYLOAD, indent=2).get_data()
 
     def test_a_datetime_leaves_in_the_projects_wire_format(self) -> None:
         """`json_codec.default` is applied here - this is where `{'$date': millis}` is produced"""

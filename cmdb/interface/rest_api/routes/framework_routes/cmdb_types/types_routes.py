@@ -58,7 +58,6 @@ from cmdb.manager import TypesManager, ObjectsManager, UsersManager, SectionTemp
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.type_constants import TypeRight
-from cmdb.models.object_model import CmdbObjectKey
 from cmdb.framework.results import IterationResult
 from cmdb.interface.route_utils import (
     abort_if_query_too_slow,
@@ -70,7 +69,7 @@ from cmdb.interface.route_utils import (
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses.response_parameters import ParameterKey
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
-from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects, request_wants_body, pin_public_id
+from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     build_referenced_section_usage_payload,
     guard_referenced_section_removal,
@@ -85,6 +84,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     verify_type_is_unique,
     prepare_builder_parameters,
     verify_type_deletable,
+    count_objects_of_type,
     type_deletion_followup,
     special_type_is_unchanged,
     build_location_usage_payload,
@@ -441,15 +441,18 @@ def get_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
 @handle_route_errors("while counting Objects for Type with ID: {public_id}")
 def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Response:
     """
-    Counts the number of CmdbObjects in the database with the given public_id as the type_id
+    Counts the CmdbObjects of a CmdbType - the pre-check of the Type delete
 
-    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. Inactive CmdbObjects are
-    excluded when the request asks for active objects only (see fetch_only_active_objects). A
-    missing Type is not an error - it simply has no objects, so the count is 0
+    Requires the ``base.framework.type.view`` right and ApiLevel.ADMIN. The delete refuses a Type that still
+    has CmdbObjects (``verify_type_deletable``); this route answers the same question through the same count
+    (``count_objects_of_type``), so the number the delete page shows is the one the delete acts on: every
+    CmdbObject of the Type, active or not. A missing Type is not an error - it simply has no objects, so
+    the count is 0
 
-    Note:
-        The count covers every CmdbObject of the Type regardless of the caller's object ACL, so it
-        can exceed what the same user is allowed to see
+    The count is not scoped by the caller's object ACL, by design. An ACL lives on the Type, so for one Type a
+    caller may read all of its CmdbObjects or none, and a scoped count is the total or 0 - a 0 that would
+    offer a delete the guard then refuses. What a caller without READ learns is how many CmdbObjects exist of
+    a Type it may already view
 
     Args:
         public_id (int): The public_id of the CmdbType to count CmdbObjects for
@@ -464,14 +467,7 @@ def count_objects_of_cmdb_type(public_id: int, request_user: CmdbUser) -> Respon
     try:
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        count_query: dict[str, Any] = {CmdbObjectKey.TYPE_ID: public_id}
-
-        if fetch_only_active_objects():
-            count_query[CmdbObjectKey.ACTIVE] = True
-
-        objects_count: int = objects_manager.count_documents(count_query)
-
-        return DefaultResponse(objects_count).make_response()
+        return DefaultResponse(count_objects_of_type(objects_manager, public_id)).make_response()
     except ObjectsManagerGetError as err:
         LOGGER.error("[count_objects_of_cmdb_type] ObjectsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to count Objects for Type with ID: {public_id}!")

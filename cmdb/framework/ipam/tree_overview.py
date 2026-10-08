@@ -21,8 +21,7 @@ initial payload (``build_ipam_tree``) is one call: a flat list of every SUPERNET
 carrying 'has_children' so the FE can render an expand caret without a probe request) plus a
 flat list of every unassigned SUBNET - one whose 'dg-supernet-ref' is empty. Expanding a
 supernet fetches its full CIDR-nested subnet subtree in one call
-(``build_supernet_subnet_tree``); ``build_unassigned_subnets`` re-fetches the unassigned block
-alone for targeted refreshes
+(``build_supernet_subnet_tree``)
 
 Tree nodes are intentionally lightweight - public_id, name, cidr and the address family under
 'type' - and skip the interface-IP counting, VLAN resolution and validity annotation the
@@ -391,10 +390,8 @@ def unassigned_subnet_nodes(
     Shapes and sorts the sidebar's 'Unassigned' block out of already-loaded SUBNET documents
 
     Takes the loaded documents rather than a manager on purpose: `build_ipam_tree` already holds
-    every subnet (it needs them for the supernets' `has_children` flag too) while
-    `build_unassigned_subnets` loads them for this alone, so a shared function that loaded them
-    itself would cost the tree a second full read. This way both routes answer with the same block
-    by construction instead of by two copies of the same expression staying in step.
+    every subnet (it needs them for the supernets' `has_children` flag too), so loading them here
+    would cost the tree a second full read.
 
     "Unassigned" means no usable `dg-supernet-ref`. Note what that excludes: a subnet referencing a
     supernet that does not exist is NOT unassigned by this definition and is not under any supernet
@@ -501,35 +498,4 @@ def build_supernet_subnet_tree(
         IpamTreeKey.CHILDREN.value: nest_subnet_nodes(
             [subnet_tree_node(s, subnet_icon) for s in subnet_objs],
         ),
-    }
-
-
-def build_unassigned_subnets(
-    objects_manager: ObjectsManager,
-    types_manager: TypesManager,
-    request_user: CmdbUser | None = None,
-) -> dict[str, Any]:
-    """
-    Builds the unassigned-subnets block alone, for targeted sidebar refreshes
-
-    Returns the same flat 'unassigned' list as ``build_ipam_tree`` - every SUBNET without a
-    usable 'dg-supernet-ref', sorted IPv4 before IPv6 then ascending by CIDR - without
-    reloading the supernet block. No nesting pass runs: standalone subnets are an
-    unstructured bucket
-
-    Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
-        types_manager (TypesManager): db interface for CmdbTypes
-
-    Returns:
-        dict[str, Any]: {'unassigned': [subnet nodes]}
-    """
-    subnet_objs: list[dict[str, Any]] = load_all_special_type_objects(
-        objects_manager, types_manager, SpecialType.SUBNET, TREE_NODE_PROJECTION,
-        resolve_read_scope(request_user),
-    )
-    subnet_icon: str | None = resolve_special_type_icon(types_manager, SpecialType.SUBNET)
-
-    return {
-        IpamTreeKey.UNASSIGNED.value: unassigned_subnet_nodes(subnet_objs, subnet_icon),
     }

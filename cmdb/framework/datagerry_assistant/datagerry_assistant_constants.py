@@ -111,13 +111,12 @@ class TypeDefault:
     """
     Fixed default values written into every CmdbType the assistant creates
 
-    VERSION and AUTHOR_ID are the initial type version and the author the assistant attributes
-    created types to. CI_EXPLORER_COLOR_MAX and CI_EXPLORER_COLOR_HEX_WIDTH bound the random
+    VERSION is the initial type version (the author is the user running the assistant, handed to
+    ProfileTypeConstructor). CI_EXPLORER_COLOR_MAX and CI_EXPLORER_COLOR_HEX_WIDTH bound the random
     CI-Explorer color: a value in [0, CI_EXPLORER_COLOR_MAX] rendered as a zero-padded,
     CI_EXPLORER_COLOR_HEX_WIDTH-digit uppercase hex string (a 6-digit '#RRGGBB' color)
     """
     VERSION: str = '1.0.0'
-    AUTHOR_ID: int = 1
     CI_EXPLORER_COLOR_MAX: int = 0xFFFFFF
     CI_EXPLORER_COLOR_HEX_WIDTH: int = 6
 

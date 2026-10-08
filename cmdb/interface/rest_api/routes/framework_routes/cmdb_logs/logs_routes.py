@@ -70,10 +70,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
     LogRight,
     LogKey,
     LogQueryOperator,
+    OBJECT_LOGS_ACCESS_DENIED_MSG,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper import read_object_or_abort
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import (
     abort_unless_log_readable,
-    abort_unless_object_readable,
     build_object_log_existence_query,
     build_object_logs_response,
     serialize_object_log,
@@ -265,7 +266,10 @@ def get_logs_by_object(object_id: int, params: CollectionParameters, request_use
         logs_manager: LogsManager = ManagerProvider.get_manager(ManagerType.LOGS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
-        abort_unless_object_readable(object_id, request_user, objects_manager)
+        # The logs outlive their object, so a deleted one is no refusal: its logs are judged one by one
+        read_object_or_abort(
+            object_id, request_user, objects_manager, OBJECT_LOGS_ACCESS_DENIED_MSG.format(object_id=object_id),
+        )
 
         # Only object logs, like every other list: the collection is shared by log_type
         query: dict[str, Any] = {LogKey.LOG_TYPE.value: OBJECT_LOG_TYPE, LogKey.OBJECT_ID.value: object_id}

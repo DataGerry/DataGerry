@@ -82,7 +82,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     build_report_create_payload,
     build_report_update_payload,
     load_report_or_404,
-    parse_boolean_param,
     resolve_report_query,
 )
 
@@ -97,6 +96,7 @@ from cmdb.errors.manager.reports_manager import (
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
     build_searchable_builder_params,
+    read_boolean_query_param,
     read_write_payload,
     request_wants_body,
 )
@@ -325,7 +325,7 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
                        unevaluable stored query or an unexpected failure
     """
     try:
-        preview_mode: bool = parse_boolean_param(request.args.get(PREVIEW_PARAM, default='false'), PREVIEW_PARAM)
+        preview_mode: bool = read_boolean_query_param(PREVIEW_PARAM, default=False)
 
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)

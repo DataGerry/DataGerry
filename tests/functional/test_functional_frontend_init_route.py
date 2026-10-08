@@ -25,9 +25,12 @@ fully controlled by each test.
 
 ``GET /`` is the reachability probe, including the 500 it answers when the database status probe
 fails. Its database manager is resolved per request from the app, so a broken manager is injected by
-patching the app the test client is bound to. Both routes are unauthenticated by design, which is
-what makes them reachable in these tests without a token.
+patching the app the test client is bound to. Both routes are unauthenticated by design - the frontend
+probes ``GET /`` at every start and on its connect page, and reads ``GET /frontend_init``, before it holds
+a token. The test client sends the full-access user's token on every request, so ``TestAnonymousCallers``
+clears it explicitly to prove both routes answer without one.
 """
+import json
 from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
@@ -43,6 +46,10 @@ from cmdb.interface.rest_api.routes.connection_helper import FRONTEND_CONFIG_FIL
 
 FRONTEND_INIT_URL: str = '/frontend_init'
 CONNECTION_URL: str = '/'
+
+# Requests that carry no credentials, and ones carrying a token nothing could verify
+NO_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': ''}
+UNVERIFIABLE_CREDENTIALS: dict[str, str] = {'HTTP_AUTHORIZATION': 'Bearer not-a-token'}
 
 SAMPLE_CONFIG: dict[str, str] = {
     'protocol': 'http',
@@ -253,3 +260,38 @@ class TestFrontendInitDefenceInDepth:
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json() == {}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               anonymous callers                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestAnonymousCallers:
+    """Both routes answer before the caller holds a session - the frontend depends on it."""
+
+    @staticmethod
+    def _get(rest_api, url: str, credentials: dict[str, str]):
+        """A GET carrying exactly the given Authorization header, overriding the client's own token."""
+        return rest_api.open(url, method='GET', environ_overrides=credentials)
+
+    def test_the_probe_answers_without_credentials(self, rest_api) -> None:
+        """200 with the three keys the connect page shows"""
+        response = self._get(rest_api, CONNECTION_URL, NO_CREDENTIALS)
+
+        assert response.status_code == HTTPStatus.OK
+        assert set(response.get_json()) == {
+            ConnectionInfoKey.TITLE.value, ConnectionInfoKey.VERSION.value, ConnectionInfoKey.CONNECTED.value,
+        }
+
+    def test_the_probe_ignores_a_token_it_cannot_verify(self, rest_api) -> None:
+        """The route never reads the header: a stale token on a starting frontend still gets the answer"""
+        assert self._get(rest_api, CONNECTION_URL, UNVERIFIABLE_CREDENTIALS).status_code == HTTPStatus.OK
+
+    def test_the_runtime_config_answers_without_credentials(self, rest_api, monkeypatch, tmp_path: Path) -> None:
+        """The frontend reads where the API lives before it can log in"""
+        _point_config_dir_at(monkeypatch, tmp_path)
+        (tmp_path / FRONTEND_CONFIG_FILENAME).write_text(json.dumps(SAMPLE_CONFIG), encoding='utf-8')
+
+        response = self._get(rest_api, FRONTEND_INIT_URL, NO_CREDENTIALS)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json() == SAMPLE_CONFIG

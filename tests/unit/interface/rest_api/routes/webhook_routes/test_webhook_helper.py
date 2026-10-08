@@ -57,6 +57,11 @@ from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# The three scope steps as shipped, kept before the module-wide pass-through below replaces them
+_REAL_READ_EVENT_TYPE_DOCUMENT = webhook_helper.read_event_type_document
+_REAL_READ_WEBHOOK_OWNERS = webhook_helper.read_webhook_owners
+_REAL_SCOPE_WEBHOOKS_TO_OWNERS = webhook_helper.scope_webhooks_to_owners
+
 
 @pytest.fixture(autouse=True)
 def _dispatch_inline(monkeypatch: pytest.MonkeyPatch):
@@ -71,6 +76,20 @@ def _dispatch_inline(monkeypatch: pytest.MonkeyPatch):
         fn(*args, **kwargs)
 
     monkeypatch.setattr(webhook_helper.DISPATCH_EXECUTOR, 'submit', _submit_inline)
+
+
+@pytest.fixture(autouse=True)
+def _owners_receive_everything(monkeypatch: pytest.MonkeyPatch):
+    """
+    Lets every stand-in webhook through the owner scope
+
+    The fan-out tests below are about isolation and status codes, not about who may receive an event,
+    so the two scope reads are stubbed and the scope passes every webhook. The scope itself is covered
+    by ``TestSendWebhookEventOwnerScope`` and by ``test_webhook_delivery_scope.py``.
+    """
+    monkeypatch.setattr(webhook_helper, 'read_event_type_document', lambda *_a: None)
+    monkeypatch.setattr(webhook_helper, 'read_webhook_owners', lambda *_a: {})
+    monkeypatch.setattr(webhook_helper, 'scope_webhooks_to_owners', lambda webhooks, *_a: webhooks)
 
 
 class TestBuildWebhookPayload:
@@ -518,3 +537,158 @@ class TestWebhookDocumentShape:
             parse_webhook_params(dict(params))
 
         assert raised.value.code == HTTPStatus.BAD_REQUEST
+
+
+class _StubTypesManager:
+    """Answers the type ACL read with one fixed document, and records the criteria"""
+
+    def __init__(self, type_documents: list[dict[str, Any]]) -> None:
+        self.type_documents = type_documents
+        self.calls: list[tuple[dict[str, Any], dict[str, int]]] = []
+
+    def find(self, criteria: dict[str, Any], projection: dict[str, int]) -> list[dict[str, Any]]:
+        """Mimics BaseManager.find"""
+        self.calls.append((criteria, projection))
+        return self.type_documents
+
+
+class _StubUsersManager:
+    """Answers the owner lookup from a fixed dict, and records the ids asked for"""
+
+    def __init__(self, owners: dict[int, Any]) -> None:
+        self.owners = owners
+        self.calls: list[list[int]] = []
+
+    def get_user_lookup(self, user_ids: list[int]) -> dict[int, Any]:
+        """Mimics UsersManager.get_user_lookup"""
+        self.calls.append(user_ids)
+        return {user_id: self.owners[user_id] for user_id in user_ids if user_id in self.owners}
+
+
+READER_GROUP: int = 2
+HIDDEN_GROUP: int = 9
+EVENT_TYPE_ID: int = 40
+READER_ID: int = 51
+HIDDEN_ID: int = 52
+
+
+class TestSendWebhookEventOwnerScope:
+    """send_webhook_event delivers only to the webhooks whose owner may read the object's type"""
+
+    @pytest.fixture(autouse=True)
+    def _real_scope(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Undoes the module-wide pass-through: these tests are about the scope"""
+        monkeypatch.setattr(webhook_helper, 'read_event_type_document', _REAL_READ_EVENT_TYPE_DOCUMENT)
+        monkeypatch.setattr(webhook_helper, 'read_webhook_owners', _REAL_READ_WEBHOOK_OWNERS)
+        monkeypatch.setattr(webhook_helper, 'scope_webhooks_to_owners', _REAL_SCOPE_WEBHOOKS_TO_OWNERS)
+
+    @staticmethod
+    def _wire(monkeypatch: pytest.MonkeyPatch, webhooks: list, types_manager, users_manager) -> _StubEventManager:
+        """Routes the four managers to their stubs and makes every POST a 200"""
+        event_manager = _StubEventManager()
+        managers = {'WEBHOOKS': _StubWebhooksManager(webhooks), 'TYPES': types_manager,
+                    'USERS': users_manager, 'WEBHOOKS_EVENT': event_manager}
+        monkeypatch.setattr(webhook_helper.ManagerProvider, 'get_manager',
+                            staticmethod(lambda manager_type, _user: managers[manager_type.name]))
+        monkeypatch.setattr(webhook_helper.requests, 'post', lambda *_a, **_k: SimpleNamespace(status_code=200))
+        monkeypatch.setattr(webhook_helper, 'refused_destination_reason', lambda *_a, **_k: None)
+
+        return event_manager
+
+    @staticmethod
+    def _type_readable_by(group_id: int) -> dict[str, Any]:
+        """A type ACL letting one group READ"""
+        return {'acl': {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}}
+
+    def test_only_the_reader_owned_webhook_is_delivered_and_recorded(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The other webhook leaves no event (Q5: a skip records nothing)"""
+        webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=HIDDEN_ID),
+                    SimpleNamespace(public_id=2, url='http://b.test/h', owner_id=READER_ID)]
+        owners = {READER_ID: SimpleNamespace(active=True, group_id=READER_GROUP),
+                  HIDDEN_ID: SimpleNamespace(active=True, group_id=HIDDEN_GROUP)}
+        types_manager = _StubTypesManager([self._type_readable_by(READER_GROUP)])
+        users_manager = _StubUsersManager(owners)
+        event_manager = self._wire(monkeypatch, webhooks, types_manager, users_manager)
+
+        send_webhook_event(request_user=None, operation=WebhookEventType.UPDATE,
+                           object_after={'public_id': 5, 'type_id': EVENT_TYPE_ID})
+
+        assert [event['webhook_id'] for event in event_manager.inserted] == [2]
+        assert types_manager.calls == [({'public_id': EVENT_TYPE_ID}, {'_id': 0, 'acl': 1})]
+        assert users_manager.calls == [[READER_ID, HIDDEN_ID]]
+
+    def test_a_delete_is_scoped_by_the_type_before(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No state after: the deleted object's type decides"""
+        webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=HIDDEN_ID)]
+        owners = {HIDDEN_ID: SimpleNamespace(active=True, group_id=HIDDEN_GROUP)}
+        types_manager = _StubTypesManager([self._type_readable_by(READER_GROUP)])
+        event_manager = self._wire(monkeypatch, webhooks, types_manager, _StubUsersManager(owners))
+
+        send_webhook_event(request_user=None, operation=WebhookEventType.DELETE,
+                           object_before={'public_id': 5, 'type_id': EVENT_TYPE_ID})
+
+        assert not event_manager.inserted
+        assert types_manager.calls[0][0] == {'public_id': EVENT_TYPE_ID}
+
+    def test_an_unreadable_type_document_does_not_refuse(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A type that is gone: every active owner receives"""
+        webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=HIDDEN_ID)]
+        owners = {HIDDEN_ID: SimpleNamespace(active=True, group_id=HIDDEN_GROUP)}
+        event_manager = self._wire(monkeypatch, webhooks, _StubTypesManager([]), _StubUsersManager(owners))
+
+        send_webhook_event(request_user=None, operation=WebhookEventType.UPDATE,
+                           object_after={'public_id': 5, 'type_id': EVENT_TYPE_ID})
+
+        assert [event['webhook_id'] for event in event_manager.inserted] == [1]
+
+    def test_an_event_without_a_type_reads_no_type(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No type_id at all: the type read is skipped, not run with None"""
+        webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=READER_ID)]
+        owners = {READER_ID: SimpleNamespace(active=True, group_id=READER_GROUP)}
+        types_manager = _StubTypesManager([self._type_readable_by(HIDDEN_GROUP)])
+        event_manager = self._wire(monkeypatch, webhooks, types_manager, _StubUsersManager(owners))
+
+        send_webhook_event(request_user=None, operation=WebhookEventType.UPDATE, object_after={'public_id': 5})
+
+        assert not types_manager.calls
+        assert [event['webhook_id'] for event in event_manager.inserted] == [1]
+
+    def test_ownerless_webhooks_ask_for_no_owner(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """No owner ids: no user read, and nothing is delivered"""
+        webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=None),
+                    SimpleNamespace(public_id=2, url='http://b.test/h')]
+        users_manager = _StubUsersManager({})
+        event_manager = self._wire(monkeypatch, webhooks, _StubTypesManager([]), users_manager)
+
+        send_webhook_event(request_user=None, operation=WebhookEventType.CREATE,
+                           object_after={'public_id': 5, 'type_id': EVENT_TYPE_ID})
+
+        assert not users_manager.calls
+        assert not event_manager.inserted
+
+    def test_a_failed_owner_read_delivers_nothing(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Fails closed: the error is swallowed like every other read failure, and nothing leaves"""
+        class _BrokenUsersManager:
+            """The owner lookup fails"""
+            def get_user_lookup(self, _user_ids):
+                """Raises"""
+                raise RuntimeError('users down')
+
+        webhooks = [SimpleNamespace(public_id=1, url='http://a.test/h', owner_id=READER_ID)]
+        event_manager = self._wire(monkeypatch, webhooks, _StubTypesManager([]), _BrokenUsersManager())
+
+        send_webhook_event(request_user=None, operation=WebhookEventType.CREATE,
+                           object_after={'public_id': 5, 'type_id': EVENT_TYPE_ID})
+
+        assert not event_manager.inserted
+
+    def test_no_subscribed_webhook_reads_neither_type_nor_owners(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Nothing to scope, nothing to read"""
+        types_manager = _StubTypesManager([])
+        users_manager = _StubUsersManager({})
+        self._wire(monkeypatch, [], types_manager, users_manager)
+
+        send_webhook_event(request_user=None, operation=WebhookEventType.CREATE,
+                           object_after={'public_id': 5, 'type_id': EVENT_TYPE_ID})
+
+        assert not types_manager.calls and not users_manager.calls

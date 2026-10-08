@@ -16,13 +16,32 @@
 """
 Helper functions for the OpenCelium connection REST routes
 """
-from cmdb.manager import DgServicePortalManager, CachedUserManager
+from flask import current_app
+
+from cmdb.manager import DgServicePortalManager, CachedUserManager, OcConnectionManager
+from cmdb.manager.manager_provider_model import ManagerProvider
 
 from cmdb.open_celium import CachedOcIdType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_subscription_helper import oc_id_in_subscription
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def build_connection_manager(request_user: CmdbUser) -> OcConnectionManager:
+    """
+    Builds the OcConnectionManager for the requesting user
+
+    Every connection route and the Automation create and delete need the same two arguments - the process-wide
+    database manager and the caller's database - so the construction lives here instead of in every route
+
+    Args:
+        request_user (CmdbUser): The user making the request; its database scopes the manager
+
+    Returns:
+        OcConnectionManager: The manager to talk to OpenCelium with
+    """
+    return OcConnectionManager(current_app.database_manager, ManagerProvider.tenant_database(request_user))
+
 
 
 def connection_in_subscription(

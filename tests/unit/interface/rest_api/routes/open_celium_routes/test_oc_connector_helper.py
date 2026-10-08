@@ -162,9 +162,12 @@ class TestGetAccessibleConnectorIds:
 class TestBuildConnectorManager:
     """The construction the thirteen connector routes used to repeat."""
 
-    def test_it_scopes_the_manager_to_the_users_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('cloud_mode, expected', [(True, 'db_customer'), (False, None)], ids=['cloud', 'on-premise'])
+    def test_it_scopes_the_manager_to_the_users_database(
+        self, monkeypatch: pytest.MonkeyPatch, cloud_mode: bool, expected: str | None,
+    ) -> None:
         """
-        The caller's database selects the OpenCelium installation and its credentials
+        The caller's tenant database in cloud mode; on premise None - the configured database
 
         Every route test patches this factory out, so its body is asserted here - otherwise the one
         line that reaches OcConnectorManager would be covered by nothing.
@@ -186,7 +189,7 @@ class TestBuildConnectorManager:
 
         app = BaseCmdbApp(__name__)
         app.database_manager = 'the-dbm'
-        app.cloud_mode = False
+        app.cloud_mode = cloud_mode
         app.local_mode = False
         request_user = SimpleNamespace(database='db_customer')
 
@@ -194,4 +197,4 @@ class TestBuildConnectorManager:
             manager = build_connector_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': 'db_customer'}
+        assert recorded == {'dbm': 'the-dbm', 'database': expected}

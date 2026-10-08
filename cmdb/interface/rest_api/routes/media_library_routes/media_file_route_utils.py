@@ -385,7 +385,7 @@ def recursive_delete_filter(
 
     children = media_files_manager.get_many_media_files(
         metadata={metadata_field(MediaFileMetadataKey.PARENT): public_id},
-    ).result
+    ).results
 
     for item in children:
         recursive_delete_filter(item['public_id'], media_files_manager, _ids)

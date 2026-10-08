@@ -49,10 +49,8 @@ from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
 from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportQueryKey
 from cmdb.models.reports_model.report_query import read_stored_report_query
-from cmdb.utils import str_to_bool
 
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
-    BOOLEAN_PARAM_INVALID_MSG,
     REPORT_CONDITIONS_NOT_A_TREE_MSG,
     REPORT_ID_NOT_A_NUMBER_MSG,
     REPORT_NAME_BLANK_MSG,
@@ -249,29 +247,6 @@ def normalize_report_params(params: dict[str, Any]) -> dict[str, Any]:
     )
 
     return payload
-
-
-def parse_boolean_param(raw_value: Any, param_name: str) -> bool:
-    """
-    Coerces a query-string flag into a bool, aborting 400 on anything unrecognised
-
-    ``str_to_bool`` raises ValueError for values other than 'true' / 'false', which inside a route's
-    try-block would surface as an internal 500 - a malformed query parameter is a bad request
-
-    Args:
-        raw_value (Any): The raw query-string value
-        param_name (str): Name of the parameter, used in the error message
-
-    Raises:
-        HTTPException: 400 when the value is neither 'true' nor 'false'
-
-    Returns:
-        bool: The parsed flag
-    """
-    try:
-        return str_to_bool(raw_value)
-    except ValueError:
-        abort(400, BOOLEAN_PARAM_INVALID_MSG.format(param=param_name))
 
 
 def load_report_or_404(reports_manager: ReportsManager, public_id: int) -> dict[str, Any]:

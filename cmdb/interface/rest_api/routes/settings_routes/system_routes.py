@@ -16,35 +16,33 @@
 """
 Implementation of DataGerry general system information API routes
 
-Exposes the two read-only system endpoints the frontend's System page uses: `GET /settings/system/`
-(build / runtime information) and `GET /settings/system/config/` (the loaded configuration file). The
-blueprint is mounted by init_rest_api at `/settings/system`, so this module is self-contained - it can
-be imported without an application context and without a parent blueprint
+Two read-only endpoints, both behind ``base.system.view``:
+
+    - ``GET /settings/system/``: the build (title, version), the tenant's database schema version, and on
+      premise the process uptime and the command line it was started with (``system_helper``). In cloud mode the
+      last two are left out - they belong to the host process every tenant shares. The frontend's System page
+      shows all of it; the version alone is public through the unauthenticated ``GET /rest/``
+    - ``GET /settings/system/config/``: the loaded configuration file
+
+The blueprint is mounted by init_rest_api at ``/settings/system``, so this module is self-contained - it can be
+imported without an application context and without a parent blueprint
 """
-import sys
-import time
 from logging import Logger, getLogger
 from typing import Any
-from flask import abort
+from flask import current_app
 from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import SettingsManager
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 
-from cmdb import __title__, __version__, __runtime__
-from cmdb.interface.route_utils import insert_request_user, verify_api_access
+from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.rest_api.routes.settings_routes.system_constants import (
-    SYSTEM_VIEW_RIGHT,
-    UPDATER_SETTINGS_SECTION,
-    UNKNOWN_DB_VERSION,
-    SystemInfoKey,
-    SystemConfigKey,
-)
+from cmdb.interface.rest_api.routes.settings_routes.system_constants import SYSTEM_VIEW_RIGHT, SystemConfigKey
+from cmdb.interface.rest_api.routes.settings_routes.system_helper import build_system_information, read_db_version
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -56,52 +54,39 @@ system_blueprint = APIBlueprint('system', __name__)
 @system_blueprint.route('/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@system_blueprint.protect(auth=True, right=SYSTEM_VIEW_RIGHT)
+@handle_route_errors("while gathering the DataGerry system information")
 def get_datagerry_information(request_user: CmdbUser) -> Response:
     """
     Returns basic information about the DataGerry system
 
-    Reports the build (title / version), the database schema version recorded by the updater, how long
-    the process has been running and the parameters it was started with. An unreadable updater version
-    is reported as UNKNOWN_DB_VERSION rather than failing the request, since the rest of the
-    information is still valid
+    Reports the build (title / version) and the database schema version recorded by the updater; on premise also
+    how long the process has been running (seconds) and the parameters it was started with (``sys.argv``: the
+    mode flags and the config path). In cloud mode those two are left out, as they describe the host process.
+    An unreadable updater version is reported as UNKNOWN_DB_VERSION rather than failing the request
 
     Args:
         request_user (CmdbUser): The requesting user, used to resolve the tenant-scoped manager
 
     Raises:
-        HTTPException: 500 if the information could not be gathered
+        HTTPException: 403 without ``base.system.view``, 500 if the information could not be gathered
 
     Returns:
         Response: A Flask Response object containing a dictionary of system information
     """
-    try:
-        settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
 
-        try:
-            db_version = settings_manager.get_all_values_from_section(UPDATER_SETTINGS_SECTION)\
-                .get(SystemInfoKey.VERSION.value)
-        except Exception as err:
-            LOGGER.error("[get_datagerry_information] Exception: %s. Type: %s", err, type(err), exc_info=True)
-            db_version = UNKNOWN_DB_VERSION
+    information: dict[str, Any] = build_system_information(read_db_version(settings_manager),
+                                                           current_app.cloud_mode)
 
-        datagerry_infos: dict[str, Any] = {
-            SystemInfoKey.TITLE.value: __title__,
-            SystemInfoKey.VERSION.value: __version__,
-            SystemInfoKey.DB_VERSION.value: db_version,
-            SystemInfoKey.RUNTIME.value: (time.time() - __runtime__),
-            SystemInfoKey.STARTING_PARAMETERS.value: sys.argv,
-        }
-
-        return DefaultResponse(datagerry_infos).make_response()
-    except Exception as err:
-        LOGGER.error("[get_datagerry_information] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while gathering DataGerry information!")
+    return DefaultResponse(information).make_response()
 
 
 @system_blueprint.route('/config/', methods=['GET'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @system_blueprint.protect(auth=True, right=SYSTEM_VIEW_RIGHT)
+@handle_route_errors("while gathering the DataGerry config information")
 def get_config_information(request_user: CmdbUser) -> Response:
     """
     Returns the loaded system configuration file: its path and every section it defines
@@ -120,20 +105,16 @@ def get_config_information(request_user: CmdbUser) -> Response:
     Returns:
         Response: A Flask Response object containing the configuration details
     """
-    try:
-        ssc = SystemConfigReader()
+    ssc = SystemConfigReader()
 
-        # 'config_file' is only set when a config file is loaded; in config-less mode it is absent
-        config_dict: dict[str, Any] = {
-            SystemConfigKey.PATH.value: getattr(ssc, 'config_file', None),
-            SystemConfigKey.PROPERTIES.value: [],
-        }
+    # 'config_file' is only set when a config file is loaded; in config-less mode it is absent
+    config_dict: dict[str, Any] = {
+        SystemConfigKey.PATH.value: getattr(ssc, 'config_file', None),
+        SystemConfigKey.PROPERTIES.value: [],
+    }
 
-        for section in ssc.get_sections():
-            section_values = [[key, value] for key, value in ssc.get_all_values_from_section(section).items()]
-            config_dict[SystemConfigKey.PROPERTIES.value].append([section, section_values])
+    for section in ssc.get_sections():
+        section_values = [[key, value] for key, value in ssc.get_all_values_from_section(section).items()]
+        config_dict[SystemConfigKey.PROPERTIES.value].append([section, section_values])
 
-        return DefaultResponse(config_dict).make_response()
-    except Exception as err:
-        LOGGER.error("[get_config_information] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while gathering DataGerry config information!")
+    return DefaultResponse(config_dict).make_response()

@@ -29,6 +29,8 @@ from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.ipam_constants import IpamSection, InterfaceField
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import TypeSlotKey
 from cmdb.framework.datagerry_assistant.profile_base import ProfileBase
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.framework.write_ledger_constants import WriteKind
 # -------------------------------------------------------------------------------------------------------------------- #
 
 WIRING_PATH = 'cmdb.framework.datagerry_assistant.profile_base.handle_special_types'
@@ -51,6 +53,23 @@ def test_create_basic_type_assigns_public_id_and_records_slot(
     assert type_dict['public_id'] == 1
     assert base.created_type_ids['company_id'] == 1
     assert fake_types_manager.store[1] is type_dict
+
+
+def test_create_basic_type_records_the_insert_in_the_ledger(
+    empty_slot_map: dict[str, int | None],
+    fake_types_manager: Any,
+    fake_section_templates_manager: Any,
+    type_constructor: Any,
+) -> None:
+    """Every created type is recorded, so a failed run can be undone"""
+    ledger = WriteLedger()
+    base = ProfileBase(empty_slot_map, fake_types_manager, fake_section_templates_manager, type_constructor, ledger)
+
+    new_id: int = base.create_basic_type('company_id', {'name': 'company', 'label': 'Company'})
+
+    assert [(entry.kind, entry.manager, entry.public_id) for entry in ledger.entries] == [
+        (WriteKind.INSERT, fake_types_manager, new_id),
+    ]
 
 
 def test_create_special_type_inserts_then_cross_wires(

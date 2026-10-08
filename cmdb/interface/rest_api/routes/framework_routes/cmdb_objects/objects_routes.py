@@ -105,9 +105,10 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     emit_object_state_change_events,
     handle_delete_from_object_groups,
+    handle_delete_invalid_object_relations,
     handle_delete_object_location,
-    handle_sync_config_item_count,
 )
+from cmdb.framework.config_item_sync import handle_sync_config_item_count
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     MAX_DASHBOARD_GROUPS,
     GROUPABLE_OBJECT_FIELDS,
@@ -1104,6 +1105,9 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
             # Guaranteed present: the guard above refused the request if any type was missing
             delete_selected_object(request_user, current_object, type_map[current_object.get_type_id()], managers)
             ack.append(current_object.get_public_id())
+
+        # Remove the relations of every object actually deleted, at once: one read, one delete and one log batch
+        handle_delete_invalid_object_relations(request_user, ack)
 
         # Remove the deleted objects from all static object groups
         handle_delete_from_object_groups(request_user, to_delete_object_ids)

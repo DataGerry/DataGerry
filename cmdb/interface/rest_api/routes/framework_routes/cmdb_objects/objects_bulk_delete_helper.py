@@ -45,7 +45,6 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     handle_create_object_log,
-    handle_delete_invalid_object_relations,
     handle_delete_object_location,
     handle_notify_webhooks,
 )
@@ -158,10 +157,10 @@ def delete_selected_object(
 
     In order: its CmdbLocation goes and the location's direct children are promoted onto its parent (keeping
     the tree connected); the object is deleted with its already resolved type (the risk-assessment cascade ran
-    for the whole selection); its now-invalid relations go; the Rack state it leaves behind is removed; the
-    ports it owns - stored outside its document, so nothing else removes them - go with their connections and
-    links; a DELETE webhook is sent and a deletion log written. The selection-wide clean-up (object groups,
-    references, the cloud count) is the route's, once for all targets
+    for the whole selection); the Rack state it leaves behind is removed; the ports it owns - stored outside its
+    document, so nothing else removes them - go with their connections and links; a DELETE webhook is sent and a
+    deletion log written. The selection-wide clean-up (the object relations, object groups, references, the
+    cloud count) is the route's, once for all targets
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
@@ -178,7 +177,6 @@ def delete_selected_object(
         public_id, request_user, AccessControlPermission.DELETE, object_type=target_type,
     )
 
-    handle_delete_invalid_object_relations(request_user, public_id)
     handle_rack_object_deleted(
         request_user, target_document, managers.objects_manager, managers.types_manager, managers.locations_manager,
     )

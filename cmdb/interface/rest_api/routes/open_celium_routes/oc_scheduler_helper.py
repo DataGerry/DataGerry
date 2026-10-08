@@ -20,9 +20,10 @@ from dataclasses import dataclass
 from logging import Logger, getLogger
 from typing import Any, Callable
 
-from flask import abort
+from flask import abort, current_app
 
 from cmdb.manager import CachedUserManager, DgServicePortalManager, OcConnectionManager, OcSchedulerManager
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.open_celium import map_oc_name
 from cmdb.open_celium import CachedOcIdType, unmap_oc_name, is_hosted_cloud
 
@@ -45,6 +46,23 @@ from cmdb.errors.dg_service_portal import DgServicePortalSaveError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+
+
+def build_scheduler_manager(request_user: CmdbUser) -> OcSchedulerManager:
+    """
+    Builds the OcSchedulerManager for the requesting user
+
+    Every scheduler route and the Automation create and delete need the same two arguments - the process-wide
+    database manager and the caller's database - so the construction lives here instead of in every route
+
+    Args:
+        request_user (CmdbUser): The user making the request; its database scopes the manager
+
+    Returns:
+        OcSchedulerManager: The manager to talk to OpenCelium with
+    """
+    return OcSchedulerManager(current_app.database_manager, ManagerProvider.tenant_database(request_user))
 
 
 def assert_scheduler_access(request_user: CmdbUser, scheduler_id: int) -> None:
@@ -200,6 +218,38 @@ def read_automation_body(params: Any) -> tuple[dict[str, Any], dict[str, Any]]:
         abort(400, OcAutomationMessage.NO_SCHEDULER_TITLE.value)
 
     return conn_data, sched_data
+
+
+def read_scheduler_update_body(params: Any, title_required: bool) -> dict[str, Any]:
+    """
+    Reads the body of an Automation (scheduler) update, refusing what the update cannot use
+
+    The body is forwarded to OpenCelium as it is, but two things are read from it here: it must be an object, and its
+    ``title`` - mapped to the tenant in cloud mode, so required there - must be a non-blank text whenever it is sent.
+    Both used to fail the request with a 500 (a ``TypeError`` / ``KeyError`` in the mapping)
+
+    Args:
+        params (Any): The parsed JSON body
+        title_required (bool): Whether the update needs a title (cloud mode maps it)
+
+    Raises:
+        HTTPException: 400 when the body is no object, or its title is missing (when required), blank or no text
+
+    Returns:
+        dict[str, Any]: The body
+    """
+    if not isinstance(params, dict):
+        abort(400, OcAutomationMessage.UPDATE_BODY_NOT_AN_OBJECT.value)
+
+    title: Any = params.get(OcResponseKey.TITLE.value)
+
+    if title is None and not title_required:
+        return params
+
+    if not isinstance(title, str) or not title.strip():
+        abort(400, OcAutomationMessage.UPDATE_TITLE_INVALID.value)
+
+    return params
 
 
 @dataclass(frozen=True)

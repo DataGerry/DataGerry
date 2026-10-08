@@ -15,39 +15,37 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             DELETE - LOCATION FOR OBJECT                                             #
+#                                             GET - LOCATION OF ONE OBJECT                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-delete: 
+get:
   tags:
       - Locations
       - Cloud
       - OnPremise
-  summary: Delete a single Location [Cloud] [OnPremise]
+  summary: Retrieve the Location of one Object [Cloud] [OnPremise]
   description: |
-      Required User Right: **base.framework.object.edit**
+      Required User Right: **base.framework.location.view**
       <br><hr><br>
-      Deletes the Location with the given **public_id**
+      Returns the **Location** node of the **Object** with the given **object_id** - the node that mirrors the
+      Object's placement in the location tree
+  operationId: get_cmdb_location_for_object
   parameters:
-      - name: public_id
+      - name: object_id
         in: path
-        description: The **public_id** of the Location which should be deleted
+        description: The **public_id** of the **Object** whose Location should be retrieved
         required: true
         schema:
             type: integer
-  operationId: delete_cmdb_location_for_object
   responses:
       "200":
-          description: Returns the Location with the given **public_id** which was deleted
+          description: The Object's **Location**, as the bare document
           content:
               application/json:
                   schema:
-                      type: object
-                      properties:
-                          raw:
-                              $ref: "../../components/schemas/CmdbLocation.yaml"
+                      $ref: "../../components/schemas/CmdbLocation.yaml"
       "400":
-          description: Failed to delete the Location
+          description: Failed to retrieve the **Location**
           content:
               application/json:
                   schema:
@@ -55,9 +53,9 @@ delete:
                       properties:
                           error:
                               type: string
-                              example: "Failed to delete the Location"
+                              example: "Failed to retrieve the Location for Object with ID: 42 from the database!"
       "404":
-          description: The requested Location was not found
+          description: The Object has no **Location** (it is not placed, or does not exist)
           content:
               application/json:
                   schema:
@@ -65,7 +63,7 @@ delete:
                       properties:
                           error:
                               type: string
-                              example: "The requested Location was not found"
+                              example: "The Location for Object with ID:42 was not found!"
       "500":
           description: Internal server error
           content:

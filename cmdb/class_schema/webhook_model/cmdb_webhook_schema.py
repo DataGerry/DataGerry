@@ -52,4 +52,8 @@ def get_cmdb_webhook_schema() -> dict[str, Any]:
             'type': 'boolean',
             'default': True,
         },
+        'owner_id': {  # public_id of the CmdbUser who last saved the webhook - server-owned, scopes its deliveries
+            'type': 'integer',
+            'nullable': True,
+        },
     }

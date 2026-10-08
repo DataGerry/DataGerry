@@ -34,7 +34,7 @@ from werkzeug.wrappers.response import Response as Resp
 from werkzeug.http import quote_header_value
 from gridfs.grid_file import GridOut
 
-from cmdb.interface.rest_api.responses.gridfs_response import GridFsResponse
+from cmdb.framework.results import IterationResult
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
 
@@ -127,9 +127,11 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
 
         metadata = generate_collection_parameters(params=params)
         response_query = {'limit': params.limit, 'skip': params.skip, 'sort': [(params.sort, params.order)]}
-        output: GridFsResponse = media_files_manager.get_many_media_files(metadata, **response_query)
+        output: IterationResult[dict[str, Any]] = media_files_manager.get_many_media_files(
+            metadata, **response_query,
+        )
 
-        api_response = GetMultiResponse(output.result, total=output.total, params=params, url=request.url)
+        api_response = GetMultiResponse(output.results, total=output.total, params=params, url=request.url)
 
         return api_response.make_response()
     except MediaFileManagerGetError as err:

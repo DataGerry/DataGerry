@@ -168,8 +168,12 @@ paths:
         $ref: "./paths/locations/locations.yaml"
     /locations/{public_id}:
         $ref: "./paths/locations/locations-by-id.yaml"
-    /locations/{public_id}/object:
-        $ref: "./paths/locations/locations-by-id-object.yaml"
+    /locations/{object_id}/object:
+        $ref: "./paths/locations/locations-by-object-id-object.yaml"
+    /locations/{object_id}/parent:
+        $ref: "./paths/locations/locations-by-object-id-parent.yaml"
+    /locations/parents:
+        $ref: "./paths/locations/locations-parents.yaml"
     /extendable_options:
         $ref: "./paths/extendable_options/extendable-options.yaml"
     /extendable_options/{public_id}:
