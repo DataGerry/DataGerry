@@ -29,7 +29,7 @@
       </span>
     } @else if (running) {
       <span class="run-panel__hint">
-        The run is in progress. The log opens by itself once it finishes.
+        You can keep working or leave the page - the run goes on, and its log opens here once it finishes.
       </span>
     } @else if (note) {
       <span class="run-panel__hint">{{ note }}</span>
@@ -44,6 +44,18 @@
       </span>
     }
   </div>
+
+  @if (running) {
+    <div class="run-panel__progress" aria-live="polite">
+      <app-progress-bar [value]="progress" [height]="8" ariaLabel="Run progress"></app-progress-bar>
+      <span class="run-panel__progress-text">
+        {{ progressText }}
+        @if (!expectedMs) {
+          <span class="run-panel__progress-note">- no previous run to estimate from</span>
+        }
+      </span>
+    </div>
+  }
 
   @if (listError) {
     <div class="alert alert-danger run-panel__alert">{{ listError }}</div>

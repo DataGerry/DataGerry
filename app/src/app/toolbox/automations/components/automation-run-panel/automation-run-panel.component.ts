@@ -32,8 +32,17 @@ import {
 /** How often the panel asks whether the run it started has finished. */
 const POLL_INTERVAL_MS = 3000;
 
-/** When to stop asking. A run that outlives this is still running - the list just stops chasing it. */
+/**
+ * When to stop asking, at the least. A run expected to take longer is followed for three times its
+ * expected length; one that outlives that is still running - the panel just stops chasing it.
+ */
 const POLL_LIMIT_MS = 10 * 60 * 1000;
+
+/** How often the progress bar moves. */
+const TICK_MS = 500;
+
+/** Where the bar stops while the run has not reported back: full means finished, and it is not. */
+const PROGRESS_CEILING = 95;
 
 /**
  * Where "always save before a run" is remembered. Per browser, like the list's auto-refresh: it is
@@ -96,6 +105,14 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
 
     private pollTimerId?: number;
     private pollStartedAt = 0;
+    private tickTimerId?: number;
+
+    /** How long a run of this automation took last time, in ms; null until that is known. */
+    public expectedMs: number | null = null;
+
+    /** How long the run being followed has taken so far. */
+    public elapsedMs = 0;
+    private runStartedAt = 0;
 
     private readonly automationsService = inject(AutomationsService);
     private readonly toast = inject(ToastService);
@@ -111,12 +128,15 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
             this.selected = null;
             this.runs = [];
             this.loadRuns();
+            this.loadExpectedDuration();
+            this.resumeIfRunning();
         }
     }
 
 
     public ngOnDestroy(): void {
         this.stopPolling();
+        this.stopTicker();
     }
 
     /* --------------------------------------------------- ACTIONS ---------------------------------------------------- */
@@ -246,12 +266,22 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
             }))
             .subscribe({
                 next: () => {
-                    this.toast.success('The automation was started.');
-                    this.running = true;
-                    this.beginPolling();
+                    this.toast.success('The automation was started. It keeps running if you leave this page.');
+                    this.markRunning();
                 },
                 error: err => {
-                    this.toast.error(err?.error?.message || 'The automation could not be started.');
+                    // A start that answers with an error may still have started the run - a slow
+                    // answer is one. Whether it runs is what counts, so that is asked first.
+                    this.automationsService.getRunningSchedulers()
+                        .pipe(catchError(() => of([])))
+                        .subscribe(list => {
+                            if (this.isListedAsRunning(list)) {
+                                this.toast.success('The automation was started.');
+                                this.markRunning();
+                            } else {
+                                this.toast.error(err?.error?.message || 'The automation could not be started.');
+                            }
+                        });
                 }
             });
     }
@@ -264,6 +294,112 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
 
     public isSelected(entry: AutomationRunEntry): boolean {
         return this.selected?.execution_id === entry.execution_id;
+    }
+
+    /* --------------------------------------------------- PROGRESS --------------------------------------------------- */
+
+    /**
+     * How far the run probably is, 0 to 100.
+     *
+     * OpenCelium reports nothing while a run is going on, so this is time measured against how long
+     * the last run took. It stops short of full until the run is over; without a previous run it
+     * creeps towards that mark, so it moves without pretending to know.
+     */
+    public get progress(): number {
+        if (this.expectedMs && this.expectedMs > 0) {
+            return Math.min(PROGRESS_CEILING, (this.elapsedMs / this.expectedMs) * 100);
+        }
+
+        return PROGRESS_CEILING * (1 - Math.exp(-this.elapsedMs / 30000));
+    }
+
+
+    public get progressText(): string {
+        const elapsed = formatSeconds(this.elapsedMs);
+
+        if (!this.expectedMs) {
+            return `${elapsed} so far`;
+        }
+
+        if (this.elapsedMs > this.expectedMs * 1.1) {
+            return `${elapsed} - longer than the last run (${formatSeconds(this.expectedMs)})`;
+        }
+
+        return `${elapsed} of about ${formatSeconds(this.expectedMs)}`;
+    }
+
+
+    /** Reads how long the last run took, which is what the progress bar measures against. */
+    private loadExpectedDuration(): void {
+        const schedulerId = this.schedulerId;
+
+        if (!schedulerId) {
+            this.expectedMs = null;
+
+            return;
+        }
+
+        this.automationsService.getScheduler(schedulerId)
+            .pipe(catchError(() => of(null)))
+            .subscribe(scheduler => {
+                if (scheduler && schedulerId === this.schedulerId) {
+                    this.expectedMs = lastDurationOf(scheduler) ?? this.expectedMs;
+                }
+            });
+    }
+
+
+    /** Picks up a run that was already going when the panel opened - started elsewhere, or before leaving. */
+    private resumeIfRunning(): void {
+        if (!this.schedulerId || this.running) {
+            return;
+        }
+
+        this.automationsService.getRunningSchedulers()
+            .pipe(catchError(() => of([])))
+            .subscribe(list => {
+                if (this.isListedAsRunning(list) && !this.running) {
+                    this.markRunning();
+                }
+            });
+    }
+
+
+    private markRunning(): void {
+        this.running = true;
+        this.runStartedAt = Date.now();
+        this.elapsedMs = 0;
+        this.startTicker();
+        this.beginPolling();
+    }
+
+
+    private startTicker(): void {
+        this.stopTicker();
+        this.tickTimerId = window.setInterval(() => {
+            this.elapsedMs = Date.now() - this.runStartedAt;
+        }, TICK_MS);
+    }
+
+
+    private stopTicker(): void {
+        if (this.tickTimerId !== undefined) {
+            window.clearInterval(this.tickTimerId);
+            this.tickTimerId = undefined;
+        }
+    }
+
+
+    private isListedAsRunning(list: unknown): boolean {
+        const entries = Array.isArray(list) ? list : [];
+        const own = entries.find(item => item?.schedulerId === this.schedulerId);
+
+        // The running list knows an average, which is the next best thing to the last run.
+        if (own && !this.expectedMs && typeof own.avgDuration === 'number' && own.avgDuration > 0) {
+            this.expectedMs = own.avgDuration;
+        }
+
+        return !!own;
     }
 
     /* --------------------------------------------------- POLLING ---------------------------------------------------- */
@@ -283,8 +419,11 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
      * worse than one that stops.
      */
     private poll(): void {
-        if (Date.now() - this.pollStartedAt > POLL_LIMIT_MS) {
+        const limit = Math.max(POLL_LIMIT_MS, (this.expectedMs ?? 0) * 3);
+
+        if (Date.now() - this.pollStartedAt > limit) {
             this.stopPolling();
+            this.stopTicker();
             this.running = false;
             this.loadRuns();
 
@@ -294,15 +433,15 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
         this.automationsService.getRunningSchedulers()
             .pipe(catchError(() => of([])))
             .subscribe(list => {
-                const ids = (Array.isArray(list) ? list : []).map(item => item?.schedulerId);
-
-                if (ids.includes(this.schedulerId)) {
+                if (this.isListedAsRunning(list)) {
                     return;
                 }
 
                 this.stopPolling();
+                this.stopTicker();
                 this.running = false;
                 this.afterRun();
+                this.loadExpectedDuration();
             });
     }
 
@@ -415,4 +554,32 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
 
         return isNaN(ms) ? null : ms;
     }
+}
+
+
+/** How long the scheduler's last run took, in ms: the last successful one, else the last failed one. */
+function lastDurationOf(scheduler: any): number | null {
+    const success = scheduler?.lastExecution?.success?.duration;
+    const fail = scheduler?.lastExecution?.fail?.duration;
+    const duration = typeof success === 'number' && success > 0 ? success : fail;
+
+    return typeof duration === 'number' && duration > 0 ? duration : null;
+}
+
+
+/** 4 s, 1 min 20 s, 1 h 5 min - as precise as a person reading a progress bar wants it. */
+function formatSeconds(ms: number): string {
+    const seconds = Math.max(0, Math.round(ms / 1000));
+
+    if (seconds < 60) {
+        return `${seconds} s`;
+    }
+
+    const minutes = Math.floor(seconds / 60);
+
+    if (minutes < 60) {
+        return seconds % 60 ? `${minutes} min ${seconds % 60} s` : `${minutes} min`;
+    }
+
+    return `${Math.floor(minutes / 60)} h ${minutes % 60} min`;
 }
