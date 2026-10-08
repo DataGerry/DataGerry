@@ -102,6 +102,8 @@
               [sampleObjectId]="sampleObjectId"
               [schedulerId]="schedulerId"
               [connectionId]="connectionId"
+              [unsavedChanges]="hasUnsavedChanges"
+              [saveChanges]="saveForRun"
               (definitionChange)="onDefinitionChanged($event)"
               (loadSample)="onLoadSample()">
             </app-wizard-step-review>
