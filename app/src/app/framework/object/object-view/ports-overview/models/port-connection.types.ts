@@ -75,6 +75,9 @@ export interface ResolvedCable {
 export interface CableSourceBadge {
     source: CableSource;
     label: string;
+
+    /** The cable CI the chip links to; null for metadata. */
+    objectId: number | null;
 }
 
 

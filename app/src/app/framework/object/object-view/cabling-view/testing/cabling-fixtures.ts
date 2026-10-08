@@ -74,6 +74,7 @@ export function overviewPort(portId: number, name: string, overrides: Partial<Ov
         name,
         description: null,
         connected: false,
+        cabled: false,
         cable: null,
         cable_connection_id: null,
         connected_port: null,
@@ -98,6 +99,7 @@ export function cabledPort(
 ): OverviewPort {
     return overviewPort(portId, name, {
         connected: true,
+        cabled: true,
         cable,
         cable_connection_id: connectionId,
         connected_port: { port_id: far.portId, name: far.portName, side: far.side ?? PortSide.SINGLE },
