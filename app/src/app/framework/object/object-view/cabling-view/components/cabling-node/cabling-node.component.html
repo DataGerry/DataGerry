@@ -113,10 +113,10 @@
     @if (port.expandable) {
       <app-button
         class="cabling-port__expand"
-        label=""
-        [icon]="isExpanding(port) ? 'fas fa-spinner fa-spin' : 'fas fa-circle-plus'"
-        bootstrapClass="btn-link btn-sm cabling-port__expand-btn"
-        padding="0 0.25rem"
+        [class.is-expanding]="isExpanding(port)"
+        label="Show far end"
+        [icon]="isExpanding(port) ? 'fas fa-spinner fa-spin' : 'fas fa-route'"
+        bootstrapClass="cabling-port__expand-btn"
         [ariaLabel]="port.expandLabel"
         [title]="port.expandLabel"
         [disabled]="isExpanding(port)"

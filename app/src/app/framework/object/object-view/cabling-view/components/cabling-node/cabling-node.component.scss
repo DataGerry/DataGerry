@@ -14,6 +14,9 @@ $brand-text: #c2410c;
 $pair-line: #94a3b8;
 $card-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $radius: 0.75rem;
+$expand-icon: 0.7rem;
+$expand-bg: color.mix($primary, #fff, 10%);
+$expand-bg-hover: color.mix($primary, #fff, 16%);
 
 // The card's border is a box-shadow ring: a real border would eat into the fixed height the layout computed.
 :host {
@@ -252,10 +255,10 @@ $radius: 0.75rem;
 
 .cabling-port {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "dot name state action"
-    ". meta meta meta";
+    "dot name state"
+    ". meta meta";
   align-items: center;
   column-gap: 0.45rem;
   width: 100%;
@@ -265,11 +268,15 @@ $radius: 0.75rem;
 
 // A panel face is narrow, so its state moves under the name.
 .cabling-row--pair .cabling-port {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
-    "dot name action"
-    ". state state"
-    ". meta meta";
+    "dot name"
+    ". state"
+    ". meta";
+
+  .cabling-port__expand {
+    --expand-size: 1.25rem;
+  }
 }
 
 .cabling-port__dot {
@@ -310,9 +317,33 @@ $radius: 0.75rem;
   }
 }
 
+// Zero-width anchor over the state, so the hidden action reserves no room in the row.
 .cabling-port__expand {
-  grid-area: action;
+  --expand-size: 1.5rem;
+
+  position: relative;
+  grid-area: state;
+  justify-self: end;
   display: inline-flex;
+  width: 0;
+  height: var(--expand-size);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(0.25rem);
+  transition: opacity 150ms ease, transform 150ms ease;
+
+  @media (prefers-reduced-motion: reduce) {
+    transform: none;
+    transition: none;
+  }
+}
+
+.cabling-port:hover .cabling-port__expand,
+.cabling-port:focus-within .cabling-port__expand,
+.cabling-port__expand.is-expanding {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
 }
 
 .cabling-port.is-cabled {
@@ -392,8 +423,7 @@ $radius: 0.75rem;
 
 // app-button renders its own <button>, so its link colour has to cross that component's encapsulation.
 :host ::ng-deep {
-  .cabling-node__fold,
-  .cabling-port__expand-btn {
+  .cabling-node__fold {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
@@ -414,7 +444,49 @@ $radius: 0.75rem;
     }
   }
 
+  // Pinned right and reversed, so the pill grows leftwards over the state with the icon trailing.
   .cabling-port__expand-btn {
-    font-size: 0.85rem;
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    gap: 0.35rem;
+    width: max-content;
+    height: var(--expand-size);
+    padding: 0 0.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: $expand-bg;
+    color: $brand-text;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    transition: background 150ms ease, color 150ms ease;
+
+    i {
+      flex-shrink: 0;
+      width: $expand-icon;
+      margin: 0;
+      font-size: $expand-icon;
+      text-align: center;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: $expand-bg-hover;
+      color: color.adjust($brand-text, $lightness: -8%);
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
   }
 }
