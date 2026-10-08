@@ -41,6 +41,7 @@ import {
     OcCreateAutomationRequest,
     OcEnhancement,
     OcFieldBinding,
+    OcFieldBindingSide,
     OcFlowchart,
     OcFlowchartEdge,
     OcMethod,
@@ -917,17 +918,19 @@ export class AutomationCompilerService {
         const adjustment = adjustments[`${method.index}:${path}`];
         const script = adjustment?.enabled ? adjustment.script.trim() : '';
 
+        const from = references.map(reference => ({
+            color: reference.color,
+            field: reference.field,
+            type: 'response' as const
+        }));
+        const to: OcFieldBindingSide = { color: method.color, field: targetPath, type: 'request' };
+
         bindings.push({
-            from: references.map(reference => ({
-                color: reference.color,
-                field: reference.field,
-                type: 'response' as const
-            })),
-            to: [{ color: method.color, field: targetPath, type: 'request' as const }],
+            from,
+            to: [to],
             enhancement: this.buildEnhancement(
-                references[0].field,
-                targetPath,
-                method.color,
+                from,
+                to,
                 references.map(reference => ({ kind: 'path' as const, path: reference.field })),
                 script
             )
@@ -1154,20 +1157,17 @@ export class AutomationCompilerService {
         const targetPath = `body.$.fields[${position}].value`;
         const sources: SourceValue[] = references.map(reference => ({ kind: 'path', path: reference.field }));
 
+        const from = references.map(reference => ({
+            color: reference.color,
+            field: reference.field,
+            type: 'response' as const
+        }));
+        const to: OcFieldBindingSide = { color: method.color, field: targetPath, type: 'request' };
+
         return {
-            from: references.map(reference => ({
-                color: reference.color,
-                field: reference.field,
-                type: 'response' as const
-            })),
-            to: [{ color: method.color, field: targetPath, type: 'request' as const }],
-            enhancement: this.buildEnhancement(
-                references[0].field,
-                targetPath,
-                method.color,
-                sources,
-                script
-            )
+            from,
+            to: [to],
+            enhancement: this.buildEnhancement(from, to, sources, script)
         };
     }
 
@@ -1506,16 +1506,13 @@ export class AutomationCompilerService {
             ocFieldReference(lookupMethod.color, 'response', ocCollectionElementPath(lookup.responseArrayPath, elementId, '0'))
         );
 
+        const from: OcFieldBindingSide[] = [{ color: lookupMethod.color, field: sourcePath, type: 'response' }];
+        const to: OcFieldBindingSide = { color: writeMethod.color, field: targetPath, type: 'request' };
+
         return {
-            from: [{ color: lookupMethod.color, field: sourcePath, type: 'response' }],
-            to: [{ color: writeMethod.color, field: targetPath, type: 'request' }],
-            enhancement: this.buildEnhancement(
-                sourcePath,
-                targetPath,
-                writeMethod.color,
-                [{ kind: 'path', path: elementId }],
-                ''
-            )
+            from,
+            to: [to],
+            enhancement: this.buildEnhancement(from, to, [{ kind: 'path', path: elementId }], '')
         };
     }
 
@@ -1703,20 +1700,17 @@ export class AutomationCompilerService {
             ocFieldReference(AutomationCompilerService.SOURCE_COLOR, 'response', elementPaths[0])
         );
 
+        const from = elementPaths.map(path => ({
+            color: AutomationCompilerService.SOURCE_COLOR,
+            field: `body.$.${path}`,
+            type: 'response' as const
+        }));
+        const to: OcFieldBindingSide = { color: targetMethod.color, field: targetPath, type: 'request' };
+
         return {
-            from: elementPaths.map(path => ({
-                color: AutomationCompilerService.SOURCE_COLOR,
-                field: `body.$.${path}`,
-                type: 'response' as const
-            })),
-            to: [{ color: targetMethod.color, field: targetPath, type: 'request' as const }],
-            enhancement: this.buildEnhancement(
-                `body.$.${elementPaths[0]}`,
-                targetPath,
-                targetMethod.color,
-                sources,
-                script
-            )
+            from,
+            to: [to],
+            enhancement: this.buildEnhancement(from, to, sources, script)
         };
     }
 
@@ -1737,11 +1731,14 @@ export class AutomationCompilerService {
      * wrapped so the user's statements work on names rather than on VAR_0: a single source is
      * `value`, several are `value1`, `value2` in the order they were added, and `value` is what
      * gets written. A fixed value among them is seeded as a literal, because it has no VAR to read.
+     *
+     * The declarations are written from the binding's own sides, one VAR per field it reads and in
+     * the same order, because OpenCelium resolves VAR_n from them: each must name the call its field
+     * belongs to, not whichever call happens to come first.
      */
     private buildEnhancement(
-        sourcePath: string,
-        targetPath: string,
-        targetColor: string,
+        reads: OcFieldBindingSide[],
+        target: OcFieldBindingSide,
         sources: SourceValue[],
         script: string
     ): OcEnhancement {
@@ -1769,8 +1766,10 @@ export class AutomationCompilerService {
             description: '',
             language: 'js',
             simpleCode: null,
-            expertVar: `//var RESULT_VAR = ${targetColor}.(request).${targetPath};\n`
-                + `//var VAR_0 = ${AutomationCompilerService.SOURCE_COLOR}.(response).${sourcePath};`,
+            expertVar: [
+                `//var RESULT_VAR = ${target.color}.(request).${target.field};`,
+                ...reads.map((read, index) => `//var VAR_${index} = ${read.color}.(response).${read.field};`)
+            ].join('\n'),
             expertCode: body
         };
     }

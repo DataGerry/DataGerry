@@ -812,6 +812,9 @@ describe('AutomationCompilerService', () => {
                 field: 'body.$.result.id',
                 type: 'response'
             });
+            // OpenCelium resolves VAR_0 from this line, so it has to name the same call as from[0].
+            expect(binding?.enhancement.expertVar)
+                .toContain(`//var VAR_0 = ${anchorColor}.(response).body.$.result.id;`);
         });
 
 
@@ -1307,6 +1310,8 @@ describe('AutomationCompilerService', () => {
                 field: 'body.$.result[0].id',
                 type: 'response'
             });
+            expect(binding?.enhancement.expertVar)
+                .toContain(`//var VAR_0 = ${lookup.color}.(response).body.$.result[0].id;`);
         });
 
 
