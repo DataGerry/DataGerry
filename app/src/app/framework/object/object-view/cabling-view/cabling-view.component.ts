@@ -15,9 +15,10 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { AsyncPipe, NgTemplateOutlet } from '@angular/common';
+import { AsyncPipe, DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -30,7 +31,7 @@ import {
     DEFAULT_DISPLAY_OPTIONS
 } from './constants/cabling.constants';
 import { CablingGesturesDirective } from './directives/cabling-gestures.directive';
-import { CablingSelection, CablingSpotlight } from './models/cabling-spotlight.types';
+import { CablingSelection, CablingSpotlight, CablingTrace } from './models/cabling-spotlight.types';
 import { CablingTooltipView } from './models/cabling-tooltip.types';
 import { CablingDisplayOptions, CablingNodeLayout } from './models/cabling.types';
 import { CablingCableHoverStore } from './services/cabling-cable-hover.store';
@@ -43,11 +44,14 @@ import {
     layoutCablingNodes,
     offsetCablingNodes
 } from './utils/cabling-layout.util';
+import { spotlightTrace } from './utils/cabling-spotlight.util';
 import { cableTooltip } from './utils/cabling-tooltip.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** A click on one of these has its own meaning: a link, a button, a cable or a cabled port. */
 const SELF_HANDLED_CLICK = 'a, button, .cabling-edge__hit, .cabling-port.is-cabled';
+
+const NO_PORTS: ReadonlySet<number> = new Set();
 
 
 /**
@@ -60,6 +64,7 @@ const SELF_HANDLED_CLICK = 'a, button, .cabling-edge__hit, .cabling-port.is-cabl
     imports: [
         AsyncPipe,
         NgTemplateOutlet,
+        ReactiveFormsModule,
         CoreModule,
         CablingGesturesDirective,
         CablingNodeComponent,
@@ -87,7 +92,17 @@ export class CablingViewComponent {
     private readonly selection = signal<CablingSelection | null>(null);
     private readonly expandedNodeIds = signal<ReadonlySet<number>>(new Set());
 
-    public readonly showFreePorts = signal(false);
+    protected readonly viewOptionsForm = new FormGroup({
+        showFreePorts: new FormControl(false, { nonNullable: true })
+    });
+
+    public readonly showFreePorts = toSignal(this.viewOptionsForm.controls.showFreePorts.valueChanges, {
+        initialValue: this.viewOptionsForm.controls.showFreePorts.value
+    });
+
+    public readonly isFullscreen = signal(false);
+
+    protected readonly canFullscreen = inject(DOCUMENT).fullscreenEnabled;
 
     public readonly options = computed<CablingDisplayOptions>(() => ({
         ...DEFAULT_DISPLAY_OPTIONS,
@@ -105,22 +120,25 @@ export class CablingViewComponent {
     public readonly selectedConnectionId = computed(() => this.selection()?.connectionId ?? null);
     public readonly highlightedConnectionId = computed(() => this.selectedConnectionId() ?? this.hoveredConnectionId());
 
-    /** Drawn a second time above the cards, so a cable running behind one can be followed. */
-    public readonly selectedEdge = computed(() => {
-        const connectionId = this.selectedConnectionId();
-
-        return connectionId == null ? null : (this.edges().find((edge) => edge.connectionId === connectionId) ?? null);
-    });
     public readonly isEmpty = computed(() => this.store.loaded() && !this.edges().length);
 
-    /** The card a cable was picked from, lit with its port while everything else goes under the shade. */
-    public readonly spotlight = computed<CablingSpotlight | null>(() => {
+    private readonly trace = computed<CablingTrace | null>(() => {
         const selection = this.selection();
 
-        return this.spotlightStore.active()
-            ? { objectId: selection?.objectId ?? null, portId: selection?.portId ?? null }
-            : null;
+        return selection && this.spotlightStore.active() ? spotlightTrace(this.store.graph(), selection) : null;
     });
+
+    /** Drawn a second time above the cards, so a cable running behind one can be followed. */
+    public readonly raisedEdges = computed(() => {
+        const raisedIds = this.trace()?.connectionIds ?? new Set([this.selectedConnectionId()]);
+
+        return this.edges().filter((edge) => raisedIds.has(edge.connectionId));
+    });
+
+    /** Every card goes under the shade; only the ports on the picked trace rise above it. */
+    public readonly spotlight = computed<CablingSpotlight | null>(() => (this.spotlightStore.active()
+        ? { portIds: this.trace()?.portIds ?? NO_PORTS }
+        : null));
 
     private readonly hoveredCableId = computed(() => this.cableHover.hover()?.connectionId ?? null);
 
@@ -150,7 +168,7 @@ export class CablingViewComponent {
         '=': () => this.canvas.zoomIn(),
         '-': () => this.canvas.zoomOut(),
         '_': () => this.canvas.zoomOut(),
-        '0': () => this.canvas.fit(this.bounds()),
+        '0': () => this.fitToScreen(),
         'Escape': () => this.selection.set(null),
         's': () => this.toggleSpotlight(),
         'S': () => this.toggleSpotlight(),
@@ -237,14 +255,21 @@ export class CablingViewComponent {
         action();
     }
 
+
+    /** Also fires on Escape; the frame changed size, so the drawing is fitted to it again. */
+    public onFullscreenChange(active: boolean): void {
+        this.isFullscreen.set(active);
+        this.fitToScreen();
+    }
+
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    public toggleFreePorts(): void {
-        this.showFreePorts.update((shown) => !shown);
+    public fitToScreen(): void {
+        this.canvas.fit(this.bounds());
     }
 
 
-    /** While on, everything goes under the shade but the card a cable is picked from, that port and the cable. */
+    /** While on, everything goes under the shade but the picked port and its trace back to this object. */
     public toggleSpotlight(): void {
         this.spotlightStore.toggle();
     }

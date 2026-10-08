@@ -1,0 +1,7 @@
+// Stacking inside the cabling canvas while the spotlight is on.
+$shade: 1;
+$above-shade: 2;
+$raised-cable: 3;
+
+// One tint for the canvas shade and the cards that dim themselves above the cables.
+$shade-tint: rgba(15, 23, 42, 0.46);

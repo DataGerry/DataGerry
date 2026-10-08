@@ -1,4 +1,5 @@
 @use "sass:color";
+@use "../../styles/cabling-layers" as layers;
 @import "src/scss/variables";
 
 $ink-strong: #1f2937;
@@ -13,6 +14,9 @@ $brand-text: #c2410c;
 $pair-line: #94a3b8;
 $card-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $radius: 0.75rem;
+$expand-icon: 0.7rem;
+$expand-bg: color.mix($primary, #fff, 10%);
+$expand-bg-hover: color.mix($primary, #fff, 16%);
 
 // The card's border is a box-shadow ring: a real border would eat into the fixed height the layout computed.
 :host {
@@ -238,6 +242,47 @@ $radius: 0.75rem;
   }
 }
 
+// The view's shade lies under the cables, so a shaded card tints itself.
+:host(.cabling-node--shaded) {
+  box-shadow: 0 0 0 1px layers.$shade-tint, 0 0 0 1px var(--node-accent-line), $card-shadow;
+
+  &::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    z-index: layers.$shade;
+    border-radius: inherit;
+    background: layers.$shade-tint;
+    pointer-events: none;
+  }
+}
+
+:host(.cabling-node--shaded.cabling-node--focal) {
+  box-shadow: 0 0 0 2px layers.$shade-tint, 0 0 0 2px $primary, 0 0 0 6px rgba($primary, 0.06), $card-shadow;
+
+  // Overhangs the card, so it dims on its own above the card's tint.
+  .cabling-node__crown {
+    z-index: layers.$above-shade;
+    filter: brightness(0.54);
+  }
+}
+
+// A shaded card is no stacking context, so the ports on the trace and a keyboard-focused control rise above its tint.
+:host(.cabling-node--shaded) {
+  .is-highlighted,
+  .cabling-node__open:focus-visible,
+  app-button:has(:focus-visible) {
+    position: relative;
+    z-index: layers.$above-shade;
+  }
+
+  .cabling-node__open:focus-visible,
+  .cabling-node__footer app-button:has(:focus-visible) {
+    border-radius: 0.5rem;
+    background: #fff;
+  }
+}
+
 .cabling-row__none {
   font-size: 0.75rem;
   color: $ink-faint;
@@ -245,10 +290,10 @@ $radius: 0.75rem;
 
 .cabling-port {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   grid-template-areas:
-    "dot name state action"
-    ". meta meta meta";
+    "dot name state"
+    ". meta meta";
   align-items: center;
   column-gap: 0.45rem;
   width: 100%;
@@ -258,11 +303,15 @@ $radius: 0.75rem;
 
 // A panel face is narrow, so its state moves under the name.
 .cabling-row--pair .cabling-port {
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   grid-template-areas:
-    "dot name action"
-    ". state state"
-    ". meta meta";
+    "dot name"
+    ". state"
+    ". meta";
+
+  .cabling-port__expand {
+    --expand-size: 1.25rem;
+  }
 }
 
 .cabling-port__dot {
@@ -303,9 +352,33 @@ $radius: 0.75rem;
   }
 }
 
+// Zero-width anchor over the state, so the hidden action reserves no room in the row.
 .cabling-port__expand {
-  grid-area: action;
+  --expand-size: 1.5rem;
+
+  position: relative;
+  grid-area: state;
+  justify-self: end;
   display: inline-flex;
+  width: 0;
+  height: var(--expand-size);
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(0.25rem);
+  transition: opacity 150ms ease, transform 150ms ease;
+
+  @media (prefers-reduced-motion: reduce) {
+    transform: none;
+    transition: none;
+  }
+}
+
+.cabling-port:hover .cabling-port__expand,
+.cabling-port:focus-within .cabling-port__expand,
+.cabling-port__expand.is-expanding {
+  opacity: 1;
+  pointer-events: auto;
+  transform: none;
 }
 
 .cabling-port.is-cabled {
@@ -325,9 +398,21 @@ $radius: 0.75rem;
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   min-width: 3.25rem;
   font-size: 0.72rem;
   color: $ink-muted;
+
+  // Both faces on the trace: the band runs through the link between them.
+  &.is-highlighted {
+    --row-bg: #{$row-highlight};
+    --pair-link: #{$primary};
+
+    align-self: stretch;
+    margin-left: -0.5rem;
+    padding-left: 0.5rem;
+    background: var(--row-bg);
+  }
 }
 
 .cabling-pair__link {
@@ -335,7 +420,7 @@ $radius: 0.75rem;
   display: flex;
   justify-content: center;
   width: 3rem;
-  color: $ink-label;
+  color: var(--pair-link, #{$ink-label});
 
   &::before {
     content: '';
@@ -343,7 +428,7 @@ $radius: 0.75rem;
     top: 50%;
     right: 0;
     left: 0;
-    border-top: 2px dashed $pair-line;
+    border-top: 2px dashed var(--pair-link, #{$pair-line});
   }
 
   i {
@@ -373,8 +458,7 @@ $radius: 0.75rem;
 
 // app-button renders its own <button>, so its link colour has to cross that component's encapsulation.
 :host ::ng-deep {
-  .cabling-node__fold,
-  .cabling-port__expand-btn {
+  .cabling-node__fold {
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
@@ -395,7 +479,49 @@ $radius: 0.75rem;
     }
   }
 
+  // Pinned right and reversed, so the pill grows leftwards over the state with the icon trailing.
   .cabling-port__expand-btn {
-    font-size: 0.85rem;
+    position: absolute;
+    top: 0;
+    right: 0;
+    display: inline-flex;
+    flex-direction: row-reverse;
+    align-items: center;
+    gap: 0.35rem;
+    width: max-content;
+    height: var(--expand-size);
+    padding: 0 0.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: $expand-bg;
+    color: $brand-text;
+    font-size: 0.75rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+    transition: background 150ms ease, color 150ms ease;
+
+    i {
+      flex-shrink: 0;
+      width: $expand-icon;
+      margin: 0;
+      font-size: $expand-icon;
+      text-align: center;
+    }
+
+    &:hover,
+    &:focus-visible {
+      background: $expand-bg-hover;
+      color: color.adjust($brand-text, $lightness: -8%);
+    }
+
+    &:focus-visible {
+      outline: 0;
+      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+      transition: none;
+    }
   }
 }

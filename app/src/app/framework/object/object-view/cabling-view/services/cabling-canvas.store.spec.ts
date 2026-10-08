@@ -58,6 +58,47 @@ describe('CablingCanvasStore', () => {
         expect(canvas.viewport().y).toBeCloseTo(300 - 300 * CABLING_ZOOM.step);
     });
 
+    it('keeps a fitted drawing fitted while the frame resizes, until the view moves', async () => {
+        const nextFrame = () => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve)));
+
+        canvas.fit({ minX: 0, minY: 0, maxX: 1800, maxY: 900 });
+        const fittedZoom = canvas.viewport().zoom;
+
+        frame.style.width = '500px';
+        await nextFrame();
+
+        expect(canvas.viewport().zoom).toBeLessThan(fittedZoom);
+
+        canvas.zoomIn();
+        const zoomed = canvas.viewport();
+
+        frame.style.width = '1000px';
+        await nextFrame();
+
+        expect(canvas.viewport()).toBe(zoomed);
+    });
+
+    it('stops zooming at either limit', () => {
+        expect(canvas.canZoomIn()).toBeTrue();
+        expect(canvas.canZoomOut()).toBeTrue();
+
+        for (let step = 0; step < 20; step++) {
+            canvas.zoomIn();
+        }
+
+        expect(canvas.viewport().zoom).toBe(CABLING_ZOOM.max);
+        expect(canvas.canZoomIn()).toBeFalse();
+        expect(canvas.canZoomOut()).toBeTrue();
+
+        for (let step = 0; step < 20; step++) {
+            canvas.zoomOut();
+        }
+
+        expect(canvas.viewport().zoom).toBe(CABLING_ZOOM.min);
+        expect(canvas.canZoomOut()).toBeFalse();
+        expect(canvas.canZoomIn()).toBeTrue();
+    });
+
     it('moves to a revealed card only when it is off screen, centring the cards around it', () => {
         const onScreen = { minX: 10, minY: 10, maxX: 100, maxY: 100 };
         const offScreen = { minX: 2000, minY: 0, maxX: 2100, maxY: 100 };

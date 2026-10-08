@@ -28,7 +28,7 @@ import {
     StandardOverviewRow
 } from '../models/ports-overview.types';
 import { summarisePortInterfaces } from './interface-row.util';
-import { cableLabel } from './port-connection.util';
+import { cableLabel, cableSourceBadge } from './port-connection.util';
 import { normalizeSide } from './port-side.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -63,7 +63,7 @@ const PANEL_SORT_FIELDS: Record<string, keyof PatchPanelRow> = {
 /** One overview port as a table row. A missing option label shows a dash, never the raw id. */
 export function toPortRow(port: OverviewPort): PortRow {
     const interfaces = summarisePortInterfaces(port.interface_links ?? []);
-    const cabled = port.cable_connection_id != null;
+    const cabled = port.cabled === true;
 
     return {
         publicId: port.port_id,
@@ -76,6 +76,7 @@ export function toPortRow(port: OverviewPort): PortRow {
         description: port.description ?? null,
         connectionState: cabled ? PortConnectionState.CABLED : PortConnectionState.FREE,
         connectionLabel: cabled ? cableLabel(port.cable) || 'Cable' : 'Free',
+        cableSource: cabled ? cableSourceBadge(port.cable) : null,
         cableConnectionId: port.cable_connection_id ?? null,
         farEndLabel: cabled ? farEndLabelOf(port) : null,
         interfaces,
@@ -143,6 +144,7 @@ export function toCmdbPort(port: OverviewPort, objectId: number): CmdbPort {
         creation_time: null,
         last_edit_time: null,
         connected: port.connected === true,
+        cabled: port.cabled === true,
         interface_links: port.interface_links ?? []
     };
 }
