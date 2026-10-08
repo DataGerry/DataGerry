@@ -17,7 +17,8 @@
 */
 import { AsyncPipe, DOCUMENT, NgTemplateOutlet } from '@angular/common';
 import { ChangeDetectionStrategy, Component, computed, inject, input, signal } from '@angular/core';
-import { takeUntilDestroyed, toObservable } from '@angular/core/rxjs-interop';
+import { takeUntilDestroyed, toObservable, toSignal } from '@angular/core/rxjs-interop';
+import { FormControl, FormGroup, ReactiveFormsModule } from '@angular/forms';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -63,6 +64,7 @@ const NO_PORTS: ReadonlySet<number> = new Set();
     imports: [
         AsyncPipe,
         NgTemplateOutlet,
+        ReactiveFormsModule,
         CoreModule,
         CablingGesturesDirective,
         CablingNodeComponent,
@@ -90,7 +92,14 @@ export class CablingViewComponent {
     private readonly selection = signal<CablingSelection | null>(null);
     private readonly expandedNodeIds = signal<ReadonlySet<number>>(new Set());
 
-    public readonly showFreePorts = signal(false);
+    protected readonly viewOptionsForm = new FormGroup({
+        showFreePorts: new FormControl(false, { nonNullable: true })
+    });
+
+    public readonly showFreePorts = toSignal(this.viewOptionsForm.controls.showFreePorts.valueChanges, {
+        initialValue: this.viewOptionsForm.controls.showFreePorts.value
+    });
+
     public readonly isFullscreen = signal(false);
 
     protected readonly canFullscreen = inject(DOCUMENT).fullscreenEnabled;
@@ -254,11 +263,6 @@ export class CablingViewComponent {
     }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
-
-    public toggleFreePorts(): void {
-        this.showFreePorts.update((shown) => !shown);
-    }
-
 
     public fitToScreen(): void {
         this.canvas.fit(this.bounds());

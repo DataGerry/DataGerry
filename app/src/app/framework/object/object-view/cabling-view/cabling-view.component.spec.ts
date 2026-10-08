@@ -224,15 +224,18 @@ describe('CablingViewComponent spotlight', () => {
         fixture = TestBed.createComponent(CablingViewComponent);
     });
 
-    it('shows the free ports while their toolbar toggle is pressed', () => {
+    it('shows the free ports while their toolbar switch is on', () => {
         show(PP_01);
+        const freePorts = (): HTMLInputElement =>
+            element().querySelector('.cabling-view__toolbar input[aria-label="Show free ports"]');
 
-        expect(toolbarButton('Show free ports').getAttribute('aria-pressed')).toBe('false');
+        expect(freePorts().checked).toBeFalse();
         expect(fixture.componentInstance.options().onlyConnected).toBeTrue();
 
-        click(toolbarButton('Show free ports'));
+        (element().querySelector('.cabling-view__toolbar .app-toggle__label') as HTMLElement).click();
+        fixture.detectChanges();
 
-        expect(toolbarButton('Show free ports').getAttribute('aria-pressed')).toBe('true');
+        expect(freePorts().checked).toBeTrue();
         expect(fixture.componentInstance.options().onlyConnected).toBeFalse();
     });
 

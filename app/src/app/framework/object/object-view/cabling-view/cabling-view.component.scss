@@ -31,12 +31,18 @@ $shade: rgba(15, 23, 42, 0.46);
   z-index: 1;
   display: flex;
   align-items: center;
+  gap: 1rem;
   box-sizing: border-box;
   height: $toolbar-height;
   padding: 0 $inset;
   background: #fff;
   border-bottom: 1px solid $panel-border;
   box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.35);
+}
+
+.cabling-view__view-options {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 // An auto margin, not flex-end, so a narrow toolbar overflows to the right instead of out of reach.

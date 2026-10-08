@@ -1,5 +1,10 @@
 <div class="cabling-view" dgFullscreen #fullscreen="dgFullscreen" (fullscreenChange)="onFullscreenChange($event)">
   <div class="cabling-view__toolbar" role="toolbar" aria-label="Cabling tools">
+    <div class="cabling-view__view-options" [formGroup]="viewOptionsForm">
+      <app-toggle [id]="'cabling-view-free-ports'" [controlName]="'showFreePorts'" [label]="'Show free ports'">
+      </app-toggle>
+    </div>
+
     <div class="cabling-view__toolbar-group">
       <div class="cabling-view__zoom" role="group" aria-label="Zoom">
         <app-button
@@ -32,16 +37,6 @@
       </div>
 
       <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
-
-      <app-button
-        label=""
-        icon="fas fa-ethernet"
-        bootstrapClass="cabling-view__tool"
-        ariaLabel="Show free ports"
-        [ariaPressed]="showFreePorts()"
-        [title]="showFreePorts() ? 'Hide free ports' : 'Show free ports'"
-        (clicked)="toggleFreePorts()">
-      </app-button>
 
       <app-button
         label=""
