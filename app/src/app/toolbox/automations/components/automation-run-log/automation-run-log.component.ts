@@ -141,6 +141,8 @@ export class AutomationRunLogComponent implements OnChanges {
         this.visibleKeys = new Set<string>();
         this.stepNames = new Map<string, string>();
         this.stepRules = new Map<string, { left: string; operator: string; right: string; expression: string }>();
+        this.stepColours = new Map<string, string>();
+        this.connectionRead = false;
 
         const executionId = this.executionId;
 
