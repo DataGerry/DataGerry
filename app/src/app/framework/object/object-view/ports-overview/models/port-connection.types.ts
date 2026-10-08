@@ -71,6 +71,16 @@ export interface ResolvedCable {
 }
 
 
+/** The chip that tells a linked cable CI from a cable described on the connection. */
+export interface CableSourceBadge {
+    source: CableSource;
+    label: string;
+
+    /** The cable CI the chip links to; null for metadata. */
+    objectId: number | null;
+}
+
+
 /**
  * A cable CI that is free to be linked, as `GET /port_connections/cables/unassigned/` lists them.
  *

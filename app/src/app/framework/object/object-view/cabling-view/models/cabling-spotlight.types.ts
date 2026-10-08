@@ -25,12 +25,14 @@ export interface CablingSelection {
 }
 
 
-/** While the spotlight is on: the card it lights and the port marked on it, both null until a port is picked. */
+/** While the spotlight is on: the ports it lifts above the shade, none until a port is picked. */
 export interface CablingSpotlight {
-    objectId: number | null;
-    portId: number | null;
+    portIds: ReadonlySet<number>;
 }
 
 
-/** How a card stands under the spotlight. */
-export type CablingNodeLighting = 'off' | 'lit' | 'shaded';
+/** The picked cable and the cables back to the focal object, with every port they meet. */
+export interface CablingTrace {
+    connectionIds: ReadonlySet<number>;
+    portIds: ReadonlySet<number>;
+}

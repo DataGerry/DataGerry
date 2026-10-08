@@ -98,7 +98,7 @@ export function withAlpha(hex: string, alpha: number): string {
 
 /** A port counts as connected by its cable only; a panel face's internal pairing is drawn separately. */
 export function hasCable(port: OverviewPort | null | undefined): boolean {
-    return port?.cable_connection_id != null;
+    return port?.cabled === true;
 }
 
 
@@ -130,7 +130,7 @@ export function portView(port: OverviewPort, objectId: number, drawnCables: Read
         farEnd,
         meta: joinParts([port.port_type?.label, port.speed?.label, port.status?.label]) ?? joinParts([port.description]),
         expandable: cabled && farObjectId != null && farObjectId !== objectId && !drawnCables.has(port.cable_connection_id),
-        expandLabel: `Show ${ farEnd ?? 'the far end' } of ${ name }`
+        expandLabel: farEnd ? `Show far end of ${ name }: ${ farEnd }` : `Show far end of ${ name }`
     };
 }
 

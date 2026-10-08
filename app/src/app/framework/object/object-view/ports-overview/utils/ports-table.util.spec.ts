@@ -48,6 +48,7 @@ function port(overrides: Partial<OverviewPort> = {}): OverviewPort {
         name: 'Gi1/0/1',
         description: null,
         connected: false,
+        cabled: false,
         cable: null,
         cable_connection_id: null,
         connected_port: null,
@@ -98,6 +99,7 @@ function cabledPort(overrides: Partial<OverviewPort> = {}): OverviewPort {
     return port({
         port_id: 9880,
         connected: true,
+        cabled: true,
         cable: cable({ name: 'Patch 3m' }),
         cable_connection_id: 9890,
         connected_port: { port_id: 9884, name: 'Gi1/1', side: PortSide.SINGLE },
@@ -131,6 +133,7 @@ describe('ports-table.util', () => {
 
             expect(row.connectionState).toBe(PortConnectionState.FREE);
             expect(row.connectionLabel).toBe('Free');
+            expect(row.cableSource).toBeNull();
             expect(row.farEndLabel).toBeNull();
         });
 
@@ -141,6 +144,13 @@ describe('ports-table.util', () => {
             expect(row.connectionLabel).toBe('Patch 3m');
             expect(row.cableConnectionId).toBe(9890);
             expect(row.farEndLabel).toBe('Gi1/1 · host-9872');
+        });
+
+        it('marks whether the cable is a linked CI or metadata', () => {
+            const linked = toPortRow(cabledPort({ cable: cable({ source: CableSource.CI, cable_ci_id: 9950 }) }));
+
+            expect(linked.cableSource).toEqual({ source: CableSource.CI, label: 'CI #9950', objectId: 9950 });
+            expect(toPortRow(cabledPort()).cableSource).toEqual({ source: CableSource.INLINE, label: 'Metadata', objectId: null });
         });
 
         it('does not name a far end the user may not read', () => {

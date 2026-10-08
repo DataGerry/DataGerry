@@ -1,5 +1,10 @@
-<div class="cabling-view">
+<div class="cabling-view" dgFullscreen #fullscreen="dgFullscreen" (fullscreenChange)="onFullscreenChange($event)">
   <div class="cabling-view__toolbar" role="toolbar" aria-label="Cabling tools">
+    <div class="cabling-view__view-options" [formGroup]="viewOptionsForm">
+      <app-toggle [id]="'cabling-view-free-ports'" [controlName]="'showFreePorts'" [label]="'Show free ports'">
+      </app-toggle>
+    </div>
+
     <div class="cabling-view__toolbar-group">
       <div class="cabling-view__zoom" role="group" aria-label="Zoom">
         <app-button
@@ -7,28 +12,31 @@
           icon="fas fa-magnifying-glass-minus"
           bootstrapClass="cabling-view__tool"
           ariaLabel="Zoom out"
-          title="Zoom out">
+          title="Zoom out (-)"
+          [disabled]="!canvas.canZoomOut()"
+          (clicked)="canvas.zoomOut()">
+        </app-button>
+        <app-button
+          label=""
+          icon="fas fa-crosshairs"
+          bootstrapClass="cabling-view__tool"
+          ariaLabel="Fit to screen"
+          title="Fit to screen (0)"
+          [disabled]="!bounds()"
+          (clicked)="fitToScreen()">
         </app-button>
         <app-button
           label=""
           icon="fas fa-magnifying-glass-plus"
           bootstrapClass="cabling-view__tool"
           ariaLabel="Zoom in"
-          title="Zoom in">
+          title="Zoom in (+)"
+          [disabled]="!canvas.canZoomIn()"
+          (clicked)="canvas.zoomIn()">
         </app-button>
       </div>
 
       <span class="cabling-view__toolbar-divider" aria-hidden="true"></span>
-
-      <app-button
-        label=""
-        icon="fas fa-ethernet"
-        bootstrapClass="cabling-view__tool"
-        ariaLabel="Show free ports"
-        [ariaPressed]="showFreePorts()"
-        [title]="showFreePorts() ? 'Hide free ports' : 'Show free ports'"
-        (clicked)="toggleFreePorts()">
-      </app-button>
 
       <app-button
         label=""
@@ -45,10 +53,13 @@
 
       <app-button
         label=""
-        icon="fas fa-expand"
+        [icon]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'"
         bootstrapClass="cabling-view__tool"
         ariaLabel="Full screen"
-        title="Full screen">
+        [ariaPressed]="isFullscreen()"
+        [disabled]="!canFullscreen"
+        [title]="isFullscreen() ? 'Exit full screen' : 'Full screen'"
+        (clicked)="fullscreen.toggle()">
       </app-button>
     </div>
   </div>
@@ -64,6 +75,11 @@
     (click)="onCanvasClick($event)">
 
     <div class="cabling-view__canvas" [class.is-animated]="canvas.animate()" [style.transform]="canvas.transform()">
+      <!-- First in the canvas, so the cables are drawn over it and keep their own colour. -->
+      @if (spotlight()) {
+        <div class="cabling-view__shade" aria-hidden="true"></div>
+      }
+
       <svg class="cabling-view__edges" aria-hidden="true" focusable="false">
         @for (edge of edges(); track edge.connectionId) {
           <g class="cabling-edge" [class.is-highlighted]="edge.connectionId === highlightedConnectionId()">
@@ -92,16 +108,14 @@
         </cmdb-cabling-node>
       }
 
-      @if (spotlight()) {
-        <div class="cabling-view__shade" aria-hidden="true"></div>
-      }
-
-      @if (selectedEdge(); as edge) {
+      @if (raisedEdges().length) {
         <svg class="cabling-view__edges cabling-view__edges--raised" aria-hidden="true" focusable="false">
-          <g class="cabling-edge is-highlighted">
-            <ng-container [ngTemplateOutlet]="cableShape"
-              [ngTemplateOutletContext]="{ $implicit: edge }"></ng-container>
-          </g>
+          @for (edge of raisedEdges(); track edge.connectionId) {
+            <g class="cabling-edge is-highlighted">
+              <ng-container [ngTemplateOutlet]="cableShape"
+                [ngTemplateOutletContext]="{ $implicit: edge }"></ng-container>
+            </g>
+          }
         </svg>
       }
     </div>
@@ -138,9 +152,10 @@
   <p id="cabling-view-keys" class="visually-hidden">
     Drag the canvas to pan and a card to move it. Arrow keys pan, plus and minus zoom, and 0 fits the cabling to
     the screen. Hold Ctrl while scrolling to zoom. Click a cable or a cabled port to bring the cable to the front,
-    and press Escape to put it back. S turns the spotlight on: a click on a port then lights its card, that port and
-    its cable, and everything else goes into the background. A click on the background or Escape puts the cable
-    back, and the spotlight stays on until S or the Spotlight button turns it off.
+    and press Escape to put it back. S turns the spotlight on: a click on a port then lights that port, its cable and
+    the cables and ports on the way back to this object, and everything else goes into the background. A click on
+    the background or Escape puts the cable back, and the spotlight stays on until S or the Spotlight button turns it
+    off.
   </p>
 
   <app-loading-popup

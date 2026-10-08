@@ -30,19 +30,16 @@ import {
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { ControlValueAccessor, FormControl, NG_VALUE_ACCESSOR, ReactiveFormsModule } from '@angular/forms';
 
-import { Observable, forkJoin, of } from 'rxjs';
-import { catchError, finalize } from 'rxjs/operators';
+import { finalize } from 'rxjs/operators';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { LoaderService } from 'src/app/core/services/loader.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 
-import { CmdbPortConnection, ConnectionEndpoint } from '../../models/port-connection.types';
+import { ConnectionEndpoint } from '../../models/port-connection.types';
 import { CmdbPort } from '../../models/ports-overview.types';
-import { PortConnectionService } from '../../services/port-connection.service';
 import { PortService } from '../../services/port.service';
 import { PortTypeCatalogService } from '../../services/port-type-catalog.service';
-import { indexConnectionsByPort } from '../../utils/port-connection.util';
 import { portSideGroup, portSideLabel } from '../../utils/port-side.util';
 import { ObjectOption, ObjectOptionPickerComponent } from '../object-option-picker/object-option-picker.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -82,7 +79,6 @@ export class ConnectionEndpointPickerComponent implements ControlValueAccessor, 
 
     private readonly portTypeCatalog = inject(PortTypeCatalogService);
     private readonly portService = inject(PortService);
-    private readonly portConnectionService = inject(PortConnectionService);
     private readonly loaderService = inject(LoaderService);
     private readonly toastService = inject(ToastService);
     private readonly destroyRef = inject(DestroyRef);
@@ -192,46 +188,27 @@ export class ConnectionEndpointPickerComponent implements ControlValueAccessor, 
     }
 
 
-    /**
-     * The device's ports together with what is already connected to them.
-     *
-     * Both are needed: the port list alone reports a panel port as connected through its internal
-     * pairing, which says nothing about whether that port can still take a cable.
-     */
     private loadPortsOfDevice(objectId: number): void {
         this.loaderService.show();
 
-        forkJoin({
-            ports: this.portService.getPortsOfObject(objectId),
-            connections: this.readConnections(objectId)
-        })
+        this.portService.getPortsOfObject(objectId)
             .pipe(
                 takeUntilDestroyed(this.destroyRef),
                 finalize(() => this.loaderService.hide())
             )
             .subscribe({
-                next: ({ ports, connections }) => this.applyPorts(ports, connections),
+                next: (ports) => this.applyPorts(ports),
                 error: (err) => this.toastService.error(err?.error?.message)
             });
     }
 
 
-    /** A denied or failed connection read must not hide the device's ports; it only widens the list. */
-    private readConnections(objectId: number): Observable<CmdbPortConnection[]> {
-        return this.portConnectionService.getConnectionsOfObject(objectId).pipe(
-            catchError(() => of<CmdbPortConnection[]>([]))
-        );
-    }
-
-
-    private applyPorts(ports: CmdbPort[], connections: CmdbPortConnection[]): void {
-        const byPort = indexConnectionsByPort(connections);
+    /** `cabled`, not `connected`: a panel port reads as connected through its internal pairing alone. */
+    private applyPorts(ports: CmdbPort[]): void {
         const excluded = this.excludePortId();
-        const selectable = ports.filter(
-            (port) => port.public_id !== excluded && !byPort.get(port.public_id)?.cable
-        );
+        const selectable = ports.filter((port) => port.public_id !== excluded && !port.cabled);
 
-        this.cabledPortCount.set(ports.filter((port) => !!byPort.get(port.public_id)?.cable).length);
+        this.cabledPortCount.set(ports.filter((port) => port.cabled).length);
         this.portOptions.set(selectable.map((port) => this.toPortOption(port)));
         this.hasLoadedPorts.set(true);
     }

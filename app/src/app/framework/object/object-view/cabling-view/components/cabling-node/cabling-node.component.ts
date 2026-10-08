@@ -21,8 +21,8 @@ import { RouterLink } from '@angular/router';
 
 import { CoreModule } from 'src/app/core/core.module';
 import { CABLING_GEOMETRY } from '../../constants/cabling.constants';
-import { CablingNodeLighting, CablingSelection, CablingSpotlight } from '../../models/cabling-spotlight.types';
-import { CablingNodeLayout, CablingPortView } from '../../models/cabling.types';
+import { CablingSelection, CablingSpotlight } from '../../models/cabling-spotlight.types';
+import { CablingNodeLayout, CablingPortView, CablingRowLayout } from '../../models/cabling.types';
 import { withAlpha } from '../../utils/cabling-format.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -43,8 +43,7 @@ import { withAlpha } from '../../utils/cabling-format.util';
         '[class.cabling-node--restricted]': 'layout().restricted',
         '[class.cabling-node--panel]': 'layout().patchPanel',
         '[class.cabling-node--detail]': 'detail()',
-        '[class.cabling-node--lit]': 'lighting() === "lit"',
-        '[class.cabling-node--shaded]': 'lighting() === "shaded"',
+        '[class.cabling-node--shaded]': '!!spotlight()',
         '[style.left.px]': 'layout().x',
         '[style.top.px]': 'layout().y',
         '[style.width.px]': 'layout().width',
@@ -72,16 +71,6 @@ export class CablingNodeComponent {
 
     protected readonly accentSoft = computed(() => withAlpha(this.layout().accent, 0.12));
     protected readonly accentLine = computed(() => withAlpha(this.layout().accent, 0.45));
-
-    protected readonly lighting = computed<CablingNodeLighting>(() => {
-        const spotlight = this.spotlight();
-
-        if (!spotlight) {
-            return 'off';
-        }
-
-        return spotlight.objectId === this.layout().objectId ? 'lit' : 'shaded';
-    });
 
     protected readonly portCountLabel = computed(() => {
         const count = this.layout().portCount;
@@ -136,7 +125,7 @@ export class CablingNodeComponent {
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
-    /** Under the spotlight only the picked port is marked; otherwise both ends of the highlighted cable are. */
+    /** Under the spotlight the ports on the picked trace are marked; otherwise both ends of the highlighted cable are. */
     public isHighlighted(port: CablingPortView | null): boolean {
         const spotlight = this.spotlight();
 
@@ -145,10 +134,16 @@ export class CablingNodeComponent {
         }
 
         if (spotlight) {
-            return port.portId === spotlight.portId;
+            return spotlight.portIds.has(port.portId);
         }
 
         return port.connectionId != null && port.connectionId === this.highlightedConnectionId();
+    }
+
+
+    /** Both faces of a paired row marked: the trace runs through the internal link. */
+    public isPairHighlighted(row: CablingRowLayout): boolean {
+        return row.paired && this.isHighlighted(row.front) && this.isHighlighted(row.rear);
     }
 
 

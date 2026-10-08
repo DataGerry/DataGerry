@@ -60,6 +60,7 @@ describe('PortsOverviewComponent', () => {
         name,
         description: null,
         connected: false,
+        cabled: false,
         cable: null,
         cable_connection_id: null,
         connected_port: null,

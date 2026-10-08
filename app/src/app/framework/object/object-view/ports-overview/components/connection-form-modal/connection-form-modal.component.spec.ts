@@ -114,7 +114,7 @@ describe('ConnectionFormModalComponent', () => {
         portService = jasmine.createSpyObj<PortService>('PortService', ['getPortsOfObject', 'getPort']);
         portConnectionService = jasmine.createSpyObj<PortConnectionService>(
             'PortConnectionService',
-            ['getConnectionsOfObject', 'createConnection', 'updateCableInfo', 'getUnassignedCables']);
+            ['createConnection', 'updateCableInfo', 'getUnassignedCables']);
         objectService = jasmine.createSpyObj<ObjectService>('ObjectService', ['getObjects']);
         typeService = jasmine.createSpyObj<TypeService>('TypeService', ['getTypes']);
         activeModal = jasmine.createSpyObj<NgbActiveModal>('NgbActiveModal', ['close', 'dismiss']);
@@ -145,7 +145,6 @@ describe('ConnectionFormModalComponent', () => {
 
         portService.getPortsOfObject.and.returnValue(of([FAR_PORT]));
         portService.getPort.and.returnValue(of(FAR_PORT));
-        portConnectionService.getConnectionsOfObject.and.returnValue(of([]));
         portConnectionService.getUnassignedCables.and.returnValue(of({ results: [], total: 0, count: 0 } as any));
         portConnectionService.createConnection.and.returnValue(of({ public_id: 1 } as CmdbPortConnection));
         portConnectionService.updateCableInfo.and.returnValue(of({ public_id: 1 } as CmdbPortConnection));

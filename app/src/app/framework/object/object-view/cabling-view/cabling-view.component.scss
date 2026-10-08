@@ -1,4 +1,5 @@
 @use "../graph-editor/styles/graph-editor-control-button" as ci;
+@use "./styles/cabling-layers" as layers;
 @import "src/scss/variables";
 
 $canvas: #f0f2f5;
@@ -11,12 +12,6 @@ $panel-border: #e9ecef;
 $panel-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
 $inset: 0.75rem;
 $toolbar-height: 56px;
-$shade: rgba(15, 23, 42, 0.46);
-
-// Stacking inside the canvas while the spotlight is on.
-$layer-shade: 1;
-$layer-lit-card: 2;
-$layer-raised-cable: 3;
 
 :host {
   display: block;
@@ -35,12 +30,18 @@ $layer-raised-cable: 3;
   z-index: 1;
   display: flex;
   align-items: center;
+  gap: 1rem;
   box-sizing: border-box;
   height: $toolbar-height;
   padding: 0 $inset;
   background: #fff;
   border-bottom: 1px solid $panel-border;
   box-shadow: 0 6px 16px -12px rgba(15, 23, 42, 0.35);
+}
+
+.cabling-view__view-options {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 // An auto margin, not flex-end, so a narrow toolbar overflows to the right instead of out of reach.
@@ -107,7 +108,7 @@ $layer-raised-cable: 3;
 }
 
 .cabling-view__edges--raised {
-  z-index: $layer-raised-cable;
+  z-index: layers.$raised-cable;
   pointer-events: none;
 }
 
@@ -116,16 +117,9 @@ $layer-raised-cable: 3;
   position: absolute;
   top: 0;
   left: 0;
-  z-index: $layer-shade;
-  box-shadow: 0 0 0 50000px $shade;
+  box-shadow: 0 0 0 50000px layers.$shade-tint;
   pointer-events: none;
   animation: cabling-view-shade-in 240ms ease-out;
-}
-
-// The card hosts belong to this template; a shaded card comes up while focus is inside it, so the focus stays seen.
-.cabling-node--lit,
-.cabling-node--shaded:focus-within {
-  z-index: $layer-lit-card;
 }
 
 @keyframes cabling-view-shade-in {
