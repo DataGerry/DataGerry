@@ -89,7 +89,21 @@
 </section>
 
 <section class="wizard-section">
-  <h5 class="wizard-section__title">2. Activate</h5>
+  <h5 class="wizard-section__title">2. Run it and read the log</h5>
+  <p class="wizard-section__hint">
+    Start the automation and open any of its runs - the log shows every step it took, what each
+    condition compared, and where a failing run stopped.
+  </p>
+
+  <app-automation-run-panel
+    [schedulerId]="schedulerId"
+    [connectionId]="connectionId"
+    [note]="runNote">
+  </app-automation-run-panel>
+</section>
+
+<section class="wizard-section">
+  <h5 class="wizard-section__title">3. Activate</h5>
   <p class="wizard-section__hint">An inactive automation is saved but never runs until you enable it.</p>
 
   <label class="review-toggle">

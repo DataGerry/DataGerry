@@ -16,11 +16,14 @@ export class OpenCeliumLogsModalComponent implements AfterViewInit, OnDestroy {
 
   public isLoading$ = this.loaderService.isLoading$;
 
-  @Input() baseUrl = '';
-  @Input() token = '';
   @Input() executionId: number | null = null;
   @Input() isFullscreen = false;
   @Input() onToggleFullscreen?: (next: boolean) => void;
+
+  /** Supplies the log view with step names and condition rules; the view works without it. */
+  @Input() connectionId: number | null = null;
+  @Input() runStatus: 's' | 'f' | null = null;
+  @Input() runDate: string | { $date?: number } | null = null;
 
   ngAfterViewInit(): void {
     Promise.resolve().then(() => {

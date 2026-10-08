@@ -1,0 +1,402 @@
+<div class="run-log">
+
+  <header class="run-log__head">
+    <div class="run-log__id">
+      <span class="run-log__id-title">Run #{{ executionId }}</span>
+      @if (formatRunDate()) {
+        <span class="run-log__id-date">{{ formatRunDate() }}</span>
+      }
+    </div>
+
+    <div class="run-log__stats">
+      @if (!summary.complete) {
+        <span class="run-log__pill run-log__pill--open">Still running</span>
+      } @else if (runStatus === 'f') {
+        <span class="run-log__pill run-log__pill--fail">Run failed</span>
+      } @else if (runStatus === 's') {
+        <span class="run-log__pill run-log__pill--pass">Run succeeded</span>
+      }
+
+      <span class="run-log__stat" title="Counts the steps loaded so far. Open loops and conditions to load more.">
+        <b>{{ summary.total }}</b> steps loaded
+      </span>
+      <span class="run-log__stat run-log__stat--ok"><b>{{ summary.ok }}</b> ok</span>
+      <span class="run-log__stat run-log__stat--err"><b>{{ summary.errors }}</b> failed</span>
+      <span class="run-log__stat run-log__stat--skip"><b>{{ summary.skipped }}</b> skipped</span>
+    </div>
+  </header>
+
+  <div class="run-log__bar">
+    <label class="run-log__search">
+      <i class="fas fa-magnifying-glass"></i>
+      <input
+        type="search"
+        placeholder="Search step, field, value or URL"
+        [value]="query"
+        (input)="onQueryChanged($any($event.target).value)">
+    </label>
+
+    <button type="button" class="run-log__btn" [class.run-log__btn--on]="onlyErrors"
+      [attr.aria-pressed]="onlyErrors" (click)="toggleOnlyErrors()">
+      Failed only
+    </button>
+
+    <button type="button" class="run-log__btn" [class.run-log__btn--on]="onlyConditions"
+      [attr.aria-pressed]="onlyConditions" (click)="toggleOnlyConditions()">
+      Conditions only
+    </button>
+
+    <button type="button" class="run-log__btn run-log__btn--primary" (click)="jumpToError()">
+      <i class="fas fa-circle-exclamation"></i> Jump to failure
+    </button>
+
+    <button type="button" class="run-log__btn" (click)="toggleExpandAll()">
+      {{ allExpanded ? 'Collapse all' : 'Expand all' }}
+    </button>
+  </div>
+
+  @if (loading) {
+    <p class="run-log__state"><i class="fas fa-spinner fa-spin"></i> Loading the run...</p>
+  }
+
+  @if (loadError) {
+    <div class="alert alert-danger run-log__state">{{ loadError }}</div>
+  }
+
+  @if (!loading && !loadError && isEmpty) {
+    <p class="run-log__state run-log__state--muted">This run wrote no steps.</p>
+  }
+
+  @if (!loading && !loadError && !isEmpty && !hasVisibleSteps) {
+    <p class="run-log__state run-log__state--muted">
+      No step matches the filter. Clear it to see the run again - and note that steps inside a loop
+      entry or a condition only count once they have been opened.
+    </p>
+  }
+
+  @for (branch of branches; track trackByFlow($index, branch)) {
+    @if (branch.nodes.length) {
+      <section class="run-log__branch">
+        @if (branches.length > 1) {
+          <h6 class="run-log__branch-title">{{ branch.name }}</h6>
+        }
+
+        @for (node of branch.nodes; track trackByKey($index, node)) {
+          <ng-container *ngTemplateOutlet="nodeTpl; context: { $implicit: node }"></ng-container>
+        }
+      </section>
+    }
+  }
+</div>
+
+
+<!-- One line of the tree, and whatever it has open underneath it. -->
+<ng-template #nodeTpl let-node>
+  @if (isVisible(node)) {
+    <div class="run-log__node">
+
+      <button
+        type="button"
+        class="run-log__row"
+        [id]="rowId(node)"
+        [class.run-log__row--err]="state(node) === 'error'"
+        [class.run-log__row--skip]="state(node) === 'skipped'"
+        [class.run-log__row--open]="node.expanded"
+        [attr.aria-expanded]="node.expanded"
+        (click)="toggle(node)">
+
+        <span class="run-log__caret">
+          @if (node.loading) {
+            <i class="fas fa-spinner fa-spin"></i>
+          } @else {
+            <i class="fas" [class.fa-chevron-right]="!node.expanded" [class.fa-chevron-down]="node.expanded"></i>
+          }
+        </span>
+
+        <span class="run-log__pos">{{ position(node) }}</span>
+
+        @if (node.trace.type === 'OPERATION') {
+          @if (method(node)) {
+            <span class="run-log__verb" [attr.data-verb]="method(node)">{{ method(node) }}</span>
+          } @else {
+            <span class="run-log__kind run-log__kind--call">CALL</span>
+          }
+        } @else if (node.trace.type === 'IF') {
+          <span class="run-log__kind run-log__kind--if">IF</span>
+        } @else {
+          <span class="run-log__kind run-log__kind--loop">LOOP</span>
+        }
+
+        <span class="run-log__title">{{ title(node) }}</span>
+
+        @if (node.trace.type === 'OPERATION' && url(node)) {
+          <span class="run-log__sub" [title]="url(node)">{{ url(node) }}</span>
+        } @else if (node.trace.type === 'LOOP') {
+          <span class="run-log__sub">{{ size(node) }} entries</span>
+        }
+
+        <span class="run-log__right">
+          @if (node.trace.type === 'OPERATION') {
+            @if (status(node) !== null) {
+              <span class="run-log__tag"
+                [class.run-log__tag--ok]="state(node) !== 'error'"
+                [class.run-log__tag--err]="state(node) === 'error'">{{ status(node) }}</span>
+            }
+            @if (duration(node)) {
+              <span class="run-log__dur">{{ duration(node) }}</span>
+            }
+          } @else if (node.trace.type === 'IF') {
+            @if (hasVerdict(node)) {
+              <span class="run-log__tag"
+                [class.run-log__tag--ok]="holds(node)"
+                [class.run-log__tag--muted]="!holds(node)">
+                {{ holds(node) ? 'holds' : 'does not hold' }}
+              </span>
+            } @else {
+              <span class="run-log__dur">open to see the verdict</span>
+            }
+          } @else {
+            <span class="run-log__tag run-log__tag--muted">entry {{ node.iteration + 1 }} / {{ size(node) }}</span>
+          }
+
+          @if (state(node) === 'error') {
+            <span class="run-log__tag run-log__tag--err">failed</span>
+          }
+        </span>
+      </button>
+
+      @if (node.expanded) {
+
+        <!-- A call: what it sent and what came back. -->
+        @if (node.trace.type === 'OPERATION') {
+          <div class="run-log__detail">
+            <div class="run-log__panel" [class.run-log__panel--bad]="state(node) === 'error'">
+
+              @if (errorMessage(node)) {
+                <div class="run-log__err">
+                  <i class="fas fa-circle-exclamation"></i>
+                  <span>{{ errorMessage(node) }}</span>
+                </div>
+              }
+
+              <div class="run-log__tabs" role="tablist">
+                @for (tab of callTabs; track tab) {
+                  <button type="button" class="run-log__tab" role="tab"
+                    [attr.aria-selected]="node.tab === tab"
+                    (click)="setTab(node, tab)">{{ tabLabel(tab) }}</button>
+                }
+              </div>
+
+              <div class="run-log__pbody">
+                @if (node.tab === 'exchange') {
+                  <div class="run-log__pair">
+                    <div>
+                      <span class="run-log__cap">
+                        Sent
+                        <button type="button" class="run-log__copy" title="Copy"
+                          (click)="copy(requestBody(node))"><i class="fas fa-copy"></i></button>
+                      </span>
+                      <pre>{{ requestBody(node) || '- no content -' }}</pre>
+                    </div>
+                    <div>
+                      <span class="run-log__cap">
+                        Received
+                        <button type="button" class="run-log__copy" title="Copy"
+                          (click)="copy(responseBody(node))"><i class="fas fa-copy"></i></button>
+                      </span>
+                      <pre>{{ responseBody(node) || '- no content -' }}</pre>
+                    </div>
+                  </div>
+                } @else {
+                  <div class="run-log__pair">
+                    <div>
+                      <span class="run-log__cap">Request</span>
+                      <pre>{{ requestHeaders(node) || '- no headers -' }}</pre>
+                    </div>
+                    <div>
+                      <span class="run-log__cap">Response</span>
+                      <pre>{{ responseHeaders(node) || '- no headers -' }}</pre>
+                    </div>
+                  </div>
+                }
+              </div>
+            </div>
+          </div>
+        }
+
+        <!-- A condition: the rule, the sides, and where the run went next. -->
+        @if (node.trace.type === 'IF') {
+          <div class="run-log__detail">
+            <div class="run-log__panel run-log__panel--cond">
+
+              <div class="run-log__tabs" role="tablist">
+                @for (tab of conditionTabs; track tab) {
+                  <button type="button" class="run-log__tab" role="tab"
+                    [attr.aria-selected]="node.tab === tab"
+                    (click)="setTab(node, tab)">{{ tabLabel(tab) }}</button>
+                }
+              </div>
+
+              <div class="run-log__pbody">
+                @if (node.tab === 'condition') {
+                  @if (rule(node).left || rule(node).expression) {
+                    <div class="run-log__rule">
+                      <span class="run-log__rule-field">{{ rule(node).left || '-' }}</span>
+                      <span class="run-log__rule-op">{{ rule(node).operator || '?' }}</span>
+                      @if (rule(node).right) {
+                        <span class="run-log__rule-lit">{{ rule(node).right }}</span>
+                      } @else {
+                        <span class="run-log__rule-lit run-log__rule-lit--none">compares against nothing</span>
+                      }
+                      <span class="run-log__rule-verdict">
+                        @if (hasVerdict(node)) {
+                          <span class="run-log__tag"
+                            [class.run-log__tag--ok]="holds(node)"
+                            [class.run-log__tag--muted]="!holds(node)">
+                            {{ holds(node) ? 'holds' : 'does not hold' }}
+                          </span>
+                        } @else {
+                          <span class="run-log__tag run-log__tag--muted">no verdict reported</span>
+                        }
+                      </span>
+                    </div>
+                  } @else {
+                    <p class="run-log__note">
+                      The rule behind this condition is not available. It is stored with the
+                      connection, which this view was opened without.
+                    </p>
+                  }
+
+                  <div class="run-log__branches">
+                    <div class="run-log__branch-row" [class.run-log__branch-row--taken]="holds(node)">
+                      <span class="run-log__branch-label">THEN</span>
+                      <span class="run-log__branch-text">
+                        @if (node.childrenLoaded) {
+                          {{ node.children.length }} step(s) inside this condition
+                        } @else {
+                          loading what runs inside...
+                        }
+                      </span>
+                      <span class="run-log__branch-state">{{ holds(node) ? 'ran' : 'skipped' }}</span>
+                    </div>
+
+                    <div class="run-log__branch-row" [class.run-log__branch-row--taken]="hasVerdict(node) && !holds(node)">
+                      <span class="run-log__branch-label">ELSE</span>
+                      <span class="run-log__branch-text">
+                        @if (otherwise(node); as next) {
+                          continues at step {{ position(next) }} - {{ title(next) }}
+                        } @else {
+                          the sequence ends here
+                        }
+                      </span>
+                      <span class="run-log__branch-state">
+                        {{ hasVerdict(node) && !holds(node) ? 'ran' : 'skipped' }}
+                      </span>
+                    </div>
+                  </div>
+
+                  @if (hasVerdict(node) && !holds(node)) {
+                    <p class="run-log__note">
+                      Nothing below this line ran: the condition did not hold, so the run carried on
+                      past it instead of going inside.
+                    </p>
+                  }
+                }
+
+                @if (node.tab === 'values') {
+                  @if (rule(node).resolved) {
+                    <div class="run-log__pair">
+                      <div>
+                        <span class="run-log__cap">Left side</span>
+                        <pre>{{ rule(node).leftValue || '- not reported -' }}</pre>
+                      </div>
+                      <div>
+                        <span class="run-log__cap">Right side</span>
+                        <pre>{{ rule(node).rightValue || rule(node).right || '- not reported -' }}</pre>
+                      </div>
+                    </div>
+                  } @else {
+                    <div class="run-log__pair">
+                      <div>
+                        <span class="run-log__cap">Left side - reference</span>
+                        <pre>{{ rule(node).left || '- unknown -' }}</pre>
+                      </div>
+                      <div>
+                        <span class="run-log__cap">Right side - fixed value</span>
+                        <pre>{{ rule(node).right || '- compares against nothing -' }}</pre>
+                      </div>
+                    </div>
+                    <p class="run-log__note">
+                      This run did not report the resolved values, only the verdict. The reference
+                      above names where the left side was read from - the step that answered it is
+                      in this log, and its response holds the value.
+                    </p>
+                  }
+
+                  @if (rule(node).expression) {
+                    <span class="run-log__cap">Expression as executed</span>
+                    <pre>{{ rule(node).expression }}</pre>
+                  }
+                }
+
+                @if (node.tab === 'raw') {
+                  <span class="run-log__cap">
+                    Operator segment
+                    <button type="button" class="run-log__copy" title="Copy"
+                      (click)="copy(rawSegment(node))"><i class="fas fa-copy"></i></button>
+                  </span>
+                  <pre>{{ rawSegment(node) }}</pre>
+                }
+              </div>
+            </div>
+          </div>
+        }
+
+        <!-- A loop: which entry is on screen, and how to get to another. -->
+        @if (node.trace.type === 'LOOP') {
+          <div class="run-log__detail">
+            @if (size(node) === 0) {
+              <p class="run-log__note">This loop walked no entries, so nothing ran inside it.</p>
+            } @else {
+              <div class="run-log__iter">
+                <span class="run-log__iter-label">Entry</span>
+                <button type="button" class="run-log__btn" [disabled]="node.iteration === 0"
+                  (click)="setIteration(node, node.iteration - 1)" aria-label="Previous entry">
+                  <i class="fas fa-arrow-left"></i>
+                </button>
+                <input
+                  class="run-log__iter-field"
+                  type="number"
+                  min="1"
+                  [max]="size(node)"
+                  [value]="node.iteration + 1"
+                  (change)="onIterationInput(node, $any($event.target).value)">
+                <span class="run-log__iter-of">of {{ size(node) }}</span>
+                <button type="button" class="run-log__btn" [disabled]="node.iteration >= size(node) - 1"
+                  (click)="setIteration(node, node.iteration + 1)" aria-label="Next entry">
+                  <i class="fas fa-arrow-right"></i>
+                </button>
+                @if (node.trace.properties?.iterator) {
+                  <span class="run-log__iter-of">entry named <code>{{ node.trace.properties?.iterator }}</code></span>
+                }
+              </div>
+            }
+          </div>
+        }
+
+        <!-- What ran inside a condition or a loop. -->
+        @if (node.trace.type !== 'OPERATION' && node.childrenLoaded) {
+          @if (node.children.length) {
+            <div class="run-log__kids">
+              @for (child of node.children; track trackByKey($index, child)) {
+                <ng-container *ngTemplateOutlet="nodeTpl; context: { $implicit: child }"></ng-container>
+              }
+            </div>
+          } @else if (node.trace.type === 'LOOP' && size(node) > 0) {
+            <p class="run-log__note run-log__note--indent">This entry ran no steps.</p>
+          }
+        }
+      }
+    </div>
+  }
+</ng-template>

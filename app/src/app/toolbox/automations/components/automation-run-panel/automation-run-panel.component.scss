@@ -1,0 +1,148 @@
+// Run-and-inspect, as it sits in the wizard's last step: the action, the runs, the log of one run.
+
+$accent: #e94d18;
+$border: #e5e7eb;
+$border-strong: #cbd1d9;
+$muted: #6b7280;
+$ink: #1f2937;
+$surface: #ffffff;
+$surface-2: #f8f9fb;
+
+$err: #b42318;
+$err-soft: #fdeceb;
+$err-line: #f0b4ae;
+$ok: #15803d;
+
+$mono: "Consolas", "SFMono-Regular", "Menlo", monospace;
+
+.run-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+
+  &__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+  }
+
+  &__hint {
+    font-size: 0.8125rem;
+    color: $muted;
+  }
+
+  &__alert {
+    margin: 0;
+    font-size: 0.8125rem;
+  }
+
+  &__runs {
+    display: flex;
+    flex-direction: column;
+    border: 1px solid $border;
+    border-radius: 8px;
+    overflow: hidden;
+    background: $surface;
+  }
+
+  &__empty {
+    margin: 0;
+    padding: 1rem;
+    font-size: 0.8125rem;
+    color: $muted;
+  }
+
+  &__run {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    width: 100%;
+    padding: 0.5625rem 0.875rem;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    border-bottom: 1px solid $border;
+    color: $ink;
+    cursor: pointer;
+    transition: background-color 150ms ease;
+
+    &:last-child {
+      border-bottom: none;
+    }
+
+    &:hover {
+      background: $surface-2;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $accent;
+      outline-offset: -2px;
+    }
+
+    &--selected {
+      background: $surface-2;
+      font-weight: 500;
+    }
+
+    &--failed {
+      box-shadow: inset 2px 0 0 0 $err;
+    }
+  }
+
+  &__run-caret {
+    flex: none;
+    width: 0.75rem;
+    font-size: 0.6875rem;
+    color: $muted;
+  }
+
+  &__run-id {
+    flex: none;
+    min-width: 3.5rem;
+    font-family: $mono;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__run-date {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.8125rem;
+    color: $muted;
+  }
+
+  &__run-status {
+    flex: none;
+    padding: 0.0625rem 0.4375rem;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    color: $ok;
+    background: #e8f5ec;
+    border-color: #a7d4b4;
+    white-space: nowrap;
+
+    &--fail {
+      color: $err;
+      background: $err-soft;
+      border-color: $err-line;
+    }
+  }
+
+  &__log {
+    padding: 0.5rem 0.875rem 0.875rem;
+    border-bottom: 1px solid $border;
+    background: $surface-2;
+
+    &:last-child {
+      border-bottom: none;
+    }
+  }
+}

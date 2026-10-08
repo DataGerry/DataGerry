@@ -54,6 +54,15 @@ export class WizardStepReviewComponent {
     @Input() public sampleLoading = false;
     @Input() public sampleObjectId: number | null = null;
 
+    /**
+     * The saved automation behind the wizard, when there is one.
+     *
+     * Both are null while an automation is being created, which is what makes the run section say
+     * "save it first" rather than offering a button with nothing to run.
+     */
+    @Input() public schedulerId: number | null = null;
+    @Input() public connectionId: number | null = null;
+
     @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
     @Output() public loadSample = new EventEmitter<void>();
 
@@ -117,6 +126,22 @@ export class WizardStepReviewComponent {
 
     public get canActivate(): boolean {
         return this.validationErrors.length === 0;
+    }
+
+
+    /**
+     * What to say beside the run button about what a run would actually execute.
+     *
+     * A run executes the automation as it was last saved, not what is on screen. That only needs
+     * saying when the two can differ, which is exactly when the current edits do not compile - the
+     * reader would otherwise read the run as a verdict on the changes in front of them.
+     */
+    public get runNote(): string {
+        if (this.validationErrors.length > 0) {
+            return 'A run executes the last saved version - the changes above are not saved yet.';
+        }
+
+        return '';
     }
 
 

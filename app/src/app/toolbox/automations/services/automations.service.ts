@@ -22,6 +22,7 @@ import { HttpParams } from '@angular/common/http';
 
 import { ApiCallService } from 'src/app/services/api-call.service';
 import { BaseApiService } from 'src/app/core/services/base-api.service';
+import { RunFlowchart, OcTrace, OcTraceSegment } from '../models/automation-run-log.model';
 
 @Injectable({ providedIn: 'root' })
 export class AutomationsService extends BaseApiService<any> {
@@ -90,6 +91,68 @@ export class AutomationsService extends BaseApiService<any> {
       .set('scheduler_id', `${schedulerId}`)
       .set('status', status);
     return this.handleGetRequest<any[]>(`${this.servicePrefix}/schedulers/logs`, params);
+  }
+
+  /* ----------------------------------------------- RUN LOG - ROUTES ----------------------------------------------- */
+
+  /**
+   * The connector branches of one run.
+   *
+   * A run splits into one branch per connector, and each branch is fetched separately - this call
+   * only names them. `id` is what the first level is asked for, `flowId` is what everything below
+   * addresses itself by.
+   */
+  getRunFlowcharts(executionId: number): Observable<RunFlowchart[]> {
+    return this.handleGetRequest<RunFlowchart[]>(
+      `${this.servicePrefix}/connections/logs/flowcharts/${executionId}`,
+      new HttpParams()
+    );
+  }
+
+
+  /** The steps a branch ran at its top level. What runs inside a loop or a branch is not in here. */
+  getRunFirstLevel(flowchartId: string | number): Observable<OcTrace[]> {
+    return this.handleGetRequest<OcTrace[]>(
+      `${this.servicePrefix}/connections/logs/first_level/${flowchartId}`,
+      new HttpParams()
+    );
+  }
+
+
+  /**
+   * The detail of one step: request and response for a call, the verdict for a condition.
+   *
+   * Not part of the tree - it weighs too much to send for every step, so it is asked for when a
+   * line is opened.
+   */
+  getRunStepDetails(stepId: string): Observable<{ segment?: OcTraceSegment }> {
+    return this.handleGetRequest<{ segment?: OcTraceSegment }>(
+      `${this.servicePrefix}/connections/logs/${stepId}`,
+      new HttpParams()
+    );
+  }
+
+
+  /**
+   * What ran inside a condition or a loop.
+   *
+   * `loopIndex` is the entry of the innermost enclosing loop, and the route requires it - a step
+   * outside any loop passes 0. OpenCelium returns the children of that one entry, which is why
+   * walking a loop costs one call per entry.
+   */
+  getRunStepChildren(stepId: string, loopIndex: number): Observable<OcTrace[]> {
+    const params = new HttpParams().set('loopIndex', `${loopIndex}`);
+
+    return this.handleGetRequest<OcTrace[]>(
+      `${this.servicePrefix}/connections/logs/children/${stepId}`,
+      params
+    );
+  }
+
+
+  /** Throws away everything a run wrote. */
+  deleteRunLogs(executionId: number): Observable<void> {
+    return this.handleDeleteRequest<void>(`${this.servicePrefix}/connections/logs/${executionId}`);
   }
 }
 

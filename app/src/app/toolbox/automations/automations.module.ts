@@ -38,10 +38,11 @@ import { CronExpressionModalComponent } from './components/cron-expression-modal
 import { CoreModule } from '../../core/core.module';
 import { TableModule } from '../../layout/table/table.module';
 import { AuthModule } from 'src/app/modules/auth/auth.module';
-import { OpenCeliumLogsViewComponent } from './components/opencelium-log-viewer.component';
 import { AutomationLogsMenuComponent } from './components/automation-logs-menu/automation-logs-menu.component';
 import { OpenCeliumLogsModalComponent } from './components/opencelium-logs-modal/opencelium-logs-modal.component';
 import { AutomationProgressListComponent } from './components/automation-progress-list/automation-progress-list.component';
+import { AutomationRunLogComponent } from './components/automation-run-log/automation-run-log.component';
+import { AutomationRunPanelComponent } from './components/automation-run-panel/automation-run-panel.component';
 
 @NgModule({
   declarations: [
@@ -60,7 +61,13 @@ import { AutomationProgressListComponent } from './components/automation-progres
     CronExpressionModalComponent,
     AutomationLogsMenuComponent,
     OpenCeliumLogsModalComponent,
-    AutomationProgressListComponent
+    AutomationProgressListComponent,
+    AutomationRunLogComponent,
+    AutomationRunPanelComponent
+  ],
+  exports: [
+    AutomationRunLogComponent,
+    AutomationRunPanelComponent
   ],
   imports: [
     CommonModule,
@@ -70,8 +77,7 @@ import { AutomationProgressListComponent } from './components/automation-progres
     CoreModule,
     TableModule,
     AutomationsRoutingModule,
-    AuthModule,
-    OpenCeliumLogsViewComponent
+    AuthModule
   ]
 })
 export class AutomationsModule {}
