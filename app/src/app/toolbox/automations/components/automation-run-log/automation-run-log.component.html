@@ -36,10 +36,12 @@
         (input)="onQueryChanged($any($event.target).value)">
     </label>
 
-    <button type="button" class="run-log__btn" [class.run-log__btn--on]="onlyErrors"
-      [attr.aria-pressed]="onlyErrors" (click)="toggleOnlyErrors()">
-      Failed only
-    </button>
+    @if (hasFailure) {
+      <button type="button" class="run-log__btn" [class.run-log__btn--on]="onlyErrors"
+        [attr.aria-pressed]="onlyErrors" (click)="toggleOnlyErrors()">
+        Failed only
+      </button>
+    }
 
     <button type="button" class="run-log__btn" [class.run-log__btn--on]="onlyConditions"
       [attr.aria-pressed]="onlyConditions" (click)="toggleOnlyConditions()">

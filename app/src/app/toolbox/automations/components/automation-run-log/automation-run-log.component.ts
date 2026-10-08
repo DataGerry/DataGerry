@@ -881,6 +881,13 @@ export class AutomationRunLogComponent implements OnChanges {
         });
 
         this.summary = summary;
+
+        // The control that turns this filter off is only on screen while there is a failure to
+        // filter for - moving off a loop entry that failed can take it away. Left on, it would
+        // hide every line with nothing to switch it back.
+        if (this.onlyErrors && !this.hasFailure) {
+            this.onlyErrors = false;
+        }
     }
 
 
