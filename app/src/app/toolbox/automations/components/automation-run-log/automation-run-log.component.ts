@@ -104,6 +104,18 @@ export class AutomationRunLogComponent implements OnChanges {
     /** Condition rules by execution index, from the connection's own rule tree. */
     private stepRules = new Map<string, { left: string; operator: string; right: string; expression: string }>();
 
+    /**
+     * Step name by the colour it is referenced under.
+     *
+     * A reference into another step's answer names that step by its colour, not by its name -
+     * '#FFCFB5.(response).body.$.results[i].public_id' reads the method whose colour is #FFCFB5.
+     * This is what turns such a reference back into something a person can read.
+     */
+    private stepColours = new Map<string, string>();
+
+    /** True once a connection was asked for and answered, which decides what a missing rule means. */
+    private connectionRead = false;
+
     private readonly automationsService = inject(AutomationsService);
     private readonly toast = inject(ToastService);
 
@@ -197,11 +209,22 @@ export class AutomationRunLogComponent implements OnChanges {
             return;
         }
 
+        this.connectionRead = true;
+
         const methods = connection?.fromConnector?.methods ?? [];
 
         for (const method of methods) {
+            const name = method?.label || method?.name || '';
+
             if (method?.index) {
-                this.stepNames.set(`${method.index}`, method.label || method.name || '');
+                this.stepNames.set(`${method.index}`, name);
+            }
+
+            if (method?.color) {
+                this.stepColours.set(
+                    `${method.color}`.replace('#', '').toUpperCase(),
+                    name || `step ${method.index}`
+                );
             }
         }
 
@@ -249,7 +272,12 @@ export class AutomationRunLogComponent implements OnChanges {
             childrenLoaded: false,
             expanded: false,
             loading: false,
-            detailLoaded: !!trace.segment,
+
+            // Never true to begin with, however much the trace already carries. The tree arrives
+            // with a segment that holds the method, the URL, the status and the duration - but not
+            // the headers and not the bodies. Those only come with the step's own detail, so
+            // treating a present segment as a loaded one leaves every body empty.
+            detailLoaded: false,
             iteration: 0,
             tab: trace.type === 'OPERATION' ? CALL_TABS[0] : CONDITION_TABS[0]
         };
@@ -306,7 +334,10 @@ export class AutomationRunLogComponent implements OnChanges {
             }))
             .subscribe(([detail, children]) => {
                 if (detail?.segment) {
-                    node.trace.segment = detail.segment;
+                    // Merged, not replaced: a condition's verdict arrives with the tree, and the
+                    // detail of an operator does not always carry it back. Replacing would throw
+                    // away the one thing the line already knew.
+                    node.trace.segment = { ...node.trace.segment, ...detail.segment };
                     node.detailLoaded = true;
 
                     // The verdict and any resolved sides arrive with the segment, so the rule that
@@ -480,6 +511,44 @@ export class AutomationRunLogComponent implements OnChanges {
     }
 
 
+    /**
+     * Whether this run has a failure to jump to at all.
+     *
+     * The run list's verdict counts as well as a step the view has already loaded: a failed run has
+     * somewhere to jump to even before the failing step has been fetched. With neither, there is
+     * nothing to offer and the control does not belong on screen.
+     */
+    public get hasFailure(): boolean {
+        return this.runStatus === 'f' || this.summary.errors > 0;
+    }
+
+
+    /**
+     * Why a condition's rule is not on screen - or nothing when it is.
+     *
+     * Two different cases, and telling them apart is the difference between a dead end and a next
+     * step: the view was opened without a connection, or the connection has nothing at this
+     * step's position.
+     */
+    public missingRuleReason(node: RunLogNode): string {
+        if (this.rule(node).left || this.rule(node).expression) {
+            return '';
+        }
+
+        if (!this.connectionId) {
+            return 'The rule is stored with the connection, and this view was opened without one. '
+                + 'Open the run from the automation itself to see what the condition compared.';
+        }
+
+        if (!this.connectionRead) {
+            return 'The connection behind this run could not be read, so the rule is unavailable.';
+        }
+
+        return 'The connection holds no rule at this step\'s position. That happens when the '
+            + 'automation was changed after this run, since the log keeps the old positions.';
+    }
+
+
     public get callTabs(): ReadonlyArray<string> {
         return CALL_TABS;
     }
@@ -615,15 +684,51 @@ export class AutomationRunLogComponent implements OnChanges {
         const leftValue = this.reportedSide(segment, ['leftValue', 'left', 'leftResult', 'leftOperand']);
         const rightValue = this.reportedSide(segment, ['rightValue', 'right', 'rightResult', 'rightOperand']);
 
+        // The run may carry the expression itself; the connection is only the better source.
+        const expression = stored?.expression
+            || this.reportedSide(segment, ['expression', 'condition'])
+            || '';
+
         return {
-            left: stored?.left ?? '',
+            left: this.readableReference(stored?.left ?? ''),
+            leftRaw: stored?.left ?? '',
             operator: stored?.operator ?? '',
-            right: stored?.right ?? '',
-            expression: stored?.expression ?? '',
+            right: this.readableReference(stored?.right ?? ''),
+            rightRaw: stored?.right ?? '',
+            expression,
             leftValue,
             rightValue,
             resolved: leftValue !== undefined || rightValue !== undefined
         };
+    }
+
+
+    /**
+     * Turns a reference into something a person can read.
+     *
+     * A reference names the step it reads by colour and then walks that step's answer:
+     * '#FFCFB5.(response).body.$.results[i].public_id'. The colour becomes the step's name and the
+     * envelope in the middle - which is the same on every reference and so says nothing - is
+     * dropped. A value that is not a reference is returned untouched.
+     */
+    private readableReference(value: string): string {
+        if (!value || !value.startsWith('#')) {
+            return value;
+        }
+
+        const colour = value.slice(1, 7).toUpperCase();
+        const named = this.stepColours.get(colour);
+
+        if (!named) {
+            return value;
+        }
+
+        const path = value
+            .slice(7)
+            .replace(/^\.\((?:response|request)\)\.body\.\$\./, '')
+            .replace(/^\./, '');
+
+        return path ? `${named} · ${path}` : named;
     }
 
 

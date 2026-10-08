@@ -46,9 +46,11 @@
       Conditions only
     </button>
 
-    <button type="button" class="run-log__btn run-log__btn--primary" (click)="jumpToError()">
-      <i class="fas fa-circle-exclamation"></i> Jump to failure
-    </button>
+    @if (hasFailure) {
+      <button type="button" class="run-log__btn run-log__btn--primary" (click)="jumpToError()">
+        <i class="fas fa-circle-exclamation"></i> Jump to failure
+      </button>
+    }
 
     <button type="button" class="run-log__btn" (click)="toggleExpandAll()">
       {{ allExpanded ? 'Collapse all' : 'Expand all' }}
@@ -261,10 +263,7 @@
                       </span>
                     </div>
                   } @else {
-                    <p class="run-log__note">
-                      The rule behind this condition is not available. It is stored with the
-                      connection, which this view was opened without.
-                    </p>
+                    <p class="run-log__note">{{ missingRuleReason(node) }}</p>
                   }
 
                   <div class="run-log__branches">
@@ -318,18 +317,18 @@
                   } @else {
                     <div class="run-log__pair">
                       <div>
-                        <span class="run-log__cap">Left side - reference</span>
-                        <pre>{{ rule(node).left || '- unknown -' }}</pre>
+                        <span class="run-log__cap">Left side - read from</span>
+                        <pre>{{ rule(node).leftRaw || '- unknown -' }}</pre>
                       </div>
                       <div>
-                        <span class="run-log__cap">Right side - fixed value</span>
-                        <pre>{{ rule(node).right || '- compares against nothing -' }}</pre>
+                        <span class="run-log__cap">Right side</span>
+                        <pre>{{ rule(node).rightRaw || '- compares against nothing -' }}</pre>
                       </div>
                     </div>
                     <p class="run-log__note">
-                      This run did not report the resolved values, only the verdict. The reference
-                      above names where the left side was read from - the step that answered it is
-                      in this log, and its response holds the value.
+                      This run reported the verdict but not the resolved values. The left side above
+                      names the step whose answer it read - open that step in this log and its
+                      response body holds the value the condition saw.
                     </p>
                   }
 
