@@ -10,9 +10,9 @@
 </div>
 <div class="modal-body">
   @if (executionId) {
-  <opencelium-log-viewer [baseUrl]="baseUrl" [token]="token" [executionId]="executionId"
-    (logViewLoad)="onLogViewLoaded()">
-  </opencelium-log-viewer>
+  <app-automation-run-log [executionId]="executionId" [connectionId]="connectionId" [runStatus]="runStatus"
+    [runDate]="runDate" (loaded)="onLogViewLoaded()">
+  </app-automation-run-log>
   }
 </div>
 

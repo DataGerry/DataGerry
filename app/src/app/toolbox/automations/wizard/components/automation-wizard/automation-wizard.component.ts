@@ -168,7 +168,12 @@ export class AutomationWizardComponent implements OnInit {
 
     /** Set in edit mode; drives PUT instead of POST. */
     public connectionId: number | null = null;
-    private schedulerId: number | null = null;
+
+    /**
+     * The scheduler behind a saved automation. Public because the last step runs it: an automation
+     * is executed through its scheduler, and there is none until the automation has been saved.
+     */
+    public schedulerId: number | null = null;
     private existingConnection: any = null;
 
     /**

@@ -4,9 +4,6 @@ import { NgbModal, NgbModalRef } from '@ng-bootstrap/ng-bootstrap';
 
 import { AutomationsService } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
-import { AuthService } from 'src/app/modules/auth/services/auth.service';
-import { ConnectionService } from 'src/app/modules/connect/services/connection.service';
-import { environment } from 'src/environments/environment';
 import { OpenCeliumLogsModalComponent } from '../opencelium-logs-modal/opencelium-logs-modal.component';
 
 type LogStatus = 's' | 'f';
@@ -32,6 +29,9 @@ export class AutomationLogsMenuComponent {
   public isLoading = false;
   public entries: LogEntry[] = [];
   public selectedExecutionId: number | null = null;
+
+  /** Kept so the log view can be told which connection and which run it is showing. */
+  private selectedEntry: LogEntry | null = null;
   private isFullscreen = false;
   private modalRef?: NgbModalRef;
   private readonly menuId = `automation-logs-${Math.random().toString(36).slice(2)}`;
@@ -39,8 +39,6 @@ export class AutomationLogsMenuComponent {
   private readonly automationsService = inject(AutomationsService);
   private readonly toast = inject(ToastService);
   private readonly modalService = inject(NgbModal);
-  private readonly authService = inject(AuthService);
-  private readonly connectionService = inject(ConnectionService);
 
   @HostListener('document:click')
   onDocumentClick() {
@@ -97,6 +95,7 @@ export class AutomationLogsMenuComponent {
       return;
     }
     this.selectedExecutionId = entry.execution_id;
+    this.selectedEntry = entry;
     this.isFullscreen = false;
     this.isOpen = false;
     this.openLogsModal();
@@ -113,8 +112,9 @@ export class AutomationLogsMenuComponent {
       windowClass: 'oc-logs-modal'
     });
     this.modalRef.componentInstance.executionId = executionId;
-    this.modalRef.componentInstance.baseUrl = this.getBaseUrl();
-    this.modalRef.componentInstance.token = this.getUserToken();
+    this.modalRef.componentInstance.connectionId = this.selectedEntry?.connection_id ?? null;
+    this.modalRef.componentInstance.runStatus = this.selectedEntry?.status ?? this.status;
+    this.modalRef.componentInstance.runDate = this.selectedEntry?.log_date ?? null;
     this.modalRef.componentInstance.isFullscreen = this.isFullscreen;
     this.modalRef.componentInstance.onToggleFullscreen = (next) => {
       this.setFullscreen(next);
@@ -176,6 +176,7 @@ export class AutomationLogsMenuComponent {
   private clearModalState(): void {
     this.setFullscreen(false);
     this.selectedExecutionId = null;
+    this.selectedEntry = null;
     this.modalRef = undefined;
     this.logsModalOpenChange.emit(false);
   }
@@ -193,22 +194,4 @@ export class AutomationLogsMenuComponent {
     return isNaN(date.getTime()) ? `${raw}` : date.toLocaleString();
   }
 
-  getUserToken(): string {
-    const token = this.authService.currentUserTokenValue?.token;
-    return token ? `Bearer ${token}` : '';
-  }
-
-  getBaseUrl(): string {
-    if (environment.cloudMode) {
-      const host = environment.apiUrl.replace(/^https?:\/\//, '');
-      const port =
-        environment.protocol === 'https' ? 443 : environment.apiPort;
-      const base = port
-        ? `${environment.protocol}://${host}:${port}`
-        : `${environment.protocol}://${host}`;
-      return `${base}/rest/open_celium/`;
-    }
-
-    return `${this.connectionService.getApiBaseUrl()}/rest/open_celium/`;
-  }
 }

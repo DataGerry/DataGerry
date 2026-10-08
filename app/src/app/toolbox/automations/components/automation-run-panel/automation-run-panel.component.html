@@ -1,0 +1,84 @@
+<div class="run-panel">
+
+  <div class="run-panel__actions">
+    <button
+      type="button"
+      class="btn btn-primary btn-sm"
+      [disabled]="!canRun || starting || running"
+      (click)="start()">
+      @if (starting || running) {
+        <i class="fas fa-spinner fa-spin me-2"></i>
+      } @else {
+        <i class="fas fa-play me-2"></i>
+      }
+      {{ running ? 'Running...' : starting ? 'Starting...' : 'Run now' }}
+    </button>
+
+    <button
+      type="button"
+      class="btn btn-secondary btn-sm"
+      [disabled]="!schedulerId || loadingRuns"
+      (click)="loadRuns()">
+      <i class="fas fa-rotate me-2"></i>
+      Refresh runs
+    </button>
+
+    @if (unsaved) {
+      <span class="run-panel__hint">
+        Save the automation first - a run needs a saved automation to start.
+      </span>
+    } @else if (running) {
+      <span class="run-panel__hint">
+        The run is in progress. The log opens by itself once it finishes.
+      </span>
+    } @else if (note) {
+      <span class="run-panel__hint">{{ note }}</span>
+    }
+  </div>
+
+  @if (listError) {
+    <div class="alert alert-danger run-panel__alert">{{ listError }}</div>
+  }
+
+  @if (schedulerId) {
+    <div class="run-panel__runs">
+      @if (loadingRuns) {
+        <p class="run-panel__empty"><i class="fas fa-spinner fa-spin me-2"></i>Loading runs...</p>
+      } @else if (!runs.length) {
+        <p class="run-panel__empty">
+          This automation has not run yet. Start it above, and the run shows up here.
+        </p>
+      } @else {
+        @for (entry of runs; track trackByRun($index, entry)) {
+          <button
+            type="button"
+            class="run-panel__run"
+            [class.run-panel__run--selected]="isSelected(entry)"
+            [class.run-panel__run--failed]="entry.status === 'f'"
+            (click)="select(entry)">
+            <i class="fas run-panel__run-caret"
+              [class.fa-chevron-right]="!isSelected(entry)"
+              [class.fa-chevron-down]="isSelected(entry)"></i>
+            <span class="run-panel__run-id">#{{ entry.execution_id }}</span>
+            <span class="run-panel__run-date">{{ formatDate(entry.log_date) }}</span>
+            <span class="run-panel__run-status"
+              [class.run-panel__run-status--fail]="entry.status === 'f'">
+              {{ entry.status === 'f' ? 'failed' : 'succeeded' }}
+            </span>
+          </button>
+
+          @if (isSelected(entry)) {
+            <div class="run-panel__log">
+              <app-automation-run-log
+                [executionId]="entry.execution_id"
+                [connectionId]="entry.connection_id ?? connectionId"
+                [runStatus]="entry.status ?? null"
+                [runDate]="entry.log_date ?? null">
+              </app-automation-run-log>
+            </div>
+          }
+        }
+      }
+    </div>
+  }
+</div>

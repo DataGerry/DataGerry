@@ -1,0 +1,730 @@
+// The run log: a tree of steps, with the detail of a step opening underneath its line.
+//
+// Colours follow the wizard's palette rather than the viewer OpenCelium ships, which brought its
+// own greys and its own fonts. Semantic colour - ok, failed, skipped - is kept apart from the
+// accent, so a failure never reads as a highlight.
+
+$accent: #e94d18;
+$border: #e5e7eb;
+$border-strong: #cbd1d9;
+$muted: #6b7280;
+$ink: #1f2937;
+$surface: #ffffff;
+$surface-2: #f8f9fb;
+$surface-3: #eef0f4;
+
+$ok: #15803d;
+$ok-soft: #e8f5ec;
+$ok-line: #a7d4b4;
+$err: #b42318;
+$err-soft: #fdeceb;
+$err-line: #f0b4ae;
+$cond: #1f6a8b;
+$cond-soft: #e8f1f5;
+$cond-line: #a9c9d8;
+$warn: #92400e;
+$warn-soft: #fdf3e3;
+$warn-line: #e4c48d;
+
+$mono: "Consolas", "SFMono-Regular", "Menlo", monospace;
+
+.run-log {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.875rem;
+  color: $ink;
+
+  pre {
+    margin: 0;
+    padding: 0.625rem 0.75rem;
+    font-family: $mono;
+    font-size: 0.75rem;
+    line-height: 1.5;
+    background: $surface-2;
+    border: 1px solid $border;
+    border-radius: 6px;
+    max-height: 18rem;
+    overflow: auto;
+    tab-size: 2;
+  }
+
+  code {
+    font-family: $mono;
+    font-size: 0.9em;
+  }
+
+  // ------------------------------------------------------------------ header
+  &__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.75rem 1.25rem;
+    padding: 0.875rem 1rem;
+    background: $surface-2;
+    border: 1px solid $border;
+    border-radius: 8px 8px 0 0;
+  }
+
+  &__id {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+
+  &__id-title {
+    font-weight: 600;
+    font-size: 0.9375rem;
+  }
+
+  &__id-date {
+    font-size: 0.75rem;
+    color: $muted;
+  }
+
+  &__stats {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem 0.5rem;
+    margin-left: auto;
+  }
+
+  &__stat {
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    background: $surface;
+    border: 1px solid $border;
+    font-size: 0.75rem;
+    color: $muted;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+
+    b {
+      color: $ink;
+      font-weight: 600;
+    }
+
+    &--ok {
+      background: $ok-soft;
+      border-color: $ok-line;
+
+      b { color: $ok; }
+    }
+
+    &--err {
+      background: $err-soft;
+      border-color: $err-line;
+
+      b { color: $err; }
+    }
+
+    &--skip {
+      background: $surface-3;
+    }
+  }
+
+  &__pill {
+    padding: 0.25rem 0.625rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    white-space: nowrap;
+
+    &--fail {
+      background: $err-soft;
+      border: 1px solid $err-line;
+      color: $err;
+    }
+
+    &--pass {
+      background: $ok-soft;
+      border: 1px solid $ok-line;
+      color: $ok;
+    }
+
+    &--open {
+      background: $warn-soft;
+      border: 1px solid $warn-line;
+      color: $warn;
+    }
+  }
+
+  // ------------------------------------------------------------------ toolbar
+  &__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.625rem 1rem;
+    background: $surface;
+    border: 1px solid $border;
+    border-top: none;
+  }
+
+  &__search {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: 1 1 14rem;
+    min-width: 11rem;
+    padding: 0.3125rem 0.625rem;
+    background: $surface-2;
+    border: 1px solid $border;
+    border-radius: 6px;
+    margin: 0;
+
+    i {
+      color: $muted;
+      font-size: 0.75rem;
+    }
+
+    input {
+      border: 0;
+      background: transparent;
+      outline: none;
+      width: 100%;
+      font-size: 0.8125rem;
+      color: $ink;
+    }
+  }
+
+  &__btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.375rem;
+    padding: 0.3125rem 0.6875rem;
+    font-size: 0.8125rem;
+    font-weight: 500;
+    color: $muted;
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 6px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background-color 150ms ease, border-color 150ms ease, color 150ms ease;
+
+    &:hover:not(:disabled) {
+      background: $surface-2;
+      border-color: $border-strong;
+      color: $ink;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $accent;
+      outline-offset: 2px;
+    }
+
+    &:disabled {
+      opacity: 0.45;
+      cursor: not-allowed;
+    }
+
+    &--on {
+      background: rgba(233, 77, 24, 0.08);
+      border-color: rgba(233, 77, 24, 0.45);
+      color: $accent;
+    }
+
+    &--primary {
+      background: $accent;
+      border-color: $accent;
+      color: #fff;
+
+      &:hover:not(:disabled) {
+        background: #d2410f;
+        border-color: #d2410f;
+        color: #fff;
+      }
+    }
+  }
+
+  // ------------------------------------------------------------------ states
+  &__state {
+    margin: 0;
+    padding: 1.25rem 1rem;
+    border: 1px solid $border;
+    border-top: none;
+    background: $surface;
+    font-size: 0.8125rem;
+
+    &--muted {
+      color: $muted;
+    }
+  }
+
+  // ------------------------------------------------------------------ tree
+  &__branch {
+    padding: 0.25rem 0 0.5rem;
+    background: $surface;
+    border: 1px solid $border;
+    border-top: none;
+
+    &:last-child {
+      border-radius: 0 0 8px 8px;
+    }
+  }
+
+  &__branch-title {
+    margin: 0.625rem 1rem 0.25rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: $muted;
+  }
+
+  &__node {
+    position: relative;
+  }
+
+  &__kids {
+    margin-left: 1.75rem;
+    padding-left: 0.875rem;
+    border-left: 1px solid $border;
+  }
+
+  &__row {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    width: 100%;
+    padding: 0.4375rem 1rem 0.4375rem 0.5rem;
+    text-align: left;
+    background: transparent;
+    border: 0;
+    color: $ink;
+    cursor: pointer;
+
+    &::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 0.25rem;
+      bottom: 0.25rem;
+      width: 2px;
+      border-radius: 2px;
+      background: transparent;
+    }
+
+    &:hover {
+      background: $surface-2;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $accent;
+      outline-offset: -2px;
+    }
+
+    &--err::before {
+      background: $err;
+    }
+
+    &--skip::before {
+      background: $border-strong;
+    }
+
+    &--skip .run-log__title {
+      color: $muted;
+    }
+
+    &--flash {
+      background: rgba(233, 77, 24, 0.1);
+    }
+  }
+
+  &__caret {
+    flex: none;
+    width: 1.125rem;
+    display: flex;
+    justify-content: center;
+    color: $muted;
+    font-size: 0.6875rem;
+  }
+
+  &__pos {
+    flex: none;
+    min-width: 1.75rem;
+    padding: 0.0625rem 0.25rem;
+    text-align: center;
+    border-radius: 4px;
+    background: $surface-3;
+    color: $muted;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__verb {
+    flex: none;
+    min-width: 3.25rem;
+    padding: 0.0625rem 0.375rem;
+    text-align: center;
+    border-radius: 4px;
+    color: #fff;
+    background: #4b5563;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+
+    &[data-verb="GET"] { background: #1b5e9e; }
+    &[data-verb="POST"] { background: #13784a; }
+    &[data-verb="PUT"] { background: #9a6600; }
+    &[data-verb="PATCH"] { background: #6b4fa0; }
+    &[data-verb="DELETE"] { background: #a7271f; }
+  }
+
+  &__kind {
+    flex: none;
+    min-width: 3.25rem;
+    padding: 0.0625rem 0.375rem;
+    text-align: center;
+    border-radius: 4px;
+    border: 1px solid currentColor;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+
+    &--if {
+      color: $cond;
+      background: $cond-soft;
+    }
+
+    &--loop {
+      color: $warn;
+      background: $warn-soft;
+    }
+
+    &--call {
+      color: $muted;
+      background: $surface-3;
+    }
+  }
+
+  &__title {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+
+  &__sub {
+    flex: 0 1 auto;
+    max-width: 34%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    color: $muted;
+  }
+
+  &__right {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    flex: none;
+  }
+
+  &__tag {
+    padding: 0.0625rem 0.375rem;
+    border-radius: 4px;
+    border: 1px solid transparent;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+
+    &--ok {
+      background: $ok-soft;
+      border-color: $ok-line;
+      color: $ok;
+    }
+
+    &--err {
+      background: $err-soft;
+      border-color: $err-line;
+      color: $err;
+    }
+
+    &--muted {
+      background: $surface-3;
+      border-color: $border-strong;
+      color: $muted;
+    }
+  }
+
+  &__dur {
+    font-family: $mono;
+    font-size: 0.6875rem;
+    color: $muted;
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+
+  // ------------------------------------------------------------------ detail
+  &__detail {
+    padding: 0 1rem 0.75rem 0.5rem;
+  }
+
+  &__panel {
+    border: 1px solid $border;
+    border-radius: 6px;
+    overflow: hidden;
+    background: $surface-2;
+
+    &--cond {
+      border-color: $cond-line;
+    }
+
+    &--bad {
+      border-color: $err-line;
+    }
+  }
+
+  &__err {
+    display: flex;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    background: $err-soft;
+    color: $err;
+    font-size: 0.8125rem;
+    border-bottom: 1px solid $err-line;
+  }
+
+  &__tabs {
+    display: flex;
+    gap: 0.125rem;
+    padding: 0.4375rem 0.5rem 0;
+    border-bottom: 1px solid $border;
+    overflow-x: auto;
+  }
+
+  &__tab {
+    padding: 0.3125rem 0.6875rem;
+    margin-bottom: -1px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: $muted;
+    background: transparent;
+    border: 1px solid transparent;
+    border-bottom: none;
+    border-radius: 5px 5px 0 0;
+    cursor: pointer;
+    white-space: nowrap;
+
+    &:hover {
+      color: $ink;
+    }
+
+    &[aria-selected="true"] {
+      background: $surface;
+      border-color: $border;
+      color: $ink;
+      font-weight: 600;
+    }
+
+    &:focus-visible {
+      outline: 2px solid $accent;
+      outline-offset: 1px;
+    }
+  }
+
+  &__pbody {
+    display: flex;
+    flex-direction: column;
+    gap: 0.625rem;
+    padding: 0.75rem 0.875rem;
+    background: $surface;
+  }
+
+  &__cap {
+    display: flex;
+    align-items: center;
+    gap: 0.375rem;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: $muted;
+  }
+
+  &__copy {
+    padding: 0;
+    background: none;
+    border: 0;
+    color: $muted;
+    cursor: pointer;
+    font-size: 0.6875rem;
+
+    &:hover {
+      color: $accent;
+    }
+  }
+
+  &__pair {
+    display: grid;
+    gap: 0.625rem;
+    grid-template-columns: 1fr;
+
+    > div {
+      display: flex;
+      flex-direction: column;
+      gap: 0.3125rem;
+      min-width: 0;
+    }
+
+    @media (min-width: 48rem) {
+      grid-template-columns: 1fr 1fr;
+    }
+  }
+
+  &__note {
+    margin: 0;
+    font-size: 0.8125rem;
+    color: $muted;
+    line-height: 1.5;
+
+    &--indent {
+      padding: 0.375rem 0 0.375rem 2.625rem;
+    }
+  }
+
+  // ------------------------------------------------------------- condition
+  &__rule {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.625rem 0.75rem;
+    background: $cond-soft;
+    border: 1px solid $cond-line;
+    border-radius: 6px;
+    font-family: $mono;
+    font-size: 0.8125rem;
+    line-height: 1.4;
+  }
+
+  &__rule-field {
+    font-weight: 700;
+    color: $ink;
+    overflow-wrap: anywhere;
+  }
+
+  &__rule-op {
+    padding: 0.0625rem 0.4375rem;
+    border-radius: 4px;
+    background: $surface;
+    border: 1px solid $cond-line;
+    color: $cond;
+    font-weight: 700;
+  }
+
+  &__rule-lit {
+    color: $ink;
+    overflow-wrap: anywhere;
+
+    &--none {
+      color: $muted;
+      font-style: italic;
+    }
+  }
+
+  &__rule-verdict {
+    margin-left: auto;
+  }
+
+  &__branches {
+    display: flex;
+    flex-direction: column;
+    gap: 0.375rem;
+  }
+
+  &__branch-row {
+    display: flex;
+    align-items: center;
+    gap: 0.625rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid $border;
+    border-radius: 6px;
+    background: $surface-2;
+
+    &--taken {
+      border-color: $ok-line;
+      background: $ok-soft;
+    }
+  }
+
+  &__branch-label {
+    flex: none;
+    min-width: 3rem;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    color: $muted;
+  }
+
+  &__branch-row--taken &__branch-label {
+    color: $ok;
+  }
+
+  &__branch-text {
+    flex: 1 1 auto;
+    min-width: 0;
+    font-size: 0.8125rem;
+    color: $muted;
+  }
+
+  &__branch-state {
+    flex: none;
+    font-family: $mono;
+    font-size: 0.6875rem;
+    color: $muted;
+    white-space: nowrap;
+  }
+
+  // ------------------------------------------------------------------ loop
+  &__iter {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid $border;
+    border-radius: 6px;
+    background: $surface-2;
+  }
+
+  &__iter-label {
+    font-size: 0.8125rem;
+    color: $muted;
+    white-space: nowrap;
+  }
+
+  &__iter-field {
+    width: 5rem;
+    padding: 0.1875rem 0.5rem;
+    font-family: $mono;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    text-align: center;
+    color: $ink;
+    background: $surface;
+    border: 1px solid $border;
+    border-radius: 5px;
+    font-variant-numeric: tabular-nums;
+  }
+
+  &__iter-of {
+    font-size: 0.75rem;
+    color: $muted;
+    white-space: nowrap;
+  }
+}
