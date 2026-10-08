@@ -56,6 +56,59 @@ export const OC_METHOD_COLORS: ReadonlyArray<string> = [
     '#9AD0C2'
 ];
 
+
+/**
+ * The colour of the method at `position`: the palette first, then further colours of the same kind.
+ *
+ * A colour is how a reference names its method, so two methods sharing one make every reference
+ * to either ambiguous - the engine takes whichever it finds. The palette alone ran out at the
+ * ninth method and started over. Past it, hues are spaced by the golden angle, which keeps
+ * neighbours apart however many there are, at the palette's soft lightness.
+ */
+export function ocMethodColor(position: number): string {
+    if (position < OC_METHOD_COLORS.length) {
+        return OC_METHOD_COLORS[position];
+    }
+
+    const step = position - OC_METHOD_COLORS.length;
+    const hue = (step * 137.508 + 20) % 360;
+    const lightness = step % 2 === 0 ? 0.78 : 0.70;
+
+    return hslToHex(hue, 0.6, lightness);
+}
+
+
+/** The first colour in ocMethodColor's order that none of `methods` uses yet. */
+export function ocNextMethodColor(methods: ReadonlyArray<{ color?: string }>): string {
+    const used = new Set(methods.map(method => (method.color ?? '').toUpperCase()));
+
+    for (let position = 0; ; position++) {
+        const color = ocMethodColor(position);
+
+        if (!used.has(color.toUpperCase())) {
+            return color;
+        }
+    }
+}
+
+
+function hslToHex(hue: number, saturation: number, lightness: number): string {
+    const chroma = (1 - Math.abs(2 * lightness - 1)) * saturation;
+    const x = chroma * (1 - Math.abs((hue / 60) % 2 - 1));
+    const m = lightness - chroma / 2;
+    const [r, g, b] = hue < 60 ? [chroma, x, 0]
+        : hue < 120 ? [x, chroma, 0]
+        : hue < 180 ? [0, chroma, x]
+        : hue < 240 ? [0, x, chroma]
+        : hue < 300 ? [x, 0, chroma]
+        : [chroma, 0, x];
+
+    return '#' + [r, g, b]
+        .map(channel => Math.round((channel + m) * 255).toString(16).padStart(2, '0'))
+        .join('')
+        .toUpperCase();
+}
+
 /**
  * Geometry of the workflow graph, mirroring the reference payloads exactly.
  *
