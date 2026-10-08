@@ -28,6 +28,9 @@ import {
 } from '../../../models/automation-definition.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
+type ReviewTab = 'preview' | 'run' | 'settings';
+
+
 /**
  * Step group 5 - the dry run and the activation decision.
  *
@@ -35,6 +38,9 @@ import {
  * it shows what the automation would read and where each value would land, using values from a real
  * object of the chosen type. Actually executing a trial run against the target system would need a
  * backend endpoint and is deliberately out of scope here.
+ *
+ * The status card on top answers the questions in the order they are asked - what does it do, can
+ * it be saved, will it run - and everything else sits in tabs, so one task is on screen at a time.
  */
 @Component({
     selector: 'app-wizard-step-review',
@@ -73,7 +79,17 @@ export class WizardStepReviewComponent {
     @Output() public definitionChange = new EventEmitter<AutomationDefinition>();
     @Output() public loadSample = new EventEmitter<void>();
 
-    public showAdvanced = false;
+    public showHints = false;
+    public showStoredOnly = false;
+
+    public readonly tabs: ReadonlyArray<{ id: ReviewTab; label: string; icon: string }> = [
+        { id: 'preview', label: 'Preview', icon: 'fa-table-list' },
+        { id: 'run', label: 'Test run', icon: 'fa-play' },
+        { id: 'settings', label: 'Settings', icon: 'fa-sliders' }
+    ];
+
+    /** Null until the user picks a tab; until then the tab follows what is most useful now. */
+    private chosenTab: ReviewTab | null = null;
 
     public readonly errorHandlingChoices: ReadonlyArray<{ value: AutomationErrorHandling; label: string }> = [
         { value: 'abort', label: 'Stop the run' },
@@ -98,6 +114,37 @@ export class WizardStepReviewComponent {
     }
 
     /* ---------------------------------------------------- GETTERS --------------------------------------------------- */
+
+    /**
+     * A saved automation is reopened to change and run it again, so it opens on the run; a new one
+     * cannot run yet, so it opens on what it would transfer.
+     */
+    public get activeTab(): ReviewTab {
+        return this.chosenTab ?? (this.schedulerId ? 'run' : 'preview');
+    }
+
+
+    public set activeTab(tab: ReviewTab) {
+        this.chosenTab = tab;
+    }
+
+
+    public get statusTitle(): string {
+        const problems = this.validationErrors.length;
+
+        if (problems > 0) {
+            return problems === 1
+                ? 'One thing to fix before the automation can be saved'
+                : `${problems} things to fix before the automation can be saved`;
+        }
+
+        if (this.unsavedChanges && this.schedulerId) {
+            return 'Ready - the changes are not saved yet';
+        }
+
+        return 'Ready to save';
+    }
+
 
     /**
      * The mapped pairs, with a sample value where one is known.
@@ -145,7 +192,7 @@ export class WizardStepReviewComponent {
      */
     public get runNote(): string {
         if (this.validationErrors.length > 0) {
-            return 'A run executes the last saved version - the changes above are not saved yet.';
+            return 'A run executes the last saved version - the changes on screen are not saved yet.';
         }
 
         return '';
