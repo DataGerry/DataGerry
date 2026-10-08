@@ -672,3 +672,51 @@ $muted: #6b7280;
     select { flex: 0 0 40%; }
     input { flex: 1; font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; }
 }
+
+/* ------------------------------------------------- XML / SOAP -------------------------------------------------- */
+
+.wire__xml-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+  margin-bottom: 0.5rem;
+  font-size: 0.8rem;
+}
+
+.wire__xml-badge {
+  padding: 0.1rem 0.5rem;
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.wire__xml-operation {
+  font-family: SFMono-Regular, Menlo, Consolas, monospace;
+  color: #1f2937;
+}
+
+.wire__xml-spacer {
+  flex: 1;
+}
+
+.wire__xml {
+  max-height: 18rem;
+  margin: 0 0 0.75rem;
+  padding: 0.75rem;
+  overflow: auto;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
+  background: #f9fafb;
+  font-size: 0.75rem;
+  line-height: 1.5;
+  white-space: pre;
+}
+
+.wire__row--attribute .wire__key {
+  color: #6b7280;
+  font-style: italic;
+}

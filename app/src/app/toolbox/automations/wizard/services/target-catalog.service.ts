@@ -26,6 +26,7 @@ import {
     TargetField,
     TargetOperationCandidates
 } from '../models/target-catalog.model';
+import { XML_ATTRIBUTES } from '../models/body-format.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** A target system the user can pick, derived from the configured connectors. */
@@ -176,7 +177,7 @@ export class TargetCatalogService {
             return this.flatten(body, '');
         }
 
-        const collection = body[arrayPath];
+        const collection = this.at(body, arrayPath);
         const item = Array.isArray(collection) ? collection[0] : null;
 
         return item && typeof item === 'object' ? this.flatten(item, '') : [];
@@ -315,6 +316,10 @@ export class TargetCatalogService {
      * Both reference systems wrap their items in a single array-valued key - 'result' for i-doit,
      * 'results' for DataGerry - so the first array-valued key wins. Returns '' for operations that
      * do not answer with a list.
+     *
+     * Failing that, the first list further down, as a dotted path: a SOAP answer carries its items
+     * under the envelope (`env:Envelope.env:Body.ListMachinesResponse...`), a GraphQL answer under
+     * `data` (`data.devices.findAll`), and neither has anything at the top to find.
      */
     private findResponseArrayPath(operation: any): string {
         const fields = operation?.response?.success?.body?.fields;
@@ -325,7 +330,38 @@ export class TargetCatalogService {
 
         const arrayKey = Object.keys(fields).find(key => Array.isArray(fields[key]) && fields[key].length > 0);
 
-        return arrayKey ?? '';
+        return arrayKey ?? this.findNestedArrayPath(fields, '', 0);
+    }
+
+
+    private findNestedArrayPath(node: Record<string, any>, prefix: string, depth: number): string {
+        if (depth > 8) {
+            return '';
+        }
+
+        for (const [key, value] of Object.entries(node)) {
+            if (key === XML_ATTRIBUTES || !value || typeof value !== 'object') {
+                continue;
+            }
+
+            const path = prefix ? `${prefix}.${key}` : key;
+
+            if (Array.isArray(value)) {
+                if (value.length > 0) {
+                    return path;
+                }
+
+                continue;
+            }
+
+            const found = this.findNestedArrayPath(value, path, depth + 1);
+
+            if (found) {
+                return found;
+            }
+        }
+
+        return '';
     }
 
 
@@ -364,6 +400,11 @@ export class TargetCatalogService {
         const result: TargetField[] = [];
 
         for (const [key, value] of Object.entries(node)) {
+            // An XML element's attributes are namespaces and markup, nothing a mapping fills.
+            if (key === XML_ATTRIBUTES) {
+                continue;
+            }
+
             const path = prefix ? `${prefix}.${key}` : key;
 
             if (value && typeof value === 'object' && !Array.isArray(value)) {

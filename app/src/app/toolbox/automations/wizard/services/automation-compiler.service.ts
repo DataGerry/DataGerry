@@ -531,7 +531,8 @@ export class AutomationCompilerService {
             values[method.index] = {
                 endpoint: extra.endpoint,
                 headers: extra.headers,
-                body: extra.body
+                body: extra.body,
+                response: extra.response
             };
         }
 
@@ -970,6 +971,10 @@ export class AutomationCompilerService {
 
             if (override.endpoint) {
                 method.request.endpoint = override.endpoint;
+            }
+
+            if (override.response) {
+                this.setResponseFields(method, override.response);
             }
 
             for (const [name, value] of Object.entries(override.headers ?? {})) {
@@ -1568,6 +1573,19 @@ export class AutomationCompilerService {
         }
 
         return ref;
+    }
+
+
+    /**
+     * Replaces what a call says it answers, keeping the envelope - status, headers, format - the
+     * invoker gave it.
+     */
+    private setResponseFields(method: OcMethod, fields: Record<string, unknown>): void {
+        const response: any = method.response ?? {};
+        const success = response.success ?? { status: '200', header: {} };
+        const body = success.body ?? { type: 'object', format: 'json', data: 'raw' };
+
+        method.response = { ...response, success: { ...success, body: { ...body, fields: this.clone(fields) } } };
     }
 
 
