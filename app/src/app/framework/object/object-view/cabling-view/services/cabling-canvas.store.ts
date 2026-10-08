@@ -52,6 +52,9 @@ export class CablingCanvasStore {
         return `translate(${ x }px, ${ y }px) scale(${ zoom })`;
     });
 
+    public readonly canZoomIn = computed(() => this.viewport().zoom < CABLING_ZOOM.max);
+    public readonly canZoomOut = computed(() => this.viewport().zoom > CABLING_ZOOM.min);
+
     /** Set when a press ended as a pan or a drag, so the click that follows it selects nothing. */
     public dragged = false;
 

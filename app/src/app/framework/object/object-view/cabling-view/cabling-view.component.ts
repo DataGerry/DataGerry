@@ -156,7 +156,7 @@ export class CablingViewComponent {
         '=': () => this.canvas.zoomIn(),
         '-': () => this.canvas.zoomOut(),
         '_': () => this.canvas.zoomOut(),
-        '0': () => this.canvas.fit(this.bounds()),
+        '0': () => this.fitToScreen(),
         'Escape': () => this.selection.set(null),
         's': () => this.toggleSpotlight(),
         'S': () => this.toggleSpotlight(),
@@ -247,6 +247,11 @@ export class CablingViewComponent {
 
     public toggleFreePorts(): void {
         this.showFreePorts.update((shown) => !shown);
+    }
+
+
+    public fitToScreen(): void {
+        this.canvas.fit(this.bounds());
     }
 
 

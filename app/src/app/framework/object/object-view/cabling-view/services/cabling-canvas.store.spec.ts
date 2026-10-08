@@ -58,6 +58,27 @@ describe('CablingCanvasStore', () => {
         expect(canvas.viewport().y).toBeCloseTo(300 - 300 * CABLING_ZOOM.step);
     });
 
+    it('stops zooming at either limit', () => {
+        expect(canvas.canZoomIn()).toBeTrue();
+        expect(canvas.canZoomOut()).toBeTrue();
+
+        for (let step = 0; step < 20; step++) {
+            canvas.zoomIn();
+        }
+
+        expect(canvas.viewport().zoom).toBe(CABLING_ZOOM.max);
+        expect(canvas.canZoomIn()).toBeFalse();
+        expect(canvas.canZoomOut()).toBeTrue();
+
+        for (let step = 0; step < 20; step++) {
+            canvas.zoomOut();
+        }
+
+        expect(canvas.viewport().zoom).toBe(CABLING_ZOOM.min);
+        expect(canvas.canZoomOut()).toBeFalse();
+        expect(canvas.canZoomIn()).toBeTrue();
+    });
+
     it('moves to a revealed card only when it is off screen, centring the cards around it', () => {
         const onScreen = { minX: 10, minY: 10, maxX: 100, maxY: 100 };
         const offScreen = { minX: 2000, minY: 0, maxX: 2100, maxY: 100 };

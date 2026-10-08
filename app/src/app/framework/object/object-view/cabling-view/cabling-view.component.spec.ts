@@ -23,6 +23,7 @@ import { of } from 'rxjs';
 
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { CablingViewComponent } from './cabling-view.component';
+import { CABLING_ZOOM } from './constants/cabling.constants';
 import { CablingService } from './services/cabling.service';
 import {
     CABLE_REAR,
@@ -232,6 +233,44 @@ describe('CablingViewComponent spotlight', () => {
 
         expect(toolbarButton('Show free ports').getAttribute('aria-pressed')).toBe('true');
         expect(fixture.componentInstance.options().onlyConnected).toBeFalse();
+    });
+
+    it('zooms from the toolbar until each limit disables its button', () => {
+        show(PP_01);
+        const transform = (): string => element().querySelector<HTMLElement>('.cabling-view__canvas').style.transform;
+
+        for (let step = 0; step < 20 && !toolbarButton('Zoom in').disabled; step++) {
+            click(toolbarButton('Zoom in'));
+        }
+
+        expect(transform()).toContain(`scale(${ CABLING_ZOOM.max })`);
+        expect(toolbarButton('Zoom in').disabled).toBeTrue();
+        expect(toolbarButton('Zoom out').disabled).toBeFalse();
+
+        for (let step = 0; step < 20 && !toolbarButton('Zoom out').disabled; step++) {
+            click(toolbarButton('Zoom out'));
+        }
+
+        expect(transform()).toContain(`scale(${ CABLING_ZOOM.min })`);
+        expect(toolbarButton('Zoom out').disabled).toBeTrue();
+        expect(toolbarButton('Zoom in').disabled).toBeFalse();
+    });
+
+    it('fits the cabling back onto the screen from the toolbar', () => {
+        show(PP_01);
+        const transform = (): string => element().querySelector<HTMLElement>('.cabling-view__canvas').style.transform;
+
+        click(toolbarButton('Fit to screen'));
+        const fitted = transform();
+
+        click(toolbarButton('Zoom in'));
+        click(toolbarButton('Zoom in'));
+
+        expect(transform()).not.toBe(fitted);
+
+        click(toolbarButton('Fit to screen'));
+
+        expect(transform()).toBe(fitted);
     });
 
     it('is off until asked for, and a picked port then only brings its cable to the front', () => {
