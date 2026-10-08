@@ -1,98 +1,122 @@
-<section class="wizard-section">
-  <h5 class="wizard-section__title">1. Test the automation</h5>
-  <p class="wizard-section__hint">
-    Preview what the automation would transfer, using a real object of the selected type.
-  </p>
+<!-- Where the automation stands, in one card: what it does, whether it can be saved, whether it will run. -->
+<section class="review-status" [class.is-blocked]="validationErrors.length > 0" [class.is-ready]="validationErrors.length === 0">
+  <div class="review-status__main">
+    <i class="fas review-status__icon"
+       [class.fa-triangle-exclamation]="validationErrors.length > 0"
+       [class.fa-circle-check]="validationErrors.length === 0"></i>
 
-  @if (validationErrors.length > 0) {
-    <div class="alert alert-danger">
-      <strong>These points need attention before the automation can be saved:</strong>
-      <ul class="mb-0 mt-2">
-        @for (error of validationErrors; track error) {
-          <li>{{ error }}</li>
-        }
-      </ul>
-    </div>
-  } @else {
-    <div class="review-summary">
-      <i class="fas fa-circle-info review-summary__icon"></i>
-      <span>{{ readableDescription }}</span>
-    </div>
-
-    @if (compileWarnings.length > 0) {
-      <div class="alert alert-warning">
-        <strong>Worth knowing:</strong>
-        <ul class="mb-0 mt-2">
-          @for (warning of compileWarnings; track warning) {
-            <li>{{ warning }}</li>
-          }
-        </ul>
-      </div>
-    }
-
-    <div class="review-actions">
-      <button
-        type="button"
-        class="btn btn-secondary btn-sm"
-        [disabled]="sampleLoading || definition.direction !== 'outgoing'"
-        (click)="loadSample.emit()">
-        <i class="fas fa-flask me-2"></i>
-        {{ sampleLoading ? 'Loading...' : hasSample ? 'Load another object' : 'Load a sample object' }}
-      </button>
-
-      @if (definition.direction !== 'outgoing') {
-        <span class="text-muted small">
-          Sample values are available for outgoing automations, where DataGerry is the source.
-        </span>
-      } @else if (sampleObjectId) {
-        <span class="text-muted small">Sample taken from object #{{ sampleObjectId }}.</span>
+    <div class="review-status__text">
+      <div class="review-status__title">{{ statusTitle }}</div>
+      @if (readableDescription) {
+        <p class="review-status__description">{{ readableDescription }}</p>
       }
     </div>
 
-    <table class="table review-table">
-      <thead>
-        <tr>
-          <th scope="col">Source field</th>
-          <th scope="col">Target field</th>
-          <th scope="col">Sample value</th>
-        </tr>
-      </thead>
-      <tbody>
-        @for (row of preview; track row.target) {
-          <tr>
-            <td>
-              {{ row.source }}
+    <label class="review-switch" [class.is-disabled]="!canActivate"
+           [title]="canActivate ? 'An inactive automation is saved but never runs on its own' : 'Fix the problems first'">
+      <input
+        type="checkbox"
+        role="switch"
+        [checked]="definition.active"
+        [disabled]="!canActivate"
+        (change)="onActiveChanged(!definition.active)">
+      <span class="review-switch__track"><span class="review-switch__thumb"></span></span>
+      <span class="review-switch__label">{{ definition.active ? 'Active' : 'Inactive' }}</span>
+    </label>
+  </div>
 
-              @if (row.adjusted) {
-                <span class="review-table__badge" title="This value is adjusted before it is sent">
-                  adjusted
-                </span>
-              }
-            </td>
-            <td><code>{{ row.target }}</code></td>
-            <td>
-              @if (row.value) {
-                {{ row.value }}
-              } @else {
-                <span class="text-muted">-</span>
-              }
-            </td>
-          </tr>
-        } @empty {
-          <tr>
-            <td colspan="3" class="text-muted">No field is mapped yet.</td>
-          </tr>
+  @if (validationErrors.length > 0) {
+    <ul class="review-status__problems">
+      @for (error of validationErrors; track error) {
+        <li>{{ error }}</li>
+      }
+    </ul>
+  }
+
+  @if (compileWarnings.length > 0) {
+    <button type="button" class="review-status__hints-toggle" (click)="showHints = !showHints"
+            [attr.aria-expanded]="showHints">
+      <i class="fas fa-lightbulb me-1"></i>
+      {{ compileWarnings.length }} {{ compileWarnings.length === 1 ? 'hint' : 'hints' }} worth knowing
+      <i class="fas ms-1" [class.fa-chevron-down]="!showHints" [class.fa-chevron-up]="showHints"></i>
+    </button>
+
+    @if (showHints) {
+      <ul class="review-status__hints">
+        @for (warning of compileWarnings; track warning) {
+          <li>{{ warning }}</li>
         }
-      </tbody>
-    </table>
+      </ul>
+    }
   }
 </section>
 
-<section class="wizard-section">
-  <h5 class="wizard-section__title">2. Run it and read the log</h5>
-  <p class="wizard-section__hint">
-    Start the automation and open any of its runs - the log shows every step it took, what each
-    condition compared, and where a failing run stopped.
+<!-- One task at a time instead of three stacked sections. -->
+<nav class="review-tabs" role="tablist">
+  @for (tab of tabs; track tab.id) {
+    <button
+      type="button"
+      role="tab"
+      class="review-tabs__tab"
+      [class.is-active]="activeTab === tab.id"
+      [attr.aria-selected]="activeTab === tab.id"
+      (click)="activeTab = tab.id">
+      <i class="fas {{ tab.icon }} me-2"></i>{{ tab.label }}
+      @if (tab.id === 'preview' && preview.length > 0) {
+        <span class="review-tabs__count">{{ preview.length }}</span>
+      }
+      @if (tab.id === 'run' && unsavedChanges && schedulerId) {
+        <span class="review-tabs__dot" title="There are unsaved changes"></span>
+      }
+    </button>
+  }
+</nav>
+
+<!-- Hidden rather than removed, so a run being followed keeps its state when the tab changes. -->
+<div class="review-pane" role="tabpanel" [hidden]="activeTab !== 'preview'">
+  <div class="review-pane__intro">
+    <p class="review-pane__hint">What each mapped field would carry, using a real object of the selected type.</p>
+
+    <button
+      type="button"
+      class="btn btn-secondary btn-sm"
+      [disabled]="sampleLoading || definition.direction !== 'outgoing'"
+      [title]="definition.direction !== 'outgoing' ? 'Sample values are available for outgoing automations, where DataGerry is the source' : ''"
+      (click)="loadSample.emit()">
+      <i class="fas me-2" [class.fa-flask]="!sampleLoading" [class.fa-spinner]="sampleLoading" [class.fa-spin]="sampleLoading"></i>
+      {{ sampleLoading ? 'Loading...' : hasSample ? 'Another object' : 'Load a sample object' }}
+    </button>
+  </div>
+
+  @if (sampleObjectId) {
+    <p class="review-pane__meta">Values from object #{{ sampleObjectId }}.</p>
+  }
+
+  @if (preview.length > 0) {
+    <ul class="review-mapping">
+      @for (row of preview; track row.target + row.source) {
+        <li class="review-mapping__row">
+          <span class="review-mapping__source">
+            {{ row.source }}
+            @if (row.adjusted) {
+              <span class="review-mapping__badge" title="This value is adjusted before it is sent">adjusted</span>
+            }
+          </span>
+          <i class="fas fa-arrow-right review-mapping__arrow"></i>
+          <code class="review-mapping__target">{{ row.target }}</code>
+          <span class="review-mapping__value" [class.is-empty]="!row.value">{{ row.value || (hasSample ? 'empty' : '') }}</span>
+        </li>
+      }
+    </ul>
+  } @else {
+    <p class="review-pane__empty">No field is mapped yet - the Fields step decides what arrives where.</p>
+  }
+</div>
+
+<div class="review-pane" role="tabpanel" [hidden]="activeTab !== 'run'">
+  <p class="review-pane__hint">
+    Start the automation and open any run - the log shows every step, what each condition compared and
+    where a failing run stopped.
   </p>
 
   <app-automation-run-panel
@@ -103,29 +127,49 @@
     [canSaveChanges]="validationErrors.length === 0"
     [saveChanges]="saveChanges">
   </app-automation-run-panel>
-</section>
+</div>
 
-<section class="wizard-section">
-  <h5 class="wizard-section__title">3. Activate</h5>
-  <p class="wizard-section__hint">An inactive automation is saved but never runs until you enable it.</p>
+<div class="review-pane" role="tabpanel" [hidden]="activeTab !== 'settings'">
+  <div class="review-settings">
+    <div class="review-settings__field">
+      <app-form-input
+        label="Objects per run (max.)"
+        type="number"
+        [ngModel]="definition.advanced.batchSize"
+        (ngModelChange)="onAdvancedChanged('batchSize', +$event)">
+      </app-form-input>
+      <p class="review-settings__hint">
+        The read stops here. Objects beyond this number are not processed at all, so raise it if the
+        type holds more than this.
+      </p>
+    </div>
 
-  <label class="review-toggle">
-    <input
-      type="checkbox"
-      [checked]="definition.active"
-      [disabled]="!canActivate"
-      (change)="onActiveChanged(!definition.active)">
-    <span>Activate this automation after saving</span>
-  </label>
+    <div class="review-settings__field review-settings__field--toggle">
+      <label class="review-check">
+        <input
+          type="checkbox"
+          [checked]="definition.advanced.loggingEnabled"
+          (change)="onAdvancedChanged('loggingEnabled', !definition.advanced.loggingEnabled)">
+        <span>Write detailed logs</span>
+      </label>
+      <p class="review-settings__hint">Every request and answer is kept in the run log.</p>
+    </div>
+  </div>
 
-  <button type="button" class="btn btn-link btn-sm review-advanced-toggle" (click)="showAdvanced = !showAdvanced">
-    <i class="fas" [class.fa-chevron-right]="!showAdvanced" [class.fa-chevron-down]="showAdvanced"></i>
-    Advanced settings
+  <button type="button" class="btn btn-link btn-sm review-settings__more" (click)="showStoredOnly = !showStoredOnly"
+          [attr.aria-expanded]="showStoredOnly">
+    <i class="fas me-1" [class.fa-chevron-right]="!showStoredOnly" [class.fa-chevron-down]="showStoredOnly"></i>
+    Retries and error handling
   </button>
 
-  @if (showAdvanced) {
-    <div class="review-advanced">
-      <div class="review-advanced__field">
+  @if (showStoredOnly) {
+    <p class="review-settings__notice">
+      <i class="fas fa-circle-info me-1"></i>
+      These are stored with the automation but OpenCelium does not apply them yet.
+    </p>
+
+    <div class="review-settings">
+      <div class="review-settings__field">
         <app-form-input
           label="Retries on failure"
           type="number"
@@ -134,7 +178,7 @@
         </app-form-input>
       </div>
 
-      <div class="review-advanced__field">
+      <div class="review-settings__field">
         <app-form-input
           label="Retry delay (seconds)"
           type="number"
@@ -143,7 +187,7 @@
         </app-form-input>
       </div>
 
-      <div class="review-advanced__field">
+      <div class="review-settings__field">
         <app-form-input
           label="Timeout (ms)"
           type="number"
@@ -152,20 +196,7 @@
         </app-form-input>
       </div>
 
-      <div class="review-advanced__field">
-        <app-form-input
-          label="Objects per run (max.)"
-          type="number"
-          [ngModel]="definition.advanced.batchSize"
-          (ngModelChange)="onAdvancedChanged('batchSize', +$event)">
-        </app-form-input>
-        <p class="review-advanced__hint">
-          The read stops here. Objects beyond this number are not processed at all, so raise it if
-          the type holds more than this.
-        </p>
-      </div>
-
-      <div class="review-advanced__field">
+      <div class="review-settings__field">
         <app-form-select
           label="On error"
           [items]="errorHandlingChoices"
@@ -175,21 +206,6 @@
           (ngModelChange)="onAdvancedChanged('errorHandling', $event)">
         </app-form-select>
       </div>
-
-      <div class="review-advanced__field review-advanced__field--toggle">
-        <label class="review-toggle">
-          <input
-            type="checkbox"
-            [checked]="definition.advanced.loggingEnabled"
-            (change)="onAdvancedChanged('loggingEnabled', !definition.advanced.loggingEnabled)">
-          <span>Write detailed logs</span>
-        </label>
-      </div>
     </div>
-
-    <p class="wizard-section__hint mt-2 mb-0">
-      Retries, retry delay and error handling are stored with the automation. OpenCelium applies the
-      timeout and batch size; the remaining settings take effect once its scheduler exposes them.
-    </p>
   }
-</section>
+</div>

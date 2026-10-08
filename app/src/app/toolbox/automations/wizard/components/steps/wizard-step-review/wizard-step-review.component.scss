@@ -1,38 +1,302 @@
 @import '../wizard-step-shared';
 
-.review-summary {
-  display: flex;
-  align-items: flex-start;
-  gap: 0.6rem;
-  padding: 0.85rem 1rem;
-  margin-bottom: 1rem;
+$ok: #15803d;
+$danger: #b91c1c;
+
+/* ---------------------------------------------------- STATUS ---------------------------------------------------- */
+
+.review-status {
+  padding: 1rem 1.1rem;
   border: 1px solid $border;
-  border-left: 3px solid $accent;
-  border-radius: 8px;
-  background: #fffaf8;
-  font-size: 0.9rem;
-  color: #1f2937;
+  border-left: 4px solid $accent;
+  border-radius: 10px;
+  background: #fff;
+
+  &.is-ready {
+    border-left-color: $ok;
+  }
+
+  &.is-blocked {
+    border-left-color: $danger;
+    background: #fffafa;
+  }
+
+  &__main {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+  }
 
   &__icon {
-    margin-top: 0.15rem;
-    color: $accent;
+    margin-top: 0.2rem;
+    font-size: 1.1rem;
+
+    .is-ready & {
+      color: $ok;
+    }
+
+    .is-blocked & {
+      color: $danger;
+    }
+  }
+
+  &__text {
+    flex: 1;
+    min-width: 0;
+  }
+
+  &__title {
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  &__description {
+    margin: 0.2rem 0 0;
+    font-size: 0.875rem;
+    color: $muted;
+  }
+
+  &__problems,
+  &__hints {
+    margin: 0.75rem 0 0;
+    padding-left: 2.6rem;
+    font-size: 0.85rem;
+
+    li + li {
+      margin-top: 0.2rem;
+    }
+  }
+
+  &__problems {
+    color: $danger;
+  }
+
+  &__hints {
+    color: #92400e;
+  }
+
+  &__hints-toggle {
+    margin: 0.6rem 0 0 1.85rem;
+    padding: 0.15rem 0.6rem;
+    border: 0;
+    border-radius: 999px;
+    background: #fef3c7;
+    color: #92400e;
+    font-size: 0.78rem;
+    cursor: pointer;
+
+    &:hover {
+      background: #fde68a;
+    }
   }
 }
 
-.review-actions {
-  display: flex;
+/* An on/off decision reads better as a switch than as a checkbox sentence. */
+.review-switch {
+  display: inline-flex;
   align-items: center;
-  gap: 0.75rem;
-  flex-wrap: wrap;
-  margin-bottom: 1rem;
+  gap: 0.5rem;
+  margin: 0;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+
+  input {
+    position: absolute;
+    opacity: 0;
+    pointer-events: none;
+  }
+
+  &__track {
+    position: relative;
+    width: 2.4rem;
+    height: 1.35rem;
+    border-radius: 999px;
+    background: #d1d5db;
+    transition: background 150ms ease;
+  }
+
+  &__thumb {
+    position: absolute;
+    top: 0.15rem;
+    left: 0.15rem;
+    width: 1.05rem;
+    height: 1.05rem;
+    border-radius: 50%;
+    background: #fff;
+    box-shadow: 0 1px 2px rgba(15, 23, 42, 0.25);
+    transition: transform 150ms ease;
+  }
+
+  input:checked + &__track {
+    background: $ok;
+  }
+
+  input:checked + &__track &__thumb {
+    transform: translateX(1.05rem);
+  }
+
+  input:focus-visible + &__track {
+    box-shadow: 0 0 0 3px rgba(233, 77, 24, 0.25);
+  }
+
+  &__label {
+    font-size: 0.85rem;
+    color: #374151;
+  }
+
+  &.is-disabled {
+    cursor: not-allowed;
+    opacity: 0.55;
+  }
 }
 
-.review-table {
-  font-size: 0.85rem;
-  vertical-align: middle;
+/* ----------------------------------------------------- TABS ----------------------------------------------------- */
 
-  code {
+.review-tabs {
+  display: flex;
+  gap: 0.25rem;
+  margin: 1.25rem 0 0;
+  border-bottom: 1px solid $border;
+  overflow-x: auto;
+
+  &__tab {
+    display: inline-flex;
+    align-items: center;
+    padding: 0.55rem 0.9rem;
+    border: 0;
+    border-bottom: 2px solid transparent;
+    margin-bottom: -1px;
+    background: none;
+    color: $muted;
+    font-size: 0.875rem;
+    white-space: nowrap;
+    cursor: pointer;
+
+    &:hover {
+      color: #1f2937;
+    }
+
+    &.is-active {
+      border-bottom-color: $accent;
+      color: #1f2937;
+      font-weight: 600;
+    }
+  }
+
+  &__count {
+    margin-left: 0.45rem;
+    padding: 0 0.45rem;
+    border-radius: 999px;
+    background: #f3f4f6;
+    font-size: 0.72rem;
+    font-weight: 600;
+    color: $muted;
+  }
+
+  &__dot {
+    width: 0.45rem;
+    height: 0.45rem;
+    margin-left: 0.45rem;
+    border-radius: 50%;
+    background: $accent;
+  }
+}
+
+.review-pane {
+  padding-top: 1rem;
+
+  &__intro {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 0.75rem;
+    flex-wrap: wrap;
+  }
+
+  &__hint {
+    margin: 0 0 0.75rem;
+    font-size: 0.8125rem;
+    color: $muted;
+
+    .review-pane__intro & {
+      margin: 0;
+    }
+  }
+
+  &__meta {
+    margin: 0.5rem 0 0;
+    font-size: 0.78rem;
+    color: $muted;
+  }
+
+  &__empty {
+    margin: 1rem 0 0;
+    padding: 1rem;
+    border: 1px dashed $border;
+    border-radius: 8px;
+    font-size: 0.85rem;
+    color: $muted;
+    text-align: center;
+  }
+}
+
+/* ---------------------------------------------------- PREVIEW --------------------------------------------------- */
+
+/* Source -> target -> value reads as one movement; a table made it three unrelated columns. */
+.review-mapping {
+  margin: 0.75rem 0 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid $border;
+  border-radius: 8px;
+
+  &__row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) minmax(0, 1fr);
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.55rem 0.85rem;
+    font-size: 0.85rem;
+
+    & + & {
+      border-top: 1px solid $border;
+    }
+
+    @media (max-width: 720px) {
+      grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+    }
+  }
+
+  &__source {
+    color: #1f2937;
+    overflow-wrap: anywhere;
+  }
+
+  &__arrow {
+    color: #9ca3af;
+    font-size: 0.75rem;
+  }
+
+  &__target {
     font-size: 0.8rem;
+    overflow-wrap: anywhere;
+  }
+
+  &__value {
+    color: #374151;
+    overflow-wrap: anywhere;
+
+    &.is-empty {
+      color: #9ca3af;
+      font-style: italic;
+    }
+
+    @media (max-width: 720px) {
+      grid-column: 1 / -1;
+      padding-left: 0.75rem;
+      border-left: 2px solid $border;
+    }
   }
 
   &__badge {
@@ -47,52 +311,44 @@
   }
 }
 
-.review-toggle {
+/* --------------------------------------------------- SETTINGS --------------------------------------------------- */
+
+.review-settings {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 0.75rem 1.25rem;
+
+  &__field--toggle {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+  }
+
+  &__hint {
+    margin: 4px 0 0;
+    font-size: 12.5px;
+    line-height: 1.45;
+    color: var(--bs-secondary-color, #6c757d);
+  }
+
+  &__more {
+    display: block;
+    margin-top: 1rem;
+    padding-left: 0;
+  }
+
+  &__notice {
+    margin: 0 0 0.75rem;
+    font-size: 0.8rem;
+    color: $muted;
+  }
+}
+
+.review-check {
   display: flex;
   align-items: center;
   gap: 0.5rem;
   margin: 0;
   font-size: 0.875rem;
   cursor: pointer;
-}
-
-.review-advanced-toggle {
-  display: block;
-  padding-left: 0;
-  margin-top: 1rem;
-
-  i {
-    margin-right: 0.4rem;
-  }
-}
-
-.review-advanced {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-  gap: 0.75rem 1rem;
-  padding: 1rem;
-  border: 1px solid $border;
-  border-radius: 8px;
-
-  &__field--toggle {
-    display: flex;
-    align-items: flex-end;
-    padding-bottom: 0.35rem;
-  }
-}
-
-/* Explains a setting whose name alone would be read as "process in chunks of". */
-.review-advanced__hint {
-    margin: 6px 0 0;
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--bs-secondary-color, #6c757d);
-}
-
-/* Explains a setting whose name alone would mislead. */
-.review-advanced__hint {
-    margin: 4px 0 0;
-    font-size: 12.5px;
-    line-height: 1.45;
-    color: var(--bs-secondary-color, #6c757d);
 }
