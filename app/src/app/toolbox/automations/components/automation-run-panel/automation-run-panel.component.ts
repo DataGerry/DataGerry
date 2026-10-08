@@ -16,12 +16,17 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { Component, inject, Input, OnChanges, OnDestroy, SimpleChanges } from '@angular/core';
-import { forkJoin, of } from 'rxjs';
+import { forkJoin, Observable, of } from 'rxjs';
 import { catchError, finalize } from 'rxjs/operators';
+import { NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { AutomationsService } from '../../services/automations.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { AutomationRunEntry } from '../../models/automation-run-log.model';
+import {
+    SaveBeforeRunChoice,
+    SaveBeforeRunModalComponent
+} from '../save-before-run-modal/save-before-run-modal.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** How often the panel asks whether the run it started has finished. */
@@ -29,6 +34,12 @@ const POLL_INTERVAL_MS = 3000;
 
 /** When to stop asking. A run that outlives this is still running - the list just stops chasing it. */
 const POLL_LIMIT_MS = 10 * 60 * 1000;
+
+/**
+ * Where "always save before a run" is remembered. Per browser, like the list's auto-refresh: it is
+ * a habit of whoever sits at this screen, not a property of any automation.
+ */
+const ALWAYS_SAVE_STORAGE_KEY = 'automations.run.alwaysSaveBeforeRun';
 
 
 /**
@@ -64,6 +75,18 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
      */
     @Input() public note = '';
 
+    /** Whether the editor holds changes a run would not execute. */
+    @Input() public unsavedChanges = false;
+
+    /** Whether those changes can be saved right now; they cannot while they do not validate. */
+    @Input() public canSaveChanges = true;
+
+    /**
+     * Saves the changes without leaving the editor. Without it the panel only runs what is stored
+     * and asks nothing, which is what a caller that edits nothing wants.
+     */
+    @Input() public saveChanges: (() => Observable<void>) | null = null;
+
     public runs: AutomationRunEntry[] = [];
     public selected: AutomationRunEntry | null = null;
     public loadingRuns = false;
@@ -76,6 +99,10 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
 
     private readonly automationsService = inject(AutomationsService);
     private readonly toast = inject(ToastService);
+    private readonly modalService = inject(NgbModal);
+
+    /** Read once: the setting only changes through this panel, which keeps it in step. */
+    public alwaysSave = this.readAlwaysSave();
 
     /* -------------------------------------------------- LIFE CYCLE -------------------------------------------------- */
 
@@ -137,11 +164,77 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
      *
      * OpenCelium answers the start immediately and writes the log as it goes, so the new run is
      * only in the list once the scheduler has stopped running - which is what the polling is for.
+     *
+     * With unsaved changes on screen the run would test the previous version, so the user is asked
+     * first - unless they chose to always save, and the changes can be saved.
      */
     public start(): void {
+        if (!this.schedulerId || this.starting || this.running) {
+            return;
+        }
+
+        if (!this.unsavedChanges || !this.saveChanges) {
+            this.execute();
+
+            return;
+        }
+
+        if (this.alwaysSave && this.canSaveChanges) {
+            this.saveThenExecute();
+
+            return;
+        }
+
+        const modalRef = this.modalService.open(SaveBeforeRunModalComponent);
+        modalRef.componentInstance.canSave = this.canSaveChanges;
+
+        modalRef.result.then(
+            (choice: SaveBeforeRunChoice) => {
+                if (choice.action === 'run-saved') {
+                    this.execute();
+
+                    return;
+                }
+
+                if (choice.remember) {
+                    this.setAlwaysSave(true);
+                }
+
+                this.saveThenExecute();
+            },
+            () => undefined
+        );
+    }
+
+
+    /** Turns "always save before a run" off again, so the next run asks. */
+    public askAgain(): void {
+        this.setAlwaysSave(false);
+    }
+
+
+    /** Saves first and runs only once that succeeded - a failed save must not run the old version. */
+    private saveThenExecute(): void {
+        this.starting = true;
+
+        this.saveChanges!().subscribe({
+            next: () => {
+                this.toast.success('The changes were saved.');
+                this.starting = false;
+                this.execute();
+            },
+            error: err => {
+                this.starting = false;
+                this.toast.error(err?.error?.message || 'The changes could not be saved, so the automation was not started.');
+            }
+        });
+    }
+
+
+    private execute(): void {
         const schedulerId = this.schedulerId;
 
-        if (!schedulerId || this.starting || this.running) {
+        if (!schedulerId) {
             return;
         }
 
@@ -263,6 +356,33 @@ export class AutomationRunPanelComponent implements OnChanges, OnDestroy {
     public trackByRun(index: number, entry: AutomationRunEntry): number {
         return entry.execution_id ?? index;
     }
+
+    /* -------------------------------------------------- PREFERENCE -------------------------------------------------- */
+
+    /** Storage can be unavailable (private windows, blocked site data); then the panel just asks. */
+    private readAlwaysSave(): boolean {
+        try {
+            return window.localStorage.getItem(ALWAYS_SAVE_STORAGE_KEY) === 'true';
+        } catch {
+            return false;
+        }
+    }
+
+
+    private setAlwaysSave(value: boolean): void {
+        this.alwaysSave = value;
+
+        try {
+            if (value) {
+                window.localStorage.setItem(ALWAYS_SAVE_STORAGE_KEY, 'true');
+            } else {
+                window.localStorage.removeItem(ALWAYS_SAVE_STORAGE_KEY);
+            }
+        } catch {
+            // Kept for this visit only.
+        }
+    }
+
 
     /* ------------------------------------------------- COMPUTATION --------------------------------------------------- */
 

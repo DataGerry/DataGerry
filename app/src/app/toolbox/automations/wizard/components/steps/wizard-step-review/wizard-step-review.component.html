@@ -98,7 +98,10 @@
   <app-automation-run-panel
     [schedulerId]="schedulerId"
     [connectionId]="connectionId"
-    [note]="runNote">
+    [note]="runNote"
+    [unsavedChanges]="unsavedChanges"
+    [canSaveChanges]="validationErrors.length === 0"
+    [saveChanges]="saveChanges">
   </app-automation-run-panel>
 </section>
 

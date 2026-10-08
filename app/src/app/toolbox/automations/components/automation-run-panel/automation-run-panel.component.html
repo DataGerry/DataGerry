@@ -33,6 +33,15 @@
       </span>
     } @else if (note) {
       <span class="run-panel__hint">{{ note }}</span>
+    } @else if (unsavedChanges && saveChanges) {
+      <span class="run-panel__hint">
+        @if (alwaysSave) {
+          The changes on screen are saved before the run.
+          <button type="button" class="btn btn-link btn-sm p-0 align-baseline" (click)="askAgain()">Ask me again</button>
+        } @else {
+          The changes on screen are not saved yet - you will be asked before the run.
+        }
+      </span>
     }
   </div>
 

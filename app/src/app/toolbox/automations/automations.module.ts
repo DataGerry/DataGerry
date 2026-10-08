@@ -43,6 +43,7 @@ import { OpenCeliumLogsModalComponent } from './components/opencelium-logs-modal
 import { AutomationProgressListComponent } from './components/automation-progress-list/automation-progress-list.component';
 import { AutomationRunLogComponent } from './components/automation-run-log/automation-run-log.component';
 import { AutomationRunPanelComponent } from './components/automation-run-panel/automation-run-panel.component';
+import { SaveBeforeRunModalComponent } from './components/save-before-run-modal/save-before-run-modal.component';
 
 @NgModule({
   declarations: [
@@ -63,7 +64,8 @@ import { AutomationRunPanelComponent } from './components/automation-run-panel/a
     OpenCeliumLogsModalComponent,
     AutomationProgressListComponent,
     AutomationRunLogComponent,
-    AutomationRunPanelComponent
+    AutomationRunPanelComponent,
+    SaveBeforeRunModalComponent
   ],
   exports: [
     AutomationRunLogComponent,
