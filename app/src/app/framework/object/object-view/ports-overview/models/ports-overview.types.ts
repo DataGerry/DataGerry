@@ -18,7 +18,7 @@
 import { PortOptionType } from 'src/app/framework/models/port-option-type';
 import { PortInterfaceLink, PortInterfaceSummary } from './interface-link.types';
 import { PortDeviceKind } from './port-bulk.types';
-import { PortConnectionState, ResolvedCable } from './port-connection.types';
+import { CableSourceBadge, PortConnectionState, ResolvedCable } from './port-connection.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 /** The option lists the three select fields of a port draw their values from. */
@@ -143,6 +143,9 @@ export interface PortRow {
 
     /** What the connection cell reads: the cable in one line, or "Free". */
     connectionLabel: string;
+
+    /** Whether the cable is a linked CI or metadata; null while the port carries none. */
+    cableSource: CableSourceBadge | null;
 
     /** The cable to edit or to cut; null while the port carries none. */
     cableConnectionId: number | null;

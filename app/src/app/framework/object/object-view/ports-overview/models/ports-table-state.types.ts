@@ -17,22 +17,19 @@
 */
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** A selected cable, and the card and port it was picked by; both null when the cable itself was clicked. */
-export interface CablingSelection {
-    connectionId: number;
-    objectId: number | null;
-    portId: number | null;
+/** The user setting a ports table keeps its saved column views in, shared by every object. */
+export interface PortsTableStateKey {
+    /** Becomes the setting's resource: `/framework/object-ports-standard` → `framework-object-ports-standard`. */
+    stateUrl: string;
+    payloadId: string;
 }
 
+export const STANDARD_PORTS_TABLE_STATE: PortsTableStateKey = {
+    stateUrl: '/framework/object-ports-standard',
+    payloadId: 'object-ports-table'
+};
 
-/** While the spotlight is on: the ports it lifts above the shade, none until a port is picked. */
-export interface CablingSpotlight {
-    portIds: ReadonlySet<number>;
-}
-
-
-/** The picked cable and the cables back to the focal object, with every port they meet. */
-export interface CablingTrace {
-    connectionIds: ReadonlySet<number>;
-    portIds: ReadonlySet<number>;
-}
+export const PATCH_PANEL_TABLE_STATE: PortsTableStateKey = {
+    stateUrl: '/framework/object-ports-patch-panel',
+    payloadId: 'object-patch-panel-table'
+};

@@ -16,6 +16,8 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import {
+    CableSource,
+    CableSourceBadge,
     CmdbPortConnection,
     ConnectionEndpoint,
     ConnectionType,
@@ -94,6 +96,19 @@ export function cableLabel(cable: ResolvedCable | null): string {
         .filter((part): part is string => !!part);
 
     return parts.join(' · ') || 'Cable';
+}
+
+
+/** Where a cable's details come from: its linked CI, or metadata on the connection. */
+export function cableSourceBadge(cable: ResolvedCable | null): CableSourceBadge | null {
+    switch (cable?.source) {
+        case CableSource.CI:
+            return { source: CableSource.CI, label: cable.cable_ci_id != null ? `CI #${ cable.cable_ci_id }` : 'CI' };
+        case CableSource.INLINE:
+            return { source: CableSource.INLINE, label: 'Metadata' };
+        default:
+            return null;
+    }
 }
 
 

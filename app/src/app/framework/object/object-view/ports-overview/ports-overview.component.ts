@@ -104,6 +104,9 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     /** Passed on as the modal's subtitle. */
     @Input() public objectLabel = '';
 
+    /** Saved column views; the edit and add forms leave them off. */
+    @Input() public tableStateEnabled = false;
+
     /** Decides the table: one row per port, or one row per patch panel pairing. */
     public deviceKind: PortDeviceKind | null = null;
 

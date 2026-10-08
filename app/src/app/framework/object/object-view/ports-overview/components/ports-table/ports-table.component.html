@@ -1,6 +1,6 @@
 <cmdb-table
   class="ports-table"
-  [id]="'object-ports-table'"
+  [id]="stateKey.payloadId"
   [items]="rows"
   [columns]="columns"
   [initialVisibleColumns]="visibleColumns"
@@ -16,6 +16,11 @@
   [paginationEnabled]="true"
   [pageSizeEnabled]="true"
   [emptyMessage]="emptyMessage"
+  [stateEnabled]="stateEnabled"
+  [stateUrl]="stateKey.stateUrl"
+  [tableStates]="tableStates"
+  (stateSelect)="onStateSelect($event)"
+  (stateReset)="onStateReset()"
   (pageChange)="onPageChange($event)"
   (pageSizeChange)="onPageSizeChange($event)"
   (sortChange)="onSortChange($event)"
@@ -46,6 +51,12 @@
       [class.ports-state--connected]="item.connectionState === connectionState.CABLED">
       <span class="ports-state__dot" aria-hidden="true"></span>
       {{ item.connectionLabel }}
+
+      @if (item.cableSource; as badge) {
+        <span class="ports-badge ports-source" [class.ports-source--metadata]="badge.source === cableSource.INLINE">
+          {{ badge.label }}
+        </span>
+      }
     </span>
 
     @if (item.farEndLabel) {

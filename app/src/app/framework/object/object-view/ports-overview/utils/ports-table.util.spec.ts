@@ -131,6 +131,7 @@ describe('ports-table.util', () => {
 
             expect(row.connectionState).toBe(PortConnectionState.FREE);
             expect(row.connectionLabel).toBe('Free');
+            expect(row.cableSource).toBeNull();
             expect(row.farEndLabel).toBeNull();
         });
 
@@ -141,6 +142,13 @@ describe('ports-table.util', () => {
             expect(row.connectionLabel).toBe('Patch 3m');
             expect(row.cableConnectionId).toBe(9890);
             expect(row.farEndLabel).toBe('Gi1/1 · host-9872');
+        });
+
+        it('marks whether the cable is a linked CI or metadata', () => {
+            const linked = toPortRow(cabledPort({ cable: cable({ source: CableSource.CI, cable_ci_id: 9950 }) }));
+
+            expect(linked.cableSource).toEqual({ source: CableSource.CI, label: 'CI #9950' });
+            expect(toPortRow(cabledPort()).cableSource).toEqual({ source: CableSource.INLINE, label: 'Metadata' });
         });
 
         it('does not name a far end the user may not read', () => {

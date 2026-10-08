@@ -130,7 +130,7 @@ export function portView(port: OverviewPort, objectId: number, drawnCables: Read
         farEnd,
         meta: joinParts([port.port_type?.label, port.speed?.label, port.status?.label]) ?? joinParts([port.description]),
         expandable: cabled && farObjectId != null && farObjectId !== objectId && !drawnCables.has(port.cable_connection_id),
-        expandLabel: `Show ${ farEnd ?? 'the far end' } of ${ name }`
+        expandLabel: farEnd ? `Show far end of ${ name }: ${ farEnd }` : `Show far end of ${ name }`
     };
 }
 

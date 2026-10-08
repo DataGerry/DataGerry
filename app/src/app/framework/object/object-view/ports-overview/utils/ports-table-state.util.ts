@@ -15,24 +15,18 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+import { Column, TableState } from 'src/app/layout/table/table.types';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
-/** A selected cable, and the card and port it was picked by; both null when the cable itself was clicked. */
-export interface CablingSelection {
-    connectionId: number;
-    objectId: number | null;
-    portId: number | null;
-}
+/** The columns a saved view leaves out. A fixed column always shows, and a view without columns hides none. */
+export function columnsHiddenByState(columns: readonly Column[], state: TableState | undefined): string[] {
+    const visible = state?.visibleColumns;
 
+    if (!visible?.length) {
+        return [];
+    }
 
-/** While the spotlight is on: the ports it lifts above the shade, none until a port is picked. */
-export interface CablingSpotlight {
-    portIds: ReadonlySet<number>;
-}
-
-
-/** The picked cable and the cables back to the focal object, with every port they meet. */
-export interface CablingTrace {
-    connectionIds: ReadonlySet<number>;
-    portIds: ReadonlySet<number>;
+    return columns
+        .filter((column) => !column.fixed && !visible.includes(column.name))
+        .map((column) => column.name);
 }

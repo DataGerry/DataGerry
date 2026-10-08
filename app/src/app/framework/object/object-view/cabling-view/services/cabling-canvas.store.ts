@@ -15,7 +15,7 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Injectable, computed, signal } from '@angular/core';
+import { Injectable, OnDestroy, computed, signal } from '@angular/core';
 
 import { CABLING_ZOOM } from '../constants/cabling.constants';
 import { CablingSize, CablingViewport } from '../models/cabling-viewport.types';
@@ -31,13 +31,17 @@ import {
 
 /** Where one cabling canvas looks and where its cards were dragged to. Provided per view. */
 @Injectable()
-export class CablingCanvasStore {
+export class CablingCanvasStore implements OnDestroy {
 
     private readonly viewportState = signal<CablingViewport>({ x: 0, y: 0, zoom: 1 });
     private readonly offsetsState = signal<ReadonlyMap<number, CablingPoint>>(new Map());
     private readonly panningState = signal(false);
     private readonly animateState = signal(false);
     private frame: HTMLElement | null = null;
+    private readonly resizeObserver = new ResizeObserver(() => this.followFrame());
+
+    /** Set by a fit and cleared by any other move, so a fitted drawing follows the frame's size. */
+    private fittedBounds: CablingBounds | null = null;
 
     public readonly viewport = this.viewportState.asReadonly();
     public readonly offsets = this.offsetsState.asReadonly();
@@ -52,14 +56,24 @@ export class CablingCanvasStore {
         return `translate(${ x }px, ${ y }px) scale(${ zoom })`;
     });
 
+    public readonly canZoomIn = computed(() => this.viewport().zoom < CABLING_ZOOM.max);
+    public readonly canZoomOut = computed(() => this.viewport().zoom > CABLING_ZOOM.min);
+
     /** Set when a press ended as a pan or a drag, so the click that follows it selects nothing. */
     public dragged = false;
+
+/* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
+
+    public ngOnDestroy(): void {
+        this.resizeObserver.disconnect();
+    }
 
 /* ---------------------------------------------------- FUNCTIONS --------------------------------------------------- */
 
     /** The frame the canvas is clipped by; the gestures directive on it attaches it. */
     public attach(frame: HTMLElement): void {
         this.frame = frame;
+        this.resizeObserver.observe(frame);
     }
 
 
@@ -99,6 +113,7 @@ export class CablingCanvasStore {
 
     public fit(bounds: CablingBounds | null, animate = true): void {
         this.move(fitViewport(bounds, this.size(), this.viewport()), animate);
+        this.fittedBounds = bounds;
     }
 
 
@@ -125,6 +140,7 @@ export class CablingCanvasStore {
 
 
     public startGesture(): void {
+        this.fittedBounds = null;
         this.animateState.set(false);
         this.panningState.set(true);
     }
@@ -145,8 +161,17 @@ export class CablingCanvasStore {
 
 
     private move(viewport: CablingViewport, animate: boolean): void {
+        this.fittedBounds = null;
         this.animateState.set(animate);
         this.viewportState.set(viewport);
+    }
+
+
+    /** Not eased: the frame may resize after the change that caused it, e.g. leaving full screen. */
+    private followFrame(): void {
+        if (this.fittedBounds) {
+            this.fit(this.fittedBounds, false);
+        }
     }
 
 
