@@ -48,8 +48,8 @@ special_types_blueprint = APIBlueprint('special_types', __name__)
 # --------------------------------------------------- CRUD - GET ----------------------------------------------------- #
 
 @special_types_blueprint.route('/exist', methods=['GET', 'HEAD'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @handle_route_errors("while checking if SpecialType exists")
 def check_special_type_exist(request_user: CmdbUser) -> Response:
     """
@@ -77,8 +77,8 @@ def check_special_type_exist(request_user: CmdbUser) -> Response:
 
 
 @special_types_blueprint.route('/', methods=['GET', 'HEAD'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 def get_special_types(request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route to retrieve SpecialTypes
@@ -142,8 +142,8 @@ def get_cable_type_values(request_user: CmdbUser) -> list[str]:
 
 
 @special_types_blueprint.route('/schema', methods=['GET', 'HEAD'])
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @insert_request_user
+@verify_api_access(required_api_level=ApiLevel.LOCKED)
 @handle_route_errors("while retrieving a SpecialType schema")
 def get_special_type_schema(request_user: CmdbUser) -> Response:
     """

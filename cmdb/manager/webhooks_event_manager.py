@@ -22,8 +22,10 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
+from cmdb.models.webhook_model.webhook_event_constants import WebhookEventKey
 
-from cmdb.errors.manager.webhooks_event_manager import WEBHOOKS_EVENT_MANAGER_ERRORS
+from cmdb.errors.manager import BaseManagerDeleteError
+from cmdb.errors.manager.webhooks_event_manager import WEBHOOKS_EVENT_MANAGER_ERRORS, WebhooksEventManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -38,4 +40,30 @@ class WebhooksEventManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Binds the manager to the webhook-event collection of the given database
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): The tenant database in cloud mode, None for the configured one
+        """
         super().__init__(dbm, CmdbWebhookEvent, WEBHOOKS_EVENT_MANAGER_ERRORS, database)
+
+
+    def delete_events_of_webhook(self, webhook_id: int) -> int:
+        """
+        Deletes every CmdbWebhookEvent a CmdbWebhook produced, in one statement
+
+        Args:
+            webhook_id (int): public_id of the CmdbWebhook whose delivery log is removed
+
+        Raises:
+            WebhooksEventManagerDeleteError: When the delete fails
+
+        Returns:
+            int: How many events were deleted
+        """
+        try:
+            return self.delete_many({WebhookEventKey.WEBHOOK_ID.value: webhook_id}).deleted_count
+        except BaseManagerDeleteError as err:
+            raise WebhooksEventManagerDeleteError(err) from err

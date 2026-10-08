@@ -55,6 +55,7 @@ class CmdbWebhook(CmdbDAO):
             url: str,
             event_types: list[str],
             active: bool,
+            owner_id: int | None = None,
             **kwargs: Any) -> None:
         """
         Initializes a new instance of the CmdbWebhook class, representing a webhook configuration
@@ -64,12 +65,15 @@ class CmdbWebhook(CmdbDAO):
             url (str): URL endpoint where the webhook will send events
             event_types (list[str]): List of WebhookEventType values that the webhook listens for
             active (bool): Whether the webhook is currently active and should receive events
+            owner_id (int | None): public_id of the CmdbUser who last saved the webhook - its deliveries carry only
+                objects this user may read. Server-owned. Defaults to None (receives nothing)
             **kwargs (Any): Additional fields to pass to the superclass initializer
         """
         self.name = name
         self.url = url
         self.event_types = event_types
         self.active = active
+        self.owner_id = owner_id
 
         super().__init__(**kwargs)
 
@@ -97,6 +101,7 @@ class CmdbWebhook(CmdbDAO):
             url=data.get('url'),
             event_types=data.get('event_types'),
             active=data.get('active'),
+            owner_id=data.get('owner_id'),
         )
 
 
@@ -106,7 +111,7 @@ class CmdbWebhook(CmdbDAO):
         Converts a CmdbWebhook into a json compatible dict
 
         This is both the response body and what is persisted: ``GenericManager.insert_item`` and
-        ``update_item`` serialise the instance through this method, so the five keys below are exactly
+        ``update_item`` serialise the instance through this method, so the six keys below are exactly
         the stored document
 
         Args:
@@ -121,4 +126,5 @@ class CmdbWebhook(CmdbDAO):
             'url': instance.url,
             'event_types': instance.event_types,
             'active': instance.active,
+            'owner_id': instance.owner_id,
         }

@@ -18,6 +18,7 @@ Functional coverage for GET /object_relations/tabs/<object_id>
 
 Verifies the route returns the ``{'results': [...]}`` relation-tab envelope (one descriptor per
 (relation_id, role) with role-oriented label/icon/color + count) and maps manager errors to 400 / 500.
+Who may read the tabs is pinned in ``test_functional_object_relation_read_acl``.
 """
 from http import HTTPStatus
 from typing import Any
@@ -29,27 +30,36 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectRelationsManager
 from cmdb.models.object_relation_model import CmdbObjectRelation
 from cmdb.models.relation_model import CmdbRelation
+from cmdb.models.type_model import CmdbType
+from cmdb.models.object_model import CmdbObject
 from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerIterationError
+from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TABS_URL: str = '/object_relations/tabs'
 
 RELATION_ID: int = 96501
+OBJECT_TYPE_ID: int = 96502
 MAIN_OBJ: int = 96511
 CHILD_OBJ: int = 96512
 PARENT_OBJ: int = 96513
+EMPTY_OBJ: int = 96514
 OR_IDS: list[int] = [96521, 96522, 96523]
 
 
 @pytest.fixture(autouse=True)
 def _seed(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds a relation definition + object relations for MAIN_OBJ, cleaning up around each test."""
+    """Seeds a relation definition, MAIN_OBJ + its type, and its object relations, cleaning up around each test."""
     relations = database_manager.get_collection(CmdbRelation.COLLECTION, database_name)
     object_relations = database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
+    objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
 
     def _purge() -> None:
         relations.delete_many({'public_id': RELATION_ID})
         object_relations.delete_many({'public_id': {'$in': OR_IDS}})
+        types.delete_many({'public_id': OBJECT_TYPE_ID})
+        objects.delete_many({'public_id': {'$in': [MAIN_OBJ, EMPTY_OBJ]}})
 
     def _or(public_id: int, parent: int, child: int) -> dict[str, Any]:
         return {'public_id': public_id, 'relation_id': RELATION_ID,
@@ -62,6 +72,13 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         'relation_icon_parent': 'fas fa-server', 'relation_icon_child': 'fas fa-network-wired',
         'relation_color_parent': '#111111', 'relation_color_child': '#222222',
     })
+    types.insert_one(make_type_doc(OBJECT_TYPE_ID, 'rel-tabs-type'))
+    # The route reads the tab's own object before answering its tabs
+    objects.insert_many([
+        {'public_id': object_id, 'type_id': OBJECT_TYPE_ID, 'active': True, 'author_id': 1, 'version': '1.0.0',
+         'fields': []}
+        for object_id in (MAIN_OBJ, EMPTY_OBJ)
+    ])
     object_relations.insert_many([
         _or(OR_IDS[0], MAIN_OBJ, CHILD_OBJ),
         _or(OR_IDS[1], MAIN_OBJ, CHILD_OBJ),
@@ -95,7 +112,7 @@ class TestRelationTabsRoute:
 
     def test_object_without_relations_returns_empty(self, rest_api) -> None:
         """An object with no relations returns an empty results list."""
-        response = rest_api.get(f'{TABS_URL}/96599')
+        response = rest_api.get(f'{TABS_URL}/{EMPTY_OBJ}')
 
         assert response.status_code == HTTPStatus.OK
         assert response.get_json()['results'] == []

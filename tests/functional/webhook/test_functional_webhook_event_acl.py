@@ -108,21 +108,20 @@ def _listed(rest_api, stages: list[dict[str, Any]] | None = None) -> dict[int, d
 class TestTheList:
     """GET /webhook_events/"""
 
-    def test_a_denied_event_keeps_its_row_and_loses_its_values(self, rest_api, events) -> None:
-        """Both the UPDATE and the DELETE (whose type comes from the before snapshot)"""
+    def test_a_denied_event_keeps_its_row(self, rest_api, events) -> None:
+        """Both the UPDATE and the DELETE (whose type comes from the before snapshot) are listed, unchanged"""
         rows = _listed(rest_api)
 
         for event_id in (DENIED_EVENT_ID, DENIED_DELETE_EVENT_ID):
-            assert all(rows[event_id][key] is None for key in VALUE_KEYS)
             stored = events.find_one({'public_id': event_id})
             assert {key: rows[event_id][key] for key in ROW_KEYS} == {key: stored[key] for key in ROW_KEYS}
 
-    def test_an_allowed_event_keeps_its_values(self, rest_api, events) -> None:
-        """The ACL changes nothing for an object the caller may read"""
+    def test_no_listed_row_carries_object_values(self, rest_api, events) -> None:
+        """The list is the summary for every row, readable or not - the values are the single read's"""
         rows = _listed(rest_api)
 
-        assert rows[ALLOWED_EVENT_ID]['object_after']['fields'][0]['value'] == PLAIN_VALUE
-        assert rows[ALLOWED_EVENT_ID]['changes'] is not None
+        for event_id in (DENIED_EVENT_ID, DENIED_DELETE_EVENT_ID, ALLOWED_EVENT_ID):
+            assert not set(VALUE_KEYS) & set(rows[event_id])
 
     def test_a_filter_on_a_masked_value_finds_nothing(self, rest_api, events) -> None:
         """The caller's stages run after the masking, so they cannot probe the values"""

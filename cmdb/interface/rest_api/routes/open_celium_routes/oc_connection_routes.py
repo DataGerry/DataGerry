@@ -15,11 +15,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 All API routes for OpenCelium Connections
+
+Guarded by the ``base.openCelium.connection.*`` rights (``OcRight``) - the same rights every Automation route asks
+for, since an Automation is a connection and its scheduler. Gated behind the AUTOMATIONS licence
 """
 from logging import Logger, getLogger
 from typing import Any
 
-from flask import abort, request, current_app
+from flask import abort, request
 
 from werkzeug import Response
 from werkzeug.exceptions import HTTPException
@@ -36,8 +39,11 @@ from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors, get_cached_user_manager
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import connection_in_subscription
-from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import (
+    build_connection_manager,
+    connection_in_subscription,
+)
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcResponseKey, OcRight
 
 from cmdb.errors.open_celium.connection import (
     OcConnectionCreateError,
@@ -54,10 +60,10 @@ oc_connections_blueprint = APIBlueprint('oc_connections', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections', methods=['POST'])
-@handle_oc_errors("creating an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("creating an OpenCelium Connection!")
 def create_oc_connection(request_user: CmdbUser) -> Response:
     """
     **POST** route to create an OcConnection in OpenCelium
@@ -70,10 +76,7 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
         dict[str, Any]: The created OcConnection
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         params: dict[str, Any] = request.json
         conn_title: str = params[OcResponseKey.TITLE.value]
@@ -125,10 +128,10 @@ def create_oc_connection(request_user: CmdbUser) -> Response:
 
 
 @oc_connections_blueprint.route('/connections/test/<int:channel_id>', methods=['POST'])
-@handle_oc_errors("testing an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("testing an OpenCelium Connection!")
 def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
     """
     **POST** route to create an OcConnection in OpenCelium
@@ -141,10 +144,7 @@ def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
         dict[str, Any]: The created OcConnection
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         connection: dict[str, Any] = request.json
 
@@ -159,10 +159,10 @@ def test_oc_connection(request_user: CmdbUser, channel_id: int) -> Response:
 
 
 @oc_connections_blueprint.route('/connections/remote_api', methods=['POST'])
-@handle_oc_errors("sending to remote API!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.add')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("sending to remote API!")
 def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
     """
     **POST** route to call remote API
@@ -174,10 +174,7 @@ def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
         dict[str, Any]: The response from remote API
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         payload: dict[str, Any] = request.json
 
@@ -193,10 +190,10 @@ def oc_send_to_remote_api(request_user: CmdbUser) -> Response:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.view')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the OpenCelium Connection!")
 def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     GET/HEAD route to retrieve an OcConnection by its connection_id.
@@ -215,10 +212,7 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
         Response: The OcConnection object.
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         # ---------------------------
         # Cloud mode: validate connection exists in subscription
@@ -249,10 +243,10 @@ def get_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @oc_connections_blueprint.route('/connections/<int:connection_id>', methods=['PUT'])
-@handle_oc_errors("updating an OpenCelium Connection!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
-@oc_connections_blueprint.protect(auth=True, right='base.openCelium.connection.edit')
+@oc_connections_blueprint.protect(auth=True, right=OcRight.CONNECTION_EDIT.value)
+@handle_oc_errors("updating an OpenCelium Connection!")
 def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response:
     """
     **PUT** route to update an OcConnection
@@ -266,10 +260,7 @@ def update_oc_connection(request_user: CmdbUser, connection_id: int) -> Response
         dict[str, Any]: The updated OcConnection
     """
     try:
-        oc_connection_manager: OcConnectionManager = OcConnectionManager(
-            current_app.database_manager,
-            request_user.database
-        )
+        oc_connection_manager: OcConnectionManager = build_connection_manager(request_user)
 
         params: dict[str, Any] = request.json
 

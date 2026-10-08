@@ -51,7 +51,6 @@ SECOND_TARGET_ID: int = 12
 
 DELETE_SIDE_EFFECTS: tuple[str, ...] = (
     'handle_delete_object_location',
-    'handle_delete_invalid_object_relations',
     'handle_rack_object_deleted',
     'handle_port_object_deleted',
     'handle_notify_webhooks',
@@ -124,7 +123,7 @@ def test_a_missing_type_refuses_the_selection_with_404() -> None:
 
 
 def test_a_target_is_deleted_with_its_side_effects_in_order() -> None:
-    """Location first, then the delete with the resolved type, then relations, Rack, ports, webhook and log"""
+    """Location first, then the delete with the resolved type, then Rack, ports, webhook and log (relations: route)"""
     recorder = MagicMock()
     managers = _managers()
     recorder.attach_mock(managers.objects_manager.delete_object, 'delete_object')

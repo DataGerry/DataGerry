@@ -102,7 +102,7 @@ class TestInsertAndRead:
 
         response = media_files_manager.get_many_media_files({'metadata.author_id': AUTHOR_ID})
 
-        names = {item['filename'] for item in response.result}
+        names = {item['filename'] for item in response.results}
         assert {FILE_NAME_A, FILE_NAME_B} <= names
 
 
@@ -178,8 +178,8 @@ def _seed_folder(media_files_manager: MediaFilesManager, count: int = PAGED_FILE
 
 
 def _names(response) -> list[str]:
-    """The filenames of a GridFsResponse, in order."""
-    return [row['filename'] for row in response.result]
+    """The filenames of one page of the manager's IterationResult, in order."""
+    return [row['filename'] for row in response.results]
 
 
 class TestPagingInTheQuery:

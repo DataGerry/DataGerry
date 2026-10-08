@@ -27,7 +27,7 @@ It also holds the read rule every log route applies: **a log is read through the
 records**, by the `type_id` the writer stamps on it - which is what still judges a log once its object is gone.
 The lists pass the caller's READ ACL to the manager (the ACL stage then matches `type_id`), a single log is
 judged by `is_log_readable` / `abort_unless_log_readable`, and the logs of an existing object the caller may not
-read are refused like the object itself (`abort_unless_object_readable`).
+read are refused like the object itself (`objects_access_helper.read_object_or_abort`).
 
 NOTE the caller's ``filter`` collection parameter is NOT merged into the query here - it is parsed by
 the route decorator and then ignored, which is a known gap, not a decision this helper makes on
@@ -38,7 +38,7 @@ from typing import Any, Union
 from flask import Request, abort
 from werkzeug import Response
 
-from cmdb.manager import LogsManager, ObjectsManager, TypesManager, UsersManager
+from cmdb.manager import LogsManager, TypesManager, UsersManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import Builder
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -53,14 +53,12 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses import GetMultiResponse
 from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
-from cmdb.errors.security import AccessDeniedError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants import (
     LogKey,
     LogQueryOperator,
     LogResultKey,
     INCLUDE_USERS_PARAM,
     LOG_ACCESS_DENIED_MSG,
-    OBJECT_LOGS_ACCESS_DENIED_MSG,
     MONGO_ID_KEY,
     OBJECT_LOOKUP_FIELD,
     OBJECT_LOOKUP_FIRST_MATCH,
@@ -232,27 +230,6 @@ def abort_unless_log_readable(log: dict[str, Any], request_user: CmdbUser, types
     """
     if not is_log_readable(log, request_user, types_manager):
         abort(403, LOG_ACCESS_DENIED_MSG.format(public_id=log.get(LogKey.PUBLIC_ID.value)))
-
-
-def abort_unless_object_readable(object_id: int, request_user: CmdbUser, objects_manager: ObjectsManager) -> None:
-    """
-    Refuses the logs of an existing object the caller may not read
-
-    Answers like ``GET /objects/<id>`` does. An object that no longer exists is no refusal: its logs are judged
-    one by one by the list's ACL stage, on the type each is stamped with
-
-    Args:
-        object_id (int): public_id of the object whose logs are requested
-        request_user (CmdbUser): The caller
-        objects_manager (ObjectsManager): Manager used to read the object through the caller's ACL
-
-    Raises:
-        HTTPException: 403 when the object exists and the caller may not read it
-    """
-    try:
-        objects_manager.get_object(object_id, request_user, AccessControlPermission.READ)
-    except AccessDeniedError:
-        abort(403, OBJECT_LOGS_ACCESS_DENIED_MSG.format(object_id=object_id))
 
 
 def serialize_object_log(log: CmdbObjectLog | dict[str, Any]) -> dict[str, Any]:

@@ -15,75 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                  CREATE - LOCATIONS                                                  #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-post:
-  tags: 
-      - Locations
-      - Cloud
-      - OnPremise
-  summary: Insert a new Location [Cloud] [OnPremise]
-  description: |
-      Required User Right: **base.framework.object.edit**
-      <br><hr><br>
-      Inserts a new Location into the database
-      <br><br>
-      The **public_id** property will be automatically created and don't need to be provided
-  operationId: insert_cmdb_location
-  requestBody:
-      required: true
-      content:
-          application/json:
-              schema:
-                  $ref: '../../components/schemas/CmdbLocation.yaml'
-  responses:
-      "200":
-          description: The assigned **public_id** and the created Location is returned
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          result_id:
-                              type: integer
-                              description: "The **public_id** of the created Location"
-                              example: 12345
-                          raw:
-                              $ref: "../../components/schemas/CmdbLocation.yaml"
-      "400":
-          description: The Location could not be inserted
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          error:
-                              type: string
-                              example: "The Location could not be inserted"
-      "404":
-          description: Could not retrieve the created Location from database
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          error:
-                              type: string
-                              example: "Could not retrieve the created Location from database"
-      "500":
-          description: Internal server error
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          error:
-                              type: string
-                              example: "Internal server error"
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                      GET PERSONS                                                     #
+#                                                    GET LOCATIONS                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
 
 get:
@@ -93,7 +25,7 @@ get:
       - OnPremise
   summary: Retrieve multiple Locations [Cloud] [OnPremise]
   description: |
-      Required User Right: **base.framework.object.view**
+      Required User Right: **base.framework.location.view**
       <br><hr><br>
       Returns all **Locations** if no **CollectionParameters** are passed
   operationId: get_cmdb_locations

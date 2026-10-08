@@ -86,6 +86,9 @@ MIN_CONFIGURED_LIKELIHOODS: int = 3
 MIN_CONFIGURED_IMPACTS: int = 3
 MIN_CONFIGURED_IMPACT_CATEGORIES: int = 1
 
+# The 400 of GET /isms/config/status when one of its counts or the RiskMatrix read fails
+ISMS_CONFIG_STATUS_READ_FAILED_MESSAGE: str = "Failed to read the ISMS configuration status from the database!"
+
 class IsmsConfigStatusKey(BaseStrEnum):
     """
     The sections of the readiness report answered by GET /isms/config/status

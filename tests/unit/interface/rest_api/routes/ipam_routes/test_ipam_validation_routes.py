@@ -35,6 +35,8 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException, NotFound
 
 from cmdb.utils import coerce_whole_number
+from cmdb.models.special_type_model.ipam_constants import IpamValidationLimits
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import VALIDATION_TOO_MANY_ROWS_MESSAGE
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
     parse_interface_rows_payload,
     read_optional_object_id,
@@ -317,6 +319,46 @@ def test_validate_interface_route_aborts_400_when_rows_not_a_list(flask_app: Fla
 
     assert exc_info.value.code == 400
     mock_validate.assert_not_called()
+
+
+def _interface_rows(count: int) -> list[dict[str, Any]]:
+    """`count` minimal interface rows."""
+    return [{'row_index': index} for index in range(count)]
+
+
+def test_validate_interface_route_refuses_more_rows_than_the_cap_before_parsing(flask_app: Flask) -> None:
+    """One row over the cap: 400 naming the count and the cap, and no row is parsed or validated"""
+    bare = _unwrap(validate_interface_route)
+    oversize: int = IpamValidationLimits.MAX_VALIDATION_ROWS + 1
+
+    with patch(f'{ROUTE_PATH}.parse_interface_rows_payload') as mock_parse, \
+         patch(f'{ROUTE_PATH}.validate_interface_rows') as mock_validate, \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context('/interface', method='POST', json={'rows': _interface_rows(oversize)}):
+        with pytest.raises(HTTPException) as exc_info:
+            bare(request_user=MagicMock())
+
+    assert exc_info.value.code == 400
+    assert exc_info.value.description == VALIDATION_TOO_MANY_ROWS_MESSAGE.format(
+        field='rows', count=oversize, limit=IpamValidationLimits.MAX_VALIDATION_ROWS,
+    )
+    mock_parse.assert_not_called()
+    mock_validate.assert_not_called()
+
+
+def test_validate_interface_route_accepts_exactly_the_cap(flask_app: Flask) -> None:
+    """The cap itself is allowed: every row reaches the parser"""
+    bare = _unwrap(validate_interface_route)
+
+    with patch(f'{ROUTE_PATH}.parse_interface_rows_payload', return_value=[]) as mock_parse, \
+         patch(f'{ROUTE_PATH}.validate_interface_rows', return_value=[]), \
+         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(MagicMock(), MagicMock())), \
+         flask_app.test_request_context('/interface', method='POST', json={
+             'rows': _interface_rows(IpamValidationLimits.MAX_VALIDATION_ROWS),
+         }):
+        bare(request_user=MagicMock())
+
+    assert len(mock_parse.call_args.args[0]) == IpamValidationLimits.MAX_VALIDATION_ROWS
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

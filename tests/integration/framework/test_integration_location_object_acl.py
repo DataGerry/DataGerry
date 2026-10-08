@@ -18,7 +18,7 @@ Integration tests for the placement ACL against a real MongoDB and the real type
 
 A placement write needs READ and UPDATE on its object's type and an active type. The batch move decides that
 once per type - one type read and one decision whatever the number of objects - and before anything else
-about the placement; the delete decides it for the node's own object only
+about the placement
 """
 from typing import Any
 
@@ -36,7 +36,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_con
     LINKED_OBJECT_UPDATE_DENIED_MSG,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
-    authorize_node_object_change,
     read_placeable_object,
     validate_object_location_moves,
 )
@@ -145,23 +144,3 @@ class TestTheBatch:
 
         assert raised.value.code == HTTP_FORBIDDEN
         assert decisions == [seed.VISIBLE_ID, seed.READ_ONLY_ID]
-
-
-class TestTheDelete:
-    """authorize_node_object_change against the stored type ACLs."""
-
-    def test_a_read_only_object_is_refused(self) -> None:
-        """The editor may not take READ_ONLY out of the tree"""
-        objects_manager, _ = _managers(seed.location_editor())
-
-        with pytest.raises(HTTPException) as raised:
-            authorize_node_object_change(seed.READ_ONLY_ID, objects_manager, seed.location_editor())
-
-        assert raised.value.code == HTTP_FORBIDDEN
-
-    @pytest.mark.parametrize('object_id', [seed.MISSING_OBJECT_ID, seed.ORPHAN_ID], ids=['no-object', 'no-type'])
-    def test_nothing_left_to_protect_is_allowed(self, object_id: int) -> None:
-        """A node whose object, or whose object's type, is gone"""
-        objects_manager, _ = _managers(seed.location_editor())
-
-        assert authorize_node_object_change(object_id, objects_manager, seed.location_editor()) is None

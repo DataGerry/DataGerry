@@ -29,6 +29,12 @@ relation itself) and ``cascade_relation_update`` (everything that must then happ
 CmdbObjectRelations), so the route can report a failed cascade differently from a failed update: the
 first leaves nothing written, the second leaves the relation already updated.
 
+A CmdbObjectRelation is read under one rule: **it is as readable as the less readable of its two objects**,
+judged by the type ids stamped on it. ``resolve_unreadable_type_ids_or_abort`` answers the types the caller may not
+read, the manager narrows the lists and the relation tabs with them, and ``is_object_relation_readable`` judges a
+single relation. The relation tabs of an object are moreover as readable as the object itself
+(``read_tab_object_or_abort``).
+
 A bulk delete is judged by ``read_bulk_delete_selection`` (an object body, a non-empty list of ids, at most
 ``MAX_BULK_DELETE_OBJECT_RELATIONS`` of them) and run by ``delete_object_relations``, one atomic read-and-delete per
 id, so the documents it collects - and the history the route writes from them - are exactly the ones THIS request
@@ -75,9 +81,16 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE,
     OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE,
     OBJECT_RELATION_TYPE_NOT_ALLOWED_MESSAGE,
+    OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE,
+    OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE,
+    OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE,
+    OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper import read_object_or_abort
 from cmdb.interface.rest_api.routes.relation_routes.relation_structure_helper import duplicated_names
 
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerInitError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.errors.manager.object_relation_logs_manager import (
     ObjectRelationLogsManagerBuildError,
     ObjectRelationLogsManagerInsertError,
@@ -94,6 +107,74 @@ COUNTERPART_OBJECT_ID_KEY: str = 'object_id'
 COUNTERPART_TYPE_LABEL_KEY: str = 'type_label'
 COUNTERPART_ICON_KEY: str = 'icon'
 COUNTERPART_SUMMARY_LINE_KEY: str = 'summary_line'
+
+
+def resolve_unreadable_type_ids_or_abort(request_user: CmdbUser) -> list[int]:
+    """
+    Reads the CmdbTypes the caller may not read, the input of every object-relation read rule
+
+    Args:
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 400 when the types could not be read
+
+    Returns:
+        list[int]: public_ids of the CmdbTypes the caller may not read; empty when nothing is denied
+    """
+    try:
+        return resolve_denied_type_ids(request_user, AccessControlPermission.READ)
+    except (BaseManagerGetError, BaseManagerInitError) as err:
+        LOGGER.error("[resolve_unreadable_type_ids_or_abort] %s", err, exc_info=True)
+        abort(400, OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE)
+
+
+def is_object_relation_readable(object_relation: dict[str, Any], denied_type_ids: list[int]) -> bool:
+    """
+    Judges one CmdbObjectRelation by the types stamped for its two objects
+
+    The single-document twin of ``build_readable_endpoints_condition``: a side with no type stamped is not refused
+
+    Args:
+        object_relation (dict[str, Any]): The stored CmdbObjectRelation
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read
+
+    Returns:
+        bool: True when the caller may read the objects at both ends
+    """
+    denied: set[int] = set(denied_type_ids)
+
+    return (object_relation.get(ObjectRelationKey.RELATION_PARENT_TYPE_ID.value) not in denied
+            and object_relation.get(ObjectRelationKey.RELATION_CHILD_TYPE_ID.value) not in denied)
+
+
+def read_tab_object_or_abort(object_id: int, request_user: CmdbUser, objects_manager: ObjectsManager) -> None:
+    """
+    Refuses the relation tabs of an object the caller may not read, or that does not exist
+
+    Answers like ``GET /objects/<id>``. A missing object is refused too: deleting an object deletes its
+    relations, so it has no tabs to answer
+
+    Args:
+        object_id (int): public_id of the object whose relation tabs are requested
+        request_user (CmdbUser): The caller
+        objects_manager (ObjectsManager): Manager used to read the object through the caller's ACL
+
+    Raises:
+        HTTPException: 403 when the caller may not read the object, 404 when it does not exist, 400 when reading
+            it failed
+    """
+    try:
+        read_object_or_abort(
+            object_id,
+            request_user,
+            objects_manager,
+            OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE.format(object_id=object_id),
+            OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE.format(object_id=object_id),
+        )
+    except ObjectsManagerGetError as err:
+        LOGGER.error("[read_tab_object_or_abort] %s", err, exc_info=True)
+        abort(400, OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE.format(object_id=object_id))
 
 
 def resolve_counterpart_summaries(

@@ -379,24 +379,42 @@ class TestObjectLocationSync:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
-    # ---- UPDATE_LOCATION route mirrors both sides ---- #
-    def test_update_location_route_mirrors_object_field(self, rest_api, database_manager, database_name) -> None:
-        """PUT /locations/update_location updates the node AND the object's mirrored location field."""
+    # ---- MOVE with a null parent: the placement is removed on both sides ---- #
+    def test_move_single_remove_clears_both_sides_and_promotes_children(
+        self, rest_api, database_manager, database_name,
+    ) -> None:
+        """PATCH /locations/<id>/parent with null removes the node AND clears the object's field; the
+        child is promoted onto the grandparent, node and object field alike."""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
+        objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
+                            'creation_time': datetime.now(timezone.utc)})
+        objects.insert_one({**_loc_object_payload(LSYNC_CHILD_OBJECT_ID, LSYNC_OWN_LOCATION),
+                            'creation_time': datetime.now(timezone.utc)})
+        locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+        locations.insert_one(_loc_doc(LSYNC_CHILD_LOCATION, LSYNC_CHILD_OBJECT_ID, LSYNC_OWN_LOCATION))
+
+        response = rest_api.patch(f'{LOCATIONS_ROUTE_URL}/{LSYNC_OBJECT_ID}/parent', json={'parent': None})
+
+        assert response.status_code == HTTPStatus.OK
+        assert self._location_of(database_manager, database_name, LSYNC_OBJECT_ID) is None
+        moved_object = objects.find_one({'public_id': LSYNC_OBJECT_ID})
+        assert next(f for f in moved_object['fields'] if f['name'] == LOCATION_FIELD_NAME)['value'] is None
+        assert locations.find_one({'public_id': LSYNC_CHILD_LOCATION})['parent'] == LSYNC_PARENT_A
+        child_object = objects.find_one({'public_id': LSYNC_CHILD_OBJECT_ID})
+        assert next(f for f in child_object['fields'] if f['name'] == LOCATION_FIELD_NAME)['value'] == LSYNC_PARENT_A
+
+    def test_move_single_cycle_rejected(self, rest_api, database_manager, database_name) -> None:
+        """A drop onto a location inside the object's own subtree is 400, and nothing moves."""
         objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
         locations = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
         objects.insert_one({**_loc_object_payload(LSYNC_OBJECT_ID, LSYNC_PARENT_A),
                             'creation_time': datetime.now(timezone.utc)})
         locations.insert_one(_loc_doc(LSYNC_OWN_LOCATION, LSYNC_OBJECT_ID, LSYNC_PARENT_A))
+        locations.insert_one(_loc_doc(LSYNC_CHILD_LOCATION, LSYNC_CHILD_OBJECT_ID, LSYNC_OWN_LOCATION))
 
-        response = rest_api.put(
-            f'{LOCATIONS_ROUTE_URL}/update_location',
-            json={'object_id': LSYNC_OBJECT_ID, 'parent': LSYNC_PARENT_B, 'name': 'moved'},
-        )
+        response = rest_api.patch(f'{LOCATIONS_ROUTE_URL}/{LSYNC_OBJECT_ID}/parent',
+                                  json={'parent': LSYNC_CHILD_LOCATION})
 
-        assert response.status_code == HTTPStatus.ACCEPTED
-        # the location NODE points at the new parent
-        assert locations.find_one({'object_id': LSYNC_OBJECT_ID})['parent'] == LSYNC_PARENT_B
-        # and the object's mirrored location field matches it (no desync)
-        moved_object = objects.find_one({'public_id': LSYNC_OBJECT_ID})
-        location_field = next(f for f in moved_object['fields'] if f['name'] == LOCATION_FIELD_NAME)
-        assert location_field['value'] == LSYNC_PARENT_B
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert locations.find_one({'object_id': LSYNC_OBJECT_ID})['parent'] == LSYNC_PARENT_A

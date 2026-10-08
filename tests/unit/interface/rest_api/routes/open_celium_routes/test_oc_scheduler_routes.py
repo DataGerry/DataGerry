@@ -17,8 +17,8 @@
 Unit tests for cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_routes
 
 Each handler is unwrapped past its decorator chain and driven inside a BaseCmdbApp
-test_request_context with the managers (OcSchedulerManager, OcConnectionManager,
-DgServicePortalManager, `get_cached_user_manager`) patched at the route module path - no external OpenCelium
+test_request_context with the managers (OcSchedulerManager, OcConnectionManager - at the helper paths their
+builders live in - DgServicePortalManager, `get_cached_user_manager`) patched - no external OpenCelium
 HTTP, no Mongo. The app runs on-premise (cloud_mode/local_mode False), so the cloud title-mapping /
 Service-Portal branches are skipped and the local code paths are exercised. The AUTOMATIONS 403 gate
 is covered by the functional automations-gating suite.
@@ -56,6 +56,9 @@ from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnec
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_routes'
+# The managers are built in the helpers (build_scheduler_manager / build_connection_manager), so they are patched there
+SCHED_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper'
+CONN_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper'
 
 SCHEDULER_ID: int = 5
 CONNECTION_ID: int = 10
@@ -99,8 +102,8 @@ def fixture_conn_manager() -> MagicMock:
 @pytest.fixture(name='patched_managers')
 def fixture_patched_managers(sched_manager: MagicMock, conn_manager: MagicMock) -> Any:
     """Patches the four managers the scheduler handlers construct at the route module path."""
-    with patch(f'{ROUTE_PATH}.OcSchedulerManager', return_value=sched_manager), \
-         patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=conn_manager), \
+    with patch(f'{SCHED_HELPER}.OcSchedulerManager', return_value=sched_manager), \
+         patch(f'{CONN_HELPER}.OcConnectionManager', return_value=conn_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=MagicMock()), \
          patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=MagicMock()):
         yield
@@ -450,8 +453,6 @@ class TestCreateOcSchedulerConnectionErrors:
 # In cloud mode the scheduler handlers map/unmap tenant titles, validate id access (cache-first, Service
 # Portal fallback via the helpers) and keep the Service Portal id-lists in sync.
 
-SCHED_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper'
-CONN_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper'
 
 CLOUD_DB: str = 'gfSKkjoRzAxJwC'
 CLOUD_USER: SimpleNamespace = SimpleNamespace(database=CLOUD_DB, email='user@test.com', public_id=1)
@@ -502,8 +503,8 @@ def fixture_cloud_managers(sched_manager: MagicMock, conn_manager: MagicMock) ->
     """
     cached = MagicMock()
     dg_sp = MagicMock()
-    with patch(f'{ROUTE_PATH}.OcSchedulerManager', return_value=sched_manager), \
-         patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=conn_manager), \
+    with patch(f'{SCHED_HELPER}.OcSchedulerManager', return_value=sched_manager), \
+         patch(f'{CONN_HELPER}.OcConnectionManager', return_value=conn_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
          patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=cached), \
          patch(f'{SCHED_HELPER}.DgServicePortalManager', return_value=dg_sp), \

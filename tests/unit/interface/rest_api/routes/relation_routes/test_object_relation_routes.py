@@ -32,6 +32,8 @@ from cmdb.models.object_relation_model import ObjectRelationKey, ObjectRelationR
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     DEFAULT_TAB_PAGE_SIZE,
     MAX_TAB_PAGE_SIZE,
+    TAB_SORT_KEYS,
+    TAB_SORT_KEY_INVALID_MESSAGE,
     TabInstancesKey,
 )
 from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes import (
@@ -98,9 +100,20 @@ class TestParseTabPageParams:
             assert _parse_tab_page_params()[:2] == (5, 10)
 
     def test_reads_sort_and_order(self) -> None:
-        """An explicit sort field and descending direction are passed through."""
-        with app.test_request_context('/?sort=relation_id&order=-1'):
-            assert _parse_tab_page_params()[2:] == ('relation_id', -1)
+        """The one sortable key and a descending direction are passed through."""
+        with app.test_request_context(f'/?sort={ObjectRelationKey.PUBLIC_ID.value}&order=-1'):
+            assert _parse_tab_page_params()[2:] == (ObjectRelationKey.PUBLIC_ID.value, -1)
+
+    @pytest.mark.parametrize('key', [ObjectRelationKey.RELATION_ID.value, ObjectRelationKey.LAST_EDIT_TIME.value,
+                                     '$where', 'field_values.value'])
+    def test_rejects_a_sort_key_outside_the_allow_list(self, key: str) -> None:
+        """Any other key would leave the tab's compound index and sort the whole group in memory."""
+        with app.test_request_context('/', query_string={'sort': key}):
+            with pytest.raises(HTTPException) as exc_info:
+                _parse_tab_page_params()
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == TAB_SORT_KEY_INVALID_MESSAGE.format(allowed=', '.join(TAB_SORT_KEYS))
 
     def test_blank_sort_falls_back_to_public_id(self) -> None:
         """An empty sort parameter must not reach Mongo as an empty field name."""

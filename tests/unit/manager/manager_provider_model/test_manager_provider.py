@@ -224,3 +224,42 @@ class TestCloudModeArguments:
         with cloud_app.app_context():
             with pytest.raises(BaseManagerInitError):
                 ManagerProvider.get_manager(registered_stub, user)
+
+
+class TestTenantDatabase:
+    """The one answer to "which database does this request's work go to" - managers and the OpenCelium connectors."""
+
+    def test_on_premise_answers_none_whatever_the_user_names(
+            self, local_app: BaseCmdbApp, request_user: CmdbUser) -> None:
+        """None is the manager's own default, the configured database - the user document is not asked"""
+        with local_app.app_context():
+            assert ManagerProvider.tenant_database(request_user) is None
+            assert ManagerProvider.tenant_database(None) is None
+
+    def test_cloud_answers_the_users_database(self, cloud_app: BaseCmdbApp, request_user: CmdbUser) -> None:
+        """The tenant the user belongs to"""
+        with cloud_app.app_context():
+            assert ManagerProvider.tenant_database(request_user) == TENANT_DATABASE
+
+    def test_cloud_refuses_a_missing_user(self, cloud_app: BaseCmdbApp) -> None:
+        """No user, no tenant"""
+        with cloud_app.app_context():
+            with pytest.raises(BaseManagerInitError):
+                ManagerProvider.tenant_database(None)
+
+    def test_cloud_refuses_a_user_built_without_a_database(self, cloud_app: BaseCmdbApp) -> None:
+        """The model invents no name any more, so a user document without one is refused, not bound elsewhere"""
+        user = CmdbUser(public_id=5, user_name='no-database', active=True, group_id=1)
+
+        assert user.database is None
+        with cloud_app.app_context():
+            with pytest.raises(BaseManagerInitError):
+                ManagerProvider.tenant_database(user)
+
+    def test_get_manager_and_tenant_database_agree(
+            self, cloud_app: BaseCmdbApp, registered_stub: ManagerType, request_user: CmdbUser) -> None:
+        """A manager is bound to exactly the database tenant_database answers"""
+        with cloud_app.app_context():
+            manager: RecordingManager = ManagerProvider.get_manager(registered_stub, request_user)
+
+            assert manager.database == ManagerProvider.tenant_database(request_user)

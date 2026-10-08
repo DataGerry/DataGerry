@@ -143,7 +143,6 @@ REPORT_QUERY_CORRUPT_MSG: str = (
 # required key, or a value that does not fit its field's type (e.g. a date that is not YYYY-MM-DD).
 # All of these are caller-fixable input, so they are answered with a 400 rather than a 500
 REPORT_CONDITIONS_INVALID_MSG: str = "The Report's conditions could not be translated into a query: {reason}"
-BOOLEAN_PARAM_INVALID_MSG: str = "The '{param}' parameter must be 'true' or 'false'!"
 
 # ------------------------------------------ CmdbReportCategory - CONSTANTS ------------------------------------------ #
 

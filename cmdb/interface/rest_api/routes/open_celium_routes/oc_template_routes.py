@@ -22,12 +22,13 @@ payloads are another product's shapes (`OcResponseKey`) and the manager can answ
 OpenCelium replies with an empty body - which is why the list routes normalise through
 `filter_datagerry_templates` rather than answering what they were handed.
 
-The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`), but it
-carries no per-route ACL right - unlike the sibling connection and connector routes; the rights it
-would need do not exist yet. The create route has no request-schema validation either.
+The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`). A template is
+Automation material, so the reads ask for ``base.openCelium.connection.view`` and the create for
+``base.openCelium.connection.add`` (``OcRight``). The create route has no request-schema validation.
 
-**Only one of the four routes has a frontend caller**: `GET /templates/all/<from>/<to>`, used by the
-Automations view (`automations.service.ts`). The other three are API-only surface.
+**Frontend callers**: `GET /templates/all/<from>/<to>`, used by the Automations view (`automations.service.ts`);
+the automation form also hands the embedded OpenCelium editor this API's base URL and the user's token, so the
+editor's own template requests land here.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -50,6 +51,7 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_template_helper import
     filter_datagerry_templates,
 )
 
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcRight
 from cmdb.errors.open_celium.template import (
     OcTemplateCreateError,
     OcTemplateGetError,
@@ -63,9 +65,10 @@ oc_templates_blueprint = APIBlueprint('oc_templates', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @oc_templates_blueprint.route('/templates', methods=['POST'])
-@handle_oc_errors("creating the OpenCelium Template!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_templates_blueprint.protect(auth=True, right=OcRight.CONNECTION_ADD.value)
+@handle_oc_errors("creating the OpenCelium Template!")
 def create_oc_template(request_user: CmdbUser) -> Response:
     """
     **POST** route to create an OcTemplate
@@ -99,9 +102,10 @@ def create_oc_template(request_user: CmdbUser) -> Response:
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_templates_blueprint.route('/templates/<string:template_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium Template!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_templates_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the OpenCelium Template!")
 def get_oc_template(request_user: CmdbUser, template_id: str) -> Response:
     """
     **GET**/**HEAD** route to retrive a OcTemplate with the given template_id
@@ -125,9 +129,10 @@ def get_oc_template(request_user: CmdbUser, template_id: str) -> Response:
 
 
 @oc_templates_blueprint.route('/templates', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving OpenCelium Business Templates!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_templates_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving OpenCelium Business Templates!")
 def get_all_oc_templates(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route for getting every OcBusinessTemplate OpenCelium knows
@@ -154,9 +159,10 @@ def get_all_oc_templates(request_user: CmdbUser) -> Response:
 
 
 @oc_templates_blueprint.route('/templates/all/<int:from_connector_id>/<int:to_connector_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving detailed OpenCelium Business Templates!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_templates_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving detailed OpenCelium Business Templates!")
 def get_all_oc_templates_detailed(
         request_user: CmdbUser,
         from_connector_id: int,

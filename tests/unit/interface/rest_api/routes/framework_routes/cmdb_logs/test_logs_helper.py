@@ -37,7 +37,6 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants import (
     LOG_ACCESS_DENIED_MSG,
-    OBJECT_LOGS_ACCESS_DENIED_MSG,
     LogKey,
     LogQueryOperator,
     MONGO_ID_KEY,
@@ -47,7 +46,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants im
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper import (
     abort_unless_log_readable,
-    abort_unless_object_readable,
     build_object_log_existence_query,
     build_object_logs_response,
     is_log_readable,
@@ -55,7 +53,6 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper impor
     serialize_object_log,
 )
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
-from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_helper'
@@ -328,32 +325,6 @@ class TestAbortUnlessLogReadable:
     def test_a_readable_log_passes(self) -> None:
         """No exception"""
         abort_unless_log_readable(_log(), _reader(), _types_manager(_type_granting(READER_GROUP_ID)))
-
-
-class TestAbortUnlessObjectReadable:
-    """The 403 of /logs/object/<id> for an existing object the caller may not read"""
-
-    def test_a_denied_object_is_a_403_naming_it(self) -> None:
-        """The object read refuses through the caller's ACL"""
-        objects_manager = MagicMock()
-        objects_manager.get_object.side_effect = AccessDeniedError('denied')
-
-        with pytest.raises(HTTPException) as exc_info:
-            abort_unless_object_readable(LOGGED_OBJECT_ID, _reader(), objects_manager)
-
-        assert exc_info.value.code == 403
-        assert exc_info.value.description == OBJECT_LOGS_ACCESS_DENIED_MSG.format(object_id=LOGGED_OBJECT_ID)
-
-    @pytest.mark.parametrize('stored', [{'public_id': LOGGED_OBJECT_ID}, None], ids=['readable', 'deleted'])
-    def test_a_readable_or_deleted_object_passes(self, stored: dict[str, Any] | None) -> None:
-        """A deleted object is no refusal - its logs are judged one by one by the list"""
-        objects_manager = MagicMock()
-        objects_manager.get_object.return_value = stored
-        reader = _reader()
-
-        abort_unless_object_readable(LOGGED_OBJECT_ID, reader, objects_manager)
-
-        objects_manager.get_object.assert_called_once_with(LOGGED_OBJECT_ID, reader, AccessControlPermission.READ)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

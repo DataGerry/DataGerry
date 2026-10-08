@@ -32,8 +32,9 @@ ROUTES_ROOT: Path = Path(__file__).resolve().parents[5] / 'cmdb' / 'interface' /
 ITERATION_ERROR_PATTERN: re.Pattern[str] = re.compile(r'IterationError$')
 GUARD: str = 'abort_if_query_too_slow'
 # The hand-written arms there are - the census must not silently shrink. It is lowered only when an arm moves
-# onto the shared error decorators, which answer the time limit themselves (the DocAPI template list did)
-MIN_ARMS: int = 35
+# onto the shared error decorators, which answer the time limit themselves (the DocAPI template list did, and the
+# user-settings list)
+MIN_ARMS: int = 34
 
 
 def _name(node: ast.expr) -> str:

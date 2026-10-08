@@ -22,7 +22,7 @@ properties of it are worth knowing before changing anything here:
 
 **It is a singleton**, always stored at ``RISK_MATRIX_PUBLIC_ID`` (1), seeded empty at setup.
 ``ensure_default_risk_matrix`` recreates that default if the document is missing, so no caller has to
-handle its absence.
+handle its absence - every caller of it sits behind an ISMS right, because recreating is a write.
 
 **A cell's identity is its (impact_id, likelihood_id) pair, not its position.** The grid is ordered by
 ``calculation_basis``, so changing a level's weight moves cells around; keying the transfer on the
@@ -60,6 +60,10 @@ from cmdb.manager import LikelihoodManager, ImpactManager, RiskMatrixManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.database.predefined_data.isms_data import get_default_risk_matrix
+from cmdb.utils import find_cause
+
+from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.manager.risk_matrix_manager import RiskMatrixManagerInsertError
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -79,10 +83,18 @@ def ensure_default_risk_matrix(risk_matrix_manager: RiskMatrixManager) -> dict[s
 
     Never returns None: if the document cannot be read back after being inserted, the default that was
     just written is returned, because the contract every caller relies on is that it can index the
-    result immediately
+    result immediately. A concurrent caller that recreated it first is no failure: the insert that lost
+    on the unique ``public_id`` index reads the winner's document back
+
+    Only call it behind a right that allows touching the matrix - it writes. ``GET /isms/config/status``,
+    which needs no right, reads the matrix without it
 
     Args:
         risk_matrix_manager (RiskMatrixManager): Manager used to read and, if needed, create the matrix
+
+    Raises:
+        RiskMatrixManagerInsertError: When the recreation fails for any reason but a lost race
+        RiskMatrixManagerGetError: When reading the matrix fails
 
     Returns:
         dict[str, Any]: The current (or freshly created) IsmsRiskMatrix document
@@ -92,7 +104,15 @@ def ensure_default_risk_matrix(risk_matrix_manager: RiskMatrixManager) -> dict[s
 
     if not current_risk_matrix:
         default_risk_matrix: dict[str, Any] = get_default_risk_matrix()
-        risk_matrix_manager.insert_item(default_risk_matrix)
+
+        try:
+            risk_matrix_manager.insert_item(default_risk_matrix)
+        except RiskMatrixManagerInsertError as err:
+            # Two callers that both found it missing race to recreate it; the unique public_id index
+            # lets one insert win, and the loser reads that one back instead of failing
+            if not find_cause(err, DocumentDuplicateKeyError):
+                raise
+
         current_risk_matrix = risk_matrix_manager.get_item(RISK_MATRIX_PUBLIC_ID, as_dict=True)
 
         # The read back is what picks up whatever the insert stored; the default is the fallback so

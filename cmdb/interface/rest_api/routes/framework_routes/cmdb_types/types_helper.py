@@ -1107,6 +1107,26 @@ def guard_selectable_as_parent_change(request_user: CmdbUser, old_type: CmdbType
         abort(400, blocker)
 
 
+def count_objects_of_type(objects_manager: ObjectsManager, type_id: int) -> int:
+    """
+    Counts every CmdbObject of a CmdbType - the one question the delete guard and its pre-check both ask
+
+    Active and inactive objects alike, and unscoped by the object ACL: an ACL lives on the Type, so a
+    scoped count of one Type is either the total or 0, and a 0 would offer a delete the guard refuses
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        type_id (int): public_id of the CmdbType
+
+    Raises:
+        ObjectsManagerGetError: When the count failed
+
+    Returns:
+        int: The number of CmdbObjects of the Type
+    """
+    return objects_manager.count_documents({CmdbObjectKey.TYPE_ID: type_id})
+
+
 def verify_type_deletable(
     request_user: CmdbUser,
     public_id: int,
@@ -1138,10 +1158,8 @@ def verify_type_deletable(
     if not to_delete_type:
         abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
-    objects_count = objects_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
-
     # Only possible to delete types when there are no objects
-    if objects_count > 0:
+    if count_objects_of_type(objects_manager, public_id) > 0:
         abort(400, "Delete not possible if Objects of this Type exist!")
 
     # Only possible to delete types when there are no reports using it

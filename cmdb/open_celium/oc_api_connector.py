@@ -61,7 +61,7 @@ class OcApiConnector:
     """
     Handles the OpenCelium connection
     """
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str | None) -> None:
         """
         Initialises the OcApiConnector
 
@@ -71,7 +71,8 @@ class OcApiConnector:
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager (for the token settings)
-            db_name (str): The database the token is cached in
+            db_name (str | None): The database the token is cached in - the caller's tenant in cloud mode, None
+                on premise, which is the configured database (``ManagerProvider.tenant_database``)
 
         Raises:
             ValueError: If cloud mode is active but the OpenCelium connection env variables are incomplete

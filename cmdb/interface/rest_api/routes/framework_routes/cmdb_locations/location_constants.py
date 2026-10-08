@@ -43,11 +43,6 @@ LINKED_OBJECT_DENIED_MSG: str = "No permission to read the linked Object with ID
 # placement write stores the object's location field, so it is an UPDATE of the object. Format with its public_id
 LINKED_OBJECT_UPDATE_DENIED_MSG: str = "No permission to change the linked Object with ID:{object_id}!"
 
-# Bad request (HTTP 400) when POST /locations/ names a type the linked CmdbObject does not have. The node's type
-# fields are the object's own type's. Format with both ids
-LINKED_OBJECT_TYPE_MISMATCH_MSG: str = (
-    "The Object with ID:{object_id} is of Type ID:{object_type_id}, not of the requested Type ID:{type_id}!"
-)
 
 # Response-only key added to each lazy location-tree node signalling whether it can be expanded
 LOCATION_TREE_HAS_CHILDREN_KEY: str = 'has_children'

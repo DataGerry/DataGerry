@@ -19,8 +19,9 @@ Functional tests: a CmdbLocation delete is all-or-nothing
 Deleting a node is three writes - its children promoted onto its parent, the node removed, the child objects'
 mirrored location fields re-pointed - and MongoDB transactions need a replica set DataGerry does not run on. The
 delete path records each write in a WriteLedger, so a failure part-way puts everything back. These tests break
-each later write in turn over `DELETE /locations/<object_id>/object` and compare the stored nodes and objects with
-the snapshot taken before the request.
+each later write in turn over `DELETE /objects/<public_id>` - deleting an object removes its node first, and a
+failure there refuses the object delete - and compare the stored nodes and objects with the snapshot taken before
+the request.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -32,12 +33,13 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager import LocationsManager, ObjectsManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.object_model import CmdbObject
+from cmdb.models.type_model import CmdbType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     LOCATION_DELETE_UNDO_INCOMPLETE_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-ROUTE_URL: str = '/locations'
+OBJECTS_URL: str = '/objects'
 ROOT_PARENT_ID: int = 1
 
 TOP_NODE_ID: int = 9941          # stays; the promotion target
@@ -60,6 +62,17 @@ def _node(public_id: int, object_id: int, parent: int) -> dict[str, Any]:
             'type_id': TYPE_ID, 'type_label': 'T', 'type_icon': 'fas fa-cube', 'type_selectable': True}
 
 
+def _type() -> dict[str, Any]:
+    """The CmdbType of both objects: one location field, no ACL."""
+    return {'public_id': TYPE_ID, 'name': f'atomicity-type-{TYPE_ID}', 'label': 'T', 'author_id': 1,
+            'creation_time': datetime.now(timezone.utc), 'active': True, 'version': '1.0.0',
+            'fields': [{'type': 'location', 'name': LOCATION_FIELD, 'label': 'Location'}],
+            'render_meta': {'icon': 'fa-cube', 'summary': {'fields': [LOCATION_FIELD]},
+                            'sections': [{'type': 'section', 'name': 'main', 'label': 'Main',
+                                          'fields': [LOCATION_FIELD]}]},
+            'acl': {'activated': False, 'groups': {'includes': None}}}
+
+
 def _object(public_id: int, location: int) -> dict[str, Any]:
     """A CmdbObject with a location field."""
     return {'public_id': public_id, 'type_id': TYPE_ID, 'active': True, 'author_id': 1, 'version': '1.0.0',
@@ -72,12 +85,15 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
     """Top node > doomed node > child node, with the child's object pointing at the doomed node."""
     nodes = database_manager.get_collection(CmdbLocation.COLLECTION, database_name)
     objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+    types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
 
     def _purge() -> None:
         nodes.delete_many({'public_id': {'$in': ALL_NODE_IDS}})
         objects.delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
+        types.delete_one({'public_id': TYPE_ID})
 
     _purge()
+    types.insert_one(_type())
     nodes.insert_many([
         _node(TOP_NODE_ID, TOP_OBJECT_ID, ROOT_PARENT_ID),
         _node(DOOMED_NODE_ID, DOOMED_OBJECT_ID, TOP_NODE_ID),
@@ -108,8 +124,8 @@ def _raiser(error: Exception):
 
 
 def _delete(rest_api):
-    """DELETE the doomed node through its owning object."""
-    return rest_api.delete(f'{ROUTE_URL}/{DOOMED_OBJECT_ID}/object')
+    """DELETE the doomed node's owning object, which removes the node first."""
+    return rest_api.delete(f'{OBJECTS_URL}/{DOOMED_OBJECT_ID}')
 
 
 class TestTheDeleteIsAllOrNothing:
@@ -126,8 +142,8 @@ class TestTheDeleteIsAllOrNothing:
         assert nodes.find_one({'public_id': CHILD_NODE_ID})['parent'] == TOP_NODE_ID
         assert objects.find_one({'public_id': CHILD_OBJECT_ID})['fields'][0]['value'] == TOP_NODE_ID
 
-    def test_a_failed_node_delete_puts_the_promoted_children_back(self, rest_api, monkeypatch,
-                                                                    collections) -> None:
+    def test_a_failed_node_delete_puts_the_promoted_children_back(
+            self, rest_api, monkeypatch, collections) -> None:
         """The children were promoted, then the node would not go: they are back under it."""
         before = _snapshot(collections)
         monkeypatch.setattr(LocationsManager, 'delete', _raiser(RuntimeError('delete failed')))
@@ -137,8 +153,8 @@ class TestTheDeleteIsAllOrNothing:
         assert response.status_code >= HTTPStatus.BAD_REQUEST
         assert _snapshot(collections) == before
 
-    def test_a_failed_field_write_puts_the_node_and_the_children_back(self, rest_api, monkeypatch,
-                                                                        collections) -> None:
+    def test_a_failed_field_write_puts_the_node_and_the_children_back(
+            self, rest_api, monkeypatch, collections) -> None:
         """
         The node was already deleted when the object fields failed: it is back under its old id, the children
         under it, and the fields still point at it - nothing dangles
@@ -160,8 +176,8 @@ class TestTheDeleteIsAllOrNothing:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert _snapshot(collections) == before
 
-    def test_a_field_write_that_applied_but_reported_failure_is_undone(self, rest_api, monkeypatch,
-                                                                        collections) -> None:
+    def test_a_field_write_that_applied_but_reported_failure_is_undone(
+            self, rest_api, monkeypatch, collections) -> None:
         """
         A partial update_many or a lost acknowledgement: the fields WERE re-pointed when the error came. The
         recorded inverse points them back at the node, so the object fields match the restored tree again
@@ -183,8 +199,8 @@ class TestTheDeleteIsAllOrNothing:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert _snapshot(collections) == before
 
-    def test_a_failed_field_write_whose_inverse_also_fails_is_still_clean(self, rest_api, monkeypatch,
-                                                                          collections) -> None:
+    def test_a_failed_field_write_whose_inverse_also_fails_is_still_clean(
+            self, rest_api, monkeypatch, collections) -> None:
         """
         The field write failed before changing anything, so its inverse failing too leaves nothing to report:
         the verification finds the fields where they were, and the request fails with its own error
@@ -197,7 +213,7 @@ class TestTheDeleteIsAllOrNothing:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert _snapshot(collections) == before
 
-    def test_an_undo_that_cannot_finish_names_what_is_left(self, rest_api, monkeypatch, collections) -> None:
+    def test_an_undo_that_cannot_finish_names_what_is_left(self, rest_api, monkeypatch) -> None:
         """The field write fails AND the deleted node cannot be re-inserted: the 500 names the node."""
         monkeypatch.setattr(ObjectsManager, 'set_location_field_for_objects', _raiser(RuntimeError('down')))
         monkeypatch.setattr(LocationsManager, 'insert', _raiser(RuntimeError('re-insert failed')))
@@ -210,7 +226,7 @@ class TestTheDeleteIsAllOrNothing:
         assert CmdbLocation.COLLECTION in message
         assert f"'public_id': {DOOMED_NODE_ID}" in message
 
-    def test_an_applied_field_write_whose_inverse_fails_is_named(self, rest_api, monkeypatch, collections) -> None:
+    def test_an_applied_field_write_whose_inverse_fails_is_named(self, rest_api, monkeypatch) -> None:
         """
         The fields were re-pointed and the error came; re-pointing them back fails too. The verification finds
         them still at the top node, so the 500 names the object fields - the one write left in effect
@@ -233,4 +249,3 @@ class TestTheDeleteIsAllOrNothing:
         assert message.startswith(LOCATION_DELETE_UNDO_INCOMPLETE_MSG.split('{', maxsplit=1)[0])
         assert CmdbObject.COLLECTION in message
         assert str(CHILD_OBJECT_ID) in message
-

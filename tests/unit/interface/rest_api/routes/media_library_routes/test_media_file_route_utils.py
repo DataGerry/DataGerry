@@ -38,6 +38,7 @@ import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
+from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library import MediaFileMetadataKey
 from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
 
@@ -206,12 +207,12 @@ class _DeleteStub:
         self._children = children_by_parent
         self.queries: list[dict[str, Any]] = []
 
-    def get_many_media_files(self, metadata: dict) -> SimpleNamespace:
+    def get_many_media_files(self, metadata: dict) -> IterationResult[dict[str, Any]]:
         """Records the query and returns the children of the requested parent id."""
         self.queries.append(metadata)
         parent = metadata.get('metadata.parent')
         result = self._children.get(parent, [])
-        return SimpleNamespace(result=result, total=len(result))
+        return IterationResult(result, len(result))
 
 
 class TestRecursiveDeleteFilter:

@@ -40,7 +40,7 @@ from gridfs.errors import NoFile
 from cmdb.database import DatabaseGridFS, MongoDatabaseManager
 from cmdb.manager.base_manager import BaseManager
 
-from cmdb.interface.rest_api.responses import GridFsResponse
+from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library import build_media_file_metadata
 from cmdb.framework.media_library.media_file_keys import (
@@ -183,7 +183,7 @@ class MediaFilesManager(BaseManager):
             limit: int = 0,
             skip: int = 0,
             sort: list[tuple[str, int]] | None = None,
-    ) -> GridFsResponse:
+    ) -> IterationResult[dict[str, Any]]:
         """
         Retrieves the media files matching the given metadata, one page of them when asked
 
@@ -203,18 +203,19 @@ class MediaFilesManager(BaseManager):
             MediaFileManagerGetError: If retrieval fails
 
         Returns:
-            GridFsResponse: The page of MediaFiles and the total number of matching files
+            IterationResult[dict[str, Any]]: The page of MediaFiles (``results``) and the total number of
+                matching files
         """
         try:
             iterator: GridOutCursor = self.fs.find(filter=metadata, skip=skip, limit=limit, sort=sort)
             results: list[dict[str, Any]] = [MediaFile.to_json(MediaFile(**grid._file)) for grid in iterator]
 
             if not limit and not skip:
-                return GridFsResponse(results, len(results))
+                return IterationResult(results, len(results))
 
             total: int = self.dbm.count(f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}', self.db_name, metadata)
 
-            return GridFsResponse(results, total)
+            return IterationResult(results, total)
         except Exception as err:
             raise MediaFileManagerGetError(err) from err
 

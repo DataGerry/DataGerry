@@ -202,9 +202,12 @@ class TestFilterDatagerryTemplates:
 class TestBuildTemplateManager:
     """The construction all four routes share."""
 
-    def test_it_scopes_the_manager_to_the_users_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('cloud_mode, expected', [(True, USER_DATABASE), (False, None)], ids=['cloud', 'on-premise'])
+    def test_it_scopes_the_manager_to_the_users_database(
+        self, monkeypatch: pytest.MonkeyPatch, cloud_mode: bool, expected: str | None,
+    ) -> None:
         """
-        The caller's database is what makes the manager read the right OpenCelium credentials
+        The caller's tenant database in cloud mode; on premise None - the configured database
 
         In cloud mode each tenant has its own; passing the wrong one would talk to another
         installation's OpenCelium.
@@ -225,11 +228,12 @@ class TestBuildTemplateManager:
         )
 
         app = _app()
+        app.cloud_mode = cloud_mode
         app.database_manager = 'the-dbm'
-        request_user = type('_User', (), {'database': USER_DATABASE})()
+        request_user = type('_User', (), {'database': expected})()
 
         with app.test_request_context():
             manager = build_template_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': USER_DATABASE}
+        assert recorded == {'dbm': 'the-dbm', 'database': expected}

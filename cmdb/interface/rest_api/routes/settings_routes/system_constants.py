@@ -17,8 +17,8 @@
 Response-shape constants for the DataGerry system-information REST routes
 
 Names the response keys of `GET /settings/system/` and `GET /settings/system/config/`, which are a
-frontend contract (`app/src/app/settings/system/system.service.ts`), plus the right guarding the
-configuration route
+frontend contract (`app/src/app/settings/system/system.service.ts`), plus the right guarding both
+routes
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,7 +31,7 @@ __all__: list[str] = [
     'SystemConfigKey',
 ]
 
-# Right required to read the system configuration
+# Right required to read the system information and the system configuration
 SYSTEM_VIEW_RIGHT: str = 'base.system.view'
 
 # Settings section the database updater records its applied schema version in
@@ -42,7 +42,11 @@ UNKNOWN_DB_VERSION: int = 0
 
 
 class SystemInfoKey(BaseStrEnum):
-    """Keys of the `GET /settings/system/` response (frontend contract)"""
+    """
+    Keys of the `GET /settings/system/` response (frontend contract)
+
+    ``RUNTIME`` and ``STARTING_PARAMETERS`` are answered on premise only (``system_helper.build_system_information``)
+    """
     TITLE = 'title'
     VERSION = 'version'
     DB_VERSION = 'db_version'

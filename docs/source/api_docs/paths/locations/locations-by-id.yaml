@@ -25,7 +25,7 @@ get:
       - OnPremise
   summary: Retrieve a single Location [Cloud] [OnPremise]
   description: |
-      Required User Right: **base.framework.object.view**
+      Required User Right: **base.framework.location.view**
       <br><hr><br>
       Returns the **Location** with the given **public_id**
   parameters:
@@ -38,14 +38,11 @@ get:
   operationId: get_cmdb_location
   responses:
       "200":
-          description: Returns the **Location** with the given **public_id**
+          description: Returns the **Location** with the given **public_id**, as the bare document
           content:
               application/json:
                   schema:
-                      type: object
-                      properties:
-                          result:
-                              $ref: "../../components/schemas/CmdbLocation.yaml"
+                      $ref: "../../components/schemas/CmdbLocation.yaml"
       "400":
           description: Failed to retrieve the requested **Location**
           content:
@@ -68,75 +65,6 @@ get:
                               example: "The Location was not found"
       "500":
           description: An unexpected error occured
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          error:
-                              type: string
-                              example: "Internal server error"
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                   UPDATE - LOCATION                                                  #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-put:
-  tags:
-      - Locations
-      - Cloud
-      - OnPremise
-  summary: Update a single Location [Cloud] [OnPremise]
-  description: |
-      Required User Right: **base.framework.object.edit**
-      <br><hr><br>
-      Updates the Location with the given **public_id**
-  parameters:
-      - name: public_id
-        in: path
-        description: The **public_id** of the Location which should be updated
-        required: true
-        schema:
-            type: integer
-  requestBody:
-      required: true
-      content:
-          application/json:
-              schema:
-                  $ref: "../../components/schemas/CmdbLocation.yaml"
-  operationId: update_cmdb_location_for_object
-  responses:
-      "200":
-          description: Returns the updated Location with the given **public_id**
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          result:
-                              $ref: "../../components/schemas/CmdbLocation.yaml"
-      "400":
-          description: Failed to update the requested Location
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          error:
-                              type: string
-                              example: "Failed to update the requested Location"
-      "404":
-          description: The requested Location was not found
-          content:
-              application/json:
-                  schema:
-                      type: object
-                      properties:
-                          error:
-                              type: string
-                              example: "The requested Location was not found"
-      "500":
-          description: Internal server error
           content:
               application/json:
                   schema:

@@ -53,13 +53,34 @@ class OcLogQueryParam(BaseStrEnum):
     STATUS = 'status'
 
 
+class OcRight(BaseStrEnum):
+    """
+    The rights the OpenCelium routes ask for
+
+    Two families exist: connectors (``OcConnectorRight``) and connections (``OcConnectionRight``). An Automation is
+    a connection and its scheduler, created and deleted together, so every Automation surface - schedulers, their
+    execution logs and the templates the editor saves - asks for the connection right of the same operation, the
+    rights the frontend's automation screens are guarded by. The invokers are connector material (the automation
+    form loads them together with the connectors), and OpenCelium's own licence is read from the automations list
+    """
+    CONNECTOR_VIEW = 'base.openCelium.connector.view'
+    CONNECTOR_ADD = 'base.openCelium.connector.add'
+    CONNECTOR_EDIT = 'base.openCelium.connector.edit'
+    CONNECTOR_DELETE = 'base.openCelium.connector.delete'
+    CONNECTION_VIEW = 'base.openCelium.connection.view'
+    CONNECTION_ADD = 'base.openCelium.connection.add'
+    CONNECTION_EDIT = 'base.openCelium.connection.edit'
+    CONNECTION_DELETE = 'base.openCelium.connection.delete'
+
+
 # HTTP request header carrying the OpenCelium master password
 MASTER_PW_HEADER: str = 'X-Master-Password'
 
 
 class OcAutomationMessage(BaseStrEnum):
     """
-    What the Automation create answers when its body is incomplete, a step fails or its undo cannot finish
+    What the Automation create and update answer when their body is incomplete, a step fails or an undo cannot
+    finish
 
     RESIDUE is formatted with ``residue``: the remote objects the undo could not remove
     """
@@ -67,6 +88,8 @@ class OcAutomationMessage(BaseStrEnum):
     NO_SCHEDULER_TITLE = "No 'scheduler.title' provided to create the Automation!"
     PORTAL_REFUSED = "Failed to register the Automation with the Service Portal!"
     RESIDUE = "The Automation could not be created, and its undo left these behind: {residue}"
+    UPDATE_BODY_NOT_AN_OBJECT = "The Automation update must be a JSON object!"
+    UPDATE_TITLE_INVALID = "The Automation's 'title' must be a non-blank text!"
 
 
 # The `collection` a remote write is recorded under in the WriteLedger: the service it lives in, as the residue

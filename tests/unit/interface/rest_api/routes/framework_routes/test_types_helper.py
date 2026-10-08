@@ -40,6 +40,7 @@ from cmdb.models.type_model import (
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates
 from cmdb.errors.database import DocumentTooLargeError
@@ -83,6 +84,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     apply_type_update_side_effects,
     verify_type_is_unique,
     verify_type_deletable,
+    count_objects_of_type,
     build_category_criteria,
     normalize_type_acl,
     build_type_criteria,
@@ -764,6 +766,38 @@ def _dependent(public_id: int = 901, name: str = 'test', label: str | None = 'te
         TypeSchemaKey.NAME.value: name,
         TypeSchemaKey.LABEL.value: label,
     }
+
+
+def test_count_objects_of_type_counts_every_object_of_the_type() -> None:
+    """One filter - the type id - with no active flag and no ACL narrowing"""
+    objects = MagicMock()
+    objects.count_documents.return_value = 4
+
+    assert count_objects_of_type(objects, 7) == 4
+    objects.count_documents.assert_called_once_with({CmdbObjectKey.TYPE_ID: 7})
+
+
+def test_count_objects_of_type_lets_the_read_error_through() -> None:
+    """The caller maps the failure - the route to 400, the delete to 400"""
+    objects = MagicMock()
+    objects.count_documents.side_effect = ObjectsManagerGetError('down')
+
+    with pytest.raises(ObjectsManagerGetError):
+        count_objects_of_type(objects, 7)
+
+
+def test_verify_type_deletable_refuses_on_the_shared_count() -> None:
+    """The guard asks count_objects_of_type - the same question as the pre-check route"""
+    objects = MagicMock()
+
+    with _patch_managers_by_type({ManagerType.OBJECTS: objects, ManagerType.REPORTS: MagicMock(),
+                                  ManagerType.TYPES: _types_manager()}), \
+            patch(f'{PATH}.count_objects_of_type', return_value=1) as count, \
+            pytest.raises(HTTPException) as exc_info:
+        verify_type_deletable(MagicMock(), 1, {TypeSchemaKey.PUBLIC_ID.value: 1})
+
+    count.assert_called_once_with(objects, 1)
+    assert exc_info.value.code == HTTP_BAD_REQUEST
 
 
 def test_verify_type_deletable_aborts_404_when_type_missing() -> None:

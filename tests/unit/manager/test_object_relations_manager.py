@@ -133,6 +133,23 @@ class TestGetRelatedRelations:
 
 # ----------------------------------------------- get_related_relations_query ---------------------------------------- #
 
+class TestGetRelationsOfObjectsQuery:
+    """get_relations_of_objects_query matches any of several objects as parent or child (pure)."""
+
+    def test_builds_an_or_of_two_in_clauses(self) -> None:
+        """Every id is accepted on the parent field and on the child field"""
+        ids = [PARENT_OBJECT_ID, PARENT_OBJECT_ID + 1]
+
+        result = ObjectRelationsManager.get_relations_of_objects_query(_mock_manager(), ids)
+
+        assert result == {
+            '$or': [
+                {ObjectRelationKey.RELATION_PARENT_ID.value: {'$in': ids}},
+                {ObjectRelationKey.RELATION_CHILD_ID.value: {'$in': ids}},
+            ]
+        }
+
+
 class TestGetRelatedRelationsQuery:
     """get_related_relations_query builds the parent/child $or query (pure)."""
 

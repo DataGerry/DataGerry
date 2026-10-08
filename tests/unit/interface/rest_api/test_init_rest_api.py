@@ -162,6 +162,18 @@ def test_each_mode_selects_its_config_profile(
     assert app.config['TESTING'] is expected_testing
 
 
+@pytest.mark.parametrize('mode', ['DEBUG', 'TESTING', 'PRODUCTION'])
+def test_error_bodies_are_compact_in_every_mode(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    """Flask pretty-prints its JSON whenever DEBUG is on - the API answers errors compact regardless"""
+    app, _setup, _checks = _build(monkeypatch, mode)
+
+    with app.test_request_context():
+        body: str = app.json.dumps({'outer': {'inner': [1, 2]}})
+
+    assert app.json.compact is True
+    assert '\n' not in body
+
+
 def test_testing_mode_runs_no_startup_routine(monkeypatch: pytest.MonkeyPatch) -> None:
     """Under TESTING neither the on-prem setup nor the update checks are executed"""
     _app, mock_setup, mock_checks = _build(monkeypatch, 'TESTING')
@@ -309,7 +321,6 @@ def test_a_regex_rule_without_a_pattern_matches_one_segment() -> None:
 
     with pytest.raises(NotFound):
         adapter.match('/plain/two/segments')
-
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -1,3 +1,15 @@
+# Unreleased
+
+<hr>
+
+
+## <ins>Changes</ins>
+
+-  REST API responses are no longer pretty-printed: every success and error body is compact JSON (no indent, no
+   newlines). Clients that parse JSON are unaffected; anything comparing raw response bytes sees the new encoding
+-  The sample nginx configuration (`contrib/nginx/nginx.conf`) now gzips JSON, JavaScript and CSS responses
+
+
 # Version 3.0.0
 
 <hr>

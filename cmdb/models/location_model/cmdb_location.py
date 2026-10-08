@@ -21,10 +21,10 @@ document carries no location data of its own beyond the tree edge (`parent`) and
 underlying object's render metadata (`type_label`, `type_icon`, `type_selectable`), copied at write
 time so the tree can be drawn without reading a type per node.
 
-**The frontend does not write these documents.** The object write path mirrors them - see
-`cmdb_locations/location_helper.py::sync_object_location` - and the `POST /locations/` route exists
-for completeness; both go through raw dicts, so this model is a **read-side** class: it hydrates
-documents for the two list routes and for the three callers that need one field off a location.
+**No route writes these documents directly.** The object write path and the two move routes mirror
+them - see `cmdb_locations/location_helper.py::sync_object_location` / `move_object_location` - through
+raw dicts, so this model is a **read-side** class: it hydrates documents for the two list routes and for
+the three callers that need one field off a location.
 
 Three invariants of the collection shape it:
 
@@ -111,8 +111,8 @@ class CmdbLocation(CmdbDAO):
         },
     ]
 
-    # The stored document's contract, written down - not run by any write (the create route takes three ids, the
-    # mirror builds the rest). It requires exactly REQUIRED_INIT_KEYS and defaults as CmdbLocationDefault; tests hold
+    # The stored document's contract, written down - not run by any write (every write is the object mirror, which
+    # builds the node from the object and its type). It requires exactly REQUIRED_INIT_KEYS and defaults as CmdbLocationDefault; tests hold
     # the two to each other
     SCHEMA: dict[str, Any] = get_cmdb_location_schema()
 

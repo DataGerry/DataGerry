@@ -132,9 +132,8 @@ def export_objects(params: CollectionParameters, request_user: CmdbUser) -> Resp
         _config = ExporterConfig(parameters=params, options=params.optional)
         exporter_class = load_class(f'{EXPORT_FORMAT_MODULE_PREFIX}{export_format}')()
 
-        db_name = None
-        if current_app.cloud_mode:
-            db_name = request_user.database
+        # The caller's tenant in cloud mode (refused when it names none), the configured database otherwise
+        db_name: str | None = ManagerProvider.tenant_database(request_user)
 
         exporter = BaseExportWriter(exporter_class, _config)
 

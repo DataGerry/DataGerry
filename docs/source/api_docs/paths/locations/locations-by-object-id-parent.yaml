@@ -1,0 +1,112 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            MOVE - LOCATION OF ONE OBJECT                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+patch:
+  tags:
+      - Locations
+      - Cloud
+      - OnPremise
+  summary: Place, move or remove the Location of one Object [Cloud] [OnPremise]
+  description: |
+      Required User Right: **base.framework.location.edit**
+      <br><hr><br>
+      Places the Object with the given **object_id** under **parent**, moves it there, or - with a **null** or
+      non-positive **parent** - removes its placement. Both halves of the placement are written: the Object's
+      location field and its Location node (created, re-parented or removed). A removed node's children are
+      promoted onto its own parent
+      <br><br>
+      The caller needs **READ** and **UPDATE** on the Object's Type, and the Type has to be active - checked before
+      anything else. The Object must declare a location field; the parent must exist, be selectable as a parent and
+      not lie inside the Object's own subtree. A drop onto a Rack's node is a Rack membership, a drag off it ends one
+  operationId: move_cmdb_location_for_object
+  parameters:
+      - name: object_id
+        in: path
+        description: The **public_id** of the **Object** whose placement changes
+        required: true
+        schema:
+            type: integer
+  requestBody:
+      required: true
+      content:
+          application/json:
+              schema:
+                  type: object
+                  properties:
+                      parent:
+                          type: integer
+                          nullable: true
+                          description: The **public_id** of the new parent Location (1 = the root); null or a
+                              non-positive id removes the placement
+                          example: 12
+  responses:
+      "200":
+          description: The applied move
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          object_id:
+                              type: integer
+                              example: 42
+                          parent:
+                              type: integer
+                              nullable: true
+                              example: 12
+      "400":
+          description: The parent is invalid, the Object has no location field, a Rack rule refuses the move, or the
+              write failed
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+                              example: "Failed to move the Location of Object with ID:42!"
+      "403":
+          description: The caller may not read or change the Object, or its Type is deactivated
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+      "404":
+          description: The Object does not exist
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+      "500":
+          description: Internal server error
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+                              example: "Internal server error"

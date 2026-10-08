@@ -17,12 +17,14 @@
 Functional smoke for the ``/objects`` read and listing routes
 
 What a caller gets back rather than what a write accepts: the rendered payloads, the
-``?view=values`` projection, the reference and MDS-reference lookups, the object counts, and the
-listing's own parameters - the active-only filter, the ``objectIDs`` validation, the two ``?filter=``
-shapes, and the ACL that decides both the rows and the ``total`` beside them
+``?view=values`` projection (and field selection through ``?projection=`` on it), the reference and
+MDS-reference lookups, the object counts, and the listing's own parameters - the active-only filter, the
+``objectIDs`` validation, the two ``?filter=`` shapes, and the ACL that decides both the rows and the
+``total`` beside them
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
+from json import dumps
 from typing import Any
 
 import pytest
@@ -55,6 +57,10 @@ from tests.functional.framework.objects.objects_route_helpers import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MDS_SECTION_NAME: str = 'mds-values-section'
+
+# A field name a label can produce, which a projection path would split
+DOTTED_FIELD_NAME: str = 'ip.address'
+DOTTED_FIELD_VALUE: str = '10.0.0.1'
 
 MDS_ROW_FIELD: str = 'mds-row-field'
 
@@ -133,6 +139,49 @@ class TestRenderedTypeInformation:
             assert response.get_json()['type_information']['uses_ports'] is True
         finally:
             types.update_one({'public_id': TYPE_ID}, {'$set': {'uses_ports': False}})
+
+
+class TestListValueViewFieldSelection:
+    """
+    ``GET /objects/?view=values&projection=`` selects single field values
+
+    The projection is applied to the name-keyed map the values view built, so a ``fields.<name>`` path picks one
+    field. A name holding a dot cannot be addressed as a path - projecting ``fields`` whole still carries it
+    """
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One object with an ordinary field and a dotted-name field."""
+        document = object_doc(OBJECT_ID_FOR_VALUES, ORIGINAL_VALUE)
+        document['fields'].append({'name': DOTTED_FIELD_NAME, 'value': DOTTED_FIELD_VALUE, 'type': 'text'})
+        database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(document)
+        yield
+        drop_object(database_manager, database_name, OBJECT_ID_FOR_VALUES)
+
+    @staticmethod
+    def _rows(rest_api, projection: Any) -> list[dict[str, Any]]:
+        """The values-view list rows of the seeded object under the given projection."""
+        criteria: str = dumps({'public_id': OBJECT_ID_FOR_VALUES})
+        response = rest_api.get(f'{ROUTE_URL}/?view=values&filter={criteria}&projection={dumps(projection)}')
+
+        assert response.status_code == HTTPStatus.OK
+        return response.get_json()['results']
+
+    def test_a_field_path_selects_that_field(self, rest_api) -> None:
+        """Only the projected keys leave the server - one field of the map, plus the identity asked for"""
+        rows = self._rows(rest_api, {'public_id': 1, f'fields.{NAME_FIELD}': 1})
+
+        assert rows == [{'public_id': OBJECT_ID_FOR_VALUES, 'fields': {NAME_FIELD: ORIGINAL_VALUE}}]
+
+    def test_a_list_projection_selects_the_same(self, rest_api) -> None:
+        """The list spelling is an all-includes projection"""
+        assert self._rows(rest_api, [f'fields.{NAME_FIELD}']) == [{'fields': {NAME_FIELD: ORIGINAL_VALUE}}]
+
+    def test_a_dotted_name_comes_with_the_whole_map(self, rest_api) -> None:
+        """Projecting ``fields`` whole is how a dotted name is read"""
+        rows = self._rows(rest_api, {'fields': 1})
+
+        assert rows == [{'fields': {NAME_FIELD: ORIGINAL_VALUE, DOTTED_FIELD_NAME: DOTTED_FIELD_VALUE}}]
 
 
 def _object_doc_with_mds(public_id: int, value: str) -> dict[str, Any]:

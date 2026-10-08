@@ -781,15 +781,15 @@ class TestLocationDrivenMembership:
         assert mounts.count_documents({'object_id': MEMBER_WITH_FIELD_ID}) == 1
         assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID})['rack_id'] == OTHER_RACK_ID
 
-    def test_deleting_the_location_of_an_unassigned_member_ends_the_membership(
+    def test_removing_the_location_of_an_unassigned_member_ends_the_membership(
         self, rest_api, collections,
     ) -> None:
-        """Unassigning the location from the tree route means leaving the rack"""
+        """Removing the placement from the tree route means leaving the rack"""
         _, _, mounts = collections
         _place_rack(rest_api)
         _mount(rest_api, MEMBER_WITH_FIELD_ID)
 
-        response = rest_api.delete(f'{LOCATIONS_URL}/{MEMBER_WITH_FIELD_ID}/object')
+        response = rest_api.patch(f'{LOCATIONS_URL}/{MEMBER_WITH_FIELD_ID}/parent', json={'parent': None})
 
         assert response.status_code == HTTPStatus.OK
         assert mounts.find_one({'object_id': MEMBER_WITH_FIELD_ID}) is None

@@ -25,6 +25,7 @@ from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.system_manager.system_reader import SystemReader
 
+from cmdb.errors.database import DocumentInsertDuplicateKeyError
 from cmdb.errors.system_config import SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -171,3 +172,45 @@ class SettingsManager(SystemReader):
                         data=data,
                         upsert=True
                     )
+
+
+    def claim_section(self, section: str, data: dict[str, Any]) -> bool:
+        """
+        Creates a settings section only if it does not exist yet - atomically
+
+        The section's name is the document's ``_id``, so the collection's own unique ``_id`` index decides between
+        two concurrent claims: exactly one insert is stored, the other is refused. That makes a section usable as a
+        one-time marker or a lock, where reading first and writing after would let both callers through
+
+        Args:
+            section (str): The section's name
+            data (dict[str, Any]): Its values
+
+        Raises:
+            DocumentInsertError: When the insert fails for any reason but the section existing already
+
+        Returns:
+            bool: True when this call created the section, False when it existed already
+        """
+        try:
+            self.dbm.insert(self.COLLECTION, self.db_name, {**data, SETTINGS_SECTION_ID_KEY: section},
+                            skip_public=True)
+        except DocumentInsertDuplicateKeyError:
+            return False
+
+        return True
+
+
+    def delete_section(self, section: str) -> bool:
+        """
+        Deletes a settings section
+
+        Args:
+            section (str): The section's name
+
+        Returns:
+            bool: True when a section was deleted, False when there was none
+        """
+        result = self.dbm.delete(self.COLLECTION, self.db_name, {SETTINGS_SECTION_ID_KEY: section})
+
+        return result.deleted_count > 0

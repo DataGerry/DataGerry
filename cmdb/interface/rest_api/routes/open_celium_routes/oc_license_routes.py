@@ -21,11 +21,11 @@ All API routes for OpenCelium Licenses
 report on the licence of the OpenCelium installation the tenant is connected to. Nothing here is
 stored by DataGerry - both routes are read-only proxies.
 
-**Deliberately NOT gated behind the AUTOMATIONS licence.** Every other OpenCelium blueprint is
-(`init_rest_api`), because the whole integration is that licensed feature - but OpenCelium's own
-licence has to stay readable, which is exactly the state an operator needs to see when something is
-wrong with it. The routes are still authenticated and `ApiLevel.LOCKED`; they carry no per-route ACL
-right.
+**Gated like the rest of the integration.** Each route carries ``requires_feature(AUTOMATIONS)`` on its own
+(the blueprint is registered outside the gated group in ``init_rest_api``): without the Automations licence
+there is no OpenCelium integration to report on, and the routes would otherwise call out to OpenCelium with the
+stored credentials for any logged-in user. Both ask for ``base.openCelium.connection.view`` (``OcRight``) - the
+page is opened from the automations list, which needs it.
 
 **Frontend usage: `/licenses/info` only** (`license.service.ts`, which always sends `page` and
 `size`). The activation route has no caller at all - neither in the frontend nor in the backend.
@@ -48,6 +48,9 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_license_helper import 
     read_usage_paging,
 )
 
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcRight
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
+from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.open_celium.license import OcLicenseGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -63,9 +66,11 @@ USAGE_RESPONSE_KEY: str = 'usage'
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_licenses_blueprint.route('/licenses/activation/generate', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium License activation request!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_licenses_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@requires_feature(LicenseFeature.AUTOMATIONS)
+@handle_oc_errors("retrieving the OpenCelium License activation request!")
 def get_oc_license_activation(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route to retrieve an OpenCelium licence activation request
@@ -93,15 +98,21 @@ def get_oc_license_activation(request_user: CmdbUser) -> Response:
 
 
 @oc_licenses_blueprint.route('/licenses/info', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the OpenCelium License info!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_licenses_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@requires_feature(LicenseFeature.AUTOMATIONS)
+@handle_oc_errors("retrieving the OpenCelium License info!")
 def get_oc_license_info(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route to retrieve the OpenCelium licence and its usage of the current month
 
     Answers **both halves in one body** - `{'license': ..., 'usage': ...}`, the shape the Angular
-    `LicenseInfoResponse` reads - which costs two sequential OpenCelium calls per request.
+    `LicenseInfoResponse` reads. That costs **two OpenCelium round trips, one after the other** - the active
+    licence first, then the requested usage page - each bounded by `OC_REQUEST_TIMEOUT` (10 s), so about 20 s
+    at worst against an OpenCelium that hangs. They share one `try`: a failing half fails the request, and no
+    half answer is sent. Kept that way on purpose - an admin screen opened now and then, where running the
+    calls concurrently, caching the licence or splitting the route would each cost more than they save.
     `?page=` / `?size=` page the usage report; see `read_usage_paging` for
     what an unreadable value does, and note that the usage WINDOW is the host's local month
 

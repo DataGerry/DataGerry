@@ -1,0 +1,110 @@
+# DataGerry - OpenSource Enterprise CMDB
+# Copyright (C) 2026 becon GmbH
+#
+# This program is free software: you can redistribute it and/or modify
+# it under the terms of the GNU Affero General Public License as
+# published by the Free Software Foundation, either version 3 of the
+# License, or (at your option) any later version.
+#
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU Affero General Public License for more details.
+#
+# You should have received a copy of the GNU Affero General Public License
+# along with this program. If not, see <https://www.gnu.org/licenses/>.
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         MOVE - LOCATIONS OF SEVERAL OBJECTS                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+patch:
+  tags:
+      - Locations
+      - Cloud
+      - OnPremise
+  summary: Move the Locations of several Objects under one parent [Cloud] [OnPremise]
+  description: |
+      Required User Right: **base.framework.location.edit**
+      <br><hr><br>
+      Moves every listed Object under **parent** - or, with a **null** or non-positive **parent**, removes each
+      one's placement - under the same rules as the single move
+      <br><br>
+      All or nothing: every Object is found and authorized (**READ** and **UPDATE** on its Type, an active Type)
+      before the parent is judged, and one denied or invalid Object refuses the whole batch with nothing written
+  operationId: move_cmdb_locations
+  requestBody:
+      required: true
+      content:
+          application/json:
+              schema:
+                  type: object
+                  required:
+                      - object_ids
+                  properties:
+                      object_ids:
+                          type: array
+                          minItems: 1
+                          items:
+                              type: integer
+                          example: [42, 43]
+                      parent:
+                          type: integer
+                          nullable: true
+                          description: The **public_id** of the new parent Location (1 = the root); null or a
+                              non-positive id removes the placements
+                          example: 12
+  responses:
+      "200":
+          description: The applied moves
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          object_ids:
+                              type: array
+                              items:
+                                  type: integer
+                          parent:
+                              type: integer
+                              nullable: true
+      "400":
+          description: object_ids is not a non-empty list of integers, a target is invalid, a Rack rule refuses a
+              move, or a write failed
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+                              example: "Failed to move the Locations of the requested Objects!"
+      "403":
+          description: The caller may not read or change a listed Object, or its Type is deactivated
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+      "404":
+          description: A listed Object does not exist
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+      "500":
+          description: Internal server error
+          content:
+              application/json:
+                  schema:
+                      type: object
+                      properties:
+                          error:
+                              type: string
+                              example: "Internal server error"
