@@ -1145,7 +1145,7 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
 
             const shown = displayPathFor(method.response?.success?.body);
 
-            for (const entry of schemaPaths(method.response?.success?.body?.fields, loops)) {
+            for (const entry of schemaPaths(method.response?.success?.body?.fields, loopsOver(loops, method))) {
                 sources.push({
                     group,
                     label: shown(entry.path),
@@ -1168,9 +1168,11 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
      */
     private dataGerryFieldSources(
         source: OcMethod | undefined,
-        loops: ReadonlyArray<{ path: string; iterator: string }>
+        loops: ReadonlyArray<EnclosingLoop>
     ): ValueSource[] {
-        const objects = loops[0];
+        // The loop that walks the objects DataGerry answered - not simply the outermost one, which
+        // may walk something else once the sequence has loops of its own.
+        const objects = loops.find(loop => loop.color === source?.color) ?? null;
 
         if (!source || !objects || this.definition.direction !== 'outgoing') {
             return [];
@@ -1198,15 +1200,8 @@ export class WizardStepFlowComponent implements DoCheck, AfterViewChecked {
      * which loops wrap a step - everything under '1' runs inside the loop at '1' - and each loop's
      * own expression says which list it walks and what it calls an entry.
      */
-    private enclosingLoops(index: string): Array<{ path: string; iterator: string }> {
-        return (this.connection?.fromConnector.operators ?? [])
-            .filter(operator => operator.type === 'loop' && index.startsWith(`${operator.index}_`))
-            .sort((left, right) => compareIndex(left.index, right.index))
-            .map(operator => ({
-                path: /body\.\$\.(.+?)\[\*\]/.exec(operator.expression)?.[1] ?? '',
-                iterator: operator.iterator || OC_LOOP_ITERATOR
-            }))
-            .filter(loop => !!loop.path);
+    private enclosingLoops(index: string): EnclosingLoop[] {
+        return loopsAround(this.connection, index);
     }
 
 
@@ -2019,22 +2014,14 @@ export function valueSourcesAfterSequence(connection: OcConnection | null): Valu
 
     // A position inside the container, which is where the call sits - it decides which loops the
     // references have to walk with an iterator.
-    const at = `${container.index}_0`;
-    const loops = operators
-        .filter(operator => operator.type === 'loop' && at.startsWith(`${operator.index}_`))
-        .sort((left, right) => compareIndex(left.index, right.index))
-        .map(operator => ({
-            path: /body\.\$\.(.+?)\[\*\]/.exec(operator.expression)?.[1] ?? '',
-            iterator: operator.iterator || OC_LOOP_ITERATOR
-        }))
-        .filter(loop => !!loop.path);
+    const loops = loopsAround(connection, `${container.index}_0`);
 
     return connection.fromConnector.methods
         .filter(method => method.methodType !== OC_FREE_REQUEST)
         .flatMap(method => {
             const shown = displayPathFor(method.response?.success?.body);
 
-            return schemaPaths(method.response?.success?.body?.fields, loops).map(entry => ({
+            return schemaPaths(method.response?.success?.body?.fields, loopsOver(loops, method)).map(entry => ({
                 group: method.connector?.title ? `${method.connector.title} · ${method.name}` : method.name,
                 label: shown(entry.path),
                 reference: ocFieldReference(method.color, 'response', entry.path),
@@ -2042,6 +2029,49 @@ export function valueSourcesAfterSequence(connection: OcConnection | null): Valu
                 isList: entry.isList
             }));
         });
+}
+
+
+/** A loop a step runs inside: the list it walks, whose answer that list is in, and its iterator. */
+interface EnclosingLoop {
+    path: string;
+    iterator: string;
+
+    /** The colour of the call whose answer holds the list; empty when the expression names none. */
+    color: string;
+}
+
+
+/**
+ * The loops around a position in the sequence, outermost first.
+ *
+ * Read back out of the operators rather than tracked alongside them: an execution index says which
+ * loops wrap a step - everything under '1' runs inside the loop at '1' - and each loop's expression
+ * says which call's list it walks and what it calls an entry.
+ */
+function loopsAround(connection: OcConnection | null, index: string): EnclosingLoop[] {
+    return (connection?.fromConnector.operators ?? [])
+        .filter(operator => operator.type === 'loop' && index.startsWith(`${operator.index}_`))
+        .sort((left, right) => compareIndex(left.index, right.index))
+        .map(operator => {
+            const match = /(#[0-9A-Fa-f]{6})\.\(response\)\.body\.\$\.(.+?)\[\*\]/.exec(operator.expression);
+
+            return {
+                path: match?.[2] ?? /body\.\$\.(.+?)\[\*\]/.exec(operator.expression)?.[1] ?? '',
+                iterator: operator.iterator || OC_LOOP_ITERATOR,
+                color: match?.[1] ?? ''
+            };
+        })
+        .filter(loop => !!loop.path);
+}
+
+
+/**
+ * The loops that walk a list in this call's answer. Two calls can both answer under `result`, and
+ * a loop over one of them says nothing about which entry of the other is meant.
+ */
+function loopsOver(loops: ReadonlyArray<EnclosingLoop>, method: OcMethod): EnclosingLoop[] {
+    return loops.filter(loop => !loop.color || loop.color.toUpperCase() === (method.color ?? '').toUpperCase());
 }
 
 

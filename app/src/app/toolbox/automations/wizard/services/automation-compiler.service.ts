@@ -71,6 +71,7 @@ import {
     OC_LOOP_INDEX,
     OC_LOOP_ITERATOR,
     OC_METHOD_COLORS,
+    ocNextMethodColor,
     OC_SCHEDULER_ACTIVE,
     OC_SCHEDULER_INACTIVE,
     OC_NOT_EMPTY,
@@ -492,7 +493,7 @@ export class AutomationCompilerService {
             // Named after the entry rather than after a position: an added call is found again by
             // the step it came from, and a position moves as soon as anything is inserted above it.
             const id = ocMethodNodeId(extra.id);
-            const color = out.palette[out.methods.length % out.palette.length];
+            const color = ocNextMethodColor(out.methods);
             let method: OcMethod;
 
             if (extra.kind === 'http') {
@@ -1104,7 +1105,7 @@ export class AutomationCompilerService {
             context.internalConnector,
             ocMethodNodeId(methods.length),
             this.nextFreePosition(container.index, container.index.split('_').length + 1, out),
-            palette[methods.length % palette.length],
+            ocNextMethodColor(methods),
             null
         );
 
@@ -1270,7 +1271,7 @@ export class AutomationCompilerService {
             sides.targetConnector,
             ocMethodNodeId(methods.length),
             `${container.index}_0`,
-            palette[methods.length % palette.length],
+            ocNextMethodColor(methods),
             null
         );
 
@@ -1301,7 +1302,7 @@ export class AutomationCompilerService {
                 sides.targetConnector,
                 ocMethodNodeId(methods.length),
                 `${conditional.index}_0`,
-                palette[methods.length % palette.length],
+                ocNextMethodColor(methods),
                 null
             );
 
