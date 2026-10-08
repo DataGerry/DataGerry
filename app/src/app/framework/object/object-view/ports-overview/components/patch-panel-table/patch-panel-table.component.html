@@ -49,9 +49,22 @@
         {{ port.connectionLabel }}
 
         @if (port.cableSource; as badge) {
-          <span class="ports-badge ports-source" [class.ports-source--metadata]="badge.source === cableSource.INLINE">
-            {{ badge.label }}
-          </span>
+          @if (badge.objectId != null) {
+            <a
+              class="ports-badge ports-source ports-source--link"
+              [routerLink]="['/framework/object/view', badge.objectId]"
+              [ngbTooltip]="'Open cable ' + badge.label"
+              [openDelay]="200"
+              container="body"
+              placement="top"
+              [attr.aria-label]="'Open cable ' + badge.label">
+              {{ badge.label }}
+            </a>
+          } @else {
+            <span class="ports-badge ports-source" [class.ports-source--metadata]="badge.source === cableSource.INLINE">
+              {{ badge.label }}
+            </span>
+          }
         }
       </span>
 

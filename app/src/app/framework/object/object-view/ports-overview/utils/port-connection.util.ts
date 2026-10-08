@@ -103,9 +103,13 @@ export function cableLabel(cable: ResolvedCable | null): string {
 export function cableSourceBadge(cable: ResolvedCable | null): CableSourceBadge | null {
     switch (cable?.source) {
         case CableSource.CI:
-            return { source: CableSource.CI, label: cable.cable_ci_id != null ? `CI #${ cable.cable_ci_id }` : 'CI' };
+            return {
+                source: CableSource.CI,
+                label: cable.cable_ci_id != null ? `CI #${ cable.cable_ci_id }` : 'CI',
+                objectId: cable.cable_ci_id ?? null
+            };
         case CableSource.INLINE:
-            return { source: CableSource.INLINE, label: 'Metadata' };
+            return { source: CableSource.INLINE, label: 'Metadata', objectId: null };
         default:
             return null;
     }

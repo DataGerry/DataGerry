@@ -98,7 +98,7 @@ export function withAlpha(hex: string, alpha: number): string {
 
 /** A port counts as connected by its cable only; a panel face's internal pairing is drawn separately. */
 export function hasCable(port: OverviewPort | null | undefined): boolean {
-    return port?.cable_connection_id != null;
+    return port?.cabled === true;
 }
 
 

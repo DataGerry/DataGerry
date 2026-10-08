@@ -43,8 +43,8 @@ export enum PortSide {
 /**
  * A port as `GET /ports/object/<object_id>` returns it.
  *
- * The option fields hold a CmdbExtendableOption `public_id`, not a label. `connected` is derived on
- * read, so a backend without it omits the key.
+ * The option fields hold a CmdbExtendableOption `public_id`, not a label. `connected` and `cabled` are
+ * derived on read, so a backend without them omits the keys.
  */
 export interface CmdbPort {
     public_id: number;
@@ -59,7 +59,9 @@ export interface CmdbPort {
     author_id: number | null;
     creation_time: { $date: number } | null;
     last_edit_time: { $date: number } | null;
+    /** True for an internal pairing too; `cabled` alone says whether the port carries a cable. */
     connected?: boolean;
+    cabled?: boolean;
 
     /** Embedded by the read route, with each link's `interface_row` resolved. Omitted by older backends. */
     interface_links?: PortInterfaceLink[];
@@ -97,6 +99,7 @@ export interface OverviewPort {
     name: string;
     description?: string | null;
     connected: boolean;
+    cabled: boolean;
     cable: ResolvedCable | null;
     cable_connection_id: number | null;
     connected_port?: OverviewConnectedPort | null;

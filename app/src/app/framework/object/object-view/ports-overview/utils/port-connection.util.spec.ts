@@ -143,7 +143,7 @@ describe('port-connection.util', () => {
         it('names the linked cable CI', () => {
             const badge = cableSourceBadge(cable({ source: CableSource.CI, cable_ci_id: 9950, name: 'CAB-000471' }));
 
-            expect(badge).toEqual({ source: CableSource.CI, label: 'CI #9950' });
+            expect(badge).toEqual({ source: CableSource.CI, label: 'CI #9950', objectId: 9950 });
         });
 
         it('still marks a CI cable whose id is missing', () => {
@@ -151,7 +151,7 @@ describe('port-connection.util', () => {
         });
 
         it('marks a cable described on the connection as metadata', () => {
-            expect(cableSourceBadge(cable({ name: 'Patch A-12' }))).toEqual({ source: CableSource.INLINE, label: 'Metadata' });
+            expect(cableSourceBadge(cable({ name: 'Patch A-12' }))).toEqual({ source: CableSource.INLINE, label: 'Metadata', objectId: null });
         });
 
         it('shows no chip without a cable or a known source', () => {
