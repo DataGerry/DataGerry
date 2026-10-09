@@ -97,9 +97,10 @@ class CmdbPort(CmdbDAO):
     SCHEMA: dict[str, Any] = get_cmdb_port_schema()
 
 
-    #pylint: disable=R0913, R0917
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
+            *,
             public_id: int,
             object_id: int,
             name: str,

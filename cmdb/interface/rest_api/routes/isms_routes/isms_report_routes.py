@@ -30,13 +30,12 @@ from cmdb.manager.isms_manager.control_measure_manager import ControlMeasureMana
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.utils import Builder
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.isms_model import (
     IsmsControlMeasure,
     IsmsControlMeasureAssignment,
-    IsmsProtectionGoal,
-    IsmsRisk,
 )
 from cmdb.framework.isms import RiskMatrixReportBuilder
 from cmdb.models.person_model import CmdbPerson, PersonKey
@@ -46,11 +45,7 @@ from cmdb.models.isms_model.isms_control_measure_assignment_constants import Con
 from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.isms_model.isms_risk_constants import RiskKey
-from cmdb.models.extendable_option_model import OptionType, CmdbExtendableOption, ExtendableOptionKey
-from cmdb.models.object_model import CmdbObjectKey
-from cmdb.models.object_group_model import ObjectGroupKey
-from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
-from cmdb.models.type_model import TypeSchemaKey
+from cmdb.models.extendable_option_model import OptionType, ExtendableOptionKey
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import (
@@ -66,19 +61,23 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
     build_ra_report_search_stage,
     build_report_facet_stage,
     build_report_filter_stages,
+    assessed_object_projection,
+    assessed_object_type_projection,
     extract_report_page,
     field_path,
     field_reference,
+    implementation_status_lookup_stages,
     object_reference_lookup_stages,
     paginate_report_rows,
+    resolve_assessed_objects,
     risk_assessment_report_projection_stage,
     risk_calculation_projection_fields,
     risk_assessment_report_stages,
     risk_matrix_class_lookup_stages,
+    risk_reference_lookup_stages,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
     IsmsReportErrorMessage,
-    OBJECT_GROUP_TYPE_LABEL,
     ReportAlias,
     RiskAssessmentReportKey,
     RiskTreatmentPlanReportKey,
@@ -101,43 +100,23 @@ SOA_FIXED_ORDER_DIRECTION: int = 1
 # The source whose controls the SOA lists first, matched against the RESOLVED source label
 SOA_PRIMARY_SOURCE: str = 'ISO 27001:2022'
 
-# Shown in place of an assessed object whose CmdbObject no longer resolves. The row is kept rather
-# than dropped: a risk assessment naming a deleted object is exactly what a reader needs to see
-UNKNOWN_OBJECT_LABEL: str = 'Unknown object'
+# The only keys of a control measure an SOA row carries: the columns the report shows, which include
+# the two `sort_key` orders by. The free-text `description` is not one of them and is not read
+SOA_PROJECTION: dict[str, int] = {
+    ControlMeasureKey.PUBLIC_ID.value: 1,
+    ControlMeasureKey.IDENTIFIER.value: 1,
+    ControlMeasureKey.TITLE.value: 1,
+    ControlMeasureKey.CHAPTER.value: 1,
+    ControlMeasureKey.IS_APPLICABLE.value: 1,
+    ControlMeasureKey.REASON.value: 1,
+    ControlMeasureKey.IMPLEMENTATION_STATE.value: 1,
+    ControlMeasureKey.CONTROL_MEASURE_TYPE.value: 1,
+    ControlMeasureKey.SOURCE.value: 1,
+    '_id': 0,
+}
 
 isms_report_blueprint = APIBlueprint('isms_report', __name__)
 
-
-def _replace_object_ids_with_summaries(
-        items: list[dict[str, Any]],
-        object_key: str,
-        objects_manager: ObjectsManager) -> None:
-    """
-    Replaces each report item's OBJECT-referenced public_id (under ``object_key``) with the object's
-    summary line, resolved in a single batch rather than one lookup per item.
-
-    Only items whose ``object_id_ref_type`` is OBJECT are touched; an id with no resolvable object
-    becomes 'Unknown object'.
-
-    Args:
-        items (list[dict[str, Any]]): The aggregated report rows to enrich in place
-        object_key (str): The key holding the object public_id to replace
-        objects_manager (ObjectsManager): Manager used to resolve the summary lines
-    """
-    target_items = [
-        item for item in items
-        if item.get(object_key) and item.get(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value) == ObjectReferenceType.OBJECT
-    ]
-
-    if not target_items:
-        return
-
-    summaries = objects_manager.get_summary_lines_lookup(
-        [item[object_key] for item in target_items], with_type=False
-    )
-
-    for item in target_items:
-        item[object_key] = summaries.get(item[object_key], UNKNOWN_OBJECT_LABEL)
 
 # ----------------------------------------------------- REPORTS ------------------------------------------------------ #
 
@@ -155,6 +134,10 @@ def get_isms_risk_matrix_report(request_user: CmdbUser) -> Response:
     `risk_matrix_current_state`, `risk_matrix_after_treatment` - plus `configured`, which is False
     while the ISMS config wizard has not produced the risk matrix yet. Without that flag the state
     is indistinguishable from a configured matrix nothing has been assessed against
+
+    The report is not paginated and takes no collection parameters: it is one grid, and every
+    assessment counts towards a cell. All assessments are read once, projected to the four keys the
+    grid needs (see ``RiskMatrixReportBuilder``), so the cost is two queries whatever their number
 
     Args:
         request_user (CmdbUser): CmdbUser requesting the RiskMatrix report
@@ -240,43 +223,11 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
         # after the $project too, so filtering here would have addressed a different field set than
         # sorting did. params.filter is applied after the $project below, as on the sibling report.
         Builder.match_({}),
-        # Step 1: Lookup associated Risk
-        Builder.lookup_(
-            IsmsRisk.COLLECTION,
-            RiskAssessmentKey.RISK_ID.value,
-            RiskKey.PUBLIC_ID.value,
-            ReportAlias.RISK.value,
-        ),
-        Builder.unwind_({"path": field_reference(ReportAlias.RISK), "preserveNullAndEmptyArrays": True}),
+        # Steps 1, 3 and 4: the assessed Risk, its category label and its protection goals
+        *risk_reference_lookup_stages(),
 
         # Step 2: Lookup implementation status (ExtendableOption)
-        Builder.lookup_(
-            CmdbExtendableOption.COLLECTION,
-            RiskAssessmentKey.IMPLEMENTATION_STATUS.value,
-            ExtendableOptionKey.PUBLIC_ID.value,
-            ReportAlias.IMPLEMENTATION_STATUS.value,
-        ),
-        Builder.unwind_({
-            "path": field_reference(ReportAlias.IMPLEMENTATION_STATUS),
-            "preserveNullAndEmptyArrays": True,
-        }),
-
-        # Step 3: Lookup risk category label (ExtendableOption)
-        Builder.lookup_(
-            CmdbExtendableOption.COLLECTION,
-            field_path(ReportAlias.RISK, RiskKey.CATEGORY_ID),
-            ExtendableOptionKey.PUBLIC_ID.value,
-            ReportAlias.RISK_CATEGORY.value,
-        ),
-        Builder.unwind_({"path": field_reference(ReportAlias.RISK_CATEGORY), "preserveNullAndEmptyArrays": True}),
-
-        # Lookup protection goals by IDs in risk.protection_goals
-        Builder.lookup_(
-            IsmsProtectionGoal.COLLECTION,
-            field_path(ReportAlias.RISK, RiskKey.PROTECTION_GOALS),
-            ProtectionGoalKey.PUBLIC_ID.value,
-            ReportAlias.PROTECTION_GOALS.value,
-        ),
+        *implementation_status_lookup_stages(),
 
         # Lookup Object / ObjectGroup / type label for the assessed object
         *object_reference_lookup_stages(),
@@ -335,26 +286,8 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
                 ReportAlias.PROTECTION_GOALS, ProtectionGoalKey.NAME
             ),
 
-            RiskTreatmentPlanReportKey.OBJECT.value: {
-                "$cond": [
-                    {"$eq": [
-                        field_reference(RiskAssessmentKey.OBJECT_ID_REF_TYPE),
-                        ObjectReferenceType.OBJECT_GROUP.value,
-                    ]},
-                    {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_GROUP, ObjectGroupKey.NAME), 0]},
-                    {"$arrayElemAt": [field_reference(ReportAlias.OBJECT, CmdbObjectKey.PUBLIC_ID), 0]}
-                ]
-            },
-            RiskTreatmentPlanReportKey.OBJECT_TYPE.value: {
-                "$cond": [
-                    {"$eq": [
-                        field_reference(RiskAssessmentKey.OBJECT_ID_REF_TYPE),
-                        ObjectReferenceType.OBJECT_GROUP.value,
-                    ]},
-                    OBJECT_GROUP_TYPE_LABEL,
-                    {"$arrayElemAt": [field_reference(ReportAlias.OBJECT_TYPE, TypeSchemaKey.LABEL), 0]}
-                ]
-            },
+            RiskTreatmentPlanReportKey.OBJECT.value: assessed_object_projection(),
+            RiskTreatmentPlanReportKey.OBJECT_TYPE.value: assessed_object_type_projection(),
             RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: 1,
             **risk_calculation_projection_fields(),
 
@@ -405,14 +338,13 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
     query_pipeline.append(build_report_facet_stage(params))
 
     # allowDiskUse lets the pagination $sort spill to disk instead of hitting the 100MB in-memory limit
-    aggregation = risk_assessment_manager.aggregate(query_pipeline, allowDiskUse=True)
-    query_result, total = extract_report_page(list(aggregation))
+    aggregation: list[dict[str, Any]] = risk_assessment_manager.aggregate_within_time_limit(
+        query_pipeline, LONG_QUERY_TIME_LIMIT_MS, allowDiskUse=True,
+    )
+    query_result, total = extract_report_page(aggregation)
 
-    # Replace Object public_ids with their summary lines (batched), then drop the internal ref type
-    _replace_object_ids_with_summaries(query_result, RiskTreatmentPlanReportKey.OBJECT.value, objects_manager)
-
-    for item in query_result:
-        item.pop(RiskAssessmentKey.OBJECT_ID_REF_TYPE.value, None)
+    # Name each assessed object (one batch for the page), then drop the internal ref type
+    resolve_assessed_objects(query_result, RiskTreatmentPlanReportKey.OBJECT.value, objects_manager)
 
     return GetMultiResponse(query_result, total, params, request.url, body).make_response()
 
@@ -431,15 +363,22 @@ def get_isms_soa_report(params: CollectionParameters, request_user: CmdbUser) ->
     The report is paginated (``limit``/``page``) and wrapped in a GetMultiResponse envelope. Its
     ordering is fixed by the SOA business rules (see ``sort_key``: ISO 27001:2022 source first, then a
     natural identifier sort), so ``sort``/``order``/``filter`` query params are not applied here.
+    ``limit=0`` returns every row - the frontend's CSV/XLSX/PDF export asks for that.
+
+    A row carries only the ``SOA_PROJECTION`` keys - the columns of the report - with
+    ``implementation_state`` and ``source`` resolved to their option values and ``is_applicable``
+    normalised to a boolean (a stored null reads as False).
 
     **This is the one report that pages in Python**, and deliberately so: its two sibling reports append
     ``build_report_facet_stage`` and let MongoDB sort, skip and count in a single pass, which this one
     cannot. ``sort_key`` orders by the source label only AFTER it has been resolved from a
     CmdbExtendableOption, and then by a natural identifier sort that splits an identifier into digit and
     non-digit runs and compares variable-length tuples - neither is expressible as a ``$sort``. So the
-    whole (bounded, catalogue-sized) control-measure set is read, ordered, and only then sliced by
-    ``paginate_report_rows``. Do not fold this into the shared facet helpers without first changing the
-    ordering contract that the certifier-facing document depends on.
+    whole control-measure set is read, ordered, and only then sliced by ``paginate_report_rows``. That
+    is accepted as the report's contract: the set is a control catalogue (ISO 27001:2022 Annex A has 93
+    controls), not a growing log, and the read is projected to the report's columns. Do not fold this
+    into the shared facet helpers without first changing the ordering contract that the
+    certifier-facing document depends on.
 
     Args:
         params (CollectionParameters): Pagination parameters for the report
@@ -475,7 +414,7 @@ def get_isms_soa_report(params: CollectionParameters, request_user: CmdbUser) ->
     )
     source_lookup: dict[int, str] = option_value_maps.get(OptionType.CONTROL_MEASURE.value, {})
 
-    all_control_measures = control_measure_manager.get_many()
+    all_control_measures: list[dict[str, Any]] = control_measure_manager.get_many(projection=SOA_PROJECTION)
 
     # Single pass over the raw documents: replace the implementation_state and source public_ids
     # with their values, and normalise the SoA answer. The rows are read documents, not model
@@ -587,13 +526,13 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
 
     # allowDiskUse lets the pagination $sort and the $group stages spill to disk instead of
     # hitting the 100MB in-memory limit
-    aggregation = risk_assessment_manager.aggregate(pipeline, allowDiskUse=True)
-    query_result, total = extract_report_page(list(aggregation))
-
-    # Replace Object public_ids with their summary lines (batched)
-    _replace_object_ids_with_summaries(
-        query_result, RiskAssessmentReportKey.ASSIGNED_OBJECT.value, objects_manager
+    aggregation: list[dict[str, Any]] = risk_assessment_manager.aggregate_within_time_limit(
+        pipeline, LONG_QUERY_TIME_LIMIT_MS, allowDiskUse=True,
     )
+    query_result, total = extract_report_page(aggregation)
+
+    # Name each assessed object (one batch for the page), then drop the internal ref type
+    resolve_assessed_objects(query_result, RiskAssessmentReportKey.ASSIGNED_OBJECT.value, objects_manager)
 
     return GetMultiResponse(query_result, total, params, request.url, body).make_response()
 

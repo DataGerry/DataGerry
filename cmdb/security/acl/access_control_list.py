@@ -23,6 +23,10 @@ section there is, which is why every section-taking method defaults to it.
 Access control is **opt-in**: an ACL that is absent or deactivated permits everything (see
 ``acl/helpers.py``). When it is activated, the decision is ``verify_access``, and it fails **closed** -
 an ACL without groups permits nothing rather than raising.
+
+Two class methods own the stored form: ``default_json`` is the block a Type nobody configured access control for
+gets, and ``normalize_stored`` is the complete block any stored value reads as - what the type create writes and
+what ``updater_20261003`` wrote back onto every older Type.
 """
 from logging import Logger, getLogger
 from typing import TypeVar, Any
@@ -78,6 +82,46 @@ class AccessControlList:
             activated=data.get(AclKey.ACTIVATED.value, False),
             groups=GroupACL.from_data(data.get(AclKey.GROUPS.value) or {})
         )
+
+
+    @classmethod
+    def default_json(cls) -> dict[str, Any]:
+        """
+        The complete ``acl`` block of a CmdbType nobody configured access control for
+
+        Switched off, no group granted anything - so the type is governed by the normal rights alone. The one
+        spelling of the default: the type create, the type import's repair, the start assistant and the stored-
+        shape migration all write it through here, so it cannot drift between them
+
+        Returns:
+            dict[str, Any]: ``{'activated': False, 'groups': {'includes': {}}}``, a new dict on every call
+        """
+        return cls.to_json(cls(activated=False))
+
+
+    @classmethod
+    def normalize_stored(cls, acl: Any) -> dict[str, Any]:
+        """
+        The complete ``acl`` block a stored value reads as
+
+        Whatever shape a CmdbType's ``acl`` was stored in, this is the block the readers already take it for:
+        a value that is no document reads as the default, a missing or null ``activated`` as False (a stored
+        non-boolean by its truthiness, the single read's reading), a missing or null ``groups`` / ``includes``
+        as no group. Writing it back therefore changes no access decision
+
+        Args:
+            acl (Any): The stored ``acl`` value, whatever its shape
+
+        Returns:
+            dict[str, Any]: The complete block, ``activated`` a real boolean
+        """
+        if not isinstance(acl, dict):
+            return cls.default_json()
+
+        normalized: dict[str, Any] = cls.to_json(cls.from_data(acl))
+        normalized[AclKey.ACTIVATED.value] = bool(normalized[AclKey.ACTIVATED.value])
+
+        return normalized
 
 
     @classmethod

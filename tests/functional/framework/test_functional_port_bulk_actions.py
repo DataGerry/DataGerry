@@ -35,6 +35,7 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.port_connections_manager import (
     PortConnectionsManagerDeleteError,
     PortConnectionsManagerGetError,
@@ -686,6 +687,23 @@ class TestBulkActionErrorMapping:
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
 
+    @pytest.mark.parametrize('manager, method, error', [
+        (PortConnectionsManager, 'delete_many', BaseManagerDeleteError('boom')),
+        (PortConnectionsManager, 'find', BaseManagerGetError('boom')),
+        (PortsManager, 'get_ports_of_object', PortsManagerGetError('boom')),
+    ], ids=['delete-many', 'connection-read', 'port-read'])
+    def test_what_the_resolve_really_raises_is_a_400(
+        self, rest_api, monkeypatch, manager: type, method: str, error: Exception,
+    ) -> None:
+        """The errors find, delete_many and the port read actually raise - not only the manager-named ones"""
+        monkeypatch.setattr(manager, method, _raiser(error))
+
+        response = rest_api.delete(
+            f'{CONNECTIONS_URL}/object/{PANEL_OBJECT_ID}/bulk', json=self.RESOLVE_BODY,
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
     def test_a_resolve_unexpected_error_is_a_500(self, rest_api, monkeypatch) -> None:
         """Anything else"""
         monkeypatch.setattr(PortConnectionsManager, 'delete_many', _raiser(RuntimeError('boom')))
@@ -695,3 +713,30 @@ class TestBulkActionErrorMapping:
         )
 
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+class TestBulkEditTextCap:
+    """PATCH /ports/object/<id>/bulk - the description is capped like a single port's."""
+
+    def test_a_description_over_the_cap_changes_nothing(self, rest_api, seeded) -> None:
+        """Refused as a whole: no selected port takes it"""
+        response = rest_api.patch(_bulk_url(), json={
+            'port_ids': [FRONT_PORT_ID, REAR_PORT_ID], 'values': {'description': 'd' * 256},
+        })
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "'description'" in response.get_json()['message']
+        assert _stored_port(seeded, FRONT_PORT_ID)[PortKey.DESCRIPTION.value] == 'before'
+
+    def test_a_description_that_is_not_text_is_a_400(self, rest_api) -> None:
+        """A number is not a description"""
+        response = rest_api.patch(_bulk_url(), json={'port_ids': [FRONT_PORT_ID], 'values': {'description': 7}})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_null_description_still_clears_it(self, rest_api, seeded) -> None:
+        """null is a value: it clears the field, as before"""
+        response = rest_api.patch(_bulk_url(), json={'port_ids': [FRONT_PORT_ID], 'values': {'description': None}})
+
+        assert response.status_code == HTTPStatus.OK
+        assert _stored_port(seeded, FRONT_PORT_ID)[PortKey.DESCRIPTION.value] is None

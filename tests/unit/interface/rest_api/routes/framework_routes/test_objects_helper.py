@@ -35,7 +35,9 @@ from cmdb.manager.objects_propagation_helper import (
 )
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
+    build_object_list_search_stages,
     render_or_native,
+    render_mds_reference,
     build_field_value_map,
     build_mds_value_map,
     build_object_value_view,
@@ -68,17 +70,16 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_patch_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     RELATION_DELETE_LOG_PROJECTION,
-    build_type_object_counts,
     emit_object_state_change_events,
     emit_object_update_events,
     handle_create_object_log,
     handle_delete_invalid_object_relations,
     handle_delete_object_location,
     handle_notify_webhooks,
-    handle_sync_config_item_count,
     render_single_object,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectViewMode
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType, SectionType
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -91,6 +92,7 @@ from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager.reports_manager import ReportsManagerUpdateError
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -111,6 +113,11 @@ def fixture_flask_app() -> Flask:
 # A select field owned by a predefined section template: its options may not be extended by a write
 PREDEFINED_TEMPLATE: str = 'dg-ipam-interface'
 PROTECTED_SELECT_FIELD: str = 'dg-interface-type'
+
+
+def _context(objects_manager: MagicMock) -> ObjectWriteContext:
+    """A write context around the given objects manager, every other handle a MagicMock."""
+    return ObjectWriteContext(MagicMock(), objects_manager, MagicMock(), MagicMock())
 
 
 def _make_object(fields: list[dict[str, Any]], special_type: Any = None, public_id: int = 1) -> CmdbObject:
@@ -163,6 +170,19 @@ class TestRenderOrNative:
 
         assert result == [{'public_id': 1, 'fields': {'hostname': 'srv-01'}, 'multi_data_sections': {}}]
 
+    def test_values_answers_one_view_per_object_in_order(self) -> None:
+        """A list page keeps its order, and each object is reshaped on its own"""
+        objects = [SimpleNamespace(public_id=public_id,
+                                   fields=[{'name': 'hostname', 'value': f'srv-{public_id}', 'type': 'text'}],
+                                   multi_data_sections=[])
+                   for public_id in (3, 1, 2)]
+
+        result = render_or_native(ObjectViewMode.VALUES, objects, MagicMock())
+
+        assert [(view['public_id'], view['fields']) for view in result] == [
+            (3, {'hostname': 'srv-3'}), (1, {'hostname': 'srv-1'}), (2, {'hostname': 'srv-2'}),
+        ]
+
     def test_values_never_renders(self) -> None:
         """
         The values view is built from the stored document, never from a render
@@ -183,6 +203,33 @@ class TestRenderOrNative:
             render_or_native('something-else', [], MagicMock())
 
         assert exc_info.value.code == 400
+
+
+MDS_OBJECT_ID: int = 7
+
+
+class TestRenderMdsReference:
+    """render_mds_reference builds an object's reference block from a render of the object itself."""
+
+    def test_it_renders_without_reference_expansion(self) -> None:
+        """The block reads the object's own values; what it references is not loaded"""
+        referenced, user = SimpleNamespace(public_id=MDS_OBJECT_ID), MagicMock(name='user')
+
+        with patch(f'{HELPER_PATH}.CmdbMultiRender') as render_ctor:
+            render_mds_reference(referenced, user)
+
+        render_ctor.assert_called_once_with([referenced], user)
+
+    def test_it_answers_the_objects_own_reference(self) -> None:
+        """The reference is asked for the rendered object's own id"""
+        referenced = SimpleNamespace(public_id=MDS_OBJECT_ID)
+
+        with patch(f'{HELPER_PATH}.CmdbMultiRender') as render_ctor:
+            render_ctor.return_value.get_mds_reference.return_value = {'object_id': MDS_OBJECT_ID}
+
+            assert render_mds_reference(referenced, MagicMock()) == {'object_id': MDS_OBJECT_ID}
+
+        render_ctor.return_value.get_mds_reference.assert_called_once_with(MDS_OBJECT_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -775,8 +822,7 @@ class TestApplyObjectUpdate:
         objects_manager.get_object.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
-            apply_object_update(5, {'fields': []}, None, MagicMock(),
-                                objects_manager, MagicMock(), MagicMock())
+            apply_object_update(5, {'fields': []}, None, _context(objects_manager))
 
         assert exc_info.value.code == 404
         objects_manager.update_object.assert_not_called()
@@ -787,8 +833,7 @@ class TestApplyObjectUpdate:
         objects_manager.get_object.return_value = _make_object([{'name': 'a', 'value': 1}], special_type='SUBNET')
 
         with pytest.raises(HTTPException) as exc_info:
-            apply_object_update(5, {'fields': [], 'special_type': 'VLAN'}, None, MagicMock(),
-                                objects_manager, MagicMock(), MagicMock())
+            apply_object_update(5, {'fields': [], 'special_type': 'VLAN'}, None, _context(objects_manager))
 
         assert exc_info.value.code == 400
         objects_manager.update_object.assert_not_called()
@@ -800,15 +845,14 @@ class TestApplyObjectUpdate:
         objects_manager.get_object_type.return_value = None
 
         with pytest.raises(HTTPException) as exc_info:
-            apply_object_update(5, {'fields': []}, None, MagicMock(),
-                                objects_manager, MagicMock(), MagicMock())
+            apply_object_update(5, {'fields': []}, None, _context(objects_manager))
 
         assert exc_info.value.code == HTTP_INTERNAL_SERVER_ERROR
         objects_manager.update_object.assert_not_called()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             build_type_object_counts                                                #
+#                                               guard_object_delete                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestGuardObjectDelete:
     """guard_object_delete is the one-target form of the shared delete guard."""
@@ -1114,15 +1158,259 @@ class TestHelperErrorArms:
              patch(f'{HELPER_PATH}.compute_object_version', return_value=('1.0.1', {})):
             with pytest.raises(HTTPException) as exc_info:
                 apply_object_update(5, {'type_id': 1, 'fields': [{'name': 'a', 'value': 2}]}, None,
-                                    MagicMock(), objects_manager, MagicMock(), MagicMock())
+                                    _context(objects_manager))
 
         assert exc_info.value.code == 404
         objects_manager.update_object.assert_called_once()
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                        apply_object_update - the full path                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+UPDATE_OBJECT_ID: int = 5
+UPDATE_TYPE_ID: int = 1
+EDITOR_ID: int = 77
+STORED_AUTHOR_ID: int = 3
+LOCATION_PARENT_ID: int = 42
+NEW_VERSION: str = '1.0.1'
+UPDATE_COMMENT: str = 'why it changed'
+TRANSIENT_LOCATION_NAME: str = 'Rack row 4'
+
+#: Every pipeline step apply_object_update calls by name, patched so the tests see the order and the arguments
+UPDATE_PIPELINE_STEPS: tuple[str, ...] = (
+    'resolve_object_type',
+    'validate_and_fill_object_fields',
+    'validate_required_object_fields',
+    'validate_object_field_values',
+    'extract_object_location_parent',
+    'validate_object_location_change',
+    'guard_rack_location_change',
+    'guard_object_write_license',
+    'enforce_object_write_invariants',
+    'guard_predefined_select_options',
+    'to_normalized_cmdb_object',
+    'compute_object_version',
+    'sync_object_location',
+    'handle_rack_object_updated',
+    'reconcile_object_rack_membership',
+    'sync_select_field_options',
+    'emit_object_update_events',
+)
+
+
+class _UpdatePipeline:
+    """The patched pipeline of one apply_object_update call: every step, the managers and the call order."""
+
+    def __init__(self, location_parent: int | None = None, has_select: bool = False) -> None:
+        self.recorder = MagicMock()
+        self.stored = _make_object([{'name': 'a', 'value': 1, 'type': 'text'}])
+        self.stored.author_id = STORED_AUTHOR_ID
+        self.stored.active = True
+        self.after = MagicMock()
+        self.after.has_fields_of_type.return_value = has_select
+        self.objects_manager = MagicMock()
+        self.objects_manager.get_object.side_effect = [self.stored, {'public_id': UPDATE_OBJECT_ID}]
+        self.recorder.attach_mock(self.objects_manager.update_object, 'update_object')
+        self.types_manager = MagicMock()
+        self.logs_manager = MagicMock()
+        self.request_user = SimpleNamespace(public_id=EDITOR_ID)
+        self.locations_manager = MagicMock()
+        self.location_parent = location_parent
+        self._patches: list[Any] = []
+
+    def __enter__(self) -> '_UpdatePipeline':
+        returns: dict[str, Any] = {
+            'resolve_object_type': MagicMock(),
+            'enforce_object_write_invariants': None,
+            'to_normalized_cmdb_object': MagicMock(),
+            'compute_object_version': (NEW_VERSION, {'a': 'changed'}),
+            'extract_object_location_parent': (self.location_parent is not None, self.location_parent),
+        }
+
+        for step in UPDATE_PIPELINE_STEPS:
+            mock = MagicMock(return_value=returns.get(step))
+            self.recorder.attach_mock(mock, step)
+            self._patches.append(patch(f'{HELPER_PATH}.{step}', mock))
+
+        provider = MagicMock()
+        provider.get_manager.return_value = self.locations_manager
+        self._patches.append(patch(f'{HELPER_PATH}.ManagerProvider', provider))
+        self._patches.append(patch(f'{HELPER_PATH}.CmdbObject.from_data', return_value=self.after))
+        self.provider = provider
+
+        for active in self._patches:
+            active.start()
+
+        return self
+
+    def __exit__(self, *_exc: Any) -> None:
+        for active in reversed(self._patches):
+            active.stop()
+
+    def step(self, name: str) -> MagicMock:
+        """The mock standing in for one pipeline step."""
+        return getattr(self.recorder, name)
+
+    def order(self) -> list[str]:
+        """The names of the pipeline steps and the write, in the order they were called."""
+        return [name for name, _args, _kwargs in self.recorder.mock_calls if '.' not in name]
+
+    def written(self) -> dict[str, Any]:
+        """The document handed to update_object."""
+        return self.objects_manager.update_object.call_args.args[1]
+
+
+def _run_update(pipeline: _UpdatePipeline, payload: dict[str, Any], active_state: bool | None = None,
+                type_cache: dict[int, Any] | None = None) -> dict[str, Any]:
+    """Calls apply_object_update with the pipeline's managers."""
+    context = ObjectWriteContext(
+        pipeline.request_user, pipeline.objects_manager, pipeline.types_manager, pipeline.logs_manager,
+        **({} if type_cache is None else {'type_cache': type_cache}),
+    )
+
+    return apply_object_update(UPDATE_OBJECT_ID, payload, active_state, context)
+
+
+def _payload(**extra: Any) -> dict[str, Any]:
+    """A full-object update payload."""
+    return {'type_id': UPDATE_TYPE_ID, 'fields': [{'name': 'a', 'value': 2}], **extra}
+
+
+class TestApplyObjectUpdateFullPath:
+    """The successful update: what runs, in which order, and what is written."""
+
+    def test_the_steps_run_validate_then_write_then_side_effects(self) -> None:
+        """Every check before the write, the write once, the consequences and events after it"""
+        with _UpdatePipeline(LOCATION_PARENT_ID, has_select=True) as pipeline:
+            _run_update(pipeline, _payload())
+
+        assert pipeline.order() == [
+            'resolve_object_type',
+            'validate_and_fill_object_fields',
+            'validate_required_object_fields',
+            'validate_object_field_values',
+            'extract_object_location_parent',
+            'validate_object_location_change',
+            'guard_rack_location_change',
+            'guard_object_write_license',
+            'enforce_object_write_invariants',
+            'guard_predefined_select_options',
+            'to_normalized_cmdb_object',
+            'compute_object_version',
+            'update_object',
+            'sync_object_location',
+            'handle_rack_object_updated',
+            'reconcile_object_rack_membership',
+            'sync_select_field_options',
+            'emit_object_update_events',
+        ]
+
+    def test_the_stored_document_keeps_its_server_owned_values(self) -> None:
+        """Id pinned to the route's, creation and author kept, editor and edit time stamped, version computed"""
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, _payload(public_id=999, author_id=1, creation_time='forged'))
+
+        written = pipeline.written()
+        assert written['public_id'] == UPDATE_OBJECT_ID
+        assert written['author_id'] == STORED_AUTHOR_ID
+        assert written['creation_time'] == pipeline.stored.creation_time
+        assert written['editor_id'] == EDITOR_ID
+        assert isinstance(written['last_edit_time'], datetime)
+        assert written['version'] == NEW_VERSION
+
+    def test_the_comment_and_location_name_are_never_stored(self) -> None:
+        """Both are transient: the comment goes to the edit log, the name to the location mirror"""
+        with _UpdatePipeline(LOCATION_PARENT_ID) as pipeline:
+            _run_update(pipeline, _payload(comment=UPDATE_COMMENT, location_name=TRANSIENT_LOCATION_NAME))
+
+        written = pipeline.written()
+        assert 'comment' not in written and 'location_name' not in written
+        assert pipeline.step('emit_object_update_events').call_args.args[-1] == UPDATE_COMMENT
+        assert TRANSIENT_LOCATION_NAME in pipeline.step('sync_object_location').call_args.args
+
+    @pytest.mark.parametrize('active_state, expected', [(None, True), (False, False), (True, True)])
+    def test_the_active_flag_is_applied_or_kept(self, active_state: bool | None, expected: bool) -> None:
+        """None keeps the stored flag; True / False replace it"""
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, _payload(), active_state)
+
+        assert pipeline.written()['active'] is expected
+
+    def test_the_payload_is_not_mutated(self) -> None:
+        """A bulk update applies one payload to many targets, so it must come back as it went in"""
+        payload = _payload(comment=UPDATE_COMMENT)
+        original = {key: value for key, value in payload.items()}
+
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, payload)
+
+        assert payload == original
+
+    def test_the_type_cache_reaches_the_type_resolution(self) -> None:
+        """The caller's cache is what lets a bulk update read each type once"""
+        cache: dict[int, Any] = {}
+
+        with _UpdatePipeline() as pipeline:
+            _run_update(pipeline, _payload(), type_cache=cache)
+
+        assert pipeline.step('resolve_object_type').call_args.args[2] is cache
+
+    def test_without_a_location_field_nothing_location_shaped_runs(self) -> None:
+        """No locations manager is resolved, and neither the location nor the membership sync runs"""
+        with _UpdatePipeline(None) as pipeline:
+            _run_update(pipeline, _payload())
+
+        pipeline.provider.get_manager.assert_not_called()
+        for step in ('validate_object_location_change', 'guard_rack_location_change', 'sync_object_location',
+                     'reconcile_object_rack_membership'):
+            pipeline.step(step).assert_not_called()
+
+    def test_a_location_field_validates_before_and_mirrors_after_the_write(self) -> None:
+        """One locations manager, resolved once, serves the pre-write checks and the post-write mirror"""
+        with _UpdatePipeline(LOCATION_PARENT_ID) as pipeline:
+            _run_update(pipeline, _payload())
+
+        pipeline.provider.get_manager.assert_called_once()
+        pipeline.step('validate_object_location_change').assert_called_once_with(
+            UPDATE_OBJECT_ID, LOCATION_PARENT_ID, pipeline.locations_manager,
+        )
+        assert pipeline.step('sync_object_location').call_args.args[-1] is pipeline.locations_manager
+        assert pipeline.step('reconcile_object_rack_membership').call_args.args[2] == LOCATION_PARENT_ID
+
+    def test_select_options_are_synced_only_when_the_object_has_select_fields(self) -> None:
+        """No select field, no option sync"""
+        with _UpdatePipeline(has_select=False) as pipeline:
+            _run_update(pipeline, _payload())
+
+        pipeline.step('sync_select_field_options').assert_not_called()
+
+    def test_an_invariant_error_refuses_the_update_before_the_write(self) -> None:
+        """The invariant message is the 400, and nothing is written"""
+        with _UpdatePipeline() as pipeline:
+            pipeline.step('enforce_object_write_invariants').return_value = 'broken invariant'
+
+            with pytest.raises(HTTPException) as exc_info:
+                _run_update(pipeline, _payload())
+
+        assert exc_info.value.code == 400
+        assert exc_info.value.description == 'broken invariant'
+        pipeline.objects_manager.update_object.assert_not_called()
+
+    def test_the_answer_is_the_document_that_was_written(self) -> None:
+        """The route builds its response from what was stored"""
+        with _UpdatePipeline() as pipeline:
+            result = _run_update(pipeline, _payload())
+
+        assert result is pipeline.written()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                              build_field_value_map                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
+DOTTED_FIELD_NAME: str = 'ip.address'
+DOTTED_FIELD_VALUE: str = '10.0.0.1'
+
+
 class TestBuildFieldValueMap:
     """build_field_value_map turns a stored fields list into a name-keyed value map."""
 
@@ -1172,6 +1460,18 @@ class TestBuildFieldValueMap:
     def test_a_non_string_name_is_skipped(self, name: Any) -> None:
         """A name that cannot be a JSON key is skipped instead of raising."""
         assert build_field_value_map([{'name': name, 'value': 1}]) == {}
+
+    def test_a_dotted_name_is_one_key(self) -> None:
+        """
+        A name is the key verbatim - a dot does not nest it
+
+        Names derived from labels may carry a dot, so a consumer must look the name up whole rather than
+        split it into a path
+        """
+        result = build_field_value_map([{'name': DOTTED_FIELD_NAME, 'value': DOTTED_FIELD_VALUE}])
+
+        assert result == {DOTTED_FIELD_NAME: DOTTED_FIELD_VALUE}
+        assert DOTTED_FIELD_NAME.split('.', maxsplit=1)[0] not in result
 
     def test_a_duplicate_name_resolves_to_the_last_entry(self) -> None:
         """
@@ -1389,3 +1689,36 @@ class TestBuildObjectValueView:
 
         assert result['fields'] == {'ip': ''}
         assert result['multi_data_sections'] == {'s1': [{'ip': '10.0.0.1'}]}
+
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            build_object_list_search_stages                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestBuildObjectListSearchStages:
+    """The listing ``?search=`` for the requesting user: the READ ACL of the referenced objects, resolved lazily."""
+
+    @pytest.mark.parametrize('term', [None, '', '   '], ids=repr)
+    def test_no_term_resolves_no_acl_and_builds_nothing(self, term) -> None:
+        """An unsearched listing runs no extra query - not even the ACL resolution"""
+        with patch(f'{HELPER_PATH}.build_acl_pipeline') as acl, \
+             patch(f'{HELPER_PATH}.build_object_search_stages') as stages:
+            assert build_object_list_search_stages(term, MagicMock(name='objects_manager'), MagicMock()) == []
+
+        acl.assert_not_called()
+        stages.assert_not_called()
+
+    def test_a_term_gets_the_callers_read_acl(self) -> None:
+        """The referenced objects must pass the caller's READ stages, handed to the search builder as they are"""
+        objects_manager = MagicMock(name='objects_manager')
+        user = MagicMock(name='request_user')
+        acl_stages: list[dict[str, Any]] = [{'$match': {'type_id': {'$nin': [3]}}}]
+        built: list[dict[str, Any]] = [{'$match': {'built': True}}]
+
+        with patch(f'{HELPER_PATH}.build_acl_pipeline', return_value=acl_stages) as acl, \
+             patch(f'{HELPER_PATH}.build_object_search_stages', return_value=built) as stages:
+            result = build_object_list_search_stages('needle', objects_manager, user)
+
+        acl.assert_called_once_with(user, AccessControlPermission.READ)
+        stages.assert_called_once_with('needle', objects_manager, acl_stages)
+        assert result is built

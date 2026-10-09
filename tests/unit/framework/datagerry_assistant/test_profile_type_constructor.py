@@ -42,6 +42,7 @@ _INFO_SECTION: dict[str, Any] = {
         {'type': 'text', 'name': 'text-note', 'label': 'Note'},
     ],
 }
+from tests.unit.framework.datagerry_assistant.conftest import ASSISTANT_AUTHOR_ID
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                create_type_config                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -55,7 +56,7 @@ def test_create_type_config_sets_skeleton_and_defaults(type_constructor: Profile
     assert cfg[TypeSchemaKey.ACTIVE] is True
     assert cfg[TypeSchemaKey.SELECTABLE_AS_PARENT] is True
     assert cfg[TypeSchemaKey.VERSION] == '1.0.0'
-    assert cfg[TypeSchemaKey.AUTHOR_ID] == 1
+    assert cfg[TypeSchemaKey.AUTHOR_ID] == ASSISTANT_AUTHOR_ID
     assert cfg[TypeSchemaKey.GLOBAL_TEMPLATE_IDS] == []
     assert cfg[TypeSchemaKey.RENDER_META][RenderMetaKey.ICON] == 'fas fa-cube'
 

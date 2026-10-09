@@ -16,23 +16,21 @@
 """
 Unit tests for the CmdbLocation validation schema
 
-**Nothing consumes this schema.** No route validates a location body - the create route reads its
-three ids with ``parse_required_int`` and assembles the document itself, and every other write is the
-object mirror - so ``CmdbLocation.SCHEMA`` is documentation of the document rather than an enforced
-contract. These tests pin what it *says*, so that wiring it into the create route - or dropping it -
-happens against a known baseline instead of a guess.
-
-What it says is worth pinning for a second reason: the schema is where the two nullable keys and the
-two defaults of the document are written down, while the model serialises through the shared
-CmdbDAO - the tests below are what keeps the two descriptions of the same document from drifting
-apart.
+**The schema is the stored document's contract, not a request validator.** No write runs it - the create route
+takes three ids and an optional name and builds the rest, every other write is the object mirror - so what these
+tests hold is that the schema TELLS THE TRUTH about the document the model reads: it requires exactly the keys
+``CmdbLocation.REQUIRED_INIT_KEYS`` requires (the read path refuses a document without one), the two tree keys may be
+null but not absent, its two defaults are ``CmdbLocationDefault``'s, and a document as the mirror writes it - the
+root included - validates. A change to either description that the other does not follow fails here
 """
 from typing import Any
 
 import pytest
 from cerberus import Validator
 
+from cmdb.class_schema.location_model.cmdb_location_schema import get_cmdb_location_schema
 from cmdb.models.location_model.cmdb_location import CmdbLocation
+from cmdb.database.predefined_data.cmdb_data.cmdb_location_data import get_root_location_data
 from cmdb.models.location_model.location_constants import CmdbLocationDefault, LocationKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -130,16 +128,68 @@ class TestTheDisplayKeys:
         """Both are required by the model, so a non-string is refused on both descriptions"""
         assert validator.validate(_document(**{key: 5})) is False
 
-    @pytest.mark.parametrize('key', [LocationKey.NAME.value, LocationKey.TYPE_LABEL.value])
-    def test_the_schema_does_not_require_them(self, validator: Validator, key: str) -> None:
-        """
-        A gap between the two descriptions, recorded rather than fixed
 
-        The MODEL requires them (REQUIRED_INIT_KEYS) while the schema does not, so a body validated
-        here could still be refused by the model. Nothing validates a location body, which is why
-        this is a documentation question rather than a live one.
-        """
+class TestTheRequiredKeys:
+    """The schema requires what the model requires - no more, no less."""
+
+    def test_the_required_set_is_the_models(self) -> None:
+        """The drift guard: the schema's required keys ARE CmdbLocation.REQUIRED_INIT_KEYS"""
+        required: set[str] = {key for key, rules in SCHEMA.items() if rules.get('required')}
+
+        assert required == set(CmdbLocation.REQUIRED_INIT_KEYS)
+
+    @pytest.mark.parametrize('key', CmdbLocation.REQUIRED_INIT_KEYS)
+    def test_a_document_without_a_required_key_is_refused(self, validator: Validator, key: str) -> None:
+        """The schema refuses what the read path refuses"""
+        document = _document()
+        del document[key]
+
+        assert validator.validate(document) is False
+        assert key in validator.errors
+
+    @pytest.mark.parametrize('key', [LocationKey.PARENT.value, LocationKey.OBJECT_ID.value])
+    def test_a_tree_key_may_be_null_but_not_absent(self, validator: Validator, key: str) -> None:
+        """No writer stores a null, but the tree code tolerates one; an absent key is a broken node"""
+        assert validator.validate(_document(**{key: None})) is True
+
+        document = _document()
+        del document[key]
+
+        assert validator.validate(document) is False
+
+    @pytest.mark.parametrize('key', [LocationKey.PUBLIC_ID.value, LocationKey.TYPE_ICON.value,
+                                     LocationKey.TYPE_SELECTABLE.value])
+    def test_the_other_keys_are_optional(self, validator: Validator, key: str) -> None:
+        """public_id is the server's, the two render keys default"""
         document = _document()
         del document[key]
 
         assert validator.validate(document) is True
+
+    def test_the_seeded_root_validates(self, validator: Validator) -> None:
+        """The root the database is seeded with - the 0 sentinels for parent, object and type - is a valid document"""
+        assert validator.validate(get_root_location_data()) is True
+
+    def test_what_the_schema_accepts_the_model_reads(self, validator: Validator) -> None:
+        """The two descriptions agree in the direction that matters: a schema-valid document builds a model"""
+        document = _document()
+        assert validator.validate(document) is True
+
+        location = CmdbLocation.from_data(validator.document)
+
+        assert location.name == document[LocationKey.NAME.value]
+
+
+class TestTheSpelling:
+    """The schema names its keys and defaults through the model's constants."""
+
+    def test_every_key_is_a_location_key(self) -> None:
+        """No bare string: each key is one LocationKey names"""
+        assert all(key in {member.value for member in LocationKey} for key in SCHEMA)
+
+    def test_the_builder_answers_a_new_dict_each_call(self) -> None:
+        """A caller mutating its copy cannot change the next one"""
+        first = get_cmdb_location_schema()
+        first[LocationKey.NAME.value]['required'] = False
+
+        assert get_cmdb_location_schema()[LocationKey.NAME.value]['required'] is True

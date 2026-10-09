@@ -26,6 +26,11 @@ Every field whose value belongs to an enum is pinned here with an ``allowed`` li
 enum, which makes validation - not the model - the place an unknown reference type, treatment option
 or priority is refused. The keys come from ``RiskAssessmentKey``, so the schema and the model cannot
 drift apart on a key name
+
+The three person ``_ref_type`` fields are nullable, like the ids they qualify: an assessment with no owner,
+responsible person or auditor names no reference type either. A null ``_ref_type`` beside an id that IS set is
+refused by the write routes' person-reference check, which names the key - not here, so a missing owner is
+reported as the missing owner by the required-field guard
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -127,7 +132,6 @@ def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
     }
 
 
-# pylint: disable=R0801
 def get_isms_risk_assessment_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsRiskAssessment document
@@ -192,6 +196,7 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
         RiskAssessmentKey.RISK_OWNER_ID_REF_TYPE.value: {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
+            'nullable': True,
             'allowed': person_ref_types,
         },
         RiskAssessmentKey.RISK_OWNER_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
@@ -200,10 +205,14 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
             'required': True,
             'nullable': True,
         },
-        RiskAssessmentKey.INTERVIEWED_PERSONS.value: {  # Multiselect of CmdbPersons
+        RiskAssessmentKey.INTERVIEWED_PERSONS.value: {  # Multiselect of CmdbPersons, by public_id
             'type': 'list',
             'required': True,
-            'nullable': True
+            'nullable': True,
+            'schema': {
+                'type': 'integer',
+                'min': 1,
+            },
         },
         # Date of risk calculation before treatment
         RiskAssessmentKey.RISK_ASSESSMENT_DATE.value: _get_date_schema(nullable=False),
@@ -222,6 +231,7 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
         RiskAssessmentKey.RESPONSIBLE_PERSONS_ID_REF_TYPE.value: {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
+            'nullable': True,
             'allowed': person_ref_types,
         },
         RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup
@@ -274,6 +284,7 @@ def get_isms_risk_assessment_schema() -> dict[str, Any]:
         RiskAssessmentKey.AUDITOR_ID_REF_TYPE.value: {  # PersonReferenceType Enum
             'type': 'string',
             'required': True,
+            'nullable': True,
             'allowed': person_ref_types,
         },
         RiskAssessmentKey.AUDITOR_ID.value: {  # public_id of CmdbPerson or CmdbPersonGroup

@@ -29,14 +29,14 @@ kept honest by a test instead: every entry shape the writer produces must valida
 * ``LogsManager.insert_log`` sets ``public_id``, ``action`` / ``action_name`` (a ``LogAction``), ``log_type``
   and ``log_time``; ``build_object_log_data`` adds ``object_id``, ``user_id``, ``version`` (the object's
   version string, e.g. ``'1.0.1'``), ``user_name`` (the user's DISPLAY name - ``'First Last'`` or the user
-  name, an e-mail address in cloud mode), ``comment`` and ``render_state`` (the rendered object as
-  JSON-encoded bytes)
+  name, an e-mail address in cloud mode), ``comment``, ``render_state`` (the rendered object as
+  JSON-encoded bytes) and ``type_id`` (the rendered object's CmdbType - what the log reads are judged by;
+  null on an entry whose type could not be determined)
 * ``changes`` depends on the action: the field diff ``{'old': [...], 'new': [...]}`` on EDIT,
   ``{'old': bool, 'new': bool}`` on ACTIVE_CHANGE, and ``[]`` on CREATE and DELETE, which record none
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_object_log_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbObjectLog document
@@ -80,6 +80,10 @@ def get_cmdb_object_log_schema() -> dict[str, Any]:
             'type': 'binary',
             'nullable': True,
             'required': True,
+        },
+        'type_id': {  # public_id of the logged object's CmdbType at log time; null when it could not be determined
+            'type': 'integer',
+            'nullable': True,
         },
         'log_type': {  # Log type discriminator - always CmdbObjectLog for this document
             'type': 'string',

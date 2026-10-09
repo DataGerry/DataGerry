@@ -27,10 +27,9 @@ member while verify compared its value, so a freshly granted permission read bac
 without a groups section denies instead of raising, and revoking is idempotent.
 """
 import json
+from typing import Any
 
 import pytest
-
-from typing import Any
 
 from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.security.acl.access_control_list_section import AccessControlListSection
@@ -108,13 +107,13 @@ class TestSectionBaseClass:
         with pytest.raises(NotImplementedError):
             getattr(AccessControlListSection, method_name)({})
 
-    def test_update_entry_replaces_a_keys_permissions(self) -> None:
-        """The low-level setter used when a whole permission set is assigned at once."""
-        section = _PlainSection({GROUP_ID: {'READ'}})
+    def test_reassigning_includes_replaces_the_mapping(self) -> None:
+        """The setter is the one entry point - a later assignment goes through it as well."""
+        section = _PlainSection({GROUP_ID: ['READ']})
 
-        section._update_entry(GROUP_ID, {'UPDATE'})  # pylint: disable=protected-access
+        section.includes = {OTHER_GROUP_ID: ['DELETE']}
 
-        assert section.includes == {GROUP_ID: {'UPDATE'}}
+        assert section.includes == {OTHER_GROUP_ID: ['DELETE']}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -149,6 +148,39 @@ class TestGroupACL:
     def test_from_data_without_includes_is_empty(self) -> None:
         """An ACL that never got a group entry is simply empty."""
         assert GroupACL.from_data({}).includes == {}
+
+    def test_from_data_with_null_includes_is_empty(self) -> None:
+        """The type write schema lets includes be null; it reads as no group."""
+        assert GroupACL.from_data({AclKey.INCLUDES.value: None}).includes == {}
+
+    def test_constructed_without_includes_is_empty(self) -> None:
+        """The same default as the base section."""
+        assert GroupACL().includes == {}
+
+    def test_mixed_string_and_int_keys_all_become_int(self) -> None:
+        """A stored key and an in-memory key land on the same int."""
+        section = GroupACL({'2': ['READ'], OTHER_GROUP_ID: ['DELETE']})
+
+        assert section.includes == {GROUP_ID: ['READ'], OTHER_GROUP_ID: ['DELETE']}
+
+    def test_a_later_assignment_converts_the_keys_too(self) -> None:
+        """The key conversion sits behind the setter, not only behind the constructor."""
+        section = GroupACL({})
+
+        section.includes = {'3': ['UPDATE']}
+
+        assert section.includes == {OTHER_GROUP_ID: ['UPDATE']}
+
+    def test_the_permission_containers_are_kept_as_given(self) -> None:
+        """Only the keys change; a stored list stays a list until a mutator touches it."""
+        section = GroupACL({'2': ['UPDATE', 'READ']})
+
+        assert section.includes[GROUP_ID] == ['UPDATE', 'READ']
+
+    def test_a_key_that_is_no_whole_number_raises(self) -> None:
+        """The write schema only admits digit keys; anything else is a programming error here."""
+        with pytest.raises(ValueError):
+            GroupACL({'abc': ['READ']})
 
     def test_a_non_dict_include_structure_raises(self) -> None:
         """The section only accepts a mapping."""
@@ -368,3 +400,174 @@ class TestAccessControlList:
 
         with pytest.raises(ValueError):
             acl.revoke_access(GROUP_ID, AccessControlPermission.READ, section=section)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         default_json / normalize_stored                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+COMPLETE_DEFAULT: dict[str, Any] = {
+    AclKey.ACTIVATED.value: False,
+    AclKey.GROUPS.value: {AclKey.INCLUDES.value: {}},
+}
+GRANTED_INCLUDES: dict[str, list[str]] = {'2': ['READ', 'UPDATE']}
+
+
+class TestDefaultJson:
+    """The one spelling of the default block."""
+
+    def test_is_switched_off_and_grants_no_group(self) -> None:
+        """The complete block, nothing granted"""
+        assert AccessControlList.default_json() == COMPLETE_DEFAULT
+
+    def test_is_a_new_dict_on_every_call(self) -> None:
+        """A caller may modify its copy without touching the next one's"""
+        first = AccessControlList.default_json()
+        first[AclKey.GROUPS.value][AclKey.INCLUDES.value]['1'] = ['READ']
+
+        assert AccessControlList.default_json() == COMPLETE_DEFAULT
+
+    def test_reads_back_as_the_model_default(self) -> None:
+        """The same block the model writes for an ACL nobody configured"""
+        assert AccessControlList.default_json() == AccessControlList.to_json(AccessControlList.from_data({}))
+
+
+class TestNormalizeStored:
+    """The complete block a stored value reads as."""
+
+    @pytest.mark.parametrize('stored', [None, 'on', 7, ['READ']], ids=['null', 'string', 'number', 'list'])
+    def test_a_value_that_is_no_document_is_the_default(self, stored: Any) -> None:
+        """Nothing to read: the default"""
+        assert AccessControlList.normalize_stored(stored) == COMPLETE_DEFAULT
+
+    @pytest.mark.parametrize('stored', [
+        {},
+        {AclKey.ACTIVATED.value: False},
+        {AclKey.ACTIVATED.value: None},
+        {AclKey.ACTIVATED.value: False, AclKey.GROUPS.value: None},
+        {AclKey.ACTIVATED.value: False, AclKey.GROUPS.value: {}},
+        {AclKey.ACTIVATED.value: False, AclKey.GROUPS.value: {AclKey.INCLUDES.value: None}},
+    ], ids=['empty', 'no-groups', 'null-activated', 'null-groups', 'no-includes', 'null-includes'])
+    def test_every_incomplete_switched_off_shape_is_the_default(self, stored: dict[str, Any]) -> None:
+        """The shapes older types carry: all read as off with no group, so all become the default block"""
+        assert AccessControlList.normalize_stored(stored) == COMPLETE_DEFAULT
+
+    def test_groups_without_activated_keep_their_groups_and_read_off(self) -> None:
+        """A hand-built ACL with groups but no switch: the groups stay, the switch is the False it reads as"""
+        stored = {AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}}
+
+        assert AccessControlList.normalize_stored(stored) == {
+            AclKey.ACTIVATED.value: False,
+            AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES},
+        }
+
+    def test_a_complete_activated_block_is_unchanged(self) -> None:
+        """Nothing to repair"""
+        stored = {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}}
+
+        assert AccessControlList.normalize_stored(stored) == stored
+
+    @pytest.mark.parametrize(('stored', 'expected'), [('yes', True), (1, True), (0, False), ('', False)])
+    def test_a_non_boolean_switch_becomes_the_boolean_it_reads_as(self, stored: Any, expected: bool) -> None:
+        """The single read's truthiness - the same reading updater_20261001 wrote"""
+        normalized = AccessControlList.normalize_stored({AclKey.ACTIVATED.value: stored})
+
+        assert normalized[AclKey.ACTIVATED.value] is expected
+
+    @pytest.mark.parametrize('stored', [
+        {AclKey.ACTIVATED.value: False},
+        {AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}},
+        {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: {AclKey.INCLUDES.value: GRANTED_INCLUDES}},
+        {AclKey.ACTIVATED.value: True, AclKey.GROUPS.value: None},
+    ], ids=['off-no-groups', 'groups-no-switch', 'on-with-groups', 'on-null-groups'])
+    def test_no_access_decision_changes(self, stored: dict[str, Any]) -> None:
+        """For every group and permission the normalized block grants exactly what the stored one did"""
+        before = AccessControlList.from_data(stored)
+        after = AccessControlList.from_data(AccessControlList.normalize_stored(stored))
+
+        for group_id in [GROUP_ID, OTHER_GROUP_ID, UNKNOWN_GROUP_ID]:
+            for permission in AccessControlPermission:
+                granted_before = not before.activated or before.verify_access(group_id, permission)
+                granted_after = not after.activated or after.verify_access(group_id, permission)
+                assert granted_before == granted_after
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            stored -> memory -> stored                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+STORED_INCLUDES: dict[str, list[str]] = {'2': ['UPDATE', 'READ'], '3': ['DELETE']}
+
+
+class TestStoredRoundTrip:
+    """
+    The whole contract of a section, as one chain
+
+    Read from the stored form (string keys, lists), changed in memory (int keys, sets), written back (string
+    keys, sorted lists). Each case changes a different key or permission, so a mix-up between keys or between
+    grant and revoke ends in a different stored block.
+    """
+
+    def test_the_keys_are_ints_in_memory(self) -> None:
+        """What a CmdbUser's group_id is compared against."""
+        acl = _stored_acl(STORED_INCLUDES)
+
+        assert sorted(acl.groups.includes) == [GROUP_ID, OTHER_GROUP_ID]
+
+    def test_an_untouched_section_is_written_back_sorted(self) -> None:
+        """Nothing granted or revoked: the same permissions, each list sorted."""
+        acl = _stored_acl(STORED_INCLUDES)
+
+        assert GroupACL.to_json(acl.groups) == {AclKey.INCLUDES.value: {'2': ['READ', 'UPDATE'], '3': ['DELETE']}}
+
+    @pytest.mark.parametrize(('changes', 'expected'), [
+        pytest.param(
+            [('grant', GROUP_ID, AccessControlPermission.CREATE)],
+            {'2': ['CREATE', 'READ', 'UPDATE'], '3': ['DELETE']},
+            id='grant-to-a-stored-key',
+        ),
+        pytest.param(
+            [('grant', UNKNOWN_GROUP_ID, AccessControlPermission.READ)],
+            {'2': ['READ', 'UPDATE'], '3': ['DELETE'], '99': ['READ']},
+            id='grant-to-a-new-key',
+        ),
+        pytest.param(
+            [('revoke', GROUP_ID, AccessControlPermission.UPDATE)],
+            {'2': ['READ'], '3': ['DELETE']},
+            id='revoke-from-one-key',
+        ),
+        pytest.param(
+            [('revoke', OTHER_GROUP_ID, AccessControlPermission.DELETE)],
+            {'2': ['READ', 'UPDATE'], '3': []},
+            id='revoke-the-last-permission',
+        ),
+        pytest.param(
+            [('grant', OTHER_GROUP_ID, AccessControlPermission.READ),
+             ('revoke', GROUP_ID, AccessControlPermission.READ)],
+            {'2': ['UPDATE'], '3': ['DELETE', 'READ']},
+            id='grant-one-key-revoke-another',
+        ),
+    ])
+    def test_a_change_is_written_back_in_the_stored_form(
+        self, changes: list[tuple[str, int, AccessControlPermission]], expected: dict[str, list[str]],
+    ) -> None:
+        """String keys, sorted lists of string values - whatever the in-memory containers became."""
+        acl = _stored_acl(STORED_INCLUDES)
+
+        for action, group_id, permission in changes:
+            if action == 'grant':
+                acl.grant_access(group_id, permission)
+            else:
+                acl.revoke_access(group_id, permission)
+
+        assert GroupACL.to_json(acl.groups) == {AclKey.INCLUDES.value: expected}
+
+    def test_a_written_back_section_reads_as_the_same_decisions(self) -> None:
+        """Stored again and read again, every group holds exactly what it held in memory."""
+        acl = _stored_acl(STORED_INCLUDES)
+        acl.grant_access(UNKNOWN_GROUP_ID, AccessControlPermission.CREATE)
+        acl.revoke_access(GROUP_ID, AccessControlPermission.READ)
+
+        reread = AccessControlList.from_data(AccessControlList.to_json(acl))
+
+        for group_id in [GROUP_ID, OTHER_GROUP_ID, UNKNOWN_GROUP_ID]:
+            for permission in AccessControlPermission:
+                assert reread.verify_access(group_id, permission) == acl.verify_access(group_id, permission)

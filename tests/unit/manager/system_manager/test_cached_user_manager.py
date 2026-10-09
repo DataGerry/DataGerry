@@ -16,20 +16,20 @@
 """
 Unit tests for cmdb.manager.system_manager.cached_user_manager.CachedUserManager
 
-DB-free: the manager is never constructed (its __init__ builds a DgServicePortalManager); each
-method is invoked unbound on a MagicMock-typed ``self`` so the collaborators (self.dbm,
-self.dg_sp_manager and sibling methods) are stubbed. Covers the pure subscription/OpenCelium
-helpers, the credential validation, and the CRUD delegations incl. their guard/error branches
+DB-free: each method is invoked unbound on a MagicMock-typed ``self`` so the collaborators (self.dbm and sibling
+methods) are stubbed. Covers the construction (the cache database, and no Service Portal client), the pure
+subscription/OpenCelium helpers, the credential validation, and the CRUD delegations incl. their guard/error branches.
+The manager reads and writes the cache only; seeding a miss from the portal is ``read_or_seed_cached_user``
 """
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
 from cmdb.database.database_constants import DG_CACHE_DB
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.manager.system_manager.cached_user_manager import CachedUserManager
-from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
+from cmdb.models.cached_user_model import CachedUserKey, CmdbCachedUser
 from cmdb.open_celium import CachedOcIdType
 from cmdb.errors.open_celium import OcNoSubError, OcMasterPwNotSetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -50,7 +50,21 @@ def test_init_always_targets_the_cache_database() -> None:
 
     assert manager.db_name == DG_CACHE_DB
     assert manager.collection == CmdbCachedUser.COLLECTION
-    assert manager.dg_sp_manager is not None
+
+
+def test_init_builds_no_service_portal_client() -> None:
+    """
+    The manager owns the cache only
+
+    It used to build a DgServicePortalManager at every construction - eighteen call sites, most of which never
+    touch the portal - and in hosted cloud that construction raises without the portal's environment
+    """
+    with patch('cmdb.manager.system_manager.dg_service_portal_manager.DgServicePortalManager') as portal_cls, \
+         BaseCmdbApp(__name__).app_context():
+        manager = CachedUserManager(MagicMock())
+
+    portal_cls.assert_not_called()
+    assert not hasattr(manager, 'dg_sp_manager')
 
 
 def _cached_user(**overrides: Any) -> dict[str, Any]:
@@ -261,37 +275,24 @@ def test_cached_user_exists_reflects_lookup() -> None:
     assert CachedUserManager.cached_user_exists(mock_self, EMAIL) is False
 
 
-def test_get_cached_user_returns_cache_hit_without_portal_call() -> None:
-    """A cache hit is returned directly and the DG Service Portal is not consulted."""
+def test_get_cached_user_returns_a_cache_hit() -> None:
+    """A cache hit is the stored document, read by email from the cache collection."""
     mock_self = MagicMock()
     doc = _cached_user()
     mock_self.dbm.find_one_by.return_value = doc
 
     assert CachedUserManager.get_cached_user(mock_self, EMAIL) is doc
-    mock_self.dg_sp_manager.get_dg_sp_user_data.assert_not_called()
+    assert mock_self.dbm.find_one_by.call_args.kwargs['filter'] == {'email': EMAIL}
 
 
-def test_get_cached_user_seeds_from_portal_on_miss() -> None:
-    """On a cache miss the portal data is inserted and the stored document is re-read and returned."""
-    mock_self = MagicMock()
-    stored = _cached_user()
-    mock_self.dbm.find_one_by.side_effect = [None, stored]
-    mock_self.dg_sp_manager.get_dg_sp_user_data.return_value = {'email': EMAIL}
-
-    result = CachedUserManager.get_cached_user(mock_self, EMAIL)
-
-    assert result is stored
-    mock_self.insert_cached_user.assert_called_once_with({'email': EMAIL})
-
-
-def test_get_cached_user_returns_none_when_portal_has_no_user() -> None:
-    """A miss in both the cache and the portal yields None (no insert)."""
+def test_get_cached_user_answers_a_miss_with_none_and_writes_nothing() -> None:
+    """A miss is None - the portal is the caller's business, and nothing is seeded here."""
     mock_self = MagicMock()
     mock_self.dbm.find_one_by.return_value = None
-    mock_self.dg_sp_manager.get_dg_sp_user_data.return_value = None
 
     assert CachedUserManager.get_cached_user(mock_self, EMAIL) is None
     mock_self.insert_cached_user.assert_not_called()
+    mock_self.dbm.find_one_by.assert_called_once()
 
 
 def test_insert_cached_user_stamps_creation_time_and_returns_id() -> None:
@@ -416,14 +417,29 @@ def test_delete_cached_user_reflects_deleted_count() -> None:
     assert CachedUserManager.delete_cached_user(mock_self, EMAIL) is False
 
 
-def test_delete_multiple_cached_users_reflects_deleted_count() -> None:
-    """delete_multiple_cached_users is True when at least one document was removed."""
+def test_delete_multiple_cached_users_returns_the_deleted_count() -> None:
+    """delete_multiple_cached_users answers how many documents were removed - the setup route logs it."""
     mock_self = MagicMock()
-    mock_self.dbm.delete_many.return_value = MagicMock(deleted_count=2)
-    assert CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL, 'x@y']) is True
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=2)
+    assert CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL, 'x@y']) == 2
 
-    mock_self.dbm.delete_many.return_value = MagicMock(deleted_count=0)
-    assert CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL]) is False
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=0)
+    assert CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL]) == 0
+
+
+def test_delete_multiple_cached_users_hands_the_filter_over_as_one_dict() -> None:
+    """The email list is the filter's $in, passed as the filter itself rather than spread as keyword arguments"""
+    mock_self = MagicMock()
+    mock_self.db_name = 'cache-db'
+    mock_self.dbm.delete_many_raw.return_value = MagicMock(deleted_count=1)
+
+    CachedUserManager.delete_multiple_cached_users(mock_self, [EMAIL])
+
+    assert mock_self.dbm.delete_many_raw.call_args.kwargs == {
+        'collection': CmdbCachedUser.COLLECTION,
+        'db_name': 'cache-db',
+        'filter_query': {CachedUserKey.EMAIL.value: {'$in': [EMAIL]}},
+    }
 
 
 def test_clear_cache_returns_deleted_count() -> None:
@@ -446,5 +462,4 @@ def test_clear_cache_deletes_with_a_match_all_filter() -> None:
 
     CachedUserManager.clear_cache(mock_self)
 
-    mock_self.dbm.delete_many.assert_not_called()
     assert mock_self.dbm.delete_many_raw.call_args.kwargs['filter_query'] == {}

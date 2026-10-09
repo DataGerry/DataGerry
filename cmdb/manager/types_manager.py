@@ -325,31 +325,28 @@ class TypesManager(BaseManager):
         self,
         sort: str = 'public_id',
         direction: int = CmdbDAO.DAO_DESCENDING,
-        **requirements: Any,
+        *,
+        criteria: dict[str, Any] | None = None,
     ) -> list[CmdbType]:
         """
-        Retrieves CmdbTypes from the collection based on specified requirements
+        Retrieves CmdbTypes matching the criteria, sorted by the given field (default is `public_id`)
 
-        This method fetches types matching the provided criteria (through `requirements`)
-        and sorts the results according to the specified field (default is `public_id`)
-
-        `direction` is declared explicitly rather than left to `**requirements` so it binds to the
-        sort order instead of silently becoming a query filter field
+        The filter is one keyword-only dict, so it can never be confused with the sort options
 
         Args:
             sort (str): The field by which to sort the results (default is `public_id`)
             direction (int): Sort direction, CmdbDAO.DAO_ASCENDING (1) or CmdbDAO.DAO_DESCENDING
                              (-1, the BaseManager default)
-            **requirements: Additional filtering criteria passed as keyword arguments
+            criteria (dict[str, Any] | None): The filter, as one dict. None reads every CmdbType
 
         Raises:
             TypesManagerGetError: If there is an error while fetching or processing types
 
         Returns:
-            list[CmdbType]: A list of CmdbTypes that match the given requirements
+            list[CmdbType]: A list of CmdbTypes that match the criteria
         """
         try:
-            raw_data = self.get_many(sort=sort, direction=direction, **requirements)
+            raw_data = self.get_many(sort=sort, direction=direction, criteria=criteria)
 
             return [CmdbType.from_data(data) for data in raw_data]
         except Exception as err:

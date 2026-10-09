@@ -82,9 +82,3 @@ class ObjectsManagerMdsReferencesError(ObjectsManagerError):
     """
     Raised when ObjectsManager could not merge MDS references
     """
-
-
-class ObjectsManagerSummaryLineError(ObjectsManagerError):
-    """
-    Raised when ObjectsManager fails to retrieve the summaryline of a CmdbObject
-    """

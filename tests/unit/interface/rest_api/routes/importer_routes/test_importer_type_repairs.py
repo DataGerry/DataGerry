@@ -31,6 +31,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
     DEFAULT_TYPE_ICON,
     TypeImportError,
 )
+from cmdb.framework.section_templates.global_template_reconcile import GlobalTemplateReconcile
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import (
     clear_invalid_field_defaults,
     strip_uploaded_public_id,
@@ -42,6 +43,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import
     clear_dangling_acl_groups,
     deactivate_empty_acl,
     reconcile_global_templates,
+    template_section_conflict_message,
     resolve_global_templates,
     normalize_imported_type,
 )
@@ -415,10 +417,10 @@ class TestClearDanglingAclGroups:
 
         clear_dangling_acl_groups(_acl_entry({'2': ['READ'], '3': ['UPDATE']}), types_manager)
 
-        (collection, requirements), = types_manager.group_lookups
+        (collection, criteria), = types_manager.group_lookups
 
         assert collection == 'management.groups'
-        assert requirements == {'public_id': {'$in': [2, 3]}}
+        assert criteria == {'public_id': {'$in': [2, 3]}}
 
     @pytest.mark.parametrize(
         'entry',
@@ -503,7 +505,7 @@ class TestReconcileGlobalTemplates:
         assert template['fields'][0]['label'] == 'phone'
 
     def test_a_field_the_type_already_defines_is_never_added_twice(self) -> None:
-        """A name identifies exactly one field, so the type's own definition wins."""
+        """A name identifies exactly one field - and the copy is the template's, so its definition wins."""
         template = _template('dg-contact', [{'type': 'text', 'name': 'host', 'label': 'From template'}])
         entry = _type_claiming(
             'dg-contact', [type_field('host')],
@@ -513,10 +515,10 @@ class TestReconcileGlobalTemplates:
         reconcile_global_templates(entry, StubSectionTemplatesManager([template]))
 
         assert [field['name'] for field in entry['fields']] == ['host']
-        assert entry['fields'][0]['label'] == 'host'  # the type's own definition
+        assert entry['fields'][0]['label'] == 'From template'  # the template's definition
 
     def test_a_field_used_elsewhere_on_the_type_is_not_duplicated(self) -> None:
-        """The name is taken by another section's field, so the template's copy is skipped."""
+        """A template field placed in another section is moved back into the template's - defined once."""
         template = _template('dg-contact', [type_field('host')])
         entry = _type_claiming(
             'dg-contact', [type_field('host')],
@@ -529,7 +531,8 @@ class TestReconcileGlobalTemplates:
         reconcile_global_templates(entry, StubSectionTemplatesManager([template]))
 
         assert [field['name'] for field in entry['fields']] == ['host']
-        assert entry['render_meta']['sections'][1]['fields'] == []
+        assert entry['render_meta']['sections'][0]['fields'] == []
+        assert entry['render_meta']['sections'][1]['fields'] == ['host']
 
     def test_the_section_is_rebuilt_when_the_type_does_not_carry_it(self) -> None:
         """A type claiming a template it has no section for gets the section from the template."""
@@ -763,8 +766,8 @@ class TestTemplateReconciliationToleratesNonsense:
 
         assert entry['render_meta']['sections'][0]['name'] == 'dg-contact'
 
-    def test_a_section_whose_fields_value_is_unusable_is_left_alone(self) -> None:
-        """The definition is added, the broken section list is not extended."""
+    def test_a_section_whose_fields_value_is_unusable_is_replaced_by_the_template_list(self) -> None:
+        """The definition is added, and the broken field list becomes the template's - never read as field names"""
         template = _template('dg-contact', [type_field('phone')])
         entry = {
             'name': 'server', 'global_template_ids': ['dg-contact'], 'fields': [],
@@ -774,7 +777,7 @@ class TestTemplateReconciliationToleratesNonsense:
         reconcile_global_templates(entry, StubSectionTemplatesManager([template]))
 
         assert [field['name'] for field in entry['fields']] == ['phone']
-        assert entry['render_meta']['sections'][0]['fields'] == 'nonsense'
+        assert entry['render_meta']['sections'][0]['fields'] == ['phone']
 
     def test_a_template_without_fields_adds_nothing(self) -> None:
         """An empty template has nothing to top the type up with."""
@@ -898,3 +901,36 @@ class TestClearInvalidFieldDefaults:
     def test_a_malformed_entry_is_left_to_the_rules(self, entry: Any) -> None:
         """Nothing to repair; the structural rules report the shape"""
         assert clear_invalid_field_defaults(entry) == []
+
+
+class TestTheTemplateWinsOnImport:
+    """The template stored here wins over the uploaded copy, and a foreign field refuses the entry"""
+
+    def test_a_rewritten_definition_is_replaced(self) -> None:
+        """The template's field definition, not the upload's"""
+        template = _template('dg-contact', [{'type': 'text', 'name': 'phone', 'label': 'Phone'}])
+        entry = _type_claiming(
+            'dg-contact', [{'type': 'select', 'name': 'phone', 'label': 'HACKED', 'options': [{'name': 'x'}]}],
+            [{'type': 'section', 'name': 'dg-contact', 'label': 'MINE', 'fields': ['phone']}],
+        )
+
+        assert reconcile_global_templates(entry, StubSectionTemplatesManager([template])) is None
+        assert entry['fields'] == [{'type': 'text', 'name': 'phone', 'label': 'Phone'}]
+
+    def test_a_foreign_field_is_the_refusal(self) -> None:
+        """Worded as the import's partial-report error"""
+        template = _template('dg-contact', [type_field('phone')])
+        entry = _type_claiming(
+            'dg-contact', [type_field('phone'), type_field('own')],
+            [{'type': 'section', 'name': 'dg-contact', 'fields': ['phone', 'own']}],
+        )
+
+        refusal = reconcile_global_templates(entry, StubSectionTemplatesManager([template]))
+
+        assert refusal == TypeImportError.FOREIGN_FIELD_IN_TEMPLATE_SECTION.format(
+            template='dg-contact', names=['own'],
+        )
+
+    def test_no_conflict_words_nothing(self) -> None:
+        """None"""
+        assert template_section_conflict_message(GlobalTemplateReconcile(conflicts=[], dropped_claims=[])) is None

@@ -30,9 +30,10 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.builder import build_denied_types_condition, resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
 
+from cmdb.database.database_constants import PUBLIC_ID_FIELD
+from cmdb.manager.base_manager_constants import EMPTY_DELETE_FILTER_MSG
 from cmdb.errors.database import (
     DocumentInsertError,
-    TRANSIENT_DATABASE_ERRORS,
     DocumentGetError,
     DocumentUpdateError,
     DocumentDeleteError,
@@ -59,7 +60,9 @@ class BaseManager:
 
     Holds the target collection, database name and a BaseQueryBuilder, and provides the low-level
     MongoDB CRUD, aggregation and public_id helpers that domain managers build on. Database errors
-    are wrapped in the BaseManager* exception hierarchy
+    are wrapped in the BaseManager* exception hierarchy - only those: each method catches the specific
+    Document* errors its call can raise, so a programming error inside one surfaces as itself (a 500 with
+    its traceback) instead of being reported as a database failure the caller caused
     """
 
     def __init__(self, collection: str, dbm: MongoDatabaseManager, db_name: str | None) -> None:
@@ -71,17 +74,11 @@ class BaseManager:
             dbm (MongoDatabaseManager): Database interaction manager
             db_name (str | None): Target database name; falls back to dbm.db_name when None
                 (used to target a tenant database in cloud mode)
-
-        Raises:
-            BaseManagerInitError: If the initialisation fails
         """
-        try:
-            self.collection: str = collection
-            self.query_builder: BaseQueryBuilder = BaseQueryBuilder()
-            self.dbm: MongoDatabaseManager = dbm
-            self.db_name: str = db_name if db_name else dbm.db_name
-        except Exception as err:
-            raise BaseManagerInitError(err) from err
+        self.collection: str = collection
+        self.query_builder: BaseQueryBuilder = BaseQueryBuilder()
+        self.dbm: MongoDatabaseManager = dbm
+        self.db_name: str = db_name if db_name else dbm.db_name
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -116,40 +113,51 @@ class BaseManager:
         """
         Inserts multiple documents into the manager's collection
 
-        When skip_public is False, any document without a public_id is assigned the next one before
-        insertion; when True, the documents are inserted as-is (each must already carry a public_id)
+        When skip_public is False, the documents without a public_id get theirs from ONE reserved block -
+        a single counter write for the batch, not one per document - in the order they are listed; a
+        document that already carries one keeps it. When True, the documents are inserted as-is. Either
+        way the database layer is told the ids are settled, so it assigns none of its own
 
         Args:
             data (list[dict[str, Any]]): The documents to insert
             skip_public (bool): If True, skip public_id generation. Defaults to False
 
         Raises:
-            BaseManagerInsertError: When the insertion failed
+            BaseManagerInsertError: When the ids could not be reserved or the insertion failed. A
+                transient database failure (lock timeout, lost connection) and a programming error are
+                not wrapped: neither says anything about the documents
 
         Returns:
             list[int]: The public_ids of the inserted documents
         """
         try:
-            if skip_public:
-                return self.dbm.insert_many(self.collection, self.db_name, data, skip_public)
+            if not skip_public:
+                self._assign_public_ids(data)
 
-            # Assign the next public_id to every document that does not already carry one
-            for item in data:
-                if "public_id" not in item:
-                    item["public_id"] = self.dbm.get_next_public_id(
-                        self.collection,
-                        self.db_name,
-                        inc_id=True
-                    )
-
-            return self.dbm.insert_many(self.collection, self.db_name, data)
-
-        except TRANSIENT_DATABASE_ERRORS:
-            # A transient database failure is not an insert the caller got wrong: it is left unwrapped
-            # for the route layer, which answers it as a server error (423 / 503 under handle_db_errors)
-            raise
-        except Exception as err:
+            return self.dbm.insert_many(self.collection, self.db_name, data, skip_public=True)
+        except (DocumentInsertError, DocumentGetError) as err:
             raise BaseManagerInsertError(err) from err
+
+
+    def _assign_public_ids(self, data: list[dict[str, Any]]) -> None:
+        """
+        Gives every document without a public_id one, from a single reserved block
+
+        Args:
+            data (list[dict[str, Any]]): The documents, modified in place
+
+        Raises:
+            DocumentGetError: If the block could not be reserved
+        """
+        missing: list[dict[str, Any]] = [item for item in data if PUBLIC_ID_FIELD not in item]
+
+        if not missing:
+            return
+
+        reserved: list[int] = self.dbm.reserve_public_ids(self.collection, self.db_name, len(missing))
+
+        for item, public_id in zip(missing, reserved):
+            item[PUBLIC_ID_FIELD] = public_id
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -169,7 +177,7 @@ class BaseManager:
         """
         try:
             return self.dbm.get_distinct(self.collection, self.db_name, key, criteria)
-        except Exception as err:
+        except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
 
@@ -187,23 +195,24 @@ class BaseManager:
         (e.g. running a CmdbReport) pays for it twice otherwise. Use this whenever no total is needed
         and ``iterate_query`` when it is - the two build the identical data pipeline
 
+        The aggregation runs under the query's time budget (``builder_params.time_limit_ms``) and is read
+        to the end before it returns
+
         Args:
             builder_params (BuilderParameters): Parameters to define the query
             user (CmdbUser | None): The user making the request. Defaults to None
             permission (AccessControlPermission | None): Permission to check. Defaults to None
 
         Raises:
-            BaseManagerIterationError: If the aggregation process fails
+            BaseManagerIterationError: If the aggregation fails - wrapping a DocumentQueryTimeLimitError when it
+                ran past its time budget. Raised by ``aggregate_within_time_limit`` and passed on as it is
 
         Returns:
             list[dict[str, Any]]: The aggregation results
         """
-        try:
-            query: list[dict[str, Any]] = self.query_builder.build(builder_params, user, permission)
+        query: list[dict[str, Any]] = self.query_builder.build(builder_params, user, permission)
 
-            return list(self.aggregate(query))
-        except Exception as err:
-            raise BaseManagerIterationError(err) from err
+        return self.aggregate_within_time_limit(query, builder_params.time_limit_ms)
 
 
     @staticmethod
@@ -264,24 +273,27 @@ class BaseManager:
             permission (AccessControlPermission | None): Permission to check. Defaults to None
 
         Raises:
-            BaseManagerIterationError: If the aggregation process fails
+            BaseManagerIterationError: If either aggregation fails, or the denied types could not be read
+                for the access control (the read's own error is wrapped, so a caller handles one error)
 
         Returns:
             tuple[list[dict[str, Any]], int]: The aggregation results and the total document count
         """
         try:
             self.apply_acl_to_builder_params(builder_params, user, permission)
-
-            aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params)
-
-            count_query: list[dict[str, Any]] = self.query_builder.count(builder_params.get_criteria())
-            total_cursor = self.aggregate(count_query)
-
-            total = next(total_cursor, {}).get('total', 0)
-
-            return aggregation_result , total
-        except Exception as err:
+        except (BaseManagerGetError, BaseManagerInitError) as err:
             raise BaseManagerIterationError(err) from err
+
+        aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params)
+
+        count_query: list[dict[str, Any]] = self.query_builder.count(builder_params.get_criteria())
+        count_result: list[dict[str, Any]] = self.aggregate_within_time_limit(
+            count_query, builder_params.time_limit_ms,
+        )
+
+        total = next(iter(count_result), {}).get('total', 0)
+
+        return aggregation_result, total
 
 
     def get_one(self, *args: Any, **kwargs: Any) -> dict[str, Any] | None:
@@ -354,9 +366,10 @@ class BaseManager:
             direction: int = -1,
             limit: int = 0,
             projection: dict[str, Any] | None = None,
-            **requirements: Any) -> list[dict[str, Any]]:
+            *,
+            criteria: dict[str, Any] | None = None) -> list[dict[str, Any]]:
         """
-        Retrieves documents from a given collection that match the specified requirements
+        Retrieves documents from a given collection that match the criteria
 
         Args:
             collection (str): The name of the target collection
@@ -367,8 +380,9 @@ class BaseManager:
                 given it replaces the database layer's default (which only drops `_id`), so a caller
                 reading a few keys of a large document does not pay for the rest - remember to
                 exclude `_id` explicitly, since MongoDB returns it unless told otherwise
-            **requirements (dict): Key-value pairs for filtering the documents; a dotted path
-                (`'multi_data_sections.section_id'`) is a valid key here
+            criteria (dict[str, Any] | None): The MongoDB filter, as one dict - any key and any operator, a
+                dotted path (`'multi_data_sections.section_id'`) included. None reads every document. Keyword-only,
+                so a field named like an option (`sort`, `limit`, ...) is still a filter field
 
         Raises:
             BaseManagerGetError: If an error occurs during the retrieval process
@@ -377,14 +391,13 @@ class BaseManager:
             list[dict]: List of documents that match the filtering criteria
         """
         try:
-            requirements_filter = requirements if requirements else {}
             formatted_sort = [(sort, direction)]
             find_options: dict[str, Any] = {} if projection is None else {'projection': projection}
 
             return self.dbm.find_all(collection=collection,
                                      db_name=self.db_name,
                                      limit=limit,
-                                     filter=requirements_filter,
+                                     filter=criteria or {},
                                      sort=formatted_sort,
                                      **find_options)
         except DocumentGetError as err:
@@ -483,16 +496,24 @@ class BaseManager:
         sort: str = 'public_id',
         direction: int = -1,
         limit: int=0,
-        **requirements: Any
+        projection: dict[str, Any] | None = None,
+        *,
+        criteria: dict[str, Any] | None = None,
     ) -> list[dict[str, Any]]:
         """
-        Retrieves documents from the database filtered by the provided requirements
+        Retrieves documents from the database matching the criteria
 
         Args:
             sort (str): The field to sort the results by. Default is 'public_id'
             direction (int): The sorting direction. 1 for ascending, -1 for descending. Default is -1
             limit (int): The maximum number of documents to retrieve. 0 means no limit (default is 0)
-            **requirements (dict): Dictionary of key-value pairs used as filters for the query
+            projection (dict[str, Any] | None): The fields to return, as a MongoDB projection. When
+                given it replaces the database layer's default (which only drops `_id`), so a caller
+                reading a few keys of a large document does not pay for the rest - remember to
+                exclude `_id` explicitly, since MongoDB returns it unless told otherwise
+            criteria (dict[str, Any] | None): The MongoDB filter, as one dict - any key and any operator. None
+                reads every document. Keyword-only, so a field named like an option (`sort`, `limit`, ...) is still
+                a filter field
 
         Raises:
             BaseManagerGetError: If the retrieval of documents fails
@@ -501,14 +522,15 @@ class BaseManager:
             list[dict]: A list of documents that match the criteria
         """
         try:
-            requirements_filter = requirements if requirements else {}
             formatted_sort = [(sort, direction)]
+            find_options: dict[str, Any] = {} if projection is None else {'projection': projection}
 
             return self.dbm.find_all(collection=self.collection,
                                      db_name=self.db_name,
-                                    limit=limit,
-                                    filter=requirements_filter,
-                                    sort=formatted_sort)
+                                     limit=limit,
+                                     filter=criteria or {},
+                                     sort=formatted_sort,
+                                     **find_options)
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
@@ -529,6 +551,37 @@ class BaseManager:
         """
         try:
             return self.dbm.aggregate(self.collection, self.db_name, *args, **kwargs)
+        except DocumentAggregationError as err:
+            raise BaseManagerIterationError(err) from err
+
+
+    def aggregate_within_time_limit(
+            self,
+            pipeline: list[dict[str, Any]],
+            time_limit_ms: int,
+            **kwargs: Any) -> list[dict[str, Any]]:
+        """
+        Runs an aggregation on the collection under a server-side time budget and reads every result
+
+        For an aggregation a client shapes: past the budget the server stops it, instead of it running until
+        the driver's socket timeout
+
+        Args:
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            time_limit_ms (int): The server-side time budget, in milliseconds
+            **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
+
+        Raises:
+            BaseManagerIterationError: If the aggregation failed - wrapping a DocumentQueryTimeLimitError when
+                it ran past its time budget
+
+        Returns:
+            list[dict[str, Any]]: Every result of the aggregation
+        """
+        try:
+            return self.dbm.aggregate_within_time_limit(
+                self.collection, self.db_name, pipeline, time_limit_ms, **kwargs,
+            )
         except DocumentAggregationError as err:
             raise BaseManagerIterationError(err) from err
 
@@ -620,8 +673,6 @@ class BaseManager:
         criteria: dict[str, Any],
         data: dict[str, Any],
         *args: Any,
-        add_to_set: bool = True,
-        plain: bool = False,
         collection: str | None = None,
         **kwargs: Any
     ) -> UpdateResult:
@@ -630,12 +681,9 @@ class BaseManager:
 
         Args:
             criteria (dict[str, Any]): The filter selecting the document(s) to update
-            data (dict[str, Any]): The update data to apply to the matched document(s)
+            data (dict[str, Any]): Field values, wrapped in `$set`, or an update document of operators,
+                sent as it is
             *args: Additional positional arguments passed to the update operation
-            add_to_set (bool): If True, wrap `data` in `$set` unless it already contains update
-                operators. Defaults to True
-            plain (bool): If True, send `data` as-is without wrapping it in an operator.
-                Defaults to False
             collection (str | None): Collection to update; defaults to this manager's collection when None
             **kwargs: Additional keyword arguments passed to the update operation
 
@@ -648,10 +696,27 @@ class BaseManager:
         try:
             target_collection = collection or self.collection
 
-            return self.dbm.update(
-                target_collection, self.db_name, criteria, data, *args,
-                add_to_set=add_to_set, plain=plain, **kwargs
-            )
+            return self.dbm.update(target_collection, self.db_name, criteria, data, *args, **kwargs)
+        except DocumentUpdateError as err:
+            raise BaseManagerUpdateError(err) from err
+
+
+    def replace(self, public_id: int, document: dict[str, Any]) -> UpdateResult:
+        """
+        Replaces the document with this public_id entirely - see ``MongoDatabaseManager.replace``
+
+        Args:
+            public_id (int): public_id of the document to replace
+            document (dict[str, Any]): The document to store in its place
+
+        Raises:
+            BaseManagerUpdateError: If the document could not be replaced
+
+        Returns:
+            UpdateResult: The outcome of the replace
+        """
+        try:
+            return self.dbm.replace(self.collection, self.db_name, {PUBLIC_ID_FIELD: public_id}, document)
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(err) from err
 
@@ -694,18 +759,18 @@ class BaseManager:
             criteria: dict[str, Any],
             update: dict[str, Any],
             add_to_set: bool = False,
-            plain: bool = False
     ) -> UpdateResult:
         """
-        Updates multiple documents in the collection that match the given filter
+        Sets fields - or adds array members - on every document of the collection matching the filter
+
+        ``update`` holds field values, not operators. An update that brings its own operators, or is a
+        pipeline, goes to ``update_many_raw``
 
         Args:
             criteria (dict[str, Any]): Filter selecting the documents to update
-            update (dict[str, Any]): The update operations to apply
-            add_to_set (bool): If True, wrap `update` in `$set` unless it already contains update
-                operators. Defaults to False
-            plain (bool): If True, send `update` as-is without wrapping it in an operator.
-                Defaults to False
+            update (dict[str, Any]): The field values to set, or the array members to add
+            add_to_set (bool): If True, `update` is applied with `$addToSet` - each value is added to its
+                array unless already there; if False, with `$set`. Defaults to False
 
         Raises:
             BaseManagerUpdateError: If the update operation fails
@@ -714,7 +779,7 @@ class BaseManager:
             UpdateResult: The result of the update operation, containing metadata about the operation's success
         """
         try:
-            return self.dbm.update_many(self.collection, self.db_name, criteria, update, add_to_set, plain)
+            return self.dbm.update_many(self.collection, self.db_name, criteria, update, add_to_set)
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(err) from err
 
@@ -722,6 +787,9 @@ class BaseManager:
     def update_many_pull(self, criteria: dict[str, Any], update: dict[str, Any]) -> UpdateResult:
         """
         Removes array elements from documents matching the filter using a `$pull` update
+
+        A `$pull` built from `update` and sent through `update_many_raw`: `criteria={'types_filter': 5}` with
+        `update={'types_filter': 5}` removes 5 from the `types_filter` array of every matching document
 
         Args:
             criteria (dict[str, Any]): Filter selecting the documents to update
@@ -734,7 +802,9 @@ class BaseManager:
             UpdateResult: The outcome of the update, including the matched and modified counts
         """
         try:
-            return self.dbm.update_many_pull(self.collection, self.db_name, criteria, update)
+            return self.dbm.update_many_raw(
+                collection=self.collection, db_name=self.db_name, filter_query=criteria, update={'$pull': update},
+            )
         except DocumentUpdateError as err:
             raise BaseManagerUpdateError(err) from err
 
@@ -742,18 +812,19 @@ class BaseManager:
     def update_many_raw(
         self,
         filter_query: dict[str, Any],
-        update: dict[str, Any],
+        update: dict[str, Any] | list[dict[str, Any]],
         array_filters: list[dict[str, Any]] | None = None,
     ) -> UpdateResult:
         """
         Updates multiple documents using a raw update spec, with optional array filters
 
-        The update is passed through unchanged (it must carry its own operators); array_filters
-        supply the identifiers for positional `$[<identifier>]` updates
+        The update is passed through unchanged: it carries its own operators, or is an aggregation pipeline
+        (a list of stages); array_filters supply the identifiers for positional `$[<identifier>]` updates
 
         Args:
             filter_query (dict[str, Any]): Filter selecting the documents to update
-            update (dict[str, Any]): The raw update document (must include its own operators)
+            update (dict[str, Any] | list[dict[str, Any]]): The raw update document (its own operators), or a
+                pipeline
             array_filters (list[dict[str, Any]] | None): Array filters for positional updates. Defaults to None
 
         Raises:
@@ -819,44 +890,50 @@ class BaseManager:
             raise BaseManagerDeleteError(err) from err
 
 
-    def delete_many(self, filter_query: dict[str, Any]) -> DeleteResult:
+    def find_one_and_delete(self, criteria: dict[str, Any]) -> dict[str, Any] | None:
         """
-        Deletes multiple documents from the collection that match the given filter criteria
+        Deletes the first document of this manager's collection matching the criteria, answering it
+
+        Atomic: the document answered is the one this call deleted, so a caller recording what it removed
+        records nothing another writer removed in the meantime
 
         Args:
-            filter_query (dict[str, Any]): Dictionary specifying the filter criteria for selecting documents to delete
+            criteria (dict[str, Any]): Filter selecting the document to delete
 
         Raises:
             BaseManagerDeleteError: If the deletion operation fails
 
         Returns:
-            DeleteResult: The result of the delete operation, containing details about the number of deleted documents
+            dict[str, Any] | None: The deleted document (without `_id`), or None when nothing matched
         """
         try:
-            return self.dbm.delete_many(collection=self.collection, db_name=self.db_name, **filter_query)
+            return self.dbm.find_one_and_delete(self.collection, self.db_name, criteria)
         except DocumentDeleteError as err:
             raise BaseManagerDeleteError(err) from err
 
 
-    def delete_many_raw(self, filter_query: dict[str, Any]) -> DeleteResult:
+    def delete_many(self, filter_query: dict[str, Any]) -> DeleteResult:
         """
-        Deletes every document matching the given raw filter
+        Deletes every document of the collection matching the filter
+
+        The filter is handed to MongoDB as it is, so any key and any operator - a top-level ``$or`` included -
+        works. **An empty filter is refused**: ``{}`` matches every document, so a filter that came out empty
+        would delete the whole collection. A deliberate full delete goes to the database layer itself
 
         Args:
-            filter_query (dict[str, Any]): The raw MongoDB filter selecting documents to delete
+            filter_query (dict[str, Any]): The MongoDB filter selecting the documents to delete
 
         Raises:
-            BaseManagerDeleteError: If the deletion operation fails
+            BaseManagerDeleteError: If the filter is empty (nothing is deleted) or the deletion fails
 
         Returns:
             DeleteResult: The outcome of the delete, including the deleted document count
         """
+        if not filter_query:
+            raise BaseManagerDeleteError(EMPTY_DELETE_FILTER_MSG.format(collection=self.collection))
+
         try:
-            return self.dbm.delete_many_raw(
-                collection=self.collection,
-                db_name=self.db_name,
-                filter_query=filter_query
-            )
+            return self.dbm.delete_many_raw(collection=self.collection, db_name=self.db_name, filter_query=filter_query)
         except DocumentDeleteError as err:
             raise BaseManagerDeleteError(err) from err
 
@@ -865,8 +942,8 @@ class BaseManager:
         """
         Deletes every document matching the raw filter from another collection
 
-        The cross-collection counterpart of delete_many / delete_many_raw (which target this manager's
-        own collection); used to cascade a delete into referencing collections in a single round-trip
+        The cross-collection counterpart of delete_many (which targets this manager's own collection); used to
+        cascade a delete into referencing collections in a single round-trip
         instead of fetching the referencing documents and deleting them one by one
 
         Args:

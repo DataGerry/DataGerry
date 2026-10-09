@@ -16,11 +16,8 @@
 """
 Shared constants for the CmdbType import REST routes
 """
-from typing import Any
-
 from cmdb.utils import BaseStrEnum
 from cmdb.models.type_model import TypeSchemaKey
-from cmdb.security.acl.acl_constants import AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -28,7 +25,6 @@ __all__: list[str] = [
     'STRUCTURE_ERROR_SEPARATOR',
     'LEGACY_EXTERNALS_KEY',
     'DEFAULT_TYPE_ICON',
-    'DEFAULT_TYPE_ACL',
     'IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS',
     'TypeImporterFormField',
     'TypeImportError',
@@ -76,17 +72,6 @@ IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS: dict[str, bool] = {
     TypeSchemaKey.USES_PORTS.value: False,
 }
 
-# The "no access control" ACL every newly created CmdbType starts with (same shape the assistant's
-# profile_type_constructor seeds and the one AccessControlList.from_data({}) produces): the ACL is
-# switched off and no group is granted anything, so the type is governed by the normal rights alone
-DEFAULT_TYPE_ACL: dict[str, Any] = {
-    AclKey.ACTIVATED.value: False,
-    AclKey.GROUPS.value: {
-        AclKey.INCLUDES.value: {},
-    },
-}
-
-
 class TypeImporterFormField(BaseStrEnum):
     """Multipart form-field names read from a type-import request"""
     UPLOAD_FILE = 'uploadFile'
@@ -106,6 +91,7 @@ class TypeImportError(BaseStrEnum):
     MALFORMED_JSON = 'The uploaded data is not valid JSON: {detail}'
     MISSING_TYPE_NAME = 'The Type data does not contain a name!'
     INVALID_BOOLEAN_VALUE = "Invalid value for '{field}': {value}"
+    INVALID_ACL = 'Invalid access control list: {detail}'
     SPECIAL_TYPE_NOT_LICENSED = 'The IPAM feature is not licensed, so the special Type "{special_type}" ' \
                                 'can not be imported!'
     USES_PORTS_NOT_LICENSED = 'The IPAM feature is not licensed, so the Type "{name}" can not be ' \
@@ -136,15 +122,20 @@ class TypeImportError(BaseStrEnum):
     SUMMARY_FIELD_NOT_DEFINED = 'The summary references field(s) the Type does not define: {names}'
     EXTERNAL_FIELD_NOT_DEFINED = 'External link(s) reference field(s) the Type does not define: {names}'
     NORMALIZATION_FAILED = 'Failed to prepare this Type for import: {detail}'
+    FOREIGN_FIELD_IN_TEMPLATE_SECTION = 'The section of the global section template "{template}" holds ' \
+                                        'field(s) the template does not own: {names}'
     REPAIRED_TYPE_INVALID = 'Completing this Type from its global section template(s) made it ' \
                             'invalid: {detail}'
     CREATE_SIDE_EFFECTS_FAILED = 'The Type was imported, but wiring up its SpecialType failed: {detail}'
-    UPDATE_SIDE_EFFECTS_FAILED = 'The Type was updated, but applying the follow-up changes to its ' \
-                                 'Objects, Locations and section templates failed: {detail}'
+    UPDATE_SIDE_EFFECTS_FAILED = 'The Type was updated, but applying it to its {step} failed - import or save ' \
+                                 'the Type again to finish: {detail}'
+    UNKNOWN_STEP = 'data'
     PUBLIC_ID_ASSIGNMENT_FAILED = 'Failed to assign a public_id to this Type: {detail}'
     INVALID_TYPE_DATA = 'Failed to create a Type instance from the provided data: {detail}'
     IMPORT_FAILED = 'Failed to import this Type: {detail}'
     TYPE_NOT_FOUND = 'No Type with public_id {public_id} exists, it can not be updated!'
+    TYPE_ACCESS_DENIED = 'The Type with public_id {public_id} is protected by its access control list, ' \
+                         'it can not be updated!'
     UPDATE_FAILED = 'Failed to update this Type: {detail}'
     # Reported for an entry whose import failed with an error the import itself did not anticipate. The
     # batch keeps running and the entry lands in failed_imports like any other rejection, so a defect

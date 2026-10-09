@@ -108,6 +108,28 @@ class TestResolveFieldDispatch:
 
         assert result == "Berlin"
 
+    @pytest.mark.parametrize('modern', [True, False], ids=['default', 'object'])
+    def test_any_location_typed_field_dispatches_to_location(self, modern: bool) -> None:
+        """Whatever its name: a location field is its location's name, in both template types"""
+        lm = Mock()
+        lm.get_location.return_value = {"name": "Berlin"}
+        instance = _make(modern=modern, locations_manager=lm)
+        instance._resolve_reference = Mock()
+
+        assert instance._resolve_field('placement', LOCATION, 10, None, 3) == "Berlin"
+        lm.get_location.assert_called_once_with(10)
+        instance._resolve_reference.assert_not_called()
+
+    def test_a_location_inside_a_reference_section_is_its_name(self) -> None:
+        """The section's sub-fields dispatch through the same rule"""
+        lm = Mock()
+        lm.get_location.return_value = {"name": "Berlin"}
+        references = {"fields": [{"name": "placement", "type": LOCATION, "value": 10}]}
+
+        result = _make(modern=True, locations_manager=lm)._resolve_modern_field(REF_SECTION, None, references, 3)
+
+        assert result == {"fields": {"placement": "Berlin"}}
+
     def test_modern_mode_uses_reference_result(self) -> None:
         """A modern ref field resolves to a ReferenceResult."""
         instance = _make(modern=True)
@@ -137,6 +159,14 @@ class TestResolveLegacyField:
         """A ref at depth 0 is not resolved and returns the raw value."""
         assert _make()._resolve_legacy_field(REF, 10, None, 0) == 10
 
+    def test_a_location_is_never_followed_as_a_reference(self) -> None:
+        """Its value is a CmdbLocation id, not an object's: no object is read for it"""
+        instance = _make()
+        instance._resolve_reference = Mock(return_value={"type_id": 2})
+
+        assert instance._resolve_legacy_field(LOCATION, 10, None, 3) == 10
+        instance._resolve_reference.assert_not_called()
+
     def test_ref_section_maps_name_to_value(self) -> None:
         """A reference section flattens to {name: value}."""
         references = {"fields": [{"name": "a", "value": "x"}, {"name": "b", "value": "y"}]}
@@ -165,12 +195,13 @@ class TestResolveModernField:
 
         assert instance._resolve_modern_field(REF, 10, None, 3) is None
 
-    def test_location_not_wrapped(self) -> None:
-        """A location field resolves to the raw dict (only 'ref' is wrapped)."""
+    def test_a_location_is_never_followed_as_a_reference(self) -> None:
+        """Its value is a CmdbLocation id, not an object's: no object is read for it"""
         instance = _make(modern=True)
         instance._resolve_reference = Mock(return_value={"type_id": 2})
 
-        assert instance._resolve_modern_field(LOCATION, 10, None, 3) == {"type_id": 2}
+        assert instance._resolve_modern_field(LOCATION, 10, None, 3) == 10
+        instance._resolve_reference.assert_not_called()
 
     def test_ref_section_resolves_subfields(self) -> None:
         """A reference section resolves each sub-field recursively."""
@@ -343,5 +374,5 @@ class TestResolveReference:
         instance.extract_object_data = Mock(return_value={'public_id': REFERENCED_ID})
 
         assert instance._resolve_reference(REFERENCED_ID, 2) == {'public_id': REFERENCED_ID}
-        renderer.assert_called_once_with([referenced], instance.request_user)
+        renderer.assert_called_once_with([referenced], instance.request_user, ref_render=True)
         instance.extract_object_data.assert_called_once_with(render, 1)

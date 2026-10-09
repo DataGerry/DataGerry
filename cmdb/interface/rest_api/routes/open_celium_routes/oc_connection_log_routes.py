@@ -27,13 +27,14 @@ OpenCelium connector is registered under a `<database>_<name>` prefix so tenants
 other's; the flowchart route strips it (see `oc_connection_log_helper`). That rewrite is the one piece
 of logic in the file - everything else forwards.
 
-The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`) but carries
-no per-route ACL right, unlike the sibling connection and connector routes - the rights it would need
-do not exist yet.
+The blueprint is license-gated as part of the `AUTOMATIONS` feature (see `init_rest_api`). The reads ask for
+``base.openCelium.connection.view`` and the delete for ``base.openCelium.connection.delete`` (``OcRight``): an
+execution log belongs to an Automation, which is a connection and its scheduler.
 
-**No frontend calls these.** The Automations view's log menu and viewer read
-`open_celium/schedulers/logs` (a scheduler route); this file is API-only surface, so a defect in its
-cloud-only branch does not surface through the UI.
+**The frontend reaches these through an embedded viewer.** The Automations view's log menu reads
+`open_celium/schedulers/logs` (a scheduler route) itself, and its log modal hands the embedded OpenCelium
+log viewer (`opencelium-log-viewer`) this API's base URL and the user's token, so the viewer's own requests
+land here.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -50,7 +51,7 @@ from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcLogQueryParam
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcLogQueryParam, OcRight
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_log_helper import (
     build_connection_log_manager,
     required_int_param_or_abort,
@@ -68,9 +69,10 @@ oc_connection_log_blueprint = APIBlueprint('oc_connection_logs', __name__)
 # --------------------------------------------------- GET - ROUTES --------------------------------------------------- #
 
 @oc_connection_log_blueprint.route('/connections/logs/<string:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Method/Operator details!")
 def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: str) -> Response:
     """
     GET/HEAD route to retrieve details about one Method or Operator of an execution log
@@ -95,9 +97,10 @@ def oc_get_method_or_operator_details(request_user: CmdbUser, target_id: str) ->
 
 
 @oc_connection_log_blueprint.route('/connections/logs/children/<string:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Method/Operator details!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Method/Operator details!")
 def oc_get_operator_children(request_user: CmdbUser, target_id: str) -> Response:
     """
     GET/HEAD route to retrieve the children of one Operator of an execution log
@@ -130,9 +133,10 @@ def oc_get_operator_children(request_user: CmdbUser, target_id: str) -> Response
 
 
 @oc_connection_log_blueprint.route('/connections/logs/flowcharts/<int:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Flowcharts!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Flowcharts!")
 def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
     """
     GET/HEAD route to retrieve the Flowcharts of one execution
@@ -164,9 +168,10 @@ def oc_get_flowcharts(request_user: CmdbUser, target_id: int) -> Response:
 
 
 @oc_connection_log_blueprint.route('/connections/logs/first_level/<string:target_id>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the first level Logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the first level Logs!")
 def oc_get_first_level_logs(request_user: CmdbUser, target_id: str) -> Response:
     """
     GET/HEAD route to retrieve the first level of log entries under one Flowchart
@@ -190,9 +195,10 @@ def oc_get_first_level_logs(request_user: CmdbUser, target_id: str) -> Response:
 
 
 @oc_connection_log_blueprint.route('/connections/logs/list', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving the Log list!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_VIEW.value)
+@handle_oc_errors("retrieving the Log list!")
 def oc_get_log_list(request_user: CmdbUser) -> Response:
     """
     GET/HEAD route to retrieve the available execution Logs of one automation
@@ -230,9 +236,10 @@ def oc_get_log_list(request_user: CmdbUser) -> Response:
 # -------------------------------------------------- DELETE - ROUTES ------------------------------------------------- #
 
 @oc_connection_log_blueprint.route('/connections/logs/<int:target_id>', methods=['DELETE'])
-@handle_oc_errors("deleting execution Logs!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_connection_log_blueprint.protect(auth=True, right=OcRight.CONNECTION_DELETE.value)
+@handle_oc_errors("deleting execution Logs!")
 def oc_delete_logs(request_user: CmdbUser, target_id: int) -> Response:
     """
     **DELETE** route to delete the execution Logs of one automation run

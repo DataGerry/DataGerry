@@ -22,12 +22,7 @@ class to use, the status code each one answers with and the keys it writes are t
 `base_api_response.py`; the key and header names themselves are in `response_constants.py`, because
 they are a frontend contract.
 
-Two members are not envelopes:
-
-* `LoginResponse` is the token exchange and deliberately carries no envelope keys
-* `GridFsResponse` is a plain result container for the media library, not an HTTP response at all -
-  it has no `make_response`. It is also imported by `media_files_manager`, which makes the manager
-  layer depend on the interface layer
+One member is not an envelope: `LoginResponse` is the token exchange and deliberately carries no envelope keys
 
 `ErrorResponse` in `error_handlers.py` is the other half of the contract: it owns the shape of a
 failed request (`status`, `response`, `description`, `message`), which is what every `abort()` in the
@@ -43,7 +38,6 @@ from .insert_single_response import InsertSingleResponse
 from .update_single_response import UpdateSingleResponse
 from .update_multi_response import UpdateMultiResponse
 from .login_response import LoginResponse
-from .gridfs_response import GridFsResponse
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
@@ -57,5 +51,4 @@ __all__: list[str] = [
     'UpdateSingleResponse',
     'UpdateMultiResponse',
     'LoginResponse',
-    'GridFsResponse',
 ]

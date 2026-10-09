@@ -17,20 +17,19 @@
 Functional smoke for the ``/locations`` REST routes
 
 End-to-end coverage that the LocationsManager integration suite cannot give: HTTP status
-codes and the JSON envelopes for the CmdbLocation routes - POST create, GET-list, GET-single +
-404, the object-scoped ``/<id>/object`` + ``/parent`` + ``/children`` lookups, the PUT update
-round-trip, and DELETE + follow-up 404. CRUD
-correctness itself is asserted at the manager layer; these tests only verify the routes wrap
-it correctly.
+codes and the JSON envelopes for the CmdbLocation routes - GET-list, GET-single + 404, the
+object-scoped ``/<id>/object`` + ``/parent`` + ``/children`` lookups, and the one-object move
+``PATCH /<id>/parent`` placing, moving and removing a placement (node and object field alike). The
+create, update and delete routes are retired and answer no write. CRUD correctness itself is
+asserted at the manager layer; these tests only verify the routes wrap it correctly.
 
 Also covered: the per-route error tails (the ``/tree/search`` 500 and the two
 move routes' manager-error and unexpected-error arms), the HTTPException pass-throughs the five read
 routes were missing, and the ``/<id>/parent`` route answering 200 with ``null`` for a dangling parent
 instead of 404.
 
-And: the root document is reachable as ``DELETE /<0>/object`` (it carries the
-object_id sentinel 0) and is refused there, and one tree level answers in name order rather than in
-the read's insertion order.
+And: the root document (object_id sentinel 0) is unreachable through the move, and one tree level
+answers in name order rather than in the read's insertion order.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -40,7 +39,6 @@ import pytest
 from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.predefined_data.cmdb_data import get_root_location_data
 from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.location_model.cmdb_location import CmdbLocation
@@ -55,6 +53,7 @@ ROUTE_URL: str = '/locations'
 TYPE_ID: int = 9790
 TYPE_NAME: str = 'location-smoke-type'
 NAME_FIELD: str = 'name-field'
+LOCATION_FIELD: str = 'location-field'
 ROOT_PARENT_ID: int = 1
 SEED_AUTHOR_ID: int = 1
 SEED_VERSION: str = '1.0.0'
@@ -83,8 +82,6 @@ OBJECT_ID_FOR_DELETE: int = 9886
 NON_SELECTABLE_PARENT_LOC: int = 9887
 
 DERIVE_POST_OBJECT_ID: int = 9890
-DERIVE_PUT_OBJECT_ID: int = 9891
-DERIVE_PUT_LOCATION_ID: int = 9892
 
 MISSING_LOCATION_ID: int = 9898
 MISSING_OBJECT_ID: int = 9899
@@ -124,11 +121,10 @@ SEARCH_SRV_NAME: str = 'Server-alpha'
 SEARCH_OFFICE_NAME: str = 'Office'
 
 ORIGINAL_NAME: str = 'Original Location'
-UPDATED_NAME: str = 'Updated Location'
 
 ALL_LOCATION_IDS: list[int] = [
     LOCATION_ID_FOR_GET, ROOT_LOCATION_ID, CHILD_LOCATION_ID,
-    LOCATION_ID_FOR_UPDATE, LOCATION_ID_FOR_DELETE, DERIVE_PUT_LOCATION_ID,
+    LOCATION_ID_FOR_UPDATE, LOCATION_ID_FOR_DELETE,
     SEARCH_DC_LOC, SEARCH_RACK_LOC, SEARCH_SRV_LOC, SEARCH_OFFICE_LOC,
     NON_SELECTABLE_PARENT_LOC,
     PATH_DC_LOC, PATH_OFFICE_LOC, PATH_RACK_LOC, PATH_RACK2_LOC, PATH_TARGET_LOC,
@@ -136,14 +132,17 @@ ALL_LOCATION_IDS: list[int] = [
 ]
 ALL_OBJECT_IDS: list[int] = [
     OBJECT_ID_FOR_CREATE, OBJECT_ID_FOR_GET, ROOT_OBJECT_ID, CHILD_OBJECT_ID,
-    OBJECT_ID_FOR_UPDATE, OBJECT_ID_FOR_DELETE, DERIVE_POST_OBJECT_ID, DERIVE_PUT_OBJECT_ID,
+    OBJECT_ID_FOR_UPDATE, OBJECT_ID_FOR_DELETE, DERIVE_POST_OBJECT_ID,
 ]
-# CmdbObjects seeded as real documents (so the render pipeline can derive a summary line)
-REAL_OBJECT_IDS: list[int] = [DERIVE_POST_OBJECT_ID, DERIVE_PUT_OBJECT_ID]
+# CmdbObjects seeded as real documents: the move reads the object (and derives a summary line)
+REAL_OBJECT_IDS: list[int] = [
+    DERIVE_POST_OBJECT_ID, OBJECT_ID_FOR_CREATE, OBJECT_ID_FOR_UPDATE, OBJECT_ID_FOR_DELETE,
+    ROOT_OBJECT_ID, CHILD_OBJECT_ID,
+]
 
 
 def _type_doc() -> dict[str, Any]:
-    """Builds an active CmdbType doc whose presence the location insert route requires."""
+    """Builds an active CmdbType doc with a location field, so its objects can be placed."""
     return {
         'public_id': TYPE_ID,
         'name': TYPE_NAME,
@@ -152,10 +151,11 @@ def _type_doc() -> dict[str, Any]:
         'creation_time': datetime.now(timezone.utc),
         'active': True,
         'selectable_as_parent': True,
-        'fields': [{'type': 'text', 'name': NAME_FIELD, 'label': 'Name'}],
+        'fields': [{'type': 'text', 'name': NAME_FIELD, 'label': 'Name'},
+                   {'type': 'location', 'name': LOCATION_FIELD, 'label': 'Location'}],
         'render_meta': {
             'icon': 'fa-cube',
-            'sections': [{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]}],
+            'sections': [{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD, LOCATION_FIELD]}],
             'summary': {'fields': [NAME_FIELD]},
         },
         'acl': {'activated': False, 'groups': {'includes': None}},
@@ -163,7 +163,7 @@ def _type_doc() -> dict[str, Any]:
     }
 
 
-def _object_doc(public_id: int, value: str) -> dict[str, Any]:
+def _object_doc(public_id: int, value: str, placement: int | None = None) -> dict[str, Any]:
     """Builds a complete CmdbObject doc whose ``NAME_FIELD`` value drives the rendered summary line."""
     return {
         'public_id': public_id,
@@ -171,14 +171,25 @@ def _object_doc(public_id: int, value: str) -> dict[str, Any]:
         'active': True,
         'author_id': SEED_AUTHOR_ID,
         'version': SEED_VERSION,
-        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': value}],
+        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': value},
+                   {'type': 'location', 'name': LOCATION_FIELD, 'value': placement}],
         'creation_time': datetime.now(timezone.utc),
     }
 
 
-def _insert_object(database_manager: MongoDatabaseManager, database_name: str, public_id: int, value: str) -> None:
-    """Inserts a CmdbObject doc directly via the collection."""
-    database_manager.get_collection(CmdbObject.COLLECTION, database_name).insert_one(_object_doc(public_id, value))
+def _insert_object(database_manager: MongoDatabaseManager, database_name: str, public_id: int, value: str,
+                   placement: int | None = None) -> None:
+    """Inserts a CmdbObject doc directly via the collection, placed under ``placement`` when one is given."""
+    database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+        .insert_one(_object_doc(public_id, value, placement))
+
+
+def _location_field_value(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> Any:
+    """Reads the stored value of the object's location field - the other side of the mirror."""
+    stored: dict[str, Any] = database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
+        .find_one({'public_id': public_id})
+
+    return next(field['value'] for field in stored['fields'] if field['name'] == LOCATION_FIELD)
 
 
 def _drop_objects(database_manager: MongoDatabaseManager, database_name: str, public_ids: list[int]) -> None:
@@ -188,7 +199,7 @@ def _drop_objects(database_manager: MongoDatabaseManager, database_name: str, pu
 
 
 def _location_doc(public_id: int, object_id: int, parent: int, name: str = ORIGINAL_NAME) -> dict[str, Any]:
-    """Builds a complete CmdbLocation doc for direct DB insertion (bypasses the POST route)."""
+    """Builds a complete CmdbLocation doc for direct DB insertion (bypasses the mirror)."""
     return {
         'public_id': public_id,
         'name': name,
@@ -199,17 +210,6 @@ def _location_doc(public_id: int, object_id: int, parent: int, name: str = ORIGI
         'type_icon': 'fas fa-cube',
         'type_selectable': True,
     }
-
-
-def _root_location_doc() -> dict[str, Any]:
-    """The predefined synthetic root document, re-keyed to the plain strings MongoDB stores."""
-    # str() of a (str, Enum) member is 'LocationKey.NAME', not its value - the value is the key
-    return {key.value: value for key, value in get_root_location_data().items()}
-
-
-def _location_payload(object_id: int, parent: int, name: str = ORIGINAL_NAME) -> dict[str, Any]:
-    """Builds a POST /locations/ payload (the route derives the rest from the type + object)."""
-    return {'object_id': object_id, 'parent': parent, 'type_id': TYPE_ID, 'name': name}
 
 
 def _insert_location(database_manager: MongoDatabaseManager, database_name: str, doc: dict[str, Any]) -> None:
@@ -226,14 +226,14 @@ def _drop_locations_by_ids(database_manager: MongoDatabaseManager, database_name
 def _drop_locations_by_objects(
     database_manager: MongoDatabaseManager, database_name: str, object_ids: list[int],
 ) -> None:
-    """Removes CmdbLocation docs by object_id directly via the collection (POST uses an auto public_id)."""
+    """Removes CmdbLocation docs by object_id directly via the collection (a placed node gets an auto public_id)."""
     database_manager.get_collection(CmdbLocation.COLLECTION, database_name)\
         .delete_many({'object_id': {'$in': object_ids}})
 
 
 @pytest.fixture(scope='module', autouse=True)
 def _seed_type_and_cleanup(database_manager: MongoDatabaseManager, database_name: str):
-    """Seeds the CmdbType used by the insert route and removes the type + all test locations after."""
+    """Seeds the CmdbType the placed objects use and removes the type + all test locations and objects after."""
     database_manager.get_collection(CmdbType.COLLECTION, database_name).insert_one(_type_doc())
     yield
     database_manager.get_collection(CmdbType.COLLECTION, database_name).delete_one({'public_id': TYPE_ID})
@@ -243,28 +243,51 @@ def _seed_type_and_cleanup(database_manager: MongoDatabaseManager, database_name
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                       CREATE                                                        #
+#                                                        PLACE                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestPostLocation:
-    """POST /locations/ creates a CmdbLocation for the linked object."""
+class TestPlaceObject:
+    """PATCH /locations/<object_id>/parent on an unplaced object creates its CmdbLocation."""
 
-    def test_creates_location_for_object(
+    def test_places_an_unplaced_object(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """A POST with a valid type + object creates a location retrievable via /<object_id>/object."""
+        """The node is created under the parent and the object's location field mirrors it."""
+        _insert_object(database_manager, database_name, OBJECT_ID_FOR_CREATE, ORIGINAL_NAME)
         try:
-            response = rest_api.post(
-                f'{ROUTE_URL}/',
-                json=_location_payload(OBJECT_ID_FOR_CREATE, ROOT_PARENT_ID),
-            )
+            response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_CREATE}/parent', json={'parent': ROOT_PARENT_ID})
 
             assert response.status_code == HTTPStatus.OK
             follow_up = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_CREATE}/object')
             assert follow_up.status_code == HTTPStatus.OK
             # The object-scoped GET uses DefaultResponse - the body is the bare location dict
             assert follow_up.get_json()['object_id'] == OBJECT_ID_FOR_CREATE
+            assert follow_up.get_json()['parent'] == ROOT_PARENT_ID
+            assert _location_field_value(database_manager, database_name, OBJECT_ID_FOR_CREATE) == ROOT_PARENT_ID
         finally:
             _drop_locations_by_objects(database_manager, database_name, [OBJECT_ID_FOR_CREATE])
+            _drop_objects(database_manager, database_name, [OBJECT_ID_FOR_CREATE])
+
+    def test_a_missing_object_is_404(self, rest_api) -> None:
+        """No object, nothing to place"""
+        response = rest_api.patch(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/parent', json={'parent': ROOT_PARENT_ID})
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+class TestRetiredWriteRoutes:
+    """The create, update and delete routes are gone: the two moves are the only placement writes."""
+
+    @pytest.mark.parametrize('method, url', [
+        ('post', f'{ROUTE_URL}/'),
+        ('put', f'{ROUTE_URL}/update_location'),
+        ('patch', f'{ROUTE_URL}/update_location'),
+        ('delete', f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/object'),
+    ], ids=['create', 'update-put', 'update-patch', 'delete'])
+    def test_the_route_does_not_answer(self, rest_api, method: str, url: str) -> None:
+        """No route by that method and path: 404 or 405, never a write"""
+        response = getattr(rest_api, method)(url, json={'object_id': OBJECT_ID_FOR_GET, 'parent': ROOT_PARENT_ID})
+
+        assert response.status_code in (HTTPStatus.NOT_FOUND, HTTPStatus.METHOD_NOT_ALLOWED)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -594,18 +617,15 @@ class TestGetLocationTreePath:
 #                                                  NAME DERIVATION                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestLocationNameDerivation:
-    """An empty name is derived end-to-end from the linked object's rendered summary line."""
+    """A placed object's node is named after the object's rendered summary line."""
 
-    def test_post_with_empty_name_derives_from_object_summary(
+    def test_place_derives_the_name_from_object_summary(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """POST with an empty name renders the linked object and stores its summary line as the name."""
+        """The move carries no name: the new node takes the summary line"""
         _insert_object(database_manager, database_name, DERIVE_POST_OBJECT_ID, SUMMARY_NAME)
         try:
-            response = rest_api.post(
-                f'{ROUTE_URL}/',
-                json={'object_id': DERIVE_POST_OBJECT_ID, 'parent': ROOT_PARENT_ID, 'type_id': TYPE_ID, 'name': ''},
-            )
+            response = rest_api.patch(f'{ROUTE_URL}/{DERIVE_POST_OBJECT_ID}/parent', json={'parent': ROOT_PARENT_ID})
 
             assert response.status_code == HTTPStatus.OK
             stored = rest_api.get(f'{ROUTE_URL}/{DERIVE_POST_OBJECT_ID}/object').get_json()
@@ -614,62 +634,18 @@ class TestLocationNameDerivation:
             _drop_locations_by_objects(database_manager, database_name, [DERIVE_POST_OBJECT_ID])
             _drop_objects(database_manager, database_name, [DERIVE_POST_OBJECT_ID])
 
-    def test_put_with_empty_name_derives_from_object_summary(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """PUT with an empty name re-derives the name from the linked object's summary line."""
-        _insert_object(database_manager, database_name, DERIVE_PUT_OBJECT_ID, SUMMARY_NAME)
-        _insert_location(database_manager, database_name, _location_doc(
-            DERIVE_PUT_LOCATION_ID, DERIVE_PUT_OBJECT_ID, ROOT_PARENT_ID, name=ORIGINAL_NAME,
-        ))
-        try:
-            response = rest_api.put(
-                f'{ROUTE_URL}/update_location',
-                json={'object_id': DERIVE_PUT_OBJECT_ID, 'parent': ROOT_PARENT_ID, 'name': ''},
-            )
-
-            assert response.status_code == HTTPStatus.ACCEPTED
-            stored = rest_api.get(f'{ROUTE_URL}/{DERIVE_PUT_LOCATION_ID}').get_json()
-            assert stored['name'] == SUMMARY_NAME
-            # The response is the stored node, so it reports the derived name - not the '' that was sent
-            assert response.get_json()['result'] == stored
-        finally:
-            _drop_locations_by_ids(database_manager, database_name, [DERIVE_PUT_LOCATION_ID])
-            _drop_objects(database_manager, database_name, [DERIVE_PUT_OBJECT_ID])
-
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                       UPDATE                                                        #
+#                                                        MOVE                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestPutLocation:
-    """PUT /locations/update_location writes the new params for the object's location."""
+class TestMoveObject:
+    """PATCH /locations/<object_id>/parent validates the new parent before it writes."""
 
-    def test_update_persists_new_name(
+    def test_move_to_non_selectable_parent_rejected(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """After the update a follow-up GET reflects the new name."""
-        _insert_location(database_manager, database_name, _location_doc(
-            LOCATION_ID_FOR_UPDATE, OBJECT_ID_FOR_UPDATE, ROOT_PARENT_ID,
-        ))
-        try:
-            response = rest_api.put(
-                f'{ROUTE_URL}/update_location',
-                json={'object_id': OBJECT_ID_FOR_UPDATE, 'parent': ROOT_PARENT_ID, 'name': UPDATED_NAME},
-            )
-
-            assert response.status_code == HTTPStatus.ACCEPTED
-            # The follow-up GET uses DefaultResponse - the body is the bare location dict
-            follow_up = rest_api.get(f'{ROUTE_URL}/{LOCATION_ID_FOR_UPDATE}')
-            assert follow_up.get_json()['name'] == UPDATED_NAME
-            # ... and the update answered that same stored node, not the request body
-            assert response.get_json()['result'] == follow_up.get_json()
-        finally:
-            _drop_locations_by_ids(database_manager, database_name, [LOCATION_ID_FOR_UPDATE])
-
-    def test_update_to_non_selectable_parent_rejected(
-        self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
-    ) -> None:
-        """Updating the location to a parent whose type is not selectable-as-parent is rejected 400."""
+        """A parent whose type is not selectable-as-parent is 400, and nothing moves"""
+        _insert_object(database_manager, database_name, OBJECT_ID_FOR_UPDATE, ORIGINAL_NAME, ROOT_PARENT_ID)
         _insert_location(database_manager, database_name, _location_doc(
             LOCATION_ID_FOR_UPDATE, OBJECT_ID_FOR_UPDATE, ROOT_PARENT_ID,
         ))
@@ -677,68 +653,67 @@ class TestPutLocation:
         non_selectable['type_selectable'] = False
         _insert_location(database_manager, database_name, non_selectable)
         try:
-            response = rest_api.put(
-                f'{ROUTE_URL}/update_location',
-                json={'object_id': OBJECT_ID_FOR_UPDATE, 'parent': NON_SELECTABLE_PARENT_LOC, 'name': UPDATED_NAME},
+            response = rest_api.patch(
+                f'{ROUTE_URL}/{OBJECT_ID_FOR_UPDATE}/parent', json={'parent': NON_SELECTABLE_PARENT_LOC},
             )
 
             assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert rest_api.get(f'{ROUTE_URL}/{LOCATION_ID_FOR_UPDATE}').get_json()['parent'] == ROOT_PARENT_ID
+            assert _location_field_value(database_manager, database_name, OBJECT_ID_FOR_UPDATE) == ROOT_PARENT_ID
         finally:
             _drop_locations_by_ids(database_manager, database_name,
                                    [LOCATION_ID_FOR_UPDATE, NON_SELECTABLE_PARENT_LOC])
+            _drop_objects(database_manager, database_name, [OBJECT_ID_FOR_UPDATE])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                       DELETE                                                        #
+#                                                       REMOVE                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestDeleteLocation:
-    """DELETE /locations/<object_id>/object removes the location; a follow-up GET reports 404."""
+class TestRemovePlacement:
+    """PATCH /locations/<object_id>/parent with a null parent removes the placement on both sides."""
 
-    def test_delete_removes_location(
+    def test_remove_clears_node_and_field(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """A DELETE succeeds and the object's location is then unretrievable."""
+        """The node is gone and the object's location field is null - the mirror holds"""
+        _insert_object(database_manager, database_name, OBJECT_ID_FOR_DELETE, ORIGINAL_NAME, ROOT_PARENT_ID)
         _insert_location(database_manager, database_name, _location_doc(
             LOCATION_ID_FOR_DELETE, OBJECT_ID_FOR_DELETE, ROOT_PARENT_ID,
         ))
         try:
-            response = rest_api.delete(f'{ROUTE_URL}/{OBJECT_ID_FOR_DELETE}/object')
+            response = rest_api.patch(f'{ROUTE_URL}/{OBJECT_ID_FOR_DELETE}/parent', json={'parent': None})
 
-            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED, HTTPStatus.NO_CONTENT)
+            assert response.status_code == HTTPStatus.OK
             follow_up = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_DELETE}/object')
             assert follow_up.status_code == HTTPStatus.NOT_FOUND
+            assert _location_field_value(database_manager, database_name, OBJECT_ID_FOR_DELETE) is None
         finally:
             _drop_locations_by_ids(database_manager, database_name, [LOCATION_ID_FOR_DELETE])
+            _drop_objects(database_manager, database_name, [OBJECT_ID_FOR_DELETE])
 
-    def test_delete_of_the_root_document_is_refused(
+    def test_the_root_document_is_unreachable(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The root carries object_id 0, so this route reaches it - and the manager refuses it."""
-        # the test database is created empty, so the predefined root document is seeded here
-        _insert_location(database_manager, database_name, _root_location_doc())
+        """The root carries object_id 0, which names no object - so no write reaches it"""
         _insert_location(database_manager, database_name, _location_doc(
             ROOT_LOCATION_ID, ROOT_OBJECT_ID, ROOT_PARENT_ID,
         ))
         try:
-            response = rest_api.delete(f'{ROUTE_URL}/{ROOT_OBJECT_ID_SENTINEL}/object')
+            response = rest_api.patch(f'{ROUTE_URL}/{ROOT_OBJECT_ID_SENTINEL}/parent', json={'parent': None})
 
-            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert response.status_code == HTTPStatus.NOT_FOUND
             # the root is untouched and the top-level location still hangs off it
             assert rest_api.get(f'{ROUTE_URL}/{ROOT_PARENT_ID}').status_code == HTTPStatus.OK
             assert rest_api.get(f'{ROUTE_URL}/{ROOT_LOCATION_ID}').get_json()['parent'] == ROOT_PARENT_ID
         finally:
-            _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID, ROOT_PARENT_ID])
+            _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID])
 
-    def test_delete_missing_returns_404(self, rest_api) -> None:
-        """A DELETE for an object with no location returns 404."""
-        response = rest_api.delete(f'{ROUTE_URL}/{MISSING_OBJECT_ID}/object')
-
-        assert response.status_code == HTTPStatus.NOT_FOUND
-
-    def test_delete_location_with_children_promotes_them_to_grandparent(
+    def test_remove_with_children_promotes_them_to_grandparent(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """Deleting a location with children succeeds and re-parents them onto its parent (root here)."""
+        """The children are re-parented onto the removed node's own parent, node and object field alike"""
+        _insert_object(database_manager, database_name, ROOT_OBJECT_ID, ORIGINAL_NAME, ROOT_PARENT_ID)
+        _insert_object(database_manager, database_name, CHILD_OBJECT_ID, ORIGINAL_NAME, ROOT_LOCATION_ID)
         _insert_location(database_manager, database_name, _location_doc(
             ROOT_LOCATION_ID, ROOT_OBJECT_ID, ROOT_PARENT_ID,
         ))
@@ -746,16 +721,20 @@ class TestDeleteLocation:
             CHILD_LOCATION_ID, CHILD_OBJECT_ID, ROOT_LOCATION_ID,
         ))
         try:
-            response = rest_api.delete(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/object')
+            response = rest_api.patch(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/parent', json={'parent': None})
 
-            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED, HTTPStatus.NO_CONTENT)
-            # the deleted parent location is gone
+            assert response.status_code == HTTPStatus.OK
+            # the removed parent location is gone, and its object no longer names a placement
             assert rest_api.get(f'{ROUTE_URL}/{ROOT_OBJECT_ID}/object').status_code == HTTPStatus.NOT_FOUND
-            # the child survives, re-parented onto the deleted node's own parent (the root)
+            assert _location_field_value(database_manager, database_name, ROOT_OBJECT_ID) is None
+            # the child survives, re-parented onto the removed node's own parent (the root)
             child = rest_api.get(f'{ROUTE_URL}/{CHILD_LOCATION_ID}').get_json()
             assert child['parent'] == ROOT_PARENT_ID
+            assert _location_field_value(database_manager, database_name, CHILD_OBJECT_ID) == ROOT_PARENT_ID
         finally:
             _drop_locations_by_ids(database_manager, database_name, [ROOT_LOCATION_ID, CHILD_LOCATION_ID])
+            _drop_objects(database_manager, database_name, [ROOT_OBJECT_ID, CHILD_OBJECT_ID])
+
 
 def _raiser(exc: Exception):
     """Returns a function that ignores its args and raises the given exception."""
@@ -807,10 +786,10 @@ class TestMoveRouteErrorTails:
     """The two move routes map manager failures and unmapped failures to 400 / 500."""
 
     def test_move_one_objects_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """An ObjectsManagerUpdateError while moving one placement surfaces as 400."""
+        """An ObjectsManagerUpdateError while moving one placement surfaces as 400 (raised by its first step)."""
         monkeypatch.setattr(
             'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
-            '.move_object_location',
+            '.validate_object_location_move',
             _raiser(ObjectsManagerUpdateError('boom')),
         )
 
@@ -822,7 +801,7 @@ class TestMoveRouteErrorTails:
         """A LocationsManagerUpdateError while moving one placement surfaces as 400."""
         monkeypatch.setattr(
             'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
-            '.move_object_location',
+            '.validate_object_location_move',
             _raiser(LocationsManagerUpdateError('boom')),
         )
 
@@ -834,7 +813,7 @@ class TestMoveRouteErrorTails:
         """An unmapped failure while moving one placement."""
         monkeypatch.setattr(
             'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
-            '.move_object_location',
+            '.validate_object_location_move',
             _raiser(RuntimeError('boom')),
         )
 

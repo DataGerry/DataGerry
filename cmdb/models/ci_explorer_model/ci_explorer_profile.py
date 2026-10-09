@@ -15,6 +15,10 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of CmdbCiExplorerProfile in DataGerry
+
+A profile is a named, shared CI Explorer filter: the two id filters and the three edge-source toggles
+(``with_locations``, ``with_ipam_relations``, ``with_port_connections``). A toggle the stored document
+lacks reads as its default - TRUE, the frontend graph's own default (``DEFAULT_PROFILE_SCOPE``)
 """
 from typing import Any
 from logging import Logger, getLogger
@@ -22,6 +26,7 @@ from logging import Logger, getLogger
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.class_schema.ci_explorer_model.cmdb_ci_explorer_profile_schema import get_cmdb_ci_explorer_profile_schema
+from cmdb.models.ci_explorer_model.ci_explorer_profile_constants import CiExplorerProfileKey, DEFAULT_PROFILE_SCOPE
 
 from cmdb.errors.models.cmdb_ci_explorer_profile import (
     CmdbCiExplorerProfileInitError,
@@ -48,12 +53,14 @@ class CmdbCiExplorerProfile(CmdbDAO):
 
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
         types_filter: list[int],
         relations_filter: list[int],
-        with_locations: bool = True,
-        with_ipam_relations: bool = False
+        with_locations: bool = DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_LOCATIONS],
+        with_ipam_relations: bool = DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_IPAM_RELATIONS],
+        with_port_connections: bool = DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_PORT_CONNECTIONS],
     ) -> None:
         """
         Initialises a CmdbCiExplorerProfile
@@ -66,7 +73,9 @@ class CmdbCiExplorerProfile(CmdbDAO):
             with_locations (bool): If True the saved filter includes the dg_location hierarchy.
                                    Defaults to True
             with_ipam_relations (bool): If True the saved filter includes IPAM-hierarchy neighbours.
-                                        Defaults to False
+                                        Defaults to True
+            with_port_connections (bool): If True the saved filter includes the CIs the object is cabled
+                                          to. Defaults to True
 
         Raises:
             CmdbCiExplorerProfileInitError: When the CmdbCiExplorerProfile could not be initialised
@@ -77,6 +86,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
             self.relations_filter = relations_filter or []
             self.with_locations = with_locations
             self.with_ipam_relations = with_ipam_relations
+            self.with_port_connections = with_port_connections
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -100,12 +110,11 @@ class CmdbCiExplorerProfile(CmdbDAO):
         """
         try:
             return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                types_filter = data.get('types_filter', []),
-                relations_filter = data.get('relations_filter', []),
-                with_locations = data.get('with_locations', True),
-                with_ipam_relations = data.get('with_ipam_relations', False),
+                public_id=data.get(CiExplorerProfileKey.PUBLIC_ID),
+                name=data.get(CiExplorerProfileKey.NAME),
+                types_filter=data.get(CiExplorerProfileKey.TYPES_FILTER, []),
+                relations_filter=data.get(CiExplorerProfileKey.RELATIONS_FILTER, []),
+                **{key: data.get(key, default) for key, default in DEFAULT_PROFILE_SCOPE.items()},
             )
         except Exception as err:
             raise CmdbCiExplorerProfileInitFromDataError(err) from err
@@ -127,12 +136,13 @@ class CmdbCiExplorerProfile(CmdbDAO):
         """
         try:
             return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'types_filter': instance.types_filter,
-                'relations_filter': instance.relations_filter,
-                'with_locations': instance.with_locations,
-                'with_ipam_relations': instance.with_ipam_relations,
+                CiExplorerProfileKey.PUBLIC_ID.value: instance.get_public_id(),
+                CiExplorerProfileKey.NAME.value: instance.name,
+                CiExplorerProfileKey.TYPES_FILTER.value: instance.types_filter,
+                CiExplorerProfileKey.RELATIONS_FILTER.value: instance.relations_filter,
+                CiExplorerProfileKey.WITH_LOCATIONS.value: instance.with_locations,
+                CiExplorerProfileKey.WITH_IPAM_RELATIONS.value: instance.with_ipam_relations,
+                CiExplorerProfileKey.WITH_PORT_CONNECTIONS.value: instance.with_port_connections,
             }
         except Exception as err:
             raise CmdbCiExplorerProfileToJsonError(err) from err

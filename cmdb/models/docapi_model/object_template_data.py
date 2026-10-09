@@ -120,9 +120,11 @@ class ObjectTemplateData:
         if related_object is None:
             return None
 
+        # Rendered with its own references resolved, so the next hop has values to follow too
         related_render: RenderResult = CmdbMultiRender(
             [related_object],
-            self.request_user
+            self.request_user,
+            ref_render=True,
         ).result(single_object=True)
 
         return self.extract_object_data(related_render, depth - 1)
@@ -152,7 +154,10 @@ class ObjectTemplateData:
 
     def _resolve_field(self, name: str, ftype: str, value: Any, references: dict[str, Any] | None, depth: int) -> Any:
         """
-        Resolves a single field value, dispatching by field name / kind and template mode
+        Resolves a single field value, dispatching by field kind and template mode
+
+        A LOCATION field - whatever its name - resolves to its location's name: its value is a CmdbLocation
+        id, never an object's, so it is not followed like a reference
 
         Args:
             name (str): The field name
@@ -164,7 +169,7 @@ class ObjectTemplateData:
         Returns:
             Any: The resolved field value
         """
-        if name == DG_LOCATION_FIELD_NAME:
+        if ftype == FieldType.LOCATION or name == DG_LOCATION_FIELD_NAME:
             return self._resolve_location(value)
 
         if self.modern_templates:
@@ -178,7 +183,7 @@ class ObjectTemplateData:
         Resolves a field for OBJECT (legacy) templates
 
         References resolve to the raw extracted dict; reference sections resolve to a plain
-        ``{"fields": {name: value}}`` mapping.
+        ``{"fields": {name: value}}`` mapping. Location fields never reach here (``_resolve_field``).
 
         Args:
             ftype (str): The field type (a `FieldType` value)
@@ -189,7 +194,7 @@ class ObjectTemplateData:
         Returns:
             Any: The resolved field value
         """
-        if ftype in (FieldType.REFERENCE, FieldType.LOCATION):
+        if ftype == FieldType.REFERENCE:
             if value and depth > 0:
                 return self._resolve_reference(value, depth)
             return value
@@ -209,8 +214,8 @@ class ObjectTemplateData:
         """
         Resolves a field for DEFAULT (modern) templates
 
-        Reference fields resolve to a `ReferenceResult` wrapper (locations to the raw dict);
-        reference sections resolve their sub-fields recursively.
+        Reference fields resolve to a `ReferenceResult` wrapper; reference sections resolve their sub-fields
+        recursively. Location fields never reach here (``_resolve_field``).
 
         Args:
             ftype (str): The field type (a `FieldType` value)
@@ -221,13 +226,10 @@ class ObjectTemplateData:
         Returns:
             Any: The resolved field value
         """
-        if ftype in (FieldType.REFERENCE, FieldType.LOCATION) and value and depth > 0:
+        if ftype == FieldType.REFERENCE and value and depth > 0:
             resolved: dict[str, Any] | None = self._resolve_reference(value, depth)
 
-            if resolved and ftype == FieldType.REFERENCE:
-                return ReferenceResult(resolved)  # wrap only "ref" fields
-
-            return resolved
+            return ReferenceResult(resolved) if resolved else resolved
 
         if ftype == FieldType.REF_SECTION:
             section_fields: dict[str, Any] = {}

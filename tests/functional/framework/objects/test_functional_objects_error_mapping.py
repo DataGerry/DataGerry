@@ -38,6 +38,7 @@ from cmdb.errors.manager.objects_manager import (
 )
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.security import AccessDeniedError
+from cmdb.models.type_model.type_reference import TypeReference
 
 from tests.functional.framework.objects.objects_route_helpers import (
     BULK_OBJECT_IDS,
@@ -342,12 +343,14 @@ class TestReadRouteErrorMapping:
         assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_reference').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
 
-    def test_mds_references_access_denied_returns_403(self, rest_api, monkeypatch) -> None:
-        """An ACL denial in the batch route is a 403."""
+    def test_mds_references_access_denied_answers_the_empty_reference(self, rest_api, monkeypatch) -> None:
+        """An ACL denial in the batch route answers that id's empty reference, not a 403 for the batch."""
         monkeypatch.setattr(ObjectsManager, 'get_object', _raiser(AccessDeniedError('nope')))
 
-        assert rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_references').status_code \
-            == HTTPStatus.FORBIDDEN
+        response = rest_api.get(f'{ROUTE_URL}/{OBJECT_ID_FOR_GET}/mds_references')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()[str(OBJECT_ID_FOR_GET)] == TypeReference.to_json(TypeReference.empty())
 
     def test_mds_references_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error in the batch route is a 500."""

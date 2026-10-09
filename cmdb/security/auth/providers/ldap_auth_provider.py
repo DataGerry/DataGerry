@@ -35,6 +35,11 @@ Two rules the provider enforces itself instead of trusting the directory:
     - an empty password is refused up front. A simple bind with a DN and an empty password is an
       "unauthenticated bind" (RFC 4513 §5.1.2) that some directories accept, which would otherwise turn
       into a password-less login here
+
+**On-premise only.** The provider searches and provisions by user name, and a user it provisions carries
+no email and no tenant database. A cloud tenant user is identified by email and authenticated by the
+ServicePortal, and a cloud token must name the tenant database, so `AuthModule` never runs this provider
+in cloud mode and the auth-settings update refuses to activate it there.
 """
 from logging import Logger, getLogger
 from datetime import datetime, timezone
@@ -88,7 +93,8 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
             one: the local provider refuses a user without a stored digest, and that refusal is what
             keeps a directory-managed account out of the fallback sweep
         EXTERNAL_PROVIDER (bool): Marks this as an external authentication source. `AuthModule` skips
-                                  the provider entirely when external providers are disabled
+                                  the provider entirely when external providers are disabled, and
+                                  always in cloud mode (`AuthModule.external_providers_allowed`)
         PROVIDER_CONFIG_CLASS: The associated configuration class for this provider
     """
     PASSWORD_ABLE: bool = False
@@ -167,16 +173,6 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
             self.__ldap_connection.unbind()
         except LDAPExceptionError as err:
             LOGGER.debug("[disconnect] Could not unbind the LDAP connection: %s", err)
-
-
-    def is_active(self) -> bool:
-        """
-        Check if the LDAP authentication provider is active
-
-        Returns:
-            bool: True if the provider is active, False otherwise
-        """
-        return self.is_active_for(self.config)
 
 
     def authenticate(self, user_name: str, password: str) -> CmdbUser:

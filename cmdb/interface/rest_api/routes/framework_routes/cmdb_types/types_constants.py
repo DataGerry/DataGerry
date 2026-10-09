@@ -27,6 +27,10 @@ from cmdb.utils import BaseStrEnum
 # "look it up or 404" helper so a missing type reads the same wherever it is reported
 TYPE_NOT_FOUND_MESSAGE: str = 'The Type with ID:{public_id} was not found!'
 
+# Refusal returned (HTTP 403) when the caller's group may not READ a CmdbType under its ACL. A type the listing hides
+# is refused by id as well - its definition, its pre-checks, its update and its delete
+TYPE_ACCESS_DENIED_MESSAGE: str = 'The Type with ID:{public_id} is protected by its access control list!'
+
 # Refusal returned (HTTP 400) when an update would delete a section that another CmdbType's
 # reference section pulls its fields from. Deleting it would leave that reference dangling: the
 # dependent type keeps a reference to a section name that no longer resolves, its Section dropdown
@@ -205,3 +209,33 @@ class TypeUserDataKey(BaseStrEnum):
 # The stage a client's list criteria constrain a field in - read by `build_type_criteria` to tell
 # whether the client already filters on `active` itself
 MATCH_STAGE_KEY: str = '$match'
+
+
+class TypeAlignmentStep(BaseStrEnum):
+    """
+    What a CmdbType update brings in line with the type once the type itself is written, in that order
+
+    The value is what the 500 of a failed step names. Each step is idempotent, and while the type carries
+    ``alignment_pending`` every step runs in full on its next save - which is how a save that failed half-way is
+    finished
+    """
+    SPECIAL_TYPE_WIRING = 'Special Type wiring'
+    LOCATIONS = 'Locations'
+    MULTI_DATA_SECTIONS = 'Multi-Data-Sections of its Objects'
+    OBJECT_FIELDS = 'fields of its Objects'
+    REPORTS = 'Reports'
+    ALIGNMENT_MARKER = 'alignment marker'
+
+
+# Refusal (HTTP 400) of a type write placing a field a global section template does not own inside that template's
+# section - the section is the template's. Format with the template name and the sorted field names
+TEMPLATE_SECTION_FOREIGN_FIELD_MESSAGE: str = (
+    "The section of the global section template '{template}' can only hold the template's own fields. "
+    "Not part of it: {names}. Move them to a section of their own."
+)
+
+# Server error (HTTP 500) when a step that follows a CmdbType write fails: the type IS saved and carries
+# alignment_pending, so saving it again finishes the work. Format with the type's public_id and the failed step
+TYPE_ALIGNMENT_FAILED_MESSAGE: str = (
+    "The Type with ID:{public_id} was saved, but applying it to its {step} failed - save the Type again to finish!"
+)

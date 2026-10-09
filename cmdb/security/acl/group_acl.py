@@ -15,91 +15,87 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of GroupACL
+
+The ``groups`` section of an AccessControlList: each CmdbUserGroup public_id mapped to the permissions
+that group holds. The stored document keys the groups by string (a BSON / JSON key is always one), a
+CmdbUser's ``group_id`` is an int - so the keys are ints in memory and written back as strings.
 """
 from logging import Logger, getLogger
-from typing import TypeVar, Any
+from typing import Any
 
-from cmdb.security.acl.access_control_list_section import AccessControlListSection
-from cmdb.security.acl.access_control_section_dict import AccessControlSectionDict
+from cmdb.security.acl.access_control_list_section import AccessControlListSection, PermissionValues
 from cmdb.security.acl.acl_constants import AclKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-T = TypeVar('T')
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                   GroupACL - CLASS                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
 class GroupACL(AccessControlListSection[int]):
     """
-    Wrapper class for the group section of an Access Control List (ACL)
+    The group section of an Access Control List (ACL), keyed by CmdbUserGroup public_id
 
-    This class enforces that the `includes` dictionary uses integer keys
+    Every mapping it is given has its keys converted to int, whether they come as stored (strings) or
+    already as ints
     """
-    def __init__(self, includes: AccessControlSectionDict[T]) -> None:
+    def __init__(self, includes: dict[str | int, PermissionValues] | None = None) -> None:
         """
         Initializes the GroupACL
 
         Args:
-            includes (AccessControlSectionDict[T]): A dictionary mapping integer keys to ACL values
+            includes (dict[str | int, PermissionValues] | None): Each group public_id, as a string or an
+                int, mapped to its permission values. None or an empty mapping grants no group anything
         """
         super().__init__(includes=includes)
 
 
-    @property
-    def includes(self) -> dict[int, Any]:
+    @staticmethod
+    def _normalise_keys(value: dict[str | int, PermissionValues]) -> dict[int, PermissionValues]:
         """
-        Returns the access control section dictionary with integer keys
-        """
-        return self._includes
-
-
-    @includes.setter
-    def includes(self, value: AccessControlSectionDict) -> None:
-        """
-        Sets the includes dictionary, ensuring all keys are integers
+        Converts every group key to the int a CmdbUser's group_id is
 
         Args:
-            value (AccessControlSectionDict[T]): A dictionary mapping keys to ACL values
+            value (dict[str | int, PermissionValues]): The mapping handed to the `includes` setter
+
+        Returns:
+            dict[int, PermissionValues]: The same mapping, keyed by int
 
         Raises:
-            TypeError: If `value` is not a dictionary
+            ValueError: When a key is not a whole number - the type write schema only admits digit keys
         """
-        if not isinstance(value, dict):
-            raise TypeError("`AccessControlListSection` only accepts dictionaries as an include structure.")
-
-        self._includes = {int(k): v for k, v in value.items()}
+        return {int(key): permissions for key, permissions in value.items()}
 
 
     @classmethod
     def from_data(cls, data: dict[str, Any]) -> "GroupACL":
         """
-        Initialises a GroupACL from a dict
+        Builds a GroupACL from its stored form
 
         Args:
-            data (dict): Data with which the GroupACL should be initialised
+            data (dict[str, Any]): The stored section, ``{'includes': {'<group_id>': [permission values]}}``;
+                a missing or null ``includes`` is an empty section
 
         Returns:
-            GroupACL: GroupACL with the given data
+            GroupACL: The section, keyed by int
         """
         return cls(data.get(AclKey.INCLUDES.value, {}))
 
 
     @classmethod
-    def to_json(cls, section: "AccessControlListSection[T]") -> dict[str, Any]:
+    def to_json(cls, section: AccessControlListSection[int]) -> dict[str, Any]:
         """
-        Converts a AccessControlListSection[T] into a json compatible dict
+        Serialises a GroupACL into its stored form
 
         Group keys are written back as strings (that is how they are stored) and every permission
         container as a sorted list of its string values, so a section mutated in memory - where the
         mutators keep a set - serialises exactly like one loaded from the database
 
         Args:
-            section (AccessControlListSection[T]): The AccessControlListSection[T] which should be converted
+            section (AccessControlListSection[int]): The section to serialise
 
         Returns:
-            dict: Json compatible dict of the AccessControlListSection[T] values
+            dict[str, Any]: ``{'includes': {'<group_id>': [sorted permission values]}}``
         """
         return {
             AclKey.INCLUDES.value: cls._serialise_includes(section)

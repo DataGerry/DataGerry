@@ -34,6 +34,7 @@ from typing import Any
 
 from flask import abort, current_app, request
 
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.manager import OcConnectionLogManager
 
 from cmdb.models.user_model import CmdbUser
@@ -66,7 +67,7 @@ def build_connection_log_manager(request_user: CmdbUser) -> OcConnectionLogManag
     Returns:
         OcConnectionLogManager: The manager to talk to OpenCelium with
     """
-    return OcConnectionLogManager(current_app.database_manager, request_user.database)
+    return OcConnectionLogManager(current_app.database_manager, ManagerProvider.tenant_database(request_user))
 
 
 def required_int_param_or_abort(parameter: OcLogQueryParam) -> int:

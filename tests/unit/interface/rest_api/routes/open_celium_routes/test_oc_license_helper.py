@@ -128,9 +128,12 @@ class TestReadUsagePaging:
 class TestBuildLicenseManager:
     """The construction the two license routes used to repeat."""
 
-    def test_it_scopes_the_manager_to_the_users_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('cloud_mode, expected', [(True, USER_DATABASE), (False, None)], ids=['cloud', 'on-premise'])
+    def test_it_scopes_the_manager_to_the_users_database(
+        self, monkeypatch: pytest.MonkeyPatch, cloud_mode: bool, expected: str | None,
+    ) -> None:
         """
-        The caller's database selects the OpenCelium installation to ask
+        The caller's tenant database in cloud mode; on premise None - the configured database
 
         Both route tests patch this factory out, so its body is asserted here - otherwise the one
         line that reaches OcLicenseManager would be covered by nothing.
@@ -150,10 +153,13 @@ class TestBuildLicenseManager:
             _RecordingManager,
         )
 
-        request_user = type('_User', (), {'database': USER_DATABASE})()
+        request_user = type('_User', (), {'database': expected})()
 
-        with _app().test_request_context():
+        app = _app()
+        app.cloud_mode = cloud_mode
+
+        with app.test_request_context():
             manager = build_license_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': USER_DATABASE}
+        assert recorded == {'dbm': 'the-dbm', 'database': expected}

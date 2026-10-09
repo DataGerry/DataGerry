@@ -56,11 +56,37 @@ LOGGER: Logger = getLogger(__name__)
 _DEFINITION_FIELD: str = 'definition'
 
 
-def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
+def build_readable_endpoints_condition(denied_type_ids: list[int] | None) -> dict[str, Any]:
+    """
+    Builds the condition keeping only the CmdbObjectRelations whose two objects the caller may read
+
+    **A relation is as readable as the less readable of its two objects.** Both ends are judged by the type ids
+    stamped on the relation, so no object is read. A relation with no type stamped on a side is not refused for it -
+    the same rule the type ACL stage applies to a document without a type
+
+    Args:
+        denied_type_ids (list[int] | None): public_ids of the CmdbTypes the caller may not read, or None/empty
+            when nothing is denied
+
+    Returns:
+        dict[str, Any]: The condition, or an empty one when nothing is denied
+    """
+    if not denied_type_ids:
+        return {}
+
+    return {
+        ObjectRelationKey.RELATION_PARENT_TYPE_ID.value: {'$nin': denied_type_ids},
+        ObjectRelationKey.RELATION_CHILD_TYPE_ID.value: {'$nin': denied_type_ids},
+    }
+
+
+def build_relation_tabs_pipeline(object_id: int, denied_type_ids: list[int] | None = None) -> list[dict[str, Any]]:
     """
     Builds the aggregation pipeline that summarises an object's relations into tab descriptors
 
-    For the given object the pipeline matches every CmdbObjectRelation referencing it, derives the
+    For the given object the pipeline matches every CmdbObjectRelation referencing it - leaving out every one
+    whose other object the caller may not read (``build_readable_endpoints_condition``), so a tab's count is
+    the number of rows the caller can open - derives the
     role(s) the object plays (parent and/or child - a self-relation counts for both), groups by
     (relation_id, role), counts the instances, joins the CmdbRelation definition and projects the
     role-oriented label / icon / color plus the count. Groups whose relation definition no longer
@@ -68,6 +94,8 @@ def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
 
     Args:
         object_id (int): public_id of the CmdbObject whose relation tabs are summarised
+        denied_type_ids (list[int] | None): public_ids of the CmdbTypes the caller may not read, or None to
+            count every relation. Defaults to None
 
     Returns:
         list[dict[str, Any]]: The MongoDB aggregation pipeline
@@ -82,10 +110,13 @@ def build_relation_tabs_pipeline(object_id: int) -> list[dict[str, Any]]:
     definition_ref = f'${_DEFINITION_FIELD}'
 
     return [
-        Builder.match_(Builder.or_([
-            {parent_id_field: object_id},
-            {child_id_field: object_id},
-        ])),
+        Builder.match_({
+            **Builder.or_([
+                {parent_id_field: object_id},
+                {child_id_field: object_id},
+            ]),
+            **build_readable_endpoints_condition(denied_type_ids),
+        }),
         # An instance places the object on the parent side, the child side, or (self-relation) both
         Builder.add_fields_({'roles': {'$concatArrays': [
             {'$cond': [{'$eq': [f'${parent_id_field}', object_id]}, [ObjectRelationRole.PARENT.value], []]},
@@ -182,12 +213,22 @@ class ObjectRelationsManager(GenericManager):
         return self.get_item(public_id, as_dict=True)
 
 
-    def iterate(self, builder_params: BuilderParameters) -> IterationResult[CmdbObjectRelation]:
+    def iterate(
+        self,
+        builder_params: BuilderParameters,
+        denied_type_ids: list[int] | None = None,
+    ) -> IterationResult[CmdbObjectRelation]:
         """
         Retrieves multiple CmdbObjectRelations
 
+        Given the types the caller may not read, every relation with an object of such a type at either end is
+        left out (``build_readable_endpoints_condition``), ahead of the caller's own filter and of the paging, so
+        the total counts the same set as the rows
+
         Args:
             builder_params (BuilderParameters): Filter for which CmdbObjectRelations should be retrieved
+            denied_type_ids (list[int] | None): public_ids of the CmdbTypes the caller may not read, or None to
+                read every relation. Defaults to None
 
         Raises:
             ObjectRelationsManagerIterationError: When the iteration failed
@@ -195,6 +236,11 @@ class ObjectRelationsManager(GenericManager):
         Returns:
             IterationResult[CmdbObjectRelation]: All CmdbObjectRelations matching the filter
         """
+        readable_condition: dict[str, Any] = build_readable_endpoints_condition(denied_type_ids)
+
+        if readable_condition:
+            builder_params.add_criteria(readable_condition)
+
         return self.iterate_items(builder_params)
 
 
@@ -211,15 +257,19 @@ class ObjectRelationsManager(GenericManager):
         return list(self.find(criteria=self.get_related_relations_query(public_id)))
 
 
-    def get_relation_tabs(self, object_id: int) -> list[dict[str, Any]]:
+    def get_relation_tabs(self, object_id: int, denied_type_ids: list[int] | None = None) -> list[dict[str, Any]]:
         """
         Summarises the object's relations into tab descriptors without loading any instances
 
         Each descriptor is one (relation_id, role) group with the role-oriented label / icon / color
-        and the instance count - enough to render the relation tabs. Computed in a single aggregation
+        and the instance count - enough to render the relation tabs. Computed in a single aggregation.
+        A relation whose other object is of a type the caller may not read is not counted, so a group made
+        only of such relations is no tab at all
 
         Args:
             object_id (int): public_id of the CmdbObject whose relation tabs are requested
+            denied_type_ids (list[int] | None): public_ids of the CmdbTypes the caller may not read, or None
+                to count every relation. Defaults to None
 
         Raises:
             ObjectRelationsManagerIterationError: When the aggregation fails
@@ -228,7 +278,7 @@ class ObjectRelationsManager(GenericManager):
             list[dict[str, Any]]: One descriptor per (relation_id, role) group
         """
         try:
-            return list(self.aggregate(build_relation_tabs_pipeline(object_id)))
+            return list(self.aggregate(build_relation_tabs_pipeline(object_id, denied_type_ids)))
         except Exception as err:
             raise ObjectRelationsManagerIterationError(err) from err
 
@@ -242,6 +292,7 @@ class ObjectRelationsManager(GenericManager):
         skip: int = 0,
         sort: str = ObjectRelationKey.PUBLIC_ID.value,
         order: int = 1,
+        denied_type_ids: list[int] | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         """
         Retrieves one page of a relation tab's instances plus the group's total
@@ -255,7 +306,10 @@ class ObjectRelationsManager(GenericManager):
         SEPARATE read from the page, so a write landing between the two makes them disagree by one.
         That is deliberate: the alternative is one `$facet` aggregation whose count is exact for the
         same instant, at the price of running the match twice per request for a number the UI shows as
-        an approximation anyway
+        an approximation anyway.
+
+        A relation whose other object is of a type the caller may not read is left out of the page AND the
+        total (``build_readable_endpoints_condition``), so the pagination never counts a row it cannot show
 
         Args:
             object_id (int): public_id of the CmdbObject whose relations are listed
@@ -265,6 +319,8 @@ class ObjectRelationsManager(GenericManager):
             skip (int): Number of documents to skip. Defaults to 0
             sort (str): Field to sort by. Defaults to public_id
             order (int): Sort direction, 1 ascending / -1 descending. Defaults to 1
+            denied_type_ids (list[int] | None): public_ids of the CmdbTypes the caller may not read, or None
+                to read every relation. Defaults to None
 
         Raises:
             ObjectRelationsManagerIterationError: When the role is not a valid ObjectRelationRole, or
@@ -281,7 +337,11 @@ class ObjectRelationsManager(GenericManager):
 
         side_field = (ObjectRelationKey.RELATION_PARENT_ID.value if role == ObjectRelationRole.PARENT
                       else ObjectRelationKey.RELATION_CHILD_ID.value)
-        criteria = {ObjectRelationKey.RELATION_ID.value: relation_id, side_field: object_id}
+        criteria: dict[str, Any] = {
+            ObjectRelationKey.RELATION_ID.value: relation_id,
+            side_field: object_id,
+            **build_readable_endpoints_condition(denied_type_ids),
+        }
 
         try:
             total = self.count_documents(criteria)
@@ -333,6 +393,22 @@ class ObjectRelationsManager(GenericManager):
         return self.delete_item(public_id)
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
+
+    def get_relations_of_objects_query(self, public_ids: list[int]) -> dict[str, Any]:
+        """
+        Builds the query matching every CmdbObjectRelation that references any of the given CmdbObjects
+
+        Args:
+            public_ids (list[int]): public_ids of the CmdbObjects to match as parent or child
+
+        Returns:
+            dict[str, Any]: An ``$or`` of two ``$in`` clauses on the parent / child object id fields
+        """
+        return Builder.or_([
+            Builder.in_(ObjectRelationKey.RELATION_PARENT_ID.value, public_ids),
+            Builder.in_(ObjectRelationKey.RELATION_CHILD_ID.value, public_ids),
+        ])
+
 
     def get_related_relations_query(self, public_id: int) -> dict[str, Any]:
         """
@@ -441,4 +517,4 @@ class ObjectRelationsManager(GenericManager):
             })
         ]
 
-        self.update_many({ObjectRelationKey.RELATION_ID.value: relation_id}, pipeline, plain=True)
+        self.update_many_raw({ObjectRelationKey.RELATION_ID.value: relation_id}, pipeline)

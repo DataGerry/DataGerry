@@ -20,6 +20,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_constants import INTEGER_BSON_TYPES
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.rack_model.cmdb_rack_mount import CmdbRackMount
@@ -34,6 +35,9 @@ from cmdb.errors.manager import BaseManagerGetError, BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The one value the append index is computed from
+POSITION_PROJECTION: dict[str, int] = {RackMountKey.POSITION.value: 1, '_id': 0}
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             RackMountsManager - CLASS                                                #
@@ -144,7 +148,9 @@ class RackMountsManager(GenericManager):
         Returns the position index to append a mount at the end of an ordered area
 
         The side lists and the unassigned bucket have no geometry to sort by, so their order is an
-        explicit index. A new member is appended, which means one past the highest index in use
+        explicit index. A new member is appended, which means one past the highest index in use. Only
+        that one row is read, and only its index: a row whose position is not a stored integer takes no
+        part in the order and is filtered out by the query itself
 
         Args:
             rack_id (int): public_id of the Rack CmdbObject
@@ -156,15 +162,23 @@ class RackMountsManager(GenericManager):
         Returns:
             int: The next free position, 0 when the area is empty
         """
-        mounts: list[dict[str, Any]] = self.get_mounts_of_rack(rack_id, area)
+        criteria: dict[str, Any] = {
+            RackMountKey.RACK_ID.value: rack_id,
+            RackMountKey.AREA.value: area,
+            RackMountKey.POSITION.value: {'$type': list(INTEGER_BSON_TYPES)},
+        }
 
-        positions: list[int] = [
-            mount[RackMountKey.POSITION.value]
-            for mount in mounts
-            if isinstance(mount.get(RackMountKey.POSITION.value), int)
-        ]
+        try:
+            highest: list[dict[str, Any]] = self.find(
+                criteria=criteria,
+                projection=POSITION_PROJECTION,
+                sort=[(RackMountKey.POSITION.value, CmdbRackMount.DAO_DESCENDING)],
+                limit=1,
+            )
+        except Exception as err:
+            raise RackMountsManagerGetError(err) from err
 
-        return max(positions) + 1 if positions else 0
+        return highest[0][RackMountKey.POSITION.value] + 1 if highest else 0
 
 
     def count_mounts_of_rack(self, rack_id: int) -> int:

@@ -298,7 +298,10 @@ class DefaultTemplateData:
             if not obj_type:
                 return SafeObject()
 
-            render: RenderResult = CmdbMultiRender([cmdb_object], self.request_user).result(single_object=True)
+            # References resolved through the caller's READ ACL, as for the root object
+            render: RenderResult = CmdbMultiRender(
+                [cmdb_object], self.request_user, ref_render=True,
+            ).result(single_object=True)
 
             result = ObjectTemplateData(
                 render,

@@ -27,6 +27,7 @@ from datetime import datetime, timezone
 from cmdb.manager import CategoriesManager
 from cmdb.manager.types_manager import TypesManager
 from cmdb.manager.section_templates_manager import SectionTemplatesManager
+from cmdb.framework.write_ledger import WriteLedger
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 
@@ -107,17 +108,24 @@ class ProfileAssistant:
         self,
         categories_manager: CategoriesManager,
         types_manager: TypesManager,
-        section_templates_manager: SectionTemplatesManager
+        section_templates_manager: SectionTemplatesManager,
+        author_id: int,
+        ledger: WriteLedger | None = None,
     ) -> None:
         """
         Args:
             categories_manager (CategoriesManager): db interface for CmdbCategories
             types_manager (TypesManager): db interface for CmdbTypes
             section_templates_manager (SectionTemplatesManager): db interface for section templates
+            author_id (int): public_id of the user running the assistant - every created type's author
+            ledger (WriteLedger | None): Records every created type and category, so the caller can undo a failed
+                                         run. Defaults to None (nothing recorded)
         """
         self.categories_manager: CategoriesManager = categories_manager
         self.types_manager: TypesManager = types_manager
         self.section_templates_manager: SectionTemplatesManager = section_templates_manager
+        self.author_id: int = author_id
+        self.ledger: WriteLedger | None = ledger
 
     def create_profiles(self, profile_list: list[str]) -> list[int]:
         """
@@ -125,7 +133,8 @@ class ProfileAssistant:
 
         Profiles run in a fixed order regardless of the order in 'profile_list', because later
         profiles reference types created by earlier ones (e.g. conditional reference sections). All
-        creation is wrapped so any failure is re-raised as ProfileCreationError.
+        creation is wrapped so any failure is re-raised as ProfileCreationError. Every created type and
+        category is recorded in the ledger, when one was given, so the caller can undo a run that failed part-way.
 
         Args:
             profile_list (list[str]): ProfileName values selected in the assistant
@@ -144,7 +153,7 @@ class ProfileAssistant:
             # The predefined templates and the type builder are created once and reused by every
             # profile, so the predefined section templates are loaded from the DB only once per run
             template_provider: PredefinedTemplateProvider = PredefinedTemplateProvider(self.section_templates_manager)
-            type_constructor: ProfileTypeConstructor = ProfileTypeConstructor(template_provider)
+            type_constructor: ProfileTypeConstructor = ProfileTypeConstructor(template_provider, self.author_id)
 
             profile_name: ProfileName
             profile_cls: type[ProfileBase]
@@ -155,13 +164,14 @@ class ProfileAssistant:
                         self.types_manager,
                         self.section_templates_manager,
                         type_constructor,
+                        self.ledger,
                     )
                     created_type_ids = profile.create_profile()
 
             self.create_all_categories(created_type_ids)
 
         except Exception as err:
-            LOGGER.debug("[create_profiles] Error: %s", err)
+            LOGGER.error("[create_profiles] Error: %s", err, exc_info=True)
             raise ProfileCreationError(err) from err
 
         created_ids: list[int] = [type_id for type_id in created_type_ids.values() if type_id]
@@ -181,7 +191,10 @@ class ProfileAssistant:
 
         category: dict[str, Any]
         for category in all_categories:
-            self.categories_manager.insert_category(category)
+            category_id: int = self.categories_manager.insert_category(category)
+
+            if self.ledger is not None:
+                self.ledger.inserted(self.categories_manager, category_id)
 
 
     def get_all_categories(self, all_type_ids: dict[str, int | None]) -> list[dict[str, Any]]:

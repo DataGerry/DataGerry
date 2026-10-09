@@ -34,6 +34,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.blueprints.api_blueprint import APIBlueprint
 from cmdb.interface.blueprints.api_blueprint_constants import (
+    BODY_NOT_AN_OBJECT_MESSAGE,
     PROTECT_WITHOUT_REQUEST_USER_MESSAGE,
     RIGHT_CHECK_FAILED_MESSAGE,
 )
@@ -275,6 +276,21 @@ class TestValidate:
                     wrapped()
         assert exc_info.value.description == 'The request body could not be validated!'
         assert 'name' not in exc_info.value.description
+
+    @pytest.mark.parametrize('raw_body', ['["x"]', '"x"', '5', 'null'], ids=['list', 'string', 'number', 'null'])
+    def test_a_body_that_is_not_an_object_is_told_so(self, raw_body: str) -> None:
+        """Its own 400 before the validator runs - Cerberus would raise on a document that is no mapping"""
+        route = MagicMock(return_value=ROUTE_RESULT)
+        with patch(f'{MODULE_PATH}.Validator') as validator_cls:
+            wrapped = APIBlueprint.validate(self.SCHEMA)(route)
+            with _app().test_request_context(data=raw_body, content_type='application/json'):
+                with pytest.raises(HTTPException) as exc_info:
+                    wrapped()
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == f'{BODY_NOT_AN_OBJECT_MESSAGE}!'
+        validator_cls.return_value.validate.assert_not_called()
+        route.assert_not_called()
 
 
 # =============================================== parse_parameters =================================================== #

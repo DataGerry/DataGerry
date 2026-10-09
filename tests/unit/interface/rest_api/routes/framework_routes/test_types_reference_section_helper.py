@@ -465,6 +465,65 @@ class TestBuildReferencedSectionUsagePayload:
         assert payload[ReferencedSectionUsageKey.COUNT.value] == 0
         assert not payload[ReferencedSectionUsageKey.SECTIONS.value]
 
+    def test_a_hidden_dependent_is_counted_but_not_named(self) -> None:
+        """
+        The guards refuse on every dependent, so COUNT and IN_USE carry it; the caller's group may not READ it,
+        so neither REFERENCING_TYPE_IDS nor the section's list names it - the section stays present, empty
+        """
+        target = _type_with_sections(_section(REFERENCED_SECTION))
+        hidden = _dependent_doc([], public_id=HIDDEN_DEPENDENT_TYPE_ID)
+        hidden[TypeSchemaKey.ACL.value] = _acl_granting(OTHER_GROUP_ID)
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([hidden])}):
+            payload = build_referenced_section_usage_payload(_caller(), target)
+
+        assert payload[ReferencedSectionUsageKey.IN_USE.value] is True
+        assert payload[ReferencedSectionUsageKey.COUNT.value] == 1
+        assert payload[ReferencedSectionUsageKey.REFERENCING_TYPE_IDS.value] == []
+        assert payload[ReferencedSectionUsageKey.SECTIONS.value] == {REFERENCED_SECTION: []}
+
+    def test_a_readable_dependent_beside_a_hidden_one_is_named(self) -> None:
+        """Only the hidden one is left out of the names; both count"""
+        target = _type_with_sections(_section(REFERENCED_SECTION))
+        readable = _dependent_doc([])
+        readable[TypeSchemaKey.ACL.value] = _acl_granting(CALLER_GROUP_ID)
+        hidden = _dependent_doc([], public_id=HIDDEN_DEPENDENT_TYPE_ID)
+        hidden[TypeSchemaKey.ACL.value] = _acl_granting(OTHER_GROUP_ID)
+
+        with _patch_managers_by_type({ManagerType.TYPES: _types_manager([readable, hidden])}):
+            payload = build_referenced_section_usage_payload(_caller(), target)
+
+        assert payload[ReferencedSectionUsageKey.COUNT.value] == 2
+        assert payload[ReferencedSectionUsageKey.REFERENCING_TYPE_IDS.value] == [DEPENDENT_TYPE_ID]
+        assert [entry[TypeSchemaKey.PUBLIC_ID.value]
+                for entry in payload[ReferencedSectionUsageKey.SECTIONS.value][REFERENCED_SECTION]] == [
+                    DEPENDENT_TYPE_ID]
+
+    def test_the_acl_is_read_with_the_dependents(self) -> None:
+        """Judging needs the ACL in the projection - still the one query"""
+        target = _type_with_sections(_section(REFERENCED_SECTION))
+        manager = _types_manager()
+
+        with _patch_managers_by_type({ManagerType.TYPES: manager}):
+            build_referenced_section_usage_payload(_caller(), target)
+
+        assert manager.find.call_args.kwargs['projection'][TypeSchemaKey.ACL.value] == 1
+
+
+HIDDEN_DEPENDENT_TYPE_ID: int = 902
+CALLER_GROUP_ID: int = 5
+OTHER_GROUP_ID: int = 6
+
+
+def _caller() -> SimpleNamespace:
+    """The caller; only its group is read when a dependent is judged."""
+    return SimpleNamespace(group_id=CALLER_GROUP_ID)
+
+
+def _acl_granting(group_id: int) -> dict[str, Any]:
+    """An activated ACL granting READ to that group alone."""
+    return {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}
+
 
 # -------------------------------------- referenced-section EMPTYING guard (C) --------------------------------------- #
 

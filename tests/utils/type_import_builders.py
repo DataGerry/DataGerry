@@ -33,7 +33,9 @@ EXISTING_PUBLIC_ID: int = 4712
 MISSING_PUBLIC_ID: int = 9999
 BOOM: str = 'boom'
 IMPORTER_ID: int = 42
-IMPORTER = SimpleNamespace(public_id=IMPORTER_ID)  # the CmdbUser stand-in the entry steps receive
+IMPORTER_GROUP_ID: int = 43
+# The CmdbUser stand-in the entry steps receive; its group is what a stored type's ACL is judged against
+IMPORTER = SimpleNamespace(public_id=IMPORTER_ID, group_id=IMPORTER_GROUP_ID)
 
 # Dotted paths of the modules under test, for monkeypatching a collaborator by name
 HELPER: str = 'cmdb.interface.rest_api.routes.importer_routes.importer_type_helper'
@@ -173,10 +175,11 @@ class StubTypesManager:
 
         return {public_id for public_id in public_ids if public_id in self.existing_type_ids}
 
-    def get_many_from_other_collection(self, collection: str, **requirements: Any) -> list[dict[str, Any]]:
-        """Stand in for the cross-collection read the ACL-group repair uses."""
-        self.group_lookups.append((collection, requirements))
-        wanted = requirements.get('public_id', {}).get('$in', [])
+    def get_many_from_other_collection(self, collection: str, *,
+                                       criteria: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+        """Stand in for the cross-collection read the ACL-group repair uses - the filter is one criteria dict."""
+        self.group_lookups.append((collection, criteria))
+        wanted = (criteria or {}).get('public_id', {}).get('$in', [])
 
         return [{'public_id': group_id} for group_id in wanted if group_id in self.existing_group_ids]
 

@@ -17,9 +17,9 @@
 Unit tests for the SPA host app (`cmdb.interface.net_app`) and its blueprint
 
 The package needs
-no database, no token and no frontend build: `index.html`, `_static/favicon.ico` and
-`_static/browserconfig.xml` are tracked in git (only the compiled bundle is gitignored), so
-`create_app().test_client()` answers every route here.
+no database, no token and no frontend build: the bundle's `index.html` is tracked in git (the rest of the compiled
+bundle is gitignored), so `create_app().test_client()` answers `/` and the fallback here. The favicon lives in the
+built bundle only, so its tests point the blueprint at a small fake bundle.
 
 The behaviours under test, in the order they matter:
 
@@ -31,8 +31,13 @@ The behaviours under test, in the order they matter:
 * **cache lifetimes differ by file.** `index.html` names the content-hashed chunks, so it must not
   be cached; the chunks themselves may be
 * **config selection**, which must not diverge between this factory and `create_rest_api`
+* **everything served ships in the binary.** The `/favicon.ico` route used to read a package directory `make bin`
+  never bundled: fine in a source checkout, a 404 in the product. Every file is the bundle's now, and a packaging
+  guard pins that the bundle is what the Makefile ships
 """
+import re
 from http import HTTPStatus
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -51,17 +56,18 @@ from cmdb.interface.config import (
 from cmdb.interface.net_app import create_app
 from cmdb.interface.net_app.app_routes import (
     ASSET_MAX_AGE,
-    BROWSER_CONFIG_FILE,
-    FAVICON_FILE,
+    FAVICON_BUNDLE_PATH,
     INDEX_FILE,
     MISSING_BUNDLE_STATUS,
-    STATIC_DIR,
     _names_a_file,
     app_pages,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SPA_APPLICATION_ROOT: str = '/'
+FAKE_ICON: bytes = b'\x00\x00\x01\x00fake-icon'
+REPO_ROOT: Path = Path(__file__).resolve().parents[3]
+MAKEFILE: Path = REPO_ROOT / 'Makefile'
 
 
 @pytest.fixture(name='client')
@@ -84,7 +90,7 @@ class TestCreateApp:
         """A rule that only ever 404s into the fallback is noise in the map."""
         rules = {rule.rule for rule in create_app().url_map.iter_rules()}
 
-        assert rules == {'/', '/favicon.ico', '/browserconfig.xml', '/<path:filename>'}
+        assert rules == {'/', '/favicon.ico', '/<path:filename>'}
 
     def test_has_no_dead_static_rule(self) -> None:
         """Flask's default static folder does not exist in this package, so the rule must not exist."""
@@ -144,25 +150,85 @@ class TestServesTheBundle:
         assert response.status_code == HTTPStatus.OK
         assert response.headers['Content-Type'].startswith('text/html')
 
-    @pytest.mark.parametrize('url', ['/favicon.ico', '/browserconfig.xml'], ids=str)
-    def test_serves_the_top_level_browser_assets(self, client, url: str) -> None:
-        """Both come from the package's `_static/`, not from the Angular bundle."""
-        assert client.get(url).status_code == HTTPStatus.OK
-
-    def test_the_literal_routes_win_over_the_bundle_catch_all(self) -> None:
-        """`/favicon.ico` must reach the view, not the bundle's static handler."""
+    def test_the_literal_route_wins_over_the_bundle_catch_all(self) -> None:
+        """`/favicon.ico` must reach its view, not the bundle's static handler at the root"""
         adapter = create_app().url_map.bind('localhost')
 
         assert adapter.match('/favicon.ico')[0] == 'app_pages.favicon'
-        assert adapter.match('/browserconfig.xml')[0] == 'app_pages.browser_config'
         assert adapter.match('/some-chunk.js')[0] == 'app_pages.static'
 
-    def test_the_static_dir_holds_both_assets(self) -> None:
-        """The path is resolved once from the blueprint root; a wrong one would 404 both routes."""
-        import os  # pylint: disable=import-outside-toplevel
 
-        assert os.path.isfile(os.path.join(STATIC_DIR, FAVICON_FILE))
-        assert os.path.isfile(os.path.join(STATIC_DIR, BROWSER_CONFIG_FILE))
+@pytest.fixture(name='fake_bundle')
+def fixture_fake_bundle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
+    """Points the blueprint at a minimal built bundle: index.html and the favicon where the Angular build puts it"""
+    (tmp_path / INDEX_FILE).write_text('<html></html>')
+    icon: Path = tmp_path / FAVICON_BUNDLE_PATH
+    icon.parent.mkdir(parents=True)
+    icon.write_bytes(FAKE_ICON)
+    monkeypatch.setattr(app_pages, 'static_folder', str(tmp_path))
+
+    return tmp_path
+
+
+class TestFavicon:
+    """`/favicon.ico` answers the root probe from the bundle - what the binary ships"""
+
+    def test_it_serves_the_bundles_icon(self, client, fake_bundle: Path) -> None:
+        """Byte for byte the bundle's assets/img/favicon.ico"""
+        del fake_bundle
+        response = client.get('/favicon.ico')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.data == FAKE_ICON
+
+    def test_it_is_cached_like_any_bundle_asset(self, client, fake_bundle: Path) -> None:
+        """The asset lifetime, not the index's no-cache"""
+        del fake_bundle
+
+        assert f'max-age={ASSET_MAX_AGE}' in client.get('/favicon.ico').headers['Cache-Control']
+
+    def test_without_a_built_bundle_it_is_a_404_not_the_spa(self, client, tmp_path: Path,
+                                                             monkeypatch: pytest.MonkeyPatch) -> None:
+        """No icon built: the fallback refuses a path with an extension - never index.html with a 200"""
+        (tmp_path / INDEX_FILE).write_text('<html></html>')
+        monkeypatch.setattr(app_pages, 'static_folder', str(tmp_path))
+
+        response = client.get('/favicon.ico')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert b'<html>' not in response.data
+
+    def test_browserconfig_is_gone(self, client, fake_bundle: Path) -> None:
+        """No route any more: a path with an extension, so the fallback answers a real 404"""
+        del fake_bundle
+
+        assert client.get('/browserconfig.xml').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestShippedInTheBinary:
+    """A packaging guard: what the SPA host reads is what `make bin` bundles"""
+
+    @staticmethod
+    def _bundled_sources() -> set[str]:
+        """The source paths of every `--add-data <src>:<dst>` in the Makefile"""
+        return set(re.findall(r'--add-data\s+([^:\s]+):', MAKEFILE.read_text()))
+
+    def test_the_blueprints_static_folder_is_bundled(self) -> None:
+        """The bundle the routes read is one of the binary's data directories"""
+        static_folder: str = Path(create_app().blueprints['app_pages'].static_folder).relative_to(REPO_ROOT).as_posix()
+
+        assert static_folder in self._bundled_sources()
+
+    def test_no_route_reads_outside_the_bundle(self) -> None:
+        """send_from_directory is how a route reached _static/ - nothing may read past the bundle again"""
+        source: str = (REPO_ROOT / 'cmdb' / 'interface' / 'net_app' / 'app_routes.py').read_text()
+
+        assert 'send_from_directory' not in source
+        assert not re.search(r"['\"/]_static\b", source)
+
+    def test_the_favicon_is_part_of_the_frontend_build(self) -> None:
+        """The Angular build copies src/assets into the bundle; the icon must be there to be copied"""
+        assert (REPO_ROOT / 'app' / 'src' / FAVICON_BUNDLE_PATH).is_file()
 
 
 class TestNamesAFile:

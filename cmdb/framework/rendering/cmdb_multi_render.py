@@ -29,17 +29,26 @@ Three things about this module decide how a change here behaves:
   entry to the object's `RenderResult.render_problems`, so a caller can tell a partial render from a
   complete one, and it logs a WARNING once per render rather than once per object. An empty
   `render_problems` means the render is complete. The cases a render handles by design are not
-  problems and stay at DEBUG - see `RenderProblemCode`. A render nested inside a reference section
-  hands its own problems up to the object it was rendered for, since what it lost is missing from
-  that object's section
-* **References recurse, bounded by `level`.** `result(level=DEFAULT_RENDER_LEVEL)` is the default
-  depth; each nested expansion decrements it and `level == 0` stops the recursion. A reference cycle
-  therefore terminates by depth rather than by cycle detection
-* **The caches are shared on purpose.** `shared_objects_cache` / `shared_types_cache` /
-  `shared_users_cache` are extended IN PLACE, so a nested render reuses what the outer one already
-  loaded and each referenced document is fetched once across the whole recursion. The cached dicts are
-  live - anything copied out of them (`get_field`, `get_summary`) must be copied before it is mutated,
-  which is why several methods build a `dict(...)` first
+  problems and stay at DEBUG - see `RenderProblemCode`
+* **A reference section chain is merged, never rendered, bounded by `level`.** A reference section may
+  point at another type's reference section: the pulled-in field is then that type's own section field,
+  and `_merge_nested_reference_section` resolves it with the DECLARING type's section definition and the
+  referenced object's values - the same `_merge_reference_section` one level down, so the nested field
+  carries the same `references` block the frontend draws. `result(level=DEFAULT_RENDER_LEVEL)` is the
+  default depth; each hop decrements it and the hop that would reach `level == 0` answers the field
+  without its block. A reference cycle therefore terminates by depth rather than by cycle detection.
+  Everything a chain needs is loaded before the render starts (`ReferencePrefetch`), so the merge reads
+  nothing: an object that is not cached - unreadable, gone or past the depth - renders like an unset one
+* **A referenced object is read through the render user's READ ACL.** The render's `ReferenceReadScope`
+  narrows the prefetch: an object of a type the user may not read is never loaded, so it is never cached
+  and renders exactly like an UNSET reference - an empty `reference`, a reference section without
+  values - and is no render problem: a marker would tell the caller that something is there. The stored
+  id stays the field's `value`, because a client saves the whole object back and must not lose a
+  reference it cannot see. The rendered objects themselves are the caller's choice and are read by the
+  route, under its own check
+* **The caches are live.** `objects_cache` / `types_cache` / `users_cache` are filled once, in the
+  constructor; anything copied out of them (`get_field`, `get_summary`) must be copied before it is
+  mutated, which is why several methods build a `dict(...)` first
 
 Every key this module writes is named by the enum that OWNS it, never by a literal: `FieldKey` for a
 field definition's own keys, `RenderedFieldKey` for the keys a render ADDS to a field (`reference`,
@@ -105,6 +114,7 @@ from cmdb.framework.rendering.render_constants import (
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.rendering.render_problem_log import RenderProblemLog
 from cmdb.framework.rendering.reference_prefetch import ReferencePrefetch
+from cmdb.framework.rendering.reference_read_scope import ReferenceReadScope
 
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError, CmdbTypeReferenceLineFillError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -123,29 +133,18 @@ class CmdbMultiRender:
         to_render_objects: list[CmdbObject],
         render_user: CmdbUser,
         ref_render: bool = False,
-        *,
-        shared_objects_cache: dict[int, CmdbObject] | None = None,
-        shared_types_cache: dict[int, CmdbType] | None = None,
-        shared_users_cache: dict[int, CmdbUser] | None = None,
-        shared_reported_problems: set[tuple[Any, ...]] | None = None,
     ) -> None:
         """
         Initializes CmdbMultiRender
 
-        The shared_* caches let a nested render (reference-section resolution) reuse an outer render's
-        already-loaded objects/types/users. They are extended in place with only the ids not already
-        present, so each referenced document is fetched once across the whole (possibly recursive)
-        render instead of every nested node rebuilding its own caches from scratch
+        Loads, once, everything the render will read: the objects the rendered ones reference and the
+        reference-section chains behind them (through the render user's READ ACL), their types and the
+        users the objects name
 
         Args:
             to_render_objects (list[CmdbObject]): All CmdbObjects which should be rendered
             render_user (CmdbUser): The user who is requesting the render
             ref_render (bool, optional): Flag to enable reference rendering. Defaults to False
-            shared_objects_cache (dict[int, CmdbObject] | None): Reused/extended object cache
-            shared_types_cache (dict[int, CmdbType] | None): Reused/extended type cache
-            shared_users_cache (dict[int, CmdbUser] | None): Reused/extended user cache
-            shared_reported_problems (set[tuple[Any, ...]] | None): The problems already LOGGED by an
-                outer render, so a nested one does not log them again
         """
         self.to_render_objects: list[CmdbObject] = to_render_objects
         self.render_user: CmdbUser = render_user
@@ -156,15 +155,16 @@ class CmdbMultiRender:
 
         self.ref_render: bool = ref_render
 
-        # Caches - reuse the shared ones when provided (nested render), else start fresh. Each is
-        # extended only with the ids it is still missing (see the get_all_linked_* helpers)
-        self.objects_cache: dict[int, CmdbObject] = shared_objects_cache if shared_objects_cache is not None else {}
-        self.types_cache: dict[int, CmdbType] = shared_types_cache if shared_types_cache is not None else {}
-        self.users_cache: dict[int, CmdbUser] = shared_users_cache if shared_users_cache is not None else {}
+        self.objects_cache: dict[int, CmdbObject] = {}
+        self.types_cache: dict[int, CmdbType] = {}
+        self.users_cache: dict[int, CmdbUser] = {}
 
-        # What each object's render lost, and which problems were already logged. The constructor
-        # already reports into it - the referenced objects are loaded here
-        self.problems: RenderProblemLog = RenderProblemLog(LOGGER, shared_reported_problems)
+        # What each object's render lost. The constructor already reports into it - the referenced
+        # objects are loaded here
+        self.problems: RenderProblemLog = RenderProblemLog(LOGGER)
+
+        # What render_user may read among the referenced objects; the constructor already loads through it
+        self.read_scope: ReferenceReadScope = ReferenceReadScope(render_user)
 
         self.objects_cache.update(self.get_all_linked_objects())
         self.types_cache.update(self.get_all_linked_types())
@@ -494,7 +494,7 @@ class CmdbMultiRender:
             if type_instance.author_id:
                 user_ids.add(type_instance.author_id)
 
-        # Only fetch the users not already cached (a nested render reuses the outer cache)
+        # Only fetch the users not already cached
         user_ids -= set(self.users_cache)
 
         if not user_ids:
@@ -513,8 +513,9 @@ class CmdbMultiRender:
         referenced object already in the cache, and the target type of every ref-section declared by
         those types. The ref-section target must be loaded even when no object is referenced yet (value
         None) - otherwise _merge_fields_value drops the ref-section field and the frontend hides the
-        whole section. Only the direct ref-section targets are pulled here; deeper reference chains are
-        resolved by the nested render that runs once an object is actually referenced
+        whole section. A reference-section chain is covered too: every object of a chain that is cached
+        has its type loaded here, and the ref-section targets of THAT type with it; a section whose
+        object is not cached is never merged, so its target type is not needed
 
         Returns:
             dict[int, CmdbType]: Lookup of type public_id -> CmdbType (empty when none are referenced)
@@ -528,7 +529,7 @@ class CmdbMultiRender:
         for obj in self.objects_cache.values():
             type_ids.add(obj.get_type_id())
 
-        # Only fetch the types not already cached (a nested render reuses the outer cache)
+        # Only fetch the types not already cached
         type_ids -= set(self.types_cache)
 
         linked_types: dict[int, CmdbType] = {}
@@ -576,8 +577,9 @@ class CmdbMultiRender:
         Collect every object the render will reference and return them as a lookup
 
         The rendered objects' own references plus the reference-section chains behind them, one query
-        per hop - see ``ReferencePrefetch``. A load that fails is reported on every object that
-        references anything, and the render continues without the expansions
+        per hop - see ``ReferencePrefetch``. Only objects ``render_user`` may read are loaded. A load
+        that fails is reported on every object that references anything, and the render continues
+        without the expansions
 
         Returns:
             dict[int, CmdbObject]: Lookup of object_id -> CmdbObject (empty without ref_render)
@@ -586,7 +588,7 @@ class CmdbMultiRender:
             return {}
 
         return ReferencePrefetch(
-            self.objects_manager, self.types_manager, self.objects_cache, self.problems,
+            self.objects_manager, self.types_manager, self.objects_cache, self.problems, self.read_scope,
         ).load(self.to_render_objects)
 
 
@@ -639,88 +641,6 @@ class CmdbMultiRender:
         return values
 
 
-    def _merge_reference_section_fields(
-            self,
-            ref_section_field: dict[str, Any],
-            ref_section_fields: list[dict[str, Any]],
-            level: int
-    ) -> list[dict[str, Any]]:
-        """
-        Recursively merges fields from a referenced section into the current section fields list.
-
-        This method handles fields of type 'ref-section-field' by retrieving the referenced object,
-        rendering its fields, and recursively merging their contents.
-
-        A field whose reference is unset contributes nothing and is not a problem - it references
-        nothing yet, and nothing is queried for it. A set reference that cannot be read or rendered is
-        a problem: it is reported as ``NESTED_REFERENCE_SECTION_FAILED`` and its fields are left out
-
-        Args:
-            ref_section_field (dict[str, Any]): The reference section field to process
-            ref_section_fields (list[dict[str, Any]]): A list to accumulate merged fields
-            level (int): The depth level for rendering referenced objects
-
-        Returns:
-            list[dict[str, Any]]: The updated list of merged reference section fields
-        """
-        if ref_section_field and ref_section_field.get(FieldKey.TYPE, '') == FieldType.REF_SECTION:
-            reference_id = ref_section_field.get(FieldKey.VALUE)
-
-            # An unset reference references nothing yet - the same answer, and the same rule, as an
-            # unset reference section on the rendered object itself: nothing to pull in, not a problem
-            if not reference_id:
-                return ref_section_fields
-
-            try:
-
-                # Reuse the already-loaded object when present, else fetch once (and it lands in the
-                # shared cache below); avoids re-querying references resolved higher up the render
-                instance = self.objects_cache.get(reference_id)
-                if instance is None:
-                    instance = CmdbObject.from_data(self.objects_manager.get_object(reference_id))
-
-                # Share this render's caches with the nested render so it does not rebuild them from
-                # scratch - one shared cache instead of a fresh set of queries per nested node
-                render = CmdbMultiRender(
-                    [instance], self.render_user, True,
-                    shared_objects_cache=self.objects_cache,
-                    shared_types_cache=self.types_cache,
-                    shared_users_cache=self.users_cache,
-                    shared_reported_problems=self.problems.reported,
-                )
-                nested_result: RenderResult = render.result(level)[0]
-                # What the nested render lost is missing from THIS object's section, so it is this
-                # object's problem too
-                self.problems.record(nested_result.render_problems)
-                fields = nested_result.fields
-                res = next(
-                    (x for x in fields if x[FieldKey.NAME] == ref_section_field.get(FieldKey.NAME, '')), None
-                )
-
-                if res and ref_section_field.get(FieldKey.TYPE, '') == FieldType.REF_SECTION:
-                    self._merge_reference_section_fields(res, ref_section_fields, level)
-
-                    for field in res[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS]:
-                        merged_field_content = self._merge_field_content_section(field, instance)
-                        if merged_field_content and \
-                           merged_field_content.get(FieldKey.TYPE, '') == FieldType.REF_SECTION:
-                            self._merge_reference_section_fields(merged_field_content, ref_section_fields, level)
-                        else:
-                            ref_section_fields.append(merged_field_content)
-            except Exception as err:
-                self.problems.report(
-                    RenderProblemCode.NESTED_REFERENCE_SECTION_FAILED,
-                    "[_merge_reference_section_fields] Nested reference section '%s' to Object ID:%s could not be "
-                    "rendered, leaving its fields out: %s. Type: %s",
-                    ref_section_field.get(FieldKey.NAME), ref_section_field.get(FieldKey.VALUE),
-                    err, type(err).__name__,
-                    field=ref_section_field.get(FieldKey.NAME),
-                    log_key=(ref_section_field.get(FieldKey.VALUE),),
-                )
-
-        return ref_section_fields
-
-
     @staticmethod
     def _build_reference_summaries(
         ref_type: CmdbType,
@@ -767,16 +687,23 @@ class CmdbMultiRender:
         return summaries, summary_values, nested_summary_line
 
 
-    def _merge_references(self, current_field: dict[str, Any]) -> dict[str, Any]:
+    def _merge_references(
+        self,
+        current_field: dict[str, Any],
+        ref_object: CmdbObject | None = None,
+    ) -> dict[str, Any]:
         """
         Merges reference data for a given field
 
         Resolves the referenced object/type from the caches and builds the reference summaries and
         line. Always returns a serialised TypeReference - an empty one when the field has no value,
-        the reference is unresolved, or an error occurs
+        the reference is unresolved (an object the render user may not read is never cached, so it is
+        unresolved too), or an error occurs
 
         Args:
             current_field (dict[str, Any]): The field to check and merge references for
+            ref_object (CmdbObject | None): The referenced object when the caller already holds it;
+                None looks it up in the objects cache
 
         Returns:
             dict[str, Any]: The serialised reference data (empty reference when nothing resolves)
@@ -787,7 +714,9 @@ class CmdbMultiRender:
         if not current_field[FieldKey.VALUE]:
             return TypeReference.to_json(reference)
 
-        ref_object: CmdbObject | None = self.objects_cache.get(int(current_field[FieldKey.VALUE]))
+        if ref_object is None:
+            ref_object = self.objects_cache.get(int(current_field[FieldKey.VALUE]))
+
         if not ref_object:
             return TypeReference.to_json(reference)
 
@@ -1227,16 +1156,14 @@ class CmdbMultiRender:
         type_instance: CmdbType,
         level: int
     ) -> dict[str, Any] | None:
-        # Resolving a reference section threads several intermediate lookups (field, object, type,
-        # section, selected fields) through one method; the nested merges are already extracted
-        # pylint: disable=too-many-locals
         """
         Merge one reference section into a single reference field for the render
 
         Resolves the section's implicit reference field, the referenced object (when any) and the
-        referenced type/section, then merges each selected referenced field (recursively resolving
-        nested ref-section fields). Returns None when the section cannot be rendered (missing field,
-        missing referenced type or missing referenced section) so the caller can skip it
+        referenced type/section, then merges each selected referenced field. A pulled-in field that
+        belongs to a reference section of the referenced type is resolved one level down
+        (``_merge_nested_reference_section``). Returns None when the section cannot be rendered (missing
+        field, missing referenced type or missing referenced section) so the caller can skip it
 
         Args:
             section (TypeReferenceSection): The reference section to merge
@@ -1256,7 +1183,8 @@ class CmdbMultiRender:
             return None
 
         # An object that does not carry the section's field references nothing yet - the same answer
-        # as an empty one, and not a problem: the section renders the referenced type's fields empty
+        # as an empty one, and not a problem: the section renders the referenced type's fields empty.
+        # An object the render user may not read is not cached, so it renders the same way
         try:
             reference_id: int = object_instance.get_value(ref_field_name)
             ref_field[FieldKey.VALUE] = reference_id
@@ -1311,14 +1239,23 @@ class CmdbMultiRender:
             try:
                 # copy: get_field returns the live cached dict (see _merge_field_content_section)
                 ref_section_field = dict(ref_type.get_field(ref_section_field_name))
-                if reference_object:
+                if not reference_object:
+                    # Nothing to merge: the definition's own `value` is the type's default proposal,
+                    # and answering it would show it as a value the section holds. It is parked under
+                    # `default`, where a merge puts a proposal the object's value replaced
+                    if ref_section_field.get(FieldKey.VALUE):
+                        ref_section_field[RenderedFieldKey.DEFAULT.value] = ref_section_field[FieldKey.VALUE]
+
+                    ref_section_field[FieldKey.VALUE.value] = None
+                else:
                     ref_section_field = self._merge_field_content_section(ref_section_field, reference_object)
-                    if level > 0:
-                        ref_section_fields = self._merge_reference_section_fields(ref_section_field, [], level)
-                        ref_section_field.get(
-                            RenderedFieldKey.REFERENCES,
-                            {RenderedReferenceSectionKey.FIELDS.value: []},
-                        )[RenderedReferenceSectionKey.FIELDS] = ref_section_fields
+
+                    # A pulled-in field that is itself a reference section's field: resolved one level
+                    # down, so it carries the block of the section it belongs to
+                    if ref_section_field.get(FieldKey.TYPE) == FieldType.REF_SECTION:
+                        ref_section_field = self._merge_nested_reference_section(
+                            ref_section_field, reference_object, ref_type, level,
+                        ) or ref_section_field
             except Exception as err:
                 self.problems.report(
                     RenderProblemCode.REFERENCE_SECTION_FIELD_SKIPPED,
@@ -1334,14 +1271,73 @@ class CmdbMultiRender:
         return ref_field
 
 
+    def _merge_nested_reference_section(
+        self,
+        pulled_field: dict[str, Any],
+        owner_object: CmdbObject,
+        owner_type: CmdbType,
+        level: int,
+    ) -> dict[str, Any] | None:
+        """
+        Resolves a pulled-in reference-section field with the section of the type that declares it
+
+        A reference section may pull in another type's reference section; the pulled-in field is then
+        that type's ``<section>-field``, holding the id its own section references. It is resolved with
+        THAT type's section definition and the pulled-in object's values - ``_merge_reference_section``,
+        one level down - so it carries the ``references`` block the frontend draws for any reference
+        section. Nothing is read: the chain's objects were prefetched, and one that is not cached renders
+        like an unset reference
+
+        Args:
+            pulled_field (dict[str, Any]): The merged pulled-in field (``type`` is the ref-section kind)
+            owner_object (CmdbObject): The referenced object the field was pulled from
+            owner_type (CmdbType): That object's type, which declares the field's section
+            level (int): The depth the pulling section was merged at
+
+        Returns:
+            dict[str, Any] | None: The field with its block; None at the depth limit, or when the owner
+                type declares no reference section for the field (the field is then answered as merged)
+        """
+        if level <= 1:
+            return None
+
+        field_name: Any = pulled_field.get(FieldKey.NAME)
+        section: TypeReferenceSection | None = next(
+            (
+                candidate for candidate in owner_type.render_meta.sections
+                if isinstance(candidate, TypeReferenceSection) and f'{candidate.name}-field' == field_name
+            ),
+            None,
+        )
+
+        if section is None:
+            LOGGER.debug(
+                "[_merge_nested_reference_section] Type ID:%s declares no reference section for field '%s'",
+                owner_type.public_id, field_name,
+            )
+            return None
+
+        return self._merge_reference_section(section, owner_object, owner_type, level - 1)
+
+
     def get_mds_reference(self, field_value: int) -> dict[str, Any]:
         """
         Generate a reference for the MDS
+
+        The id is resolved among the rendered objects first, then in the objects cache: the MDS
+        reference routes render the REFERENCED object itself and ask for its own reference, and a render
+        caches only what its objects reference, never the objects themselves. A rendered object needs no
+        ACL check here - the caller chose to render it and read it under its own check
 
         Args:
             field_value (int): The field value to generate the reference for
 
         Returns:
-            dict[str, Any]: The generated reference as a dictionary
+            dict[str, Any]: The generated reference as a dictionary - the empty reference when the id
+                resolves to nothing the render holds
         """
-        return self._merge_references({FieldKey.VALUE: field_value})
+        rendered_object: CmdbObject | None = next(
+            (obj for obj in self.to_render_objects if field_value and obj.public_id == field_value), None,
+        )
+
+        return self._merge_references({FieldKey.VALUE: field_value}, rendered_object)

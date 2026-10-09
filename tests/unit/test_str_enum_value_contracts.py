@@ -312,11 +312,9 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (BulkItemResultKey, {
         'PUBLIC_ID': 'public_id',
         'STATUS': 'status',
-        'MESSAGE': 'message',
     }),
     (BulkItemStatus, {
         'SUCCESS': 'success',
-        'FAILED': 'failed',
     }),
     # ISMS report response keys (the FE-visible row columns) and the report pipelines' join aliases
     (RiskAssessmentReportKey, {
@@ -463,6 +461,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'CI_EXPLORER_LABEL': 'ci_explorer_label',
         'CI_EXPLORER_COLOR': 'ci_explorer_color',
         'ACL': 'acl',
+        'ALIGNMENT_PENDING': 'alignment_pending',
     }),
     # A CmdbPort's stored 'side'. Panel-ness is DERIVED from these values - a device is a patch panel
     # exactly when its ports carry front/rear - so a renamed member would reclassify stored ports

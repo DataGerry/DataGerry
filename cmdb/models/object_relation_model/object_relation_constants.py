@@ -72,8 +72,9 @@ class ObjectRelationRole(BaseStrEnum):
     """
     Side an object plays in a relation instance
 
-    A self-relation places the same object on both sides, so an object can hold both roles for one
-    relation definition
+    A write refuses the same object on both sides, but an object can still hold both roles for one relation
+    definition - as the parent of one instance and the child of another - and a stored instance written before
+    that rule may place it on both sides of the same one
     """
     PARENT = 'parent'
     CHILD = 'child'

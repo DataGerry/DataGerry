@@ -22,12 +22,22 @@ import pytest
 
 from cmdb.errors.exporter import ExporterMetadataError
 
+from cmdb.framework.exporter.format.csv_export_format import CsvExportFormat
+from cmdb.framework.exporter.format.json_export_format import JsonExportFormat
+from cmdb.framework.exporter.format.xlsx_export_format import XlsxExportFormat
+from cmdb.framework.exporter.format.xml_export_format import XmlExportFormat
 from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
     EMPTY_CELL,
     to_export_cell,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+DEFAULT_HEADER: list[str] = ['public_id', 'active']
+SELECTED_HEAD: str = 'public_id'
+FIELD_A: str = 'name'
+FIELD_B: str = 'ip'
+FIELD_C: str = 'rack-unit'
 
 
 def _obj() -> SimpleNamespace:
@@ -420,3 +430,73 @@ class TestSummaryLineEmptyValues:
                  'references': {'type_label': 'Rack', 'fields': [{'value': 'None'}, {'value': 'DC1'}]}}
 
         assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == 'Rack #7 | None | DC1'
+
+
+class TestResolveMetadataSelection:
+    """BaseExporterFormat.resolve_metadata_selection: a key the override leaves out means the default."""
+
+    def test_no_override_is_the_default_header_and_no_selection(self) -> None:
+        """Without an override the header is a copy of the default and the columns are not selected."""
+        header, columns = BaseExporterFormat.resolve_metadata_selection(None, DEFAULT_HEADER)
+
+        assert header == DEFAULT_HEADER and header is not DEFAULT_HEADER
+        assert columns is None
+
+    @pytest.mark.parametrize('metadata', [{}, {'header': None, 'columns': None}])
+    def test_absent_keys_are_the_defaults(self, metadata: dict) -> None:
+        """An empty override, or one naming both keys as null, selects the defaults."""
+        assert BaseExporterFormat.resolve_metadata_selection(metadata, DEFAULT_HEADER)[1] is None
+
+    def test_a_missing_columns_key_keeps_the_header_override(self) -> None:
+        """Each key falls back on its own."""
+        header, columns = BaseExporterFormat.resolve_metadata_selection({'header': [SELECTED_HEAD]}, DEFAULT_HEADER)
+
+        assert header == [SELECTED_HEAD]
+        assert columns is None
+
+    def test_a_missing_header_key_keeps_the_column_selection(self) -> None:
+        """The columns are taken as given, the header defaulted."""
+        header, columns = BaseExporterFormat.resolve_metadata_selection({'columns': [FIELD_B]}, DEFAULT_HEADER)
+
+        assert header == DEFAULT_HEADER
+        assert columns == [FIELD_B]
+
+    def test_an_empty_column_list_is_a_selection(self) -> None:
+        """An empty list selects no column at all - it is not the default."""
+        assert BaseExporterFormat.resolve_metadata_selection({'columns': []}, DEFAULT_HEADER)[1] == []
+
+
+class TestSelectOwnedColumns:
+    """BaseExporterFormat.select_owned_columns narrows a selection to the fields one type owns."""
+
+    def test_no_selection_is_every_owned_field_in_the_types_order(self) -> None:
+        """None selects the owned fields, as a copy."""
+        owned = [FIELD_A, FIELD_B]
+        columns = BaseExporterFormat.select_owned_columns(None, owned)
+
+        assert columns == owned and columns is not owned
+
+    def test_a_selection_keeps_its_order_and_drops_foreign_fields(self) -> None:
+        """Selected fields the type lacks are left out; the rest keep the selection's order."""
+        assert BaseExporterFormat.select_owned_columns([FIELD_C, FIELD_B, FIELD_A], [FIELD_A, FIELD_B]) == \
+            [FIELD_B, FIELD_A]
+
+    def test_an_empty_selection_stays_empty(self) -> None:
+        """Nothing selected, nothing exported."""
+        assert not BaseExporterFormat.select_owned_columns([], [FIELD_A])
+
+
+class TestHonoursHumanReadable:
+    """BaseExporterFormat.honours_human_readable: requested AND supported by the format."""
+
+    @pytest.mark.parametrize(('format_class', 'expected'), [
+        (CsvExportFormat, True), (XlsxExportFormat, True), (JsonExportFormat, False), (XmlExportFormat, False),
+    ])
+    def test_only_the_tabular_formats_honour_the_flag(self, format_class, expected: bool) -> None:
+        """CSV and XLSX write a different file for the flag; JSON and XML write the same one."""
+        assert format_class().honours_human_readable({'human_readable': 'true'}) is expected
+
+    @pytest.mark.parametrize('options', [None, {}, {'human_readable': 'false'}])
+    def test_without_the_flag_no_format_is_human_readable(self, options) -> None:
+        """A supporting format is no presentation export unless asked to be."""
+        assert CsvExportFormat().honours_human_readable(options) is False

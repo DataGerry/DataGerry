@@ -38,6 +38,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.framework.search.search_constants import SearchFacetKey, SearchGroupKey
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.framework.search.searcher_framework import SearcherFramework
 from cmdb.manager import ObjectsManager
 from cmdb.models.user_model import CmdbUser
@@ -92,7 +93,7 @@ def _facet_document(
 def _searcher(facet_document: dict[str, Any] | None = None) -> tuple[SearcherFramework, MagicMock]:
     """A searcher whose ObjectsManager answers with the given facet document."""
     objects_manager = MagicMock(spec=ObjectsManager)
-    objects_manager.aggregate_objects.return_value = iter(
+    objects_manager.aggregate_objects_within_time_limit.return_value = list(
         [facet_document if facet_document is not None else _facet_document()]
     )
 
@@ -121,9 +122,19 @@ class TestThePipeline:
 
         searcher.aggregate(criteria, limit=PAGE_SIZE)
 
-        pipeline = objects_manager.aggregate_objects.call_args.kwargs['pipeline']
+        pipeline = objects_manager.aggregate_objects_within_time_limit.call_args.args[0]
         assert pipeline[0] == criteria[0]
         assert list(pipeline[-1]) == ['$facet']
+
+    def test_the_search_runs_under_a_client_shaped_querys_budget(self, render_list) -> None:
+        """The search terms are the caller's: QUERY_TIME_LIMIT_MS, read to the end inside the manager"""
+        del render_list
+        searcher, objects_manager = _searcher()
+
+        searcher.aggregate([], limit=PAGE_SIZE)
+
+        assert objects_manager.aggregate_objects_within_time_limit.call_args.args[1] == QUERY_TIME_LIMIT_MS
+        objects_manager.aggregate_objects.assert_not_called()
 
     def test_the_page_is_taken_from_the_requested_limit_and_skip(self, render_list) -> None:
         """Paging is expressed inside the facet's data branch"""
@@ -132,7 +143,7 @@ class TestThePipeline:
 
         searcher.aggregate([], limit=PAGE_SIZE, skip=OFFSET)
 
-        facet = objects_manager.aggregate_objects.call_args.kwargs['pipeline'][-1]['$facet']
+        facet = objects_manager.aggregate_objects_within_time_limit.call_args.args[0][-1]['$facet']
         assert facet[SearchFacetKey.DATA.value] == [{'$skip': OFFSET}, {'$limit': PAGE_SIZE}]
 
     def test_an_unlimited_search_sends_no_limit_stage(self, render_list) -> None:
@@ -142,7 +153,7 @@ class TestThePipeline:
 
         searcher.aggregate([], limit=0)
 
-        facet = objects_manager.aggregate_objects.call_args.kwargs['pipeline'][-1]['$facet']
+        facet = objects_manager.aggregate_objects_within_time_limit.call_args.args[0][-1]['$facet']
         assert facet[SearchFacetKey.DATA.value] == []
 
     def test_the_patterns_are_read_before_the_facet_is_appended(self, render_list) -> None:
@@ -227,7 +238,7 @@ class TestReadingTheFacetResult:
         """Same guard, one level up: no document at all instead of one"""
         del render_list
         objects_manager = MagicMock(spec=ObjectsManager)
-        objects_manager.aggregate_objects.return_value = iter([])
+        objects_manager.aggregate_objects_within_time_limit.return_value = list([])
 
         result = SearcherFramework(objects_manager).aggregate([], limit=PAGE_SIZE)
 

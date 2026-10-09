@@ -22,15 +22,28 @@ CmdbObject of such a type can hold one or more interface rows pointing at a SUBN
 so the subnet IP-Übersicht FE uses this listing as the picker for 'assign an object to a free
 IP'. A CmdbObject is never 'consumed' by an assignment - the same object can carry several
 interface rows referencing different subnets - so the list is intentionally unfiltered by
-existing assignments and returns every assignable candidate in the tenant
+existing assignments and lists every assignable candidate the caller may read.
+
+**What is read.** A row needs an object's ``public_id``, its ``type_id`` and the ``fields`` its summary
+line is composed of - nothing else (``ASSIGNABLE_OBJECT_PROJECTION``), so the interface rows themselves
+(``multi_data_sections``, the large part of these objects) are never loaded. Without a search the page is
+cut by MongoDB (a count for the total, then ``skip`` / ``limit``), so a request reads one page of
+documents; with a search every candidate is read (projected), because the search matches the composed
+summary line, which only exists after the read. **Both paths list in ``public_id`` order**
+(``ASSIGNABLE_OBJECT_ORDER``), the order the rack picker asks for too: ``public_id`` is unique, so a page is the same
+rows on every request and the pages together list every candidate exactly once - MongoDB's natural order guarantees
+neither.
 """
 from typing import Any
 
 from cmdb.manager import ObjectsManager, TypesManager
+from cmdb.manager.objects_summary_helper import compose_summary_line
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.type_model.section_key_enum import SectionKey
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.special_type_model.ipam_constants import (
     IpamOverviewKey,
@@ -39,6 +52,16 @@ from cmdb.models.special_type_model.ipam_constants import (
 from cmdb.framework.ipam.pagination import clamp_page
 from cmdb.framework.ipam.search import active_search
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The picker's order: by public_id, ascending - unique, so a total order and stable pages
+ASSIGNABLE_OBJECT_ORDER: list[tuple[str, int]] = [(CmdbObjectKey.PUBLIC_ID.value, CmdbDAO.DAO_ASCENDING)]
+
+# What a picker row is built from: the identity, the type, and the fields the summary line is composed of
+ASSIGNABLE_OBJECT_PROJECTION: dict[str, int] = {
+    CmdbObjectKey.PUBLIC_ID.value: 1,
+    CmdbObjectKey.TYPE_ID.value: 1,
+    CmdbObjectKey.FIELDS.value: 1,
+}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -71,31 +94,31 @@ def find_ipam_capable_type_ids(types_manager: TypesManager) -> list[int]:
     return [cmdb_type.public_id for cmdb_type in types_manager.find_types(criteria)]
 
 
-def _build_type_label_lookup(
-    types_manager: TypesManager,
-    type_ids: list[int],
-) -> dict[int, str]:
+def build_summary_lines(object_docs: list[dict[str, Any]], types_lookup: dict[int, CmdbType]) -> dict[int, str]:
     """
-    Bulk-resolves a list of CmdbType public_ids to their human-readable label
+    Composes the summary line of every given CmdbObject from an already-loaded type lookup
 
-    A single ``get_types_lookup`` round-trip; the projection happens client-side so callers can
-    answer per-row label queries without further DB work. Types whose document no longer
-    resolves are absent from the mapping - callers should treat a missing key as 'unknown
-    label' and fall back to a placeholder if needed
+    The same line ``ObjectsManager.get_summary_lines_lookup`` answers (``compose_summary_line``, with the type
+    label), without its own type query: the page's types are read once and serve the summary lines and the type
+    labels alike. A doc without an integer public_id, or whose type did not resolve, gets no line
 
     Args:
-        types_manager (TypesManager): db interface for CmdbTypes
-        type_ids (list[int]): The CmdbType public_ids to resolve (duplicates allowed)
+        object_docs (list[dict[str, Any]]): CmdbObject documents carrying at least public_id, type_id and fields
+        types_lookup (dict[int, CmdbType]): {type_id: CmdbType} covering the docs' types
 
     Returns:
-        dict[int, str]: {type_id: label} for every type that resolved successfully
+        dict[int, str]: {object_public_id: summary_line}
     """
-    if not type_ids:
-        return {}
+    lines: dict[int, str] = {}
 
-    lookup = types_manager.get_types_lookup(list(set(type_ids)))
+    for doc in object_docs:
+        public_id: Any = doc.get(CmdbObjectKey.PUBLIC_ID)
+        object_type: CmdbType | None = types_lookup.get(doc.get(CmdbObjectKey.TYPE_ID))
 
-    return {tid: t.label for tid, t in lookup.items()}
+        if isinstance(public_id, int) and object_type is not None:
+            lines[public_id] = compose_summary_line(doc, object_type, with_type=True)
+
+    return lines
 
 
 def _build_row(
@@ -167,46 +190,125 @@ def _apply_search(
 #                                                  DATASET LOADER                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
 def _shape_rows(
-    objects_manager: ObjectsManager,
     types_manager: TypesManager,
     object_docs: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """
     Shapes the picker rows for already-loaded CmdbObject documents
 
-    Two bulk lookups against the given docs: summary lines (composed from the docs themselves
-    via ``get_summary_lines_lookup(object_docs=...)``, so no per-id re-fetch happens) and type
-    labels. The type-label lookup is scoped to the type ids actually present on the given
-    docs rather than every capable type, so a tenant with many IPAM-capable types but few
-    objects of them does not pay for unused lookups
+    **One type query**: the types actually present on the given docs are read once
+    (``get_types_lookup``), and that lookup serves both the summary lines (``build_summary_lines``) and the
+    type labels - so a page costs one type read, and a tenant with many IPAM-capable types but few objects of
+    them does not pay for unused types
 
     Args:
-        objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
-        object_docs (list[dict[str, Any]]): Full CmdbObject documents to shape
+        object_docs (list[dict[str, Any]]): CmdbObject documents (``ASSIGNABLE_OBJECT_PROJECTION`` is enough)
 
     Returns:
         list[dict[str, Any]]: One row per doc, in input order; each row is
             {'public_id', 'type_info': {'public_id', 'label'}, 'summary_line'}
     """
-    object_ids: list[int] = [
-        obj[CmdbObjectKey.PUBLIC_ID]
-        for obj in object_docs
-        if isinstance(obj.get(CmdbObjectKey.PUBLIC_ID), int)
-    ]
-    present_type_ids: list[int] = [
+    present_type_ids: list[int] = list({
         obj[CmdbObjectKey.TYPE_ID]
         for obj in object_docs
         if isinstance(obj.get(CmdbObjectKey.TYPE_ID), int)
-    ]
+    })
 
-    summary_lines: dict[int, str] = (
-        objects_manager.get_summary_lines_lookup(object_ids, with_type=True, object_docs=object_docs)
-        if object_ids else {}
-    )
-    type_labels: dict[int, str] = _build_type_label_lookup(types_manager, present_type_ids)
+    types_lookup: dict[int, CmdbType] = types_manager.get_types_lookup(present_type_ids) if present_type_ids else {}
+    summary_lines: dict[int, str] = build_summary_lines(object_docs, types_lookup)
+    type_labels: dict[int, str] = {type_id: object_type.label for type_id, object_type in types_lookup.items()}
 
     return [_build_row(obj, summary_lines, type_labels) for obj in object_docs]
+
+
+# A read page: the total it is a page of, the clamped page number and size, and its rows
+PickerPage = tuple[int, int, int, list[dict[str, Any]]]
+
+
+def read_unsearched_page(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    criteria: dict[str, Any],
+    page: int,
+    page_size: int,
+    request_user: CmdbUser | None,
+) -> PickerPage:
+    """
+    Reads one page of candidates without a search, cut by MongoDB
+
+    A count for the total, then exactly the requested page (``skip`` / ``limit``, projected) - both through the
+    caller's READ ACL, so the total counts what the pages show. In ``public_id`` order (``ASSIGNABLE_OBJECT_ORDER``)
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        criteria (dict[str, Any]): The candidate filter (the IPAM-capable types)
+        page (int): Requested 1-based page number; clamped
+        page_size (int): Requested page size; clamped
+        request_user (CmdbUser | None): The caller, whose READ access scopes the count and the page
+
+    Returns:
+        PickerPage: (total, clamped page, clamped page size, the page's rows)
+    """
+    total: int = objects_manager.count_objects(criteria, user=request_user, permission=AccessControlPermission.READ)
+    clamped_page, clamped_size = clamp_page(page, page_size, total)
+    page_docs: list[dict[str, Any]] = objects_manager.find_objects(
+        criteria,
+        as_dict=True,
+        projection=ASSIGNABLE_OBJECT_PROJECTION,
+        user=request_user,
+        permission=AccessControlPermission.READ,
+        sort=ASSIGNABLE_OBJECT_ORDER,
+        skip=(clamped_page - 1) * clamped_size,
+        limit=clamped_size,
+    )
+
+    return total, clamped_page, clamped_size, _shape_rows(types_manager, page_docs)
+
+
+def read_searched_page(
+    objects_manager: ObjectsManager,
+    types_manager: TypesManager,
+    criteria: dict[str, Any],
+    needle: str,
+    page: int,
+    page_size: int,
+    request_user: CmdbUser | None,
+) -> PickerPage:
+    """
+    Reads one page of the candidates whose summary line carries the needle
+
+    The search matches the composed summary line, which only exists after the read, so every readable candidate
+    is read (projected to what a row needs), shaped, filtered, and the filtered rows are paged
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
+        criteria (dict[str, Any]): The candidate filter (the IPAM-capable types)
+        needle (str): The normalized search query (``active_search``)
+        page (int): Requested 1-based page number; clamped against the filtered count
+        page_size (int): Requested page size; clamped
+        request_user (CmdbUser | None): The caller, whose READ access scopes the read
+
+    Returns:
+        PickerPage: (filtered total, clamped page, clamped page size, the page's rows)
+    """
+    object_docs: list[dict[str, Any]] = objects_manager.find_objects(
+        criteria,
+        as_dict=True,
+        projection=ASSIGNABLE_OBJECT_PROJECTION,
+        user=request_user,
+        permission=AccessControlPermission.READ,
+        sort=ASSIGNABLE_OBJECT_ORDER,
+    )
+    filtered: list[dict[str, Any]] = _apply_search(_shape_rows(types_manager, object_docs), needle)
+
+    total: int = len(filtered)
+    clamped_page, clamped_size = clamp_page(page, page_size, total)
+    start_offset: int = (clamped_page - 1) * clamped_size
+
+    return total, clamped_page, clamped_size, filtered[start_offset:start_offset + clamped_size]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -228,15 +330,15 @@ def build_assignable_objects_page(
       1. Resolve every IPAM-capable CmdbType via ``find_ipam_capable_type_ids``. With no
          capable type the response collapses to an empty page envelope before any object
          lookup is issued
-      2. Load every CmdbObject of a capable type (one ``find_objects`` round-trip)
-      3. Without an active search, slice the requested page out of the loaded docs FIRST and
-         shape only that page via ``_shape_rows`` - the summary-line / type-label lookups
-         then cover one page instead of the whole tenant. With an active search, every doc
-         is shaped so the case-insensitive substring filter can match against the summary
-         line, then the filtered rows are paginated (the filter is skipped when the
-         normalized query is shorter than IpamSearch.MIN_QUERY_LENGTH)
+      2. Without an active search: count the readable candidates (``count_objects``) for ``total``,
+         clamp the page, then read exactly that page from MongoDB (``find_objects`` with ``skip`` /
+         ``limit`` and ``ASSIGNABLE_OBJECT_PROJECTION``) and shape it - one page of documents read
+      3. With an active search: read every readable candidate (projected), shape them all so the
+         case-insensitive substring filter can match the composed summary line, then page the
+         filtered rows (the filter is skipped when the normalized query is shorter than
+         IpamSearch.MIN_QUERY_LENGTH, which is the no-search path)
       4. ``total`` reflects the post-filter count (or the unfiltered count without a search);
-         page / page_size are clamped via ``clamp_page``
+         page / page_size are clamped via ``clamp_page``. Both paths list in ``public_id`` order
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -267,30 +369,18 @@ def build_assignable_objects_page(
         }
 
     # The picker offers objects the caller may actually open, so it is ACL-scoped like every other
-    # presentation read
-    object_docs: list[dict[str, Any]] = objects_manager.find_objects(
-        {CmdbObjectKey.TYPE_ID: {'$in': capable_type_ids}},
-        as_dict=True,
-        user=request_user,
-        permission=AccessControlPermission.READ,
-    )
+    # presentation read - the count and the page alike
+    criteria: dict[str, Any] = {CmdbObjectKey.TYPE_ID: {'$in': capable_type_ids}}
     needle: str | None = active_search(search)
 
     if needle is None:
-        total: int = len(object_docs)
-        clamped_page, clamped_size = clamp_page(page, page_size, total)
-        start_offset: int = (clamped_page - 1) * clamped_size
-        page_rows: list[dict[str, Any]] = _shape_rows(
-            objects_manager, types_manager, object_docs[start_offset:start_offset + clamped_size],
+        total, clamped_page, clamped_size, page_rows = read_unsearched_page(
+            objects_manager, types_manager, criteria, page, page_size, request_user,
         )
     else:
-        rows: list[dict[str, Any]] = _shape_rows(objects_manager, types_manager, object_docs)
-        filtered: list[dict[str, Any]] = _apply_search(rows, needle)
-
-        total = len(filtered)
-        clamped_page, clamped_size = clamp_page(page, page_size, total)
-        start_offset = (clamped_page - 1) * clamped_size
-        page_rows = filtered[start_offset:start_offset + clamped_size]
+        total, clamped_page, clamped_size, page_rows = read_searched_page(
+            objects_manager, types_manager, criteria, needle, page, page_size, request_user,
+        )
 
     return {
         IpamOverviewKey.PAGE: clamped_page,

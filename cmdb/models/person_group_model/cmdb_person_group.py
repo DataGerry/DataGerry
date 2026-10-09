@@ -24,8 +24,8 @@ before changing it:
 
 **Membership is stored on both sides.** ``group_members`` holds the public_ids of the persons in the
 group, and each of those persons repeats the group in their ``groups``. Neither side is derived from
-the other, so every write has to sync the counterpart - see
-``PersonGroupsManager.update_person_in_groups`` and its twin in ``PersonsManager``.
+the other, so every write has to sync the counterpart - see ``sync_membership`` in
+``user_management_routes/person_membership_helper.py``, which both route files use.
 
 **The optional keys are never null.** ``group_members`` defaults to the empty list and ``email`` to the
 empty string, coerced in the constructor. A stored ``group_members: null`` would break two things at

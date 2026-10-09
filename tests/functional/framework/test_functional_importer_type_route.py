@@ -184,10 +184,10 @@ class TestAddType:
 
     def test_error_message_carries_detail(self, rest_api) -> None:
         """A collected create failure names the reason, not just a generic sentence."""
-        # named (so the name rules pass) but with an unusable acl, which CmdbType.from_data rejects
+        # named (so the name rules pass) but with an unusable summary, which only CmdbType.from_data rejects
         response = rest_api.post(
             CREATE_URL,
-            data=_upload_form([{'name': 'broken-type', 'acl': 'not-a-dict'}]),
+            data=_upload_form([{'name': 'broken-type', 'render_meta': {'summary': 'not-an-object'}}]),
             content_type='multipart/form-data',
         )
 
@@ -1937,8 +1937,9 @@ class TestExportImportRoundTrip:
             {'name': 'wiki', 'href': 'http://example.org/{}', 'label': 'Wiki', 'icon': 'fa',
              'fields': ['dg-name']},
         ]
-        # group 2 is the predefined 'user' group, so the grant resolves and the ACL stays on
-        doc['acl'] = {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
+        # group 2 is the predefined 'user' group, so the grant resolves and the ACL stays on; the admin group (1)
+        # is granted READ too, since a type the caller may not read is neither exported nor updated by import
+        doc['acl'] = {'activated': True, 'groups': {'includes': {'1': ['READ'], '2': ['READ']}}}
 
         return doc
 
@@ -1973,7 +1974,7 @@ class TestExportImportRoundTrip:
         assert [section['name'] for section in stored['render_meta']['sections']] == ['main', 'notes']
         assert stored['render_meta']['summary']['fields'] == ['dg-name']
         assert stored['render_meta']['externals'][0]['name'] == 'wiki'
-        assert stored['acl'] == {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
+        assert stored['acl'] == {'activated': True, 'groups': {'includes': {'1': ['READ'], '2': ['READ']}}}
 
     def test_an_exported_type_re_imports_as_a_new_type(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str

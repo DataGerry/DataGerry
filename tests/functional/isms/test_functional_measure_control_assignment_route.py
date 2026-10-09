@@ -31,6 +31,8 @@ from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment, IsmsRiskAssessment, IsmsRisk
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
+from cmdb.models.person_model.cmdb_person import CmdbPerson
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerInsertError,
@@ -65,13 +67,15 @@ OBJECT_RISK_ASSESSMENT_ID: int = 98453
 REFERENCED_OBJECT_ID: int = 98454
 CONTROL_MEASURE_ID: int = 98460
 MISSING_CONTROL_MEASURE_ID: int = 98461
+RESPONSIBLE_PERSON_ID: int = 98470
 
 RISK_NAME: str = 'Enrichment Risk'
 OBJECT_GROUP_NAME: str = 'Enrichment Group'
 
 ALL_CMA_IDS: list[int] = [CMA_ID_FOR_GET, CMA_ID_FOR_UPDATE, CMA_ID_FOR_DELETE, CMA_ID_FOR_ENRICH,
                           FORGED_CMA_ID]
-ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
+ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID, OBJECT_RISK_ASSESSMENT_ID]
+ALL_PERSON_IDS: list[int] = [RESPONSIBLE_PERSON_ID]
 ALL_RISK_IDS: list[int] = [RISK_ID]
 ALL_OBJECT_GROUP_IDS: list[int] = [OBJECT_GROUP_ID]
 ALL_CONTROL_MEASURE_IDS: list[int] = [CONTROL_MEASURE_ID]
@@ -87,8 +91,8 @@ def _cma_payload(public_id: int, risk_assessment_id: int = RISK_ASSESSMENT_ID) -
         'implementation_status': 1,
         'finished_implementation_date': None,
         'priority': 1,
-        'responsible_for_implementation_id_ref_type': 'PERSON',
-        'responsible_for_implementation_id': 1,
+        'responsible_for_implementation_id_ref_type': PersonReferenceType.PERSON.value,
+        'responsible_for_implementation_id': RESPONSIBLE_PERSON_ID,
     }
 
 
@@ -102,8 +106,10 @@ def _isms_licensed(monkeypatch: pytest.MonkeyPatch):
 def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Removes any assignments / assessments / risks / object groups seeded by a test."""
     def _purge() -> None:
+        # By assessment too: a POST stores the assignment under an id the server picks
         database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_CMA_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_CMA_IDS}},
+                                  {'risk_assessment_id': {'$in': ALL_RISK_ASSESSMENT_IDS}}]})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_ASSESSMENT_IDS}})
         database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
@@ -112,14 +118,29 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
             .delete_many({'public_id': {'$in': ALL_OBJECT_GROUP_IDS}})
         database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_CONTROL_MEASURE_IDS}})
+        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+            .delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
 
     _purge()
-    # Seed the ControlMeasure referenced by _cma_payload so the reference check passes
+    # Seed what _cma_payload references - the ControlMeasure, the RiskAssessment and the responsible person -
+    # so the reference checks pass
     database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name).insert_one(
         {'public_id': CONTROL_MEASURE_ID, 'title': 'Seeded Control', 'control_measure_type': 'CONTROL'}
     )
+    _store_risk_assessment(database_manager, database_name, {'public_id': RISK_ASSESSMENT_ID})
+    database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_one(
+        {'public_id': RESPONSIBLE_PERSON_ID, 'display_name': 'Responsible'}
+    )
     yield
     _purge()
+
+
+def _store_risk_assessment(database_manager: MongoDatabaseManager, database_name: str,
+                           document: dict[str, Any]) -> None:
+    """Stores (or replaces) an IsmsRiskAssessment doc directly via the collection"""
+    database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).replace_one(
+        {'public_id': document['public_id']}, document, upsert=True,
+    )
 
 
 def _insert_cma(database_manager: MongoDatabaseManager, database_name: str, public_id: int,
@@ -176,7 +197,7 @@ class TestGetControlMeasureAssignment:
                                            database_manager: MongoDatabaseManager, database_name: str) -> None:
         """The list route joins RiskAssessment -> Risk + ObjectGroup into naming.cma_summary."""
         _insert_cma(database_manager, database_name, CMA_ID_FOR_ENRICH)
-        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+        _store_risk_assessment(database_manager, database_name, {
             'public_id': RISK_ASSESSMENT_ID,
             'risk_id': RISK_ID,
             'object_id_ref_type': ObjectReferenceType.OBJECT_GROUP,
@@ -206,7 +227,7 @@ class TestGetControlMeasureAssignment:
         """
         _insert_cma(database_manager, database_name, CMA_ID_FOR_OBJECT_ENRICH,
                     risk_assessment_id=OBJECT_RISK_ASSESSMENT_ID)
-        database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name).insert_one({
+        _store_risk_assessment(database_manager, database_name, {
             'public_id': OBJECT_RISK_ASSESSMENT_ID,
             'risk_id': RISK_ID,
             'object_id_ref_type': ObjectReferenceType.OBJECT,

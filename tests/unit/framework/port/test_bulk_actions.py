@@ -39,6 +39,7 @@ from cmdb.framework.port.bulk_actions import (
     port_selection_blockers,
 )
 from cmdb.models.port_model import PortKey, PortSide
+from cmdb.models.type_model.type_constants import TEXT_VALUE_MAX_LENGTH
 from cmdb.models.port_connection_model import PortConnectionKey
 from cmdb.models.port_interface_link_model import PortInterfaceLinkKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -209,8 +210,24 @@ class TestBulkEditValues:
     def test_the_allowed_fields_pass(self) -> None:
         """Status, port type, speed and description - what a selection can sensibly share"""
         values = {field.value: 1 for field in BULK_EDITABLE_FIELDS}
+        values[PortKey.DESCRIPTION.value] = 'Uplink'
 
         assert bulk_edit_value_blockers(values) == []
+
+    def test_a_description_over_the_cap_is_refused(self) -> None:
+        """Capped like a single port's description"""
+        blockers = bulk_edit_value_blockers({PortKey.DESCRIPTION.value: 'd' * (TEXT_VALUE_MAX_LENGTH + 1)})
+
+        assert len(blockers) == 1 and f"'{PortKey.DESCRIPTION.value}'" in blockers[0]
+
+    def test_a_description_that_is_not_text_is_refused(self) -> None:
+        """A number is not a description"""
+        assert bulk_edit_value_blockers({PortKey.DESCRIPTION.value: 7}) != []
+
+    @pytest.mark.parametrize('description', [None, 'd' * TEXT_VALUE_MAX_LENGTH], ids=['null-clears', 'at-the-cap'])
+    def test_a_null_or_capped_description_passes(self, description: Any) -> None:
+        """null clears it; 255 characters fits"""
+        assert bulk_edit_value_blockers({PortKey.DESCRIPTION.value: description}) == []
 
     def test_a_subset_is_enough(self) -> None:
         """"Set the speed of these twelve" must not require sending their statuses too"""

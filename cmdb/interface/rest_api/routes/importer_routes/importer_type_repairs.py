@@ -25,7 +25,6 @@ in `importer_type_rules` have passed and before the entry is written
 Three of them read the database - cross-type references, ACL groups and global section templates -
 each with a single query per entry
 """
-from copy import deepcopy
 from typing import Any
 from logging import Logger, getLogger
 
@@ -39,21 +38,27 @@ from cmdb.models.type_model import (
     FieldKey,
     SectionKey,
     SectionReferenceKey,
-    SectionType,
 )
 from cmdb.models.group_model import CmdbUserGroup
-from cmdb.models.section_template_model.section_template_constants import SectionTemplateKey
 from cmdb.utils import coerce_whole_number, random_hex_color, is_non_blank_string
 from cmdb.framework.ci_explorer.label_field import label_field_error
+from cmdb.framework.section_templates.global_template_reconcile import (
+    GlobalTemplateReconcile,
+    claimed_template_names,
+    first_template_conflict,
+    reconcile_type_with_global_templates,
+    resolve_global_templates,
+)
 from cmdb.framework.object_field_value_rules import find_default_value_errors
 from cmdb.security.acl.acl_constants import AclKey
+from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     TypeStructure,
     read_type_structure,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     DEFAULT_TYPE_ICON,
-    DEFAULT_TYPE_ACL,
+    TypeImportError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -113,7 +118,7 @@ def apply_type_defaults(type_entry: Any) -> None:
         type_entry[TypeSchemaKey.CI_EXPLORER_COLOR.value] = random_hex_color()
 
     if not type_entry.get(TypeSchemaKey.ACL.value):
-        type_entry[TypeSchemaKey.ACL.value] = deepcopy(DEFAULT_TYPE_ACL)
+        type_entry[TypeSchemaKey.ACL.value] = AccessControlList.default_json()
 
 
 def apply_port_section_index_default(type_entry: Any) -> None:
@@ -386,7 +391,7 @@ def clear_dangling_acl_groups(type_entry: Any, types_manager: TypesManager) -> l
 
     existing_rows = types_manager.get_many_from_other_collection(
         CmdbUserGroup.COLLECTION,
-        **{TypeSchemaKey.PUBLIC_ID.value: {'$in': sorted(set(wanted.values()))}},
+        criteria={TypeSchemaKey.PUBLIC_ID.value: {'$in': sorted(set(wanted.values()))}},
     )
     existing_ids = {row.get(TypeSchemaKey.PUBLIC_ID.value) for row in existing_rows}
     dangling = sorted(str(key) for key, group_id in wanted.items() if group_id not in existing_ids)
@@ -451,28 +456,19 @@ def deactivate_empty_acl(type_entry: Any) -> bool:
 def reconcile_global_templates(
     type_entry: Any,
     section_templates_manager: SectionTemplatesManager,
-) -> None:
+) -> str | None:
     """
-    Aligns the uploaded type with the global section templates it claims, in place
+    Puts the uploaded type's copies of the global section templates it claims back in line with them, in place
 
-    `global_template_ids` holds the NAMES of the global section templates a type inlined, and each of
-    them owns the section of the same name plus that section's field definitions. Across systems the
-    two sides drift, so both directions are repaired:
+    The same reconcile every type write runs (``reconcile_type_with_global_templates``): across systems the two
+    sides drift, and the template - the one stored HERE - wins:
 
-    * a template that does not exist here is dropped from `global_template_ids` - the inlined section
-      and its fields stay, they are real data, but the type stops claiming a template nobody has
-    * a template that does exist tops the type up with the template fields it is missing: the field
-      definition is added to `fields` and its name to the template's section (the section is created
-      from the template when the type does not carry it at all)
-
-    A field the type already defines under that name is never touched - a name identifies exactly one
-    field, so the type's own definition wins and the template's copy is skipped. A claim listed twice
-    is kept once
-
-    Note the section is only ever created alongside a field that was just added: when the type already
-    carries every field of a template it claims but no section named after it, those fields are by
-    definition assigned to some other section (an unassigned field never gets this far - the rules
-    reject it), so adding the template's section would claim them twice
+    * a template that does not exist here is dropped from `global_template_ids` - the inlined section and its
+      fields stay, they are real data, but the type stops claiming a template nobody has
+    * a template that exists makes its section and its field definitions the type's: a missing field is added, a
+      locally rewritten one replaced, a template field sitting in another section moved back, and the section
+      created from the template when the type does not carry it
+    * a field the template does not own, inside the template's section, refuses the entry
 
     Args:
         type_entry (Any): A single entry of the uploaded payload, modified in place
@@ -480,162 +476,54 @@ def reconcile_global_templates(
 
     Raises:
         BaseManagerGetError: If the template lookup fails
-    """
-    if not isinstance(type_entry, dict):
-        return
-
-    # dict.fromkeys keeps the first occurrence of a name and drops the repeats, order intact
-    claimed = list(dict.fromkeys(
-        name for name in type_entry.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value) or []
-        if isinstance(name, str)
-    ))
-
-    if not claimed:
-        return
-
-    templates_by_name = resolve_global_templates(section_templates_manager, claimed)
-    resolved = [name for name in claimed if name in templates_by_name]
-
-    if len(resolved) != len(claimed):
-        LOGGER.info(
-            "[reconcile_global_templates] Dropped unknown global section template(s) %s while importing '%s'",
-            sorted(set(claimed) - set(resolved)), type_entry.get(TypeSchemaKey.NAME.value),
-        )
-
-    type_entry[TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value] = resolved
-
-    for template_name in resolved:
-        _add_missing_template_fields(type_entry, templates_by_name[template_name])
-
-
-def resolve_global_templates(
-    section_templates_manager: SectionTemplatesManager,
-    names: list[str],
-) -> dict[str, dict[str, Any]]:
-    """
-    Looks the given global section templates up in a single query
-
-    Shared with the update side effects, which have to tell a template the user dropped from a Type
-    apart from one this repair dropped because it does not exist here
-
-    Args:
-        section_templates_manager (SectionTemplatesManager): Manager used to read the templates
-        names (list[str]): The template names to resolve
-
-    Raises:
-        BaseManagerGetError: If the template lookup fails
 
     Returns:
-        dict[str, dict[str, Any]]: The templates that exist here, keyed by name
+        str | None: The refusal of a foreign field inside a template's section, else None
     """
-    if not names:
-        return {}
+    if not isinstance(type_entry, dict):
+        return None
 
-    templates = section_templates_manager.find({
-        SectionTemplateKey.NAME.value: {'$in': sorted(set(names))},
-        SectionTemplateKey.IS_GLOBAL.value: True,
-    })
+    claims: list[str] = claimed_template_names(type_entry)
 
-    return {
-        template[SectionTemplateKey.NAME.value]: template
-        for template in templates
-        if template.get(SectionTemplateKey.NAME.value)
-    }
+    if not claims:
+        return None
 
-
-def _add_missing_template_fields(type_entry: dict[str, Any], template: dict[str, Any]) -> None:
-    """
-    Adds the fields of one global section template that the uploaded type does not define, in place
-
-    Args:
-        type_entry (dict[str, Any]): The uploaded type entry, modified in place
-        template (dict[str, Any]): The stored global section template the type claims
-    """
-    template_fields = [
-        field for field in template.get(SectionTemplateKey.FIELDS.value) or [] if isinstance(field, dict)
-    ]
-
-    if not template_fields:
-        return
-
-    type_fields = type_entry.setdefault(TypeSchemaKey.FIELDS.value, [])
-
-    if not isinstance(type_fields, list):
-        return
-
-    known_names = {
-        field.get(FieldKey.NAME.value) for field in type_fields if isinstance(field, dict)
-    }
-    missing = [
-        field for field in template_fields
-        if is_non_blank_string(field.get(FieldKey.NAME.value)) and field.get(FieldKey.NAME.value) not in known_names
-    ]
-
-    if not missing:
-        return
-
-    type_fields.extend(deepcopy(field) for field in missing)
-    _assign_to_template_section(type_entry, template, [field[FieldKey.NAME.value] for field in missing])
-
-    LOGGER.info(
-        "[reconcile_global_templates] Added missing field(s) %s of template '%s' while importing '%s'",
-        [field[FieldKey.NAME.value] for field in missing],
-        template.get(SectionTemplateKey.NAME.value),
-        type_entry.get(TypeSchemaKey.NAME.value),
+    outcome = reconcile_type_with_global_templates(
+        type_entry, resolve_global_templates(section_templates_manager, claims),
     )
 
+    if outcome.dropped_claims:
+        LOGGER.info(
+            "[reconcile_global_templates] Dropped unknown global section template(s) %s while importing '%s'",
+            sorted(outcome.dropped_claims), type_entry.get(TypeSchemaKey.NAME.value),
+        )
 
-def _assign_to_template_section(
-    type_entry: dict[str, Any],
-    template: dict[str, Any],
-    field_names: list[str],
-) -> None:
+    return template_section_conflict_message(outcome)
+
+
+def template_section_conflict_message(outcome: GlobalTemplateReconcile) -> str | None:
     """
-    Puts the added template fields into the template's section, creating that section when needed
-
-    A type that inlines a global template carries a section named after it; the fields have to land
-    there or they would end up assigned to no section at all
+    Words the first template's foreign fields as the import refusal
 
     Args:
-        type_entry (dict[str, Any]): The uploaded type entry, modified in place
-        template (dict[str, Any]): The stored global section template
-        field_names (list[str]): The field names that were just added to the type
+        outcome (GlobalTemplateReconcile): What the reconcile found
+
+    Returns:
+        str | None: The refusal, or None when the reconcile found no conflict
     """
-    template_name = template.get(SectionTemplateKey.NAME.value)
-    render_meta = type_entry.setdefault(TypeSchemaKey.RENDER_META.value, {})
+    conflict: tuple[str, list[str]] | None = first_template_conflict(outcome)
 
-    if not isinstance(render_meta, dict):
-        render_meta = {}
-        type_entry[TypeSchemaKey.RENDER_META.value] = render_meta
+    if not conflict:
+        return None
 
-    sections = render_meta.setdefault(TypeSchemaKey.SECTIONS.value, [])
-
-    if not isinstance(sections, list):
-        return
-
-    for section in sections:
-        if isinstance(section, dict) and section.get(SectionKey.NAME.value) == template_name:
-            section_fields = section.setdefault(SectionKey.FIELDS.value, [])
-
-            if isinstance(section_fields, list):
-                section_fields.extend(field_names)
-
-            return
-
-    # The type claims the template but carries no section for it - rebuild it from the template
-    sections.append({
-        SectionKey.TYPE.value: template.get(SectionTemplateKey.TYPE.value) or SectionType.SECTION.value,
-        SectionKey.NAME.value: template_name,
-        SectionKey.LABEL.value: template.get(SectionTemplateKey.LABEL.value) or template_name,
-        SectionKey.FIELDS.value: list(field_names),
-    })
+    return TypeImportError.FOREIGN_FIELD_IN_TEMPLATE_SECTION.format(template=conflict[0], names=conflict[1])
 
 
 def normalize_imported_type(
     type_entry: Any,
     types_manager: TypesManager,
     section_templates_manager: SectionTemplatesManager,
-) -> None:
+) -> str | None:
     """
     Applies every in-place repair an uploaded type gets before it is written
 
@@ -653,6 +541,10 @@ def normalize_imported_type(
     Raises:
         TypesManagerGetError: If the reference existence lookup fails
         BaseManagerGetError: If the group or template lookup fails
+
+    Returns:
+        str | None: The one refusal a repair can raise - a field the template does not own inside a claimed
+            global template's section - else None
     """
     apply_type_defaults(type_entry)
     apply_port_section_index_default(type_entry)
@@ -660,9 +552,15 @@ def normalize_imported_type(
     clear_dangling_type_references(type_entry, types_manager)
     clear_dangling_acl_groups(type_entry, types_manager)
     deactivate_empty_acl(type_entry)
-    reconcile_global_templates(type_entry, section_templates_manager)
+    template_conflict: str | None = reconcile_global_templates(type_entry, section_templates_manager)
+
+    if template_conflict:
+        return template_conflict
+
     # After the template reconcile: it can add fields, whose defaults are judged like the rest
     clear_invalid_field_defaults(type_entry)
     # LAST: the template repair above can add fields to the entry, and a nomination pointing at one
     # of those is perfectly usable - dropping it before they exist would be wrong
     clear_dangling_ci_explorer_label(type_entry)
+
+    return None

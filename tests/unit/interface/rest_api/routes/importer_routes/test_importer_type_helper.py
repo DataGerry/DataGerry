@@ -33,6 +33,8 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.errors.manager.types_manager import TypesManagerAlignmentError
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import TypeAlignmentStep
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     DEFAULT_TYPE_ICON,
     TypeImportError,
@@ -57,6 +59,7 @@ from tests.utils.type_import_builders import (
     MISSING_PUBLIC_ID,
     NEW_PUBLIC_ID,
     IMPORTER,
+    IMPORTER_GROUP_ID,
     IMPORTER_ID,
     RULES,
     HELPER,
@@ -68,6 +71,12 @@ from tests.utils.type_import_builders import (
     unreachable,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# A group other than the importer's, the only one a hidden stored type grants READ
+OTHER_GROUP_ID: int = IMPORTER_GROUP_ID + 1
+
+# A render_meta the import rules let through and only CmdbType.from_data refuses: a summary that is no object
+UNBUILDABLE_RENDER_META: dict[str, Any] = {'summary': 'not-an-object'}
 
 TYPES_HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
 
@@ -401,9 +410,9 @@ class TestCreateTypeFromEntry:
 
     def test_invalid_type_data_is_reported(self) -> None:
         """An entry that cannot be built into a CmdbType is reported like on the update path."""
-        # named (so the name rules pass) but with an unusable acl, which CmdbType.from_data rejects
+        # named (so the name rules pass) but with an unusable summary, which only CmdbType.from_data rejects
         result = create_type_from_entry(
-            {'name': 'broken', 'acl': 'not-a-dict'}, StubTypesManager(), no_templates(), IMPORTER,
+            {'name': 'broken', 'render_meta': UNBUILDABLE_RENDER_META}, StubTypesManager(), no_templates(), IMPORTER,
         )
 
         assert result.startswith('Failed to create a Type instance from the provided data:')
@@ -423,6 +432,49 @@ class TestCreateTypeFromEntry:
 
         assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
             == TypeImportError.IMPORT_FAILED.format(detail=BOOM)
+
+
+def _stored_type_granting(group_id: int) -> CmdbType:
+    """The stored type an update addresses, its ACL on and granting READ to that group alone."""
+    doc = make_type_doc(EXISTING_PUBLIC_ID, 'stored-type')
+    doc[TypeSchemaKey.ACL.value] = {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}
+
+    return CmdbType.from_data(doc)
+
+
+class TestUpdateRefusesAStoredTypeTheImporterMayNotRead:
+    """The stored type's ACL decides - an uploaded ACL that lets the importer in changes nothing."""
+
+    def test_a_hidden_stored_type_is_reported_and_not_written(self) -> None:
+        """One failed entry naming the type, no write"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(OTHER_GROUP_ID))
+
+        result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
+
+        assert result == TypeImportError.TYPE_ACCESS_DENIED.format(public_id=EXISTING_PUBLIC_ID)
+        assert not types_manager.updated
+
+    def test_an_uploaded_acl_granting_the_importer_does_not_open_it(self) -> None:
+        """The upload's ACL is never consulted: rewriting the ACL that keeps the caller out is the escalation"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        entry[TypeSchemaKey.ACL.value] = {
+            'activated': True, 'groups': {'includes': {str(IMPORTER_GROUP_ID): ['READ', 'UPDATE']}},
+        }
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(OTHER_GROUP_ID))
+
+        result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
+
+        assert result == TypeImportError.TYPE_ACCESS_DENIED.format(public_id=EXISTING_PUBLIC_ID)
+        assert not types_manager.updated
+
+    def test_a_stored_type_granting_the_importer_is_written(self) -> None:
+        """The control: the same ACL granting the importer's group lets the update through"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(IMPORTER_GROUP_ID))
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+        assert len(types_manager.updated) == 1
 
 
 class TestUpdateTypeFromEntry:
@@ -491,8 +543,9 @@ class TestUpdateTypeFromEntry:
 
     def test_invalid_type_data_is_reported(self) -> None:
         """An entry that cannot be built into a CmdbType is reported with the underlying detail."""
-        # the type exists, but the entry carries an unusable acl, which CmdbType.from_data rejects
-        entry = {'name': 'broken', TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID, 'acl': 'not-a-dict'}
+        # the type exists, but the entry carries an unusable summary, which only CmdbType.from_data rejects
+        entry = {'name': 'broken', TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID,
+                 'render_meta': UNBUILDABLE_RENDER_META}
         result = update_type_from_entry(entry, StubTypesManager(), no_templates(), IMPORTER)
 
         assert result.startswith('Failed to create a Type instance from the provided data:')
@@ -608,69 +661,93 @@ class TestApplyImportUpdateSideEffects:
     """An import update owes the stored data the same follow-up work as the normal update route."""
 
     @staticmethod
-    def _patch(monkeypatch) -> dict[str, list]:
-        """Records the two route helpers this delegates to instead of running them."""
-        calls: dict[str, list] = {'removed': [], 'applied': []}
+    def _patch(monkeypatch) -> list:
+        """Records the route helper this delegates to instead of running it."""
+        applied: list = []
+        monkeypatch.setattr(f'{HELPER}.apply_type_update_side_effects', lambda *args: applied.append(args))
 
-        def _removed(*args):
-            calls['removed'].append(args)
-            return ({'tpl'}, {})
-
-        monkeypatch.setattr(f'{HELPER}.compute_removed_global_templates', _removed)
-        monkeypatch.setattr(f'{HELPER}.apply_type_update_side_effects',
-                            lambda *args: calls['applied'].append(args))
-
-        return calls
+        return applied
 
     def test_delegates_to_the_route_helper_with_both_states(self, monkeypatch) -> None:
         """The pre-update type and the re-read post-update type are both handed over."""
-        calls = self._patch(monkeypatch)
+        applied = self._patch(monkeypatch)
         types_manager = StubTypesManager()
         old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
 
-        apply_import_update_side_effects(IMPORTER, types_manager, no_templates(), old_type, {'name': 'new-type'})
+        apply_import_update_side_effects(IMPORTER, types_manager, old_type)
 
-        (request_user, manager, passed_old, passed_new, removed), = calls['applied']
+        (request_user, manager, passed_old, passed_new), = applied
 
         assert request_user is IMPORTER
         assert manager is types_manager
         assert passed_old is old_type
         assert passed_new is types_manager.stored_type  # the re-read, not the uploaded entry
-        assert removed == ({'tpl'}, {})
 
     def test_the_type_is_re_read_because_the_payload_omits_preserved_fields(self, monkeypatch) -> None:
         """special_type is never written by an update, so only the stored document is authoritative."""
         self._patch(monkeypatch)
         types_manager = StubTypesManager()
-        old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
 
-        apply_import_update_side_effects(IMPORTER, types_manager, no_templates(), old_type, {'name': 'new-type'})
+        apply_import_update_side_effects(
+            IMPORTER, types_manager, CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type')),
+        )
 
         assert types_manager.instance_reads == [EXISTING_PUBLIC_ID]
 
-    def test_removed_templates_are_computed_from_the_uploaded_ids(self, monkeypatch) -> None:
-        """The dropped global templates come from the upload, not from the re-read type."""
-        calls = self._patch(monkeypatch)
-        old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
-        entry = {'name': 'new-type', TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: ['kept']}
-
-        apply_import_update_side_effects(IMPORTER, StubTypesManager(), no_templates(), old_type, entry)
-
-        (passed_old, incoming_ids), = calls['removed']
-
-        assert passed_old is old_type
-        assert incoming_ids == {'kept'}
-
     def test_a_type_deleted_after_the_update_is_skipped(self, monkeypatch) -> None:
         """Nothing left to reconcile, so the side effects are not attempted."""
-        calls = self._patch(monkeypatch)
-        old_type = CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type'))
+        applied = self._patch(monkeypatch)
 
         apply_import_update_side_effects(
-            IMPORTER, StubTypesManager(stored_type_instance=None), no_templates(), old_type, {},
+            IMPORTER, StubTypesManager(stored_type_instance=None),
+            CmdbType.from_data(make_type_doc(EXISTING_PUBLIC_ID, 'old-type')),
         )
 
-        assert not calls['applied']
+        assert not applied
+
+
+class TestTheImportUpdateWrite:
+    """What update_type_from_entry writes: the dropped templates out, the alignment marker set."""
+
+    def test_the_written_payload_carries_the_marker(self) -> None:
+        """Set with the write - the follow-up clears it"""
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
+        ) is None
+
+        (_public_id, payload), = types_manager.updated
+        assert payload[TypeSchemaKey.ALIGNMENT_PENDING.value] is True
+
+    def test_removed_templates_are_stripped_before_the_write(self, monkeypatch) -> None:
+        """Computed from the stored type and what the upload still claims, then taken out of the payload"""
+        seen: list[tuple] = []
+        monkeypatch.setattr(f'{HELPER}.compute_removed_global_templates',
+                            lambda *args: seen.append(args) or ({'tpl'}, {}))
+        monkeypatch.setattr(f'{HELPER}.strip_removed_global_templates',
+                            lambda payload, removed: {**payload, 'stripped': removed})
+        types_manager = StubTypesManager()
+
+        update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
+        )
+
+        (passed_old, _claimed), = seen
+        assert passed_old is types_manager.stored_type
+        (_public_id, payload), = types_manager.updated
+        assert payload['stripped'] == ({'tpl'}, {})
+
+    def test_a_created_type_never_takes_an_uploaded_marker_over(self) -> None:
+        """An export of a type mid-save carries alignment_pending: the created type starts without it"""
+        entry = make_type_doc(0, 'imported-type')
+        entry[TypeSchemaKey.ALIGNMENT_PENDING.value] = True
+        types_manager = StubTypesManager()
+
+        create_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
+
+        (created,), = [types_manager.inserted]
+        assert created.alignment_pending is False
 
 
 class TestSideEffectsAreRunByTheEntrySteps:
@@ -698,12 +775,11 @@ class TestSideEffectsAreRunByTheEntrySteps:
 
         assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
 
-        (request_user, manager, _templates, old_type, passed_entry), = side_effect_calls['update']
+        (request_user, manager, old_type), = side_effect_calls['update']
 
         assert request_user is IMPORTER
         assert manager is types_manager
         assert old_type is types_manager.stored_type
-        assert passed_entry is entry
 
     def test_the_update_reads_the_type_once_before_writing(self) -> None:
         """One read serves both the existence check and the side effects - not two queries."""
@@ -733,14 +809,30 @@ class TestSideEffectsAreRunByTheEntrySteps:
         assert len(types_manager.inserted) == 1  # the Type itself was written
 
     def test_failing_update_side_effects_are_reported_as_a_follow_up(self, monkeypatch) -> None:
-        """Same for the update: the write happened, the reconciliation did not."""
+        """Same for the update: the write happened, the reconciliation did not - and the step is named."""
+        def _fail(*_args) -> None:
+            raise TypesManagerAlignmentError(BOOM, TypeAlignmentStep.LOCATIONS.value)
+
+        monkeypatch.setattr(f'{HELPER}.apply_import_update_side_effects', _fail)
+        types_manager = StubTypesManager()
+
+        assert update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
+        ) == TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(
+            step=TypeAlignmentStep.LOCATIONS.value, detail=BOOM,
+        )
+        assert len(types_manager.updated) == 1  # the Type itself was written
+
+    def test_an_unexpected_follow_up_failure_is_reported_too(self, monkeypatch) -> None:
+        """Not an alignment step - the message names no step, the write still happened"""
         monkeypatch.setattr(f'{HELPER}.apply_import_update_side_effects', raise_boom)
         types_manager = StubTypesManager()
 
         assert update_type_from_entry(
             make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), types_manager, no_templates(), IMPORTER,
-        ) == TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(detail=BOOM)
-        assert len(types_manager.updated) == 1  # the Type itself was written
+        ) == TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(
+            step=TypeImportError.UNKNOWN_STEP.value, detail=BOOM,
+        )
 
 
 class TestUpdateAppliesTheStoredTypeRules:
@@ -851,20 +943,15 @@ class TestTemplatesTheUpdateStillClaims:
         assert still_claimed == {'dg-real'}
         assert not section_templates.queries
 
-    def test_the_update_side_effects_use_it(self, monkeypatch) -> None:
-        """The removed-template set the cleanup runs on comes from this, not from the raw upload."""
+    def test_the_update_write_uses_it(self, monkeypatch) -> None:
+        """The removed-template set the strip runs on comes from this, not from the raw upload."""
         seen: list[tuple] = []
         monkeypatch.setattr(f'{HELPER}.compute_removed_global_templates',
                             lambda *args: seen.append(args) or (set(), {}))
-        monkeypatch.setattr(f'{HELPER}.apply_type_update_side_effects', lambda *args: None)
+        monkeypatch.setattr(f'{HELPER}._templates_the_update_still_claims', lambda *_args: {'dg-gone'})
 
-        old_type = CmdbType.from_data(
-            make_type_doc(EXISTING_PUBLIC_ID, 'stored-type', global_template_ids=['dg-gone'])
-        )
-        types_manager = StubTypesManager()
-
-        apply_import_update_side_effects(
-            IMPORTER, types_manager, no_templates(), old_type, {'global_template_ids': []},
+        update_type_from_entry(
+            make_type_doc(EXISTING_PUBLIC_ID, 'imported-type'), StubTypesManager(), no_templates(), IMPORTER,
         )
 
         (_passed_old, incoming), = seen

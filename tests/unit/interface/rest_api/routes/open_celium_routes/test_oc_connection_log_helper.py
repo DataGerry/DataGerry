@@ -270,9 +270,12 @@ class TestRequiredStrParam:
 class TestBuildConnectionLogManager:
     """The construction all six routes share."""
 
-    def test_it_scopes_the_manager_to_the_users_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('cloud_mode, expected', [(True, TENANT_DATABASE), (False, None)], ids=['cloud', 'on-premise'])
+    def test_it_scopes_the_manager_to_the_users_database(
+        self, monkeypatch: pytest.MonkeyPatch, cloud_mode: bool, expected: str | None,
+    ) -> None:
         """
-        The caller's database selects the OpenCelium installation to talk to
+        The caller's tenant database in cloud mode; on premise None - the configured database
 
         In cloud mode each tenant has its own credentials; the wrong database would read another
         installation's logs.
@@ -292,10 +295,13 @@ class TestBuildConnectionLogManager:
             _RecordingManager,
         )
 
-        request_user = type('_User', (), {'database': TENANT_DATABASE})()
+        request_user = type('_User', (), {'database': expected})()
 
-        with _app().test_request_context():
+        app = _app()
+        app.cloud_mode = cloud_mode
+
+        with app.test_request_context():
             manager = build_connection_log_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': TENANT_DATABASE}
+        assert recorded == {'dbm': 'the-dbm', 'database': expected}

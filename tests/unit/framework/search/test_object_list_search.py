@@ -16,121 +16,164 @@
 """
 Unit tests for the object-list search stages
 
-The shape of the pipeline is the contract here: what it joins, what it collects, what it matches and -
-the part a reviewer is most likely to get wrong later - that it puts the document back the way it
-found it. The behaviour against real data is covered functionally.
+The shape is the contract here: an empty term adds nothing and queries nothing; a term becomes the T42
+reference rule (`search_reference_match.build_text_term_stages`) with two conditions - the referenced
+objects by their field values, the listed object by its public_id, timestamps and field values - every value
+compared as a string, the term escaped. What these stages match against real documents is the functional
+and integration tiers' question
 """
 import re
+from typing import Any
 
 import pytest
 
-from cmdb.framework.search.list_search import SEARCHABLE_VALUES_FIELD
+from cmdb.framework.search import object_list_search
 from cmdb.framework.search.object_list_search import (
-    REFERENCED_OBJECTS_FIELD,
+    build_field_values_expression,
     build_object_search_stages,
-    build_searchable_values_expression,
+    build_own_values_expression,
+    build_term_condition,
 )
+from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS
 from cmdb.framework.search.search_pattern import escape_search_term
+from cmdb.framework.search.search_reference_match import build_reference_rows_condition
 # -------------------------------------------------------------------------------------------------------------------- #
 
 TERM: str = 'needle'
+ACL_STAGES: list[dict[str, Any]] = [{'$match': {'type_id': {'$nin': [21]}}}]
+REFERENCED_IDS: list[int] = [31, 32]
 
 
-def _stage(stages: list[dict], operator: str) -> dict:
-    """The single stage using the given aggregation operator."""
-    return next(stage[operator] for stage in stages if operator in stage)
+class _StubObjectsManager:
+    """Answers the configured ids as public_id documents and records every pipeline it ran."""
 
+    def __init__(self, public_ids: list[int] | None = None) -> None:
+        self.public_ids = public_ids or []
+        self.pipelines: list[list[dict[str, Any]]] = []
+
+    def aggregate_objects(self, pipeline: list[dict[str, Any]]) -> list[dict[str, int]]:
+        """Records the pipeline and answers the ids."""
+        self.pipelines.append(pipeline)
+
+        return [{'public_id': public_id} for public_id in self.public_ids]
+
+
+def _regex_match(condition: dict[str, Any]) -> dict[str, Any]:
+    """The `$regexMatch` of a term condition."""
+    return condition['$expr']['$anyElementTrue'][0]['$map']['in']['$regexMatch']
+
+
+def _values(condition: dict[str, Any]) -> dict[str, Any]:
+    """The values expression a term condition matches."""
+    return condition['$expr']['$anyElementTrue'][0]['$map']['input']
+
+# ---------------------------------------------------- no term ------------------------------------------------------- #
 
 # An empty list is the contract for "no search", so this asserts the exact value rather than
 # falsiness - a None slipping through would break the caller that splices the result
 # pylint: disable=use-implicit-booleaness-not-comparison
 @pytest.mark.parametrize('term', [None, '', '   ', '\t'], ids=repr)
-def test_no_term_adds_no_stages(term) -> None:
-    """An unsearched listing must not pay for a join it does not need."""
-    assert build_object_search_stages(term) == []
+def test_no_term_adds_no_stages_and_runs_no_query(term) -> None:
+    """Blank means unsearched: nothing is added and the database is not asked."""
+    manager = _StubObjectsManager(REFERENCED_IDS)
+
+    assert build_object_search_stages(term, manager, ACL_STAGES) == []
+    assert not manager.pipelines
+
+# ---------------------------------------------------- the rule ------------------------------------------------------ #
+
+def test_the_referenced_objects_are_collected_by_their_field_values_and_the_acl() -> None:
+    """One query: the term on a referenced object's field values, then the caller's ACL stages."""
+    manager = _StubObjectsManager()
+
+    build_object_search_stages(TERM, manager, ACL_STAGES)
+
+    assert len(manager.pipelines) == 1
+    assert manager.pipelines[0][0] == {'$match': build_term_condition(build_field_values_expression(), TERM)}
+    assert manager.pipelines[0][1:1 + len(ACL_STAGES)] == ACL_STAGES
 
 
-def test_a_term_adds_exactly_four_stages() -> None:
-    """Join, collect, match, clean up."""
-    assert len(build_object_search_stages(TERM)) == 4
+def test_no_referenced_match_matches_the_own_values_only() -> None:
+    """Nothing referenced matched: one $match on the listed object's own values."""
+    stages = build_object_search_stages(TERM, _StubObjectsManager(), ACL_STAGES)
+
+    assert stages == [{'$match': build_term_condition(build_own_values_expression(), TERM)}]
 
 
-def test_the_join_reads_referenced_objects_by_public_id() -> None:
-    """A reference field stores the target's public_id, which is what the join resolves."""
-    lookup = _stage(build_object_search_stages(TERM), '$lookup')
+def test_a_referenced_match_is_followed_through_reference_rows_only() -> None:
+    """Own values OR a reference row (by stored kind) carrying a matched id - no $lookup, no number-as-reference."""
+    stages = build_object_search_stages(TERM, _StubObjectsManager(REFERENCED_IDS), ACL_STAGES)
 
-    assert lookup['from'] == 'framework.objects'
-    assert lookup['localField'] == 'fields.value'
-    assert lookup['foreignField'] == 'public_id'
-    assert lookup['as'] == REFERENCED_OBJECTS_FIELD
-
-
-def test_the_match_is_a_regex_over_the_collected_values() -> None:
-    """One `$match`, against the working field the stage before it built."""
-    match = _stage(build_object_search_stages(TERM), '$match')
-
-    assert match[SEARCHABLE_VALUES_FIELD]['$regex'] == TERM
+    assert stages == [{'$match': {'$or': [
+        build_term_condition(build_own_values_expression(), TERM),
+        build_reference_rows_condition(REFERENCED_IDS),
+    ]}}]
+    assert '$lookup' not in str(stages)
 
 
-def test_the_term_is_escaped_into_the_match() -> None:
-    """``?search=`` is literal text, so the metacharacters must not act as operators."""
-    match = _stage(build_object_search_stages('C++ (EU)'), '$match')
+def test_past_the_cap_the_rule_runs_as_the_join(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Too many referenced matches for an id list: the database-side join, with the same two conditions."""
+    monkeypatch.setattr('cmdb.framework.search.search_reference_match.MAX_REFERENCED_MATCH_IDS', 1)
 
-    assert match[SEARCHABLE_VALUES_FIELD]['$regex'] == re.escape('C++ (EU)')
+    stages = build_object_search_stages(TERM, _StubObjectsManager(REFERENCED_IDS), ACL_STAGES)
+    sub_pipeline: list[dict[str, Any]] = stages[0]['$lookup']['pipeline']
 
+    assert {'$match': build_term_condition(build_field_values_expression(), TERM)} in sub_pipeline
+    assert all(stage in sub_pipeline for stage in ACL_STAGES)
+    assert stages[1]['$match']['$or'][0] == build_term_condition(build_own_values_expression(), TERM)
 
-def test_the_term_is_trimmed() -> None:
-    """Surrounding whitespace is not part of what the user meant to search for."""
-    match = _stage(build_object_search_stages('  needle  '), '$match')
+# ------------------------------------------------- the conditions --------------------------------------------------- #
 
-    assert match[SEARCHABLE_VALUES_FIELD]['$regex'] == TERM
+def test_the_term_is_escaped_case_insensitive_and_trimmed() -> None:
+    """A literal: `C++ (EU)` is escaped, the options are the search flags, surrounding blanks go."""
+    stages = build_object_search_stages('  C++ (EU)  ', _StubObjectsManager(), [])
+    regex_match: dict[str, Any] = _regex_match(stages[0]['$match'])
 
-
-def test_both_working_fields_are_removed_again() -> None:
-    """
-    The document goes back the way it came
-
-    The browser's pipeline rebuilt each document with an inclusive `$project` and silently dropped
-    everything it did not list. This one excludes only what it added.
-    """
-    project = _stage(build_object_search_stages(TERM), '$project')
-
-    assert project == {SEARCHABLE_VALUES_FIELD: 0, REFERENCED_OBJECTS_FIELD: 0}
+    assert regex_match['regex'] == escape_search_term('C++ (EU)')
+    assert regex_match['options'] == SEARCH_REGEX_FLAGS
+    assert re.search(regex_match['regex'], 'C++ (EU)')
 
 
-def test_the_cleanup_is_the_last_stage() -> None:
-    """Removing the working fields before the match would leave nothing to match against."""
-    stages = build_object_search_stages(TERM)
+def test_the_listed_object_is_searched_by_id_timestamps_and_field_values() -> None:
+    """The decided set, each converted to a string - and not the summary line."""
+    collected: str = str(build_own_values_expression())
 
-    assert '$project' in stages[-1]
-    assert '$match' in stages[-2]
-
-
-def test_the_collected_values_cover_the_decided_searchable_set() -> None:
-    """public_id, both timestamps, own field values and referenced field values - and nothing else."""
-    collected = str(build_searchable_values_expression())
-
-    for path in ['$public_id', '$creation_time', '$last_edit_time', '$fields', REFERENCED_OBJECTS_FIELD]:
+    for path in ['$public_id', '$creation_time', '$last_edit_time', '$fields']:
         assert path in collected
+    assert 'summary_line' not in collected
+    assert collected.count("'to': 'string'") == 4
 
 
-def test_the_summary_line_is_not_searched() -> None:
-    """
-    It is composed during rendering and never stored
+def test_a_referenced_object_is_searched_by_its_field_values_only() -> None:
+    """Not its public_id or its timestamps - what a user sees of it is its values."""
+    collected: str = str(build_field_values_expression())
 
-    The browser's pipeline matched it anyway, which is a clause that could never fire. Dropping it was
-    a decision, so it is pinned.
-    """
-    assert 'summary_line' not in str(build_object_search_stages(TERM))
-
-
-def test_every_collected_value_is_converted_to_a_string() -> None:
-    """A field value can be a number, a date or a bool, and `$regex` matches none of those."""
-    collected = str(build_searchable_values_expression())
-
-    assert collected.count('$convert') == 4
+    assert '$fields' in collected
+    for path in ['$public_id', '$creation_time', '$last_edit_time']:
+        assert path not in collected
 
 
-def test_escape_search_term_is_re_escape() -> None:
-    """The same escaping the rest of the backend uses, not a second spelling of it."""
-    assert escape_search_term('a.b*c') == re.escape('a.b*c')
+def test_every_field_value_is_converted_to_a_string_and_null_safe() -> None:
+    """A number or date value matches as text; an object without fields is an empty list, not null."""
+    expression: dict[str, Any] = build_field_values_expression()
+
+    assert expression['$map']['input'] == {'$ifNull': ['$fields', []]}
+    assert expression['$map']['in']['$convert']['to'] == 'string'
+
+
+def test_the_condition_matches_computed_strings_through_expr() -> None:
+    """An `$expr` over the given values - a plain `$regex` on fields.value would miss non-strings."""
+    values: dict[str, Any] = build_field_values_expression()
+    condition: dict[str, Any] = build_term_condition(values, TERM)
+
+    assert set(condition) == {'$expr'}
+    assert _values(condition) == values
+    assert _regex_match(condition)['input'] == '$$value'
+
+
+def test_the_module_exports_its_builders() -> None:
+    """Consumers import from the module path."""
+    assert set(object_list_search.__all__) == {
+        'build_field_values_expression', 'build_object_search_stages', 'build_own_values_expression',
+        'build_term_condition',
+    }

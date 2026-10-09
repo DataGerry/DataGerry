@@ -17,8 +17,9 @@
 What a CmdbObject write owes the rest of the database
 
 Everything that happens AFTER an object has been stored or removed: the webhook notification, the
-change log, the location and object-group cleanup, the relation cleanup, the cloud config-item count
-and the update / state-change events.
+change log, the location and object-group cleanup, the relation cleanup and the update / state-change
+events. The cloud config-item count is reported by ``cmdb.framework.config_item_sync``, which the object
+importer shares.
 
 **Every function here is best-effort by design.** Each catches and logs its own failures, because a
 webhook that cannot be reached or a log that cannot be written must not roll back an object the user
@@ -28,9 +29,9 @@ is not told. **The change log is observable, though:** every entry goes through 
 ``OBJECT_LOG_LOST`` marker with the action, the object id and the traceback, so an operator can alert
 on it. Every entry stores the object **as rendered**, which is what the log view draws.
 
-`handle_delete_invalid_object_relations` has a second gap: it reads the affected relations and deletes
-by the same QUERY rather than by the ids it read, so a relation created between the two is deleted but
-never logged.
+`handle_delete_invalid_object_relations` deletes exactly the relations it read and logs each one, reading
+again until none are left, so a relation created while it runs is neither left on a deleted object nor
+removed unlogged.
 
 Kept apart from `objects_helper.py` so that module stays under pylint's 1,500-line cap. The group is
 closed: nothing here calls back into the write pipelines, so the import runs one way
@@ -47,18 +48,15 @@ from cmdb.database.json_codec import default
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import (
     ObjectsManager,
-    TypesManager,
     LogsManager,
     LocationsManager,
     ObjectGroupsManager,
     ObjectRelationsManager,
     ObjectRelationLogsManager,
-    DgServicePortalManager,
 )
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model import CmdbObjectKey
-from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.log_model import LogInteraction
@@ -66,15 +64,18 @@ from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_object_log import CmdbObjectLog
 from cmdb.models.log_model.object_log_constants import ObjectLogKey
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.rendering.render_constants import RenderTypeInfoKey
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.object_edit import ObjectWrite, ObjectWriteCallback
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     delete_location_with_reparenting,
 )
 from cmdb.models.object_relation_model import ObjectRelationKey
+from cmdb.utils import Builder
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_helper import send_webhook_event
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
     OBJECT_LOG_LOST_MARKER,
+    RELATION_CASCADE_MAX_ROUNDS,
     ObjectLogComment,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -177,7 +178,8 @@ def build_object_log_data(
         object_id (int): public_id of the changed object
         version (str): The object's version the entry records
         comment (str): The comment stored on the entry
-        render_result (RenderResult): The object as rendered - the log view draws it with the renderer
+        render_result (RenderResult): The object as rendered - the log view draws it with the renderer, and
+            its type information names the type the entry is stamped with
         changes (Any): The field-level diff, or None when the action records none. Defaults to None
 
     Returns:
@@ -190,6 +192,8 @@ def build_object_log_data(
         ObjectLogKey.USER_NAME.value: request_user.get_display_name(),
         ObjectLogKey.COMMENT.value: comment,
         ObjectLogKey.RENDER_STATE.value: json.dumps(render_result, default=default).encode('UTF-8'),
+        # What the log reads are judged by: the type ACL stage matches on it, also once the object is gone
+        ObjectLogKey.TYPE_ID.value: render_result.type_information.get(RenderTypeInfoKey.TYPE_ID.value),
     }
 
     if changes is not None:
@@ -366,89 +370,32 @@ def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | l
     object_groups_manager.remove_ids_from_groups(public_ids, ObjectGroupMode.STATIC)
 
 
-def build_type_object_counts(request_user: CmdbUser) -> tuple[list[dict[str, Any]], int]:
+def handle_delete_invalid_object_relations(request_user: CmdbUser, public_ids: list[int]) -> None:
     """
-    Builds the per-type object-count list for the Service Portal sync payload
+    Deletes the CmdbObjectRelations of removed objects and logs each deletion
 
-    Counts every CmdbObject grouped by its type_id in a single aggregation, then resolves each
-    type_id to its CmdbType label via one bulk lookup. CmdbTypes with no objects are omitted, and
-    a counted type_id whose CmdbType no longer exists is skipped - so the returned breakdown may
-    sum to less than the total. The total is taken from the same aggregation and counts every
-    document (no active filter), so it always equals an unfiltered ``count_documents()``
+    Every relation in which one of the objects appears as parent or child is removed, with one
+    CmdbObjectRelationLog per removed relation. The single delete passes its one object; the bulk delete passes
+    its whole selection, so a selection costs one read, one delete and one log batch rather than one of each per
+    object. A no-op without objects or without relations.
+
+    **Exactly what was read is deleted and logged.** Each round reads the matching relations, prepares their
+    DELETE logs, deletes those ids - never the query - and writes the logs; then it reads again, so a relation
+    created while the cascade ran is deleted and logged in the next round instead of being left on a deleted
+    object or removed unlogged. After ``RELATION_CASCADE_MAX_ROUNDS`` rounds the rest is left with a warning.
+    A relation the relation routes deleted between the read and the delete is logged by both.
+
+    The log ids are reserved as one batch and paired with ``zip(..., strict=True)``: ``insert_many(
+    skip_public=True)`` requires every document to carry a ``public_id``, so a short reservation fails loudly
+    rather than inserting entries with the key missing
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
-
-    Returns:
-        tuple[list[dict[str, Any]], int]: Entries shaped ``{"name": <type label>, "count": <int>}``
-            and the exact total number of CmdbObjects
+        public_ids (list[int]): public_ids of the deleted CmdbObjects whose relations should be removed
     """
-    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
-    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    if not public_ids:
+        return
 
-    counts_by_type, total_count = objects_manager.count_objects_grouped_by_type_with_total()
-
-    if not counts_by_type:
-        return [], total_count
-
-    types_lookup: dict[int, CmdbType] = types_manager.get_types_lookup(list(counts_by_type.keys()))
-
-    type_counts: list[dict[str, Any]] = []
-
-    for type_id, count in counts_by_type.items():
-        object_type: CmdbType | None = types_lookup.get(type_id)
-
-        if object_type is None:
-            continue
-
-        type_counts.append({"name": object_type.label, "count": count})
-
-    return type_counts, total_count
-
-
-def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int | None = None) -> None:
-    """
-    Syncs the current ConfigItem count to the DataGerry service portal (cloud mode)
-
-    Also reports the current per-type object counts (type label + count) alongside the total, so
-    the portal receives a breakdown of the subscription's config items
-
-    Args:
-        request_user (CmdbUser): The CmdbUser making the request
-        config_item_count (int | None): The number of CmdbObjects to report. Omit it to take the
-            total from the same aggregation that builds the breakdown - the caller then pays for
-            one aggregation instead of an aggregation plus a full-collection count, and both
-            numbers come from the same read
-    """
-    type_counts, total_count = build_type_object_counts(request_user)
-
-    DgServicePortalManager().sync_config_items(
-        request_user,
-        total_count if config_item_count is None else config_item_count,
-        type_counts,
-    )
-
-
-def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: int) -> None:
-    """
-    Deletes the CmdbObjectRelations of a removed object and logs each deletion
-
-    Removes every relation in which the object appears as parent or child in a single bulk delete,
-    then writes one CmdbObjectRelationLog per removed relation. A no-op when the object has no
-    relations; per-relation log-prep failures are caught and logged
-
-    Two properties worth knowing:
-
-    * The relations are **read and then deleted by the same query**, not by the ids that were read.
-      A relation created between the two operations is therefore deleted but never logged
-    * The log ids are reserved as one batch and paired with ``zip(..., strict=True)``:
-      ``insert_many(skip_public=True)`` requires every document to carry a ``public_id``, so a short
-      reservation must fail loudly rather than insert entries with the key missing
-
-    Args:
-        request_user (CmdbUser): The CmdbUser making the request
-        public_id (int): public_id of the deleted CmdbObject whose relations should be removed
-    """
     object_relations_manager: ObjectRelationsManager = ManagerProvider.get_manager(
         ManagerType.OBJECT_RELATIONS,
         request_user
@@ -458,42 +405,83 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
         request_user
     )
 
-    related_relations_query: dict[str, Any] = object_relations_manager.get_related_relations_query(public_id)
+    related_relations_query: dict[str, Any] = object_relations_manager.get_relations_of_objects_query(public_ids)
 
-    # Only the three keys the DELETE log entry carries are read back - the full relation documents
-    # are never needed here
-    affected_relations: list[dict[str, Any]] = object_relations_manager.find(
-        criteria=related_relations_query,
-        projection=RELATION_DELETE_LOG_PROJECTION,
+    for _round in range(RELATION_CASCADE_MAX_ROUNDS):
+        # Only the three keys the DELETE log entry carries are read back - the full documents are never needed
+        affected_relations: list[dict[str, Any]] = object_relations_manager.find(
+            criteria=related_relations_query,
+            projection=RELATION_DELETE_LOG_PROJECTION,
+        )
+
+        if not affected_relations:
+            return
+
+        # Prepared BEFORE the delete, so a relation whose entry cannot be built is known before it is gone
+        logs_to_create: list[dict[str, Any]] = prepare_relation_delete_logs(
+            request_user, object_relation_logs_manager, affected_relations,
+        )
+
+        object_relations_manager.delete_many(Builder.in_(
+            ObjectRelationKey.PUBLIC_ID.value,
+            [relation[ObjectRelationKey.PUBLIC_ID.value] for relation in affected_relations],
+        ))
+
+        write_relation_delete_logs(object_relation_logs_manager, logs_to_create)
+
+    LOGGER.warning(
+        "[handle_delete_invalid_object_relations] Relations of the deleted objects %s kept appearing; "
+        "stopped after %d rounds", public_ids, RELATION_CASCADE_MAX_ROUNDS,
     )
 
-    if not affected_relations:
-        return
 
-    # Delete all affected relations
-    object_relations_manager.delete_many_raw(related_relations_query)
+def prepare_relation_delete_logs(
+        request_user: CmdbUser,
+        object_relation_logs_manager: ObjectRelationLogsManager,
+        relations: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+    """
+    Builds the DELETE log entry of each relation, skipping (and logging) one that cannot be built
 
-    # Prepare Log data
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request, recorded as the author
+        object_relation_logs_manager (ObjectRelationLogsManager): Builds the entries
+        relations (list[dict[str, Any]]): The relations about to be deleted (``RELATION_DELETE_LOG_PROJECTION``)
+
+    Returns:
+        list[dict[str, Any]]: One entry per relation that could be built, without a public_id yet
+    """
     logs_to_create: list[dict[str, Any]] = []
 
-    for relation in affected_relations:
+    for relation in relations:
         try:
-            log_entry = object_relation_logs_manager.format_object_relation_log_data(
-                LogInteraction.DELETE,
-                request_user,
-                relation,
-                None,
-            )
-
-            logs_to_create.append(log_entry)
+            logs_to_create.append(object_relation_logs_manager.format_object_relation_log_data(
+                LogInteraction.DELETE, request_user, relation, None,
+            ))
         except Exception as error:
             LOGGER.error("[handle_delete_invalid_object_relations] Failed to prepare log. Error: %s",
                          error, exc_info=True)
 
+    return logs_to_create
+
+
+def write_relation_delete_logs(
+        object_relation_logs_manager: ObjectRelationLogsManager,
+        logs_to_create: list[dict[str, Any]],
+    ) -> None:
+    """
+    Stores prepared DELETE log entries with one id reservation and one insert
+
+    Args:
+        object_relation_logs_manager (ObjectRelationLogsManager): Reserves the ids and inserts the entries
+        logs_to_create (list[dict[str, Any]]): The prepared entries; a no-op when empty
+
+    Raises:
+        ValueError: When the reservation returns fewer ids than entries (``zip(..., strict=True)``)
+    """
     if not logs_to_create:
         return
 
-    # Add public_ids to the log data
     reserved_log_ids: list[int] = object_relation_logs_manager.reserve_public_ids(len(logs_to_create))
 
     # strict: insert_many(skip_public=True) requires EVERY document to carry a public_id, so a short
@@ -501,7 +489,6 @@ def handle_delete_invalid_object_relations(request_user: CmdbUser, public_id: in
     for log_doc, new_id in zip(logs_to_create, reserved_log_ids, strict=True):
         log_doc[CmdbObjectKey.PUBLIC_ID.value] = new_id
 
-    # Create all Logs
     object_relation_logs_manager.insert_many(logs_to_create, skip_public=True)
 
 

@@ -27,11 +27,13 @@ from datetime import datetime, timezone
 from typing import Any
 
 import pytest
+from cerberus import Validator
 
 from cmdb.class_schema.isms_model.isms_control_measure_assignment_schema import (
     get_isms_control_measure_assignment_schema,
 )
 from cmdb.models.isms_model import IsmsControlMeasureAssignment
+from cmdb.models.isms_model.priority_enum import Priority
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import (
     CONTROL_MEASURE_ASSIGNMENT_REQUIRED_DOCUMENT_KEYS,
     ControlMeasureAssignmentKey,
@@ -209,3 +211,23 @@ class TestSharedDocumentMachinery:
         for index in IsmsControlMeasureAssignment.INDEX_KEYS:
             assert index['name'] == index['keys'][0][0]
             assert index['name'] in {key.value for key in ControlMeasureAssignmentKey}
+
+
+class TestPinnedPriority:
+    """``priority`` takes a Priority value or nothing, like the RiskAssessment's own"""
+
+    def test_the_allowed_values_are_the_enum(self) -> None:
+        """Pinned to the enum, so a new priority needs no second edit"""
+        schema: dict[str, Any] = get_isms_control_measure_assignment_schema()
+
+        assert schema[ControlMeasureAssignmentKey.PRIORITY.value]['allowed'] == [p.value for p in Priority]
+
+    @pytest.mark.parametrize('priority, accepted', [
+        (Priority.LOW.value, True), (Priority.VERY_HIGH.value, True), (None, True),
+        (0, False), (max(p.value for p in Priority) + 1, False),
+    ])
+    def test_a_value_outside_the_enum_is_refused(self, priority: Any, accepted: bool) -> None:
+        """The list is the frontend's dropdown; a value it has no label for is not stored"""
+        validator = Validator(get_isms_control_measure_assignment_schema())
+
+        assert validator.validate(_assignment_data(priority=priority, planned_implementation_date=None)) is accepted

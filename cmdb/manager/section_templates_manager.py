@@ -805,7 +805,7 @@ class SectionTemplatesManager(BaseManager):
         """
         reports_for_type: list[dict[str, Any]] = self.objects_manager.get_many_from_other_collection(
             CmdbReport.COLLECTION,
-            type_id=a_type.public_id,
+            criteria={'type_id': a_type.public_id},
         )
 
         self.reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_field_names, a_type)

@@ -22,7 +22,8 @@ app supplies the request/app context so current_app, flask.g and abort work with
 API, and ManagerProvider.get_manager is patched to hand back a stub LicenseService. Each branch is
 exercised in isolation: cloud/local pass-through, feature present/absent, the missing-request_user
 guard, the 403 message, and the per-request lookup cache (including that it does not leak across
-requests)
+requests). The gate is idempotent: gating again behind the same feature - before or after registration, on
+one app or several - leaves one hook, and gating behind a different feature is refused
 """
 import base64
 from http import HTTPStatus
@@ -40,6 +41,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import (
     enforce_request_licenses,
     feature_locked,
     gate_blueprint,
+    gated_feature,
     request_has_feature,
     require_feature_for_request,
     requires_feature,
@@ -49,6 +51,7 @@ from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GATED_FEATURE: LicenseFeature = LicenseFeature.DOCUMENT_GENERATOR
+OTHER_FEATURE: LicenseFeature = LicenseFeature.ISMS
 HANDLER_RESULT: str = 'handler-ran'
 REQUEST_USER_SENTINEL: object = object()
 GATED_ROUTE: str = '/gated'
@@ -324,6 +327,75 @@ def test_the_gate_hook_names_its_feature() -> None:
     (hook,) = blueprint.before_request_funcs[None]
 
     assert getattr(hook, GATED_FEATURE_ATTR) == GATED_FEATURE
+
+
+def _gate_hooks(blueprint: Blueprint) -> list[Any]:
+    """The gate hooks a blueprint carries."""
+    return [hook for hook in blueprint.before_request_funcs.get(None, []) if hasattr(hook, GATED_FEATURE_ATTR)]
+
+
+def test_gating_twice_behind_the_same_feature_leaves_one_hook() -> None:
+    """A second gate behind the same feature is a no-op"""
+    blueprint = Blueprint('twice_gated_bp', __name__)
+
+    gate_blueprint(blueprint, GATED_FEATURE)
+    gate_blueprint(blueprint, GATED_FEATURE)
+
+    assert len(_gate_hooks(blueprint)) == 1
+
+
+def test_gating_a_registered_blueprint_again_behind_its_feature_raises_nothing() -> None:
+    """
+    The case a second app build meets: the blueprint is gated AND registered already
+
+    Without the no-op Flask refuses the new hook with an AssertionError, which made the factory buildable
+    once per process
+    """
+    blueprint = Blueprint('registered_gated_bp', __name__)
+    gate_blueprint(blueprint, GATED_FEATURE)
+    Flask(__name__).register_blueprint(blueprint)
+
+    gate_blueprint(blueprint, GATED_FEATURE)
+
+    assert len(_gate_hooks(blueprint)) == 1
+
+
+def test_a_blueprint_registered_on_two_apps_carries_one_gate_on_each() -> None:
+    """Flask replays the one hook onto every app the blueprint is registered on"""
+    blueprint = Blueprint('two_apps_bp', __name__)
+    apps = (Flask(__name__), Flask(__name__))
+
+    for app in apps:
+        gate_blueprint(blueprint, GATED_FEATURE)
+        app.register_blueprint(blueprint)
+
+    for app in apps:
+        hooks = [hook for hook in app.before_request_funcs[blueprint.name] if hasattr(hook, GATED_FEATURE_ATTR)]
+        assert len(hooks) == 1
+
+
+def test_gating_behind_a_different_feature_is_refused() -> None:
+    """A blueprint in two licensed groups is a wiring mistake: ValueError naming the blueprint and both features"""
+    blueprint = Blueprint('conflict_bp', __name__)
+    gate_blueprint(blueprint, GATED_FEATURE)
+
+    with pytest.raises(ValueError) as exc_info:
+        gate_blueprint(blueprint, OTHER_FEATURE)
+
+    message = str(exc_info.value)
+    assert blueprint.name in message and str(GATED_FEATURE) in message and str(OTHER_FEATURE) in message
+    assert _gate_hooks(blueprint)[0].__dict__[GATED_FEATURE_ATTR] == GATED_FEATURE
+    assert len(_gate_hooks(blueprint)) == 1
+
+
+def test_gated_feature_reads_the_gate_or_nothing() -> None:
+    """The feature of a gated blueprint; None for an ungated one, whatever other hooks it carries"""
+    gated, ungated = Blueprint('read_gated_bp', __name__), Blueprint('read_ungated_bp', __name__)
+    ungated.before_request(lambda: None)
+    gate_blueprint(gated, GATED_FEATURE)
+
+    assert gated_feature(gated) == GATED_FEATURE
+    assert gated_feature(ungated) is None
 
 
 def test_gate_blueprint_passes_through_in_local_mode(

@@ -16,93 +16,147 @@
 """
 The free-text search of the object list, as `?search=`
 
-The object list has to match a term against a CmdbObject's own field values **and** against the
-values of the objects it references - a search for a customer's name finds the servers pointing at
-that customer. The Angular app would otherwise implement that itself, as a nine-stage aggregation
-posted through `?filter=`, copied into five files
-posted as a client filter. This module is the server-side replacement.
+The object list has to match a term against a CmdbObject's own values **and** against the values of
+the objects it references - a search for a customer's name finds the servers pointing at that
+customer. The Angular app would otherwise implement that itself, as a nine-stage aggregation posted
+through `?filter=`, copied into five files. This module is the server-side replacement, used by
+`GET /objects/` and `GET /objects/references/<id>`.
 
-**What is searchable:** the object's `public_id`, its two timestamps, the values of its own fields,
-and the values of the fields of every object it references. Not the summary line - it is composed
-during rendering and never stored, so the browser's version of this query matched it against nothing
-and said so with a 200.
+**What is searchable:** the object's `public_id`, its two timestamps and the values of its own fields;
+and, of every object it **references**, the values of that object's own fields. Not the summary line -
+it is composed during rendering and never stored.
 
-**The term is a literal.** It is escaped before it becomes a `$regex`, so a search for `C++` finds
-`C++` and a search for `*` finds a `*`. That is the newer convention across the backend
-(`locations_manager`, `mongo_query_builder`, `assignable_cables`, ...) and it is deliberately NOT
-what `GET /search/`'s TEXT form does yet - that one is a regular expression by contract, and aligning
-it needs the frontend to stop escaping at the same time.
+**How a reference is followed** is the rule of `GET /search/` (`search_reference_match`), so the two
+cannot disagree:
 
-**Nothing is projected away.** The browser's pipeline rebuilt each document with an explicit
-`$project`, which silently dropped everything it did not list - `multi_data_sections`, `version`,
-`editor_id`. These stages only *add* two working fields and remove them again, so a searched listing
-returns the same documents an unsearched one does
+* **only reference rows count** - a row whose stored `type` is one of `REFERENCE_FIELD_KINDS`. A number
+  field whose value happens to equal an object's id is a number, and a legacy row without a `type` is
+  not followed either
+* **only readable referenced objects count** - the referenced objects are collected with the caller's
+  ACL stages, so an object is never found by the contents of an object the caller may not read
+* **nothing is joined per document** - the referenced objects matching the term are collected first, in
+  one query answering their ids, and a candidate is then kept if its own values match or one of its
+  reference rows carries one of those ids. Past `MAX_REFERENCED_MATCH_IDS` the same rule runs as a join
+  in the database instead: slower, identical result
+
+**Every value is matched as a string**, on both sides: a number, a date or a bool is converted first
+(`as_text`), so a search for `42` finds a number field holding 42 - its own, or one of a referenced
+object's.
+
+**The term is a literal.** It is escaped before it becomes a regular expression, so a search for `C++`
+finds `C++` and a search for `*` finds a `*`, case-insensitively. That is deliberately NOT what
+`GET /search/`'s TEXT form does yet - that one is a regular expression by contract (T187).
+
+**Nothing is projected away.** The stages only match (the join fallback adds one working field and
+removes it again), so a searched listing returns the same documents an unsearched one does
 """
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from cmdb.utils import Builder
-from cmdb.models.object_model.cmdb_object import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectFieldKey, CmdbObjectKey
-from cmdb.framework.search.list_search import as_text, build_search_match_stages
+from cmdb.framework.search.list_search import as_text
+from cmdb.framework.search.search_constants import SEARCH_REGEX_FLAGS
+from cmdb.framework.search.search_pattern import escape_search_term
+from cmdb.framework.search.search_reference_match import build_text_term_stages
+
+if TYPE_CHECKING:
+    # Imported for type checking only - cmdb.manager imports the query builders, which import the search
+    # package, so a module-level import would be circular
+    from cmdb.manager import ObjectsManager
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__ = [
-    'REFERENCED_OBJECTS_FIELD',
+    'build_field_values_expression',
     'build_object_search_stages',
-    'build_searchable_values_expression',
+    'build_own_values_expression',
+    'build_term_condition',
 ]
 
-#: Working field holding the joined referenced objects; removed again by the last stage
-REFERENCED_OBJECTS_FIELD: str = '__dg_referenced'
 
-
-def build_searchable_values_expression() -> dict[str, Any]:
+def build_field_values_expression() -> dict[str, Any]:
     """
-    Builds the expression collecting everything a search term is matched against, as strings
+    Builds the expression collecting an object's field values, each as a string
 
-    The referenced values come from the joined documents in `REFERENCED_OBJECTS_FIELD`, flattened with
-    the same `$reduce` / `$setUnion` the frontend used. Every array is `$ifNull`-guarded because
-    `$concatArrays` answers null if any of its inputs is null, which would make an object with no
-    fields unsearchable rather than merely unmatched
+    What a **referenced** object is searched by. The array is `$ifNull`-guarded, so an object without
+    fields yields an empty list rather than null
 
     Returns:
         dict[str, Any]: The aggregation expression, an array of strings
     """
-    own_and_referenced_entries: dict[str, Any] = {
-        '$concatArrays': [
-            {'$ifNull': [f'${CmdbObjectKey.FIELDS.value}', []]},
-            {'$reduce': {
-                'input': {'$ifNull': [f'${REFERENCED_OBJECTS_FIELD}.{CmdbObjectKey.FIELDS.value}', []]},
-                'initialValue': [],
-                'in': {'$setUnion': ['$$value', '$$this']},
-            }},
-        ]
+    return {
+        '$map': {
+            'input': {'$ifNull': [f'${CmdbObjectKey.FIELDS.value}', []]},
+            'as': 'entry',
+            'in': as_text(f'$$entry.{CmdbObjectFieldKey.VALUE.value}'),
+        }
     }
 
+
+def build_own_values_expression() -> dict[str, Any]:
+    """
+    Builds the expression collecting what a **listed** object is searched by, each as a string
+
+    Its `public_id`, its two timestamps and its field values
+
+    Returns:
+        dict[str, Any]: The aggregation expression, an array of strings
+    """
     return {
         '$concatArrays': [
             [as_text(f'${CmdbObjectKey.PUBLIC_ID.value}')],
             [as_text(f'${CmdbObjectKey.CREATION_TIME.value}')],
             [as_text(f'${CmdbObjectKey.LAST_EDIT_TIME.value}')],
-            {'$map': {
-                'input': own_and_referenced_entries,
-                'as': 'entry',
-                'in': as_text(f'$$entry.{CmdbObjectFieldKey.VALUE.value}'),
-            }},
+            build_field_values_expression(),
         ]
     }
 
 
-def build_object_search_stages(search_term: str | None) -> list[dict[str, Any]]:
+def build_term_condition(values_expression: dict[str, Any], term: str) -> dict[str, Any]:
+    """
+    Builds the query condition "one of these values contains the term"
+
+    An `$expr`, because the values are computed strings rather than stored fields: a plain `$regex` on
+    `fields.value` would only ever match the values that are stored as strings
+
+    Args:
+        values_expression (dict[str, Any]): An aggregation expression yielding an array of strings
+        term (str): The term, already trimmed and known to be non-empty; escaped here
+
+    Returns:
+        dict[str, Any]: The condition, usable in a `$match` and inside a `$lookup` pipeline
+    """
+    return {
+        '$expr': {
+            '$anyElementTrue': [{
+                '$map': {
+                    'input': values_expression,
+                    'as': 'value',
+                    'in': {'$regexMatch': {
+                        'input': '$$value',
+                        'regex': escape_search_term(term),
+                        'options': SEARCH_REGEX_FLAGS,
+                    }},
+                }
+            }]
+        }
+    }
+
+
+def build_object_search_stages(
+        search_term: str | None,
+        objects_manager: 'ObjectsManager',
+        acl_stages: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """
     Builds the aggregation stages that narrow an object listing to a free-text term
 
-    Four stages: join the referenced objects, collect every searchable value as a string, match the
-    term against them, and drop both working fields again. An empty or absent term adds **no stages
-    at all**, so an unsearched listing pays for none of it.
+    **Runs a query while building** - the one collecting the readable referenced objects that match the
+    term - so a route builds these stages inside its own error handling. An empty or absent term adds
+    **no stages and runs no query**, so an unsearched listing pays for none of it
 
     Args:
         search_term (str | None): The term as the request carried it; None or blank means no search
+        objects_manager (ObjectsManager): Runs the query collecting the referenced objects
+        acl_stages (list[dict[str, Any]]): The caller's access-control stages for reading objects, which
+            the referenced objects have to pass; empty for none
 
     Returns:
         list[dict[str, Any]]: The stages to splice into the listing pipeline, possibly empty
@@ -112,14 +166,9 @@ def build_object_search_stages(search_term: str | None) -> list[dict[str, Any]]:
     if not term:
         return []
 
-    return [
-        Builder.lookup_(
-            CmdbObject.COLLECTION,
-            f'{CmdbObjectKey.FIELDS.value}.{CmdbObjectFieldKey.VALUE.value}',
-            CmdbObjectKey.PUBLIC_ID.value,
-            REFERENCED_OBJECTS_FIELD,
-        ),
-        *build_search_match_stages(
-            build_searchable_values_expression(), term, extra_cleanup_fields=(REFERENCED_OBJECTS_FIELD,),
-        ),
-    ]
+    return build_text_term_stages(
+        objects_manager,
+        build_term_condition(build_field_values_expression(), term),
+        acl_stages,
+        own_condition=build_term_condition(build_own_values_expression(), term),
+    )

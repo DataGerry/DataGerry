@@ -361,7 +361,7 @@ class LocationsManager(BaseManager):
             list[dict[str, Any]]: The canonical documents of the direct children, name-ascending
         """
         try:
-            documents: list[dict[str, Any]] = self.get_many(**{LocationKey.PARENT.value: parent_id})
+            documents: list[dict[str, Any]] = self.get_many(criteria={LocationKey.PARENT.value: parent_id})
         except BaseManagerGetError as err:
             raise LocationsManagerGetError(err) from err
         except Exception as err:
@@ -581,7 +581,7 @@ class LocationsManager(BaseManager):
 
             # One $in over all sibling levels at once (children of the root + of each ancestor)
             documents: list[dict[str, Any]] = self.get_many(
-                **{LocationKey.PARENT.value: {'$in': list(expand_parents)}}
+                criteria={LocationKey.PARENT.value: {'$in': list(expand_parents)}}
             )
 
             return sort_locations_by_name([to_location_document(document) for document in documents])
@@ -704,8 +704,9 @@ class LocationsManager(BaseManager):
         Before the location is removed, every CmdbLocation that has it as ``parent`` is re-parented
         onto the deleted location's own parent (its grandparent). This keeps the location tree
         connected: the deleted node's subtree simply shifts up one level rather than being orphaned.
-        The promotion is a separate write from the deletion and there is no transaction around the
-        pair, so a deletion that fails afterwards leaves the children already promoted
+        The promotion and the deletion are two writes with no transaction around them; callers delete a
+        location through ``location_helper.delete_location_with_reparenting``, which records both (and the
+        mirrored object fields) in a WriteLedger and undoes them when the delete fails part-way
 
         The synthetic root (RootLocationDefault.PUBLIC_ID) is refused: it is the anchor every tree
         level is queried against, it is not backed by a CmdbObject, and its own ``parent`` sentinel

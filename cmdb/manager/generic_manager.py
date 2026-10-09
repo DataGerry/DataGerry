@@ -27,6 +27,8 @@ from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.framework.results import IterationResult
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -257,12 +259,23 @@ class GenericManager(BaseManager):
             raise self.exceptions.get("get", Exception)(err) from err
 
 
-    def iterate_items(self, builder_params: BuilderParameters) -> IterationResult[CmdbDAO]:
+    def iterate_items(
+            self,
+            builder_params: BuilderParameters,
+            user: CmdbUser | None = None,
+            permission: AccessControlPermission | None = None,
+        ) -> IterationResult[CmdbDAO]:
         """
         Retrieves multiple items matching the given query parameters
 
+        Given a user and a permission, the items are read through the type ACL: the ACL stage excludes every
+        item whose ``type_id`` names a type that denies the user the permission, ahead of the paging - so it
+        only applies to a collection whose documents carry a ``type_id``
+
         Args:
             builder_params (BuilderParameters): Filter, sort and pagination parameters
+            user (CmdbUser | None): The user the items are read for. Defaults to None (no ACL stage)
+            permission (AccessControlPermission | None): The permission checked. Defaults to None
 
         Raises:
             Exception: The configured 'iterate' exception if the iteration fails
@@ -271,7 +284,7 @@ class GenericManager(BaseManager):
             IterationResult[CmdbDAO]: The matched model instances together with the total count
         """
         try:
-            aggregation_result, total = self.iterate_query(builder_params)
+            aggregation_result, total = self.iterate_query(builder_params, user, permission)
             return IterationResult(aggregation_result, total, self.model)
         except Exception as err:
             LOGGER.error("[iterate_items] Exception: %s. Type: %s", err, type(err))

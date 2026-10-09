@@ -155,13 +155,13 @@ class TestErrorMapping:
 
     def test_list_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A WebhooksEventManagerIterationError on list surfaces as 400."""
-        monkeypatch.setattr(WebhooksEventManager, 'iterate_items', _raiser(WebhooksEventManagerIterationError('boom')))
+        monkeypatch.setattr(WebhooksEventManager, 'iterate_query', _raiser(WebhooksEventManagerIterationError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.BAD_REQUEST
 
     def test_list_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on list surfaces as 500."""
-        monkeypatch.setattr(WebhooksEventManager, 'iterate_items', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(WebhooksEventManager, 'iterate_query', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -209,6 +209,6 @@ class TestHttpExceptionPassThrough:
 
     def test_list_keeps_the_status(self, rest_api, monkeypatch) -> None:
         """The list route had no re-raise arm, so an abort inside it would have become a 500."""
-        monkeypatch.setattr(WebhooksEventManager, 'iterate_items', _raiser(NotFound()))
+        monkeypatch.setattr(WebhooksEventManager, 'iterate_query', _raiser(NotFound()))
 
         assert rest_api.get(f'{ROUTE_URL}/').status_code == HTTPStatus.NOT_FOUND

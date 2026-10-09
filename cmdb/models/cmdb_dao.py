@@ -46,6 +46,12 @@ class CmdbDAO:
     The data access object is the basic presentation if objects and their necessary dependent classes are to be stored
     in the database
 
+    **A model's ``__init__`` is keyword-only** (``*`` right after ``self``). ``__new__`` below reads the required keys
+    out of the keyword arguments, so a positional construction has never worked; the marker says so in the
+    signature, and it is what keeps ``too-many-positional-arguments`` off a wide constructor. A constructor that
+    mirrors its stored document is as wide as the document, so it carries a ``too-many-arguments`` (and, past 15
+    names, ``too-many-locals``) waiver - spelled symbolically, never as a numeric message id
+
     Attributes:
         DAO_ASCENDING (int): models sort order ascending
         DAO_DESCENDING (int): models sort order descending
@@ -72,10 +78,10 @@ class CmdbDAO:
     The three are the only values ``update_version`` accepts, and it stores the result on the
     instance as well as returning it - see its docstring for what depended on that.
 
-    ``__init__`` turns every keyword it does not name into an attribute. Six models still rely on
-    that (CmdbSectionTemplate, CmdbReportCategory, CmdbReport, CmdbWebhook, CmdbWebhookEvent,
-    DocapiTemplate); the models migrated onto ``KEYS`` declare their parameters instead, so an
-    unknown document key is ignored rather than becoming a silent attribute
+    ``__init__`` turns every keyword it does not name into an attribute. Five models still rely on
+    that (CmdbSectionTemplate, CmdbReportCategory, CmdbReport, CmdbWebhook, CmdbWebhookEvent); the
+    models migrated onto ``KEYS`` declare their parameters instead, so an unknown document key is
+    ignored rather than becoming a silent attribute
 
     Note:
         COLLECTION and REQUIRED_INIT_KEYS should always be overwritten by inherited classes

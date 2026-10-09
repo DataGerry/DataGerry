@@ -133,9 +133,10 @@ class CmdbPortConnection(CmdbDAO):
     SCHEMA: dict[str, Any] = get_cmdb_port_connection_schema()
 
 
-    #pylint: disable=R0913, R0917
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
+            *,
             public_id: int,
             endpoints: list[int],
             connection_type: str,

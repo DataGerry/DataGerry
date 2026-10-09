@@ -24,6 +24,7 @@ accepts, kept out of the route so the rule is stated once and testable without a
 """
 from flask import current_app, request
 
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.manager import OcLicenseManager
 
 from cmdb.models.user_model import CmdbUser
@@ -51,7 +52,7 @@ def build_license_manager(request_user: CmdbUser) -> OcLicenseManager:
     Returns:
         OcLicenseManager: The manager to talk to OpenCelium with
     """
-    return OcLicenseManager(current_app.database_manager, request_user.database)
+    return OcLicenseManager(current_app.database_manager, ManagerProvider.tenant_database(request_user))
 
 
 def read_usage_paging() -> tuple[int, int]:

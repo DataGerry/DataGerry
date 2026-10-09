@@ -45,7 +45,6 @@ class RelationResult:
     `relation()` each return a new RelationResult, while the `public_id`, `fields` and
     `relation_fields` properties are the terminals that materialise data for the template.
     """
-    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def __init__(
         self,
         object_ids: list[int],
@@ -190,7 +189,8 @@ class RelationResult:
         if not cmdb_objects:
             return AggregatedFields([])
 
-        renders: list[RenderResult] = CmdbMultiRender(cmdb_objects, self.request_user).result()
+        # References resolved through the caller's READ ACL, as for the root object
+        renders: list[RenderResult] = CmdbMultiRender(cmdb_objects, self.request_user, ref_render=True).result()
 
         result = [
             ObjectTemplateData(

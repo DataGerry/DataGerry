@@ -35,6 +35,7 @@ from flask import Flask
 from werkzeug.exceptions import BadRequest, HTTPException
 
 from cmdb.manager.rights_manager import RightsManager
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
@@ -42,14 +43,18 @@ from cmdb.models.reports_model.mds_mode_enum import MdsMode
 from cmdb.models.reports_model.report_constants import ReportQueryKey
 from cmdb.models.reports_model.report_query import eval_stored_report_query
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
+    REPORT_TARGET_TYPE_ACCESS_DENIED_MSG,
+    REPORT_TYPE_ACCESS_DENIED_MSG,
     PREVIEW_LIMIT,
-    PREVIEW_PARAM,
     REPORT_REQUIRED_PARAMS,
     REPORT_WRITE_KEYS,
     ReportKey,
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
+    abort_unless_report_readable,
+    abort_unless_report_target_type_readable,
+    is_report_type_readable,
     coerce_report_id,
     guard_report_conditions,
     guard_report_name,
@@ -64,7 +69,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_helper import (
     collect_condition_field_names,
     load_report_or_404,
     normalize_report_params,
-    parse_boolean_param,
     resolve_report_query,
     resolve_report_type,
     strip_unknown_report_keys,
@@ -133,6 +137,20 @@ def _unwrap(func: Callable[..., Any]) -> Callable[..., Any]:
 def fixture_flask_app() -> Flask:
     """A minimal Flask app to host the test_request_context calls."""
     return Flask(__name__)
+
+
+@pytest.fixture(name='type_checks', autouse=True)
+def fixture_type_checks():
+    """
+    The two type-ACL checks the handlers call, stubbed as passing
+
+    The handlers' managers are MagicMocks, so the real checks would judge a mock type. The checks are tested on
+    their own (TestReportTypeAccess) and through the routes (test_functional_report_type_acl.py); here the
+    handlers are pinned to CALL them, with the right arguments
+    """
+    with patch(f'{ROUTE_PATH}.abort_unless_report_readable') as readable, \
+         patch(f'{ROUTE_PATH}.abort_unless_report_target_type_readable') as target_readable:
+        yield readable, target_readable
 
 
 def _report_type(ref_section_field_names: list[str]) -> MagicMock:
@@ -374,24 +392,6 @@ def test_strip_unknown_report_keys_keeps_only_the_whitelisted_keys() -> None:
     params = _valid_params(public_id='1', report_query='{}', injected='value')
 
     assert set(strip_unknown_report_keys(params)) == set(REPORT_WRITE_KEYS)
-
-
-# ------------------------------------------------- parse_boolean_param ---------------------------------------------- #
-
-@pytest.mark.parametrize('raw_value,expected', [('true', True), ('false', False), ('TRUE', True), (True, True)])
-def test_parse_boolean_param_accepts_the_boolean_literals(raw_value: Any, expected: bool) -> None:
-    """'true' / 'false' (any case) and native bools are accepted."""
-    assert parse_boolean_param(raw_value, PREVIEW_PARAM) is expected
-
-
-@pytest.mark.parametrize('raw_value', ['1', 'yes', '', 'maybe', None])
-def test_parse_boolean_param_rejects_anything_else_with_400(raw_value: Any) -> None:
-    """An unrecognised flag is a bad request, not an internal error from str_to_bool's ValueError."""
-    with pytest.raises(HTTPException) as exc_info:
-        parse_boolean_param(raw_value, PREVIEW_PARAM)
-
-    assert exc_info.value.code == HTTP_BAD_REQUEST
-    assert PREVIEW_PARAM in exc_info.value.description
 
 
 # ------------------------------------------------- load_report_or_404 ----------------------------------------------- #
@@ -1191,3 +1191,177 @@ def test_delete_unexpected_error_maps_to_500(flask_app: Flask) -> None:
             _unwrap(delete_cmdb_report)(public_id=REPORT_ID, request_user=MagicMock())
 
     assert exc_info.value.code == HTTP_SERVER_ERROR
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the handlers call the type-ACL checks                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestHandlersJudgeTheReportType:
+    """Every handler that reads, runs or writes one report asks the type-ACL checks first"""
+
+    def test_the_single_read_judges_the_stored_report(self, flask_app: Flask, type_checks) -> None:
+        """The stored document and the caller"""
+        mgr = MagicMock()
+        mgr.get_item.return_value = SAMPLE_REPORT
+        user = MagicMock()
+
+        with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
+             patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             flask_app.test_request_context('/7'):
+            _unwrap(get_cmdb_report)(public_id=7, request_user=user)
+
+        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
+
+    def test_the_run_judges_the_report_and_reads_through_the_acl(self, flask_app: Flask, type_checks) -> None:
+        """The report first, then the rows with the caller's READ permission"""
+        mgr = MagicMock()
+        mgr.get_item.return_value = SAMPLE_REPORT
+        mgr.iterate_results.return_value = []
+        user = MagicMock()
+
+        with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
+             patch(f'{ROUTE_PATH}.resolve_report_query', return_value={'x': 1}), \
+             patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             flask_app.test_request_context('/run/7'):
+            _unwrap(run_cmdb_report_query)(public_id=7, request_user=user)
+
+        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
+        assert mgr.iterate_results.call_args.args[1:] == (user, AccessControlPermission.READ)
+
+    def test_the_list_reads_through_the_acl(self, flask_app: Flask) -> None:
+        """The caller and READ reach the manager"""
+        mgr = MagicMock()
+        mgr.iterate_items.return_value = MagicMock(results=[], total=0)
+        user = MagicMock()
+
+        with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
+             patch(f'{ROUTE_PATH}.build_searchable_builder_params'), \
+             patch(f'{ROUTE_PATH}.GetMultiResponse'), \
+             flask_app.test_request_context('/'):
+            _unwrap(get_cmdb_reports)(params=MagicMock(), request_user=user)
+
+        assert mgr.iterate_items.call_args.args[1:] == (user, AccessControlPermission.READ)
+
+    def test_the_create_judges_the_target_type(self, flask_app: Flask, type_checks) -> None:
+        """The type the built payload names"""
+        mgr = MagicMock()
+        user = MagicMock()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr))
+            _patch_write_helpers(stack)
+            stack.enter_context(patch(f'{ROUTE_PATH}.DefaultResponse'))
+            stack.enter_context(flask_app.test_request_context('/', method='POST'))
+            _unwrap(create_cmdb_report)(params=dict(WRITE_PARAMS), request_user=user)
+
+        type_checks[1].assert_called_once_with(mgr, TYPE_ID, user)
+
+    def test_the_update_judges_the_stored_report_and_the_target_type(self, flask_app: Flask, type_checks) -> None:
+        """Both: a hidden report cannot be moved to a visible type, nor a visible one to a hidden type"""
+        mgr = MagicMock()
+        mgr.get_item.return_value = SAMPLE_REPORT
+        user = MagicMock()
+
+        with ExitStack() as stack:
+            stack.enter_context(patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr))
+            _patch_write_helpers(stack)
+            stack.enter_context(patch(f'{ROUTE_PATH}.UpdateSingleResponse'))
+            stack.enter_context(flask_app.test_request_context('/7', method='PUT'))
+            _unwrap(update_cmdb_report)(public_id=7, params=dict(WRITE_PARAMS), request_user=user)
+
+        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
+        type_checks[1].assert_called_once_with(mgr, TYPE_ID, user)
+
+    def test_the_delete_judges_the_stored_report(self, flask_app: Flask, type_checks) -> None:
+        """A report the caller may not see cannot be deleted"""
+        mgr = MagicMock()
+        mgr.get_item.return_value = SAMPLE_REPORT
+        user = MagicMock()
+
+        with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', return_value=mgr), \
+             patch(f'{ROUTE_PATH}.DefaultResponse'), \
+             flask_app.test_request_context('/7', method='DELETE'):
+            _unwrap(delete_cmdb_report)(public_id=7, request_user=user)
+
+        type_checks[0].assert_called_once_with(mgr, SAMPLE_REPORT, user)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      is_report_type_readable / the 403 checks                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+READER_GROUP_ID: int = 5
+OTHER_GROUP_ID: int = 6
+
+
+def _type_granting(group_id: int) -> dict[str, Any]:
+    """A stored type whose activated ACL grants READ to one group"""
+    return {'public_id': TYPE_ID, 'acl': {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}}
+
+
+def _types_reader(stored_type: dict[str, Any] | None) -> MagicMock:
+    """A ReportsManager stand-in answering one stored type from the types collection"""
+    reports_manager = MagicMock()
+    reports_manager.get_one_from_other_collection.return_value = stored_type
+    return reports_manager
+
+
+def _caller(group_id: int = READER_GROUP_ID) -> MagicMock:
+    """A caller of one group"""
+    return MagicMock(group_id=group_id)
+
+
+class TestReportTypeAccess:
+    """The one decision behind a report's read, run and writes: may the caller read its type's objects"""
+
+    def test_a_granting_type_is_readable(self) -> None:
+        """The group is in the READ list"""
+        assert is_report_type_readable(_types_reader(_type_granting(READER_GROUP_ID)), TYPE_ID, _caller()) is True
+
+    def test_a_denying_type_is_not(self) -> None:
+        """An activated ACL naming another group"""
+        assert is_report_type_readable(_types_reader(_type_granting(OTHER_GROUP_ID)), TYPE_ID, _caller()) is False
+
+    def test_the_type_is_read_from_the_types_collection(self) -> None:
+        """By the report's type id"""
+        reports_manager = _types_reader(_type_granting(READER_GROUP_ID))
+
+        is_report_type_readable(reports_manager, TYPE_ID, _caller())
+
+        reports_manager.get_one_from_other_collection.assert_called_once_with(CmdbType.COLLECTION, TYPE_ID)
+
+    @pytest.mark.parametrize('stored_type', [None, {'public_id': TYPE_ID}], ids=['gone', 'no-acl'])
+    def test_a_gone_or_open_type_denies_nobody(self, stored_type: dict[str, Any] | None) -> None:
+        """The same reading as the list's ACL stage"""
+        assert is_report_type_readable(_types_reader(stored_type), TYPE_ID, _caller()) is True
+
+    def test_a_report_without_a_type_is_readable_without_a_read(self) -> None:
+        """Nothing to judge"""
+        reports_manager = _types_reader(_type_granting(OTHER_GROUP_ID))
+
+        assert is_report_type_readable(reports_manager, None, _caller()) is True
+        reports_manager.get_one_from_other_collection.assert_not_called()
+
+    def test_a_hidden_stored_report_is_a_403_naming_it(self) -> None:
+        """Read, run, update and delete share it"""
+        with pytest.raises(HTTPException) as exc_info:
+            abort_unless_report_readable(_types_reader(_type_granting(OTHER_GROUP_ID)), SAMPLE_REPORT, _caller())
+
+        assert exc_info.value.code == 403
+        assert exc_info.value.description == REPORT_TYPE_ACCESS_DENIED_MSG.format(public_id=REPORT_ID)
+
+    def test_a_hidden_target_type_is_a_403_naming_the_type(self) -> None:
+        """Create and update refuse to build a report over it"""
+        with pytest.raises(HTTPException) as exc_info:
+            abort_unless_report_target_type_readable(
+                _types_reader(_type_granting(OTHER_GROUP_ID)), TYPE_ID, _caller(),
+            )
+
+        assert exc_info.value.code == 403
+        assert exc_info.value.description == REPORT_TARGET_TYPE_ACCESS_DENIED_MSG.format(type_id=TYPE_ID)
+
+    def test_readable_reports_and_types_pass(self) -> None:
+        """No exception"""
+        reports_manager = _types_reader(_type_granting(READER_GROUP_ID))
+
+        abort_unless_report_readable(reports_manager, SAMPLE_REPORT, _caller())
+        abort_unless_report_target_type_readable(reports_manager, TYPE_ID, _caller())

@@ -26,6 +26,8 @@ from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
 import pytest
+
+from cmdb.errors.manager import BaseManagerInitError
 from flask import Flask
 from werkzeug.exceptions import HTTPException
 
@@ -159,10 +161,11 @@ def test_unexpected_error_maps_to_500(flask_app: Flask) -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    export_objects                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _drive_export(flask_app: Flask, *, cloud_mode: bool = False, writer_side_effect: Any = None):
+def _drive_export(flask_app: Flask, *, cloud_mode: bool = False, writer_side_effect: Any = None,
+                  database: str | None = TENANT_DATABASE):
     """Drives the unwrapped export_objects handler with its collaborators patched."""
     request_user = MagicMock()
-    request_user.database = TENANT_DATABASE
+    request_user.database = database
     writer = MagicMock()
 
     if writer_side_effect is not None:
@@ -197,6 +200,20 @@ def test_export_passes_the_users_database_in_cloud_mode(flask_app: Flask) -> Non
     _, writer = _drive_export(flask_app, cloud_mode=True)
 
     assert writer.from_database.call_args.args[-1] == TENANT_DATABASE
+
+
+def test_a_cloud_user_without_a_database_exports_nothing(flask_app: Flask) -> None:
+    """
+    The tenant comes from ManagerProvider.tenant_database, which refuses a cloud user naming no database
+
+    The route used to pass the field straight through, so None would have exported the process-wide database. The
+    refusal is a server-side data fault, so the route's error tail answers it as a 500.
+    """
+    with pytest.raises(HTTPException) as exc_info:
+        _drive_export(flask_app, cloud_mode=True, database=None)
+
+    assert exc_info.value.code == HTTP_SERVER_ERROR
+    assert isinstance(exc_info.value.__context__, BaseManagerInitError)
 
 
 def test_export_passes_an_http_exception_through(flask_app: Flask) -> None:

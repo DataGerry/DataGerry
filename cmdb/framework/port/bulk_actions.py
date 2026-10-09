@@ -45,6 +45,7 @@ from cmdb.models.port_model.port_constants import PortKey
 from cmdb.models.port_connection_model.port_connection_constants import PortConnectionKey
 from cmdb.models.port_interface_link_model import PortInterfaceLinkKey
 
+from cmdb.framework.port.port_text_rules import text_value_blockers
 from cmdb.framework.port.bulk_action_constants import (
     BULK_EDITABLE_FIELDS,
     BulkActionError,
@@ -169,7 +170,8 @@ def bulk_edit_value_blockers(raw_values: Any) -> list[str]:
 
     Only the four shared properties may be set (BULK_EDITABLE_FIELDS). A field outside that list is
     REPORTED rather than dropped: silently ignoring `name` would answer 200 to a request that asked to
-    rename a selection, and the caller would find out by reading the table
+    rename a selection, and the caller would find out by reading the table. A description must be text
+    within the port text cap, or null to clear it
 
     Args:
         raw_values (Any): The raw values block from the request
@@ -184,11 +186,15 @@ def bulk_edit_value_blockers(raw_values: Any) -> list[str]:
 
     allowed_names: set[str] = {field.value for field in BULK_EDITABLE_FIELDS}
 
-    return [
+    blockers: list[str] = [
         BulkActionError.UNKNOWN_VALUE_FIELD.format(field=field, allowed=allowed)
         for field in raw_values
         if field not in allowed_names
     ]
+    # The description every selected port takes is capped like a single port's (see port_text_rules)
+    blockers.extend(text_value_blockers(raw_values, (PortKey.DESCRIPTION.value,)))
+
+    return blockers
 
 
 def build_bulk_edit_values(raw_values: dict[str, Any]) -> dict[str, Any]:

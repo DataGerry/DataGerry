@@ -49,6 +49,7 @@ from werkzeug import Response
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
+    IpamValidationLimits,
     IpamValidationRequestKey,
     IpamValidationResponseKey,
 )
@@ -67,6 +68,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import (
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_constants import (
     IpamRight,
     VALIDATION_ROWS_NOT_A_LIST_MESSAGE,
+    VALIDATION_TOO_MANY_ROWS_MESSAGE,
 )
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -267,10 +269,11 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 400 when the body is not a JSON object, when 'rows' is absent or not a list,
-                       when an entry is not an object or carries no readable 'row_index', or when
-                       'exclude_object_id' is present but is not a whole number; 500 on an unexpected
-                       error. Rows that are merely INVALID are not errors here - they come back in the
-                       200's error list, each tagged with its row_index
+                       when it carries more than IpamValidationLimits.MAX_VALIDATION_ROWS rows (checked
+                       before any row is parsed), when an entry is not an object or carries no readable
+                       'row_index', or when 'exclude_object_id' is present but is not a whole number; 500 on
+                       an unexpected error. Rows that are merely INVALID are not errors here - they come back
+                       in the 200's error list, each tagged with its row_index
 
     Returns:
         Response: {'valid': bool, 'errors': list[{message, details: {row_index}}]}
@@ -282,6 +285,14 @@ def validate_interface_route(request_user: CmdbUser) -> Response:
     if not isinstance(raw_rows, list):
         abort(400, VALIDATION_ROWS_NOT_A_LIST_MESSAGE.format(
             field=IpamValidationRequestKey.ROWS.value,
+        ))
+
+    # Before anything is parsed: an oversize batch costs only its length check
+    if len(raw_rows) > IpamValidationLimits.MAX_VALIDATION_ROWS:
+        abort(400, VALIDATION_TOO_MANY_ROWS_MESSAGE.format(
+            field=IpamValidationRequestKey.ROWS.value,
+            count=len(raw_rows),
+            limit=IpamValidationLimits.MAX_VALIDATION_ROWS,
         ))
 
     rows: list[tuple[int, int | None, str | None, str | None]] = parse_interface_rows_payload(raw_rows)

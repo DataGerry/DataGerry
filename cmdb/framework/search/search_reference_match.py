@@ -37,6 +37,11 @@ Three rules the reversal makes explicit:
 * **the answer does not depend on how many objects the term matches** - past
   `MAX_REFERENCED_MATCH_IDS`, the id list would outgrow what an aggregation command may carry, so the
   same rule is evaluated by a join in the database instead: slower, identical result
+
+A caller may match the candidate's own values and the referenced objects' values with **different
+conditions** (`own_condition`): the object list's `?search=` also searches the candidate's `public_id`
+and timestamps, but only the field values of what it references. Without one, both sides use the same
+condition - what `GET|POST /search/` and the quick search count do
 """
 from typing import Any, TYPE_CHECKING
 
@@ -123,7 +128,8 @@ def build_reference_rows_condition(referenced_ids: list[int]) -> dict[str, Any]:
 
 def build_term_join_stages(
         value_condition: dict[str, Any],
-        acl_stages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        acl_stages: list[dict[str, Any]],
+        own_condition: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """
     Evaluates the same rule inside the database, for a term too broad for an id list
 
@@ -132,12 +138,15 @@ def build_term_join_stages(
     first. The working field is removed again, so the documents leave the stages as they entered
 
     Args:
-        value_condition (dict[str, Any]): The term's match on the own field values
+        value_condition (dict[str, Any]): The term's match on a referenced object's own field values
         acl_stages (list[dict[str, Any]]): The caller's access-control stages; empty for none
+        own_condition (dict[str, Any] | None): The term's match on the candidate itself; None means
+            `value_condition`
 
     Returns:
         list[dict[str, Any]]: The join, the match and the clean-up stage
     """
+    candidate_condition: dict[str, Any] = value_condition if own_condition is None else own_condition
     fields_path: str = f'${CmdbObjectKey.FIELDS.value}'
     reference_values: dict[str, Any] = {
         '$map': {
@@ -164,7 +173,7 @@ def build_term_join_stages(
             ],
             REFERENCED_MATCH_FIELD,
         ),
-        Builder.match_(Builder.or_([value_condition, {REFERENCED_MATCH_FIELD: {'$ne': []}}])),
+        Builder.match_(Builder.or_([candidate_condition, {REFERENCED_MATCH_FIELD: {'$ne': []}}])),
         Builder.unset_([REFERENCED_MATCH_FIELD]),
     ]
 
@@ -172,26 +181,34 @@ def build_term_join_stages(
 def build_text_term_stages(
         objects_manager: 'ObjectsManager',
         value_condition: dict[str, Any],
-        acl_stages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        acl_stages: list[dict[str, Any]],
+        own_condition: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """
     Builds the stages keeping only the objects one search term finds, itself or through a reference
 
+    **Runs a query while building** (`collect_referenced_match_ids`), so a caller builds these stages
+    inside its own error handling
+
     Args:
         objects_manager (ObjectsManager): Runs the query collecting the matching referenced objects
-        value_condition (dict[str, Any]): The term's match on the own field values
+        value_condition (dict[str, Any]): The term's match on a referenced object's own field values
         acl_stages (list[dict[str, Any]]): The caller's access-control stages; empty for none
+        own_condition (dict[str, Any] | None): The term's match on the candidate itself; None means
+            `value_condition`
 
     Returns:
         list[dict[str, Any]]: One `$match` - or, for a term too broad for an id list, the join stages
     """
+    candidate_condition: dict[str, Any] = value_condition if own_condition is None else own_condition
+
     referenced_ids: list[int] | None = collect_referenced_match_ids(
         objects_manager, value_condition, acl_stages, MAX_REFERENCED_MATCH_IDS,
     )
 
     if referenced_ids is None:
-        return build_term_join_stages(value_condition, acl_stages)
+        return build_term_join_stages(value_condition, acl_stages, own_condition)
 
     if not referenced_ids:
-        return [Builder.match_(value_condition)]
+        return [Builder.match_(candidate_condition)]
 
-    return [Builder.match_(Builder.or_([value_condition, build_reference_rows_condition(referenced_ids)]))]
+    return [Builder.match_(Builder.or_([candidate_condition, build_reference_rows_condition(referenced_ids)]))]

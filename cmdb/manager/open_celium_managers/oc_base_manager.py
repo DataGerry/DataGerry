@@ -38,7 +38,15 @@ class OcBaseManager:
     """
     Manages Automations of OpenCelium
     """
-    def __init__(self, dbm: MongoDatabaseManager, db_name: str) -> None:
+    def __init__(self, dbm: MongoDatabaseManager, db_name: str | None) -> None:
+        """
+        Opens the OpenCelium API connector the manager talks through
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager (for the token cache)
+            db_name (str | None): The database the token is cached in - the caller's tenant in cloud mode, None
+                (the configured database) on premise; routes pass ``ManagerProvider.tenant_database(request_user)``
+        """
         self.oc_connector: OcApiConnector = OcApiConnector(dbm, db_name)
 
 # ------------------------------------------------------ HELPER ------------------------------------------------------ #

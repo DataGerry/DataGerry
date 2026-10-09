@@ -112,7 +112,7 @@ class CmdbObjectRelationLog(CmdbDAO):
 
     # Deliberately empty: see the module docstring. An audit entry is never refused for what it lacks
 
-    #pylint: disable=R0913
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
             *,

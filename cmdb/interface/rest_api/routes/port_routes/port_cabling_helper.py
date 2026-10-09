@@ -66,7 +66,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_overview_helper import (
     build_port_overview,
     load_port_option_labels,
 )
-from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CABLED_KEY, PORT_CONNECTED_KEY
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import collect_port_ids, current_port_kind
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -210,10 +210,10 @@ def build_cabling_node(
     # live - so the rows carry their addresses without a read per port
     with_interface_links(managers.interface_links, managers.objects, ports, linked_object)
 
-    # Projected from the connections the ring already holds rather than re-read per node: the flag is
-    # every connection of the port, an INTERNAL pairing included, so a panel face reads connected
-    # while carrying no cable. What this view draws a port's state from is its row's `cable`
-    project_connected(ports, ring.connections, PORT_CONNECTED_KEY)
+    # Projected from the connections the ring already holds rather than re-read per node. `connected` is
+    # every connection of the port, an INTERNAL pairing included, so a panel face reads connected while
+    # carrying no cable; `cabled` is the cable alone - the state this view draws a port in
+    project_connected(ports, ring.connections, PORT_CONNECTED_KEY, PORT_CABLED_KEY)
 
     overview: dict[str, Any] = build_port_overview(
         ports,

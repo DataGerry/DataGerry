@@ -22,6 +22,9 @@ the create / delete, edit, active-change and import writers all build the same e
 ``RENDER_STATE`` holds the object **as rendered** (a ``RenderResult``, JSON-encoded), whatever the
 action - the log view draws it with the object renderer, so a raw stored document there renders empty.
 
+``TYPE_ID`` is the CmdbType of the logged object at log time. It is what the log reads are judged by: the
+type ACL stage matches on it, which is the only way to judge a log whose object no longer exists.
+
 Members are the raw MongoDB keys; use ``.value`` wherever a key is needed as a dict key
 """
 from cmdb.utils import BaseStrEnum
@@ -52,3 +55,4 @@ class ObjectLogKey(BaseStrEnum):
     COMMENT = 'comment'
     CHANGES = 'changes'
     RENDER_STATE = 'render_state'
+    TYPE_ID = 'type_id'

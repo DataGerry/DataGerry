@@ -103,9 +103,10 @@ class CmdbRackMount(CmdbDAO):
     SCHEMA: dict[str, Any] = get_cmdb_rack_mount_schema()
 
 
-    #pylint: disable=R0913, R0914, R0917
+    # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
             self,
+            *,
             public_id: int,
             rack_id: int,
             area: str,

@@ -59,12 +59,16 @@ SEARCHFILTER_NESTED_KEYS: frozenset[str] = frozenset({DocapiTemplateKey.TEMPLATE
 
 RENDER_OBJECT_RIGHT: str = ObjectRightName.VIEW.value
 """
-The right guarding the render route - a CmdbObject right, not a DocapiTemplate one
+The object half of the two rights guarding the render route
 
-Rendering reads the target CmdbObject and puts its field values into the document, so the right that
-decides it belongs to the object domain. The consequence is deliberate but worth knowing: holding all
-four DocapiTemplate rights is not enough to render, and holding this right alone is
+A render reads two things and answers both: the template, in full, and the target CmdbObject's field
+values. So it requires the right of each - this one for the object, and `DocapiTemplateRight.VIEW` for the
+template. Holding either alone is not enough
 """
+
+
+#: What the render route answers for a template whose `active` flag is off
+RENDER_TEMPLATE_DEACTIVATED_MSG: str = 'The Template with ID: {public_id} is deactivated and can not be rendered!'
 
 
 #: What the render route answers a caller whose group may not READ the object's type

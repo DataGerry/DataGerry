@@ -24,7 +24,6 @@ consumed as CmdbWebhook.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_webhook_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbWebhook document
@@ -51,5 +50,9 @@ def get_cmdb_webhook_schema() -> dict[str, Any]:
         'active': {  # Whether the webhook is currently active and receiving events
             'type': 'boolean',
             'default': True,
+        },
+        'owner_id': {  # public_id of the CmdbUser who last saved the webhook - server-owned, scopes its deliveries
+            'type': 'integer',
+            'nullable': True,
         },
     }

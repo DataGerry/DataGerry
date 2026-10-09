@@ -151,6 +151,29 @@ class DocumentUpdateDuplicateKeyError(DocumentUpdateError, DocumentDuplicateKeyE
     """
 
 
+class DocumentTooLargeError(DataBaseError):
+    """
+    Raised when a write was refused because a document would exceed MongoDB's 16 MB document limit
+
+    The marker every such refusal shares, whichever write raised it and whether the driver refused the document
+    before sending it or the server refused the result of an update: a route catching the manager error of its
+    operation finds it with ``cmdb.utils.find_cause`` and answers "the document is too large" instead of
+    reporting a database failure
+    """
+
+
+class DocumentInsertTooLargeError(DocumentInsertError, DocumentTooLargeError):
+    """
+    Raised if an insert would exceed the document size limit - still a DocumentInsertError to every caller
+    """
+
+
+class DocumentUpdateTooLargeError(DocumentUpdateError, DocumentTooLargeError):
+    """
+    Raised if an update would exceed the document size limit - still a DocumentUpdateError to every caller
+    """
+
+
 class DocumentDeleteError(DataBaseError):
     """
     Raised if a document could not be deleted from a collection
@@ -167,6 +190,28 @@ class DocumentAggregationError(DataBaseError):
     """
     Raised if an aggregation operation fails
     """
+
+
+class DocumentQueryTimeLimitError(DocumentAggregationError):
+    """
+    Raised when the server stopped an aggregation because it ran past its time budget (``maxTimeMS``)
+
+    Still a DocumentAggregationError to every caller. A route finds it in the error chain with
+    ``cmdb.utils.find_cause`` and answers that the query took too long, naming the budget it carries
+
+    Attributes:
+        time_limit_ms (int): The budget the aggregation ran past, in milliseconds
+    """
+    def __init__(self, err: str | Exception, time_limit_ms: int) -> None:
+        """
+        Raised when the server stopped an aggregation because it ran past its time budget
+
+        Args:
+            err (str | Exception): The message, or the driver's ExecutionTimeout
+            time_limit_ms (int): The budget the aggregation ran past, in milliseconds
+        """
+        super().__init__(err)
+        self.time_limit_ms: int = time_limit_ms
 
 
 class PublicIdCounterInitError(DataBaseError):
@@ -195,5 +240,6 @@ class DocumentNetworkError(DataBaseError):
 
 # The two failures that say nothing about the request: the operation may succeed if simply repeated. Every
 # layer that wraps errors lets these through unchanged, so the route layer can answer them as a server
-# error (423 / 503 under handle_db_errors) instead of as the operation's own - usually 400 - failure
+# error (423 / 503, the app's error handlers in responses/error_handlers.py) instead of as the operation's own -
+# usually 400 - failure
 TRANSIENT_DATABASE_ERRORS: tuple[type[DataBaseError], ...] = (DocumentLockTimeoutError, DocumentNetworkError)

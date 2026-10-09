@@ -133,6 +133,23 @@ class TestGetRelatedRelations:
 
 # ----------------------------------------------- get_related_relations_query ---------------------------------------- #
 
+class TestGetRelationsOfObjectsQuery:
+    """get_relations_of_objects_query matches any of several objects as parent or child (pure)."""
+
+    def test_builds_an_or_of_two_in_clauses(self) -> None:
+        """Every id is accepted on the parent field and on the child field"""
+        ids = [PARENT_OBJECT_ID, PARENT_OBJECT_ID + 1]
+
+        result = ObjectRelationsManager.get_relations_of_objects_query(_mock_manager(), ids)
+
+        assert result == {
+            '$or': [
+                {ObjectRelationKey.RELATION_PARENT_ID.value: {'$in': ids}},
+                {ObjectRelationKey.RELATION_CHILD_ID.value: {'$in': ids}},
+            ]
+        }
+
+
 class TestGetRelatedRelationsQuery:
     """get_related_relations_query builds the parent/child $or query (pure)."""
 
@@ -328,7 +345,7 @@ class TestRelationTabs:
 # ----------------------------------------------------- update_changed_fields --------------------------------------- #
 
 class TestUpdateChangedFields:
-    """update_changed_fields applies the field diff in a single pipeline update_many."""
+    """update_changed_fields applies the field diff in a single pipeline update (update_many_raw)."""
 
     def test_no_change_skips_the_write(self) -> None:
         """Empty added/removed lists must not issue any database write."""
@@ -336,7 +353,7 @@ class TestUpdateChangedFields:
 
         ObjectRelationsManager.update_changed_fields(mgr, RELATION_ID, {'added': [], 'removed': []})
 
-        mgr.update_many.assert_not_called()
+        mgr.update_many_raw.assert_not_called()
 
     def test_missing_keys_skip_the_write(self) -> None:
         """A diff missing both keys is treated as no change."""
@@ -344,7 +361,7 @@ class TestUpdateChangedFields:
 
         ObjectRelationsManager.update_changed_fields(mgr, RELATION_ID, {})
 
-        mgr.update_many.assert_not_called()
+        mgr.update_many_raw.assert_not_called()
 
     def test_builds_pipeline_filtering_removed_and_appending_added(self) -> None:
         """The pipeline filters removed names and appends new {name, value: None} entries."""
@@ -352,9 +369,10 @@ class TestUpdateChangedFields:
 
         ObjectRelationsManager.update_changed_fields(mgr, RELATION_ID, {'added': ['new'], 'removed': ['old']})
 
-        criteria, pipeline = mgr.update_many.call_args.args
+        criteria, pipeline = mgr.update_many_raw.call_args.args
         assert criteria == {ObjectRelationKey.RELATION_ID.value: RELATION_ID}
-        assert mgr.update_many.call_args.kwargs == {'plain': True}
+        assert isinstance(pipeline, list)
+        mgr.update_many.assert_not_called()
 
         set_stage = pipeline[0]['$set'][ObjectRelationKey.FIELD_VALUES.value]['$concatArrays']
         filter_cond = set_stage[0]['$filter']['cond']

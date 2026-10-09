@@ -91,17 +91,20 @@ from cmdb.framework.port.bulk_create_constants import (
 from cmdb.framework.port.name_preview import preview_has_collisions
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import abort_if_too_large, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 
-from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRight
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortRequestKey, PortRight
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import (
     enforce_select_values,
     enforce_type_uses_ports,
     get_accessible_owner_or_abort,
 )
-from cmdb.interface.rest_api.routes.port_routes.port_preview_helper import build_preview_or_abort
+from cmdb.interface.rest_api.routes.port_routes.port_preview_helper import (
+    build_preview_or_abort,
+    enforce_text_values,
+)
 from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
     abort_bulk_action,
     build_values_by_side,
@@ -115,6 +118,9 @@ from cmdb.interface.rest_api.routes.port_routes.port_bulk_helper import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The bulk creation's own text values - the syntaxes, prefix and slot are judged by the preview
+BULK_CREATE_TEXT_KEYS: tuple[str, ...] = (PortRequestKey.DESCRIPTION.value, PortRequestKey.REAR_DESCRIPTION.value)
 
 port_bulk_blueprint = APIBlueprint('port_bulk', __name__)
 
@@ -167,6 +173,9 @@ def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
         # The rear face's own select values, judged by the same rule: the projection puts them under
         # the unprefixed key names the validator knows
         enforce_select_values(extendable_options_manager, rear_select_payload(payload))
+
+        # The descriptions every created port carries are capped like a single port's
+        enforce_text_values(payload, BULK_CREATE_TEXT_KEYS)
 
         preview: dict[str, Any] = build_preview_or_abort(ports_manager, object_id, payload)
 
@@ -302,6 +311,7 @@ def bulk_edit_ports(object_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[bulk_edit_ports] AccessDeniedError: %s", err, exc_info=True)
         abort(403, str(err))
     except (PortsManagerGetError, PortsManagerUpdateError) as err:
+        abort_if_too_large(err)
         LOGGER.error("[bulk_edit_ports] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, f'Failed to update the selected Ports of CmdbObject ID: {object_id}!')
 

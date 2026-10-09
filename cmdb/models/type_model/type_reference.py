@@ -57,7 +57,6 @@ class TypeReference:
     What a reference field shows: the resolved description of the object it points at
     """
 
-    #pylint: disable=R0913, R0917
     def __init__(
             self,
             type_id: int,

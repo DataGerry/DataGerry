@@ -23,14 +23,16 @@ module path - no Mongo, no service-portal HTTP. The ``cloud_mode`` / ``local_mod
 select the branch under test.
 
 These pin: the rights check (``user_has_right``, on the user it is handed),
-the error-mapping decorators (``handle_db_errors`` 503/423, ``handle_oc_errors`` 500s), the
+the error-mapping decorators (``handle_oc_errors`` 500s; the transient database errors are the app's), the
 request-user injection / API-access decorators, the Authorization-header parsing and Basic/Bearer
 authentication, the service-portal check with its cache-sync helpers, and the small DB/user helpers.
 """
 # pylint: disable=protected-access  # these tests intentionally exercise module-private helpers
+import ast
 import base64
 import inspect
 from http import HTTPStatus
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
 from unittest.mock import MagicMock, patch, mock_open
@@ -42,13 +44,14 @@ from flask import abort
 
 import cmdb.interface.route_utils as ru
 from cmdb.interface.cmdb_app import BaseCmdbApp
+from cmdb.interface.tenant_availability_constants import TENANT_UNAVAILABLE_RESPONSE_MESSAGE
 from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
 from cmdb.manager.manager_provider_model.manager_provider import MANAGER_CLASSES
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.errors.database import (
+    DatabaseConnectionError,
     SetDatabaseError,
-    DocumentNetworkError,
     DocumentLockTimeoutError,
 )
 from cmdb.errors.security import (
@@ -80,6 +83,8 @@ TYPED_EMAIL: str = ' User@Test.COM '
 NORMALISED_EMAIL: str = 'user@test.com'
 BASIC_HEADER: str = f'Basic {BASIC_CREDENTIALS}'
 BEARER_HEADER: str = 'Bearer sometoken'
+NO_TENANT_TOKEN_MSG: str = 'The token names no tenant database!'
+UNAVAILABLE_TENANT: str = 'tenant_failed_update'
 API_KEY_BASIC_HEADERS: dict[str, str] = {'Authorization': BASIC_HEADER, 'x-api-key': 'k'}
 
 DECODED_TOKEN: dict[str, Any] = {
@@ -178,8 +183,8 @@ class TestHandleRouteErrors:
         """
         423 / 503 must survive the generic tail
 
-        `@handle_db_errors` maps a lock timeout and a network failure to statuses that tell the caller
-        to retry, and it only sees what escapes this wrapper - which is why the routes must not
+        The app's error handlers map a lock timeout and a network failure to statuses that tell the caller
+        to retry, and they only see what escapes this wrapper - which is why the routes must not
         swallow them.
         """
         @ru.handle_route_errors('while doing the thing')
@@ -504,34 +509,9 @@ class TestUserHasRight:
 
 # ================================================== handle_db_errors ================================================ #
 
-class TestHandleDbErrors:
-    """``handle_db_errors`` maps DB errors to 503 / 423 and passes success through."""
-
-    def test_passes_result_through(self) -> None:
-        """A handler that returns normally is not touched."""
-        wrapped = ru.handle_db_errors(lambda: 'ok')
-        with _app().test_request_context():
-            assert wrapped() == 'ok'
-
-    def test_network_error_aborts_503(self) -> None:
-        """DocumentNetworkError becomes 503 Service Unavailable."""
-        def _handler() -> None:
-            raise DocumentNetworkError('down')
-
-        with _app().test_request_context():
-            with pytest.raises(HTTPException) as exc_info:
-                ru.handle_db_errors(_handler)()
-        assert exc_info.value.code == HTTPStatus.SERVICE_UNAVAILABLE
-
-    def test_lock_timeout_aborts_423(self) -> None:
-        """DocumentLockTimeoutError becomes 423 Locked."""
-        def _handler() -> None:
-            raise DocumentLockTimeoutError('locked')
-
-        with _app().test_request_context():
-            with pytest.raises(HTTPException) as exc_info:
-                ru.handle_db_errors(_handler)()
-        assert exc_info.value.code == HTTPStatus.LOCKED
+def test_handle_db_errors_is_gone() -> None:
+    """The app's error handlers answer the transient database errors for every route; the per-route decorator is gone"""
+    assert not hasattr(ru, 'handle_db_errors')
 
 
 # ================================================== handle_oc_errors ================================================ #
@@ -586,6 +566,19 @@ class TestInsertRequestUser:
                 assert ru.insert_request_user(handler)() == 'done'
         handler.assert_called_once()
         parse.assert_not_called()
+
+    def test_cloud_basic_without_an_api_key_is_refused_with_its_own_401(self) -> None:
+        """Not the generic token failure: the caller is told the key is missing, and nothing is authenticated"""
+        handler = MagicMock()
+        with patch(f'{MODULE_PATH}.parse_authorization_header') as parse:
+            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(handler)()
+
+        assert exc_info.value.code == 401
+        assert exc_info.value.description == ru.CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE
+        parse.assert_not_called()
+        handler.assert_not_called()
 
     def test_an_error_of_the_route_on_the_api_key_path_is_not_a_token_failure(self) -> None:
         """The route's own error reaches the caller - it is not turned into 'Token could not be validated!'"""
@@ -673,6 +666,105 @@ class TestInsertRequestUser:
             with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
                 assert ru.insert_request_user(_handler)() == 'ran'
         assert captured['request_user'] is user
+
+    @pytest.mark.parametrize('database', [None, ''], ids=['null', 'empty'])
+    def test_a_cloud_token_naming_no_database_aborts_401(self, database: Any) -> None:
+        """
+        A cloud token without a tenant is refused before any user is read
+
+        A null database would bind the UsersManager to the process-wide database, where the token's user
+        id names another tenant's user or nobody
+        """
+        claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': {'public_id': 42, 'database': database}}}}
+        handler = MagicMock()
+
+        with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls, \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = claims
+            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(handler)()
+
+        assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
+        assert exc_info.value.description == NO_TENANT_TOKEN_MSG
+        users_manager_cls.return_value.get_user.assert_not_called()
+        handler.assert_not_called()
+
+    def test_a_cloud_token_naming_an_unavailable_tenant_aborts_503(self) -> None:
+        """A tenant that failed its startup update is refused before its database is read"""
+        claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': {'public_id': 42, 'database': UNAVAILABLE_TENANT}}}}
+        handler = MagicMock()
+        app = _app(cloud_mode=True)
+        app.unavailable_tenants = frozenset({UNAVAILABLE_TENANT})
+
+        with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls, \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = claims
+            with app.test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(handler)()
+
+        assert exc_info.value.code == HTTPStatus.SERVICE_UNAVAILABLE
+        assert exc_info.value.description == TENANT_UNAVAILABLE_RESPONSE_MESSAGE
+        users_manager_cls.assert_not_called()
+        handler.assert_not_called()
+
+    def test_a_cloud_token_of_another_tenant_is_served_beside_an_unavailable_one(self) -> None:
+        """Only the failed tenant is fenced off - the token's own tenant is read as usual"""
+        users_manager = MagicMock()
+        users_manager.get_user.return_value = SimpleNamespace(public_id=42, active=True)
+        app = _app(cloud_mode=True)
+        app.unavailable_tenants = frozenset({UNAVAILABLE_TENANT})
+
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
+            with app.test_request_context(headers={'Authorization': BEARER_HEADER}):
+                assert ru.insert_request_user(lambda **_: 'ran')() == 'ran'
+
+    def test_an_on_premise_token_needs_no_database(self) -> None:
+        """On premise the token carries no database and the user is read from the one database"""
+        users_manager = MagicMock()
+        users_manager.get_user.return_value = SimpleNamespace(public_id=42, active=True)
+        claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': {'public_id': 42}}}}
+
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            tv_cls.return_value.decode_token.return_value = claims
+            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                assert ru.insert_request_user(lambda **_: 'ran')() == 'ran'
+
+    def test_the_api_key_path_builds_no_users_manager(self) -> None:
+        """verify_api_access resolves that user; nothing is built here only to be thrown away"""
+        with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls:
+            with _app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
+                ru.insert_request_user(lambda **_: 'ran')()
+
+        users_manager_cls.assert_not_called()
+
+    @pytest.mark.parametrize('cloud_mode, user_claim, database', [
+        (False, {'public_id': 42}, None),
+        (True, {'public_id': 42, 'database': 'tenant_db'}, 'tenant_db'),
+    ], ids=['on-premise', 'cloud'])
+    def test_one_users_manager_bound_to_the_users_database(self, cloud_mode: bool, user_claim: dict[str, Any],
+                                                           database: str | None) -> None:
+        """Built once, after the token: the one database on premise, the token's tenant in cloud mode"""
+        claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': user_claim}}}
+        app = _app(cloud_mode=cloud_mode)
+
+        with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls, \
+             patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
+             patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
+            users_manager_cls.return_value.get_user.return_value = SimpleNamespace(public_id=42, active=True)
+            tv_cls.return_value.decode_token.return_value = claims
+            with app.test_request_context(headers={'Authorization': BEARER_HEADER}):
+                assert ru.insert_request_user(lambda **_: 'ran')() == 'ran'
+
+        users_manager_cls.assert_called_once_with(app.database_manager, database)
 
     def test_missing_user_aborts_401(self) -> None:
         """When the user cannot be found the request aborts with 401."""
@@ -857,6 +949,27 @@ class TestVerifyApiAccess:
 
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
         assert exc_info.value.description == ru.USER_DEACTIVATED_MESSAGE
+        handler.assert_not_called()
+
+    def test_an_api_key_user_of_an_unavailable_tenant_aborts_503_before_any_write(self) -> None:
+        """The tenant is checked before set_admin_user writes to it and before the user is read"""
+        user_instance = {'subscriptions': [{'database': UNAVAILABLE_TENANT, 'api_level': 1}], 'api_level': 1}
+        handler = MagicMock()
+        app = _app(cloud_mode=True)
+        app.unavailable_tenants = frozenset({UNAVAILABLE_TENANT})
+
+        with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=user_instance), \
+             patch(f'{MODULE_PATH}.set_admin_user') as set_admin, \
+             patch(f'{MODULE_PATH}.retrieve_user') as retrieve, \
+             patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
+            with app.test_request_context(headers={'Authorization': BASIC_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(handler)()
+
+        assert exc_info.value.code == HTTPStatus.SERVICE_UNAVAILABLE
+        assert exc_info.value.description == TENANT_UNAVAILABLE_RESPONSE_MESSAGE
+        set_admin.assert_not_called()
+        retrieve.assert_not_called()
         handler.assert_not_called()
 
     def test_basic_user_not_found_aborts_403(self) -> None:
@@ -1198,56 +1311,21 @@ class TestAuthenticateBasic:
             with _app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt-token'
 
-    def test_cloud_portal_rejects_returns_none(self) -> None:
-        """In cloud mode, a portal that rejects the user yields None."""
-        with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=None):
-            with _app(cloud_mode=True).test_request_context():
+    @pytest.mark.parametrize('local_mode', [False, True], ids=['hosted', 'local'])
+    def test_cloud_mode_never_logs_in(self, local_mode: bool) -> None:
+        """
+        Cloud Basic without an x-api-key has no tenant to log into: refused before the portal or a provider runs
+
+        The portal's key-less answer names every subscription and no database, and the password digest a portal
+        user stores is checked by the portal, not here - so nothing on this path could ever succeed
+        """
+        with self._patches(login_result=MagicMock()), \
+             patch(f'{MODULE_PATH}.check_user_in_service_portal') as portal:
+            with _app(cloud_mode=True, local_mode=local_mode).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
-    def test_cloud_local_mode_uses_subscription_db(self) -> None:
-        """In cloud+local mode the target db is taken from the first subscription."""
-        user = MagicMock()
-        user.get_public_id.return_value = 5
-        user.database = 'sub_db'
-        portal_user = {'subscriptions': [{'database': 'sub_db'}], 'database': 'ignored'}
-        with self._patches(login_result=user), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user):
-            with _app(cloud_mode=True, local_mode=True).test_request_context():
-                assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt'
-
-    def test_cloud_non_local_uses_user_database(self) -> None:
-        """In cloud (non-local) mode the target db comes from the portal user's 'database'."""
-        user = MagicMock()
-        user.get_public_id.return_value = 5
-        user.database = 'the_db'
-        portal_user = {'database': 'the_db'}
-        with self._patches(login_result=user), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user):
-            with _app(cloud_mode=True, local_mode=False).test_request_context():
-                assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt'
-
-    def test_cloud_logs_in_with_the_address_the_portal_answered_with(self) -> None:
-        """The tenant user is stored under the portal's address, whatever spelling was typed"""
-        user = MagicMock()
-        portal_user = {'database': 'the_db', 'email': NORMALISED_EMAIL}
-        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
-        with self._patches(login_result=user), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user) as portal:
-            with _app(cloud_mode=True, local_mode=False).test_request_context():
-                ru._authenticate_basic(credentials)
-
-            assert ru.AuthModule.return_value.login.call_args.args == (NORMALISED_EMAIL, 'secret')
-        assert portal.call_args.args[0] == TYPED_EMAIL.strip()
-
-    def test_a_portal_answer_without_an_email_keeps_the_typed_login(self) -> None:
-        """Nothing better to go by - the stripped login is used"""
-        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
-        with self._patches(login_result=MagicMock()), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value={'database': 'the_db'}):
-            with _app(cloud_mode=True, local_mode=False).test_request_context():
-                ru._authenticate_basic(credentials)
-
-            assert ru.AuthModule.return_value.login.call_args.args[0] == TYPED_EMAIL.strip()
+            portal.assert_not_called()
+            ru.AuthModule.return_value.login.assert_not_called()
 
     def test_on_premise_the_login_is_stripped(self) -> None:
         """The case is AuthModule's to try; the whitespace is removed here"""
@@ -1358,11 +1436,21 @@ class TestCheckUserInServicePortal:
     """``check_user_in_service_portal`` validates users locally or via the portal + cache."""
 
     def test_local_mode_delegates_to_local_loader(self) -> None:
-        """In local mode the local test-user loader is used."""
-        with patch(f'{MODULE_PATH}._load_local_test_user', return_value={'email': 'x'}) as loader:
+        """In local mode the local test-user loader is used, and its plaintext password comes back as its HMAC"""
+        with patch(f'{MODULE_PATH}._load_local_test_user', return_value={'email': 'x', 'password': 'p'}) as loader, \
+             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
+            security_manager.return_value.generate_hmac.side_effect = lambda plain: f'hmac({plain})'
             with _app(local_mode=True).test_request_context():
-                assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x'}
+                assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x', 'password': 'hmac(p)'}
         loader.assert_called_once_with('x', 'p')
+
+    def test_local_mode_refusal_stays_none(self) -> None:
+        """Nothing to hash when the fixture refuses"""
+        with patch(f'{MODULE_PATH}._load_local_test_user', return_value=None), \
+             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
+            with _app(local_mode=True).test_request_context():
+                assert ru.check_user_in_service_portal('x', 'p') is None
+        security_manager.return_value.generate_hmac.assert_not_called()
 
     def test_the_email_is_normalised_before_the_local_loader(self) -> None:
         """Stripped and lower-cased, whatever the caller submitted"""
@@ -1461,26 +1549,36 @@ class TestCheckUserInServicePortal:
         sync_api.assert_called_once()
 
     def test_known_error_is_reraised(self) -> None:
-        """A recognised portal error propagates unchanged."""
+        """A recognised portal error propagates unchanged - the same object, not made its own cause"""
         cached_mgr = MagicMock()
         cached_mgr.cached_user_exists.return_value = False
+        refusal = InvalidCloudUserError('no')
         with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
              patch(f'{MODULE_PATH}.SecurityManager'), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', side_effect=InvalidCloudUserError('no')):
+             patch(f'{MODULE_PATH}.validate_subscription_user', side_effect=refusal):
             with _app(local_mode=False).test_request_context():
-                with pytest.raises(InvalidCloudUserError):
+                with pytest.raises(InvalidCloudUserError) as exc_info:
                     ru.check_user_in_service_portal('x', 'p')
 
-    def test_unexpected_error_wrapped_in_exception(self) -> None:
-        """An unexpected error is wrapped and raised as a generic Exception."""
+        assert exc_info.value is refusal
+        assert exc_info.value.__cause__ is not refusal
+
+    @pytest.mark.parametrize('failure', [
+        RuntimeError('boom'),
+        DatabaseConnectionError('cache down'),
+        ValueError("No symmetric AES key provided via the 'DG_SYMMETRIC_KEY' environment variable"),
+    ], ids=['bug', 'cache-read', 'missing-key'])
+    def test_any_other_error_propagates_as_itself(self, failure: Exception) -> None:
+        """Not wrapped in a bare Exception, so the caller's own arms (cloud_login's DatabaseConnectionError) match it"""
         cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = False
+        cached_mgr.cached_user_exists.side_effect = failure
         with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager'), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', side_effect=RuntimeError('boom')):
+             patch(f'{MODULE_PATH}.SecurityManager'):
             with _app(local_mode=False).test_request_context():
-                with pytest.raises(Exception):
+                with pytest.raises(type(failure)) as exc_info:
                     ru.check_user_in_service_portal('x', 'p')
+
+        assert exc_info.value is failure
 
 
 # ================================================ _load_local_test_user ============================================= #
@@ -1769,6 +1867,30 @@ class TestSetAdminUser:
         users_manager.update_user.assert_called_once()
         assert existing.database == 'db'
 
+    def test_a_created_user_stores_the_digest_it_is_handed(self) -> None:
+        """The portal check already HMACed the password; hashing it again stored a digest nothing could match"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
+        users_manager.get_next_public_id.return_value = 1
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
+            with _app().test_request_context():
+                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
+
+        assert users_manager.insert_user.call_args.args[0].password == self.USER_DATA['password']
+        security_manager.return_value.generate_hmac.assert_not_called()
+
+    def test_an_update_leaves_the_stored_password_alone(self) -> None:
+        """Only the subscription's three fields are refreshed"""
+        users_manager = MagicMock()
+        existing = MagicMock(password='stored-digest')
+        users_manager.get_user_by.return_value = existing
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
+            with _app().test_request_context():
+                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
+
+        assert existing.password == 'stored-digest'
+
     # The portal's numbers as strings: both branches have to convert them to int
     STRING_SUBSCRIPTION: dict[str, Any] = {'database': 'db', 'api_level': '1', 'config_item_limit': '10'}
 
@@ -2040,3 +2162,39 @@ def test_request_authenticates_by_api_key(cloud_mode: bool, headers: dict[str, s
     """Only a cloud request pairing the key with Basic credentials is left to verify_api_access"""
     with _app(cloud_mode=cloud_mode).test_request_context(headers=headers):
         assert ru.request_authenticates_by_api_key() is expected
+
+
+# ==================================== request_is_cloud_basic_without_api_key ======================================== #
+
+@pytest.mark.parametrize(('cloud_mode', 'headers', 'expected'), [
+    (True, {'Authorization': BASIC_HEADER}, True),
+    (True, API_KEY_BASIC_HEADERS, False),
+    (True, {'Authorization': BEARER_HEADER}, False),
+    (False, {'Authorization': BASIC_HEADER}, False),
+], ids=['cloud Basic only', 'cloud key+Basic', 'cloud Bearer', 'on-premise Basic'])
+def test_request_is_cloud_basic_without_api_key(cloud_mode: bool, headers: dict[str, str], expected: bool) -> None:
+    """Only cloud Basic credentials with no key are the refused case"""
+    with _app(cloud_mode=cloud_mode).test_request_context(headers=headers):
+        assert ru.request_is_cloud_basic_without_api_key() is expected
+
+
+# ============================================== no nested application context ======================================= #
+
+class TestNoNestedAppContext:
+    """
+    route_utils runs inside requests only, which always carry an application context
+
+    Pushing another one inside a request gives the code under it a fresh `flask.g`: a value the request stored there
+    (the licence guard's per-request state) would silently read as missing
+    """
+
+    def test_the_module_pushes_none(self) -> None:
+        """No call to app_context() anywhere in the module"""
+        tree = ast.parse(Path(ru.__file__).read_text(encoding='utf-8'))
+        pushes: list[int] = [
+            node.lineno for node in ast.walk(tree)
+            if isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+            and node.func.attr == 'app_context'
+        ]
+
+        assert not pushes

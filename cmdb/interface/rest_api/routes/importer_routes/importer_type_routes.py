@@ -38,7 +38,8 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import 
     update_type_from_entry,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_constants import ImporterRight
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.request_limits_constants import RequestSizeLimit
+from cmdb.interface.route_utils import accepts_upload, handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -54,6 +55,7 @@ LOGGER: Logger = getLogger(__name__)
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_type_blueprint.protect(auth=True, right=ImporterRight.TYPE.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH, RequestSizeLimit.TYPE_IMPORT_MAX_FORM_MEMORY_SIZE)
 @handle_route_errors("while creating Types from imported data")
 def add_type(request_user: CmdbUser) -> Response:
     """
@@ -98,15 +100,17 @@ def add_type(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_type_blueprint.protect(auth=True, right=ImporterRight.TYPE.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH, RequestSizeLimit.TYPE_IMPORT_MAX_FORM_MEMORY_SIZE)
 @handle_route_errors("while updating Types from imported data")
 def update_type(request_user: CmdbUser) -> Response:
     """
     Updates existing CmdbTypes based on uploaded JSON data
 
-    Updates are applied by public_id. Each type must already exist, otherwise an error is recorded for
-    it. The requesting user is recorded as the editor of every type it replaces, while the stored
-    author, creation time, version and `special_type` are left untouched - `special_type` is
-    immutable and can only be set when a type is created. An update replaces the fields and sections
+    Updates are applied by public_id. Each type must already exist, and the caller's group must be allowed to
+    READ it under its stored access control list, otherwise an error is recorded for it. The requesting
+    user is recorded as the editor of every type it replaces, while the stored author, creation time,
+    version and `special_type` are left untouched - `special_type` is immutable and can only be set
+    when a type is created. An update replaces the fields and sections
     wholesale, so it passes the same name / structure rules and the same repairs and defaults as a
     create - and the same follow-up work: the type's Objects are re-aligned with its new field set,
     MDS rows and CmdbLocations are updated, dropped global section templates are cleaned up and the

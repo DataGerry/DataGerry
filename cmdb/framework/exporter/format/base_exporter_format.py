@@ -97,6 +97,7 @@ class BaseExporterFormat:
         ICON (str): Icon representation of the format
         DESCRIPTION (str): Description of the exporter format
         ACTIVE (bool): Status indicating if the format is active
+        HUMAN_READABLE_SUPPORT (bool): Whether the format writes a different file for a `human_readable` request
     """
     FILE_EXTENSION = None
     MIME_TYPE = None
@@ -105,6 +106,23 @@ class BaseExporterFormat:
     ICON = None
     DESCRIPTION = None
     ACTIVE = None
+    HUMAN_READABLE_SUPPORT = False
+
+
+    def honours_human_readable(self, options: dict[str, Any] | None) -> bool:
+        """
+        Reports whether this export is a human-readable one: requested, and honoured by the format
+
+        Only a format that writes a different file for the flag makes the export a presentation export; the
+        writer names the file after the answer (the `readable` marker) and only then resolves location names
+
+        Args:
+            options (dict[str, Any] | None): The export options (`params.optional`)
+
+        Returns:
+            bool: True when the `human_readable` option is truthy and the format honours it
+        """
+        return self.HUMAN_READABLE_SUPPORT and self.is_human_readable(options)
 
 
     @staticmethod
@@ -172,6 +190,56 @@ class BaseExporterFormat:
                 raise ExporterMetadataError(f"The export metadata '{key}' must be a list!")
 
         return metadata
+
+
+    @staticmethod
+    def resolve_metadata_selection(
+            metadata: dict[str, Any] | None,
+            default_header: list[str]) -> tuple[list[str], list[str] | None]:
+        """
+        Reads the identity header and the field-column selection out of a render-view metadata override
+
+        A key the override leaves out means the format's own default, for both keys alike: the header falls
+        back to `default_header`, and the columns come back as None, which every format reads as "the
+        object's own fields". An empty `columns` list is a selection of its own - no field columns at all
+
+        Args:
+            metadata (dict[str, Any] | None): The parsed override (see `resolve_export_view`), or None
+            default_header (list[str]): The format's default identity columns
+
+        Returns:
+            tuple[list[str], list[str] | None]: (identity header, selected field names or None for the default)
+        """
+        header: list[str] = list(default_header)
+
+        if not metadata:
+            return header, None
+
+        return metadata.get(ExporterMetadataKey.HEADER.value, header), metadata.get(ExporterMetadataKey.COLUMNS.value)
+
+
+    @staticmethod
+    def select_owned_columns(selected: list[str] | None, owned: list[str]) -> list[str]:
+        """
+        Narrows a field-column selection to the fields one type owns
+
+        A selection spanning several types names fields the other types do not have; each type only exports
+        the selected fields it owns, in the order of the selection. Without a selection every owned field is
+        exported, in the type's own order
+
+        Args:
+            selected (list[str] | None): The selected field names, or None when nothing was selected
+            owned (list[str]): The field names of the type, in its own order
+
+        Returns:
+            list[str]: The field columns to export for that type
+        """
+        if selected is None:
+            return list(owned)
+
+        owned_names: set[str] = set(owned)
+
+        return [name for name in selected if name in owned_names]
 
 
     @staticmethod

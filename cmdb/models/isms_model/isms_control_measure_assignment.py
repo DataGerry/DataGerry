@@ -88,9 +88,10 @@ class IsmsControlMeasureAssignment(CmdbDAO):
     TO_JSON_ERROR = IsmsControlMeasureAssignmentToJsonError
 
 
-    #pylint: disable=R0913, R0917
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
+            *,
             public_id: int,
             control_measure_id: int,
             risk_assessment_id: int,

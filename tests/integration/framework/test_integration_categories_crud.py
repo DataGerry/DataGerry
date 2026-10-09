@@ -278,8 +278,8 @@ class TestGetCategoriesBy:
     def test_filters_by_parent_and_returns_only_children(
         self, categories_manager: CategoriesManager,
     ) -> None:
-        """``parent=<id>`` returns exactly the children of that parent, as CmdbCategory instances."""
-        children = categories_manager.get_categories_by(parent=CATEGORY_ID_FOR_FILTER_PARENT)
+        """``{'parent': <id>}`` returns exactly the children of that parent, as CmdbCategory instances."""
+        children = categories_manager.get_categories_by({'parent': CATEGORY_ID_FOR_FILTER_PARENT})
 
         child_ids = {c.public_id for c in children}
         assert child_ids == {CATEGORY_ID_FOR_FILTER_CHILD_A, CATEGORY_ID_FOR_FILTER_CHILD_B}

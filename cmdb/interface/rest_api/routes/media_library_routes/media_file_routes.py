@@ -31,15 +31,22 @@ from logging import Logger, getLogger
 from bson import json_util
 from flask import abort, request, Response
 from werkzeug.wrappers.response import Response as Resp
-from werkzeug.http import quote_header_value
 from gridfs.grid_file import GridOut
 
-from cmdb.interface.rest_api.responses.gridfs_response import GridFsResponse
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
+from cmdb.framework.results import IterationResult
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.request_limits_constants import RequestSizeLimit
+from cmdb.interface.route_utils import (
+    abort_if_too_large,
+    accepts_upload,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
     MediaFileKey,
@@ -50,6 +57,7 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants im
     UNPAGED_LIMIT,
 )
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
+    abort_unless_usable_parent,
     build_updated_file_data,
     build_upload_metadata,
     create_attachment_name,
@@ -60,6 +68,8 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     get_upload_from_request,
     recursive_delete_filter,
     stream_grid_file,
+    unique_name_filter,
+    validate_update_body,
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.blueprints import APIBlueprint
@@ -117,9 +127,11 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
 
         metadata = generate_collection_parameters(params=params)
         response_query = {'limit': params.limit, 'skip': params.skip, 'sort': [(params.sort, params.order)]}
-        output: GridFsResponse = media_files_manager.get_many_media_files(metadata, **response_query)
+        output: IterationResult[dict[str, Any]] = media_files_manager.get_many_media_files(
+            metadata, **response_query,
+        )
 
-        api_response = GetMultiResponse(output.result, total=output.total, params=params, url=request.url)
+        api_response = GetMultiResponse(output.results, total=output.total, params=params, url=request.url)
 
         return api_response.make_response()
     except MediaFileManagerGetError as err:
@@ -131,13 +143,16 @@ def get_file_list(params: CollectionParameters, request_user: CmdbUser) -> Resp:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors("while adding the file")
 def add_new_file(request_user: CmdbUser) -> Resp:
     """
     HTTP `POST` route to upload a MediaFile into the library
 
     Requires the ``base.framework.object.edit`` right. The file arrives as the ``file`` form part and its
-    metadata as the ``metadata`` one; ``author_id`` and ``mime_type`` are server-owned
+    metadata as the ``metadata`` one; ``author_id`` and ``mime_type`` are server-owned. The metadata holds
+    only declared keys, each of its declared type (``MEDIA_FILE_METADATA_SCHEMA``), the file's name follows
+    the naming rule (``filename_problem``), and a ``parent`` names an existing folder
 
     Uploading over an entry of the same name in the same folder REPLACES it: the new content is written
     first and the old entry is removed only afterwards, so a refused or failing upload leaves the
@@ -149,7 +164,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
 
     Raises:
         HTTPException: 403 when the user lacks the right; 400 when the request carries no usable file or
-            metadata, or the insert fails; 500 on an unexpected error
+            metadata, its parent is no folder, or the insert fails; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The stored MediaFile and its public_id
@@ -159,6 +174,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
                                                                             request_user)
 
         upload, existing_filter, metadata = get_upload_from_request(request)
+        abort_unless_usable_parent(media_files_manager, metadata.get(MediaFileMetadataKey.PARENT.value))
 
         replaced_file: dict[str, Any] | None = None
 
@@ -179,6 +195,7 @@ def add_new_file(request_user: CmdbUser) -> Resp:
         LOGGER.error("[add_new_file] MediaFileManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the File which would be replaced from the database!")
     except MediaFileManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[add_new_file] MediaFileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the File in the database!")
 
@@ -187,14 +204,18 @@ def add_new_file(request_user: CmdbUser) -> Resp:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @media_file_blueprint.protect(auth=True, right=MediaFileRight.EDIT.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 @handle_route_errors("while updating the file")
 def update_file(request_user: CmdbUser) -> Resp:
     """
     HTTP `PUT` route to update a MediaFile's name, folder or metadata
 
-    Requires the ``base.framework.object.edit`` right. The body is the whole MediaFile document; the
-    identity comes from the stored file, so a payload public_id can not rewrite it, and the author is
-    stamped as the last modifier
+    Requires the ``base.framework.object.edit`` right. The body is the whole MediaFile document, held to
+    ``MEDIA_FILE_UPDATE_SCHEMA``: an integer public_id, a usable filename and a metadata sub-document of
+    declared keys and types, stored whole as an upload's is. The identity comes from the stored file, so a
+    payload public_id can not rewrite it; the author is stamped as the last modifier and the mime type stays
+    the stored one. Whether the entry is a folder can not change, and a new ``parent`` has to be an existing
+    folder outside the moved entry's own subtree
 
     The ``attachment`` query parameter is required. With ``{"reference": true}`` the write only re-points
     a reference and the filename is taken as given; otherwise the name has to stay unique inside its
@@ -205,8 +226,9 @@ def update_file(request_user: CmdbUser) -> Resp:
 
     Raises:
         HTTPException: 403 when the user lacks the right; 400 when the body or the ``attachment``
-            parameter is unusable, or the update fails; 404 when no MediaFile carries the public_id;
-            500 on an unexpected error
+            parameter is unusable, the update would change the folder flag or move the entry under a
+            parent that is no folder or lies inside it, or the update fails; 404 when no MediaFile
+            carries the public_id; 500 on an unexpected error
 
     Returns:
         DefaultResponse: The updated MediaFile
@@ -217,29 +239,29 @@ def update_file(request_user: CmdbUser) -> Resp:
 
         new_file_data = json.loads(json.dumps(request.json), object_hook=json_util.object_hook)
         reference_attachment = get_reference_attachment_or_abort()
-
-        if MediaFileKey.PUBLIC_ID.value not in new_file_data:
-            abort(400, f"The request body is missing '{MediaFileKey.PUBLIC_ID.value}'!")
+        validate_update_body(new_file_data)
 
         stored_file = get_stored_file_or_abort(media_files_manager, new_file_data[MediaFileKey.PUBLIC_ID.value])
+        stored_parent = (stored_file.get(MediaFileKey.METADATA.value) or {}).get(MediaFileMetadataKey.PARENT.value)
         data = build_updated_file_data(stored_file, new_file_data, request_user.get_public_id())
+
+        # Only a move is judged: an entry that stays where it is keeps whatever parent it was stored with
+        new_parent = data[MediaFileKey.METADATA.value][MediaFileMetadataKey.PARENT.value]
+        if new_parent != stored_parent:
+            abort_unless_usable_parent(media_files_manager, new_parent, data[MediaFileKey.PUBLIC_ID.value])
 
         # A file keeps its own name only where nothing else in the folder claims it - unless this write
         # merely re-points a reference, which leaves the name alone
         if not reference_attachment.get(MediaFileRequestKey.REFERENCE.value):
-            checker = {
-                MediaFileKey.FILENAME.value: data[MediaFileKey.FILENAME.value],
-                f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.PARENT.value}':
-                    data[MediaFileKey.METADATA.value].get(MediaFileMetadataKey.PARENT.value),
-            }
             data[MediaFileKey.FILENAME.value] = create_attachment_name(
-                data[MediaFileKey.FILENAME.value], 0, checker, media_files_manager,
+                data[MediaFileKey.FILENAME.value], 0, unique_name_filter(data), media_files_manager,
             )
 
         media_files_manager.update_file(data)
 
         return DefaultResponse(data).make_response()
     except MediaFileManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_file] MediaFileManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the File in the database!")
 
@@ -298,10 +320,11 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
     Requires the ``base.framework.object.view`` right. The optional ``metadata`` query parameter narrows
     the lookup to one folder, as it does for the metadata read
 
-    The filename is quoted in the Content-Disposition header rather than interpolated bare, so a name
-    carrying a quote or a semicolon can not break the header the browser parses. **The content is
-    streamed** chunk by chunk (`stream_grid_file`), so a download costs one GridFS chunk of memory
-    whatever the file's size, and ``Content-Length`` is the stored length
+    The ``Content-Disposition`` header comes from ``attachment_disposition``: an ASCII fallback, quoted so a
+    quote or a semicolon cannot break the header, plus the exact name as ``filename*`` when it is not ASCII. A
+    header must be latin-1: a name in Cyrillic, Greek or CJK written into it bare would make the server drop the
+    connection without an answer. **The content is streamed** chunk by chunk (`stream_grid_file`), so a download
+    costs one GridFS chunk of memory whatever the file's size, and ``Content-Length`` is the stored length
 
     Args:
         filename (str): Name of the MediaFile to download
@@ -329,7 +352,7 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
         stream_grid_file(grid_out),
         mimetype=DOWNLOAD_MIMETYPE,
         headers={
-            "Content-Disposition": f'attachment; filename={quote_header_value(filename)}',
+            CONTENT_DISPOSITION_HEADER: attachment_disposition(filename),
             "Content-Length": str(grid_out.length),
         },
     )

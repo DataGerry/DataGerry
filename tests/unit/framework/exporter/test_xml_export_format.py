@@ -20,8 +20,36 @@ import json
 import xml.etree.ElementTree as ET
 from types import SimpleNamespace
 
+import pytest
+
 from cmdb.framework.exporter.format.xml_export_format import XmlExportFormat
+from cmdb.errors.exporter import ExporterCharacterError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+SHARED_FIELD: str = 'name'
+SERVER_FIELD: str = 'rack-unit'
+ROUTER_FIELD: str = 'ip'
+
+# The pinned document text: the declaration, tab indentation, every empty element self-closing
+SINGLE_TYPE_DOCUMENT: str = (
+    '<?xml version="1.0" ?>\n'
+    '<objects>\n'
+    '\t<object>\n'
+    '\t\t<meta>\n'
+    '\t\t\t<public_id>10</public_id>\n'
+    '\t\t\t<active>True</active>\n'
+    '\t\t\t<type>Server</type>\n'
+    '\t\t</meta>\n'
+    '\t\t<fields>\n'
+    '\t\t\t<field name="name" value="q&quot;&lt;&amp;&gt;"/>\n'
+    '\t\t\t<field name="rack-unit" value=""/>\n'
+    '\t\t</fields>\n'
+    '\t</object>\n'
+    '</objects>\n'
+)
+# A header entry the stand-in object information carries no value for
+ABSENT_HEAD: str = 'author_id'
+EMPTY_DOCUMENT: str = '<?xml version="1.0" ?>\n<objects/>\n'
 
 
 def _obj(object_id: int, type_id: int = 5, type_label: str = 'Server', fields=None, mds=None) -> SimpleNamespace:
@@ -32,6 +60,16 @@ def _obj(object_id: int, type_id: int = 5, type_label: str = 'Server', fields=No
         object_information={'object_id': object_id, 'active': True},
         type_information={'type_id': type_id, 'type_label': type_label},
     )
+
+
+def _field(name: str, value) -> dict:
+    """A rendered text field."""
+    return {'name': name, 'type': 'text', 'value': value}
+
+
+def _field_pairs(obj_element: ET.Element) -> list[tuple[str, str]]:
+    """The (name, value) pairs of an exported <object>'s <fields> block, in document order."""
+    return [(field.attrib['name'], field.attrib['value']) for field in obj_element.find('fields')]
 
 
 def _export(data, *args) -> ET.Element:
@@ -77,19 +115,121 @@ class TestXmlExport:
         fields = root.findall('object/fields/field')
         assert [f.attrib['name'] for f in fields] == ['dg-name']
 
-    def test_multitype_export_keeps_all_types_fields(self) -> None:
-        """B1: a multi-type export keeps the field names contributed by every object, not just the first."""
+    def test_multitype_export_carries_each_types_own_fields(self) -> None:
+        """Each object lists the fields of its own type only, never a field another type declares."""
         obj_a = _obj(10, type_id=5, fields=[{'name': 'dg-name', 'type': 'text', 'value': 'host-1'}])
         obj_b = _obj(11, type_id=6, fields=[{'name': 'ip', 'type': 'text', 'value': '10.0.0.1'}])
 
-        root = _export([obj_a, obj_b])
+        first, second = _export([obj_a, obj_b]).findall('object')
 
-        # Column union is applied to every object; each object only fills in the fields it owns
-        first_fields = {f.attrib['name']: f.attrib['value'] for f in root.findall('object')[0].find('fields')}
-        second_fields = {f.attrib['name']: f.attrib['value'] for f in root.findall('object')[1].find('fields')}
+        assert _field_pairs(first) == [('dg-name', 'host-1')]
+        assert _field_pairs(second) == [('ip', '10.0.0.1')]
 
-        assert first_fields == {'dg-name': 'host-1', 'ip': ''}
-        assert second_fields == {'dg-name': '', 'ip': '10.0.0.1'}
+    def test_multitype_export_keeps_each_types_field_order(self) -> None:
+        """A type sharing a field name with an earlier type keeps its own field order."""
+        server = _obj(10, type_id=5, fields=[_field(SHARED_FIELD, 'x')])
+        router = _obj(11, type_id=6, fields=[_field(ROUTER_FIELD, '1'), _field(SHARED_FIELD, 'y')])
+
+        _, second = _export([server, router]).findall('object')
+
+        assert _field_pairs(second) == [(ROUTER_FIELD, '1'), (SHARED_FIELD, 'y')]
+
+    def test_an_own_empty_field_stays_an_empty_value(self) -> None:
+        """A field the type declares but the object leaves empty is still listed, with an empty value."""
+        root = _export([_obj(10, fields=[_field(SHARED_FIELD, None)])])
+
+        assert _field_pairs(root.find('object')) == [(SHARED_FIELD, '')]
+
+    def test_render_selection_is_narrowed_to_each_types_fields(self) -> None:
+        """A column selection spanning types gives each object the selected fields its type owns, in selection order."""
+        server = _obj(10, type_id=5, fields=[_field(SHARED_FIELD, 'x'), _field(SERVER_FIELD, 's')])
+        router = _obj(11, type_id=6, fields=[_field(ROUTER_FIELD, '1'), _field(SHARED_FIELD, 'y')])
+        metadata = json.dumps({'header': ['public_id'], 'columns': [ROUTER_FIELD, SERVER_FIELD, SHARED_FIELD]})
+
+        first, second = _export([server, router], {'view': 'render', 'metadata': metadata}).findall('object')
+
+        assert _field_pairs(first) == [(SERVER_FIELD, 's'), (SHARED_FIELD, 'x')]
+        assert _field_pairs(second) == [(ROUTER_FIELD, '1'), (SHARED_FIELD, 'y')]
+
+    def test_render_metadata_without_columns_keeps_every_own_field(self) -> None:
+        """A metadata override leaving `columns` out selects the default columns, not none at all."""
+        obj = _obj(10, fields=[_field(SHARED_FIELD, 'x'), _field(SERVER_FIELD, 's')])
+        metadata = json.dumps({'header': ['public_id']})
+
+        root = _export([obj], {'view': 'render', 'metadata': metadata})
+
+        assert [child.tag for child in root.find('object/meta')] == ['public_id']
+        assert _field_pairs(root.find('object')) == [(SHARED_FIELD, 'x'), (SERVER_FIELD, 's')]
+
+    def test_render_metadata_with_empty_columns_exports_no_field(self) -> None:
+        """An empty `columns` list is a selection of its own: no field at all."""
+        metadata = json.dumps({'header': ['public_id'], 'columns': []})
+
+        root = _export([_obj(10)], {'view': 'render', 'metadata': metadata})
+
+        assert not root.findall('object/fields/field')
+
+    @pytest.mark.parametrize('head', ['bad name', '1st', 'a:b', '-dash', '', 'a/><b', 'a b="1"', 7])
+    def test_header_entry_that_is_no_element_name_is_refused(self, head) -> None:
+        """A header entry becomes a tag, so one that is no XML element name is refused instead of crashing."""
+        metadata = json.dumps({'header': ['public_id', head], 'columns': []})
+
+        with pytest.raises(ExporterMetadataError):
+            XmlExportFormat().export([_obj(10)], {'view': 'render', 'metadata': metadata})
+
+    @pytest.mark.parametrize('head', ['public_id', 'type_label', 'creation_time', 'object_information.x', '_a-1'])
+    def test_header_entry_that_is_an_element_name_is_accepted(self, head) -> None:
+        """Element names - the frontend's identity columns among them - pass the header check."""
+        metadata = json.dumps({'header': [head], 'columns': []})
+
+        root = _export([_obj(10)], {'view': 'render', 'metadata': metadata})
+
+        assert len(list(root.find('object/meta'))) == 1
+
+    def test_header_is_checked_also_without_any_object(self) -> None:
+        """The header is refused before any object is serialized, so an empty selection is refused too."""
+        metadata = json.dumps({'header': ['bad name'], 'columns': []})
+
+        with pytest.raises(ExporterMetadataError):
+            XmlExportFormat().export([], {'view': 'render', 'metadata': metadata})
+
+    @pytest.mark.parametrize('value', ['nul\x00', 'vertical\x0btab', 'escape\x1b', 'lone\ud800', 'non\ufffe'])
+    def test_value_xml_cannot_carry_is_refused(self, value: str) -> None:
+        """A field value holding a character XML 1.0 has no spelling for is refused, naming the character."""
+        with pytest.raises(ExporterCharacterError, match=r'U\+[0-9A-F]{4}'):
+            XmlExportFormat().export([_obj(10, fields=[_field(SHARED_FIELD, value)])])
+
+    def test_meta_text_xml_cannot_carry_is_refused(self) -> None:
+        """The check covers element text too, not only attribute values."""
+        obj = _obj(10, type_label='bad\x07label')
+
+        with pytest.raises(ExporterCharacterError):
+            XmlExportFormat().export([obj])
+
+    @pytest.mark.parametrize('value', ['line1\nline2', 'tab\there', 'q"<&>\'', 'ü€😀'])
+    def test_value_xml_can_carry_is_exported(self, value: str) -> None:
+        """Tab, line feed, markup characters and non-ASCII text are exported, not refused."""
+        root = _export([_obj(10, fields=[_field(SHARED_FIELD, value)])])
+
+        assert root.find('object/fields/field').attrib['name'] == SHARED_FIELD
+
+    def test_single_type_document_bytes(self) -> None:
+        """The exact document text of a single-type export: declaration, tab indentation, self-closing fields."""
+        obj = _obj(10, fields=[_field(SHARED_FIELD, 'q"<&>'), _field(SERVER_FIELD, None)])
+
+        assert XmlExportFormat().export([obj]) == SINGLE_TYPE_DOCUMENT
+
+    def test_an_empty_meta_value_is_a_self_closing_element(self) -> None:
+        """A header entry the object has no value for is written `<entry/>`, not `<entry></entry>`."""
+        metadata = json.dumps({'header': ['public_id', ABSENT_HEAD], 'columns': []})
+
+        document = XmlExportFormat().export([_obj(10)], {'view': 'render', 'metadata': metadata})
+
+        assert f'\t\t\t<{ABSENT_HEAD}/>\n' in document
+
+    def test_empty_document_bytes(self) -> None:
+        """An empty export is the declaration and a self-closing root."""
+        assert XmlExportFormat().export([]) == EMPTY_DOCUMENT
 
     def test_no_mds_block_when_object_has_no_mds(self) -> None:
         """An object without MDS gets no <multi_data_sections> element."""
@@ -120,13 +260,3 @@ class TestXmlExport:
     def test_declares_xml_mime_type(self) -> None:
         """XML declares the text/xml mime type (matching the previous writer text/<ext> fallback)."""
         assert XmlExportFormat.MIME_TYPE == 'text/xml'
-
-    def test_collect_field_names_dedupes_in_first_seen_order(self) -> None:
-        """The column union preserves first-seen order and de-duplicates shared field names."""
-        # pylint: disable=protected-access
-        obj_a = _obj(10, fields=[{'name': 'a', 'type': 'text', 'value': '1'},
-                                 {'name': 'b', 'type': 'text', 'value': '2'}])
-        obj_b = _obj(11, fields=[{'name': 'b', 'type': 'text', 'value': '3'},
-                                 {'name': 'c', 'type': 'text', 'value': '4'}])
-
-        assert XmlExportFormat._collect_field_names([obj_a, obj_b]) == ['a', 'b', 'c']

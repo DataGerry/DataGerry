@@ -39,3 +39,10 @@ class UpdaterException(UpdaterError):
     """
     Raised when during an update an error occurs
     """
+
+
+class TenantUpdatesFailedError(UpdaterError):
+    """
+    Raised at startup when every tenant database failed its validation or update - a failure that
+    takes every tenant is the installation's, not one tenant's, so the API is not started
+    """

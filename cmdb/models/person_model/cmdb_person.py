@@ -24,8 +24,8 @@ properties are worth knowing before changing it:
 **Group membership is stored on both sides.** ``groups`` holds the public_ids of the
 ``CmdbPersonGroup``s this person belongs to, and each of those groups repeats the person in its
 ``group_members``. Neither side is derived from the other, so every write has to sync the counterpart -
-that is what ``PersonsManager.update_group_in_persons`` and its twin exist for, and why deleting a
-person is a cascade rather than a delete.
+that is what ``sync_membership`` (``user_management_routes/person_membership_helper.py``) is for, and
+why deleting a person is a cascade rather than a delete.
 
 **The optional keys are never null.** ``phone_number`` and ``email`` default to the empty string and
 ``groups`` to the empty list, coerced in the constructor. The Cerberus schema types them

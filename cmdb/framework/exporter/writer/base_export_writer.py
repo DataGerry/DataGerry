@@ -19,7 +19,9 @@ Implementation of BaseExportWriter
 from logging import Logger, getLogger
 from flask import Response
 
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import ObjectsManager
 from cmdb.manager.locations_manager import LocationsManager
@@ -92,10 +94,12 @@ class BaseExportWriter:
         objects_manager = ObjectsManager(dbm, db_name)
         export_params = self.export_config.parameters
 
+        # An export reads every matching object: it runs under the long budget, not a list page's
         builder_params = BuilderParameters(
             criteria=export_params.filter,
             sort=export_params.sort,
-            order=export_params.order
+            order=export_params.order,
+            time_limit_ms=LONG_QUERY_TIME_LIMIT_MS,
         )
 
         # Fetch objects from the database
@@ -113,7 +117,8 @@ class BaseExportWriter:
             Response: A Flask Response object containing the exported data
         """
         conf_option = self.export_config.options
-        human_readable: bool = BaseExporterFormat.is_human_readable(conf_option)
+        # Requested AND honoured: a format writing the same file either way is no presentation export
+        human_readable: bool = self.export_format.honours_human_readable(conf_option)
 
         # A human-readable export needs location field values resolved to names; the format classes have
         # no database access, so resolve the {public_id: name} map here and pass it through the options
@@ -139,7 +144,7 @@ class BaseExportWriter:
             headers={
                 # Quoted: the name now carries a type name, and an unquoted header value cannot hold a
                 # separator. sanitize_filename_part keeps the value ASCII, so no filename* is needed
-                "Content-Disposition": f'attachment; filename="{filename}"'
+                CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)
             }
         )
 

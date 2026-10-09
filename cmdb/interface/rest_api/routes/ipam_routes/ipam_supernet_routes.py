@@ -23,7 +23,7 @@ the supernet, and the batch 'unassign subnets' endpoint that clears dg-supernet-
 multiple SUBNETs at once
 
 Three things here deliberately differ from the sibling SUBNET routes; none of them is an
-oversight, and each is tracked so the asymmetry stays visible:
+oversight:
 
 * **The unassign write is one bulk write, not a per-object ``update_object``.**
   ``supernet_membership.clear_supernet_ref`` sends one single-document statement per SUBNET, together,
@@ -32,9 +32,10 @@ oversight, and each is tracked so the asymmetry stays visible:
   and edit stamp, and the route writes the change log and webhook of every SUBNET it detached, so the
   detach records what any object edit records. The ACL is one check for the whole batch, because an
   ACL lives on the CmdbType and every target is a SUBNET; the SUBNET routes check per owner instead.
-* **The subnets CSV export is uncapped.** Its SUBNET counterpart refuses an export above
-  ``IpamSubnetIpsExport.MAX_EXPORT_ROWS``; ``IpamExport`` defines no such limit, so a supernet with
-  very many subnets builds the whole file in memory.
+* **The subnets CSV export has no row limit.** Its SUBNET counterpart refuses an export above
+  ``IpamSubnetIpsExport.MAX_EXPORT_ROWS`` because it generates one row per address of a CIDR - an
+  address space, not data. This export writes one row per stored SUBNET the caller may read, which
+  the supernet overview already loads on every request, so it is bounded by the data like that view.
 * **The children endpoint is unpaginated.** Every other route on this blueprint pages its rows;
   this one returns all direct CIDR-children of the expanded subnet in a single response, which is
   also what the frontend expects.
@@ -48,6 +49,7 @@ from typing import Any
 from werkzeug import Response
 
 
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
     IpamUnassignKey,
@@ -197,17 +199,18 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
     """
     HTTP `GET` route exporting all assigned subnets of a supernet as a CSV (.csv) file
 
-    Returns every subnet referencing the supernet (any nesting depth) as a single CSV table
-    with the columns CIDR, IP range, used IPs, free IPs and usage percent. The file is returned
-    as an attachment download.
+    Returns every subnet referencing the supernet (any nesting depth) that the caller may read as a
+    single CSV table in ascending CIDR order, with the columns CIDR, IP range, used IPs and free IPs,
+    plus a trailing usage-percent column for an IPv4 supernet only (an IPv6 table omits it). The file
+    is returned as an attachment download.
+
+    **There is no row limit, by design**: every readable subnet is written however many there are.
+    The SUBNET IP export's ``IpamSubnetIpsExport.MAX_EXPORT_ROWS`` guards a generated address space;
+    these rows are stored documents, bounded by the data like the supernet overview that lists them
 
     Args:
         public_id (int): public_id of the SUPERNET CmdbObject whose subnets are exported
         request_user (CmdbUser): CmdbUser making the request
-
-    The export is **uncapped**: unlike the SUBNET IP export, which refuses anything above
-    ``IpamSubnetIpsExport.MAX_EXPORT_ROWS``, every assigned subnet is written out however many there
-    are
 
     Raises:
         HTTPException: 404 when the supernet does not exist, 400 when the public_id is not a
@@ -230,7 +233,7 @@ def export_supernet_subnets(public_id: int, request_user: CmdbUser) -> Response:
         mimetype=IpamExport.MIMETYPE,
         # Quoted like every other export in the repo: an unquoted filename is only safe as long
         # as the template never yields a space or a separator character
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        headers={CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)},
     )
 
 

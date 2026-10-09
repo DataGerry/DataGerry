@@ -25,6 +25,15 @@ untouched (even when it drops every right); the administrator group passes only 
 still lists the master right as a name string - an omitted, empty, null or dict-shaped rights list
 aborts 400.
 
+``abort_if_admin_would_be_deleted``: only a DELETE-mode delete looks, in this group only, and refuses 400.
+
+``unknown_right_names`` / ``abort_if_unknown_rights``: known names and wildcards pass; each unknown name is
+listed once, in the order sent, and the refusal is a 400 naming all of them. An absent or empty list passes.
+
+``redistribute_members``: the members are read once, the inverse is recorded BEFORE the write (MOVE: move exactly
+those ids back, checked by a count; DELETE: batch snapshots of the users and their settings), and the write is
+handed exactly the ids read. An empty group records and writes nothing.
+
 Pure tests with a stubbed GroupsManager. flask.abort raises a werkzeug HTTPException, so the status
 codes are asserted without a Flask app context
 """
@@ -34,15 +43,23 @@ from unittest.mock import MagicMock
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.framework.write_ledger_constants import WriteKind
 from cmdb.models.group_model import GroupDeleteMode, GroupKey, ADMIN_GROUP_ID, MASTER_RIGHT_NAME
+from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
     resolve_move_target,
+    abort_if_admin_would_be_deleted,
     abort_if_members_would_be_stranded,
     ensure_admin_group_keeps_master_right,
+    redistribute_members,
+    unknown_right_names,
+    abort_if_unknown_rights,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import (
     GROUP_MEMBERS_NEED_ACTION_MSG,
     GROUP_MOVE_TARGET_IS_SOURCE_MSG,
+    GROUP_UNKNOWN_RIGHTS_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -184,8 +201,8 @@ def test_admin_group_keeping_master_right_among_others_passes() -> None:
         pytest.param([], id='empty-list'),
         pytest.param(None, id='null'),
         pytest.param([OTHER_RIGHT_NAME], id='master-right-replaced'),
-        # A payload of full right dicts resolves to no rights at all in CmdbUserGroup.from_data,
-        # so it must be rejected here too rather than silently wiping the group's rights.
+        # The schema refuses full right dicts before this guard runs; the guard alone must not take a
+        # dict for the master right's name either.
         pytest.param([{'name': MASTER_RIGHT_NAME}], id='right-dicts'),
     ],
 )
@@ -218,3 +235,177 @@ def test_non_admin_group_is_never_guarded(rights: list) -> None:
     payload = {GroupKey.NAME: f'group-{NON_ADMIN_GROUP_ID}', GroupKey.RIGHTS: rights}
 
     assert ensure_admin_group_keeps_master_right(NON_ADMIN_GROUP_ID, payload) is None
+
+
+SOURCE_GROUP: int = 70
+TARGET_GROUP: int = 71
+MEMBERS: list[int] = [11, 12]
+USERS_COLLECTION: str = 'management.users'
+SETTINGS_COLLECTION: str = 'management.users.settings'
+
+
+@pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, None], ids=['move', 'none'])
+def test_the_admin_check_only_runs_for_a_delete(action: GroupDeleteMode | None) -> None:
+    """A move or an empty-group delete never deletes the admin, so nothing is read."""
+    users_manager = MagicMock()
+
+    abort_if_admin_would_be_deleted(users_manager, SOURCE_GROUP, action)
+
+    users_manager.get_one_by.assert_not_called()
+
+
+def test_the_admin_in_the_group_refuses_a_delete() -> None:
+    """400, looked up in this group only."""
+    users_manager = MagicMock()
+    users_manager.get_one_by.return_value = {'public_id': CmdbUser.ADMIN_PUBLIC_ID}
+
+    with pytest.raises(HTTPException) as exc_info:
+        abort_if_admin_would_be_deleted(users_manager, SOURCE_GROUP, GroupDeleteMode.DELETE)
+
+    assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+    users_manager.get_one_by.assert_called_once_with({'group_id': SOURCE_GROUP, 'public_id': CmdbUser.ADMIN_PUBLIC_ID})
+
+
+def test_a_delete_without_the_admin_passes() -> None:
+    """No admin member, no refusal."""
+    users_manager = MagicMock()
+    users_manager.get_one_by.return_value = None
+
+    assert abort_if_admin_would_be_deleted(users_manager, SOURCE_GROUP, GroupDeleteMode.DELETE) is None
+
+
+def _managers(members: list[int]) -> tuple[MagicMock, MagicMock]:
+    """A users and a settings manager stub; the users manager reports the given members."""
+    users_manager, settings_manager = MagicMock(), MagicMock()
+    users_manager.collection = USERS_COLLECTION
+    settings_manager.collection = SETTINGS_COLLECTION
+    users_manager.get_group_member_ids.return_value = list(members)
+    users_manager.find.return_value = [{'_id': f'u{i}', 'public_id': i} for i in members]
+    settings_manager.find.return_value = [{'_id': 's1', 'user_id': members[0]}] if members else []
+
+    return users_manager, settings_manager
+
+
+class TestRedistributeMembers:
+    """The one write path for a deleted group's members."""
+
+    @pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, GroupDeleteMode.DELETE], ids=['move', 'delete'])
+    def test_an_empty_group_records_and_writes_nothing(self, action: GroupDeleteMode) -> None:
+        """No members: no entry, no write."""
+        ledger = WriteLedger()
+        users_manager, settings_manager = _managers([])
+
+        redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, action, TARGET_GROUP)
+
+        assert not ledger.entries
+        users_manager.handle_users_on_group_delete.assert_not_called()
+
+    @pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, GroupDeleteMode.DELETE], ids=['move', 'delete'])
+    def test_the_write_gets_exactly_the_ids_read(self, action: GroupDeleteMode) -> None:
+        """The ids the inverse covers are the ids the write selects."""
+        users_manager, settings_manager = _managers(MEMBERS)
+
+        redistribute_members(WriteLedger(), (users_manager, settings_manager), SOURCE_GROUP, action, TARGET_GROUP)
+
+        users_manager.handle_users_on_group_delete.assert_called_once_with(SOURCE_GROUP, action, TARGET_GROUP,
+                                                                           MEMBERS)
+        users_manager.get_group_member_ids.assert_called_once_with(SOURCE_GROUP)
+
+    @pytest.mark.parametrize('action', [GroupDeleteMode.MOVE, GroupDeleteMode.DELETE], ids=['move', 'delete'])
+    def test_the_inverse_is_recorded_before_the_write(self, action: GroupDeleteMode) -> None:
+        """A write that raises part-way is still undone: its entries are already there."""
+        ledger = WriteLedger()
+        users_manager, settings_manager = _managers(MEMBERS)
+        recorded: list[int] = []
+        users_manager.handle_users_on_group_delete.side_effect = lambda *_a: recorded.append(len(ledger.entries))
+
+        redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, action, TARGET_GROUP)
+
+        assert recorded == [len(ledger.entries)] and recorded[0] > 0
+
+    def test_the_move_inverse_moves_exactly_the_members_back(self) -> None:
+        """Checked by counting them in the source group again."""
+        ledger = WriteLedger()
+        users_manager, settings_manager = _managers(MEMBERS)
+        users_manager.count_documents.return_value = len(MEMBERS)
+        redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, GroupDeleteMode.MOVE,
+                             TARGET_GROUP)
+
+        assert not ledger.undo()
+        users_manager.move_users.assert_called_once_with(MEMBERS, SOURCE_GROUP)
+        users_manager.count_documents.assert_called_once_with({'public_id': {'$in': MEMBERS},
+                                                               'group_id': SOURCE_GROUP})
+
+    def test_a_move_inverse_that_leaves_one_behind_is_residue(self) -> None:
+        """One member still in the target: the count says so."""
+        ledger = WriteLedger()
+        users_manager, settings_manager = _managers(MEMBERS)
+        users_manager.count_documents.return_value = len(MEMBERS) - 1
+        redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, GroupDeleteMode.MOVE,
+                             TARGET_GROUP)
+
+        residue = ledger.undo()
+
+        assert [(item.collection, item.kind) for item in residue] == [(USERS_COLLECTION, WriteKind.COMPENSATED)]
+
+    def test_a_delete_snapshots_the_users_and_their_settings(self) -> None:
+        """Two batch entries, read by the member ids: whole user documents, and settings by user_id."""
+        ledger = WriteLedger()
+        users_manager, settings_manager = _managers(MEMBERS)
+
+        redistribute_members(ledger, (users_manager, settings_manager), SOURCE_GROUP, GroupDeleteMode.DELETE, None)
+
+        users_manager.find.assert_called_once_with(criteria={'public_id': {'$in': MEMBERS}}, projection=None)
+        settings_manager.find.assert_called_once_with(criteria={'user_id': {'$in': MEMBERS}}, projection=None)
+        assert [entry.collection for entry in ledger.entries] == [USERS_COLLECTION, SETTINGS_COLLECTION]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         unknown_right_names / abort_if_unknown_rights                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+KNOWN_RIGHT_NAME: str = 'base.framework.object.view'
+WILDCARD_RIGHT_NAME: str = 'base.framework.*'
+UNKNOWN_RIGHT_NAME: str = 'base.no-such-right'
+OTHER_UNKNOWN_RIGHT_NAME: str = 'base.framework.no-such-right'
+KNOWN_NAMES: frozenset[str] = frozenset({KNOWN_RIGHT_NAME, WILDCARD_RIGHT_NAME, MASTER_RIGHT_NAME})
+
+
+def test_known_names_and_wildcards_are_not_unknown() -> None:
+    """Every name of the tree, wildcards included, passes."""
+    assert not unknown_right_names([KNOWN_RIGHT_NAME, WILDCARD_RIGHT_NAME, MASTER_RIGHT_NAME], KNOWN_NAMES)
+
+
+def test_unknown_names_are_listed_once_in_the_order_sent() -> None:
+    """Duplicates collapse; the first occurrence decides the position."""
+    submitted: list[str] = [OTHER_UNKNOWN_RIGHT_NAME, KNOWN_RIGHT_NAME, UNKNOWN_RIGHT_NAME, OTHER_UNKNOWN_RIGHT_NAME]
+
+    assert unknown_right_names(submitted, KNOWN_NAMES) == [OTHER_UNKNOWN_RIGHT_NAME, UNKNOWN_RIGHT_NAME]
+
+
+def test_the_match_is_exact() -> None:
+    """A name differing only in case is unknown - right names are compared as stored."""
+    assert unknown_right_names([KNOWN_RIGHT_NAME.upper()], KNOWN_NAMES) == [KNOWN_RIGHT_NAME.upper()]
+
+
+@pytest.mark.parametrize('data', [{}, {GroupKey.RIGHTS.value: []}, {GroupKey.RIGHTS.value: None}])
+def test_no_rights_passes(data: dict) -> None:
+    """An absent, empty or null rights list has nothing to refuse."""
+    abort_if_unknown_rights(data, KNOWN_NAMES)
+
+
+def test_a_payload_of_known_names_passes() -> None:
+    """Nothing is raised for known names only."""
+    abort_if_unknown_rights({GroupKey.RIGHTS.value: [KNOWN_RIGHT_NAME, WILDCARD_RIGHT_NAME]}, KNOWN_NAMES)
+
+
+def test_an_unknown_name_aborts_400_naming_every_unknown() -> None:
+    """The refusal is a 400 whose message lists each unknown name, quoted, in the order sent."""
+    data: dict = {GroupKey.RIGHTS.value: [UNKNOWN_RIGHT_NAME, KNOWN_RIGHT_NAME, OTHER_UNKNOWN_RIGHT_NAME]}
+
+    with pytest.raises(HTTPException) as exc_info:
+        abort_if_unknown_rights(data, KNOWN_NAMES)
+
+    assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+    assert exc_info.value.description == GROUP_UNKNOWN_RIGHTS_MSG.format(
+        names=f"'{UNKNOWN_RIGHT_NAME}', '{OTHER_UNKNOWN_RIGHT_NAME}'",
+    )

@@ -55,6 +55,9 @@ from cmdb.models.isms_model.isms_helper.isms_risk_matrix_helper import (
 )
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
+
+from cmdb.errors.database import DocumentDuplicateKeyError
+from cmdb.errors.manager.risk_matrix_manager import RiskMatrixManagerInsertError
 from cmdb.models.isms_model.isms_risk_matrix_constants import RiskMatrixKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -121,6 +124,56 @@ def test_creates_default_matrix_when_missing() -> None:
     assert result[RiskMatrixKey.PUBLIC_ID] == EXISTING_MATRIX_ID
     assert result[RiskMatrixKey.RISK_MATRIX] == []
     assert result[RiskMatrixKey.MATRIX_UNIT] is None
+
+
+class _RaceLostRiskMatrixManager(_StubRiskMatrixManager):
+    """
+    A manager whose insert loses a race: another caller stored the singleton between the read and the insert
+
+    get_item answers None for the first read, then the winner's document; the insert raises what a unique-index
+    refusal looks like through the manager - a RiskMatrixManagerInsertError caused by DocumentDuplicateKeyError
+    """
+
+    def __init__(self, winner: dict[str, Any], insert_error: Exception) -> None:
+        super().__init__(None)
+        self._winner = winner
+        self._insert_error = insert_error
+
+    def insert_item(self, document: dict[str, Any]) -> int:
+        """Records the attempt, makes the winner readable and refuses"""
+        self.inserted.append(document)
+        self._current = self._winner
+
+        raise self._insert_error
+
+
+def _wrapped(cause: Exception) -> RiskMatrixManagerInsertError:
+    """A manager insert error carrying ``cause``, as ``raise ... from err`` chains it"""
+    try:
+        raise RiskMatrixManagerInsertError(cause) from cause
+    except RiskMatrixManagerInsertError as err:
+        return err
+
+
+def test_a_lost_recreation_race_reads_the_winner_back() -> None:
+    """The unique public_id index let the other caller win - its document is answered, not a failure"""
+    winner: dict[str, Any] = {RiskMatrixKey.PUBLIC_ID: EXISTING_MATRIX_ID, RiskMatrixKey.RISK_MATRIX: [],
+                              RiskMatrixKey.MATRIX_UNIT: 'EUR'}
+    manager = _RaceLostRiskMatrixManager(winner, _wrapped(DocumentDuplicateKeyError('E11000')))
+
+    assert ensure_default_risk_matrix(manager) is winner
+    assert len(manager.inserted) == 1
+
+
+def test_any_other_recreation_failure_is_raised() -> None:
+    """Only a lost race is absorbed - an outage is still the caller's error"""
+    error = _wrapped(RuntimeError('down'))
+    manager = _RaceLostRiskMatrixManager({}, error)
+
+    with pytest.raises(RiskMatrixManagerInsertError) as exc_info:
+        ensure_default_risk_matrix(manager)
+
+    assert exc_info.value is error
 
 
 class _AmnesiacRiskMatrixManager(_StubRiskMatrixManager):

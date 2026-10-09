@@ -85,19 +85,19 @@ class TestExportAllTypes:
 
     def test_manager_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A TypesManagerGetError while fetching types surfaces as 400."""
-        monkeypatch.setattr(TypesManager, 'get_all_types', _raiser(TypesManagerGetError('boom')))
+        monkeypatch.setattr(TypesManager, 'get_types_by', _raiser(TypesManagerGetError('boom')))
 
         assert rest_api.post(EXPORT_ALL_URL).status_code == HTTPStatus.BAD_REQUEST
 
     def test_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error while fetching types surfaces as 500."""
-        monkeypatch.setattr(TypesManager, 'get_all_types', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(TypesManager, 'get_types_by', _raiser(RuntimeError('boom')))
 
         assert rest_api.post(EXPORT_ALL_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_http_exception_is_passed_through(self, rest_api, monkeypatch) -> None:
         """An HTTPException raised while exporting keeps its own status instead of becoming a 500."""
-        monkeypatch.setattr(TypesManager, 'get_all_types', _raiser(NotFound()))
+        monkeypatch.setattr(TypesManager, 'get_types_by', _raiser(NotFound()))
 
         assert rest_api.post(EXPORT_ALL_URL).status_code == HTTPStatus.NOT_FOUND
 

@@ -24,7 +24,6 @@ consumed as IsmsRiskMatrix.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_risk_matrix_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsRiskMatrix document

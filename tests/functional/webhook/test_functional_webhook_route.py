@@ -56,6 +56,8 @@ WEBHOOK_ID_FOR_GET: int = 97801
 WEBHOOK_ID_FOR_UPDATE: int = 97802
 WEBHOOK_ID_FOR_DELETE: int = 97803
 MISSING_WEBHOOK_ID: int = 97899
+# The seeded test user: every write route makes the caller the webhook's owner
+ADMIN_USER_ID: int = 1
 
 ALL_WEBHOOK_IDS: list[int] = [WEBHOOK_ID_FOR_GET, WEBHOOK_ID_FOR_UPDATE, WEBHOOK_ID_FOR_DELETE]
 CREATE_NAME: str = 'Created Webhook'
@@ -551,7 +553,7 @@ class TestBodyPayload:
 
         assert response.status_code == HTTPStatus.OK
         stored = _stored_by_name(database_manager, database_name)
-        assert stored == {**body, 'public_id': response.get_json()}
+        assert stored == {**body, 'public_id': response.get_json(), 'owner_id': ADMIN_USER_ID}
 
     def test_the_body_wins_over_the_query_string_key_by_key(
             self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
@@ -604,7 +606,7 @@ class TestBodyPayload:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
         stored = database_manager.get_collection(CmdbWebhook.COLLECTION, database_name)\
             .find_one({'public_id': WEBHOOK_ID_FOR_UPDATE}, {'_id': 0})
-        assert stored == {**body, 'public_id': WEBHOOK_ID_FOR_UPDATE}
+        assert stored == {**body, 'public_id': WEBHOOK_ID_FOR_UPDATE, 'owner_id': ADMIN_USER_ID}
         assert response.get_json()['result'] == stored
 
     def test_update_pins_a_body_public_id_to_the_url(self, rest_api, database_manager: MongoDatabaseManager,

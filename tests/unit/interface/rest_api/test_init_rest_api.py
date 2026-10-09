@@ -16,19 +16,22 @@
 """
 Unit tests for cmdb.interface.rest_api.init_rest_api
 
-DB-free. `create_rest_api` is driven with a MagicMock database manager and the mode globals
-(`cmdb.__MODE__`, `__CLOUD_MODE__`, `__LOCAL_MODE__`) monkeypatched, so each config profile and each
-startup branch is exercised without a MongoDB. The two startup orchestrators are called directly with
-`SystemConfigReader`, `CollectionValidator`, `DatabaseUpdater` and `get_db_names_from_service_portal`
-patched at the module path.
+DB-free. `create_rest_api` builds the real app - every blueprint and every licence gate - with a MagicMock
+database manager and the mode globals (`cmdb.__MODE__`, `__CLOUD_MODE__`, `__LOCAL_MODE__`) monkeypatched, so
+each config profile and each startup branch is exercised without a MongoDB; the factory builds as often as a
+test needs, beside the session app. The startup orchestrators are called directly with `SystemConfigReader`,
+`CollectionValidator`, `DatabaseUpdater` and `get_db_names_from_service_portal` patched at the module path.
 
-The blueprint-registration test is the important one: it asserts that every blueprint imported by
-`register_blueprints` is actually registered, and that none is registered twice. A blueprint that is
-imported but never mounted fails silently - the feature is simply absent from the URL map with no
-error anywhere - which has happened in this codebase before, so the parity is pinned rather than
-trusted.
+The registration census is the important part: it runs the real `register_blueprints` against a recording app
+and asserts that every blueprint defined under the routes package is registered, once, at its prefix, and that
+every licensed group is gated behind its feature before it is registered. A blueprint that is defined but never
+mounted fails silently - the feature is simply absent from the URL map with no error anywhere - which has
+happened in this codebase before, so the parity is pinned rather than trusted.
 """
-import re
+import importlib
+import logging
+import pkgutil
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Iterator
 from unittest.mock import MagicMock, call, patch
@@ -36,16 +39,51 @@ from unittest.mock import MagicMock, call, patch
 import pytest
 from werkzeug.exceptions import HTTPException, MethodNotAllowed, NotFound
 
+from flask import Blueprint
+from pymongo.errors import ServerSelectionTimeoutError
+
 import cmdb
+from cmdb.errors.database import (
+    DatabaseConnectionError,
+    DocumentInsertError,
+    DocumentLockTimeoutError,
+    DocumentNetworkError,
+)
+from cmdb.errors.updater import TenantUpdatesFailedError, UpdaterException
 from cmdb.interface.cmdb_app import BaseCmdbApp
+from cmdb.interface.rest_api.responses.error_handlers import DATABASE_LOCKED_MSG, DATABASE_UNAVAILABLE_MSG
 from cmdb.interface.custom_converters import RegexConverter
+from cmdb.interface.rest_api import routes as routes_package
+from cmdb.interface.rest_api.routes.config_routes.config_file_routes import config_file_blueprint
+from cmdb.interface.rest_api.routes.connection import connection_routes
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_routes import (
+    docapi_blueprint,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_routes import objects_blueprint
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_routes import types_blueprint
+from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
+from cmdb.interface.rest_api.routes.framework_routes.special_routes import special_blueprint
+from cmdb.interface.rest_api.routes.ipam_routes.ipam_subnet_routes import ipam_subnet_blueprint
+from cmdb.interface.rest_api.routes.isms_routes import risk_blueprint
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_routes import media_file_blueprint
+from cmdb.interface.rest_api.routes.open_celium_routes import oc_licenses_blueprint
+from cmdb.interface.rest_api.routes.relation_routes.object_relation_logs_routes import object_relation_logs_blueprint
+from cmdb.interface.rest_api.routes.relation_routes.object_relation_routes import object_relations_blueprint
+from cmdb.interface.rest_api.routes.relation_routes.relations_routes import relations_blueprint
+from cmdb.interface.rest_api.routes.setup_routes.setup_routes import setup_blueprint
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import GATED_FEATURE_ATTR
+from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.init_rest_api import (
     bring_database_up_to_date,
     create_rest_api,
+    _register_gated,
     execute_update_checks,
+    is_database_outage,
+    register_blueprints,
     register_converters,
     register_error_pages,
     start_datagerry_setup,
+    update_tenant_database,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -54,6 +92,8 @@ SOURCE_FILE: Path = Path(__file__).resolve().parents[4] / 'cmdb' / 'interface' /
 
 DB_NAME: str = 'cmdb-unit'
 TENANT_DBS: list[str] = ['tenant-a', 'tenant-b']
+BROKEN_TENANT: str = TENANT_DBS[0]
+HEALTHY_TENANT: str = TENANT_DBS[1]
 
 # The statuses the route layer actually aborts (`grep -c "abort(<code>"` across cmdb/), so the
 # envelope is proved for every one the API really emits
@@ -76,19 +116,16 @@ def fixture_isolated_mode_flags(monkeypatch: pytest.MonkeyPatch) -> Iterator[Non
 
 def _build(monkeypatch: pytest.MonkeyPatch, mode: str, cloud: bool = False, local: bool = False) -> Any:
     """
-    Builds the app in the given mode with both startup routines patched out
+    Builds the real app - every blueprint, every gate - in the given mode, with both startup routines patched out
 
-    Blueprint registration is patched out too: the blueprints are module-level singletons and
-    `gate_blueprint` attaches `before_request` hooks to them, which Flask refuses once a blueprint has
-    been registered - so an app carrying the real blueprints can only be built ONCE per process.
-    The registration itself is covered separately by the fixture below.
+    The blueprints are module-level singletons every app in the process registers; `gate_blueprint` leaves a
+    blueprint already gated behind the same feature as it is, so this builds as often as a test needs
     """
     monkeypatch.setattr(cmdb, '__MODE__', mode, raising=False)
     monkeypatch.setattr(cmdb, '__CLOUD_MODE__', cloud, raising=False)
     monkeypatch.setattr(cmdb, '__LOCAL_MODE__', local, raising=False)
 
-    with patch(f'{MODULE_PATH}.register_blueprints'), \
-         patch(f'{MODULE_PATH}.start_datagerry_setup') as mock_setup, \
+    with patch(f'{MODULE_PATH}.start_datagerry_setup') as mock_setup, \
          patch(f'{MODULE_PATH}.execute_update_checks') as mock_checks:
         app = create_rest_api(MagicMock())
 
@@ -102,9 +139,8 @@ def test_returns_a_configured_app_bound_to_the_database_manager(monkeypatch: pyt
     """The factory hands back a BaseCmdbApp carrying the given manager and strict slashes"""
     monkeypatch.setattr(cmdb, '__MODE__', 'TESTING', raising=False)
 
-    with patch(f'{MODULE_PATH}.register_blueprints'):
-        manager = MagicMock()
-        app = create_rest_api(manager)
+    manager = MagicMock()
+    app = create_rest_api(manager)
 
     assert isinstance(app, BaseCmdbApp)
     assert app.database_manager is manager
@@ -124,6 +160,18 @@ def test_each_mode_selects_its_config_profile(
 
     assert app.config['DEBUG'] is expected_debug
     assert app.config['TESTING'] is expected_testing
+
+
+@pytest.mark.parametrize('mode', ['DEBUG', 'TESTING', 'PRODUCTION'])
+def test_error_bodies_are_compact_in_every_mode(monkeypatch: pytest.MonkeyPatch, mode: str) -> None:
+    """Flask pretty-prints its JSON whenever DEBUG is on - the API answers errors compact regardless"""
+    app, _setup, _checks = _build(monkeypatch, mode)
+
+    with app.test_request_context():
+        body: str = app.json.dumps({'outer': {'inner': [1, 2]}})
+
+    assert app.json.compact is True
+    assert '\n' not in body
 
 
 def test_testing_mode_runs_no_startup_routine(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -182,13 +230,46 @@ def test_the_api_exposes_the_headers_a_cross_origin_frontend_reads(
     assert header in exposed
 
 
+@pytest.mark.parametrize('local', [False, True])
+def test_cloud_mode_keeps_the_failed_tenants_on_the_app(monkeypatch: pytest.MonkeyPatch, local: bool) -> None:
+    """The tenants the update checks report as failed become the app's unavailable tenants"""
+    monkeypatch.setattr(cmdb, '__MODE__', 'PRODUCTION', raising=False)
+    monkeypatch.setattr(cmdb, '__CLOUD_MODE__', True, raising=False)
+    monkeypatch.setattr(cmdb, '__LOCAL_MODE__', local, raising=False)
+    failed = frozenset({BROKEN_TENANT})
+
+    with patch(f'{MODULE_PATH}.execute_update_checks', return_value=failed):
+        app = create_rest_api(MagicMock())
+
+    assert app.unavailable_tenants == failed
+
+
+def test_an_app_starts_with_no_unavailable_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without the cloud update checks (TESTING, on premise) no tenant is fenced off"""
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    assert app.unavailable_tenants == frozenset()
+
+
+def test_every_tenant_failing_exits_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """When no tenant could be brought up to date the API does not start at all"""
+    monkeypatch.setattr(cmdb, '__MODE__', 'PRODUCTION', raising=False)
+    monkeypatch.setattr(cmdb, '__CLOUD_MODE__', True, raising=False)
+    monkeypatch.setattr(cmdb, '__LOCAL_MODE__', False, raising=False)
+
+    with patch(f'{MODULE_PATH}.execute_update_checks', side_effect=TenantUpdatesFailedError('all failed')):
+        with pytest.raises(SystemExit) as exc_info:
+            create_rest_api(MagicMock())
+
+    assert exc_info.value.code == 1
+
+
 def test_a_failing_startup_routine_exits_the_process(monkeypatch: pytest.MonkeyPatch) -> None:
     """A startup failure is fatal: the process exits 1 rather than serving a half-built API"""
     monkeypatch.setattr(cmdb, '__MODE__', 'PRODUCTION', raising=False)
     monkeypatch.setattr(cmdb, '__CLOUD_MODE__', False, raising=False)
 
-    with patch(f'{MODULE_PATH}.register_blueprints'), \
-         patch(f'{MODULE_PATH}.start_datagerry_setup', side_effect=RuntimeError('boom')):
+    with patch(f'{MODULE_PATH}.start_datagerry_setup', side_effect=RuntimeError('boom')):
         with pytest.raises(SystemExit) as exc_info:
             create_rest_api(MagicMock())
 
@@ -242,7 +323,6 @@ def test_a_regex_rule_without_a_pattern_matches_one_segment() -> None:
         adapter.match('/plain/two/segments')
 
 
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                register_error_pages                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -285,6 +365,45 @@ def test_the_abort_message_reaches_the_client(status: int) -> None:
         abort(status, 'boom')
 
     assert app.test_client().get('/boom').get_json()['message'] == 'boom'
+
+
+@pytest.mark.parametrize('error, status, message', [
+    (DocumentNetworkError('connection lost'), HTTPStatus.SERVICE_UNAVAILABLE, DATABASE_UNAVAILABLE_MSG),
+    (DocumentLockTimeoutError('lock timeout'), HTTPStatus.LOCKED, DATABASE_LOCKED_MSG),
+], ids=['network -> 503', 'lock -> 423'])
+def test_a_transient_database_error_answers_its_own_status(error: Exception, status: int, message: str,
+                                                           caplog: pytest.LogCaptureFixture) -> None:
+    """Registered for the app, so ANY route that lets it escape answers 'try again' in the envelope - and logs it"""
+    app = BaseCmdbApp(__name__, database_manager=MagicMock())
+    register_error_pages(app)
+
+    @app.route('/boom')
+    def _boom() -> None:
+        raise error
+
+    with caplog.at_level(logging.ERROR):
+        response = app.test_client().get('/boom')
+
+    assert response.status_code == status
+    assert response.mimetype == 'application/json'
+    assert set(response.get_json()) == {'description', 'message', 'response', 'status'}
+    assert response.get_json()['message'] == message
+    assert any(record.exc_info and record.exc_info[1] is error for record in caplog.records)
+
+
+def test_a_subclass_of_neither_is_still_a_500() -> None:
+    """Only the two transient errors are mapped: any other database error stays the generic server fault"""
+    app = BaseCmdbApp(__name__, database_manager=MagicMock())
+    register_error_pages(app)
+
+    @app.route('/boom')
+    def _boom() -> None:
+        raise DocumentInsertError('refused')
+
+    response = app.test_client().get('/boom')
+
+    assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+    assert response.get_json()['message'] not in (DATABASE_UNAVAILABLE_MSG, DATABASE_LOCKED_MSG)
 
 
 def test_a_405_abort_message_is_dropped_by_werkzeug() -> None:
@@ -336,145 +455,305 @@ def test_one_handler_is_registered_for_the_whole_family() -> None:
     The shape of the fix, not just its effect
 
     Nine per-status registrations became one, so a future status needs no registration at all. A
-    change that re-introduces per-code handlers fails here even if the responses still look right.
+    change that re-introduces per-code handlers fails here even if the responses still look right. Beside it,
+    by exception class: the two transient database errors, which have statuses of their own (503 / 423).
     """
     app = BaseCmdbApp(__name__, database_manager=MagicMock())
     register_error_pages(app)
 
-    handlers = app.error_handler_spec[None][None]
+    by_code = app.error_handler_spec[None]
+    handlers = by_code[None]
 
-    assert list(handlers) == [HTTPException]
+    assert set(handlers) == {HTTPException, DocumentNetworkError, DocumentLockTimeoutError}
+    assert list(by_code) == [None]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                register_blueprints                                                   #
 # -------------------------------------------------------------------------------------------------------------------- #
-def _registration_source() -> str:
-    """Returns the body of register_blueprints as text."""
-    source: str = SOURCE_FILE.read_text(encoding='utf-8')
+GATE_EVENT: str = 'gate'
+REGISTER_EVENT: str = 'register'
 
-    return source[source.index('def register_blueprints'):source.index('def register_error_pages')]
-
-
-def _imported_blueprint_names(body: str) -> set[str]:
-    """Collects every blueprint name imported inside register_blueprints."""
-    names: set[str] = set()
-
-    for match in re.finditer(r'^\s+from [\w.]+ import \(([^)]*)\)', body, re.M):
-        names |= {part.strip().rstrip(',') for part in match.group(1).split('\n') if part.strip().rstrip(',')}
-
-    for match in re.finditer(r'^\s+from [\w.]+ import ([\w, ]+)$', body, re.M):
-        names |= {part.strip() for part in match.group(1).split(',') if part.strip()}
-
-    # 'gate_blueprint' is the licensing guard imported alongside them, not a blueprint itself
-    return {
-        name for name in names
-        if name.endswith(('blueprint', 'blueprints', 'routes')) and name != 'gate_blueprint'
-    }
+#: Every licensed group: the prefixes it is mounted under and the feature each of its blueprints is gated behind
+LICENSED_PREFIXES: dict[str, LicenseFeature] = {
+    '/isms/': LicenseFeature.ISMS,
+    '/object_groups': LicenseFeature.ISMS,
+    '/persons': LicenseFeature.ISMS,
+    '/person_groups': LicenseFeature.ISMS,
+    '/ipam/': LicenseFeature.IPAM,
+    '/racks': LicenseFeature.IPAM,
+    '/ports': LicenseFeature.IPAM,
+    '/port_connections': LicenseFeature.IPAM,
+    '/open_celium': LicenseFeature.AUTOMATIONS,
+}
 
 
-def test_every_imported_blueprint_is_registered() -> None:
-    """A blueprint imported but never mounted is invisible - no error, just a missing feature"""
-    body = _registration_source()
+class _RecordingApp:
+    """Stands in for the Flask app: records each registration instead of mounting it."""
 
-    assert _imported_blueprint_names(body) - set(re.findall(r'register_blueprint\(\s*(\w+)', body)) == set()
+    def __init__(self, events: list[tuple[str, str, Any]]) -> None:
+        self.events = events
+
+    def register_blueprint(self, blueprint: Blueprint, url_prefix: str | None = None) -> None:
+        """Records the blueprint's name and prefix."""
+        self.events.append((REGISTER_EVENT, blueprint.name, url_prefix))
 
 
-def test_no_blueprint_is_registered_twice() -> None:
+def _record_registration(monkeypatch: pytest.MonkeyPatch, cloud: bool) -> list[tuple[str, str, Any]]:
+    """
+    Runs the real register_blueprints against a recording app, in order: every gate and every registration
+
+    `gate_blueprint` is recorded rather than run, so the order of every gate against its registration is visible -
+    a built app shows only the result
+    """
+    monkeypatch.setattr(cmdb, '__CLOUD_MODE__', cloud, raising=False)
+    events: list[tuple[str, str, Any]] = []
+
+    def _gate(blueprint: Blueprint, feature: LicenseFeature) -> None:
+        events.append((GATE_EVENT, blueprint.name, feature))
+
+    with patch(f'{MODULE_PATH}.gate_blueprint', side_effect=_gate):
+        register_blueprints(_RecordingApp(events))
+
+    return events
+
+
+def _mounts(events: list[tuple[str, str, Any]]) -> list[tuple[str, str | None]]:
+    """The registrations of a recording, in order, as (blueprint name, prefix)."""
+    return [(name, prefix) for kind, name, prefix in events if kind == REGISTER_EVENT]
+
+
+def _gates(events: list[tuple[str, str, Any]]) -> dict[str, LicenseFeature]:
+    """The gates of a recording, as blueprint name -> feature."""
+    return {name: feature for kind, name, feature in events if kind == GATE_EVENT}
+
+
+def _route_blueprints() -> dict[str, str]:
+    """Every Blueprint instance under the routes package, as name -> the module it was created in (import_name)."""
+    found: dict[str, str] = {}
+
+    for module_info in pkgutil.walk_packages(routes_package.__path__, f'{routes_package.__name__}.'):
+        module = importlib.import_module(module_info.name)
+
+        for value in vars(module).values():
+            if isinstance(value, Blueprint):
+                found.setdefault(value.name, value.import_name)
+
+    return found
+
+
+def test_every_blueprint_under_the_routes_package_is_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A blueprint defined but never mounted is invisible - no error, just a missing feature"""
+    registered = {name for name, _prefix in _mounts(_record_registration(monkeypatch, cloud=True))}
+
+    assert registered == set(_route_blueprints())
+
+
+def test_the_census_finds_the_route_blueprints() -> None:
+    """The discovery itself is not vacuous: it finds blueprints of every domain, under their own names"""
+    found = _route_blueprints()
+
+    assert {objects_blueprint.name, risk_blueprint.name, ipam_subnet_blueprint.name, setup_blueprint.name} <= set(found)
+
+
+def test_no_blueprint_is_registered_twice(monkeypatch: pytest.MonkeyPatch) -> None:
     """A duplicate registration would shadow routes depending on prefix order"""
-    body = _registration_source()
-    registered = re.findall(r'register_blueprint\(\s*(\w+)', body)
+    names = [name for name, _prefix in _mounts(_record_registration(monkeypatch, cloud=True))]
 
-    assert len(registered) == len(set(registered))
-
-
-def test_the_registration_list_covers_every_domain() -> None:
-    """A rough floor on the blueprint count, so a whole domain cannot silently drop out"""
-    body = _registration_source()
-
-    assert len(re.findall(r'register_blueprint\(\s*(\w+)', body)) > 60
+    assert len(names) == len(set(names))
 
 
 @pytest.mark.parametrize('blueprint, prefix', [
-    ('objects_blueprint', '/objects'),
-    ('types_blueprint', '/types'),
-    ('search_blueprint', '/search'),
-    ('docapi_blueprint', '/docapi'),
-    ('media_file_blueprint', '/media_file'),
-    ('special_blueprint', '/special'),
-    ('ipam_subnet_blueprint', '/ipam/subnet'),
-    ('risk_blueprint', '/isms/risks'),
-    ('relations_blueprint', '/relations'),
-    ('object_relations_blueprint', '/object_relations'),
-    ('object_relation_logs_blueprint', '/object_relation_logs'),
-])
-def test_known_mount_points_are_declared_at_the_registration_site(blueprint: str, prefix: str) -> None:
+    (objects_blueprint, '/objects'),
+    (types_blueprint, '/types'),
+    (search_blueprint, '/search'),
+    (docapi_blueprint, '/docapi'),
+    (media_file_blueprint, '/media_file'),
+    (special_blueprint, '/special'),
+    (ipam_subnet_blueprint, '/ipam/subnet'),
+    (risk_blueprint, '/isms/risks'),
+    (relations_blueprint, '/relations'),
+    (object_relations_blueprint, '/object_relations'),
+    (object_relation_logs_blueprint, '/object_relation_logs'),
+], ids=lambda value: getattr(value, 'name', value))
+def test_known_mount_points_are_declared_at_the_registration_site(
+    monkeypatch: pytest.MonkeyPatch, blueprint: Blueprint, prefix: str,
+) -> None:
     """
-    Prefixes the frontend depends on are declared here, not only inside the route module
+    Prefixes the frontend depends on are passed at registration, not only inside the route module
 
     Includes the four blueprints that ALSO set url_prefix on their own APIBlueprint(...) constructor
-    (search / docapi / media_file / special) - the value passed here is identical and wins, so this
-    list stays the single source of truth for the URL map
+    (search / docapi / media_file / special) - the value passed here is identical and wins, so the
+    registration stays the single source of truth for the URL map
     """
-    body = _registration_source()
-
-    assert f"register_blueprint({blueprint}, url_prefix='{prefix}')" in body
+    assert (blueprint.name, prefix) in _mounts(_record_registration(monkeypatch, cloud=False))
 
 
-def test_a_blueprint_is_imported_from_the_package_of_the_entity_it_serves() -> None:
+def test_the_object_relation_log_routes_live_with_the_entity_they_record() -> None:
     """
     The route package holds the entity it serves - the log routes with the relations they record
 
-    `/object_relation_logs` is imported from the package that holds the entity it records. A
-    top-level `log_routes` package holding that one module would read as the home of every log route
-    while the OBJECT logs sit elsewhere. The import path is the only trace of that in this file, so
-    this is where such a move would show up.
+    A top-level `log_routes` package holding that one module would read as the home of every log route
+    while the OBJECT logs sit elsewhere
     """
-    body = _registration_source()
+    assert _route_blueprints()[object_relation_logs_blueprint.name] == (
+        'cmdb.interface.rest_api.routes.relation_routes.object_relation_logs_routes'
+    )
 
-    assert 'routes.relation_routes.object_relation_logs_routes import (' in body
-    assert 'log_routes.object_relation_logs_routes' not in body
 
-
-def test_the_setup_blueprint_is_registered_only_in_cloud_mode() -> None:
+def test_the_setup_blueprint_is_registered_only_in_cloud_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     The registration IS the guard for the Service-Portal teardown routes
 
     Those three routes carry no `insert_request_user` and no `.protect`; their only decorator is
     `verify_api_access`, which returns immediately outside cloud mode. Registering them on-premise
     therefore published an unauthenticated `DELETE /setup/subscriptions?database=<name>` that drops
-    any database on the cluster. Moving the call back out of this guard would republish it, silently.
+    any database on the cluster
     """
-    body = _registration_source()
-    registration = "app.register_blueprint(setup_blueprint, url_prefix='/setup')"
+    on_premise = _mounts(_record_registration(monkeypatch, cloud=False))
+    cloud = _mounts(_record_registration(monkeypatch, cloud=True))
 
-    assert registration in body
-
-    guard_position = body.index('if cmdb.__CLOUD_MODE__:')
-    registration_position = body.index(registration)
-
-    assert guard_position < registration_position
-    # ...and nothing else slipped in between the guard and the call it guards
-    assert body[guard_position:registration_position].strip() == 'if cmdb.__CLOUD_MODE__:'
+    assert (setup_blueprint.name, '/setup') in cloud
+    assert setup_blueprint.name not in {name for name, _prefix in on_premise}
 
 
-def test_no_other_blueprint_registration_is_conditional() -> None:
+def test_no_other_blueprint_registration_depends_on_the_mode(monkeypatch: pytest.MonkeyPatch) -> None:
     """
     The setup surface is the only one whose availability depends on the mode
 
-    Everything else is mounted in every mode and gated per route, so a second conditional here would
-    be a new rule that wants its own reason.
+    Everything else is mounted in every mode and gated per route, so a second difference here would be a
+    new rule that wants its own reason
     """
-    body = _registration_source()
+    on_premise = _mounts(_record_registration(monkeypatch, cloud=False))
+    cloud = _mounts(_record_registration(monkeypatch, cloud=True))
 
-    assert body.count('if cmdb.__CLOUD_MODE__:') == 1
+    assert [mount for mount in cloud if mount[0] != setup_blueprint.name] == on_premise
 
 
-def test_connection_routes_is_the_only_prefixless_registration() -> None:
+def test_connection_routes_is_the_only_prefixless_registration(monkeypatch: pytest.MonkeyPatch) -> None:
     """Everything except the /rest root probe declares where it mounts"""
-    body = _registration_source()
+    mounts = _mounts(_record_registration(monkeypatch, cloud=True))
 
-    assert re.findall(r'register_blueprint\(\s*(\w+)\s*\)', body) == ['connection_routes']
+    assert [name for name, prefix in mounts if prefix is None] == [connection_routes.name]
+
+
+def test_every_blueprint_under_a_licensed_prefix_is_gated_with_its_feature(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A licensed group cannot be mounted without its gate - only the two named exceptions are"""
+    events = _record_registration(monkeypatch, cloud=False)
+    gates = _gates(events)
+    ungated_by_design = {oc_licenses_blueprint.name}
+
+    for name, prefix in _mounts(events):
+        feature = next((f for p, f in LICENSED_PREFIXES.items() if prefix and prefix.startswith(p)), None)
+
+        if feature is None or name in ungated_by_design:
+            assert name not in gates, f'{name} is gated but mounted outside every licensed prefix'
+        else:
+            assert gates.get(name) == feature, f'{name} at {prefix} is not gated behind {feature}'
+
+
+def test_every_licensed_prefix_has_gated_blueprints(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The prefix table is not vacuous: every licensed prefix mounts at least one gated blueprint"""
+    events = _record_registration(monkeypatch, cloud=False)
+    gates = _gates(events)
+
+    for prefix in LICENSED_PREFIXES:
+        assert any(name in gates and mount.startswith(prefix) for name, mount in _mounts(events) if mount), prefix
+
+
+def test_the_config_file_and_open_celium_licence_routes_stay_ungated(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Both carry the licence per route (or none at all) - a blueprint gate would lock them wholesale"""
+    gates = _gates(_record_registration(monkeypatch, cloud=False))
+
+    assert config_file_blueprint.name not in gates
+    assert oc_licenses_blueprint.name not in gates
+
+
+def test_every_gate_is_attached_before_its_blueprint_is_registered(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Flask refuses a before_request hook on a registered blueprint, so the order is load-bearing"""
+    events = _record_registration(monkeypatch, cloud=False)
+    position = {(kind, name): index for index, (kind, name, _value) in enumerate(events)}
+
+    for name in _gates(events):
+        assert position[(GATE_EVENT, name)] < position[(REGISTER_EVENT, name)], name
+
+
+def test_register_gated_gates_then_registers_each_blueprint_in_order() -> None:
+    """One list drives both steps, and each blueprint is gated right before it is mounted"""
+    first, second = Blueprint('first_gated', __name__), Blueprint('second_gated', __name__)
+    events: list[tuple[str, str, Any]] = []
+
+    def _gate(blueprint: Blueprint, feature: LicenseFeature) -> None:
+        events.append((GATE_EVENT, blueprint.name, feature))
+
+    with patch(f'{MODULE_PATH}.gate_blueprint', side_effect=_gate):
+        _register_gated(_RecordingApp(events), LicenseFeature.ISMS, ((first, '/a'), (second, '/b')))
+
+    assert events == [
+        (GATE_EVENT, 'first_gated', LicenseFeature.ISMS),
+        (REGISTER_EVENT, 'first_gated', '/a'),
+        (GATE_EVENT, 'second_gated', LicenseFeature.ISMS),
+        (REGISTER_EVENT, 'second_gated', '/b'),
+    ]
+
+
+def _gated_blueprints(app: BaseCmdbApp) -> dict[str, list[LicenseFeature]]:
+    """Every gated blueprint of a built app, with the features its gate hooks record."""
+    return {
+        name: [getattr(hook, GATED_FEATURE_ATTR) for hook in hooks if hasattr(hook, GATED_FEATURE_ATTR)]
+        for name, hooks in app.before_request_funcs.items()
+        if name and any(hasattr(hook, GATED_FEATURE_ATTR) for hook in hooks)
+    }
+
+
+def test_the_factory_builds_more_than_one_app_per_process(monkeypatch: pytest.MonkeyPatch) -> None:
+    """
+    A second and a third build carry the same URL map and the same gates as the first
+
+    The gates are attached to module-level blueprints once; Flask replays them onto every app that registers
+    the blueprint, so each app carries exactly one gate hook per gated blueprint - never one per build
+    """
+    first, _setup, _checks = _build(monkeypatch, 'TESTING')
+    second, _setup, _checks = _build(monkeypatch, 'TESTING')
+    third, _setup, _checks = _build(monkeypatch, 'TESTING')
+
+    rules = [sorted((rule.rule, rule.endpoint) for rule in app.url_map.iter_rules()) for app in (first, second, third)]
+
+    assert rules[0] == rules[1] == rules[2]
+    assert _gated_blueprints(first) == _gated_blueprints(second) == _gated_blueprints(third)
+    assert all(len(features) == 1 for features in _gated_blueprints(third).values())
+
+
+def test_a_built_app_gates_every_licensed_group(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The real build - not a recording - carries each licensed group's gates"""
+    app, _setup, _checks = _build(monkeypatch, 'TESTING')
+    gated = _gated_blueprints(app)
+
+    assert gated[risk_blueprint.name] == [LicenseFeature.ISMS]
+    assert gated[ipam_subnet_blueprint.name] == [LicenseFeature.IPAM]
+    assert oc_licenses_blueprint.name not in gated
+    assert {features[0] for features in gated.values()} == {
+        LicenseFeature.ISMS, LicenseFeature.IPAM, LicenseFeature.AUTOMATIONS,
+    }
+
+
+def test_a_cloud_build_beside_an_on_premise_one_adds_only_the_setup_routes(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Building in both modes in one process works, and the only difference is the /setup surface"""
+    on_premise, _setup, _checks = _build(monkeypatch, 'TESTING')
+    cloud, _setup, _checks = _build(monkeypatch, 'TESTING', cloud=True)
+
+    endpoints = [{rule.endpoint for rule in app.url_map.iter_rules()} for app in (on_premise, cloud)]
+
+    assert {endpoint.rpartition('.')[0] for endpoint in endpoints[1] - endpoints[0]} == {setup_blueprint.name}
+    assert endpoints[0] < endpoints[1]
+
+
+def test_register_blueprints_carries_no_pylint_suppression() -> None:
+    """The split into one helper per domain is what keeps the locals / statements limits without a disable"""
+    source: str = SOURCE_FILE.read_text(encoding='utf-8')
+
+    assert 'R0914' not in source
+    assert 'R0915' not in source
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -651,14 +930,137 @@ def test_execute_update_checks_skips_up_to_date_tenants() -> None:
     mock_updater.return_value.run_updates.assert_not_called()
 
 
-def test_execute_update_checks_stops_at_the_first_failing_tenant() -> None:
-    """No per-tenant isolation: one failing database aborts the whole loop"""
-    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
-         patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
-         patch(f'{MODULE_PATH}.DatabaseUpdater'):
-        mock_validator.return_value.validate_collections.side_effect = RuntimeError('tenant-a is broken')
+def test_execute_update_checks_sets_a_failing_tenant_aside_and_updates_the_rest() -> None:
+    """One failing database is reported, and every other one is still validated and migrated"""
+    dbm = MagicMock()
 
+    def _validate(db_name: str, *_args: Any, **_kwargs: Any) -> MagicMock:
+        validator = MagicMock()
+        if db_name == BROKEN_TENANT:
+            validator.validate_collections.side_effect = UpdaterException('broken schema')
+        return validator
+
+    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
+         patch(f'{MODULE_PATH}.CollectionValidator', side_effect=_validate), \
+         patch(f'{MODULE_PATH}.DatabaseUpdater') as mock_updater:
+        mock_updater.return_value.is_update_available.return_value = True
+
+        failed = execute_update_checks(dbm)
+
+    assert failed == frozenset({BROKEN_TENANT})
+    assert mock_updater.call_args_list == [call(dbm, HEALTHY_TENANT)]
+    mock_updater.return_value.run_updates.assert_called_once_with()
+
+
+def test_execute_update_checks_reports_nothing_when_every_tenant_is_up_to_date() -> None:
+    """A clean run returns an empty set"""
+    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
+         patch(f'{MODULE_PATH}.update_tenant_database', return_value=True):
+        assert execute_update_checks(MagicMock()) == frozenset()
+
+
+def test_execute_update_checks_raises_when_every_tenant_failed() -> None:
+    """Nothing could be served: the typed error names every failed tenant"""
+    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
+         patch(f'{MODULE_PATH}.update_tenant_database', return_value=False):
+        with pytest.raises(TenantUpdatesFailedError) as exc_info:
+            execute_update_checks(MagicMock())
+
+    assert all(name in str(exc_info.value) for name in TENANT_DBS)
+
+
+def test_execute_update_checks_with_no_tenant_reports_nothing() -> None:
+    """An empty portal list is not "every tenant failed" - there is simply nothing to update"""
+    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=[]):
+        assert execute_update_checks(MagicMock()) == frozenset()
+
+
+def test_execute_update_checks_lets_a_portal_failure_through() -> None:
+    """Without the tenant list nothing is known to be up to date: the lookup's error is not caught"""
+    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', side_effect=RuntimeError('portal down')), \
+         patch(f'{MODULE_PATH}.update_tenant_database') as mock_update:
         with pytest.raises(RuntimeError):
             execute_update_checks(MagicMock())
 
-    assert mock_validator.call_count == 1
+    mock_update.assert_not_called()
+
+
+def test_execute_update_checks_stops_at_a_database_outage() -> None:
+    """An unreachable server stops the loop at the tenant it struck - the rest are not attempted"""
+    outage = DatabaseConnectionError('server unreachable')
+
+    with patch(f'{MODULE_PATH}.get_db_names_from_service_portal', return_value=TENANT_DBS), \
+         patch(f'{MODULE_PATH}.bring_database_up_to_date', side_effect=outage) as mock_bring:
+        with pytest.raises(DatabaseConnectionError):
+            execute_update_checks(MagicMock())
+
+    assert mock_bring.call_count == 1
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               update_tenant_database                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_update_tenant_database_reports_success() -> None:
+    """A tenant brought up to date answers True"""
+    dbm = MagicMock()
+
+    with patch(f'{MODULE_PATH}.bring_database_up_to_date') as mock_bring:
+        assert update_tenant_database(dbm, HEALTHY_TENANT) is True
+
+    mock_bring.assert_called_once_with(dbm, HEALTHY_TENANT)
+
+
+def test_update_tenant_database_logs_a_tenant_failure_by_name(caplog: pytest.LogCaptureFixture) -> None:
+    """A tenant's own failure is logged with its name and traceback and answered False"""
+    with patch(f'{MODULE_PATH}.bring_database_up_to_date', side_effect=UpdaterException('broken schema')), \
+         caplog.at_level(logging.ERROR, logger=MODULE_PATH):
+        assert update_tenant_database(MagicMock(), BROKEN_TENANT) is False
+
+    record = caplog.records[-1]
+    assert BROKEN_TENANT in record.getMessage()
+    assert record.exc_info is not None
+
+
+def test_update_tenant_database_re_raises_an_outage_naming_the_tenant(caplog: pytest.LogCaptureFixture) -> None:
+    """An outage is not the tenant's failure: it is logged with the tenant it struck and raised"""
+    outage = ServerSelectionTimeoutError('no servers')
+
+    with patch(f'{MODULE_PATH}.bring_database_up_to_date', side_effect=outage), \
+         caplog.at_level(logging.ERROR, logger=MODULE_PATH):
+        with pytest.raises(ServerSelectionTimeoutError):
+            update_tenant_database(MagicMock(), BROKEN_TENANT)
+
+    assert BROKEN_TENANT in caplog.records[-1].getMessage()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 is_database_outage                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _wrapped(inner: Exception) -> Exception:
+    """Wraps an error the way every layer does (raise ... from err) and returns the outer one."""
+    outer = UpdaterException(inner)
+    outer.__cause__ = inner
+
+    return outer
+
+
+@pytest.mark.parametrize('err', [
+    ServerSelectionTimeoutError('no servers'),
+    DatabaseConnectionError('lost'),
+    DocumentNetworkError('timed out'),
+], ids=['driver', 'connection', 'network'])
+def test_is_database_outage_finds_an_outage_however_deeply_wrapped(err: Exception) -> None:
+    """The error itself and a wrapped one both count"""
+    assert is_database_outage(err) is True
+    assert is_database_outage(_wrapped(err)) is True
+
+
+@pytest.mark.parametrize('err', [
+    UpdaterException('broken schema'),
+    DocumentInsertError('duplicate'),
+    DocumentLockTimeoutError('locked'),
+], ids=['updater', 'insert', 'lock'])
+def test_is_database_outage_leaves_a_tenant_failure_alone(err: Exception) -> None:
+    """A failure of one database - even a transient lock - is the tenant's, not the server's"""
+    assert is_database_outage(err) is False
+    assert is_database_outage(_wrapped(err)) is False

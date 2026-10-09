@@ -18,7 +18,8 @@ Unit tests for cmdb.framework.search.search_reference_match
 
 Pure tests over a stub objects manager: which query collects a term's referenced objects, the condition
 a reference row has to meet, and which of the three shapes a term becomes - own values only, own values
-or a referenced id, or the database-side join for a term too broad for an id list. What these stages
+or a referenced id, or the database-side join for a term too broad for an id list - with one condition on
+both sides, or a separate ``own_condition`` on the candidate (the object list's ``?search=``). What these stages
 match against real documents is the integration tier's question, not this module's
 """
 from typing import Any
@@ -172,3 +173,57 @@ class TestTextTermStages:
         stages = build_text_term_stages(_StubObjectsManager(REFERENCED_IDS), VALUE_CONDITION, ACL_STAGES)
 
         assert stages == build_term_join_stages(VALUE_CONDITION, ACL_STAGES)
+
+
+OWN_CONDITION: dict[str, Any] = {'$expr': {'$eq': ['$public_id', 7]}}
+
+
+class TestOwnCondition:
+    """A separate condition on the candidate itself; the referenced objects keep ``value_condition``."""
+
+    def test_the_referenced_objects_are_collected_with_the_value_condition(self) -> None:
+        """Step 1 matches what may be referenced, never the candidate's own condition"""
+        manager = _StubObjectsManager([])
+
+        build_text_term_stages(manager, VALUE_CONDITION, ACL_STAGES, own_condition=OWN_CONDITION)
+
+        assert manager.pipelines[0][0] == {'$match': VALUE_CONDITION}
+        assert {'$match': OWN_CONDITION} not in manager.pipelines[0]
+
+    def test_no_referenced_match_matches_the_own_condition(self) -> None:
+        """Nothing referenced matched: only the candidate's own condition decides"""
+        stages = build_text_term_stages(_StubObjectsManager([]), VALUE_CONDITION, [], own_condition=OWN_CONDITION)
+
+        assert stages == [{'$match': OWN_CONDITION}]
+
+    def test_referenced_matches_widen_the_own_condition(self) -> None:
+        """Own condition OR a reference row carrying one of the matched ids"""
+        stages = build_text_term_stages(
+            _StubObjectsManager(REFERENCED_IDS), VALUE_CONDITION, [], own_condition=OWN_CONDITION,
+        )
+
+        assert stages == [{'$match': {'$or': [OWN_CONDITION, build_reference_rows_condition(REFERENCED_IDS)]}}]
+
+    def test_the_join_matches_referenced_by_value_and_the_candidate_by_its_own(self) -> None:
+        """Inside the join the value condition; outside it the candidate's own condition"""
+        stages = build_term_join_stages(VALUE_CONDITION, ACL_STAGES, own_condition=OWN_CONDITION)
+        sub_pipeline: list[dict[str, Any]] = stages[0]['$lookup']['pipeline']
+
+        assert {'$match': VALUE_CONDITION} in sub_pipeline
+        assert {'$match': OWN_CONDITION} not in sub_pipeline
+        assert stages[1] == {'$match': {'$or': [OWN_CONDITION, {REFERENCED_MATCH_FIELD: {'$ne': []}}]}}
+
+    def test_past_the_cap_the_join_gets_the_own_condition(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The fallback keeps the split - the same answer as the id list"""
+        monkeypatch.setattr(search_reference_match, 'MAX_REFERENCED_MATCH_IDS', SMALL_LIMIT)
+
+        stages = build_text_term_stages(
+            _StubObjectsManager(REFERENCED_IDS), VALUE_CONDITION, ACL_STAGES, own_condition=OWN_CONDITION,
+        )
+
+        assert stages == build_term_join_stages(VALUE_CONDITION, ACL_STAGES, own_condition=OWN_CONDITION)
+
+    def test_without_one_both_sides_use_the_value_condition(self) -> None:
+        """The /search/ callers pass none, and their stages are what they were"""
+        assert build_text_term_stages(_StubObjectsManager(REFERENCED_IDS), VALUE_CONDITION, []) == \
+            build_text_term_stages(_StubObjectsManager(REFERENCED_IDS), VALUE_CONDITION, [], VALUE_CONDITION)

@@ -30,7 +30,6 @@ from typing import Any
 # All three are normalised to a datetime before the document is stored - declared as a plain 'dict',
 # a date field lets the wrapper itself be persisted
 _DATE_TYPES: list[str] = ['dict', 'string', 'datetime']
-# pylint: disable=R0801
 def get_isms_control_measure_assignment_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsControlMeasureAssignment document
@@ -43,6 +42,14 @@ def get_isms_control_measure_assignment_schema() -> dict[str, Any]:
     # package __init__ is still running, so a module-level import back into cmdb.models would close that
     # cycle and leave every class_schema module unimportable on its own (see class_schema/__init__.py)
     from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+    from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+    from cmdb.models.isms_model.priority_enum import Priority
+
+    # Allowed values of the reference-type discriminator, pinned to its enum: an unknown value would name
+    # neither collection, so no person or person-group delete would ever clear the reference beside it
+    person_ref_types: list[str] = [ref_type.value for ref_type in PersonReferenceType]
+    # Pinned the same way as the RiskAssessment's priority: a value the frontend has no name for is refused
+    priorities: list[int] = [priority.value for priority in Priority]
 
     return {
         ControlMeasureAssignmentKey.PUBLIC_ID.value: {  # public_id of the IsmsControlMeasureAssignment
@@ -80,12 +87,14 @@ def get_isms_control_measure_assignment_schema() -> dict[str, Any]:
             'type': 'integer',
             'required': True,
             'nullable': True,
+            'allowed': priorities,
         },
         # PersonReferenceType value (PERSON / PERSON_GROUP)
         ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID_REF_TYPE.value: {
             'type': 'string',
             'required': True,
             'nullable': True,
+            'allowed': person_ref_types,
         },
         # public_id of the responsible CmdbPerson or CmdbPersonGroup
         ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value: {
