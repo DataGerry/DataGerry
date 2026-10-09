@@ -27,7 +27,6 @@ consumed as CmdbCiExplorerProfile.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_ci_explorer_profile_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbCiExplorerProfile document

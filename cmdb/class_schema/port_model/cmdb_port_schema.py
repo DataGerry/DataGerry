@@ -36,7 +36,6 @@ Which writes run what:
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_port_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbPort document

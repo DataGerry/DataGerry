@@ -35,7 +35,6 @@ the form it later saves, so this schema must not answer it with 'null value not 
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_risk_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsRisk document

@@ -114,7 +114,7 @@ class IsmsRisk(CmdbDAO):
     # R0913 stays: ten flat, independent fields, so a parameter object would only move the same names
     # one level down. R0917 does not apply - the signature is keyword-only, which it must be, because
     # CmdbDAO.__new__ looks for public_id in **kwargs and runs before __init__
-    # pylint: disable=R0913
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
             *,

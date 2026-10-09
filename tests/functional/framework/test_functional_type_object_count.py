@@ -18,8 +18,9 @@ Functional tests: `GET /types/count_objects/<id>` is the pre-check of the Type d
 
 The delete page shows the number and offers the delete only at 0, and `DELETE /types/<id>` refuses a Type that
 still has objects. So the route must answer what the guard counts: every object of the Type, active or not,
-whatever the request's active-only flag, and unscoped by the caller's object ACL - an ACL lives on the Type, so a
-scoped count would be the total or 0, and a 0 would offer a delete the guard refuses.
+whatever the request's active-only flag. A caller whose group the Type's ACL denies READ is refused (403) rather
+than given a count: an ACL lives on the Type, so a scoped count would be the total or 0, and a 0 would offer a delete
+the guard refuses.
 """
 from datetime import datetime, timezone
 from http import HTTPStatus
@@ -140,18 +141,18 @@ class TestTheCountIsTheDeleteGuards:
         assert types.find_one({'public_id': COUNTED_TYPE_ID}) is not None
 
 
-class TestTheCountIsNotScopedByTheObjectAcl:
-    """Ruled: the count is the Type's, not the caller's view of it."""
+class TestACallerTheTypeAclHidesItFromIsRefused:
+    """A Type the caller's group may not READ is refused by id, its count included."""
 
-    def test_a_caller_who_may_not_read_the_objects_gets_the_total(self, rest_api, collections) -> None:
-        """Not 0 - a 0 would offer a delete the guard refuses"""
+    def test_a_caller_who_may_not_read_the_type_is_refused(self, rest_api, collections) -> None:
+        """A 403 - neither the total nor a 0 the guard would contradict"""
         _, objects = collections
         objects.insert_many([_object_doc(ACTIVE_OBJECT_ID, True), _object_doc(INACTIVE_OBJECT_ID, False)])
 
         response = _count(rest_api, user=_viewer())
 
-        assert response.status_code == HTTPStatus.OK
-        assert response.get_json() == len(OBJECT_IDS)
+        assert response.status_code == HTTPStatus.FORBIDDEN
+        assert str(COUNTED_TYPE_ID) in response.get_json()['message']
 
     def test_the_same_caller_reads_none_of_them(self, rest_api, collections) -> None:
         """The control: the Type's ACL really does deny the viewer its objects"""

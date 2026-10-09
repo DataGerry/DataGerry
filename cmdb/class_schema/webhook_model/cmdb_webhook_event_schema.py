@@ -36,7 +36,6 @@ document looks like:
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_webhook_event_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbWebhookEvent document

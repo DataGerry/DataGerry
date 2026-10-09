@@ -45,7 +45,6 @@ class RelationResult:
     `relation()` each return a new RelationResult, while the `public_id`, `fields` and
     `relation_fields` properties are the terminals that materialise data for the template.
     """
-    # pylint: disable=too-many-arguments, too-many-positional-arguments
     def __init__(
         self,
         object_ids: list[int],

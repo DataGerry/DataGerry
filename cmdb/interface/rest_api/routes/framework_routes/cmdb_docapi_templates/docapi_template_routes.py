@@ -39,6 +39,7 @@ from typing import Any
 from flask import abort, request
 from werkzeug.wrappers.response import Response
 
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
@@ -405,7 +406,7 @@ def render_object_template(public_id: int, object_id: int, request_user: CmdbUse
         headers={
             # Quoted like every other export in the repo: the template label reaches this value, and
             # an unquoted header cannot carry a separator character
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)
         }
     )
 

@@ -31,6 +31,7 @@ import pytest
 from werkzeug.exceptions import BadRequest, HTTPException
 
 from cmdb.models.type_model import (
+    CmdbType,
     DEFAULT_PORT_SECTION_INDEX,
     FieldKey,
     FieldType,
@@ -56,6 +57,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     ReferencedSectionUsageKey,
     UsesPortsUsageKey,
     TypeAlignmentStep,
+    TYPE_ACCESS_DENIED_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     describe_identifier_swap,
@@ -67,6 +69,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper imp
     get_types_user_data,
     get_type_or_404,
     get_type_instance_or_404,
+    is_type_readable,
+    abort_unless_type_readable,
     guard_location_field_removal,
     guard_selectable_as_parent_change,
     location_field_removal_blocker,
@@ -118,6 +122,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.security.license.license_constants import LicenseFeature
+from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper'
@@ -134,6 +139,66 @@ def _type_with_location(has_location: bool) -> SimpleNamespace:
         fields.append({FieldKey.NAME.value: 'loc', FieldKey.TYPE.value: FieldType.LOCATION.value})
 
     return SimpleNamespace(get_fields=lambda: fields)
+
+
+# ---------------------------------------- is_type_readable / abort_unless_type_readable ---------------------------- #
+
+READER_GROUP_ID: int = 5
+OTHER_GROUP_ID: int = 6
+ACL_TYPE_ID: int = 4712
+
+
+def _acl_type_doc(acl: dict[str, Any] | None) -> dict[str, Any]:
+    """A stored type document carrying the given ``acl`` (None: no ``acl`` key at all)."""
+    doc: dict[str, Any] = {TypeSchemaKey.PUBLIC_ID.value: ACL_TYPE_ID}
+
+    if acl is not None:
+        doc[TypeSchemaKey.ACL.value] = acl
+
+    return doc
+
+
+def _grants(group_id: int, permissions: list[str]) -> dict[str, Any]:
+    """An activated ACL granting the group those permissions."""
+    return {'activated': True, 'groups': {'includes': {str(group_id): permissions}}}
+
+
+READER: SimpleNamespace = SimpleNamespace(group_id=READER_GROUP_ID)
+
+
+@pytest.mark.parametrize('acl, readable', [
+    (None, True),
+    ({'activated': False, 'groups': {'includes': {}}}, True),
+    (_grants(READER_GROUP_ID, ['READ']), True),
+    (_grants(READER_GROUP_ID, ['UPDATE', 'DELETE']), False),
+    (_grants(OTHER_GROUP_ID, ['READ']), False),
+], ids=['no-acl', 'switched-off', 'granted', 'other-permissions-only', 'other-group-only'])
+def test_is_type_readable_reads_the_acl_the_same_from_a_document_and_a_model(
+        acl: dict[str, Any] | None, readable: bool) -> None:
+    """READ is the permission asked, and the stored document and the hydrated model agree"""
+    doc = _acl_type_doc(acl)
+    model = CmdbType.from_data({**make_type_doc(ACL_TYPE_ID, 'acl-type'), **doc})
+
+    assert is_type_readable(doc, READER) is readable
+    assert is_type_readable(model, READER) is readable
+
+
+@pytest.mark.parametrize('as_model', [False, True], ids=['document', 'model'])
+def test_abort_unless_type_readable_refuses_with_403_naming_the_type(as_model: bool) -> None:
+    """A 403 carrying the type's public_id, from either shape"""
+    doc = _acl_type_doc(_grants(OTHER_GROUP_ID, ['READ']))
+    target = CmdbType.from_data({**make_type_doc(ACL_TYPE_ID, 'acl-type'), **doc}) if as_model else doc
+
+    with pytest.raises(HTTPException) as exc:
+        abort_unless_type_readable(target, READER)
+
+    assert exc.value.code == 403
+    assert exc.value.description == TYPE_ACCESS_DENIED_MESSAGE.format(public_id=ACL_TYPE_ID)
+
+
+def test_abort_unless_type_readable_lets_a_readable_type_pass() -> None:
+    """Nothing is raised"""
+    assert abort_unless_type_readable(_acl_type_doc(_grants(READER_GROUP_ID, ['READ'])), READER) is None
 
 
 # ------------------------------------------ get_type_or_404 / get_type_instance_or_404 ------------------------------ #

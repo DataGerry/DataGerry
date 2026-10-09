@@ -19,6 +19,7 @@ Implementation of BaseExportWriter
 from logging import Logger, getLogger
 from flask import Response
 
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 from cmdb.manager.query_builder import BuilderParameters
@@ -143,7 +144,7 @@ class BaseExportWriter:
             headers={
                 # Quoted: the name now carries a type name, and an unquoted header value cannot hold a
                 # separator. sanitize_filename_part keeps the value ASCII, so no filename* is needed
-                "Content-Disposition": f'attachment; filename="{filename}"'
+                CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)
             }
         )
 

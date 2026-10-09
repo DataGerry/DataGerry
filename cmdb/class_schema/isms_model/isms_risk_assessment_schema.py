@@ -132,7 +132,6 @@ def _get_risk_calculation_schema(required_impacts: bool) -> dict[str, Any]:
     }
 
 
-# pylint: disable=R0801
 def get_isms_risk_assessment_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsRiskAssessment document

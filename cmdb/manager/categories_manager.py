@@ -30,6 +30,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObjectKey
 
 from cmdb.framework.results import IterationResult
+from cmdb.security.acl.builder import build_permitted_types_criteria
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import (
@@ -72,10 +73,16 @@ class CategoriesManager(GenericManager):
         super().__init__(dbm, CmdbCategory, CATEGORIES_MANAGER_ERRORS, database)
 
 
-    @property
-    def tree(self) -> CategoryTree:
+    def get_tree(self, user: CmdbUser) -> CategoryTree:
         """
-        Get the CmdbCategories as a nested tree
+        Get the CmdbCategories as a nested tree, holding the CmdbTypes the user's group may READ
+
+        Every CmdbCategory is in the tree - a category carries no ACL - but a CmdbType whose ACL does not grant
+        the group READ is left out of the category it is assigned to, as the type listing leaves it out. The
+        filter is part of the query, so the hidden types are never read
+
+        Args:
+            user (CmdbUser): The user the tree is built for
 
         Raises:
             CategoriesManagerTreeInitError: When the CategoryTree initialisation failed
@@ -84,7 +91,10 @@ class CategoriesManager(GenericManager):
             CategoryTree: CmdbCategories as a tree structure
         """
         try:
-            types = self.get_many_from_other_collection(CmdbType.COLLECTION)
+            types = self.get_many_from_other_collection(
+                CmdbType.COLLECTION,
+                criteria=build_permitted_types_criteria(user.group_id, AccessControlPermission.READ),
+            )
             cmdb_types: list[CmdbType] = [CmdbType.from_data(a_type) for a_type in types]
 
             build_params = BuilderParameters({})

@@ -51,6 +51,7 @@ class CmdbWebhook(CmdbDAO):
 
     def __init__(
             self,
+            *,
             name:str,
             url: str,
             event_types: list[str],

@@ -27,6 +27,10 @@ from cmdb.utils import BaseStrEnum
 # "look it up or 404" helper so a missing type reads the same wherever it is reported
 TYPE_NOT_FOUND_MESSAGE: str = 'The Type with ID:{public_id} was not found!'
 
+# Refusal returned (HTTP 403) when the caller's group may not READ a CmdbType under its ACL. A type the listing hides
+# is refused by id as well - its definition, its pre-checks, its update and its delete
+TYPE_ACCESS_DENIED_MESSAGE: str = 'The Type with ID:{public_id} is protected by its access control list!'
+
 # Refusal returned (HTTP 400) when an update would delete a section that another CmdbType's
 # reference section pulls its fields from. Deleting it would leave that reference dangling: the
 # dependent type keeps a reference to a section name that no longer resolves, its Section dropdown

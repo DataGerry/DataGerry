@@ -29,7 +29,6 @@ empty or non-string value is refused: it would reach the date pipe of every page
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_date_settings_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a DateSettingsDAO document

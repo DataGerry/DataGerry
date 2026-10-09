@@ -44,7 +44,6 @@ from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.models.type_model.section_type_enum import SectionType
-from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_constants import (
@@ -85,7 +84,6 @@ def _stored_acl_document(stored_acl: Any) -> dict[str, Any]:
     return stored_acl if isinstance(stored_acl, dict) else {}
 
 
-# pylint: disable=too-many-instance-attributes
 class CmdbType(CmdbDAO):
     """
     Represents a CmdbType in DataGerry
@@ -103,9 +101,10 @@ class CmdbType(CmdbDAO):
         {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
     ]
 
-    # pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
+    # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
         author_id: int,
@@ -357,34 +356,6 @@ class CmdbType(CmdbDAO):
             bool: True if there are fields in the summary, False otherwise
         """
         return self.render_meta.summary.has_fields()
-
-
-    def get_nested_summaries(self) -> list[dict[str, Any]]:
-        """
-        Collects the nested summaries of every reference field of the CmdbType
-
-        Every `FieldType.REFERENCE` field may carry a ``summaries`` list overriding, per referenced
-        CmdbType, which fields and which summary line the renderer shows. This gathers the entries of
-        ALL such fields, not only the first one that declares any
-
-        Note the renderer does not go through here: it reads ``summaries`` off the specific field it
-        is rendering, because two reference fields on the same CmdbType may legitimately override the
-        same referenced type differently. This is the whole-type view, for a caller that needs every
-        override the CmdbType declares
-
-        Returns:
-            list[dict[str, Any]]: Every nested-summary entry declared by the type's reference fields, in field
-                        order; empty when no reference field declares any
-        """
-        nested_summaries: list[dict[str, Any]] = []
-
-        for field in self.get_fields():
-            if field.get(FieldKey.TYPE.value) != FieldType.REFERENCE:
-                continue
-
-            nested_summaries.extend(field.get(FieldKey.SUMMARIES.value) or [])
-
-        return nested_summaries
 
 
     def _nested_summary_for(self, nested_summaries: list[dict[str, Any]]) -> dict[str, Any] | None:

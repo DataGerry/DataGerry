@@ -30,8 +30,6 @@ the model reads as its default
 """
 from typing import Any, Callable
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
-
 def _check_template_name(field: str, value: Any, error: Callable[[str, str], None]) -> None:
     """
     Cerberus `check_with` rule holding a template name to the naming rule

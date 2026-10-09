@@ -24,7 +24,6 @@ consumed as CmdbUserGroup.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_user_group_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbUserGroup document

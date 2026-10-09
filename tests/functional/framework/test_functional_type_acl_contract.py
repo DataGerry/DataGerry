@@ -53,7 +53,8 @@ IMPORTED_GOOD_NAME: str = 'acl-contract-imported-good'
 ALL_TYPE_NAMES: list[str] = [CREATED_TYPE_NAME, STORED_TYPE_NAME, IMPORTED_BAD_NAME, IMPORTED_GOOD_NAME]
 
 ACL_KEY: str = TypeSchemaKey.ACL.value
-ORIGINAL_ACL: dict[str, Any] = {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
+# The admin group (1) is granted READ too: a type the caller may not read is refused before its body is judged
+ORIGINAL_ACL: dict[str, Any] = {'activated': True, 'groups': {'includes': {'1': ['READ'], '2': ['READ']}}}
 
 MALFORMED_ACLS: list[Any] = [
     pytest.param({'activated': True, 'groups': 42}, id='groups-no-object'),

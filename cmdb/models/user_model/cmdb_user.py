@@ -92,7 +92,7 @@ class CmdbUser(CmdbDAO):
 
     SCHEMA: dict[str, Any] = get_cmdb_user_schema()
 
-    # Keyword-only (see the class docstring), which is what keeps R0917 off this list
+    # Keyword-only like every model constructor (CmdbDAO), which keeps too-many-positional-arguments off this list
     # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
         self,

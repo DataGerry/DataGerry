@@ -31,9 +31,9 @@ from logging import Logger, getLogger
 from bson import json_util
 from flask import abort, request, Response
 from werkzeug.wrappers.response import Response as Resp
-from werkzeug.http import quote_header_value
 from gridfs.grid_file import GridOut
 
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.framework.results import IterationResult
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager import MediaFilesManager
@@ -320,10 +320,11 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
     Requires the ``base.framework.object.view`` right. The optional ``metadata`` query parameter narrows
     the lookup to one folder, as it does for the metadata read
 
-    The filename is quoted in the Content-Disposition header rather than interpolated bare, so a name
-    carrying a quote or a semicolon can not break the header the browser parses. **The content is
-    streamed** chunk by chunk (`stream_grid_file`), so a download costs one GridFS chunk of memory
-    whatever the file's size, and ``Content-Length`` is the stored length
+    The ``Content-Disposition`` header comes from ``attachment_disposition``: an ASCII fallback, quoted so a
+    quote or a semicolon cannot break the header, plus the exact name as ``filename*`` when it is not ASCII. A
+    header must be latin-1: a name in Cyrillic, Greek or CJK written into it bare would make the server drop the
+    connection without an answer. **The content is streamed** chunk by chunk (`stream_grid_file`), so a download
+    costs one GridFS chunk of memory whatever the file's size, and ``Content-Length`` is the stored length
 
     Args:
         filename (str): Name of the MediaFile to download
@@ -351,7 +352,7 @@ def download_file(filename: str, request_user: CmdbUser) -> Resp:
         stream_grid_file(grid_out),
         mimetype=DOWNLOAD_MIMETYPE,
         headers={
-            "Content-Disposition": f'attachment; filename={quote_header_value(filename)}',
+            CONTENT_DISPOSITION_HEADER: attachment_disposition(filename),
             "Content-Length": str(grid_out.length),
         },
     )

@@ -56,7 +56,7 @@ from cmdb.interface.rest_api.responses.error_handlers import (
 )
 
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
-from cmdb.utils import find_cause
+from cmdb.utils import find_cause, CONTENT_DISPOSITION_HEADER
 from cmdb.errors.database import DatabaseConnectionError, DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.updater import TenantUpdatesFailedError
 from cmdb.security.license.license_constants import LicenseFeature
@@ -127,7 +127,7 @@ def create_rest_api(database_manager: MongoDatabaseManager) -> BaseCmdbApp:
     # (cmdb.framework.exporter.export_filename_helper). A browser can only read a response header that
     # is exposed, so without it a cross-origin frontend - which is exactly the `ng serve` setup the
     # Angular app is developed in - reads none and falls back to naming downloads itself
-    CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count', 'Content-Disposition'])
+    CORS(app=app, expose_headers=['X-API-Version', 'X-Total-Count', CONTENT_DISPOSITION_HEADER])
 
     app.config.from_object(app_config[config_name_for_mode(cmdb.__MODE__)])
 

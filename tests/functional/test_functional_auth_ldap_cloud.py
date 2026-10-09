@@ -41,6 +41,7 @@ from cmdb.security.auth.auth_module import AuthModule
 from cmdb.security.auth.base_provider_config import PROVIDER_ACTIVE_KEY
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
 from cmdb.interface import route_utils
+from tests.utils.service_portal_answers import portal_login_answer, portal_subscription
 from tests.utils.cloud_mode import AUTHORIZATION_ENVIRON_KEY, cloud_auth_header, enable_hosted_cloud_mode
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -173,13 +174,12 @@ class TestCloudLoginsNeverRunLdap:
         database_manager: MongoDatabaseManager,
         database_name: str,
     ) -> None:
-        """The portal accepts it, no tenant user carries it - and LDAP is never asked, so nobody is provisioned"""
+        """Refused before any provider runs - LDAP is never asked, so nobody is provisioned"""
         # Stored directly: the route refuses this section in cloud mode, an older tenant may still hold it
         settings_collection.replace_one({'_id': AUTH_SETTINGS_ID}, _section(ldap_active=True), upsert=True)
-        portal_user: dict[str, Any] = {
-            'email': UNKNOWN_EMAIL, 'database': database_name,
-            'subscriptions': [{'id': 1, 'name': 'sub', 'database': database_name}],
-        }
+        portal_user: dict[str, Any] = portal_login_answer(
+            UNKNOWN_EMAIL, UNKNOWN_EMAIL, PASSWORD, [portal_subscription(database_name)],
+        )
         monkeypatch.setattr(route_utils, 'check_user_in_service_portal', lambda *_args, **_kwargs: portal_user)
         ldap_calls: list[str] = []
         monkeypatch.setattr(LdapAuthenticationProvider, 'authenticate',
@@ -189,6 +189,7 @@ class TestCloudLoginsNeverRunLdap:
         response = rest_api.get(PROTECTED_URL, environ_overrides={AUTHORIZATION_ENVIRON_KEY: f'Basic {credentials}'})
 
         assert response.status_code == HTTPStatus.UNAUTHORIZED
+        assert response.get_json()['message'] == route_utils.CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE
         assert not ldap_calls
         users = database_manager.get_collection(CmdbUser.COLLECTION, database_name)
         assert users.count_documents({'user_name': UNKNOWN_EMAIL}) == 0

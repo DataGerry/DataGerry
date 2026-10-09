@@ -23,6 +23,8 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbType.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.field_schema_helper import get_field_definition_rules
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DEFAULT_VERSION = '1.0.0'
@@ -89,7 +91,6 @@ def get_type_acl_schema() -> dict[str, Any]:
         },
     }
 
-# pylint: disable=R0801
 def get_cmdb_type_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbType document
@@ -194,55 +195,14 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                         'type': 'string',
                         'required': True
                     },
-                    "rows": {
-                        'type': 'integer',
-                        'required': False
-                    },
                     "label": {
                         'type': 'string',
                         'required': True
                     },
-                    "description": {
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "regex": {
-                        'type': 'string',
-                        'required': False
-                    },
-                    "placeholder": {
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "value": {
-                        'required': False,
-                        'nullable': True,
-                    },
-                    "helperText": {
-                        'type': 'string',
-                        'required': False,
-                    },
+                    **get_field_definition_rules(),
                     "default": {
                         'nullable': True,
                         'empty': True
-                    },
-                    "options": {
-                        'type': 'list',
-                        'empty': True,
-                        'required': False,
-                        'schema': {
-                            'type': 'dict',
-                            'schema': {
-                                "name": {
-                                    'type': 'string',
-                                    'required': True
-                                },
-                                "label": {
-                                    'type': 'string',
-                                    'required': True
-                                },
-                            }
-                        }
                     },
                     "ref_types": {
                         'type': 'list',  # List of public_id of type

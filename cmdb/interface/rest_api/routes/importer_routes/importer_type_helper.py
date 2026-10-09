@@ -79,6 +79,7 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_lo
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     compute_removed_global_templates,
     apply_type_update_side_effects,
+    is_type_readable,
     strip_removed_global_templates,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
@@ -432,17 +433,22 @@ def _repair_entry(
 def read_type_to_update(
     type_entry: dict[str, Any],
     types_manager: TypesManager,
+    request_user: CmdbUser,
 ) -> tuple[CmdbType | None, str | None]:
     """
-    Reads the stored CmdbType an update entry addresses
+    Reads the stored CmdbType an update entry addresses, if the importer may touch it
 
     Runs before the rules and the repairs: an entry naming a Type that does not exist here has
     nothing to be judged against and no reason to cost the four queries the rules and repairs
     otherwise spend. The result is also what the guards and the side effects diff against later
 
+    A stored Type the importer's group may not READ is refused here too - judged on the STORED ACL, never
+    the uploaded one, so an upload cannot rewrite the ACL that keeps the importer out
+
     Args:
         type_entry (dict[str, Any]): A single entry of the uploaded payload
         types_manager (TypesManager): Manager used to read the stored CmdbType
+        request_user (CmdbUser): The user performing the import
 
     Returns:
         tuple[CmdbType | None, str | None]: The stored CmdbType, or None plus the message to report
@@ -459,6 +465,9 @@ def read_type_to_update(
         return None, TypeImportError.TYPE_NOT_FOUND.format(
             public_id=type_entry.get(TypeSchemaKey.PUBLIC_ID.value),
         )
+
+    if not is_type_readable(old_type, request_user):
+        return None, TypeImportError.TYPE_ACCESS_DENIED.format(public_id=old_type.public_id)
 
     return old_type, None
 
@@ -652,6 +661,9 @@ def update_type_from_entry(
     sections wholesale, so the replacement has to be as sound as a new type - plus the rules that
     need the stored type (`stored_type_update_blocker`), checked once it has been read
 
+    A stored Type the caller's group may not READ is refused like every other bad entry - judged on the stored
+    ACL, so an upload cannot rewrite the ACL that keeps it out
+
     The type is read before it is written: `apply_import_update_side_effects` needs the pre-update
     state to work out what changed, and that read doubles as the existence check (the update does not
     upsert, so an unknown public_id would otherwise match nothing and look like a success).
@@ -674,7 +686,7 @@ def update_type_from_entry(
 
     # Read first: the type has to exist before anything is judged or repaired, and both the guards
     # and the side effects need this pre-update state anyway
-    old_type, read_error = read_type_to_update(type_entry, types_manager)
+    old_type, read_error = read_type_to_update(type_entry, types_manager, request_user)
 
     if read_error:
         return read_error

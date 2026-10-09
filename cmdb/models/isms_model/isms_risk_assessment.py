@@ -67,7 +67,7 @@ from cmdb.errors.models.isms_risk_assessment import (
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              IsmsRiskAssessment - CLASS                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
-#pylint: disable=R0902
+# pylint: disable=too-many-instance-attributes
 class IsmsRiskAssessment(CmdbDAO):
     """
     Implementation of IsmsRiskAssessment
@@ -155,7 +155,7 @@ class IsmsRiskAssessment(CmdbDAO):
     TO_JSON_ERROR = IsmsRiskAssessmentToJsonError
 
 
-    #pylint: disable=R0913, R0914
+    # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
             self,
             *,

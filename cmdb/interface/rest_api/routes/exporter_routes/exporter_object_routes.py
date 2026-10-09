@@ -56,7 +56,7 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import resolve_export_format
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import ExporterRight
-from cmdb.utils import load_class
+from cmdb.utils import load_class, CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.security import AccessDeniedError
@@ -207,7 +207,7 @@ def export_object_import_template(type_id: int, request_user: CmdbUser) -> Respo
             headers={
                 # Quoted for the same reason as the object export: the name carries a type label, and an
                 # unquoted header value cannot hold a separator
-                "Content-Disposition": f'attachment; filename="{filename}"'
+                CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)
             }
         )
     except TypesManagerGetError as err:

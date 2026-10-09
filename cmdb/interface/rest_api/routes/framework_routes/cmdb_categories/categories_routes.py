@@ -69,7 +69,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_
     CategoryRight,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_helper import (
-    abort_if_category_types_unusable,
+    usable_category_types,
 )
 
 from cmdb.errors.manager.categories_manager import (
@@ -102,7 +102,8 @@ def insert_cmdb_category(data: dict[str, Any], request_user: CmdbUser) -> Respon
     Payload is validated against ``CmdbCategory.SCHEMA`` before this function runs. A
     ``creation_time`` (UTC now) is stamped on the dict if the caller did not supply one.
     A supplied ``parent`` must reference an existing CmdbCategory (400 otherwise) so a
-    typo cannot create a category that silently never appears in the tree. The persisted
+    typo cannot create a category that silently never appears in the tree. Of the ``types``
+    list, an id no CmdbType carries and a CmdbType another category holds are dropped. The persisted
     document is re-read from the database and returned so that any server-side defaults
     are reflected in the response.
 
@@ -113,7 +114,8 @@ def insert_cmdb_category(data: dict[str, Any], request_user: CmdbUser) -> Respon
         request_user (CmdbUser): Authenticated requester, injected by ``@insert_request_user``
 
     Raises:
-        HTTPException: 400 when the parent reference is invalid, when the manager rejects
+        HTTPException: 400 when the parent reference is invalid, when ``types`` holds a non-id or
+            an id twice, when the manager rejects
             the insert (``CategoriesManagerInsertError``) or the post-insert read
             (``CategoriesManagerGetError``)
         HTTPException: 404 when the inserted CmdbCategory cannot be retrieved afterwards
@@ -138,8 +140,8 @@ def insert_cmdb_category(data: dict[str, Any], request_user: CmdbUser) -> Respon
         if rejection:
             abort(400, rejection)
 
-        # Every type named once, existing, and in no other category
-        abort_if_category_types_unusable(categories_manager, data.get(CategoryKey.TYPES), None)
+        # Every type named once; unknown types and types of another category are dropped
+        data[CategoryKey.TYPES] = usable_category_types(categories_manager, data.get(CategoryKey.TYPES), None)
 
         result_id: int = categories_manager.insert_category(data)
 
@@ -169,7 +171,8 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
     GET/HEAD ``/rest/categories/`` - list CmdbCategories (flat list or tree)
 
     When ``params.optional['view'] == CategoryListView.TREE`` the response is a
-    ``CategoryTree`` built from every CmdbCategory + every CmdbType (un-paginated). For
+    ``CategoryTree`` built from every CmdbCategory + every CmdbType the caller's group may READ under
+    the type ACL (un-paginated); a hidden type is left out of its category. For
     any other view the standard paginated, filtered, sorted listing pipeline is used via
     ``CategoriesManager.iterate``.
 
@@ -199,7 +202,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
         body: bool = request_wants_body()
 
         if params.optional[CATEGORY_VIEW_PARAM] == CategoryListView.TREE:
-            tree: CategoryTree = categories_manager.tree
+            tree: CategoryTree = categories_manager.get_tree(request_user)
             api_response = GetMultiResponse(
                 CategoryTree.to_json(tree),
                 len(tree),
@@ -306,6 +309,9 @@ def update_cmdb_category(public_id: int, data: dict[str, Any], request_user: Cmd
       aborts 400 before the database is touched. A stored self-parent / cycle would
       otherwise corrupt the tree view.
 
+    Of the ``types`` list, an id no CmdbType carries and a CmdbType another category holds are
+    dropped, not refused, so a category still naming a deleted type can be saved again.
+
     Required right: ``base.framework.category.edit``. Required API level: ``ApiLevel.ADMIN``.
 
     Args:
@@ -316,7 +322,8 @@ def update_cmdb_category(public_id: int, data: dict[str, Any], request_user: Cmd
     Raises:
         HTTPException: 404 when no CmdbCategory with that public_id exists
         HTTPException: 400 when the parent assignment is invalid (missing parent,
-            self-parent, ancestor cycle), when the pre-read fails
+            self-parent, ancestor cycle), when ``types`` holds a non-id or an id twice, when the
+            pre-read fails
             (``CategoriesManagerGetError``) or the write fails
             (``CategoriesManagerUpdateError``)
         HTTPException: 500 on any unexpected error
@@ -344,8 +351,8 @@ def update_cmdb_category(public_id: int, data: dict[str, Any], request_user: Cmd
         if rejection:
             abort(400, rejection)
 
-        # Every type named once, existing, and in no other category (its own current types are no clash)
-        abort_if_category_types_unusable(categories_manager, data.get(CategoryKey.TYPES), public_id)
+        # Every type named once; unknown types and types of another category are dropped (its own are kept)
+        data[CategoryKey.TYPES] = usable_category_types(categories_manager, data.get(CategoryKey.TYPES), public_id)
 
         categories_manager.update_category(public_id, data)
 

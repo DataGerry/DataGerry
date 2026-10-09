@@ -24,7 +24,6 @@ consumed as IsmsImpactCategory.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_impact_category_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsImpactCategory document

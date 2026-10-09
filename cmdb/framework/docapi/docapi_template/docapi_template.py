@@ -49,8 +49,8 @@ class DocapiTemplate(CmdbDAO):
 
     REQUIRED_INIT_KEYS: list[str] = [DocapiTemplateKey.NAME.value]
 
-    #pylint: disable=too-many-arguments
-    #pylint: disable=too-many-locals
+    # pylint: disable=too-many-arguments
+    # pylint: disable=too-many-locals
     def __init__(
         self,
         *,
