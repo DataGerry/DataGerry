@@ -24,8 +24,8 @@ OpenCelium, and that registration is what a business template is filtered by (se
 
 All three routes are **read-only proxies**: DataGerry stores no invokers, and OpenCelium answers
 whatever it answers. The blueprint is license-gated as part of the `AUTOMATIONS` feature (see
-`init_rest_api`) and carries no per-route ACL right, unlike the sibling connection and connector
-routes - the rights it would need do not exist yet.
+`init_rest_api`). An invoker is connector material, so every route asks for ``base.openCelium.connector.view``
+(``OcRight``) - the automation form loads the invokers together with the connectors, which need it already.
 
 **Only the list route has a frontend caller**: `GET /invokers`, read once per connector form through
 the connectors resolver (`connectors.service.ts`), which sends no query parameters at all. The
@@ -50,6 +50,7 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_invoker_helper import 
     read_ops_included_flag,
 )
 
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants import OcRight
 from cmdb.errors.open_celium.invoker import (
     OcInvokerGetError,
 )
@@ -62,17 +63,17 @@ oc_invokers_blueprint = APIBlueprint('oc_invokers', __name__)
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
 @oc_invokers_blueprint.route('/invokers', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving OpenCelium Invokers!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_invokers_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("retrieving OpenCelium Invokers!")
 def get_all_oc_invokers(request_user: CmdbUser) -> Response:
     """
     **GET**/**HEAD** route for getting every OcInvoker OpenCelium offers
 
     Accepts **`?opsIncluded=false`** to ask for the invokers without their operations - a smaller
-    answer for a caller that only needs the names. Operations are included by default, and only that
-    literal value turns them off; see `read_ops_included_flag` for the rule and the open question
-    about other spellings
+    answer for a caller that only needs the names. Operations are included by default; the flag takes
+    `true` / `false` in any casing, and any other value is a 400 (`read_ops_included_flag`)
 
     Args:
         request_user (CmdbUser): User requesting this data
@@ -94,9 +95,10 @@ def get_all_oc_invokers(request_user: CmdbUser) -> Response:
 
 
 @oc_invokers_blueprint.route('/invokers/<string:name>', methods=['GET', 'HEAD'])
-@handle_oc_errors("retrieving OpenCelium Invokers!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_invokers_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("retrieving OpenCelium Invokers!")
 def get_oc_invoker_by_name(request_user: CmdbUser, name: str) -> Response:
     """
     **GET**/**HEAD** route to retrieve one Invoker by name
@@ -124,9 +126,10 @@ def get_oc_invoker_by_name(request_user: CmdbUser, name: str) -> Response:
 
 
 @oc_invokers_blueprint.route('/invokers/exists/<string:name>', methods=['GET', 'HEAD'])
-@handle_oc_errors("checking OpenCelium Invoker exists!")
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
+@oc_invokers_blueprint.protect(auth=True, right=OcRight.CONNECTOR_VIEW.value)
+@handle_oc_errors("checking OpenCelium Invoker exists!")
 def check_oc_invoker_exists(request_user: CmdbUser, name: str) -> Response:
     """
     **GET**/**HEAD** route to check whether an Invoker with the given name exists

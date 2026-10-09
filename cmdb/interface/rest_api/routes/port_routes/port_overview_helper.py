@@ -49,7 +49,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.port.cable_hops import other_endpoint
 from cmdb.framework.port.name_syntax_constants import PortDeviceKind
 
-from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CONNECTED_KEY
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CABLED_KEY, PORT_CONNECTED_KEY
 from cmdb.interface.rest_api.routes.port_routes.port_interface_link_constants import PORT_INTERFACE_LINKS_KEY
 from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import (
     ConnectedObjectKey,
@@ -240,6 +240,7 @@ def build_port_entry(
         PortOverviewEntryKey.NAME.value: port.get(PortKey.NAME.value),
         PortOverviewEntryKey.DESCRIPTION.value: port.get(PortKey.DESCRIPTION.value),
         PortOverviewEntryKey.CONNECTED.value: bool(port.get(PORT_CONNECTED_KEY)),
+        PortOverviewEntryKey.CABLED.value: bool(port.get(PORT_CABLED_KEY)),
         PortOverviewEntryKey.CABLE.value: (cable_connection or {}).get(CABLE_VIEW_KEY),
         PortOverviewEntryKey.CABLE_CONNECTION_ID.value: (
             cable_connection.get(PortConnectionKey.PUBLIC_ID.value) if cable_connection else None

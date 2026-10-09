@@ -32,8 +32,11 @@ from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import (
     build_types_json_export_response,
     SUPPORTED_EXPORT_FORMATS,
 )
+from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
     ZIP_EXPORT_FORMAT,
+    ZIP_AS_CLASSNAME_REFUSED_MSG,
+    UNSUPPORTED_EXPORT_FORMAT_MSG,
     DEFAULT_EXPORT_FORMAT,
 )
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_constants import (
@@ -91,11 +94,32 @@ class TestResolveExportFormat:
             resolve_export_format({'classname': 'Bogus'})
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
 
-    def test_zip_and_all_default_extensions_are_whitelisted(self) -> None:
-        """The whitelist includes the ZIP wrapper and the built-in formats."""
-        assert ZIP_EXPORT_FORMAT in SUPPORTED_EXPORT_FORMATS
+    def test_the_whitelist_is_exactly_the_catalogue(self) -> None:
+        """A classname may name a catalogue format - the default among them - and nothing else, ZIP included"""
+        assert SUPPORTED_EXPORT_FORMATS == set(SupportedExporterExtension().get_extensions())
         assert DEFAULT_EXPORT_FORMAT in SUPPORTED_EXPORT_FORMATS
-        assert 'CsvExportFormat' in SUPPORTED_EXPORT_FORMATS
+        assert ZIP_EXPORT_FORMAT not in SUPPORTED_EXPORT_FORMATS
+
+    @pytest.mark.parametrize('zip_value', [None, 'false', '0'])
+    def test_zip_named_as_the_format_without_the_flag_is_refused(self, zip_value: str | None) -> None:
+        """Named as a format it would pack no inner format and fail - refused with its own message"""
+        optional = {'classname': ZIP_EXPORT_FORMAT}
+
+        if zip_value is not None:
+            optional['zip'] = zip_value
+
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_export_format(optional)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert exc_info.value.description == ZIP_AS_CLASSNAME_REFUSED_MSG
+
+    def test_an_unknown_format_names_itself(self) -> None:
+        """The message carries the rejected classname"""
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_export_format({'classname': 'Bogus'})
+
+        assert exc_info.value.description == UNSUPPORTED_EXPORT_FORMAT_MSG.format(export_format='Bogus')
 
 
 class TestBuildTypesJsonExportResponse:

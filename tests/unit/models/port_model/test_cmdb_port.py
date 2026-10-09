@@ -42,7 +42,8 @@ from cmdb.models.port_model import (
     PORT_SELECT_FIELD_OPTION_TYPES,
 )
 from cmdb.models.extendable_option_model import OptionType
-from cmdb.class_schema.port_model import get_cmdb_port_schema
+from cmdb.class_schema.port_model import get_cmdb_port_schema, get_cmdb_port_write_schema
+from cmdb.models.type_model.type_constants import TEXT_VALUE_MAX_LENGTH
 from cmdb.errors.models.cmdb_port import (
     CmdbPortInitError,
     CmdbPortInitFromDataError,
@@ -356,3 +357,48 @@ class TestUnreadableTimestampsAreRefused:
         built = CmdbPort.from_data(_port_data(**{PortKey.CREATION_TIME.value: {'$date': 1772000000000}}))
 
         assert isinstance(built.creation_time, datetime)
+
+
+class TestWriteSchema:
+    """The request-body schema of POST /ports/ and PUT|PATCH /ports/<id>, derived from the document's."""
+
+    def test_the_server_owned_keys_are_absent(self) -> None:
+        """purge_unknown drops them before the route runs"""
+        assert set(get_cmdb_port_write_schema()) == {key.value for key in PortKey} - {
+            PortKey.PUBLIC_ID.value, PortKey.AUTHOR_ID.value, PortKey.CREATION_TIME.value, PortKey.LAST_EDIT_TIME.value,
+        }
+
+    def test_the_owner_and_the_side_are_untyped(self) -> None:
+        """The routes judge both, with messages of their own"""
+        schema = get_cmdb_port_write_schema()
+
+        assert schema[PortKey.OBJECT_ID.value] == {'required': False}
+        assert schema[PortKey.SIDE.value] == {'required': False}
+
+    def test_nothing_is_required(self) -> None:
+        """A missing name is the route's message, not the decorator's"""
+        assert not any(rules.get('required') for rules in get_cmdb_port_write_schema().values())
+
+    def test_a_null_or_empty_name_passes_the_schema(self) -> None:
+        """The route answers it with its own message"""
+        name_rules = get_cmdb_port_write_schema()[PortKey.NAME.value]
+
+        assert (name_rules['nullable'], name_rules['empty']) == (True, True)
+
+    @pytest.mark.parametrize('key', [PortKey.NAME.value, PortKey.DESCRIPTION.value])
+    def test_the_text_fields_carry_the_type_text_cap(self, key: str) -> None:
+        """The cap every CmdbType text field and cable text field has - in both schemas"""
+        assert get_cmdb_port_write_schema()[key]['maxlength'] == TEXT_VALUE_MAX_LENGTH
+        assert get_cmdb_port_schema()[key]['maxlength'] == TEXT_VALUE_MAX_LENGTH
+
+    @pytest.mark.parametrize('key', [PortKey.PORT_NUMBER.value, PortKey.STATUS.value, PortKey.PORT_TYPE.value,
+                                     PortKey.SPEED.value])
+    def test_the_numbers_are_integers(self, key: str) -> None:
+        """A port_number as text broke the panel's order"""
+        assert get_cmdb_port_write_schema()[key]['type'] == 'integer'
+
+    def test_the_document_schema_is_left_untouched(self) -> None:
+        """Deriving the write schema does not loosen the document's"""
+        get_cmdb_port_write_schema()
+
+        assert get_cmdb_port_schema()[PortKey.NAME.value]['required'] is True

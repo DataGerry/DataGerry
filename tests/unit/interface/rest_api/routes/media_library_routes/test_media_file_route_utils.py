@@ -38,10 +38,13 @@ import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
+from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library import MediaFileMetadataKey
 from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
 
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
+    abort_if_filename_unusable,
+    abort_unless_usable_parent,
     build_updated_file_data,
     build_upload_metadata,
     generate_metadata_filter,
@@ -53,7 +56,13 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     metadata_field,
     recursive_delete_filter,
     validate_upload_metadata,
+    validate_update_body,
     stream_grid_file,
+    unique_name_filter,
+)
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
+    FOLDER_FLAG_IMMUTABLE_MSG,
+    PARENT_CYCLE_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -198,12 +207,12 @@ class _DeleteStub:
         self._children = children_by_parent
         self.queries: list[dict[str, Any]] = []
 
-    def get_many_media_files(self, metadata: dict) -> SimpleNamespace:
+    def get_many_media_files(self, metadata: dict) -> IterationResult[dict[str, Any]]:
         """Records the query and returns the children of the requested parent id."""
         self.queries.append(metadata)
         parent = metadata.get('metadata.parent')
         result = self._children.get(parent, [])
-        return SimpleNamespace(result=result, total=len(result))
+        return IterationResult(result, len(result))
 
 
 class TestRecursiveDeleteFilter:
@@ -354,19 +363,254 @@ class TestBuildUpdatedFileData:
         assert result['metadata']['parent'] == 3
         assert result['metadata']['author_id'] == AUTHOR_ID
 
-    @pytest.mark.parametrize('payload', [
-        {'metadata': {}},
-        {'filename': 'new.png'},
-    ], ids=['no-filename', 'no-metadata'])
-    def test_incomplete_payload_aborts_400(self, payload: dict[str, Any]) -> None:
-        """A missing key is a 400, not a KeyError surfacing as a 500."""
-        stored = {'public_id': PUBLIC_ID, 'filename': 'old.png', 'metadata': {}}
+    def test_the_metadata_is_stored_whole_like_an_uploads(self) -> None:
+        """Every declared key is present; a key the payload leaves out is None (the payload is the full object)."""
+        stored = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {'reference': [9], 'parent': 3}}
+        payload = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {'folder': False}}
+
+        metadata = build_updated_file_data(stored, payload, AUTHOR_ID)['metadata']
+
+        assert set(metadata) == {key.value for key in MediaFileMetadataKey}
+        assert metadata['reference'] is None
+        assert metadata['parent'] is None
+
+    def test_the_mime_type_stays_the_stored_one(self) -> None:
+        """An update changes no content, so the client's mime type is ignored."""
+        stored = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {'mime_type': 'image/png'}}
+        payload = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {'mime_type': 'evil/x'}}
+
+        assert build_updated_file_data(stored, payload, AUTHOR_ID)['metadata']['mime_type'] == 'image/png'
+
+    def test_the_author_is_stamped_over_the_payloads(self) -> None:
+        """The last modifier is whoever sent the update."""
+        stored = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {}}
+        payload = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {'author_id': 999}}
+
+        assert build_updated_file_data(stored, payload, AUTHOR_ID)['metadata']['author_id'] == AUTHOR_ID
+
+    @pytest.mark.parametrize(('stored_folder', 'sent_folder'), [(True, False), (False, True), (None, True)])
+    def test_the_folder_flag_can_not_change(self, stored_folder, sent_folder: bool) -> None:
+        """A folder holding files can not become a file, nor a file with content a folder."""
+        stored_metadata = {} if stored_folder is None else {'folder': stored_folder}
+        stored = {'public_id': PUBLIC_ID, 'filename': 'a', 'metadata': stored_metadata}
+        payload = {'public_id': PUBLIC_ID, 'filename': 'a', 'metadata': {'folder': sent_folder}}
 
         with app.test_request_context():
             with pytest.raises(HTTPException) as exc_info:
                 build_updated_file_data(stored, payload, AUTHOR_ID)
 
         assert exc_info.value.code == 400
+        assert exc_info.value.description == FOLDER_FLAG_IMMUTABLE_MSG
+
+    def test_a_folder_stays_a_folder(self) -> None:
+        """Sending the stored flag back is the normal case."""
+        stored = {'public_id': PUBLIC_ID, 'filename': 'dir', 'metadata': {'folder': True}}
+        payload = {'public_id': PUBLIC_ID, 'filename': 'renamed', 'metadata': {'folder': True}}
+
+        assert build_updated_file_data(stored, payload, AUTHOR_ID)['metadata']['folder'] is True
+
+
+def _valid_body(**overrides: Any) -> dict[str, Any]:
+    """An update body as the file explorer sends it - the whole FileElement."""
+    body: dict[str, Any] = {
+        'public_id': PUBLIC_ID, 'filename': 'a.png', 'size': 3, 'children': [], 'hasSubFolders': False,
+        'metadata': {key.value: None for key in MediaFileMetadataKey} | {'folder': False},
+    }
+    body.update(overrides)
+
+    return body
+
+
+class TestValidateUpdateBody:
+    """validate_update_body holds the update body to MEDIA_FILE_UPDATE_SCHEMA."""
+
+    def test_the_frontends_body_passes(self) -> None:
+        """The explorer's extra keys are tolerated."""
+        body = _valid_body()
+
+        with app.test_request_context():
+            assert validate_update_body(body) is body
+
+    @pytest.mark.parametrize('body', [None, [1], 'text', 5])
+    def test_a_body_that_is_not_an_object_aborts_400(self, body: Any) -> None:
+        """It used to fail on the way to a 500 (null) or on the first lookup."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_update_body(body)
+
+        assert exc_info.value.code == 400
+
+    @pytest.mark.parametrize('missing', ['public_id', 'filename', 'metadata'])
+    def test_a_missing_key_aborts_400_naming_it(self, missing: str) -> None:
+        """The three keys an update is made of are required."""
+        body = _valid_body()
+        del body[missing]
+
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_update_body(body)
+
+        assert exc_info.value.code == 400
+        assert missing in exc_info.value.description
+
+    @pytest.mark.parametrize(('key', 'value'), [
+        ('public_id', '4242'), ('public_id', True), ('filename', 7), ('filename', ''), ('filename', '   '),
+        ('filename', 'a/b'), ('filename', 'x' * 256), ('metadata', [1]), ('metadata', None),
+    ])
+    def test_an_unusable_value_aborts_400_naming_the_key(self, key: str, value: Any) -> None:
+        """An id is an integer, a name follows the naming rule, the metadata is an object."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_update_body(_valid_body(**{key: value}))
+
+        assert exc_info.value.code == 400
+        assert key in exc_info.value.description
+
+    def test_a_name_at_the_limit_passes(self) -> None:
+        """255 characters is the last usable length."""
+        with app.test_request_context():
+            validate_update_body(_valid_body(filename='x' * 255))
+
+    def test_an_undeclared_metadata_key_aborts_400_naming_it(self) -> None:
+        """The same refusal the upload answers."""
+        body = _valid_body()
+        body['metadata']['evil'] = 1
+
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_update_body(body)
+
+        assert exc_info.value.code == 400
+        assert 'evil' in exc_info.value.description
+
+    def test_a_metadata_value_of_the_wrong_type_aborts_400(self) -> None:
+        """The metadata runs the upload's schema."""
+        body = _valid_body()
+        body['metadata']['parent'] = 'abc'
+
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_update_body(body)
+
+        assert 'parent' in exc_info.value.description
+
+
+class TestAbortIfFilenameUnusable:
+    """abort_if_filename_unusable holds an uploaded file's name to the naming rule."""
+
+    @pytest.mark.parametrize('name', ['', '   ', 'a/b', 'x' * 256, None])
+    def test_an_unusable_name_aborts_400(self, name: Any) -> None:
+        """Blank, a path separator, too long, or no name at all."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                abort_if_filename_unusable(name)
+
+        assert exc_info.value.code == 400
+
+    def test_a_usable_name_passes(self) -> None:
+        """Spaces, dots and non-ASCII characters are fine."""
+        with app.test_request_context():
+            abort_if_filename_unusable('Bericht März 2026.pdf')
+
+
+class _TreeStub:
+    """A MediaFilesManager answering get_file out of a {public_id: document} tree, counting the reads."""
+
+    def __init__(self, entries: dict[int, dict[str, Any]]) -> None:
+        self.entries = entries
+        self.reads: list[int] = []
+
+    def get_file(self, metadata: dict[str, Any]) -> dict[str, Any] | None:
+        """The entry the filter's public_id names."""
+        self.reads.append(metadata['public_id'])
+
+        return self.entries.get(metadata['public_id'])
+
+
+def _entry(public_id: int, parent: int | None, folder: bool = True) -> dict[str, Any]:
+    """A stored library entry."""
+    return {'public_id': public_id, 'filename': f'entry-{public_id}', 'metadata': {'folder': folder, 'parent': parent}}
+
+
+# root folder 1 > folder 2 > folder 3; folder 4 at the root; file 5 in folder 1
+TREE: dict[int, dict[str, Any]] = {
+    1: _entry(1, None), 2: _entry(2, 1), 3: _entry(3, 2), 4: _entry(4, None), 5: _entry(5, 1, folder=False),
+}
+
+
+class TestAbortUnlessUsableParent:
+    """abort_unless_usable_parent: an existing folder, and not inside the moved entry."""
+
+    def test_the_root_is_always_usable(self) -> None:
+        """None is the library root and reads nothing."""
+        manager = _TreeStub(TREE)
+
+        with app.test_request_context():
+            abort_unless_usable_parent(manager, None, moved_id=1)
+
+        assert not manager.reads
+
+    @pytest.mark.parametrize(('parent', 'reason'), [(99, 'not found'), (5, 'is a file')])
+    def test_a_missing_or_file_parent_aborts_400(self, parent: int, reason: str) -> None:
+        """Nothing may sit inside a file or a folder that does not exist."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                abort_unless_usable_parent(_TreeStub(TREE), parent)
+
+        assert exc_info.value.code == 400
+        assert reason in exc_info.value.description
+
+    @pytest.mark.parametrize('target', [1, 2, 3])
+    def test_a_folder_can_not_move_into_itself_or_its_subtree(self, target: int) -> None:
+        """Folder 1 into 1, 2 or 3: each would drop it out of the tree."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                abort_unless_usable_parent(_TreeStub(TREE), target, moved_id=1)
+
+        assert exc_info.value.description == PARENT_CYCLE_MSG
+
+    @pytest.mark.parametrize(('moved_id', 'target'), [(3, 4), (2, 4), (4, 3), (3, 1)])
+    def test_a_move_outside_the_own_subtree_passes(self, moved_id: int, target: int) -> None:
+        """Sideways, up or down into another branch."""
+        with app.test_request_context():
+            abort_unless_usable_parent(_TreeStub(TREE), target, moved_id=moved_id)
+
+    def test_the_walk_stops_at_a_loop_already_stored_above(self) -> None:
+        """Two folders naming each other: the walk ends instead of spinning, and the move is judged."""
+        looped = {7: _entry(7, 8), 8: _entry(8, 7)}
+
+        with app.test_request_context():
+            abort_unless_usable_parent(_TreeStub(looped), 7, moved_id=1)
+
+    def test_an_upload_reads_only_the_parent(self) -> None:
+        """No moved entry, no walk: one read."""
+        manager = _TreeStub(TREE)
+
+        with app.test_request_context():
+            abort_unless_usable_parent(manager, 3)
+
+        assert manager.reads == [3]
+
+    def test_the_walk_reads_each_ancestor_once(self) -> None:
+        """Up from folder 3: 3, 2, 1, then the root."""
+        manager = _TreeStub(TREE)
+
+        with app.test_request_context():
+            abort_unless_usable_parent(manager, 3, moved_id=4)
+
+        assert manager.reads == [3, 2, 1]
+
+
+class TestUniqueNameFilter:
+    """unique_name_filter asks for ANOTHER entry of the same name in the same folder."""
+
+    def test_the_entry_itself_is_excluded(self) -> None:
+        """A kept name must not find its own entry."""
+        data = {'public_id': PUBLIC_ID, 'filename': 'a.png', 'metadata': {'parent': 3}}
+
+        assert unique_name_filter(data) == {
+            'filename': 'a.png', 'metadata.parent': 3, 'public_id': {'$ne': PUBLIC_ID},
+        }
 
 
 class TestMetadataField:
@@ -387,6 +631,7 @@ class TestValidateUploadMetadata:
     def test_declared_keys_pass(self) -> None:
         """Everything MediaFileMetadataKey names is accepted, including the server-owned keys."""
         metadata = {key.value: None for key in MediaFileMetadataKey}
+        metadata[MediaFileMetadataKey.FOLDER.value] = False
 
         with app.test_request_context():
             validate_upload_metadata(metadata)
@@ -429,6 +674,29 @@ class TestValidateUploadMetadata:
 
         assert exc_info.value.code == 400
 
+    @pytest.mark.parametrize(('key', 'value'), [
+        ('folder', 'yes'), ('folder', None), ('parent', 'abc'), ('parent', True), ('reference', 'x'),
+        ('reference', [1, 'two']), ('reference', [1, True]), ('author_id', 1.5), ('reference_type', 3),
+        ('mime_type', ['text/plain']),
+    ])
+    def test_a_value_of_the_wrong_type_aborts_400_naming_the_key(self, key: str, value: Any) -> None:
+        """Each declared key holds its declared type - the refusal says which key failed."""
+        with app.test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                validate_upload_metadata({key: value})
+
+        assert exc_info.value.code == 400
+        assert key in exc_info.value.description
+
+    @pytest.mark.parametrize('metadata', [
+        {'reference': 5, 'reference_type': 'object'}, {'reference': [1, 2]}, {'folder': True, 'parent': None},
+        {'permission': {'anything': 'goes'}},
+    ])
+    def test_values_the_frontend_sends_pass(self, metadata: dict[str, Any]) -> None:
+        """One reference or a list of them, a folder flag, a reserved permission of any shape."""
+        with app.test_request_context():
+            validate_upload_metadata(metadata)
+
 
 class TestGetUploadFromRequest:
     """The upload form is read as file + filter + metadata, and its metadata is validated."""
@@ -452,6 +720,29 @@ class TestGetUploadFromRequest:
         assert upload.filename == 'upload.txt'
         assert existing_filter == {'metadata.parent': 3, 'filename': 'upload.txt'}
         assert metadata == {MediaFileMetadataKey.PARENT.value: 3}
+
+    def test_a_wrongly_typed_metadata_value_is_named(self) -> None:
+        """A reference that is no id used to answer "Metadata was not provided!"."""
+        form = self._form({MediaFileMetadataKey.REFERENCE.value: 'x'})
+
+        with app.test_request_context('/', method='POST', data=form,
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc_info:
+                get_upload_from_request(request)
+
+        assert exc_info.value.code == 400
+        assert 'reference' in exc_info.value.description
+
+    def test_an_unusable_file_name_aborts_400(self) -> None:
+        """The uploaded part's name follows the naming rule too."""
+        form = {'file': (BytesIO(b'payload'), '   '), 'metadata': json.dumps({})}
+
+        with app.test_request_context('/', method='POST', data=form,
+                                      content_type='multipart/form-data'):
+            with pytest.raises(HTTPException) as exc_info:
+                get_upload_from_request(request)
+
+        assert exc_info.value.code == 400
 
     def test_an_undeclared_metadata_key_aborts_400(self) -> None:
         """The refusal happens before anything is streamed into GridFS."""

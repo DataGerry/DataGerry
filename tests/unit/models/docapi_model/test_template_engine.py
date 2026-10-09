@@ -18,11 +18,19 @@ Unit tests for cmdb.models.docapi_model.template_engine.TemplateEngine
 
 Pure tests (no app context, no database). Covers variable substitution, HTML autoescaping of
 field values, the blank rendering of None / empty / SafeNull / SafeObject via _finalize, the
-object/root/report globals with their SafeObject fallbacks, and the raw-template error fallback.
+object/root/report globals with their SafeObject fallbacks, the placeholder error fallback, and the
+sandbox that neutralises server-side template injection.
 """
+import pytest
 from markupsafe import Markup
+from jinja2.sandbox import SandboxedEnvironment
 
-from cmdb.models.docapi_model.template_engine import TemplateEngine, NBSP
+from cmdb.models.docapi_model.template_engine import (
+    TemplateEngine,
+    build_docapi_environment,
+    NBSP,
+    RENDER_FAILED_PLACEHOLDER,
+)
 from cmdb.models.docapi_model.safe_null import SafeNull
 from cmdb.models.docapi_model.safe_object import SafeObject
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -112,13 +120,87 @@ class TestRenderGlobals:
 
 
 class TestRenderErrorFallback:
-    """A fatal render error returns the raw template so the document is not empty."""
+    """A fatal render error answers a placeholder - never the raw template source."""
 
-    def test_render_error_returns_raw_template(self) -> None:
-        """A template that raises at render time yields the raw template string back."""
+    def test_render_error_returns_the_placeholder(self) -> None:
+        """A template that raises at render time yields the placeholder, not the raw string"""
         raw = '{{ 1 / 0 }}'
 
-        assert _render(raw, {}) == raw
+        result = _render(raw, {})
+
+        assert result == RENDER_FAILED_PLACEHOLDER
+        assert result != raw
+
+    def test_malformed_template_is_not_echoed(self) -> None:
+        """A syntactically broken template is not placed into the document verbatim"""
+        assert _render('{{ unclosed', {}) == RENDER_FAILED_PLACEHOLDER
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                        the sandbox (server-side template injection)                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+# Every known Jinja2 SSTI gadget: each walks Python attributes to reach the interpreter. The sandbox must
+# refuse the attribute chain, so none of them reaches a module or executes anything
+SSTI_GADGETS: list[str] = [
+    "{{ cycler.__init__.__globals__.os.popen('id').read() }}",
+    "{{ ''.__class__.__mro__[1].__subclasses__() }}",
+    "{{ ().__class__.__bases__[0].__subclasses__() }}",
+    "{{ self.__init__.__globals__ }}",
+    "{{ config.__class__ }}",
+    "{{ request.application }}",
+    "{{ lipsum.__globals__ }}",
+]
+
+
+class TestTheSandboxNeutralisesInjection:
+    """A DocAPI template is untrusted; the sandbox is the boundary, not the authoring right."""
+
+    @pytest.mark.parametrize('gadget', SSTI_GADGETS)
+    def test_a_gadget_reaches_no_code(self, gadget: str) -> None:
+        """Each gadget renders blank (sandbox-refused, chained to empty) - never a Python repr"""
+        result = _render(gadget, {})
+
+        # Blank: either the empty string ChainableUndefined yields, or the failure placeholder
+        assert result in ('', RENDER_FAILED_PLACEHOLDER)
+        assert '__' not in result
+        assert 'function' not in result and 'object at 0x' not in result
+
+    def test_an_attack_command_does_not_execute(self, tmp_path) -> None:
+        """The full popen gadget writes no file - proof nothing ran"""
+        marker = tmp_path / 'ssti_marker'
+        _render(f"{{{{ cycler.__init__.__globals__.os.popen('touch {marker}').read() }}}}", {})
+
+        assert not marker.exists()
+
+    def test_the_environment_is_sandboxed_and_autoescaping(self) -> None:
+        """The one factory every render uses declares both properties in one place"""
+        environment = build_docapi_environment()
+
+        assert isinstance(environment, SandboxedEnvironment)
+        assert environment.autoescape is True
+
+
+class TestTheShippedConstructsStillRender:
+    """Everything the product and its frontend generate renders unchanged under the sandbox."""
+
+    @pytest.mark.parametrize(('template', 'expected'), [
+        ("{{root.public_id}}", '5'),
+        ("{{root.fields['name']}}", 'srv'),
+        ("{{root['fields']['name']}}", 'srv'),
+        ("{{fields['name']}}", 'srv'),
+        ("{% for n in nums %}{{ n }}{% endfor %}", '12'),
+    ])
+    def test_a_frontend_construct_renders(self, template: str, expected: str) -> None:
+        """The attribute / subscript / loop forms the frontend builder emits"""
+        data = {'root': {'public_id': 5, 'fields': {'name': 'srv'}}, 'fields': {'name': 'srv'}, 'nums': [1, 2]}
+
+        assert _render(template, data) == expected
+
+    def test_the_object_global_still_resolves(self) -> None:
+        """object(id) reaches a supplied object and its fields"""
+        data = {OBJECTS_KEY: {7: {'fields': {'host': 'h1'}}}}
+
+        assert _render("{{ object(7)['fields']['host'] }}", data) == 'h1'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -395,6 +395,10 @@ class TestAccessors:
         mock_object_data.return_value.get_template_data.return_value = {"public_id": 5}
 
         assert instance._object_accessor()(5) == {"public_id": 5}
+        # References resolved for the caller, as for the root: a template can read into object(id)'s references
+        mock_render.assert_called_once_with(
+            [mock_cmdb_object.from_data.return_value], instance.request_user, ref_render=True,
+        )
 
     def test_report_accessor_delegates_to_build_report(self) -> None:
         """report(id) delegates to _build_report."""

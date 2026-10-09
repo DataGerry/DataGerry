@@ -28,14 +28,22 @@ the type-delete guard still reaches across, to ask whether another type referenc
 deleted
 """
 from logging import Logger, getLogger
-from typing import Any
+from copy import deepcopy
+from typing import Any, Callable
 
 from flask import abort
+from werkzeug.exceptions import HTTPException
 
+from cmdb.interface.route_utils import abort_if_too_large
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager.types_mds_helper import MdsChangePlan, build_mds_updates, plan_mds_changes
+from cmdb.manager.types_mds_helper import (
+    MdsChangePlan,
+    build_mds_alignment_updates,
+    build_mds_updates,
+    plan_mds_changes,
+)
 from cmdb.manager import (
     TypesManager,
     LocationsManager,
@@ -53,9 +61,12 @@ from cmdb.models.object_group_model import ObjectGroupMode
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
+from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, MIN_PORT_SECTION_INDEX
 from cmdb.security.acl.access_control_list import AccessControlList
+from cmdb.security.acl.helpers import has_access_control, has_type_document_access
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
@@ -75,10 +86,7 @@ from cmdb.interface.rest_api.responses.response_parameters import (
 )
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.report_routes.report_constants import ReportKey
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import (
-    realign_objects_to_type,
-    clean_type_reports,
-)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper import align_objects_to_type
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     describe_section_dependents,
     get_types_referencing_section,
@@ -88,17 +96,19 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     PORT_SECTION_INDEX_INVALID_MESSAGE,
     MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
+    TYPE_ACCESS_DENIED_MESSAGE,
     USES_PORTS_DISABLE_MESSAGE,
     UsesPortsUsageKey,
     REFERENCED_TYPE_DELETE_MESSAGE,
     TypeUserDataKey,
     TypeOverviewKey,
     MATCH_STAGE_KEY,
+    TypeAlignmentStep,
 )
 from cmdb.security.license.license_constants import LicenseFeature
 
 from cmdb.errors.manager.objects_manager import ObjectsManagerUpdateError
-from cmdb.errors.manager.types_manager import TypesManagerUpdateMDSError
+from cmdb.errors.manager.types_manager import TypesManagerAlignmentError, TypesManagerUpdateMDSError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -358,6 +368,49 @@ def get_type_instance_or_404(types_manager: TypesManager, public_id: int) -> Cmd
     return target_type
 
 
+def is_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbUser) -> bool:
+    """
+    Decides whether the caller's group may READ a CmdbType under its access control list
+
+    The one reading of a type ACL for the type definition itself: a type a group may not read objects of is a type
+    whose definition, pre-checks, update, delete, export and import that group is refused as well - the same rule
+    the type listings apply, so a type is either visible everywhere or nowhere
+
+    Args:
+        target_type (CmdbType | dict[str, Any]): The CmdbType, as a model or as its stored document
+        request_user (CmdbUser): The caller
+
+    Returns:
+        bool: True when the caller may read the type
+    """
+    if isinstance(target_type, CmdbType):
+        return has_access_control(target_type, request_user, AccessControlPermission.READ)
+
+    return has_type_document_access(target_type, request_user, AccessControlPermission.READ)
+
+
+def abort_unless_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbUser) -> None:
+    """
+    Refuses a request on a CmdbType the caller's group may not READ
+
+    Args:
+        target_type (CmdbType | dict[str, Any]): The CmdbType, as a model or as its stored document
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 403 when the caller may not read the type
+    """
+    if is_type_readable(target_type, request_user):
+        return
+
+    public_id: Any = (
+        target_type.public_id if isinstance(target_type, CmdbType)
+        else target_type.get(TypeSchemaKey.PUBLIC_ID.value)
+    )
+
+    abort(403, TYPE_ACCESS_DENIED_MESSAGE.format(public_id=public_id))
+
+
 def get_location_field(target_type: CmdbType) -> dict[str, Any] | None:
     """
     Returns the location-typed field dict of a CmdbType, or None when it has no location field
@@ -510,19 +563,20 @@ def normalize_type_acl(type_data: dict[str, Any]) -> None:
     by whether anyone had edited the type.
 
     This applies the same normalisation the other three paths get, so a Type's stored ACL does not
-    depend on the route it arrived through. A partial ``acl`` is completed rather than rejected: the
-    absent half is exactly what the model defaults, and ``activated`` defaults to **False**, which
-    grants - access control is opt-in.
+    depend on the route it arrived through - ``AccessControlList.normalize_stored``, the reading
+    ``updater_20261003`` also wrote back onto every Type stored before this rule. A partial ``acl`` is
+    completed rather than rejected: the absent half is exactly what the model defaults, and ``activated``
+    defaults to **False**, which grants - access control is opt-in.
 
-    Note it also **drops unknown keys inside** ``acl``, because the model reads only ``activated`` and
-    ``groups``. That is what an update does to the same payload; the type schema declares ``acl`` as
-    ``allow_unknown``, so only a hand-built API payload can put anything else there
+    The block's shape has already been judged by the type write schema (``get_type_acl_schema``): a malformed
+    one is a 400 before this runs, so completing it cannot fail. An unknown key inside ``acl`` was purged by the
+    validator, as the model would drop it
 
     Args:
         type_data (dict[str, Any]): The CmdbType payload, modified in place
     """
-    type_data[TypeSchemaKey.ACL.value] = AccessControlList.to_json(
-        AccessControlList.from_data(type_data.get(TypeSchemaKey.ACL.value) or {})
+    type_data[TypeSchemaKey.ACL.value] = AccessControlList.normalize_stored(
+        type_data.get(TypeSchemaKey.ACL.value)
     )
 
 
@@ -626,24 +680,31 @@ def get_types_user_data(
     return user_data
 
 
-def apply_type_changes_to_locations(request_user: CmdbUser, old_type: CmdbType, updated_type: CmdbType) -> None:
+def apply_type_changes_to_locations(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    updated_type: CmdbType,
+    force: bool = False,
+) -> None:
     """
-    Checks if there are any relevant changes to the CmdbType which needs to be applied on CmdbLocations and
-    applies them
+    Applies the CmdbType's label / icon / selectable to its CmdbLocations
+
+    Only what the update changed is written - or, with ``force``, all three: a type whose earlier save did not
+    finish (``alignment_pending``) cannot tell which values its locations still lack. Idempotent either way
 
     Args:
         request_user (CmdbUser): CmdbUser requesting this data
         old_type (CmdbType): State of the CmdbType before update
         updated_type (CmdbType): State of the CmdbType after update
+        force (bool): Write all three values, changed or not. Defaults to False
     """
-    # Only add changed fields to changed_data
     field_mapping: dict[str, Any] = {
         LocationKey.TYPE_LABEL: (old_type.label, updated_type.label),
         LocationKey.TYPE_ICON: (old_type.render_meta.icon, updated_type.render_meta.icon),
         LocationKey.TYPE_SELECTABLE: (old_type.selectable_as_parent, updated_type.selectable_as_parent),
     }
 
-    changed_data: dict[str, Any] = {k: new for k, (old, new) in field_mapping.items() if old != new}
+    changed_data: dict[str, Any] = {k: new for k, (old, new) in field_mapping.items() if force or old != new}
 
     # Early out if nothing changed
     if not changed_data:
@@ -686,6 +747,30 @@ def apply_type_changes_to_mds(request_user: CmdbUser, old_type: CmdbType, update
     try:
         objects_manager.apply_raw_updates(build_mds_updates(old_type.public_id, plan))
     except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
+        raise TypesManagerUpdateMDSError(err) from err
+
+
+def align_type_mds(request_user: CmdbUser, updated_type: CmdbType) -> None:
+    """
+    Brings the multi-data sections of every object of a CmdbType in line with the type as it is stored
+
+    The state-based counterpart of ``apply_type_changes_to_mds`` (``build_mds_alignment_updates``): it needs no
+    earlier state of the type, so it finishes an update whose propagation failed half-way. Idempotent
+
+    Args:
+        request_user (CmdbUser): The user performing the update
+        updated_type (CmdbType): The CmdbType as stored
+
+    Raises:
+        TypesManagerUpdateMDSError: If a statement fails
+    """
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+
+    try:
+        objects_manager.apply_raw_updates(build_mds_alignment_updates(updated_type))
+    except ObjectsManagerUpdateError as err:
+        abort_if_too_large(err)
         raise TypesManagerUpdateMDSError(err) from err
 
 
@@ -693,6 +778,7 @@ def realign_type_objects_if_fields_changed(
     request_user: CmdbUser,
     old_type: CmdbType,
     updated_type: CmdbType,
+    force: bool = False,
 ) -> None:
     """
     Re-aligns a CmdbType's objects and reports with its field set, only when the field names changed
@@ -709,26 +795,100 @@ def realign_type_objects_if_fields_changed(
         request_user (CmdbUser): User performing the request
         old_type (CmdbType): State of the CmdbType before the update
         updated_type (CmdbType): The CmdbType as just written by the base update
+        force (bool): Re-align and clean regardless of what changed (``alignment_pending``). Defaults to False
     """
-    old_field_names: set[str] = {field[FieldKey.NAME] for field in old_type.fields}
-    new_field_names: set[str] = {field[FieldKey.NAME] for field in updated_type.fields}
+    realign_type_object_fields(request_user, old_type, updated_type, force)
+    clean_type_reports_after_update(request_user, old_type, updated_type, force)
 
-    # Gate: only reconcile objects when the set of field names actually changed (add/remove)
-    if old_field_names == new_field_names:
+
+def _field_names(type_instance: CmdbType) -> set[str]:
+    """The names of every field a CmdbType declares."""
+    return {field[FieldKey.NAME] for field in type_instance.fields}
+
+
+def realign_type_object_fields(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    updated_type: CmdbType,
+    force: bool = False,
+) -> None:
+    """
+    Re-aligns the flat field set of every object of a CmdbType with the type - when its field names changed
+
+    The sweep is skipped for a pure metadata edit; ``force`` runs it regardless, for a type whose earlier save did
+    not finish. ``align_objects_to_type`` is state-based and idempotent
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        updated_type (CmdbType): The CmdbType as written
+        force (bool): Re-align even when the field names are unchanged. Defaults to False
+
+    Raises:
+        ObjectsManagerUpdateError: If a statement fails
+    """
+    if not force and _field_names(old_type) == _field_names(updated_type):
+        return
+
+    align_objects_to_type(ManagerProvider.get_manager(ManagerType.OBJECTS, request_user), updated_type)
+
+
+def undeclared_report_field_names(reports_for_type: list[dict[str, Any]], updated_type: CmdbType) -> set[str]:
+    """
+    The field names the type's reports select or filter on that the type no longer declares
+
+    What a forced cleanup strips when the update that removed them is no longer known. The keys every object
+    carries in its own right (``CmdbObjectKey``) are never counted - only type fields can be removed from a type
+
+    Args:
+        reports_for_type (list[dict[str, Any]]): The stored reports of the type
+        updated_type (CmdbType): The CmdbType as stored
+
+    Returns:
+        set[str]: The stale names, across every report of the type
+    """
+    referenced: set[str] = set()
+
+    for report in reports_for_type:
+        referenced |= CmdbReport.from_data(report).referenced_field_names()
+
+    return referenced - _field_names(updated_type) - {key.value for key in CmdbObjectKey}
+
+
+def clean_type_reports_after_update(
+    request_user: CmdbUser,
+    old_type: CmdbType,
+    updated_type: CmdbType,
+    force: bool = False,
+) -> None:
+    """
+    Strips the fields an update removed from the CmdbType's reports - with ``force``, every field they reference
+    that the type no longer declares
+
+    Args:
+        request_user (CmdbUser): User performing the request
+        old_type (CmdbType): State of the CmdbType before the update
+        updated_type (CmdbType): The CmdbType as written
+        force (bool): Also strip names the type does not declare whatever removed them. Defaults to False
+
+    Raises:
+        ReportsManagerUpdateError: If the bulk write of the cleaned reports fails
+    """
+    removed_names: set[str] = _field_names(old_type) - _field_names(updated_type)
+
+    if not removed_names and not force:
         return
 
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
     reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
-
     reports_for_type: list[dict[str, Any]] = objects_manager.get_many_from_other_collection(
-        CmdbReport.COLLECTION,
-        type_id=updated_type.public_id,
+        CmdbReport.COLLECTION, criteria={ReportKey.TYPE_ID.value: updated_type.public_id},
     )
 
-    # Re-align every object of the type with its current field set, then strip the fields the edit
-    # removed from the type's reports once
-    realign_objects_to_type(objects_manager, updated_type)
-    clean_type_reports(reports_manager, reports_for_type, old_field_names - new_field_names, updated_type)
+    if force:
+        removed_names |= undeclared_report_field_names(reports_for_type, updated_type)
+
+    reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_names, updated_type)
 
 
 def get_objects_using_location_field(
@@ -993,6 +1153,26 @@ def guard_selectable_as_parent_change(request_user: CmdbUser, old_type: CmdbType
         abort(400, blocker)
 
 
+def count_objects_of_type(objects_manager: ObjectsManager, type_id: int) -> int:
+    """
+    Counts every CmdbObject of a CmdbType - the one question the delete guard and its pre-check both ask
+
+    Active and inactive objects alike, and unscoped by the object ACL: an ACL lives on the Type, so a
+    scoped count of one Type is either the total or 0, and a 0 would offer a delete the guard refuses
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        type_id (int): public_id of the CmdbType
+
+    Raises:
+        ObjectsManagerGetError: When the count failed
+
+    Returns:
+        int: The number of CmdbObjects of the Type
+    """
+    return objects_manager.count_documents({CmdbObjectKey.TYPE_ID: type_id})
+
+
 def verify_type_deletable(
     request_user: CmdbUser,
     public_id: int,
@@ -1024,10 +1204,8 @@ def verify_type_deletable(
     if not to_delete_type:
         abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
-    objects_count = objects_manager.count_documents({CmdbObjectKey.TYPE_ID: public_id})
-
     # Only possible to delete types when there are no objects
-    if objects_count > 0:
+    if count_objects_of_type(objects_manager, public_id) > 0:
         abort(400, "Delete not possible if Objects of this Type exist!")
 
     # Only possible to delete types when there are no reports using it
@@ -1374,32 +1552,6 @@ def compute_removed_global_templates(
     return removed_template_ids, removed_template_hints
 
 
-def apply_removed_global_template_cleanup(
-    section_templates_manager: SectionTemplatesManager,
-    type_public_id: int,
-    removed_template_ids: set[str],
-    removed_template_hints: dict[str, tuple[list[str], str]],
-) -> None:
-    """
-    Removes each dropped global section template from the updated CmdbType
-
-    Args:
-        section_templates_manager (SectionTemplatesManager): db interface for section templates
-        type_public_id (int): public_id of the updated CmdbType to clean
-        removed_template_ids (set[str]): names of the global templates being removed
-        removed_template_hints (dict[str, tuple[list[str], str]]): map of template name ->
-            (expected section field names, expected section type) snapshotted before the update
-    """
-    for template_name in removed_template_ids:
-        expected_fields, expected_section_type = removed_template_hints.get(template_name, (None, None))
-        section_templates_manager.cleanup_global_section_from_type(
-            type_public_id,
-            template_name,
-            expected_field_names=expected_fields,
-            expected_section_type=expected_section_type,
-        )
-
-
 def build_types_overview_items(
     types: list[dict[str, Any]],
     user_lookup: dict[int, CmdbUser],
@@ -1435,50 +1587,135 @@ def build_types_overview_items(
     return response_items
 
 
+def strip_removed_global_templates(
+    type_document: dict[str, Any],
+    removed_templates: tuple[set[str], dict[str, tuple[list[str], str]]],
+) -> dict[str, Any]:
+    """
+    Takes the global section templates an update drops out of the type document it is about to write
+
+    The template's name leaves ``global_template_ids``, its section leaves ``render_meta.sections``, and the fields
+    it contributed leave ``fields`` and the summary - in the document itself, so the one type write already carries
+    the cleaned type and no second write of the type can fail after it. What the objects still hold of the template
+    is dropped by the object alignment that follows, because the type no longer declares it
+
+    Args:
+        type_document (dict[str, Any]): The CmdbType document to write; not modified
+        removed_templates (tuple): (removed template names, per-template (field names, section type)) as returned
+            by compute_removed_global_templates
+
+    Returns:
+        dict[str, Any]: A new document without the removed templates (the same one when none is removed)
+    """
+    removed_template_ids, removed_template_hints = removed_templates
+
+    if not removed_template_ids:
+        return type_document
+
+    removed_fields: set[str] = {
+        field_name for field_names, _ in removed_template_hints.values() for field_name in field_names
+    }
+    cleaned: dict[str, Any] = deepcopy(type_document)
+    render_meta: dict[str, Any] = cleaned.get(TypeSchemaKey.RENDER_META.value) or {}
+    summary: dict[str, Any] = render_meta.get(TypeSchemaKey.SUMMARY.value) or {}
+
+    cleaned[TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value] = [
+        template_id for template_id in cleaned.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value) or []
+        if template_id not in removed_template_ids
+    ]
+    cleaned[TypeSchemaKey.FIELDS.value] = [
+        field for field in cleaned.get(TypeSchemaKey.FIELDS.value) or []
+        if field.get(FieldKey.NAME.value) not in removed_fields
+    ]
+
+    if TypeSchemaKey.SECTIONS.value in render_meta:
+        render_meta[TypeSchemaKey.SECTIONS.value] = [
+            section for section in render_meta[TypeSchemaKey.SECTIONS.value]
+            if section.get(SectionKey.NAME.value) not in removed_template_ids
+        ]
+
+    if TypeSchemaKey.FIELDS.value in summary:
+        summary[TypeSchemaKey.FIELDS.value] = [
+            field_name for field_name in summary[TypeSchemaKey.FIELDS.value] if field_name not in removed_fields
+        ]
+
+    return cleaned
+
+
+def run_alignment_step(step: TypeAlignmentStep, action: Callable[[], Any]) -> None:
+    """
+    Runs one step of a type update's alignment, naming the step when it fails
+
+    Args:
+        step (TypeAlignmentStep): The step
+        action (Callable[[], Any]): What the step does
+
+    Raises:
+        HTTPException: Unchanged - a step's own answer, such as the 400 for an object grown past the document
+            size limit
+        TypesManagerAlignmentError: Wrapping whatever else the step raised, with the step's name
+    """
+    try:
+        action()
+    except HTTPException:
+        raise
+    except Exception as err:
+        LOGGER.error("[run_alignment_step] %s failed: %s. Type: %s", step.value, err, type(err).__name__,
+                     exc_info=True)
+        raise TypesManagerAlignmentError(err, step.value) from err
+
+
 def apply_type_update_side_effects(
     request_user: CmdbUser,
     types_manager: TypesManager,
     old_type: CmdbType,
     updated_type: CmdbType,
-    removed_templates: tuple[set[str], dict[str, tuple[list[str], str]]],
 ) -> None:
     """
-    Runs the persistence side effects that follow a CmdbType update
+    Brings everything that follows a CmdbType in line with it, once the update is written
 
-    In order: removes the dropped global section templates from the type, re-applies SpecialType
-    ref_types cross-wiring, propagates label/icon/selectable changes to the type's CmdbLocations,
-    and applies MDS field add/remove changes to the type's CmdbObjects
+    The type is written WITH ``alignment_pending`` set; these steps run in order, each idempotent, and only when
+    the last succeeds is the marker cleared:
+
+    1. SpecialType ``ref_types`` wiring (re-applied every time)
+    2. label / icon / selectable on the type's CmdbLocations
+    3. the multi-data sections of its CmdbObjects
+    4. the flat field set of its CmdbObjects
+    5. its CmdbReports' fields
+    6. the marker cleared
+
+    A step decides what to do from what the update changed - unless the stored type still carried the marker:
+    then an earlier save did not finish, what it changed is no longer known, and every step brings its data in line
+    with the type as it is now. So a failed save is finished by the next save of the type, the same payload
+    included. A failure stops the steps and is raised with the step's name; the marker stays
 
     Args:
         request_user (CmdbUser): User performing the request
         types_manager (TypesManager): db interface for CmdbTypes
-        old_type (CmdbType): State of the CmdbType before the update
-        updated_type (CmdbType): The CmdbType as just written by the base update
-        removed_templates (tuple): (removed template names, per-template section hints) as returned
-            by compute_removed_global_templates
+        old_type (CmdbType): The CmdbType as stored before the update
+        updated_type (CmdbType): The CmdbType as written
+
+    Raises:
+        TypesManagerAlignmentError: When a step failed - the type is written, its marker still set
     """
-    removed_template_ids, removed_template_hints = removed_templates
-
-    section_templates_manager: SectionTemplatesManager = ManagerProvider.get_manager(
-        ManagerType.SECTION_TEMPLATES,
-        request_user,
-    )
-
-    apply_removed_global_template_cleanup(
-        section_templates_manager, updated_type.public_id, removed_template_ids, removed_template_hints,
-    )
+    force: bool = old_type.alignment_pending
+    type_id: int = updated_type.public_id
 
     if updated_type.special_type:
-        handle_special_types(
-            types_manager, updated_type.special_type, section_templates_manager, updated_type.public_id,
-        )
+        run_alignment_step(TypeAlignmentStep.SPECIAL_TYPE_WIRING, lambda: handle_special_types(
+            types_manager, updated_type.special_type,
+            ManagerProvider.get_manager(ManagerType.SECTION_TEMPLATES, request_user), type_id,
+        ))
 
-    # Propagate label/icon/selectable changes to the type's CmdbLocations
-    apply_type_changes_to_locations(request_user, old_type, updated_type)
-
-    # Apply MDS field add/remove changes to the type's CmdbObjects (multi_data_sections rows)
-    apply_type_changes_to_mds(request_user, old_type, CmdbType.to_json(updated_type))
-
-    # Re-align the objects' flat field set (and the type's reports) when the field names changed -
-    # applied automatically and only when needed
-    realign_type_objects_if_fields_changed(request_user, old_type, updated_type)
+    run_alignment_step(TypeAlignmentStep.LOCATIONS,
+                       lambda: apply_type_changes_to_locations(request_user, old_type, updated_type, force))
+    run_alignment_step(TypeAlignmentStep.MULTI_DATA_SECTIONS, lambda: (
+        align_type_mds(request_user, updated_type) if force
+        else apply_type_changes_to_mds(request_user, old_type, CmdbType.to_json(updated_type))
+    ))
+    run_alignment_step(TypeAlignmentStep.OBJECT_FIELDS,
+                       lambda: realign_type_object_fields(request_user, old_type, updated_type, force))
+    run_alignment_step(TypeAlignmentStep.REPORTS,
+                       lambda: clean_type_reports_after_update(request_user, old_type, updated_type, force))
+    run_alignment_step(TypeAlignmentStep.ALIGNMENT_MARKER,
+                       lambda: types_manager.update_type_field(type_id, TypeSchemaKey.ALIGNMENT_PENDING.value, False))

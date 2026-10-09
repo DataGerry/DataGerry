@@ -20,10 +20,10 @@ On premise a login is stripped and tried as typed, then lower-cased, through the
 Basic alike - so ``ADMIN`` and `` admin `` log in as ``admin``, and a user stored as ``Mixed-Name`` is
 still found as typed. In hosted cloud mode the portal is sent the stripped, lower-cased email, and the
 tenant user is looked up by the address the portal answered with - so Basic credentials typed in
-another case reach the account they belong to, with and without an ``x-api-key``
+another case reach the account they belong to. Without an ``x-api-key`` cloud Basic credentials are refused
 
-The portal is stubbed where the entry points call it. Its answer carries a top-level ``database``
-because the Basic path without an ``x-api-key`` reads the tenant database from there
+The portal is stubbed where the entry points call it, with the answer it sends to an ``x-api-key`` request
+(``tests.utils.service_portal_answers``)
 """
 import base64
 from datetime import datetime, timezone
@@ -40,6 +40,7 @@ from cmdb.manager.security_manager import SYMMETRIC_KEY_ENV_VAR
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.user_model import CmdbUser
 from tests.utils.cloud_mode import enable_hosted_cloud_mode
+from tests.utils.service_portal_answers import portal_api_key_answer, portal_subscription
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGIN_URL: str = '/auth/login'
@@ -155,12 +156,10 @@ def fixture_portal_calls(rest_api, monkeypatch: pytest.MonkeyPatch, database_man
         ))
 
     calls: list[str] = []
-    portal: dict[str, Any] = {
-        'email': CLOUD_EMAIL, 'user_name': 'login-name', 'password': CLOUD_PASSWORD, 'api_level': 3,
-        'database': database_name,
-        'subscriptions': [{'id': 1, 'name': 'sub', 'database': database_name, 'api_level': 3,
-                           'config_item_limit': 100}],
-    }
+    portal: dict[str, Any] = portal_api_key_answer(
+        CLOUD_EMAIL, 'login-name', CLOUD_PASSWORD,
+        portal_subscription(database_name, api_level=3, config_item_limit=100, api_key=API_KEY),
+    )
 
     def _portal(email: str, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
         calls.append(email)
@@ -176,14 +175,13 @@ def fixture_portal_calls(rest_api, monkeypatch: pytest.MonkeyPatch, database_man
 class TestHostedCloudBasic:
     """HTTP Basic with an email typed in another case than the tenant user is stored under"""
 
-    def test_without_an_api_key_the_portals_address_finds_the_tenant_user(
-        self, rest_api, licensed, portal_calls: list[str],
-    ) -> None:
-        """Looked up by the address the portal answered with, not by the typed spelling"""
+    def test_without_an_api_key_the_request_is_refused(self, rest_api, licensed, portal_calls: list[str]) -> None:
+        """No tenant to log into without the key: its own 401, before the portal is asked"""
         response = rest_api.get(PROTECTED_URL, environ_overrides=_basic(TYPED_CLOUD_EMAIL, CLOUD_PASSWORD))
 
-        assert response.status_code == HTTPStatus.OK
-        assert portal_calls
+        assert response.status_code == HTTPStatus.UNAUTHORIZED
+        assert response.get_json()['message'] == route_utils.CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE
+        assert not portal_calls
 
     def test_with_an_api_key_the_account_is_reached_too(self, rest_api, licensed, portal_calls: list[str]) -> None:
         """The key-based path already used the portal's address; it still does"""

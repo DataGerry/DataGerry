@@ -37,7 +37,12 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.log_model import CmdbObjectRelationLog
 from cmdb.framework.results import IterationResult
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -106,6 +111,7 @@ def get_cmdb_object_relation_logs(params: CollectionParameters, request_user: Cm
 
         return api_response.make_response()
     except ObjectRelationLogsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_relation_logs] %s", err, exc_info=True)
         abort(400, "Failed to retrieve ObjectRelationLogs from database!")
 

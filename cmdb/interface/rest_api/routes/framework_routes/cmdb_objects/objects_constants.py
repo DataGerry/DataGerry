@@ -48,6 +48,11 @@ MAX_DASHBOARD_GROUPS: int = 5
 GROUPABLE_OBJECT_FIELDS: frozenset[str] = frozenset({CmdbObjectKey.TYPE_ID.value})
 OBJECT_GROUP_FIELD_REFUSED_MESSAGE: str = "Objects can only be grouped by 'type_id', not by '{field}'!"
 
+# How often the relation cascade of an object delete reads again for relations created while it ran. Each round
+# deletes and logs exactly the relations it read; a relation still appearing after this many rounds means something
+# keeps relating the deleted objects, and is left - with a warning - rather than looped on forever
+RELATION_CASCADE_MAX_ROUNDS: int = 5
+
 # Joins the per-scope messages of a rejected write when several required fields are left without a
 # value (one message for the top-level fields, one per multi-data section)
 REQUIRED_FIELD_ERROR_SEPARATOR: str = ' | '

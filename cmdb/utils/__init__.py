@@ -19,7 +19,8 @@ Project-wide, domain-unspecific Python helpers and definitions
 Domain helpers (CmdbObject-document helpers, IPAM CIDR helpers, etc.) live next to their
 domain. This package is the explicit home for cross-feature, language-level utilities such
 as the shared BaseStrEnum, the MongoDB stage/operator vocabulary (`Builder`), cast helpers, reading a
-wrapped error's cause chain (`find_cause`) and logging configuration
+wrapped error's cause chain (`find_cause`), the `Content-Disposition` of a download
+(`attachment_disposition`) and logging configuration
 
 Everything listed in `__all__` is imported from the package path (`from cmdb.utils import ...`),
 not from the module inside it - with one exception: a module *inside* this package imports its
@@ -36,6 +37,7 @@ from .base_str_enum import BaseStrEnum
 from .builder import Builder
 from .cast import auto_cast
 from .error_chain import find_cause
+from .http_headers import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from .helpers import (
     MONGO_DATE_KEY,
     coerce_datetime,
@@ -59,9 +61,11 @@ from .validation_error import ValidationErrorKey, build_error
 
 __all__: list[str] = [
     'BaseStrEnum',
+    'CONTENT_DISPOSITION_HEADER',
     'Builder',
     'MONGO_DATE_KEY',
     'ValidationErrorKey',
+    'attachment_disposition',
     'auto_cast',
     'build_error',
     'coerce_datetime',

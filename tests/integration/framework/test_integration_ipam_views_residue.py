@@ -19,7 +19,8 @@ Integration tests for the remaining IPAM view / export / wiring paths against a 
 Pins the DB-touching behaviour the unit tests only mock: the per-subnet lazy children fetch
 (build_supernet_subnet_children), the invalid-subnets-only overview, the supernet overview's
 flat search branch, the subnet IP table's status / sort / type-filter query parameters, the
-supernet subnets .csv export, resolve_supernet_family and validate_vlan's subnet lookup.
+supernet subnets .csv export (rows and usage figures equal to the overview's, subnets read through
+the narrow row projection), resolve_supernet_family and validate_vlan's subnet lookup.
 The SpecialType ref_types cross-wiring lives in test_integration_ipam_wiring (own module: it
 must not share the DB with another SUBNET / SUPERNET SpecialType seed)
 """
@@ -30,6 +31,7 @@ from typing import Any
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.database.database_constants import MONGO_ID_FIELD
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.models.object_model import (
     CmdbObject,
@@ -53,7 +55,10 @@ from cmdb.framework.ipam.supernet_overview import (
     build_invalid_subnets_overview,
     build_supernet_overview,
     build_supernet_subnet_children,
+    compute_subnet_row,
+    load_subnets_for_supernet,
     resolve_supernet_family,
+    SUBNET_ROW_PROJECTION,
 )
 from cmdb.framework.ipam.subnet_overview import build_subnet_overview
 from cmdb.framework.ipam.subnet_export import build_supernet_subnets_csv
@@ -221,7 +226,7 @@ def test_supernet_overview_attaches_vlans_via_the_real_aggregation(
 def test_resolve_supernet_family_loads_the_real_document(
     objects_manager: ObjectsManager, types_manager: TypesManager,
 ) -> None:
-    """The export helper resolves the supernet's family from its stored CIDR"""
+    """The family is resolved from the supernet's stored CIDR"""
     assert resolve_supernet_family(objects_manager, types_manager, SUPERNET_ID) == IpAddressFamily.IPV4
 
 
@@ -282,6 +287,42 @@ def test_supernet_subnets_csv_exports_every_assigned_subnet(
     assert set(cidr_column) == {
         SUBNET_PARENT_RANGE, SUBNET_CHILD_RANGE, SUBNET_INVALID_RANGE, SUBNET_IPS_RANGE,
     }
+
+
+def test_supernet_subnets_csv_writes_the_overview_usage_figures(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """Each exported row carries the used / free counts the overview computes from the real interface rows"""
+    content = build_supernet_subnets_csv(objects_manager, types_manager, SUPERNET_ID)
+    payload = build_supernet_overview(objects_manager, types_manager, SUPERNET_ID)
+    children = build_supernet_subnet_children(objects_manager, types_manager, SUPERNET_ID, SUBNET_PARENT_ID)
+
+    overview_rows = payload[IpamOverviewKey.SUBNETS][IpamOverviewKey.ROWS] + children[IpamOverviewKey.ROWS]
+    expected = {
+        row[IpamOverviewKey.CIDR]: [str(row[IpamOverviewKey.USED_IPS]), str(row[IpamOverviewKey.FREE_IPS])]
+        for row in overview_rows
+    }
+    exported = {row[0]: row[2:4] for row in csv.reader(StringIO(content.decode('utf-8')))}
+
+    # the two seeded carriers both sit in the IPs subnet
+    assert exported[SUBNET_IPS_RANGE][0] == str(len([IP_OF_CARRIER_A, IP_OF_CARRIER_B]))
+    assert {cidr: exported[cidr] for cidr in expected} == expected
+
+
+def test_subnets_load_through_the_row_projection_as_they_would_whole(
+    objects_manager: ObjectsManager, types_manager: TypesManager,
+) -> None:
+    """The projected documents hold only the id and fields, and build the same rows as the whole documents"""
+    projected = load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_ID, SUBNET_ROW_PROJECTION)
+    whole = load_subnets_for_supernet(objects_manager, types_manager, SUPERNET_ID)
+
+    assert {key for doc in projected for key in doc} <= {MONGO_ID_FIELD, *SUBNET_ROW_PROJECTION}
+    by_id = {doc[CmdbObjectKey.PUBLIC_ID]: doc for doc in whole}
+    assert len(projected) == len(whole)
+    assert all(
+        compute_subnet_row(doc, 0) == compute_subnet_row(by_id[doc[CmdbObjectKey.PUBLIC_ID]], 0)
+        for doc in projected
+    )
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

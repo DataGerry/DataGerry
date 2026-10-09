@@ -32,12 +32,15 @@ from cmdb.framework.datagerry_assistant import profile_assistant as profile_assi
 from cmdb.framework.datagerry_assistant.profile_assistant import ProfileAssistant
 from cmdb.framework.datagerry_assistant.profile_name import ProfileName
 from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import TypeSlotKey
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.framework.write_ledger_constants import WriteKind
+from tests.unit.framework.datagerry_assistant.conftest import ASSISTANT_AUTHOR_ID
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
 def _make_assistant() -> ProfileAssistant:
     """A ProfileAssistant with MagicMock managers (no DB)"""
-    return ProfileAssistant(MagicMock(), MagicMock(), MagicMock())
+    return ProfileAssistant(MagicMock(), MagicMock(), MagicMock(), author_id=ASSISTANT_AUTHOR_ID)
 
 
 def _fake_profile(name: str, slot: TypeSlotKey | None, run_order: list[str], fail: bool = False) -> Callable:
@@ -176,3 +179,21 @@ def test_create_profiles_wraps_failures_in_profile_creation_error() -> None:
          patch.object(profile_assistant_module, 'ProfileTypeConstructor'):
         with pytest.raises(ProfileCreationError):
             assistant.create_profiles([ProfileName.USER_MANAGEMENT.value])
+
+
+def test_every_created_category_is_recorded_in_the_ledger() -> None:
+    """A failed run can undo its categories too"""
+    ledger = WriteLedger()
+    categories_manager = MagicMock()
+    categories_manager.insert_category.side_effect = [71, 72]
+    assistant = ProfileAssistant(categories_manager, MagicMock(), MagicMock(), author_id=ASSISTANT_AUTHOR_ID,
+                                 ledger=ledger)
+    assistant.get_all_categories = MagicMock(return_value=[{'name': 'a'}, {'name': 'b'}])
+
+    assistant.create_all_categories({})
+
+    assert [(entry.kind, entry.public_id) for entry in ledger.entries] == [
+        (WriteKind.INSERT, 71), (WriteKind.INSERT, 72),
+    ]
+    assert all(entry.manager is categories_manager for entry in ledger.entries)
+

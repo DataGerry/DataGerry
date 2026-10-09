@@ -78,6 +78,19 @@ SORT_RISK_NAMES: list[str] = ['ZzzSortName', 'AaaSortName', 'MmmSortName']
 # (a plain lexicographic sort would wrongly give A.1, A.10, A.2)
 SOA_NATURAL_SORT_IDENTIFIERS: dict[str, int] = {'A.10': 99460, 'A.1': 99461, 'A.2': 99462}
 
+# The page size of the SOA limit test - below SOA_SEEDED_COUNT, so a full page is guaranteed
+SOA_PAGE_SIZE: int = 2
+
+# A control measure carrying every stored key, including the free-text description the SOA does not read
+SOA_PROJECTED_CM_ID: int = 99490
+SOA_PROJECTED_CM_DESCRIPTION: str = 'A long free-text description the SOA never shows'
+# No extendable option carries this id, so the SOA passes the stored id through unresolved
+SOA_UNRESOLVED_OPTION_ID: int = 99491
+SOA_ROW_KEYS: set[str] = {
+    'public_id', 'identifier', 'title', 'chapter', 'is_applicable', 'reason',
+    'implementation_state', 'control_measure_type', 'source',
+}
+
 # Risk-assessment report search fixtures: two Risks whose names differ by a distinctive token, each
 # with one RiskAssessment, so the server-side ?search= can be shown to keep the match and drop the miss.
 SEARCH_TERM: str = 'Zxqvv'
@@ -302,11 +315,11 @@ class TestIsmsReports:
             for cm_id in seeded_ids
         ])
         try:
-            response = rest_api.get(f'{ROUTE_URL}/soa?limit=2')
+            response = rest_api.get(f'{ROUTE_URL}/soa?limit={SOA_PAGE_SIZE}')
 
             assert response.status_code == HTTPStatus.OK
             payload = response.get_json()
-            assert len(payload['results']) <= 2
+            assert len(payload['results']) == SOA_PAGE_SIZE
             assert payload['total'] >= SOA_SEEDED_COUNT
         finally:
             measures.delete_many({'public_id': {'$in': seeded_ids}})
@@ -392,7 +405,7 @@ class TestIsmsReports:
 
     def test_soa_preserves_sort_key_order(self, rest_api, database_manager: MongoDatabaseManager,
                                           database_name: str) -> None:
-        """SOA's natural identifier ordering (sort_key) survives pagination (A.1, A.2, A.10 - not lexicographic)."""
+        """The full SOA list follows the natural identifier order of sort_key (A.1, A.2, A.10 - not lexicographic)."""
         measures = database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)
         measures.insert_many([
             {'public_id': cm_id, 'title': f'Natural sort {identifier}', 'identifier': identifier,
@@ -407,6 +420,54 @@ class TestIsmsReports:
             assert ordered == ['A.1', 'A.2', 'A.10']
         finally:
             measures.delete_many({'public_id': {'$in': list(SOA_NATURAL_SORT_IDENTIFIERS.values())}})
+
+    def test_soa_sorts_before_it_slices(self, rest_api, database_manager: MongoDatabaseManager,
+                                        database_name: str) -> None:
+        """
+        A one-row page holds the row the full SOA order puts at that position
+
+        Slicing first and sorting the page after would return the stored order instead - 'A.10' was
+        inserted first - so each seeded measure is looked up on its own page and compared with the
+        full ordering. The positions are taken from the full list, so other control measures in the
+        collection do not disturb the comparison.
+        """
+        measures = database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)
+        measures.insert_many([
+            {'public_id': cm_id, 'title': f'Page sort {identifier}', 'identifier': identifier,
+             'control_measure_type': 'CONTROL'}
+            for identifier, cm_id in SOA_NATURAL_SORT_IDENTIFIERS.items()
+        ])
+        try:
+            full_order = [cm['public_id'] for cm in rest_api.get(f'{ROUTE_URL}/soa?limit=0').get_json()['results']]
+
+            for cm_id in SOA_NATURAL_SORT_IDENTIFIERS.values():
+                page = full_order.index(cm_id) + 1
+                payload = rest_api.get(f'{ROUTE_URL}/soa?limit=1&page={page}').get_json()
+
+                assert [cm['public_id'] for cm in payload['results']] == [cm_id]
+                assert payload['total'] == len(full_order)
+        finally:
+            measures.delete_many({'public_id': {'$in': list(SOA_NATURAL_SORT_IDENTIFIERS.values())}})
+
+    def test_soa_rows_carry_only_the_report_columns(self, rest_api, database_manager: MongoDatabaseManager,
+                                                    database_name: str) -> None:
+        """An SOA row holds the report's columns; the stored description is not read, nor is _id"""
+        measures = database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)
+        measures.insert_one({
+            'public_id': SOA_PROJECTED_CM_ID, 'title': 'Projected CM', 'control_measure_type': 'CONTROL',
+            'identifier': 'P.1', 'chapter': 'P', 'is_applicable': True, 'reason': 'Projected reason',
+            'implementation_state': SOA_UNRESOLVED_OPTION_ID, 'source': SOA_UNRESOLVED_OPTION_ID,
+            'description': SOA_PROJECTED_CM_DESCRIPTION,
+        })
+        try:
+            results = rest_api.get(f'{ROUTE_URL}/soa?limit=0').get_json()['results']
+
+            entry = next(cm for cm in results if cm['public_id'] == SOA_PROJECTED_CM_ID)
+            assert set(entry) == SOA_ROW_KEYS
+            assert entry['reason'] == 'Projected reason'
+            assert entry['chapter'] == 'P'
+        finally:
+            measures.delete_one({'public_id': SOA_PROJECTED_CM_ID})
 
     def test_soa_does_not_echo_ignored_sort_and_filter(self, rest_api) -> None:
         """SOA ignores sort/order/filter and does not echo the client's ignored values back."""
@@ -539,14 +600,14 @@ class TestIsmsReports:
     def test_aggregation_report_allows_disk_use(self, rest_api, monkeypatch: pytest.MonkeyPatch,
                                                 report: str) -> None:
         """The aggregation reports pass allowDiskUse so a large $sort/$group spills to disk, not fails."""
-        original_aggregate = RiskAssessmentManager.aggregate
+        original_aggregate = RiskAssessmentManager.aggregate_within_time_limit
         captured_kwargs: list[dict] = []
 
-        def _spy(self, pipeline, *args, **kwargs):
+        def _spy(self, pipeline, time_limit_ms, **kwargs):
             captured_kwargs.append(kwargs)
-            return original_aggregate(self, pipeline, *args, **kwargs)
+            return original_aggregate(self, pipeline, time_limit_ms, **kwargs)
 
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _spy)
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', _spy)
 
         response = rest_api.get(f'{ROUTE_URL}/{report}')
 
@@ -592,7 +653,7 @@ class TestReportErrorMapping:
         def _boom(*_args, **_kwargs):
             raise RuntimeError('boom')
 
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _boom)
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', _boom)
 
         assert rest_api.get(f'{ROUTE_URL}/risk_assessments').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -605,7 +666,7 @@ class TestReportErrorMapping:
         def _raise_iteration_error(*_args, **_kwargs):
             raise RiskAssessmentManagerIterationError('no iteration')
 
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _raise_iteration_error)
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', _raise_iteration_error)
 
         assert rest_api.get(f'{ROUTE_URL}/risk_treatment_plan').status_code == HTTPStatus.BAD_REQUEST
 
@@ -647,6 +708,6 @@ class TestReportErrorMapping:
         def _boom(*_args, **_kwargs):
             raise RuntimeError('boom')
 
-        monkeypatch.setattr(RiskAssessmentManager, 'aggregate', _boom)
+        monkeypatch.setattr(RiskAssessmentManager, 'aggregate_within_time_limit', _boom)
 
         assert rest_api.get(f'{ROUTE_URL}/risk_treatment_plan').status_code == HTTPStatus.INTERNAL_SERVER_ERROR

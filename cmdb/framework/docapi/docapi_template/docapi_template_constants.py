@@ -14,7 +14,7 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the DocapiTemplateKey Enumeration
+This module contains the DocapiTemplateKey Enumeration and the limits of a template write
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -36,3 +36,13 @@ class DocapiTemplateKey(BaseStrEnum):
     TABLE_OF_CONTENTS = "table_of_contents"
     COVER_PAGE = "cover_page"
     PAGE_CONFIG = "page_config"
+
+
+# A template name is its unique, immutable handle, addressed as one URL path segment by the by-name route
+TEMPLATE_NAME_MAX_LENGTH: int = 255
+TEMPLATE_NAME_FORBIDDEN_CHARACTER: str = '/'
+TEMPLATE_NAME_BLANK_MSG: str = 'must not be blank'
+TEMPLATE_NAME_SEPARATOR_MSG: str = f"must not contain '{TEMPLATE_NAME_FORBIDDEN_CHARACTER}'"
+
+# The page margins a page_config may set, in points (the frontend's DocTemplatePageConfigMargin)
+DOCAPI_TEMPLATE_MARGIN_KEYS: tuple[str, ...] = ('margin-top', 'margin-bottom', 'margin-left', 'margin-right')

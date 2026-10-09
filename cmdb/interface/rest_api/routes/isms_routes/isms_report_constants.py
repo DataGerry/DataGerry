@@ -151,6 +151,11 @@ class IsmsReportErrorMessage(BaseStrEnum):
 # The label of an assessed object group, in place of the type label an assessed object shows
 OBJECT_GROUP_TYPE_LABEL: str = 'Object group'
 
+# Shown in place of an assessed object or object group that no longer resolves. The row is kept rather than
+# dropped: a risk assessment naming a deleted object is exactly what a reader needs to see
+UNKNOWN_OBJECT_LABEL: str = 'Unknown object'
+UNKNOWN_OBJECT_GROUP_LABEL: str = 'Unknown object group'
+
 # Separates a scale entry's calculation basis from its name ("3 - High")
 CALCULATION_BASIS_SEPARATOR: str = ' - '
 

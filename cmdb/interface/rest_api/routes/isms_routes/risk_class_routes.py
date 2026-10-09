@@ -227,25 +227,28 @@ def update_isms_risk_class(public_id: int, data: dict[str, Any], request_user: C
 @handle_route_errors("while updating multiple RiskClasses")
 def update_multiple_isms_risk_classes(request_user: CmdbUser) -> Response:
     """
-    HTTP `PUT`/`PATCH` route to update multiple IsmsRiskClasses
+    HTTP `PUT`/`PATCH` route to update multiple IsmsRiskClasses at once - the frontend's reorder
 
-    The list of IsmsRiskClasses to update is read from the JSON request body; each entry is
-    processed independently and its per-item success/failure is reported in the response.
+    The body is a list of whole IsmsRiskClasses, each addressed by its own `public_id` and judged by the
+    single update's write schema. All or nothing: an invalid item, a repeated or unknown id, or more than
+    MAX_ISMS_RISK_CLASSES items refuse the whole request with one 400 naming every reason, before anything
+    is written
 
     Args:
         request_user (CmdbUser): User requesting this data
 
     Returns:
-        DefaultResponse: A per-item result list describing which updates succeeded or failed
+        DefaultResponse: One `{public_id, status: 'success'}` entry per item
     """
     risk_class_manager: RiskClassManager = ManagerProvider.get_manager(ManagerType.RISK_CLASS, request_user)
 
-    results = update_multiple_items(
+    results: list[dict[str, Any]] = update_multiple_items(
         risk_class_manager,
         IsmsRiskClass,
         request.get_json(silent=True),
-        "RiskClass",
-        "update_multiple_isms_risk_classes",
+        build_write_schema(IsmsRiskClass.SCHEMA),
+        RISK_CLASS_LABEL,
+        MAX_ISMS_RISK_CLASSES,
     )
 
     return DefaultResponse(results).make_response()

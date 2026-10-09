@@ -15,16 +15,36 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Helper functions for the DataGerry Assistant (special) REST routes
+
+The assistant may run when three things hold: the caller holds the rights to create what it creates
+(``holds_assistant_rights``), the database has no framework data yet (``has_framework_data``), and the assistant
+has not run on this installation before - the first run claims ``ASSISTANT_SETTINGS_SECTION``
+(``assistant_has_run``). ``read_profile_selection`` reads which profiles to seed, and ``drop_locked_profiles``
+skips the ones the licence does not unlock
 """
-from cmdb.manager import CategoriesManager, ObjectsManager
+from typing import Any
+
+from flask import abort
+
+from cmdb.manager import CategoriesManager, ObjectsManager, SettingsManager
 from cmdb.manager.types_manager import TypesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.framework.datagerry_assistant.profile_assistant import special_types_created_by
+from cmdb.framework.datagerry_assistant.profile_name import ProfileName
+from cmdb.interface.route_utils import user_has_right
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_locked
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     special_type_license_feature,
+)
+from cmdb.interface.rest_api.routes.framework_routes.special_constants import (
+    ASSISTANT_RIGHTS,
+    ASSISTANT_SETTINGS_SECTION,
+    NO_PROFILES_MESSAGE,
+    PROFILE_SELECTION_PARAM,
+    PROFILE_SEPARATOR,
+    UNKNOWN_PROFILES_MESSAGE,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -121,3 +141,65 @@ def has_framework_data(
         return True
 
     return objects_manager.count_documents() > 0
+
+
+def read_profile_selection(params: dict[str, Any]) -> list[str]:
+    """
+    Reads the profiles selected in the assistant, refusing a selection it cannot seed
+
+    The selection is the ``data`` query parameter, the ProfileName values joined by ``#`` - the frontend's contract.
+    A name that is no profile used to be ignored silently, so a typo dropped that profile and an all-unknown
+    selection answered success having created nothing
+
+    Args:
+        params (dict[str, Any]): The parsed query parameters
+
+    Raises:
+        HTTPException: 400 when no profile is selected, or a selected name is no ProfileName
+
+    Returns:
+        list[str]: The selected profiles, each once, in the order given
+    """
+    raw: Any = params.get(PROFILE_SELECTION_PARAM)
+
+    if not raw or not isinstance(raw, str):
+        abort(400, NO_PROFILES_MESSAGE)
+
+    profiles: list[str] = list(dict.fromkeys(name for name in raw.split(PROFILE_SEPARATOR) if name))
+
+    if not profiles:
+        abort(400, NO_PROFILES_MESSAGE)
+
+    known: set[str] = {profile.value for profile in ProfileName}
+    unknown: list[str] = [name for name in profiles if name not in known]
+
+    if unknown:
+        abort(400, UNKNOWN_PROFILES_MESSAGE.format(names=', '.join(unknown)))
+
+    return profiles
+
+
+def holds_assistant_rights(request_user: CmdbUser) -> bool:
+    """
+    Whether the caller may run the assistant: it creates CmdbTypes and CmdbCategories
+
+    Args:
+        request_user (CmdbUser): The caller
+
+    Returns:
+        bool: True when the caller's group holds every right in ``ASSISTANT_RIGHTS``
+    """
+    return all(user_has_right(right, request_user) for right in ASSISTANT_RIGHTS)
+
+
+def assistant_has_run(settings_manager: SettingsManager) -> bool:
+    """
+    Whether the assistant has run on this installation - its first run claims the marker section
+
+    Args:
+        settings_manager (SettingsManager): The tenant's settings manager
+
+    Returns:
+        bool: True when the marker section exists
+    """
+    return settings_manager.get_section(ASSISTANT_SETTINGS_SECTION) is not None

@@ -26,6 +26,10 @@ unit-testable without a database. Two things it computes rather than stores:
   - the **occupants legend**: the same idea for the rows that have no type - how many reservations and
     blockers the rack holds, and how much of its height they hold
 
+A member the caller may not READ keeps its row - its slots are physically occupied - but is drawn blank: no
+summary line, no type label, icon or colour, and its type is tallied under a blank legend entry
+(``mask_unreadable_members``). The drawing stays true and names nothing hidden
+
 A bucket holds every kind of row: a MOUNT, and the two occupant kinds that name no CmdbObject. Each row
 says which it is in ``kind``, so the grid styles a reservation differently from a blocker without
 inferring it from which fields happen to be null. The type keys are null on an occupant and the
@@ -39,6 +43,7 @@ unoccupied slot is visible without being told, and whether a specific placement 
 answered by POST /racks/<id>/mounts/validate - which runs the very checks the write runs, so it can never
 offer something the write would refuse
 """
+from collections.abc import Collection
 from logging import Logger, getLogger
 from typing import Any, Callable
 
@@ -55,6 +60,41 @@ from cmdb.framework.rack.occupant_validator import read_stored_kind
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
+
+def mask_unreadable_members(
+        summary_lines: dict[int, str],
+        type_meta: dict[int, dict[str, Any]],
+        object_types: dict[int, int],
+        denied_type_ids: Collection[int]) -> tuple[dict[int, str], dict[int, dict[str, Any]]]:
+    """
+    Blanks what the overview would say about members of a type the caller may not READ
+
+    The summary line of every such member is dropped and the type's label, icon and colour are emptied; the
+    object id, the type id and the row itself stay, so the slot reads as occupied. The inputs are not changed
+
+    Args:
+        summary_lines (dict[int, str]): {object_id: summary_line}, batch-resolved
+        type_meta (dict[int, dict[str, Any]]): {type_id: {label, icon, color}}, batch-resolved
+        object_types (dict[int, int]): {object_id: type_id}, from the same batch
+        denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read
+
+    Returns:
+        tuple[dict[int, str], dict[int, dict[str, Any]]]: The masked summary lines and type metadata
+    """
+    denied: set[int] = set(denied_type_ids)
+
+    if not denied:
+        return summary_lines, type_meta
+
+    masked_lines: dict[int, str] = {
+        object_id: line for object_id, line in summary_lines.items() if object_types.get(object_id) not in denied
+    }
+    masked_meta: dict[int, dict[str, Any]] = {
+        type_id: ({} if type_id in denied else meta) for type_id, meta in type_meta.items()
+    }
+
+    return masked_lines, masked_meta
+
 
 def build_mount_row(
         mount: dict[str, Any],

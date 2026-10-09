@@ -16,14 +16,11 @@
 """
 REST routes for the IPAM sidebar tree
 
-Three GET routes behind the sidebar's IPAM section:
+Two GET routes behind the sidebar's IPAM section:
 
 * ``GET /`` - the initial payload, every supernet plus every unassigned subnet in one call
 * ``GET /supernets/<public_id>`` - one supernet's full CIDR-nested subnet tree, fetched when the
   user expands that entry
-* ``GET /unassigned`` - the 'Unassigned' block alone, for a targeted refresh. **Nothing calls this
-  today**: the frontend service exposes only the first two, and this route's payload is the block
-  ``GET /`` already returned
 
 All payloads carry lightweight nodes (public_id, name, cidr, address family under 'type', the
 CmdbType icon) sorted IPv4 before IPv6 and ascending by CIDR within each family. "Lightweight" is
@@ -39,8 +36,9 @@ the tree. The write and delete guards make that unreachable, but nothing reports
 ever gets there.
 
 Like the rest of the folder the surface sits behind the licensed IPAM feature (the blueprint is
-gated in ``init_rest_api``), carries no per-user ACL right and does not filter reads by the
-object ACL
+gated in ``init_rest_api``) and the ``IpamRight.VIEW`` right. The reads ARE narrowed by the object
+ACL: every builder drops the CmdbTypes the caller may not READ (``read_scope.resolve_read_scope``),
+so a SUPERNET or SUBNET of a hidden type is in no block
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -51,7 +49,6 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.framework.ipam.tree_overview import (
     build_ipam_tree,
     build_supernet_subnet_tree,
-    build_unassigned_subnets,
 )
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_route_helper import read_ipam_managers
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
@@ -133,33 +130,3 @@ def get_supernet_subnet_tree(public_id: int, request_user: CmdbUser) -> Response
     subtree: dict[str, Any] = build_supernet_subnet_tree(objects_manager, types_manager, public_id, request_user)
 
     return DefaultResponse(subtree).make_response()
-
-
-@ipam_tree_blueprint.route('/unassigned', methods=['GET'])
-@insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
-@ipam_tree_blueprint.protect(auth=True, right=IpamRight.VIEW.value)
-@handle_route_errors("while loading the unassigned subnets")
-def get_unassigned_subnets(request_user: CmdbUser) -> Response:
-    """
-    HTTP `GET` route returning the unassigned-subnets block of the sidebar tree alone
-
-    Returns the same flat 'unassigned' list as the initial tree payload - every SUBNET whose
-    'dg-supernet-ref' is empty - without reloading the supernet block, for targeted refreshes
-    of the 'Unassigned' group. Nodes are sorted IPv4 before IPv6, then ascending by CIDR
-
-    Args:
-        request_user (CmdbUser): CmdbUser making the request
-
-    Raises:
-        HTTPException: 500 on an unexpected error. No SUBNET CmdbType defined answers with an empty
-                       block rather than an error
-
-    Returns:
-        Response: {'unassigned': [subnet nodes]}
-    """
-    objects_manager, types_manager = read_ipam_managers(request_user)
-
-    unassigned: dict[str, Any] = build_unassigned_subnets(objects_manager, types_manager, request_user)
-
-    return DefaultResponse(unassigned).make_response()

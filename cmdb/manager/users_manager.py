@@ -23,7 +23,9 @@ group, so a read that fails here fails the whole request. Beyond user CRUD it ow
 * **Member redistribution when a UserGroup is deleted** (`handle_users_on_group_delete`). The group
   route deletes the group itself; this manager decides what happens to the members first, and it
   must never leave a user pointing at a group that no longer exists - such a user still
-  authenticates but is refused every right, because `user_has_right` resolves their group to None
+  authenticates but is refused every right, because `user_has_right` resolves their group to None.
+  It writes by the member ids it is handed (`get_group_member_ids`, `move_users`, `delete_users`), so the
+  route can record the exact inverse of the write before it runs
 * **Cascading a user delete** into the collections that reference a user by public_id. Today that is
   `management.users.settings`; see `_delete_user_settings`
 
@@ -56,6 +58,7 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
     UsersManagerInsertError,
     UsersManagerDeleteError,
+    UsersManagerAdminMemberError,
     UsersManagerUpdateError,
     UsersManagerIterationError,
 )
@@ -350,18 +353,22 @@ class UsersManager(BaseManager):
         self,
         group_id: int,
         action: GroupDeleteMode,
-        target_group_id: int | None
+        target_group_id: int | None,
+        member_ids: list[int] | None = None,
     ) -> None:
         """
         Redistribute the members of a UserGroup that is about to be deleted
 
         Depending on ``action``:
-          * ``MOVE`` - every user in ``group_id`` is reassigned to ``target_group_id`` in a single
-            ``update_many`` (``target_group_id`` must be provided)
-          * ``DELETE`` - every user in ``group_id`` is deleted along with their settings, but the
-            call is refused first if the bootstrap admin user is a member (the admin must never be
-            deleted)
+          * ``MOVE`` - every member is reassigned to ``target_group_id`` in a single ``update_many``
+            (``target_group_id`` must be provided)
+          * ``DELETE`` - every member is deleted along with their settings, but the call is refused first if
+            the bootstrap admin user is a member (the admin must never be deleted)
         A group with no members is a no-op in both cases
+
+        The members are the ``member_ids`` the caller read - the ones it recorded the undo for - and both
+        writes select by those ids, never by the group predicate, so the write changes exactly the users the
+        undo knows about. Without ``member_ids`` they are read here (``get_group_member_ids``)
 
         ``action`` must be a member of ``GroupDeleteMode``. Anything else raises rather than falling
         through silently: a silent no-op here would delete the group while its members keep pointing
@@ -372,31 +379,56 @@ class UsersManager(BaseManager):
             group_id (int): public_id of the UserGroup being deleted
             action (GroupDeleteMode): How to handle the group's members (MOVE or DELETE)
             target_group_id (int | None): Destination group for MOVE; ignored for DELETE
+            member_ids (list[int] | None): public_ids of the members to redistribute. Defaults to None (read)
 
         Raises:
             UsersManagerActionError: When 'action' is not a supported GroupDeleteMode
-            UsersManagerDeleteError: When the admin user is a member on DELETE, or a member delete failed
+            UsersManagerAdminMemberError: When the admin user is a member on DELETE
+            UsersManagerDeleteError: When a member delete failed
             UsersManagerUpdateError: When the move target is missing or a member move failed
             UsersManagerGetError: When the group's members could not be retrieved
         """
+        if action not in (GroupDeleteMode.MOVE, GroupDeleteMode.DELETE):
+            raise UsersManagerActionError(f"Unsupported GroupDeleteMode: {action!r}")
+
+        ids: list[int] = self.get_group_member_ids(group_id) if member_ids is None else list(member_ids)
+
         try:
             if action == GroupDeleteMode.MOVE:
-                self._move_group_members(group_id, target_group_id)
-            elif action == GroupDeleteMode.DELETE:
-                self._delete_group_members(group_id)
+                self.move_users(ids, target_group_id)
             else:
-                raise UsersManagerActionError(f"Unsupported GroupDeleteMode: {action!r}")
-        # This manager's own errors (the admin refusal, the missing move target, the unsupported
-        # action) are NOT caught here: UsersManagerError does not extend BaseManagerError, so they
-        # pass these arms untouched and reach the route with their identity intact
+                self.delete_users(ids)
+        # This manager's own errors (the admin refusal, the missing move target) are NOT caught here:
+        # UsersManagerError does not extend BaseManagerError, so they pass these arms untouched and reach the
+        # route with their identity intact
         except BaseManagerUpdateError as err:
             LOGGER.error("[handle_users_on_group_delete] BaseManagerUpdateError: %s", err)
             raise UsersManagerUpdateError(err) from err
         except BaseManagerDeleteError as err:
             LOGGER.error("[handle_users_on_group_delete] BaseManagerDeleteError: %s", err)
             raise UsersManagerDeleteError(err) from err
+
+
+    def get_group_member_ids(self, group_id: int) -> list[int]:
+        """
+        The public_ids of every CmdbUser in a UserGroup - a projected read, no user document is loaded
+
+        Args:
+            group_id (int): public_id of the UserGroup
+
+        Raises:
+            UsersManagerGetError: When the members could not be read
+
+        Returns:
+            list[int]: The members' public_ids
+        """
+        try:
+            return [
+                user[CmdbUserKey.PUBLIC_ID.value]
+                for user in self.find(criteria={CmdbUserKey.GROUP_ID.value: group_id}, projection=USER_ID_PROJECTION)
+            ]
         except BaseManagerGetError as err:
-            LOGGER.error("[handle_users_on_group_delete] BaseManagerGetError: %s", err)
+            LOGGER.error("[get_group_member_ids] BaseManagerGetError: %s", err)
             raise UsersManagerGetError(err) from err
 
 
@@ -422,15 +454,14 @@ class UsersManager(BaseManager):
             raise UsersManagerGetError(err) from err
 
 
-    def _move_group_members(self, group_id: int, target_group_id: int | None) -> None:
+    def move_users(self, user_ids: list[int], target_group_id: int | None) -> None:
         """
-        Reassigns every member of a UserGroup to another group
+        Reassigns the given CmdbUsers to another group
 
-        One `update_many` against the group_id predicate: every member gets the same new group, so
-        there is nothing to read first and nothing to write per user
+        One `update_many` by the ids: every member gets the same new group, so there is nothing to write per user
 
         Args:
-            group_id (int): public_id of the UserGroup whose members are moved
+            user_ids (list[int]): public_ids of the users to move
             target_group_id (int | None): public_id of the destination UserGroup
 
         Raises:
@@ -440,43 +471,35 @@ class UsersManager(BaseManager):
         if not target_group_id:
             raise UsersManagerUpdateError("Target group_id required when moving Users!")
 
-        self.update_many({CmdbUserKey.GROUP_ID.value: group_id}, {CmdbUserKey.GROUP_ID.value: int(target_group_id)})
-
-
-    def _delete_group_members(self, group_id: int) -> None:
-        """
-        Deletes every member of a UserGroup, refusing if the bootstrap admin is one of them
-
-        Reads only the members' public_ids (a projected read), so the settings cascade knows whose
-        rows to remove without loading the user documents themselves
-
-        Args:
-            group_id (int): public_id of the UserGroup whose members are deleted
-
-        Raises:
-            UsersManagerDeleteError: When the admin user is a member of the group
-            BaseManagerGetError: When the members could not be read
-            BaseManagerDeleteError: When the members could not be deleted
-        """
-        # Check if the admin user is part of this UserGroup
-        admin_user: dict[str, Any] | None = self.get_one_by({
-            CmdbUserKey.GROUP_ID.value: group_id,
-            CmdbUserKey.PUBLIC_ID.value: CmdbUser.ADMIN_PUBLIC_ID,
-        })
-
-        if admin_user:
-            raise UsersManagerDeleteError("This Group can not be deleted because the admin user is part of it")
-
-        member_ids: list[int] = [
-            user[CmdbUserKey.PUBLIC_ID.value]
-            for user in self.find(criteria={CmdbUserKey.GROUP_ID.value: group_id}, projection=USER_ID_PROJECTION)
-        ]
-
-        if not member_ids:
+        if not user_ids:
             return
 
-        # Deleted by the ids just read, not by re-running the group query: a user added to the group in
-        # between would otherwise be deleted without being in member_ids, and so keep their settings
-        self.delete_many({CmdbUserKey.PUBLIC_ID.value: {'$in': member_ids}})
+        self.update_many(
+            {CmdbUserKey.PUBLIC_ID.value: {'$in': list(user_ids)}},
+            {CmdbUserKey.GROUP_ID.value: int(target_group_id)},
+        )
 
-        self._delete_user_settings(member_ids)
+
+    def delete_users(self, user_ids: list[int]) -> None:
+        """
+        Deletes the given CmdbUsers and their settings, refusing if the bootstrap admin is one of them
+
+        Deleted by the ids, not by re-running the group query: a user added to the group in between would
+        otherwise be deleted without being among the ids, and so keep their settings
+
+        Args:
+            user_ids (list[int]): public_ids of the users to delete
+
+        Raises:
+            UsersManagerAdminMemberError: When the admin user is among them
+            BaseManagerDeleteError: When the users or their settings could not be deleted
+        """
+        if CmdbUser.ADMIN_PUBLIC_ID in user_ids:
+            raise UsersManagerAdminMemberError("This Group can not be deleted because the admin user is part of it")
+
+        if not user_ids:
+            return
+
+        self.delete_many({CmdbUserKey.PUBLIC_ID.value: {'$in': list(user_ids)}})
+
+        self._delete_user_settings(list(user_ids))

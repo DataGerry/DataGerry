@@ -58,6 +58,7 @@ from typing import Any
 from flask import abort
 from werkzeug import Response
 
+from cmdb.utils import CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.ipam_constants import (
     IpAddressFamily,
@@ -408,7 +409,7 @@ def export_subnet_ips(public_id: int, request_user: CmdbUser) -> Response:
         mimetype=IpamExport.MIMETYPE,
         # Quoted like every other export in the repo: an unquoted filename is only safe as long
         # as the template never yields a space or a separator character
-        headers={'Content-Disposition': f'attachment; filename="{filename}"'},
+        headers={CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)},
     )
 
 

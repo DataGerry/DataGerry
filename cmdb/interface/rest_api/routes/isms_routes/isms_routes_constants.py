@@ -86,6 +86,9 @@ MIN_CONFIGURED_LIKELIHOODS: int = 3
 MIN_CONFIGURED_IMPACTS: int = 3
 MIN_CONFIGURED_IMPACT_CATEGORIES: int = 1
 
+# The 400 of GET /isms/config/status when one of its counts or the RiskMatrix read fails
+ISMS_CONFIG_STATUS_READ_FAILED_MESSAGE: str = "Failed to read the ISMS configuration status from the database!"
+
 class IsmsConfigStatusKey(BaseStrEnum):
     """
     The sections of the readiness report answered by GET /isms/config/status
@@ -104,20 +107,31 @@ class BulkItemResultKey(BaseStrEnum):
     """The keys of one per-item entry in an ISMS bulk-update response"""
     PUBLIC_ID = 'public_id'
     STATUS = 'status'
-    MESSAGE = 'message'
 
 
 class BulkItemStatus(BaseStrEnum):
-    """The outcome of one item in an ISMS bulk-update response"""
+    """The outcome of one item in an ISMS bulk-update response; a request that answers at all wrote every item"""
     SUCCESS = 'success'
-    FAILED = 'failed'
 
 
-# The reasons a bulk-update item fails; the last two are filled with the entity label and the id
-BULK_ITEM_MISSING_ID_MSG: str = 'Missing public_id'
-BULK_ITEM_INVALID_ID_MSG: str = 'Invalid public_id'
-BULK_ITEM_NOT_FOUND_MSG: str = '{item_label} ID:{public_id} not found'
-BULK_ITEM_UPDATE_FAILED_MSG: str = 'Failed to update {item_label} ID: {public_id}'
+# Most items one ISMS bulk update may carry when its entity has no cap of its own (IsmsImpactCategory); the
+# RiskClasses are bounded by MAX_ISMS_RISK_CLASSES instead
+MAX_ISMS_BULK_UPDATE_ITEMS: int = 5000
+
+# The 400s of an ISMS bulk update: the body as a whole, then the items. Every refusal is decided before
+# anything is written, and an item is named by its position in the list and, when it has one, its id
+BULK_UPDATE_NOT_A_LIST_MSG: str = "The request body must be a list of {entities}!"
+BULK_UPDATE_TOO_MANY_ITEMS_MSG: str = "At most {max_items} {entities} can be updated at once, but {count} were sent!"
+BULK_UPDATE_INVALID_ITEMS_MSG: str = "No {entities} were updated, because some items are invalid: {reasons}"
+BULK_UPDATE_DUPLICATE_IDS_MSG: str = "No {entities} were updated, because these ids are sent more than once: {ids}"
+BULK_UPDATE_NOT_FOUND_MSG: str = "No {entities} were updated, because these ids do not exist: {ids}"
+BULK_UPDATE_UNDO_INCOMPLETE_MSG: str = (
+    "Updating the {entities} failed part-way, and these writes could not be undone: {{residue}}"
+)
+BULK_ITEM_NOT_AN_OBJECT_REASON: str = "item #{index} is not an object"
+BULK_ITEM_INVALID_ID_REASON: str = "item #{index} has no integer public_id"
+BULK_ITEM_SCHEMA_REASON: str = "item #{index} (public_id {public_id}): {errors}"
+BULK_ITEM_REASON_SEPARATOR: str = " | "
 
 # Response keys shared by the ISMS bulk-delete routes (ControlMeasure, Vulnerability, Threat): the ids
 # that were deleted, and the ids that were skipped because they are still referenced elsewhere
@@ -141,4 +155,56 @@ REQUIRED_RISK_ASSESSMENT_FIELDS: tuple[str, ...] = (
     RiskAssessmentKey.OBJECT_ID.value,
     RiskAssessmentKey.RISK_OWNER_ID.value,
     RiskAssessmentKey.RISK_ASSESSMENT_DATE.value,
+)
+
+
+# Server error (HTTP 500) when a RiskAssessment write failed part-way and undoing what it had already written
+# did not finish either: the named documents are left as the failed request made them and need a look by hand
+RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG: str = (
+    "Writing the RiskAssessment failed, and undoing what it had already written did not finish. "
+    "These writes are still in effect and have to be checked by hand: {residue}"
+)
+
+
+# Refusal (HTTP 400) for an IsmsControlMeasureAssignment naming IsmsControlMeasures that do not exist, formatted
+# with the sorted unknown ids
+UNKNOWN_CONTROL_MEASURES_MSG: str = "Unknown ControlMeasure(s) referenced: {unknown}!"
+
+# Refusals (HTTP 400) for a person reference that cannot be resolved at all: its value is not a public_id, or its
+# '_ref_type' sibling names neither a CmdbPerson nor a CmdbPersonGroup. Formatted with the reference key and the
+# offending value
+INVALID_PERSON_REFERENCE_ID_MSG: str = "The '{key}' reference must be a public_id, got {value!r}!"
+UNKNOWN_PERSON_REFERENCE_TYPE_MSG: str = (
+    "The '{key}' reference names no known reference type: {value!r} (allowed: {allowed})!"
+)
+
+# The 400 a write answers when looking up the documents it references fails, formatted with what they are
+REFERENCE_LOOKUP_FAILED_MSG: str = "Failed to look up the referenced {label} IDs in the database!"
+
+
+class AssignmentDiffKey(BaseStrEnum):
+    """The keys of the ControlMeasureAssignment diff a RiskAssessment update carries"""
+    CREATED = 'created'
+    UPDATED = 'updated'
+    DELETED = 'deleted'
+
+
+# Refusals (HTTP 400) of the ControlMeasureAssignments a RiskAssessment write carries. A create takes a list, an
+# update the AssignmentDiffKey object; every entry is judged by the ControlMeasureAssignment write schema
+ASSIGNMENTS_NOT_A_LIST_MSG: str = (
+    "'control_measure_assignments' of a new RiskAssessment must be a list of ControlMeasureAssignments!"
+)
+ASSIGNMENTS_NOT_A_DIFF_MSG: str = (
+    "'control_measure_assignments' of a RiskAssessment update must be an object of the lists {keys}!"
+)
+ASSIGNMENT_ENTRY_NOT_AN_OBJECT_MSG: str = "ControlMeasureAssignment {position} must be an object!"
+ASSIGNMENT_ENTRY_INVALID_MSG: str = "ControlMeasureAssignment {position} is invalid: {errors}"
+ASSIGNMENT_ID_INVALID_MSG: str = (
+    "ControlMeasureAssignment {position} needs the integer 'public_id' of a stored assignment, not {value!r}!"
+)
+ASSIGNMENT_CONTROL_MEASURE_DUPLICATE_MSG: str = (
+    "A ControlMeasure can be assigned to a RiskAssessment only once - more than once: {ids}!"
+)
+ASSIGNMENT_ALREADY_ASSIGNED_MSG: str = (
+    "ControlMeasure ID:{control_measure_id} is already assigned to RiskAssessment ID:{risk_assessment_id}!"
 )

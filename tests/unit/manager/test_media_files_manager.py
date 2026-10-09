@@ -34,6 +34,7 @@ from unittest.mock import MagicMock
 import pytest
 from gridfs.errors import NoFile
 
+from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import GRIDFS_FILES_SUFFIX, MediaFileKey
 from cmdb.manager.media_files_manager import MediaFilesManager
@@ -182,9 +183,10 @@ def test_get_many_media_files_returns_every_match_without_a_limit() -> None:
 
     mock_self.fs.find.assert_called_once_with(filter={'metadata.parent': 0}, skip=0, limit=0, sort=None)
     mock_self.dbm.count.assert_not_called()
+    assert isinstance(response, IterationResult)
     assert response.count == 1
     assert response.total == 1
-    assert response.result[0][MediaFileKey.PUBLIC_ID.value] == PUBLIC_ID
+    assert response.results[0][MediaFileKey.PUBLIC_ID.value] == PUBLIC_ID
 
 
 def test_get_many_media_files_applies_the_paging_in_the_query() -> None:

@@ -150,13 +150,13 @@ class TestPostPersonGroup:
         assert _person_groups(database_manager, database_name, PERSON_ID_A) \
             == [response.get_json()['result_id']]
 
-    def test_created_retrieval_missing_returns_404(self, rest_api, monkeypatch) -> None:
-        """If the created group cannot be retrieved afterwards, the route returns 404."""
+    def test_created_retrieval_missing_returns_500(self, rest_api, monkeypatch) -> None:
+        """If the created group cannot be retrieved afterwards, the server failed to see its own write: 500."""
         monkeypatch.setattr(PersonGroupsManager, 'get_item', lambda *_args, **_kwargs: None)
 
         response = rest_api.post(f'{ROUTE_URL}/', json=_group_payload(GROUP_ID_FOR_GET))
 
-        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_insert_internal_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on create surfaces as 500."""

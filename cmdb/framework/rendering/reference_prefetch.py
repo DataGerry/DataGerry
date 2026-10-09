@@ -17,9 +17,11 @@
 Implementation of ReferencePrefetch
 
 Loads, before a render starts, every object it will need to resolve a reference: the rendered objects'
-own references and the reference-section chains behind them, one query per hop. Without it each
-reference section nested in another fetched its target on its own, which made a list render one query
-per object
+own references and the reference-section chains behind them, one query per hop. The render then reads
+nothing - an object that is not loaded renders like an unset reference
+
+Every hop is read through the render's `ReferenceReadScope`: an object of a type the user may not read is
+never loaded, so it never reaches the render's cache and renders like an unset reference
 """
 from logging import ERROR, Logger, getLogger
 from typing import Any
@@ -32,6 +34,7 @@ from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.framework.rendering.render_constants import DEFAULT_RENDER_LEVEL, RenderProblemCode
 from cmdb.framework.rendering.render_problem_log import RenderProblemLog
+from cmdb.framework.rendering.reference_read_scope import ReferenceReadScope
 
 from cmdb.errors.models.cmdb_type import CmdbTypeFieldNotFoundError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -50,6 +53,8 @@ class ReferencePrefetch:
         types_manager (TypesManager): Resolves the kind of a legacy stored field that carries no 'type'
         objects_cache (dict[int, CmdbObject]): The render's cache; what is in it is not loaded again
         problems (RenderProblemLog): Where a failed load and a stored field the type dropped are reported
+        read_scope (ReferenceReadScope): The READ ACL every load is narrowed by; what a load did not
+            answer is recorded there and not asked for again
     """
 
     def __init__(
@@ -58,6 +63,7 @@ class ReferencePrefetch:
         types_manager: TypesManager,
         objects_cache: dict[int, CmdbObject],
         problems: RenderProblemLog,
+        read_scope: ReferenceReadScope,
     ) -> None:
         """
         Initialises a ReferencePrefetch for one render
@@ -67,11 +73,13 @@ class ReferencePrefetch:
             types_manager (TypesManager): Resolves the kind of a legacy untyped stored field
             objects_cache (dict[int, CmdbObject]): The render's cache, read and never written here
             problems (RenderProblemLog): The render's problem log
+            read_scope (ReferenceReadScope): The render's READ ACL
         """
         self.objects_manager: ObjectsManager = objects_manager
         self.types_manager: TypesManager = types_manager
         self.objects_cache: dict[int, CmdbObject] = objects_cache
         self.problems: RenderProblemLog = problems
+        self.read_scope: ReferenceReadScope = read_scope
 
         # Legacy fields missing a 'type' key: each object's type is fetched at most once, keyed by
         # type_id, instead of being re-queried for every untyped field (an N+1 otherwise)
@@ -83,7 +91,8 @@ class ReferencePrefetch:
         Loads everything the given objects reference, directly or through reference-section chains
 
         A load that fails is reported on every object that references anything: the render continues
-        without the expansions, and each of those objects says so
+        without the expansions, and each of those objects says so. An id an earlier load of the same
+        render did not answer is not asked for again
 
         Args:
             to_render_objects (list[CmdbObject]): The objects about to be rendered
@@ -99,7 +108,7 @@ class ReferencePrefetch:
             references_by_object[obj.public_id] = object_references
             section_targets |= object_section_targets
 
-        reference_ids: set[int] = set().union(*references_by_object.values()) - set(self.objects_cache)
+        reference_ids: set[int] = set().union(*references_by_object.values()) - self._known_ids()
 
         if not reference_ids:
             return {}
@@ -126,18 +135,16 @@ class ReferencePrefetch:
         """
         Loads the referenced objects, then follows the reference-section chains one query per hop
 
-        A reference-section chain alternates between two roles, and each needs different ids:
+        Every object a chain reaches is only MERGED into a section, never rendered on its own: its values
+        are read, and only its ref-section fields lead on - a pulled-in reference-section field is
+        resolved one level down with its own section (``CmdbMultiRender._merge_nested_reference_section``).
+        Its plain references are not resolved by the merge, so they are not loaded either - loading them
+        would change what the section shows
 
-        * a **section target** - what a rendered object's ref-section field points at - is only MERGED
-          into the section: its values are read, and only its own ref-section fields lead on, to
-          objects rendered NESTED. Its plain references are not resolved by the render, so they are
-          not loaded here either - loading them would change what the section shows
-        * a **nested target** is rendered by a render of its own, which loads every object it
-          references. Loading them here instead, all nested targets of a hop in one query, is what the
-          prefetch is for; its ref-section targets are section targets again
-
-        The walk ends after ``DEFAULT_RENDER_LEVEL`` hops, when a hop turns up nothing new, or at an id
-        already known - which is also what ends a reference cycle
+        The walk ends after ``DEFAULT_RENDER_LEVEL`` hops - the render's own depth - when a hop turns up
+        nothing new, or at an id already known, which is also what ends a reference cycle. Each hop is
+        narrowed by the read scope; an id it asked for and did not get is unreadable or gone, and is
+        recorded as unreturned
 
         Args:
             reference_ids (set[int]): The uncached ids the rendered objects reference
@@ -148,30 +155,36 @@ class ReferencePrefetch:
         """
         loaded: dict[int, CmdbObject] = {}
         pending: set[int] = reference_ids
-        nested_targets: set[int] = set()
 
         for _ in range(DEFAULT_RENDER_LEVEL):
             if not pending:
                 break
 
-            loaded.update(self.objects_manager.get_objects_lookup(list(pending)))
+            found: dict[int, CmdbObject] = self.objects_manager.get_objects_lookup(
+                list(pending), self.read_scope.denied_type_ids,
+            )
+            self.read_scope.unreturned_ids |= pending - set(found)
+            loaded.update(found)
 
-            next_pending: set[int] = set()
             next_section_targets: set[int] = set()
-            next_nested_targets: set[int] = set()
 
             for target in self._known_objects(section_targets, loaded):
-                next_nested_targets |= self._collect_reference_ids(target)[1]
+                next_section_targets |= self._collect_reference_ids(target)[1]
 
-            for target in self._known_objects(nested_targets, loaded):
-                target_references, target_section_targets = self._collect_reference_ids(target)
-                next_pending |= target_references
-                next_section_targets |= target_section_targets
-
-            pending = (next_pending | next_nested_targets) - set(loaded) - set(self.objects_cache)
-            section_targets, nested_targets = next_section_targets, next_nested_targets
+            pending = next_section_targets - set(loaded) - self._known_ids()
+            section_targets = next_section_targets
 
         return loaded
+
+
+    def _known_ids(self) -> set[int]:
+        """
+        Answers the ids no load needs to ask for: cached, or already asked for without an answer
+
+        Returns:
+            set[int]: The cached ids together with the read scope's unreturned ones
+        """
+        return set(self.objects_cache) | self.read_scope.unreturned_ids
 
 
     def _known_objects(self, public_ids: set[int], loaded: dict[int, CmdbObject]) -> list[CmdbObject]:

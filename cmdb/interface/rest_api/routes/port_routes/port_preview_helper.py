@@ -35,7 +35,10 @@ from cmdb.framework.port.name_syntax import syntax_blockers
 from cmdb.framework.port.name_syntax_constants import (
     SYNTAX_ABORT_PREFIX,
     PortDeviceKind,
+    PortPreviewKey,
 )
+from cmdb.framework.port.port_text_constants import TEXT_ABORT_PREFIX
+from cmdb.framework.port.port_text_rules import long_name_blockers, text_value_blockers
 
 from cmdb.interface.rest_api.routes.port_routes.port_route_helper import enforce_bulk_port_kind
 from cmdb.interface.rest_api.routes.port_routes.port_preview_constants import (
@@ -79,6 +82,57 @@ def get_device_kind_or_abort(payload: dict[str, Any]) -> str:
         ))
 
     return raw
+
+
+# The preview body's text inputs - each capped like a port's own text fields (see port_text_rules)
+PREVIEW_TEXT_KEYS: tuple[str, ...] = (
+    PortPreviewRequestKey.SYNTAX.value,
+    PortPreviewRequestKey.REAR_SYNTAX.value,
+    PortPreviewRequestKey.PREFIX.value,
+    PortPreviewRequestKey.SLOT.value,
+)
+
+
+def enforce_text_values(payload: dict[str, Any], keys: tuple[str, ...]) -> None:
+    """
+    Aborts 400 with every reason the named text values of a port request would be refused
+
+    Shared by the preview (its syntaxes, prefix and slot), the bulk creation (its descriptions) and the
+    bulk edit - the write schema caps the single-port routes, this caps what no schema sees
+
+    Args:
+        payload (dict[str, Any]): The request body, or the part of it carrying the values
+        keys (tuple[str, ...]): The keys whose values must be text within the cap
+
+    Raises:
+        HTTPException: 400 when a value is not text or longer than the cap
+    """
+    blockers: list[str] = text_value_blockers(payload, keys)
+
+    if blockers:
+        abort(400, f'{TEXT_ABORT_PREFIX}: {" | ".join(blockers)}')
+
+
+def enforce_names_fit(preview: dict[str, Any]) -> None:
+    """
+    Aborts 400 when a generated name is longer than a port name may be
+
+    Judged on the GENERATED names, not on the inputs alone: a syntax within the cap, a prefix within the
+    cap and a high start index each fit, and the name built from all three may not. The preview is what
+    the creation writes, so refusing it here keeps the preview and the creation the same answer
+
+    Args:
+        preview (dict[str, Any]): The built preview
+
+    Raises:
+        HTTPException: 400 when any generated name is longer than the cap
+    """
+    blockers: list[str] = long_name_blockers(
+        name for face in preview[PortPreviewKey.FACES.value] for name in face[PortPreviewKey.NAMES.value]
+    )
+
+    if blockers:
+        abort(400, f'{TEXT_ABORT_PREFIX}: {" | ".join(blockers)}')
 
 
 def enforce_syntax_usable(syntax: Any, count: Any, start_index: Any) -> None:
@@ -141,7 +195,8 @@ def build_preview_or_abort(
         payload (dict[str, Any]): The request body
 
     Raises:
-        HTTPException: 400 when the device kind, a syntax or the numbering is unusable
+        HTTPException: 400 when the device kind, a syntax or the numbering is unusable, a text input is
+            not text or too long, or a generated name is too long
 
     Returns:
         dict[str, Any]: The preview document
@@ -153,20 +208,27 @@ def build_preview_or_abort(
     # assistant asks for the kind first, and this is the answer to that question
     enforce_bulk_port_kind(ports_manager, object_id, device_kind)
 
+    # Text before anything else: a prefix or slot that is not text used to be turned into one by str(),
+    # so a JSON object landed inside every generated name as its Python spelling
+    enforce_text_values(payload, PREVIEW_TEXT_KEYS)
+
     syntax: Any = payload.get(PortPreviewRequestKey.SYNTAX.value)
     count: Any = payload.get(PortPreviewRequestKey.COUNT.value)
     start_index: Any = payload.get(PortPreviewRequestKey.START_INDEX.value, DEFAULT_START_INDEX)
-    prefix: str = str(payload.get(PortPreviewRequestKey.PREFIX.value) or '')
-    slot: str = str(payload.get(PortPreviewRequestKey.SLOT.value) or '')
+    prefix: str = payload.get(PortPreviewRequestKey.PREFIX.value) or ''
+    slot: str = payload.get(PortPreviewRequestKey.SLOT.value) or ''
 
     enforce_syntax_usable(syntax, count, start_index)
 
     taken: dict[str, set[str]] = existing_names_by_side(ports_manager, object_id)
 
     if device_kind == PortDeviceKind.STANDARD:
-        return build_standard_preview(
+        preview: dict[str, Any] = build_standard_preview(
             syntax, count, taken[PortSide.SINGLE.value], start_index, prefix, slot,
         )
+        enforce_names_fit(preview)
+
+        return preview
 
     rear_syntax: Any = payload.get(PortPreviewRequestKey.REAR_SYNTAX.value)
 
@@ -175,8 +237,11 @@ def build_preview_or_abort(
 
     enforce_syntax_usable(rear_syntax, count, start_index)
 
-    return build_panel_preview(
+    preview = build_panel_preview(
         syntax, rear_syntax, count,
         taken[PortSide.FRONT.value], taken[PortSide.REAR.value],
         start_index, prefix, slot,
     )
+    enforce_names_fit(preview)
+
+    return preview

@@ -44,7 +44,6 @@ from cmdb.models.type_model.type_external_link import TypeExternalLink
 from cmdb.models.type_model.type_section import TypeSection
 from cmdb.models.type_model.type_render_meta import TypeRenderMeta
 from cmdb.models.type_model.section_type_enum import SectionType
-from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_constants import (
@@ -69,7 +68,22 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-# pylint: disable=too-many-instance-attributes
+def _stored_acl_document(stored_acl: Any) -> dict[str, Any]:
+    """
+    The stored ``acl`` as the document ``AccessControlList.from_data`` reads
+
+    A null - or anything else that is no document - reads as no ACL, exactly as an absent key does, instead of
+    failing the whole type: the same reading ``AccessControlList.normalize_stored`` gives it
+
+    Args:
+        stored_acl (Any): The stored ``acl`` value, whatever its shape
+
+    Returns:
+        dict[str, Any]: The value itself when it is a document, otherwise an empty one
+    """
+    return stored_acl if isinstance(stored_acl, dict) else {}
+
+
 class CmdbType(CmdbDAO):
     """
     Represents a CmdbType in DataGerry
@@ -87,9 +101,10 @@ class CmdbType(CmdbDAO):
         {'keys': [('author_id', CmdbDAO.DAO_ASCENDING)], 'name': 'author_id', 'unique': False},
     ]
 
-    # pylint: disable=too-many-locals, too-many-arguments, too-many-positional-arguments
+    # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
         author_id: int,
@@ -102,6 +117,7 @@ class CmdbType(CmdbDAO):
         selectable_as_parent: bool = True,
         uses_ports: bool = False,
         port_section_index: int = DEFAULT_PORT_SECTION_INDEX,
+        alignment_pending: bool = False,
         global_template_ids: list[str] | None = None,
         fields: list[dict[str, Any]] | None = None,
         version: str | None = None,
@@ -135,6 +151,9 @@ class CmdbType(CmdbDAO):
                                         ports section - 0 puts it first, 1 second, and so on. Only
                                         read while `uses_ports` is true; the write paths force it back
                                         to DEFAULT_PORT_SECTION_INDEX whenever the flag is off
+            alignment_pending (bool): True while a saved update of this CmdbType has not yet been applied to
+                                        its objects, locations and reports - server-owned; the next save of
+                                        the type finishes the work. Defaults to False
             global_template_ids (list[str]): Names of the global CmdbSectionTemplates used by this
                                                 CmdbType (the name is also the render_meta section name)
             fields (list): A list of fields associated with the CmdbType
@@ -156,6 +175,7 @@ class CmdbType(CmdbDAO):
             self.selectable_as_parent: bool = selectable_as_parent
             self.uses_ports: bool = uses_ports
             self.port_section_index: int = port_section_index
+            self.alignment_pending: bool = alignment_pending
             self.global_template_ids: list[str] = global_template_ids or []
             self.active: bool = active
             self.special_type: str | None = special_type
@@ -207,6 +227,7 @@ class CmdbType(CmdbDAO):
                 uses_ports=data.get(TypeSchemaKey.USES_PORTS.value, False),
                 port_section_index=data.get(TypeSchemaKey.PORT_SECTION_INDEX.value,
                                             DEFAULT_PORT_SECTION_INDEX),
+                alignment_pending=data.get(TypeSchemaKey.ALIGNMENT_PENDING.value, False),
                 global_template_ids=data.get(TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value, []),
                 active=data.get(TypeSchemaKey.ACTIVE.value, True),
                 special_type=data.get(TypeSchemaKey.SPECIAL_TYPE.value),
@@ -221,7 +242,7 @@ class CmdbType(CmdbDAO):
                 fields=data.get(TypeSchemaKey.FIELDS.value) or [],
                 ci_explorer_label=data.get(TypeSchemaKey.CI_EXPLORER_LABEL.value),
                 ci_explorer_color=data.get(TypeSchemaKey.CI_EXPLORER_COLOR.value),
-                acl=AccessControlList.from_data(data.get(TypeSchemaKey.ACL.value, {})),
+                acl=AccessControlList.from_data(_stored_acl_document(data.get(TypeSchemaKey.ACL.value))),
             )
         except Exception as err:
             raise CmdbTypeInitFromDataError(err) from err
@@ -248,6 +269,7 @@ class CmdbType(CmdbDAO):
                 TypeSchemaKey.SELECTABLE_AS_PARENT.value: instance.selectable_as_parent,
                 TypeSchemaKey.USES_PORTS.value: instance.uses_ports,
                 TypeSchemaKey.PORT_SECTION_INDEX.value: instance.port_section_index,
+                TypeSchemaKey.ALIGNMENT_PENDING.value: instance.alignment_pending,
                 TypeSchemaKey.GLOBAL_TEMPLATE_IDS.value: instance.global_template_ids,
                 TypeSchemaKey.ACTIVE.value: instance.active,
                 TypeSchemaKey.SPECIAL_TYPE.value: instance.special_type,
@@ -334,34 +356,6 @@ class CmdbType(CmdbDAO):
             bool: True if there are fields in the summary, False otherwise
         """
         return self.render_meta.summary.has_fields()
-
-
-    def get_nested_summaries(self) -> list[dict[str, Any]]:
-        """
-        Collects the nested summaries of every reference field of the CmdbType
-
-        Every `FieldType.REFERENCE` field may carry a ``summaries`` list overriding, per referenced
-        CmdbType, which fields and which summary line the renderer shows. This gathers the entries of
-        ALL such fields, not only the first one that declares any
-
-        Note the renderer does not go through here: it reads ``summaries`` off the specific field it
-        is rendering, because two reference fields on the same CmdbType may legitimately override the
-        same referenced type differently. This is the whole-type view, for a caller that needs every
-        override the CmdbType declares
-
-        Returns:
-            list[dict[str, Any]]: Every nested-summary entry declared by the type's reference fields, in field
-                        order; empty when no reference field declares any
-        """
-        nested_summaries: list[dict[str, Any]] = []
-
-        for field in self.get_fields():
-            if field.get(FieldKey.TYPE.value) != FieldType.REFERENCE:
-                continue
-
-            nested_summaries.extend(field.get(FieldKey.SUMMARIES.value) or [])
-
-        return nested_summaries
 
 
     def _nested_summary_for(self, nested_summaries: list[dict[str, Any]]) -> dict[str, Any] | None:

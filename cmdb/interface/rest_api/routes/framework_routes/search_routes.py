@@ -42,6 +42,7 @@ from werkzeug import Response
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import QuickSearchPipelineBuilder, SearchPipelineBuilder
 from cmdb.manager import ObjectsManager
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 
 from cmdb.framework.search.search_param import SearchParam
 from cmdb.framework.search.search_constants import QuickSearchCountKey, SearchQueryKey, SearchRight
@@ -50,7 +51,12 @@ from cmdb.errors.framework_search import SearchParamError
 from cmdb.framework.search.searcher_framework import SearcherFramework
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.routes.routes_helper import fetch_only_active_objects
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
@@ -169,8 +175,11 @@ def quick_search_result_counter(request_user: CmdbUser) -> Response:
                                                        user=request_user,
                                                        permission=AccessControlPermission.READ,
                                                        active_flag=only_active)
-        result: list[dict[str, Any]] = list(objects_manager.aggregate_objects(pipeline=pipeline))
+        result: list[dict[str, Any]] = objects_manager.aggregate_objects_within_time_limit(
+            pipeline, QUERY_TIME_LIMIT_MS,
+        )
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error('[quick_search_result_counter] ObjectsManagerIterationError: %s', err, exc_info=True)
         abort(400, "Failed to aggregate Objects for quick search result")
 
@@ -266,5 +275,6 @@ def search_framework(request_user: CmdbUser) -> Response:
 
         return DefaultResponse(result).make_response()
     except ObjectsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[search_framework] ObjectsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to aggregate the Objects for the search request!")

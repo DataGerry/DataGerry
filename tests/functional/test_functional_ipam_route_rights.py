@@ -2,7 +2,7 @@
 Functional tests for the ACL rights guarding the IPAM routes
 
 The blueprint-level `LicenseFeature.IPAM` gate answers "is this installation entitled", not "may this
-user" - without a `.protect` on each of the nineteen IPAM routes, any authenticated account could read
+user" - without a `.protect` on each of the IPAM routes (eighteen today), any authenticated account could read
 the whole address plan, export it, and detach subnets and IPs.
 
 `IpamRight.VIEW` guards every read and `IpamRight.EDIT` the two unassign writes, mirroring the Rack
@@ -32,7 +32,6 @@ from cmdb.security.license.license_constants import LicenseFeature
 READ_ROUTES: list[tuple[str, str]] = [
     ('GET', '/ipam/tree/'),
     ('GET', '/ipam/tree/supernets/1'),
-    ('GET', '/ipam/tree/unassigned'),
     ('GET', '/ipam/subnet/'),
     ('GET', '/ipam/subnet/overview/1'),
     ('GET', '/ipam/subnet/overview/1/sector'),

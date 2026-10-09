@@ -16,7 +16,7 @@
 """
 Unit tests for cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes
 
-Covers the route-glue of the three sidebar-tree routes: each resolves the objects / types
+Covers the route-glue of the two sidebar-tree routes: each resolves the objects / types
 manager pair, forwards it (plus the supernet public_id where applicable) to
 its framework builder and wraps the builder's payload in a DefaultResponse. HTTPExceptions
 raised below the route (e.g. the 400/404 aborts of the supernet loader) pass through
@@ -26,9 +26,7 @@ boundary. The builders and `read_ipam_managers` (the shared resolver of the obje
 manager pair) are patched at the route module path, and each route is unwrapped past its auth
 decorators.
 
-The last section pins the two routes that must agree: `GET /` carries an 'unassigned' block and
-`GET /unassigned` returns that same block alone, built by one shared function so the two cannot
-drift apart
+The last sections pin what `GET /`'s 'unassigned' block holds, and that the blueprint registers no third route
 """
 from typing import Any, Callable
 from unittest.mock import ANY, MagicMock, patch
@@ -40,15 +38,13 @@ from werkzeug.exceptions import HTTPException, NotFound
 from cmdb.models.special_type_model.ipam_constants import SubnetField
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.ipam.tree_overview import (
-    TREE_NODE_PROJECTION,
     build_ipam_tree,
-    build_unassigned_subnets,
     unassigned_subnet_nodes,
 )
 from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import (
     get_ipam_tree,
     get_supernet_subnet_tree,
-    get_unassigned_subnets,
+    ipam_tree_blueprint,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -134,33 +130,15 @@ def test_get_supernet_subnet_tree_passes_http_exceptions_through(flask_app: Flas
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                             get_unassigned_subnets                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_get_unassigned_subnets_forwards_the_managers_to_the_builder(flask_app: Flask) -> None:
-    """The route resolves both managers and passes them to build_unassigned_subnets"""
-    bare = _unwrap(get_unassigned_subnets)
-    objects_manager = MagicMock()
-    types_manager = MagicMock()
-
-    with patch(f'{ROUTE_PATH}.build_unassigned_subnets', return_value={}) as mock_build, \
-         patch(f'{ROUTE_PATH}.read_ipam_managers', return_value=(objects_manager, types_manager)), \
-         flask_app.test_request_context('/unassigned'):
-        bare(request_user=MagicMock())
-
-    mock_build.assert_called_once_with(objects_manager, types_manager, ANY)
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                        the shared error tail: an HTTPException propagates, anything else is a 500                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-# These three `except Exception -> abort(500)` arms were the file's only uncovered statements. Each is
+# These two `except Exception -> abort(500)` arms were the file's only uncovered statements. Each is
 # paired with a propagation case, because the two arms are the whole difference between a client seeing
 # the framework's own 404 for a missing supernet and seeing a generic server error
 ERROR_TAIL_CASES: list[tuple[Callable[..., Any], str, str, dict[str, Any]]] = [
     (get_ipam_tree, 'build_ipam_tree', '/', {}),
     (get_supernet_subnet_tree, 'build_supernet_subnet_tree', f'/supernets/{SUPERNET_PUBLIC_ID}',
      {'public_id': SUPERNET_PUBLIC_ID}),
-    (get_unassigned_subnets, 'build_unassigned_subnets', '/unassigned', {}),
 ]
 
 
@@ -206,11 +184,9 @@ def test_an_httpexception_from_a_builder_propagates_untouched(
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                     the initial payload and the unassigned route must agree                                          #
+#                              what the initial payload's 'unassigned' block holds                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-# `GET /` carries an 'unassigned' block and `GET /unassigned` returns that block alone. Both call
-# `unassigned_subnet_nodes` rather than carrying two copies of the same expression, and these tests
-# are what keeps them honest if either is edited
+# `GET /` carries the 'unassigned' block, built by `unassigned_subnet_nodes` out of the subnets the tree already loaded
 SUBNET_TYPE_ID: int = 11
 
 
@@ -227,12 +203,9 @@ def _subnet_doc(public_id: int, name: str, cidr: str, parent: Any = None) -> dic
     return {'public_id': public_id, 'fields': fields}
 
 
-def test_both_routes_report_the_same_unassigned_block() -> None:
+def test_the_tree_reports_the_parentless_subnets_as_unassigned() -> None:
     """
-    The block is built once, so the two payloads carry identical nodes
-
-    Asserted through the real builders rather than through mocks: a duplicated expression would
-    pass a mock-level test while drifting in the part that matters.
+    Through the real builder rather than through mocks: the block is the parentless subnets, in CIDR order
     """
     subnets: list[dict[str, Any]] = [
         _subnet_doc(1, 'free-a', '10.0.0.0/24'),
@@ -248,10 +221,7 @@ def test_both_routes_report_the_same_unassigned_block() -> None:
     with patch(f'{TREE_PATH}.load_all_special_type_objects', side_effect=_load), \
          patch(f'{TREE_PATH}.resolve_special_type_icon', return_value=None):
         tree = build_ipam_tree(objects_manager, types_manager)
-        unassigned_only = build_unassigned_subnets(objects_manager, types_manager)
 
-    assert tree['unassigned'] == unassigned_only['unassigned']
-    # and it really is the parentless pair, in CIDR order - not simply two empty lists agreeing
     assert [node['public_id'] for node in tree['unassigned']] == [1, 3]
 
 
@@ -296,3 +266,20 @@ def test_a_dangling_reference_is_in_no_block() -> None:
 
     assert tree['unassigned'] == []
     assert tree['supernets'] == []
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              the registered routes                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+TREE_ROUTES: set[str] = {'/', '/supernets/<int:public_id>'}
+
+
+def test_the_blueprint_registers_the_two_tree_routes_only() -> None:
+    """No separate 'unassigned' route: the block comes with `GET /`"""
+    app = Flask(__name__)
+    app.register_blueprint(ipam_tree_blueprint, url_prefix='/ipam/tree')
+
+    rules: set[str] = {rule.rule.removeprefix('/ipam/tree') or '/'
+                       for rule in app.url_map.iter_rules() if rule.endpoint.startswith('ipam_tree.')}
+
+    assert rules == TREE_ROUTES

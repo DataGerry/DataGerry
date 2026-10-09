@@ -31,6 +31,7 @@ import pytest
 
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.framework.rendering import cmdb_multi_render as mr_module
+from cmdb.framework.rendering import reference_read_scope as scope_module
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_constants import (
     ANONYMOUS_NAME,
@@ -45,6 +46,7 @@ from cmdb.framework.rendering.render_constants import (
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.type_section import TypeSection
+from cmdb.models.type_model import TypeFieldSection
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.object_model import CmdbObject
@@ -162,7 +164,12 @@ def _field(fields: list[dict], name: str) -> dict:
 
 @pytest.fixture(name='managers')
 def _managers(monkeypatch) -> SimpleNamespace:
-    """Patches ManagerProvider.get_manager to hand out per-type mock managers (empty lookups)."""
+    """
+    Patches ManagerProvider.get_manager to hand out per-type mock managers (empty lookups)
+
+    The render user's denied types are patched too - nothing denied unless a test sets
+    `managers.denied_type_ids` - so the read scope never reaches the database
+    """
     objects_m = Mock(name='objects_manager')
     types_m = Mock(name='types_manager')
     users_m = Mock(name='users_manager')
@@ -175,19 +182,29 @@ def _managers(monkeypatch) -> SimpleNamespace:
         mr_module.ManagerProvider, 'get_manager',
         staticmethod(lambda manager_type, request_user: mapping[manager_type]),
     )
-    return SimpleNamespace(objects=objects_m, types=types_m, users=users_m)
+    namespace = SimpleNamespace(objects=objects_m, types=types_m, users=users_m, denied_type_ids=[])
+    monkeypatch.setattr(
+        scope_module, 'resolve_denied_type_ids', lambda _user, _permission: namespace.denied_type_ids,
+    )
+    return namespace
 
 
 def _render(managers, to_render, ref_render=False, objects_cache=None, types_cache=None, users_cache=None):
     # managers is the active ManagerProvider patch fixture; requesting it keeps the patch in scope
     # pylint: disable=unused-argument
-    """Builds a CmdbMultiRender with the patched managers and pre-seeded shared caches."""
-    render = CmdbMultiRender(
-        to_render, Mock(name='render_user'), ref_render,
-        shared_objects_cache=objects_cache if objects_cache is not None else {},
-        shared_types_cache=types_cache if types_cache is not None else {},
-        shared_users_cache=users_cache if users_cache is not None else {},
-    )
+    """
+    Builds a CmdbMultiRender with the patched managers, then seeds its caches
+
+    The constructor loads through the patched managers; a cache a test names replaces what it loaded, which
+    is what the constructor's own loading would have produced from a real database
+    """
+    render = CmdbMultiRender(to_render, Mock(name='render_user'), ref_render)
+
+    for attribute, seeded in (('objects_cache', objects_cache), ('types_cache', types_cache),
+                              ('users_cache', users_cache)):
+        if seeded is not None:
+            setattr(render, attribute, seeded)
+
     return render
 
 
@@ -1202,97 +1219,6 @@ class TestReportsAnUnresolvableReferenceSection:
         assert caplog.text.count('has no section') == 2
 
 
-class TestMergeReferenceSectionFields:
-    """_merge_reference_section_fields recurses only for ref-section-typed fields."""
-
-    def _call(self, render, field, acc, level):
-        """Invokes the name-mangled _merge_reference_section_fields."""
-        return render._merge_reference_section_fields(field, acc, level)
-
-    def test_non_ref_section_field_unchanged(self, managers) -> None:
-        """A non ref-section field returns the accumulator untouched."""
-        render = _render(managers, [], types_cache={})
-        acc: list = []
-
-        assert self._call(render, {'type': FieldType.TEXT, 'name': 'x'}, acc, 3) is acc
-
-    def test_ref_section_field_renders_nested(self, managers) -> None:
-        """A ref-section field renders the referenced object via a nested render."""
-        render = _render(managers, [], ref_render=True, objects_cache={REF_OBJ_ID: _ref_obj()},
-                         types_cache={REF_TYPE_ID: _ref_type()})
-        field = {'type': FieldType.REF_SECTION, 'name': NAME_FIELD, 'value': REF_OBJ_ID}
-
-        assert isinstance(self._call(render, field, [], 3), list)
-
-    def test_ref_section_field_fetches_uncached_object(self, managers) -> None:
-        """An uncached referenced object is fetched through the objects manager."""
-        render = _render(managers, [], ref_render=True, types_cache={REF_TYPE_ID: _ref_type()})
-        render.objects_manager.get_object.return_value = {
-            'public_id': REF_OBJ_ID, 'type_id': REF_TYPE_ID, 'active': True, 'author_id': 1,
-            'version': '1.0.0', 'fields': [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': REF_NAME_VALUE}],
-        }
-        field = {'type': FieldType.REF_SECTION, 'name': 'nomatch', 'value': REF_OBJ_ID}
-
-        self._call(render, field, [], 3)
-
-        render.objects_manager.get_object.assert_called_once_with(REF_OBJ_ID)
-
-    def test_ref_section_field_merges_nested_references(self, managers) -> None:
-        """A ref-section field pointing at an object whose type has a ref-section merges the nested fields."""
-        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [
-            {'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'Owner'},
-            {'type': FieldType.REFERENCE, 'name': REFSEC_REF_FIELD, 'value': REF_OBJ_ID},
-        ])
-        render = _render(managers, [], ref_render=True,
-                         objects_cache={REFSEC_OBJ_ID: refsec_obj, REF_OBJ_ID: _ref_obj()},
-                         types_cache={REFSEC_TYPE_ID: _refsec_type(), REF_TYPE_ID: _ref_type()})
-        # name matches the refsec type's ref-section field, so the nested render's result carries
-        # a field with a 'references' block to iterate
-        field = {'type': FieldType.REF_SECTION, 'name': REFSEC_REF_FIELD, 'value': REFSEC_OBJ_ID}
-
-        merged = self._call(render, field, [], 3)
-
-        assert any(f.get('name') == NAME_FIELD for f in merged)
-
-    def test_a_merged_field_that_is_itself_a_ref_section_recurses(self, managers, monkeypatch) -> None:
-        """
-        A ref-section nested inside a ref-section is recursed into, not appended as a raw field
-
-        The test above covers the ordinary leg of that loop - a merged field that is a plain field
-        gets appended. This is the other leg: the merged content is a ref-section of its own, which
-        has to be resolved the same way the outer one was. The collaborator is stubbed rather than
-        built from a third type level, because what is under test is the branch's decision, not the
-        merge that produced its input.
-        """
-        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [
-            {'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'Owner'},
-            {'type': FieldType.REFERENCE, 'name': REFSEC_REF_FIELD, 'value': REF_OBJ_ID},
-        ])
-        render = _render(managers, [], ref_render=True,
-                         objects_cache={REFSEC_OBJ_ID: refsec_obj, REF_OBJ_ID: _ref_obj()},
-                         types_cache={REFSEC_TYPE_ID: _refsec_type(), REF_TYPE_ID: _ref_type()})
-
-        seen: list[dict] = []
-        original = render._merge_reference_section_fields
-
-        def _merge_content(_field, _instance):
-            """Answers a ref-section, so the loop below takes its recursing leg."""
-            return {'type': FieldType.REF_SECTION, 'name': NAME_FIELD, 'value': REF_OBJ_ID}
-
-        def _spy(field, acc, level):
-            seen.append(field)
-            return original(field, acc, level)
-
-        monkeypatch.setattr(render, '_merge_field_content_section', _merge_content)
-        monkeypatch.setattr(render, '_merge_reference_section_fields', _spy)
-
-        field = {'type': FieldType.REF_SECTION, 'name': REFSEC_REF_FIELD, 'value': REFSEC_OBJ_ID}
-        original(field, [], 3)
-
-        assert any(entry.get('type') == FieldType.REF_SECTION and entry.get('name') == NAME_FIELD
-                   for entry in seen)
-
-
 class TestExternalsEdgeCases:
     """_set_externals skips unresolved links and swallows fill errors."""
 
@@ -2146,107 +2072,321 @@ class TestReferenceSectionProblems:
         assert self._merge(render, refsec_type) == []
 
 
-class TestNestedReferenceSections:
-    """A reference section nested inside another."""
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         The READ ACL over referenced objects                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+DEFAULT_NAME_VALUE: str = 'proposed-by-the-type'
 
-    def test_a_nested_section_that_cannot_be_rendered_is_flagged(self, managers) -> None:
-        """
-        A set reference whose object cannot be read contributes nothing, and says so
 
-        The object the outer section belongs to is missing the nested fields, so the failure is this
-        object's render problem too
-        """
-        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
-        failing_manager = Mock()
-        failing_manager.get_object.side_effect = RuntimeError('reference read failed')
-        render.objects_manager = failing_manager
+def _refsec_field(value: Any) -> dict[str, Any]:
+    """A nested ref-section field pointing at `value`."""
+    return {'name': REFSEC_REF_FIELD, 'type': FieldType.REF_SECTION, 'value': value}
 
-        with render.problems.rendering(MAIN_OBJ_ID):
-            merged = render._merge_reference_section_fields(
-                {'name': REFSEC_REF_FIELD, 'type': FieldType.REF_SECTION, 'value': REF_OBJ_ID}, [], 1,
-            )
 
-        assert merged == []
-        assert render.problems.problems_for(MAIN_OBJ_ID) == [
-            _problem(RenderProblemCode.NESTED_REFERENCE_SECTION_FAILED, field=REFSEC_REF_FIELD)
-        ]
+def _ref_obj_doc() -> dict[str, Any]:
+    """The stored document of the referenced object, as get_object answers it."""
+    return CmdbObject.to_json(_ref_obj())
+
+
+class TestTheReadScopeOfARender:
+    """Which scope a render reads its references through."""
+
+    def test_a_render_of_its_own_scopes_its_user(self, managers) -> None:
+        """The scope is the render user's"""
+        render = _render(managers, [])
+
+        assert render.read_scope.user is render.render_user
+
+    def test_the_prefetch_leaves_out_the_denied_types(self, managers) -> None:
+        """The bulk load of the referenced objects is narrowed by the user's denied types"""
+        managers.denied_type_ids = [REF_TYPE_ID]
+        render = _render(managers, [], types_cache={MAIN_TYPE_ID: _main_type()}, ref_render=True)
+        render.to_render_objects = [_main_obj()]
+
+        render.get_all_linked_objects()
+
+        render.objects_manager.get_objects_lookup.assert_called_once_with([REF_OBJ_ID], [REF_TYPE_ID])
+
+class TestTheMdsReferenceOfARenderedObject:
+    """get_mds_reference asked for the object the render was built for."""
+
+    def test_it_answers_the_objects_own_reference(self, managers) -> None:
+        """A render caches what its objects reference, never the objects - they resolve all the same"""
+        render = _render(managers, [_ref_obj()], types_cache={REF_TYPE_ID: _ref_type()})
+
+        reference = render.get_mds_reference(REF_OBJ_ID)
+
+        assert reference[TypeReferenceKey.OBJECT_ID.value] == REF_OBJ_ID
+        assert reference[TypeReferenceKey.TYPE_ID.value] == REF_TYPE_ID
+        assert [summary['value'] for summary in reference[TypeReferenceKey.SUMMARIES.value]] == [REF_NAME_VALUE]
+
+    def test_an_id_the_render_does_not_hold_is_the_empty_reference(self, managers) -> None:
+        """Neither rendered nor cached - the empty reference, never None"""
+        render = _render(managers, [_ref_obj()], types_cache={REF_TYPE_ID: _ref_type()})
+
+        assert render.get_mds_reference(REF_OBJ_ID + 1) == TypeReference.to_json(TypeReference.empty())
+
+
+class TestAnUnsetReferenceSectionsValues:
+    """A reference section with nothing to merge answers no values."""
+
+    def _ref_type_with_default(self) -> CmdbType:
+        """The referenced type, its name field proposing a default."""
+        return CmdbType.from_data(make_type_doc(
+            REF_TYPE_ID, 'ref-type',
+            fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name', 'value': DEFAULT_NAME_VALUE}],
+            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]}],
+        ))
+
+    def _merge_unset(self, managers, ref_type: CmdbType) -> dict[str, Any]:
+        """Merges the refsec section of an object referencing nothing; answers the pulled-in name field."""
+        refsec_type = _refsec_type()
+        render = _render(managers, [], ref_render=True,
+                         types_cache={REFSEC_TYPE_ID: refsec_type, REF_TYPE_ID: ref_type})
+        unset = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'Owner'}])
+
+        ref_field = render._merge_reference_section(refsec_type.render_meta.sections[1], unset, refsec_type, 3)
+
+        return ref_field[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS][0]
+
+    def test_the_type_default_is_no_value(self, managers) -> None:
+        """The proposal is not shown as a value the section holds"""
+        assert self._merge_unset(managers, self._ref_type_with_default())[FieldKey.VALUE] is None
+
+    def test_the_type_default_is_parked(self, managers) -> None:
+        """It sits under `default`, where a merge puts a proposal the object's value replaced"""
+        field = self._merge_unset(managers, self._ref_type_with_default())
+
+        assert field[RenderedFieldKey.DEFAULT] == DEFAULT_NAME_VALUE
+
+    def test_no_default_parks_nothing(self, managers) -> None:
+        """A field without a proposal answers None and no `default`"""
+        field = self._merge_unset(managers, _ref_type())
+
+        assert field[FieldKey.VALUE] is None
+        assert RenderedFieldKey.DEFAULT.value not in field
+
+    def test_the_cached_type_keeps_its_default(self, managers) -> None:
+        """The pulled-in field is a copy - the cached definition still proposes its value"""
+        ref_type = self._ref_type_with_default()
+
+        self._merge_unset(managers, ref_type)
+
+        assert ref_type.get_field(NAME_FIELD)[FieldKey.VALUE] == DEFAULT_NAME_VALUE
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                     A reference section chain (A -> B's rb -> C)                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+CHAIN_A_TYPE_ID: int = 740
+CHAIN_B_TYPE_ID: int = 741
+CHAIN_C_TYPE_ID: int = 742
+CHAIN_A_ID: int = 750
+CHAIN_B_ID: int = 751
+CHAIN_C_ID: int = 752
+CHAIN_B2_ID: int = 753
+CHAIN_A_SECTION: str = 'ra'
+CHAIN_B_SECTION: str = 'rb'
+CHAIN_B_VALUE: str = 'b-value'
+CHAIN_C_VALUE: str = 'c-value'
+
+
+def _chain_ref_section(name: str, type_id: int, section_name: str) -> dict[str, Any]:
+    """A reference section as the type builder writes it: its own fields list names its '<name>-field'."""
+    return {'type': 'ref-section', 'name': name, 'label': name, 'fields': [f'{name}-field'],
+            'reference': {'type_id': type_id, 'section_name': section_name, 'selected_fields': []}}
+
+
+def _chain_type(type_id: int, ref_section: dict[str, Any] | None = None) -> CmdbType:
+    """A type with a name field in 'main', and optionally one reference section with its field."""
+    fields: list[dict[str, Any]] = [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}]
+    sections: list[dict[str, Any]] = [
+        {'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD]},
+    ]
+
+    if ref_section is not None:
+        fields.append({'type': FieldType.REF_SECTION, 'name': f"{ref_section['name']}-field",
+                       'label': ref_section['name']})
+        sections.append(ref_section)
+
+    return CmdbType.from_data(make_type_doc(type_id, f'chain-{type_id}', fields=fields, sections=sections))
+
+
+def _chain_types(b_points_at: int = CHAIN_C_TYPE_ID, b_section: str = 'main') -> dict[int, CmdbType]:
+    """A's 'ra' pulls B's reference section 'rb', which pulls `b_points_at`'s `b_section`."""
+    return {
+        CHAIN_A_TYPE_ID: _chain_type(CHAIN_A_TYPE_ID, _chain_ref_section(CHAIN_A_SECTION, CHAIN_B_TYPE_ID,
+                                                                         CHAIN_B_SECTION)),
+        CHAIN_B_TYPE_ID: _chain_type(CHAIN_B_TYPE_ID, _chain_ref_section(CHAIN_B_SECTION, b_points_at, b_section)),
+        CHAIN_C_TYPE_ID: _chain_type(CHAIN_C_TYPE_ID),
+    }
+
+
+def _chain_obj(public_id: int, type_id: int, value: str, section: str | None = None,
+               target: Any = None) -> CmdbObject:
+    """An object named `value`, whose `section` field (if any) points at `target`."""
+    fields: list[dict[str, Any]] = [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': value}]
+
+    if section is not None:
+        fields.append({'type': FieldType.REF_SECTION, 'name': f'{section}-field', 'value': target})
+
+    return _obj(public_id, type_id, fields)
+
+
+def _chain_a() -> CmdbObject:
+    """The A object, whose 'ra' points at the B object."""
+    return _chain_obj(CHAIN_A_ID, CHAIN_A_TYPE_ID, 'a-value', CHAIN_A_SECTION, CHAIN_B_ID)
+
+
+def _chain_cache(c_cached: bool = True, b_target: Any = CHAIN_C_ID) -> dict[int, CmdbObject]:
+    """The prefetched chain: the B object (pointing at `b_target`) and, unless hidden or gone, the C object."""
+    cache: dict[int, CmdbObject] = {
+        CHAIN_B_ID: _chain_obj(CHAIN_B_ID, CHAIN_B_TYPE_ID, CHAIN_B_VALUE, CHAIN_B_SECTION, b_target),
+    }
+
+    if c_cached:
+        cache[CHAIN_C_ID] = _chain_obj(CHAIN_C_ID, CHAIN_C_TYPE_ID, CHAIN_C_VALUE)
+
+    return cache
+
+
+def _merge_chain(render: CmdbMultiRender, level: int = DEFAULT_RENDER_LEVEL - 1) -> dict[str, Any]:
+    """Merges A's 'ra' section of the A object; answers B's pulled-in 'rb-field'."""
+    a_type: CmdbType = render.types_cache[CHAIN_A_TYPE_ID]
+    ra_section = next(section for section in a_type.render_meta.sections if section.name == CHAIN_A_SECTION)
+
+    with render.problems.rendering(CHAIN_A_ID):
+        ra_field = render._merge_reference_section(ra_section, _chain_a(), a_type, level)
+
+    pulled: list[dict[str, Any]] = ra_field[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS]
+
+    return next(field for field in pulled if field[FieldKey.NAME] == f'{CHAIN_B_SECTION}-field')
+
+
+class TestAReferenceSectionChain:
+    """A pulled-in reference-section field is resolved with the section of the type that declares it."""
+
+    def test_the_chain_answers_the_far_objects_values(self, managers) -> None:
+        """A's section shows B's 'rb' section - and that shows C's values, under C's type"""
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(), types_cache=_chain_types())
+
+        rb_field = _merge_chain(render)
+
+        block: dict[str, Any] = rb_field[RenderedFieldKey.REFERENCES]
+        assert rb_field[FieldKey.VALUE] == CHAIN_C_ID
+        assert block[RenderedReferenceSectionKey.TYPE_ID.value] == CHAIN_C_TYPE_ID
+        assert [field[FieldKey.VALUE] for field in block[RenderedReferenceSectionKey.FIELDS]] == [CHAIN_C_VALUE]
+
+    def test_the_block_has_the_shape_the_frontend_draws(self, managers) -> None:
+        """The same five keys as any reference section's block - type id, name, label, icon, fields"""
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(), types_cache=_chain_types())
+
+        block: dict[str, Any] = _merge_chain(render)[RenderedFieldKey.REFERENCES]
+
+        assert set(block) == {key.value for key in RenderedReferenceSectionKey}
+
+    def test_the_block_is_resolved_from_the_declaring_type(self, managers) -> None:
+        """B declares 'rb'; the C object's own type declares no such section and is not consulted for it"""
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(), types_cache=_chain_types())
+
+        assert _merge_chain(render)[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.TYPE_NAME.value] \
+            == f'chain-{CHAIN_C_TYPE_ID}'
+
+    def test_the_section_is_the_one_the_field_belongs_to(self, managers) -> None:
+        """B declares a second reference section ahead of 'rb'; 'rb-field' is still resolved with 'rb'"""
+        types: dict[int, CmdbType] = _chain_types()
+        b_type: CmdbType = types[CHAIN_B_TYPE_ID]
+        decoy: CmdbType = _chain_type(CHAIN_B_TYPE_ID, _chain_ref_section('decoy', CHAIN_A_TYPE_ID, 'main'))
+        b_type.render_meta.sections.insert(0, decoy.render_meta.sections[-1])
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(), types_cache=types)
+
+        block: dict[str, Any] = _merge_chain(render)[RenderedFieldKey.REFERENCES]
+
+        assert block[RenderedReferenceSectionKey.TYPE_ID.value] == CHAIN_C_TYPE_ID
+
+    def test_at_the_depth_limit_the_field_has_no_block(self, managers) -> None:
+        """The hop that would reach level 0 answers the field as merged - its stored id, no block"""
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(), types_cache=_chain_types())
+
+        rb_field = _merge_chain(render, level=1)
+
+        assert rb_field[FieldKey.VALUE] == CHAIN_C_ID
+        assert RenderedFieldKey.REFERENCES.value not in rb_field
+
+    def test_a_far_object_not_cached_renders_like_an_unset_one(self, managers) -> None:
+        """Unreadable or gone: the block keeps C's fields, answers no value, and reports nothing"""
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(c_cached=False),
+                         types_cache=_chain_types())
+
+        rb_field = _merge_chain(render)
+
+        block: dict[str, Any] = rb_field[RenderedFieldKey.REFERENCES]
+        assert [field[FieldKey.VALUE] for field in block[RenderedReferenceSectionKey.FIELDS]] == [None]
+        assert render.problems.problems_for(CHAIN_A_ID) == []
 
     @pytest.mark.parametrize('unset_value', [None, '', 0], ids=['none', 'empty-string', 'zero'])
     def test_an_unset_nested_reference_is_no_problem(self, managers, unset_value: Any) -> None:
-        """
-        A nested reference section whose reference is unset references nothing yet
+        """Nothing referenced yet: the block answers no values, and nothing is queried or reported"""
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(b_target=unset_value),
+                         types_cache=_chain_types())
 
-        It pulls in nothing, queries nothing and flags nothing - the same rule as an unset reference
-        section on the rendered object itself. Looking it up used to run a `public_id: None` query on
-        every render and report the empty section as a NESTED_REFERENCE_SECTION_FAILED problem
-        """
-        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
-        objects_manager = Mock()
-        render.objects_manager = objects_manager
+        rb_field = _merge_chain(render)
 
-        with render.problems.rendering(MAIN_OBJ_ID):
-            merged = render._merge_reference_section_fields(
-                {'name': REFSEC_REF_FIELD, 'type': FieldType.REF_SECTION, 'value': unset_value}, [], 1,
-            )
+        assert [field[FieldKey.VALUE] for field in rb_field[RenderedFieldKey.REFERENCES]
+                [RenderedReferenceSectionKey.FIELDS]] == [None]
+        assert render.problems.problems_for(CHAIN_A_ID) == []
+        render.objects_manager.get_object.assert_not_called()
 
-        assert merged == []
-        objects_manager.get_object.assert_not_called()
-        assert render.problems.problems_for(MAIN_OBJ_ID) == []
+    def test_a_field_without_its_section_is_answered_as_merged(self, managers) -> None:
+        """B stores 'rb-field' but declares no 'rb' section any more: the value, no block, no problem"""
+        types: dict[int, CmdbType] = _chain_types()
+        b_type: CmdbType = types[CHAIN_B_TYPE_ID]
+        b_type.render_meta.sections = [section for section in b_type.render_meta.sections
+                                       if section.name != CHAIN_B_SECTION]
+        b_type.render_meta.sections.append(TypeFieldSection.from_data(
+            {'type': 'section', 'name': CHAIN_B_SECTION, 'label': 'Plain', 'fields': [f'{CHAIN_B_SECTION}-field']}))
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(), types_cache=types)
 
-    def test_a_field_that_is_not_a_ref_section_is_passed_over(self, managers) -> None:
-        """Only a ref-section field is resolved; any other field adds nothing and reads nothing"""
-        render = _render(managers, [], types_cache={REF_TYPE_ID: _ref_type()}, objects_cache={})
-        objects_manager = Mock()
-        render.objects_manager = objects_manager
+        rb_field = _merge_chain(render)
 
-        merged = render._merge_reference_section_fields(
-            {'name': NAME_FIELD, 'type': FieldType.TEXT, 'value': REF_OBJ_ID}, [], 1,
-        )
+        assert rb_field[FieldKey.VALUE] == CHAIN_C_ID
+        assert RenderedFieldKey.REFERENCES.value not in rb_field
+        assert render.problems.problems_for(CHAIN_A_ID) == []
 
-        assert merged == []
-        objects_manager.get_object.assert_not_called()
+    def test_a_cycle_ends_at_the_depth(self, managers) -> None:
+        """B's 'rb' pulls B's own 'rb': the two B objects point at each other, and the merge still ends"""
+        cache: dict[int, CmdbObject] = {
+            CHAIN_B_ID: _chain_obj(CHAIN_B_ID, CHAIN_B_TYPE_ID, CHAIN_B_VALUE, CHAIN_B_SECTION, CHAIN_B2_ID),
+            CHAIN_B2_ID: _chain_obj(CHAIN_B2_ID, CHAIN_B_TYPE_ID, 'b2-value', CHAIN_B_SECTION, CHAIN_B_ID),
+        }
+        render = _render(managers, [], ref_render=True, objects_cache=cache,
+                         types_cache=_chain_types(b_points_at=CHAIN_B_TYPE_ID, b_section=CHAIN_B_SECTION))
 
-    def test_what_the_nested_render_lost_is_handed_up(self, managers) -> None:
-        """
-        The nested render's own problems become the outer object's
+        rb_field = _merge_chain(render)
 
-        The nested render draws the referenced object into THIS object's section, so a field it had to
-        leave out is missing here
-        """
-        refsec_doc = make_type_doc(
-            REFSEC_TYPE_ID, 'refsec-type',
-            fields=[
-                {'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'},
-                {'type': FieldType.REFERENCE, 'name': REFSEC_REF_FIELD, 'label': 'Ref', 'ref_types': [REF_TYPE_ID]},
-            ],
-            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD, GHOST_FIELD]}],
-        )
-        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'x'}])
-        render = _render(managers, [], ref_render=True, objects_cache={REFSEC_OBJ_ID: refsec_obj},
-                         types_cache={REFSEC_TYPE_ID: CmdbType.from_data(refsec_doc)})
+        inner: dict[str, Any] = rb_field[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS][0]
+        assert inner[FieldKey.VALUE] == CHAIN_B_ID
+        assert RenderedFieldKey.REFERENCES.value not in inner
 
-        with render.problems.rendering(MAIN_OBJ_ID):
-            render._merge_reference_section_fields(
-                {'name': NAME_FIELD, 'type': FieldType.REF_SECTION, 'value': REFSEC_OBJ_ID}, [], DEFAULT_RENDER_LEVEL,
-            )
+    def test_the_chain_is_merged_without_a_render_or_a_read(self, managers) -> None:
+        """No nested CmdbMultiRender is built and no object is read: the prefetch loaded the chain"""
+        render = _render(managers, [], ref_render=True, objects_cache=_chain_cache(), types_cache=_chain_types())
 
-        assert _problem(RenderProblemCode.FIELD_NOT_ON_TYPE, 'main', GHOST_FIELD) in \
-            render.problems.problems_for(MAIN_OBJ_ID)
+        with patch.object(mr_module, 'CmdbMultiRender', wraps=CmdbMultiRender) as nested_ctor:
+            _merge_chain(render)
 
-    def test_the_nested_render_shares_what_was_already_logged(self, managers, caplog) -> None:
-        """A problem the outer render logged is not logged again by the render nested in it"""
-        refsec_doc = make_type_doc(
-            REFSEC_TYPE_ID, 'refsec-type',
-            fields=[{'type': FieldType.TEXT, 'name': NAME_FIELD, 'label': 'Name'}],
-            sections=[{'type': 'section', 'name': 'main', 'label': 'Main', 'fields': [NAME_FIELD, GHOST_FIELD]}],
-        )
-        refsec_obj = _obj(REFSEC_OBJ_ID, REFSEC_TYPE_ID, [{'type': FieldType.TEXT, 'name': NAME_FIELD, 'value': 'x'}])
-        render = _render(managers, [], ref_render=True, objects_cache={REFSEC_OBJ_ID: refsec_obj},
-                         types_cache={REFSEC_TYPE_ID: CmdbType.from_data(refsec_doc)})
-        nested_field: dict[str, Any] = {'name': NAME_FIELD, 'type': FieldType.REF_SECTION, 'value': REFSEC_OBJ_ID}
+        nested_ctor.assert_not_called()
+        render.objects_manager.get_object.assert_not_called()
 
-        with caplog.at_level(logging.WARNING):
-            render._merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
-            render._merge_reference_section_fields(nested_field, [], DEFAULT_RENDER_LEVEL)
+    def test_a_whole_render_carries_the_chain(self, managers) -> None:
+        """Through result(): A's rendered 'ra' field carries C's value two blocks down"""
+        render = _render(managers, [_chain_a()], ref_render=True, objects_cache=_chain_cache(),
+                         types_cache=_chain_types())
 
-        assert caplog.text.count(GHOST_FIELD) == 1
+        result = _render_one(render)
+
+        ra_field = _field(result.fields, f'{CHAIN_A_SECTION}-field')
+        rb_field = ra_field[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS][0]
+        assert rb_field[RenderedFieldKey.REFERENCES][RenderedReferenceSectionKey.FIELDS][0][FieldKey.VALUE] \
+            == CHAIN_C_VALUE
+        assert result.render_problems == []

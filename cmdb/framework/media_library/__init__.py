@@ -14,13 +14,14 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides the MediaFile model, the builder of a file's metadata sub-document and the key enums of a
-stored MediaFile document
+Provides the MediaFile model, the builder of a file's metadata sub-document, the write schemas and the key
+enums of a stored MediaFile document
 
 Consumers import from this package path rather than from the modules inside it
 """
 from .media_file_keys import GRIDFS_FILES_SUFFIX, MediaFileKey, MediaFileMetadataKey
 from .media_file_metadata import DEFAULT_MIME_TYPE, build_media_file_metadata
+from .media_file_schema import MEDIA_FILE_METADATA_SCHEMA, MEDIA_FILE_UPDATE_SCHEMA, filename_problem
 from .base_media_file import BaseMediaFile
 from .media_file import MediaFile
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -31,6 +32,9 @@ __all__: list[str] = [
     'MediaFileMetadataKey',
     'DEFAULT_MIME_TYPE',
     'build_media_file_metadata',
+    'MEDIA_FILE_METADATA_SCHEMA',
+    'MEDIA_FILE_UPDATE_SCHEMA',
+    'filename_problem',
     'BaseMediaFile',
     'MediaFile',
 ]

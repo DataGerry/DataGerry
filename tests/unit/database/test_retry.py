@@ -33,6 +33,7 @@ Three groups:
     attempt) is reported after the first one instead of three times over
 """
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from pymongo.errors import (
@@ -47,6 +48,7 @@ from pymongo.errors import (
 )
 
 from cmdb.database import retry as retry_module
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
 from cmdb.database.retry import (
     RETRY_MAX_ATTEMPTS,
     is_retryable,
@@ -264,3 +266,51 @@ class TestTheTimeBudget:
 
         assert recorder.read() == SENTINEL
         assert recorder.calls == 2
+
+
+# The public MongoDatabaseManager methods that do no I/O, and so have nothing to retry
+NO_IO_METHODS: frozenset[str] = frozenset({'target_database'})
+
+
+class TestEveryDatabaseOperationRetries:
+    """
+    Every public I/O method of MongoDatabaseManager carries the decorator
+
+    A write is only retried when it never reached the server (a server-selection failure), so retrying a write cannot
+    apply it twice - which is why the writes that used to go without it (insert_many, upsert_set, update_many_raw,
+    drop_index) carry it too. A method added without it would quietly fail the request a retry would have saved
+    """
+
+    @staticmethod
+    def _public_methods() -> list[str]:
+        """The class's own public methods"""
+        return sorted(
+            name for name, member in vars(MongoDatabaseManager).items()
+            if callable(member) and not name.startswith('_')
+        )
+
+    def test_each_one_is_wrapped(self) -> None:
+        """functools.wraps leaves __wrapped__ on every decorated method"""
+        unwrapped: list[str] = [
+            name for name in self._public_methods()
+            if name not in NO_IO_METHODS and not hasattr(getattr(MongoDatabaseManager, name), '__wrapped__')
+        ]
+
+        assert not unwrapped
+
+    def test_the_exemptions_still_exist(self) -> None:
+        """A renamed or removed method must not leave a stale exemption behind"""
+        assert NO_IO_METHODS <= set(self._public_methods())
+
+    def test_an_unsent_write_is_tried_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """One of the newly decorated writes: a server-selection failure, then success - two attempts, one result"""
+        monkeypatch.setattr(retry_module.time, 'sleep', lambda _seconds: None)
+        manager = MongoDatabaseManager.__new__(MongoDatabaseManager)
+        collection = MagicMock()
+        collection.update_many.side_effect = [ServerSelectionTimeoutError('no server'), MagicMock(modified_count=1)]
+        monkeypatch.setattr(manager, 'get_collection', lambda *_args: collection, raising=False)
+
+        result = manager.update_many_raw('coll', 'db', {'x': 1}, {'$pull': {'tags': 1}})
+
+        assert result.modified_count == 1
+        assert collection.update_many.call_count == 2

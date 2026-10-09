@@ -13,3 +13,10 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+Access control for CmdbTypes and the objects of them
+
+``AccessControlList`` is a type's ``acl`` block (an ``activated`` switch plus its sections), ``GroupACL`` the one
+section there is (CmdbUserGroup public_id -> permission values) on top of ``AccessControlListSection``. The
+decision for one loaded document is in ``helpers``, the same decision for a whole query in ``builder``
+"""

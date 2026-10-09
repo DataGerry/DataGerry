@@ -19,9 +19,12 @@ REST API routes for the CmdbUserGroup domain
 Gathers everything backing the ``/rest/groups`` endpoints in one place, mirroring the
 ``cmdb_objects`` / ``cmdb_types`` / ``cmdb_categories`` route packages:
 
-    groups_routes.py   ``groups_blueprint`` - the CmdbUserGroup CRUD endpoints
+    groups_routes.py     ``groups_blueprint`` - the CmdbUserGroup CRUD endpoints
+    groups_helper.py     the route-level rules: unknown rights refused on both writes, the
+                         administrator group keeps the master right, and the delete's refusals and
+                         member redistribution
+    groups_constants.py  the ``base.user-management.group.*`` rights, URL segments and refusal messages
 
-The CRUD handlers delegate their domain logic to ``GroupsManager`` (right-tree hydration, the
-protected-group guard) and ``UsersManager`` (member redistribution on delete), so there is no
-route-level helper / constants module yet; one should be added here if such logic ever emerges.
+The handlers delegate storage to ``GroupsManager`` (right-tree hydration, the protected-group guard)
+and ``UsersManager`` (member redistribution on delete).
 """

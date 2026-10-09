@@ -24,7 +24,6 @@ consumed as IsmsRiskClass.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_risk_class_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsRiskClass document
@@ -47,15 +46,17 @@ def get_isms_risk_class_schema() -> dict[str, Any]:
             'required': True,
             'empty': False,
         },
-        RiskClassKey.DESCRIPTION.value: {  # Optional description of the risk class
+        RiskClassKey.DESCRIPTION.value: {  # Optional description of the risk class; stored as null when unset
             'type': 'string',
+            'nullable': True,
         },
         RiskClassKey.COLOR.value: {  # Display colour of the risk class (hex / css value)
             'type': 'string',
             'required': True,
             'empty': False,
         },
-        RiskClassKey.SORT.value: {  # Sort order of the risk class
+        RiskClassKey.SORT.value: {  # Sort order of the risk class; stored as null when unset
             'type': 'integer',
+            'nullable': True,
         },
     }

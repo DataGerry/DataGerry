@@ -42,7 +42,10 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     type_name_conflict_error,
     stored_type_update_blocker,
     as_public_id,
+    acl_shape_error,
+    new_identifiers_error,
 )
+from cmdb.models.type_model.type_constants import IdentifierKind, TypeIdentifierError
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import (
     create_type_from_entry,
     update_type_from_entry,
@@ -1070,3 +1073,101 @@ class TestTheImportRefusesAnIdentifierRename:
         monkeypatch.setattr(f'{RULES}.field_identifier_change_blocker', lambda *_args: 'identifier')
 
         assert stored_type_update_blocker(IMPORTER, stored_type(), stored_type(), False) == 'identifier'
+
+
+class TestAclShapeError:
+    """An uploaded type's acl block is judged by the routes' rule, before the repairs complete it"""
+
+    @pytest.mark.parametrize('entry', [
+        {},
+        {'acl': None},
+        {'acl': {'activated': True, 'groups': {'includes': {'1': ['READ', 'UPDATE']}}}},
+        {'acl': {'activated': False, 'groups': {'includes': None}}},
+        {'acl': {'activated': False, 'whatever': [1]}},
+        'not-an-entry',
+    ], ids=['no-acl', 'null-acl', 'grants', 'null-includes', 'unknown-key', 'not-a-dict'])
+    def test_usable_or_absent_blocks_pass(self, entry: Any) -> None:
+        """Absent and null are left to the default-block repair; an unknown key is purged as on the routes"""
+        assert acl_shape_error(entry) is None
+
+    @pytest.mark.parametrize('acl, path', [
+        ({'groups': 42}, 'acl.groups'),
+        ({'groups': {'includes': {'1': 'READ,UPDATE'}}}, 'acl.groups.includes.1'),
+        ({'groups': {'includes': {'abc': ['READ']}}}, 'acl.groups.includes.abc'),
+        ({'activated': 'yes'}, 'acl.activated'),
+        ('not-a-dict', 'acl'),
+    ], ids=['groups-no-object', 'permissions-as-string', 'key-no-id', 'flag-string', 'block-no-object'])
+    def test_a_malformed_block_is_reported_with_its_path(self, acl: Any, path: str) -> None:
+        """The entry is refused with what is wrong and where, like any other import rule"""
+        message = acl_shape_error({'name': 'broken', 'acl': acl})
+
+        assert message.startswith(TypeImportError.INVALID_ACL.value.split('{', 1)[0])
+        assert path in message
+
+    def test_the_create_and_update_rules_both_run_it(self) -> None:
+        """A bad block refuses the entry on either verb, before anything is assigned or written"""
+        entry = {'name': 'broken', 'acl': {'groups': 42}}
+        types_manager = StubTypesManager()
+
+        created = create_type_from_entry(dict(entry), types_manager, no_templates(), IMPORTER)
+        updated = update_type_from_entry(
+            {**entry, TypeSchemaKey.PUBLIC_ID.value: EXISTING_PUBLIC_ID}, types_manager, no_templates(), IMPORTER,
+        )
+
+        lead: str = TypeImportError.INVALID_ACL.value.split('{', 1)[0]
+
+        assert created.startswith(lead)
+        assert updated.startswith(lead)
+
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           the identifier rule in the import                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestNewIdentifiersError:
+    """A CREATE entry: every identifier is new, judged by the route's rule with the route's message."""
+
+    def test_usable_identifiers_pass(self) -> None:
+        """Dots and umlauts included"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'import-ok', fields=[type_field('ip.address'), type_field('größe')])
+
+        assert new_identifiers_error(entry) is None
+
+    def test_a_bracketed_field_is_refused_with_the_route_message(self) -> None:
+        """The same wording as POST /types/"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'import-bad', fields=[type_field('size-[gb]')])
+
+        assert new_identifiers_error(entry) == TypeIdentifierError.FORBIDDEN_CHARACTER.format(
+            kind=IdentifierKind.FIELD.value, name='size-[gb]')
+
+    def test_an_entry_that_is_no_document_is_left_to_the_other_rules(self) -> None:
+        """Not this rule's question"""
+        assert new_identifiers_error('junk') is None
+
+
+class TestStoredTypeUpdateBlockerIdentifiers:
+    """An UPDATE entry: only the identifiers it adds to the stored type are judged."""
+
+    @pytest.fixture(autouse=True)
+    def _allow_the_other_rules(self, monkeypatch) -> None:
+        """Every other stored-type rule passes"""
+        for name in ('location_field_removal_blocker', 'selectable_as_parent_change_blocker',
+                     'field_identifier_change_blocker', 'mds_section_identifier_change_blocker',
+                     'referenced_section_removal_blocker', 'referenced_section_field_removal_blocker',
+                     'uses_ports_change_blocker'):
+            monkeypatch.setattr(f'{RULES}.{name}', lambda *_args: None)
+
+    def test_a_stored_odd_identifier_passes(self) -> None:
+        """The stored type already holds it - immutable, never judged"""
+        old_type = stored_type(fields=[type_field('size-[gb]')])
+
+        assert stored_type_update_blocker(IMPORTER, old_type, stored_type(fields=[type_field('size-[gb]')]), False) \
+            is None
+
+    def test_an_added_odd_identifier_is_refused(self) -> None:
+        """New on this update"""
+        old_type = stored_type(fields=[type_field('cpu')])
+        new_type = stored_type(fields=[type_field('cpu'), type_field(' ram')])
+
+        assert stored_type_update_blocker(IMPORTER, old_type, new_type, False) == \
+            TypeIdentifierError.SURROUNDING_WHITESPACE.format(kind=IdentifierKind.FIELD.value, name=' ram')

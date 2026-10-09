@@ -43,6 +43,9 @@ PROTECTED_GROUP_IDS: tuple[int, ...] = (ADMIN_GROUP_ID, USER_GROUP_ID)
 # able to hand it back, so the update route refuses that change
 MASTER_RIGHT_NAME: str = f'{BaseRight.PREFIX}.{GLOBAL_RIGHT_IDENTIFIER}'
 
+# Why a CmdbUserGroup cannot be read without the right tree: its stored right names would resolve to nothing
+RIGHT_TREE_REQUIRED_MSG: str = "A CmdbUserGroup can only be read with the right tree to resolve its rights"
+
 
 class GroupKey(BaseStrEnum):
     """

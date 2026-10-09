@@ -155,7 +155,7 @@ class CmdbObject(CmdbDAO):
         },
     ]
 
-    #pylint: disable=R0913
+    # pylint: disable=too-many-arguments
     def __init__(
         self,
         *,

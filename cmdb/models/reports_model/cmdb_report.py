@@ -88,6 +88,29 @@ def clear_rules_of_field(conditions: dict[str, Any] | None, field_name: str) -> 
 
     return stripped
 
+def collect_rule_fields(conditions: dict[str, Any] | None) -> set[str]:
+    """
+    Collects the field name of every leaf rule of a report's condition tree
+
+    Args:
+        conditions (dict[str, Any] | None): The condition tree (or subtree)
+
+    Returns:
+        set[str]: The field names the rules filter on; a leaf without a field name contributes nothing
+    """
+    if not conditions:
+        return set()
+
+    names: set[str] = set()
+
+    for a_rule in conditions.get(ReportConditionKey.RULES, []):
+        if ReportConditionKey.CONDITION in a_rule:
+            names |= collect_rule_fields(a_rule)
+        elif a_rule.get(ReportConditionKey.FIELD):
+            names.add(a_rule[ReportConditionKey.FIELD])
+
+    return names
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  CmdbReport - CLASS                                                  #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -138,6 +161,7 @@ class CmdbReport(CmdbDAO):
 
     def __init__(
         self,
+        *,
         report_category_id: int,
         name: str,
         type_id: int,
@@ -197,6 +221,16 @@ class CmdbReport(CmdbDAO):
         """
         self.selected_fields = [a_field for a_field in self.selected_fields if a_field != field_name]
         self.conditions = clear_rules_of_field(self.conditions, field_name)
+
+
+    def referenced_field_names(self) -> set[str]:
+        """
+        Every field name the report selects or filters on
+
+        Returns:
+            set[str]: The names in ``selected_fields`` and in the condition tree's rules
+        """
+        return set(self.selected_fields) | collect_rule_fields(self.conditions)
 
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 

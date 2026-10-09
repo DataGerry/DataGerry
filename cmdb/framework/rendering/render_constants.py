@@ -207,7 +207,8 @@ class RenderProblemCode(BaseStrEnum):
     Each member names one kind of loss a render tolerates instead of failing. A RenderResult carrying
     none of them is complete. The cases a render handles by design - a summary falling back to
     '<label> #<id>' for an object saved before its type's summary changed, an external link skipped
-    because a value it needs is empty, a reference section with nothing referenced yet, a section kind
+    because a value it needs is empty, a reference section with nothing referenced yet - or referencing an
+    object the render user may not read, or one that is gone, at any depth of a chain - a section kind
     from a newer version rendered as a plain one - are not problems and are never reported
 
     Attributes:
@@ -219,11 +220,10 @@ class RenderProblemCode(BaseStrEnum):
         FIELD_MERGE_FAILED: A field could not be merged; it carries its stored value, unexpanded
         REFERENCE_INCOMPLETE: A reference could not be built; it has no line and no summaries
         REFERENCE_LINE_UNFILLED: A reference's summary line does not fit its type; it has no line
-        REFERENCE_SECTION_UNRESOLVED: A reference section could not be built; it is left out
+        REFERENCE_SECTION_UNRESOLVED: A reference section could not be built; it is left out. A section
+            reached through a chain is reported the same way, and its field is answered without its block
         REFERENCE_SECTION_FIELD_SKIPPED: One field of a reference section could not be read; the
             section is short by that field
-        NESTED_REFERENCE_SECTION_FAILED: A reference section nested inside another could not be
-            rendered; its fields are missing from the outer section
         EXTERNAL_LINK_FAILED: An external link could not be filled; it is left out
     """
     SECTIONS_UNREADABLE = 'sections_unreadable'
@@ -234,5 +234,4 @@ class RenderProblemCode(BaseStrEnum):
     REFERENCE_LINE_UNFILLED = 'reference_line_unfilled'
     REFERENCE_SECTION_UNRESOLVED = 'reference_section_unresolved'
     REFERENCE_SECTION_FIELD_SKIPPED = 'reference_section_field_skipped'
-    NESTED_REFERENCE_SECTION_FAILED = 'nested_reference_section_failed'
     EXTERNAL_LINK_FAILED = 'external_link_failed'

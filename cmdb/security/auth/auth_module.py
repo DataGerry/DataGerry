@@ -25,6 +25,12 @@ deactivated provider, wrong credentials, a malformed settings section - every in
 provider is tried in turn before the login is refused. That second pass exists so a user who does not
 exist locally yet can still be provisioned by an external provider.
 
+**External providers are on-premise only.** In cloud mode the ServicePortal is the identity source and a
+tenant user is identified by email; the LDAP provider resolves and provisions by user name and stamps no
+tenant database on the user it creates. So in cloud mode no external provider takes part in either half
+of ``login`` (``external_providers_allowed``), whatever the stored section says, and the auth-settings
+update refuses to activate one (``active_external_provider_names``).
+
 Provider settings live in the section as ``{'class_name': ..., 'config': {...}}`` entries; a provider
 that the stored section does not list is topped up with its own defaults.
 """
@@ -57,7 +63,6 @@ from cmdb.errors.provider import (
     AuthenticationProviderNotFoundError,
     AuthenticationError,
 )
-from cmdb.errors.manager import BaseManagerGetError, BaseManagerInsertError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -410,6 +415,38 @@ class AuthModule:
             return None
 
 
+    def external_providers_allowed(self) -> bool:
+        """
+        Answers whether external providers (LDAP) may take part in a login at all
+
+        The one gate both halves of ``login`` ask before an external provider is considered: the stored
+        ``enable_external`` switch, and never in cloud mode. A cloud tenant user is identified by email and
+        authenticated by the ServicePortal; an external provider resolves by user name and would provision a
+        user without an email or a tenant database, whose token could not name its tenant
+
+        Returns:
+            bool: True when ``enable_external`` is set and the instance does not run in cloud mode
+        """
+        return bool(self.settings.enable_external) and not current_app.cloud_mode
+
+
+    def active_external_provider_names(self) -> list[str]:
+        """
+        Names the external providers this section activates
+
+        Asked of each provider class with the configuration the section gives it (``is_active_for``) - the
+        rule a login follows - so the auth-settings update can refuse what cloud mode would ignore
+
+        Returns:
+            list[str]: The class names of the active external providers, in installation order
+        """
+        return [
+            provider.get_name()
+            for provider in self.providers
+            if provider.EXTERNAL_PROVIDER and provider.is_active_for(self.build_provider_config(provider))
+        ]
+
+
     def resolve_user(self, user_name: str) -> CmdbUser | None:
         """
         Looks the login up as a stored CmdbUser
@@ -440,10 +477,14 @@ class AuthModule:
 
         The stored CmdbUser names the provider that should authenticate it; that primary attempt is used
         when the user exists, its provider is installed and activated, and external providers are
-        enabled for an external one. If **anything** about that attempt fails - unknown user, unknown or
-        deactivated provider, wrong credentials, unusable settings - every installed provider that is
-        active is tried in turn, which is how a user that does not exist locally yet
-        gets provisioned by an external provider
+        enabled for an external one. Whether the provider is active is asked of its class with the stored
+        configuration (`is_active_for`), before the provider is built - the same rule, in the same order,
+        as the sweep. An external provider additionally needs ``external_providers_allowed``, so it never
+        takes part in cloud mode. If **anything** about that attempt fails - unknown user, unknown or deactivated
+        provider, wrong credentials, unusable settings - every installed provider that is active is tried
+        in turn, which is how a user that does not exist locally yet gets provisioned by an external
+        provider. So whatever the primary attempt ran into, a failed login ends in one
+        `AuthenticationError`: it never says which provider was off or missing
 
         Args:
             user_name (str): Name (or, in cloud mode, email) of the user
@@ -469,15 +510,16 @@ class AuthModule:
                 raise AuthenticationProviderNotFoundError(f"Provider with name {provider_class_name} does not exist!")
 
             provider: type[BaseAuthenticationProvider] = self.get_provider_class(provider_class_name)
-            provider_instance: BaseAuthenticationProvider = self.build_provider_instance(provider)
+            provider_config: BaseAuthProviderConfig = self.build_provider_config(provider)
 
-            if not provider_instance.is_active():
+            # Asked of the class before anything is built - the rule and the order the sweep follows
+            if not provider.is_active_for(provider_config):
                 raise AuthenticationProviderNotActivated(f'Provider {provider_class_name} is deactivated')
 
-            if provider_instance.EXTERNAL_PROVIDER and not self.settings.enable_external:
-                raise AuthenticationProviderNotActivated('External providers are deactivated')
+            if provider.EXTERNAL_PROVIDER and not self.external_providers_allowed():
+                raise AuthenticationProviderNotActivated('External providers are not available')
 
-            return provider_instance.authenticate(user_name, password)
+            return self.build_provider_instance(provider, provider_config).authenticate(user_name, password)
         except Exception as err:
             return self.authenticate_with_any_provider(user_name, password, err)
 
@@ -491,11 +533,12 @@ class AuthModule:
         """
         Tries every installed provider that is active, in installation order
 
-        The fallback half of ``login``. A provider that rejects the credentials, or that finds the user
-        but cannot store it, does not end the sweep - the next provider gets its turn. Whether a
-        provider takes part is asked of its class (`is_active_for`), the same rule the primary
-        attempt's `is_active` follows, and before it is built - so the local provider is always tried
-        and an inactive provider is never constructed
+        The fallback half of ``login``. A provider that refuses - with `AuthenticationError`, which is how
+        every provider reports a rejected login and its own read or write failures - does not end the
+        sweep: the next provider gets its turn. Anything else is a defect and fails the login. Whether a
+        provider takes part is asked of its class (`is_active_for`), the same rule the primary attempt
+        follows, and before it is built; an external one also needs ``external_providers_allowed`` - so the
+        local provider is always tried and an inactive provider is never constructed
 
         Args:
             user_name (str): Name (or, in cloud mode, email) of the user
@@ -514,7 +557,7 @@ class AuthModule:
             if not provider.is_active_for(provider_config):
                 continue
 
-            if provider.EXTERNAL_PROVIDER and not self.settings.enable_external:
+            if provider.EXTERNAL_PROVIDER and not self.external_providers_allowed():
                 continue
 
             provider_instance: BaseAuthenticationProvider = self.build_provider_instance(provider, provider_config)
@@ -522,9 +565,6 @@ class AuthModule:
             try:
                 return provider_instance.authenticate(user_name, password)
             except AuthenticationError:
-                continue
-            except (BaseManagerGetError, BaseManagerInsertError) as error:
-                LOGGER.debug("User found by provider but could not be inserted or found %s", error)
                 continue
 
         raise AuthenticationError('Could not login.') from primary_error

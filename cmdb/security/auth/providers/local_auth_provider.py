@@ -202,13 +202,3 @@ class LocalAuthenticationProvider(BaseAuthenticationProvider):
             bool: Always True
         """
         return True
-
-
-    def is_active(self) -> bool:
-        """
-        Checks if the local authentication provider is active
-
-        Returns:
-            bool: Always True - see `is_active_for`
-        """
-        return self.is_active_for(self.config)

@@ -26,6 +26,7 @@ from cmdb.interface.rest_api.responses.response_parameters import APIParameters,
 from cmdb.interface.route_utils import user_has_right
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints.api_blueprint_constants import (
+    BODY_NOT_AN_OBJECT_MESSAGE,
     PROTECT_WITHOUT_REQUEST_USER_MESSAGE,
     REQUEST_USER_KWARG,
     RIGHT_CHECK_FAILED_MESSAGE,
@@ -186,7 +187,8 @@ class APIBlueprint(Blueprint):
 
         Raises:
             400 Bad Request:
-                - If the incoming request body is not valid JSON
+                - If the incoming request body is not valid JSON, or is JSON but not an object (``null``, a list,
+                  a string, a number) - which the validator cannot check, and answers with its own message
                 - If the data does not conform to the provided schema: the message names each failing
                   field and why (see ``schema_error_format.describe_schema_errors``)
                 - If the validator itself fails: a fixed message, the schema is never echoed
@@ -197,7 +199,11 @@ class APIBlueprint(Blueprint):
             @wraps(f)
             def _decorate(*args: Any, **kwargs: Any) -> Any:
                 data = request.get_json()
-                # LOGGER.debug("validation data: %s", data)
+
+                # Cerberus raises on a document that is not a mapping; named here instead of as a validator failure
+                if not isinstance(data, dict):
+                    abort(400, f"{BODY_NOT_AN_OBJECT_MESSAGE}!")
+
                 try:
                     validation_result = validator.validate(data)
                 except Exception as err:

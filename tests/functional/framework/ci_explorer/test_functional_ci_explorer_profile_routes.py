@@ -219,7 +219,7 @@ class TestProfileCrud:
             assert deleted['public_id'] == PROFILE_FOR_DELETE
             assert set(deleted) == {
                 'public_id', 'name', 'types_filter', 'relations_filter',
-                'with_locations', 'with_ipam_relations',
+                'with_locations', 'with_ipam_relations', 'with_port_connections',
             }
         finally:
             collection.delete_one({'public_id': PROFILE_FOR_DELETE})
@@ -228,6 +228,69 @@ class TestProfileCrud:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    LABEL FIELD                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
+class TestTheThreeToggles:
+    """with_locations, with_ipam_relations and with_port_connections on a profile write."""
+
+    TOGGLES: tuple[str, ...] = ('with_locations', 'with_ipam_relations', 'with_port_connections')
+
+    @staticmethod
+    def _bare(name: str = ORIGINAL_NAME) -> dict[str, Any]:
+        """A profile body naming no toggle - what the frontend's profile form sends"""
+        return {'name': name, 'types_filter': [], 'relations_filter': []}
+
+    def _stored(self, database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> dict[str, Any]:
+        """The stored toggles of one profile"""
+        stored = database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name)\
+            .find_one({'public_id': public_id})
+
+        return {key: stored[key] for key in self.TOGGLES}
+
+    def test_a_create_without_toggles_stores_the_frontends_defaults(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """All three on"""
+        new_id = rest_api.post(f'{ROUTE_URL}/profile', json=self._bare()).get_json()['result_id']
+
+        try:
+            assert self._stored(database_manager, database_name, new_id) == dict.fromkeys(self.TOGGLES, True)
+        finally:
+            database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
+                {'public_id': new_id})
+
+    def test_the_port_connections_toggle_is_stored_and_answered(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Saved like the other two, and in the created profile the response carries"""
+        response = rest_api.post(f'{ROUTE_URL}/profile', json={**self._bare(), 'with_port_connections': False})
+        new_id = response.get_json()['result_id']
+
+        try:
+            assert self._stored(database_manager, database_name, new_id)['with_port_connections'] is False
+            assert response.get_json()['raw']['with_port_connections'] is False
+        finally:
+            database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
+                {'public_id': new_id})
+
+    def test_an_update_without_toggles_stores_the_defaults(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """The defaults apply whenever a write leaves a toggle out - the update too (the user's ruling)"""
+        new_id = rest_api.post(f'{ROUTE_URL}/profile', json={
+            **self._bare(), **dict.fromkeys(self.TOGGLES, False),
+        }).get_json()['result_id']
+
+        try:
+            rest_api.put(f'{ROUTE_URL}/profile/{new_id}', json=self._bare(UPDATED_NAME))
+
+            assert self._stored(database_manager, database_name, new_id) == dict.fromkeys(self.TOGGLES, True)
+        finally:
+            database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
+                {'public_id': new_id})
+
+    def test_a_toggle_that_is_no_boolean_is_a_400(self, rest_api) -> None:
+        """The schema's type rule"""
+        response = rest_api.post(f'{ROUTE_URL}/profile', json={**self._bare(), 'with_port_connections': 'yes'})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+
+
 class TestLabelField:
     """PUT /ci_explorer/label_field/<id> reads the body and persists the nomination."""
 

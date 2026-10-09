@@ -42,6 +42,8 @@ from cmdb.framework.rack.mount_validator import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RACK_HEIGHT: int = 42
+# A whole number past the 64-bit integer BSON can store
+OVER_INT64: int = 10**20
 
 
 def _mount(area: Any, start_slot: Any = None, height: Any = None,
@@ -157,6 +159,27 @@ def test_shape_rejects_an_unusable_position(position: Any) -> None:
 def test_shape_accepts_the_lowest_position() -> None:
     """The ordering is zero-based, so 0 is a valid position"""
     assert validate_mount_shape(_mount(RackArea.LEFT.value, position=RackMountLimits.MIN_POSITION)) == []
+
+
+def test_shape_accepts_the_highest_position() -> None:
+    """The cap itself is a valid index"""
+    assert validate_mount_shape(_mount(RackArea.LEFT.value, position=RackMountLimits.MAX_POSITION)) == []
+
+
+@pytest.mark.parametrize('position', [RackMountLimits.MAX_POSITION + 1, OVER_INT64], ids=['cap+1', 'over-int64'])
+def test_shape_rejects_a_position_above_the_cap(position: int) -> None:
+    """An index a client may choose stays far below the 64-bit integer an append adds one to"""
+    errors = validate_mount_shape(_mount(RackArea.UNASSIGNED.value, position=position))
+
+    assert errors == [
+        f'The position must be a whole number from {RackMountLimits.MIN_POSITION} to '
+        f'{RackMountLimits.MAX_POSITION}, but was {position}!'
+    ]
+
+
+def test_a_slot_has_no_upper_bound_in_the_shape_layer() -> None:
+    """A slot is measured against the rack by the fit rules, not capped here"""
+    assert validate_mount_shape(_mount(RackArea.FRONT.value, start_slot=OVER_INT64, height=1)) == []
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              validate_mount_fits_rack                                                #

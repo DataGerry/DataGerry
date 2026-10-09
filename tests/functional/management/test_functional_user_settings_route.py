@@ -38,7 +38,6 @@ from cmdb.errors.manager.user_settings_manager import (
     UserSettingsManagerDeleteError,
     UserSettingsManagerIterationError,
 )
-from tests.utils.update_response import put_and_read_back
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USER_ID: int = 96601
@@ -49,6 +48,9 @@ RESOURCE_B: str = 'sidebar'
 MISSING_RESOURCE: str = 'does-not-exist'
 
 ALL_USER_IDS: list[int] = [USER_ID, OTHER_USER_ID]
+
+# The one shape every settings route answers
+SETTING_KEYS: set[str] = {'resource', 'user_id', 'payloads', 'setting_type'}
 
 
 def _settings_url(user_id: int = USER_ID) -> str:
@@ -443,7 +445,7 @@ class TestSettingTypeGuard:
     def test_the_bad_record_itself_is_still_addressable(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
-        """The single read answers the stored document, so the record can be inspected and repaired"""
+        """An unreadable record is answered as stored - minus the stamped id - so it can be inspected and repaired"""
         database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(
             {'resource': RESOURCE_B, 'user_id': USER_ID, 'payloads': [], 'setting_type': 'NOT_A_TYPE',
              'public_id': 9002},
@@ -453,6 +455,7 @@ class TestSettingTypeGuard:
 
         assert answered.status_code == HTTPStatus.OK
         assert answered.get_json()['result']['setting_type'] == 'NOT_A_TYPE'
+        assert 'public_id' not in answered.get_json()['result']
 
     def test_a_repaired_record_appears_in_the_list_again(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
@@ -473,34 +476,46 @@ class TestSettingTypeGuard:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        the two reads, as they answer today                                           #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestReadShapes:
-    """The single read answers the stored document, the list read the four normalised keys.
+class TestEveryRouteAnswersOneShape:
+    """Create, list, single read, update and delete all answer the four keys - never the stamped public_id."""
 
-    Pinned as it is, NOT as it should be: these tests are what makes a change to either shape
-    visible.
-    """
-
-    def test_the_single_read_carries_the_stamped_public_id(self, rest_api) -> None:
-        """The manager stamps one on insert although the model does not declare it"""
+    def test_the_single_read_answers_the_four_keys(self, rest_api) -> None:
+        """The stored document carries a stamped public_id; the read does not answer it"""
         rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
 
-        assert 'public_id' in rest_api.get(f'{_settings_url()}/{RESOURCE_A}').get_json()['result']
+        assert set(rest_api.get(f'{_settings_url()}/{RESOURCE_A}').get_json()['result']) == SETTING_KEYS
 
-    def test_the_list_read_does_not(self, rest_api) -> None:
-        """The four normalised keys only - which is what the Angular UserSetting model declares"""
+    def test_the_list_read_answers_the_four_keys(self, rest_api) -> None:
+        """What the Angular UserSetting model declares"""
         rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
 
-        listed = rest_api.get(f'{_settings_url()}/').get_json()['results'][0]
+        assert set(rest_api.get(f'{_settings_url()}/').get_json()['results'][0]) == SETTING_KEYS
 
-        assert set(listed) == {'resource', 'user_id', 'payloads', 'setting_type'}
-
-    def test_the_create_answers_the_stored_document_with_its_new_id(self, rest_api) -> None:
-        """Answered from the body that was just written plus the insert's id - no second read"""
+    def test_the_create_answers_the_four_keys_and_reports_the_id_as_result_id(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """raw is the setting; the stamped storage id is the envelope's result_id only"""
         created = rest_api.post(f'{_settings_url()}/',
                                 json=_setting_payload(RESOURCE_A, payloads=TABLE_PAYLOADS)).get_json()
 
+        assert set(created['raw']) == SETTING_KEYS
         assert created['raw']['payloads'] == TABLE_PAYLOADS
-        assert created['raw']['public_id'] == created['result_id']
+        stored = database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).find_one(
+            {'user_id': USER_ID, 'resource': RESOURCE_A})
+        assert created['result_id'] == stored['public_id']
+
+    def test_the_update_answers_the_four_keys(self, rest_api) -> None:
+        """Same shape as every read"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
+
+        updated = rest_api.put(f'{_settings_url()}/{RESOURCE_A}', json=_setting_payload(RESOURCE_A)).get_json()
+
+        assert set(updated['result']) == SETTING_KEYS
+
+    def test_the_delete_answers_the_four_keys(self, rest_api) -> None:
+        """The deleted setting, in the same shape"""
+        rest_api.post(f'{_settings_url()}/', json=_setting_payload(RESOURCE_A))
+
+        assert set(rest_api.delete(f'{_settings_url()}/{RESOURCE_A}').get_json()['raw']) == SETTING_KEYS
 
     def test_a_setting_without_payloads_is_listed_with_an_empty_list(self, rest_api) -> None:
         """The key is optional on write; a client reads `payloads` unconditionally"""
@@ -509,6 +524,18 @@ class TestReadShapes:
         rest_api.post(f'{_settings_url()}/', json=body)
 
         assert rest_api.get(f'{_settings_url()}/').get_json()['results'][0]['payloads'] == []
+
+    def test_an_old_document_without_payloads_reads_the_same_on_the_single_route(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Stored raw, as an older version wrote it: the single read normalises it like the list read"""
+        document = _setting_payload(RESOURCE_A)
+        del document['payloads']
+        database_manager.get_collection(CmdbUserSetting.COLLECTION, database_name).insert_one(document)
+
+        answered = rest_api.get(f'{_settings_url()}/{RESOURCE_A}').get_json()['result']
+
+        assert answered['payloads'] == []
+        assert set(answered) == SETTING_KEYS
 
 
 class TestTheUpdateAnswersTheStoredDocument:

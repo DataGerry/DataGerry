@@ -28,7 +28,6 @@ cross-document rule
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_rack_mount_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbRackMount document

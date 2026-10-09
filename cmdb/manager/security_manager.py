@@ -25,9 +25,8 @@ from flask import current_app
 from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager.system_manager.settings_manager import SettingsManager
+from cmdb.security.key.security_settings import read_security_setting, write_security_setting
 from cmdb.security.key.secret_resolver import (
-    SECURITY_SECTION,
     SYMMETRIC_KEY_SETTING,
     new_symmetric_aes_key,
     resolve_secret,
@@ -49,6 +48,9 @@ class SecurityManager:
     The symmetric AES key is used to key the HMAC-SHA256 used for password storage/verification;
     the key itself is resolved from the app (cloud+local dev), an environment variable (cloud), or
     the 'security' settings section (on-premise, generated on first use).
+
+    It holds no other manager: the 'security' document is read and written through
+    ``cmdb.security.key.security_settings``, which the key package owns next to the resolution rules.
     """
 
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
@@ -66,7 +68,8 @@ class SecurityManager:
             dbm (MongoDatabaseManager): The database manager to interact with the database
             database (str, optional): The database name to use. Defaults to None
         """
-        self.settings_manager: SettingsManager = SettingsManager(dbm, database)
+        self.dbm: MongoDatabaseManager = dbm
+        self.database: str | None = database
         self.salt: str = "cmdb"
 
 
@@ -108,9 +111,7 @@ class SecurityManager:
         Returns:
             UpdateResult: The result of the settings write operation
         """
-        return self.settings_manager.write(
-            SECURITY_SECTION, {SYMMETRIC_KEY_SETTING: new_symmetric_aes_key()},
-        )
+        return write_security_setting(self.dbm, self.database, {SYMMETRIC_KEY_SETTING: new_symmetric_aes_key()})
 
 
     def get_symmetric_aes_key(self) -> bytes:
@@ -149,10 +150,10 @@ class SecurityManager:
         Returns:
             bytes: The stored symmetric AES key
         """
-        symmetric_key = self.settings_manager.get_value(SYMMETRIC_KEY_SETTING, SECURITY_SECTION)
+        symmetric_key = read_security_setting(self.dbm, self.database, SYMMETRIC_KEY_SETTING)
 
         if not symmetric_key:
             self.generate_symmetric_aes_key()
-            symmetric_key = self.settings_manager.get_value(SYMMETRIC_KEY_SETTING, SECURITY_SECTION)
+            symmetric_key = read_security_setting(self.dbm, self.database, SYMMETRIC_KEY_SETTING)
 
         return symmetric_key

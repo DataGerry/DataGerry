@@ -779,11 +779,13 @@ class TestGetOcConnectorCloud:
 
         assert response.status_code == HTTPStatus.OK
 
-    def test_with_valid_password_via_portal(self, cloud_app, oc_manager, cloud_managers) -> None:
-        """An uncached user with a valid master password (portal) returns the connector."""
-        cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_connector_in_sub.return_value = True
-        cloud_managers.dg_sp.check_master_pw.return_value = True
+    def test_with_valid_password_after_seeding_the_cache(self, cloud_app, oc_manager, cloud_managers) -> None:
+        """An uncached user is seeded from the portal once; password and id are checked in the stored entry."""
+        seeded: dict[str, Any] = {'email': CLOUD_USER.email}
+        cloud_managers.cached.get_cached_user.side_effect = [None, seeded]
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = {'email': CLOUD_USER.email}
+        cloud_managers.cached.check_cached_master_password.return_value = True
+        cloud_managers.cached.oc_id_exists.return_value = True
         oc_manager.get_connector.return_value = {'connectorId': CONNECTOR_ID, 'title': f'{CLOUD_DB}_c'}
 
         with cloud_app.test_request_context(headers=MASTER_PW_HDR):
@@ -807,7 +809,7 @@ class TestGetOcConnectorCloud:
     def test_not_in_subscription_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
         """A connector outside the subscription aborts 400."""
         cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_connector_in_sub.return_value = False
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = None
 
         with cloud_app.test_request_context():
             with pytest.raises(HTTPException) as exc_info:
@@ -889,7 +891,7 @@ class TestUpdateOcConnectorCloud:
     def test_not_in_subscription_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
         """An update to a connector outside the subscription aborts 400."""
         cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_connector_in_sub.return_value = False
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = None
 
         with cloud_app.test_request_context(json={'title': 'renamed'}):
             with pytest.raises(HTTPException) as exc_info:
@@ -918,7 +920,7 @@ class TestDeleteOcConnectorCloud:
     def test_not_in_subscription_returns_400(self, cloud_app, oc_manager, cloud_managers) -> None:
         """A delete of a connector outside the subscription aborts 400."""
         cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_connector_in_sub.return_value = False
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = None
 
         with cloud_app.test_request_context():
             with pytest.raises(HTTPException) as exc_info:

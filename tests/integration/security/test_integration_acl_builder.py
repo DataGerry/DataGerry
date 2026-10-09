@@ -400,8 +400,8 @@ class TestPermittedTypesCriteriaOverSeveralPermissions:
         The consequence of REPLACING READ rather than intersecting with it
 
         96004 grants the group CREATE and not READ. Asked for READ it is denied; asked for CREATE it
-        is permitted - which is why the listing filter is documented as a query rather than an access
-        boundary (the single-type read applies no ACL at all).
+        is permitted - which is why ``?acl=`` is documented as a query: the boundary is READ, which every
+        route on one type enforces.
         """
         types = database_manager.get_collection(CmdbType.COLLECTION, database_name)
 

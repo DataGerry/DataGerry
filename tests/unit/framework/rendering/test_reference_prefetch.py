@@ -17,15 +17,19 @@
 Unit tests for cmdb.framework.rendering.reference_prefetch.ReferencePrefetch
 
 Pure tests: mock managers answering from an in-memory store, real CmdbObjects and CmdbTypes. Pins which
-ids each hop asks for - a reference-section chain alternates between a SECTION target, which is only
-merged, and a NESTED target, which is rendered - and how a failed load and a legacy untyped field are
-handled
+ids each hop asks for - every object of a reference-section chain is only merged, so only its own
+reference-section values lead on - how every hop is narrowed by the render's read scope,
+and how a failed load and a legacy untyped field are handled
 """
 import logging
 from typing import Any
 from unittest.mock import Mock
 
+import pytest
+
+from cmdb.framework.rendering import reference_read_scope as scope_module
 from cmdb.framework.rendering.reference_prefetch import ReferencePrefetch
+from cmdb.framework.rendering.reference_read_scope import ReferenceReadScope
 from cmdb.framework.rendering.render_constants import DEFAULT_RENDER_LEVEL, RenderProblemCode, RenderProblemKey
 from cmdb.framework.rendering.render_problem_log import RenderProblemLog
 from cmdb.models.object_model import CmdbObject
@@ -35,6 +39,7 @@ from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CHAIN_TYPE_ID: int = 720
+HIDDEN_TYPE_ID: int = 721
 CHAIN_FIELD: str = 'chain-section-field'
 PLAIN_REF_FIELD: str = 'plain-ref'
 DROPPED_FIELD: str = 'dropped-from-the-type'
@@ -44,6 +49,7 @@ SECTION_TARGET_ID: int = 731
 NESTED_ID: int = 732
 NESTED_PLAIN_ID: int = 733
 OTHER_START_ID: int = 734
+HIDDEN_ID: int = 735
 
 
 def _obj(public_id: int, section_target: int | None = None, plain_target: int | None = None) -> CmdbObject:
@@ -74,25 +80,37 @@ def _chain_type() -> CmdbType:
 class _Harness:
     """A ReferencePrefetch over a mock objects manager answering from `store`, recording each request."""
 
-    def __init__(self, store: dict[int, CmdbObject], cache: dict[int, CmdbObject] | None = None) -> None:
+    def __init__(
+        self,
+        store: dict[int, CmdbObject],
+        cache: dict[int, CmdbObject] | None = None,
+        user: Any = None,
+    ) -> None:
         self.requested: list[set[int]] = []
         self.objects_manager = Mock(name='objects_manager')
         self.objects_manager.get_objects_lookup.side_effect = self._lookup
         self.types_manager = Mock(name='types_manager')
         self.problems = RenderProblemLog(logging.getLogger(__name__))
         self.store = store
-        self.prefetch = ReferencePrefetch(self.objects_manager, self.types_manager, cache or {}, self.problems)
+        # No user reads unscoped, so the scope needs no database; a test giving one patches the denials
+        self.read_scope = ReferenceReadScope(user)
+        self.prefetch = ReferencePrefetch(
+            self.objects_manager, self.types_manager, cache or {}, self.problems, self.read_scope,
+        )
 
-    def _lookup(self, public_ids: list[int]) -> dict[int, CmdbObject]:
+    def _lookup(self, public_ids: list[int], denied_type_ids: list[int] | None = None) -> dict[int, CmdbObject]:
         self.requested.append(set(public_ids))
-        return {public_id: self.store[public_id] for public_id in public_ids if public_id in self.store}
+        return {
+            public_id: self.store[public_id] for public_id in public_ids
+            if public_id in self.store and self.store[public_id].get_type_id() not in (denied_type_ids or [])
+        }
 
 
 class TestTheWalk:
     """Which ids each hop asks for."""
 
     def test_each_hop_is_one_query(self) -> None:
-        """Rendered object -> section target -> nested target -> the nested target's references"""
+        """Rendered object -> section target -> the target behind its own reference section"""
         harness = _Harness({
             SECTION_TARGET_ID: _obj(SECTION_TARGET_ID, NESTED_ID),
             NESTED_ID: _obj(NESTED_ID, plain_target=NESTED_PLAIN_ID),
@@ -101,8 +119,25 @@ class TestTheWalk:
 
         loaded = harness.prefetch.load([_obj(START_ID, SECTION_TARGET_ID)])
 
-        assert harness.requested == [{SECTION_TARGET_ID}, {NESTED_ID}, {NESTED_PLAIN_ID}]
-        assert set(loaded) == {SECTION_TARGET_ID, NESTED_ID, NESTED_PLAIN_ID}
+        assert harness.requested == [{SECTION_TARGET_ID}, {NESTED_ID}]
+        assert set(loaded) == {SECTION_TARGET_ID, NESTED_ID}
+
+    def test_no_hop_loads_a_targets_plain_references(self) -> None:
+        """
+        Every object of a chain is only merged, so its plain references are never loaded - at any hop
+
+        The second hop's target is merged into the first one's section exactly like the first one is merged
+        into the rendered object's: loading its plain references would change what the section shows
+        """
+        harness = _Harness({
+            SECTION_TARGET_ID: _obj(SECTION_TARGET_ID, NESTED_ID, plain_target=NESTED_PLAIN_ID),
+            NESTED_ID: _obj(NESTED_ID, plain_target=NESTED_PLAIN_ID),
+            NESTED_PLAIN_ID: _obj(NESTED_PLAIN_ID),
+        })
+
+        harness.prefetch.load([_obj(START_ID, SECTION_TARGET_ID)])
+
+        assert NESTED_PLAIN_ID not in set().union(*harness.requested)
 
     def test_several_rendered_objects_share_each_hop(self) -> None:
         """Two chains, still one query per hop - the point of prefetching"""
@@ -191,6 +226,71 @@ class TestTheWalk:
 
         assert not harness.prefetch.load([_obj(START_ID)])
         assert not harness.requested
+
+
+def _hidden(public_id: int, section_target: int | None = None) -> CmdbObject:
+    """An object of the type the denying user may not read."""
+    hidden: CmdbObject = _obj(public_id, section_target)
+    hidden.type_id = HIDDEN_TYPE_ID
+
+    return hidden
+
+
+@pytest.fixture(name='denying_user')
+def fixture_denying_user(monkeypatch: pytest.MonkeyPatch) -> Mock:
+    """A user whose group may not read HIDDEN_TYPE_ID."""
+    monkeypatch.setattr(scope_module, 'resolve_denied_type_ids', lambda _user, _permission: [HIDDEN_TYPE_ID])
+
+    return Mock(name='denying_user')
+
+
+class TestTheReadScope:
+    """Every hop is narrowed by the render's READ ACL."""
+
+    def test_each_hop_passes_the_denied_types(self, denying_user: Mock) -> None:
+        """The bulk load is asked to leave the denied types out"""
+        harness = _Harness({SECTION_TARGET_ID: _obj(SECTION_TARGET_ID)}, user=denying_user)
+
+        harness.prefetch.load([_obj(START_ID, SECTION_TARGET_ID)])
+
+        harness.objects_manager.get_objects_lookup.assert_called_once_with([SECTION_TARGET_ID], [HIDDEN_TYPE_ID])
+
+    def test_an_unreadable_object_is_not_loaded(self, denying_user: Mock) -> None:
+        """It never reaches the render's cache, so it renders like an unset reference"""
+        harness = _Harness({HIDDEN_ID: _hidden(HIDDEN_ID)}, user=denying_user)
+
+        assert not harness.prefetch.load([_obj(START_ID, plain_target=HIDDEN_ID)])
+
+    def test_an_unreadable_object_leads_nowhere(self, denying_user: Mock) -> None:
+        """A hidden section target is not followed into the chain behind it"""
+        harness = _Harness({HIDDEN_ID: _hidden(HIDDEN_ID, NESTED_ID), NESTED_ID: _obj(NESTED_ID)}, user=denying_user)
+
+        harness.prefetch.load([_obj(START_ID, HIDDEN_ID)])
+
+        assert harness.requested == [{HIDDEN_ID}]
+
+    def test_what_a_load_did_not_answer_is_recorded(self, denying_user: Mock) -> None:
+        """Unreadable or gone - the load cannot tell, and records both as unreturned"""
+        harness = _Harness({HIDDEN_ID: _hidden(HIDDEN_ID)}, user=denying_user)
+
+        harness.prefetch.load([_obj(START_ID, plain_target=HIDDEN_ID, section_target=NESTED_ID)])
+
+        assert harness.read_scope.unreturned_ids == {HIDDEN_ID, NESTED_ID}
+
+    def test_an_unreturned_id_is_not_asked_for_again(self, denying_user: Mock) -> None:
+        """A second load sharing the scope - a nested render's - skips it"""
+        harness = _Harness({HIDDEN_ID: _hidden(HIDDEN_ID)}, user=denying_user)
+        harness.prefetch.load([_obj(START_ID, plain_target=HIDDEN_ID)])
+
+        assert not harness.prefetch.load([_obj(OTHER_START_ID, plain_target=HIDDEN_ID)])
+        assert harness.requested == [{HIDDEN_ID}]
+
+    def test_a_readable_object_is_loaded(self, denying_user: Mock) -> None:
+        """The control: the denial is by type, so a readable reference still loads"""
+        harness = _Harness({NESTED_PLAIN_ID: _obj(NESTED_PLAIN_ID)}, user=denying_user)
+
+        assert set(harness.prefetch.load([_obj(START_ID, plain_target=NESTED_PLAIN_ID)])) == {NESTED_PLAIN_ID}
+        assert harness.read_scope.unreturned_ids == set()
 
 
 class TestAFailedLoad:

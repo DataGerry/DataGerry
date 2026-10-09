@@ -764,3 +764,65 @@ class TestAPanelsFacesCarryTheirOwnValues:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
         assert {port[PortKey.DESCRIPTION.value]
                 for port in ports.find({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID})} == {'device'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  the text cap and the batch size of the name preview                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+TEXT_CAP: int = 255
+COUNT_CAP: int = 5000
+
+
+class TestTheTextCapAndTheBatchSize:
+    """The preview and the creation refuse the same inputs, and the creation writes nothing then."""
+
+    @pytest.mark.parametrize('key', ['syntax', 'prefix', 'slot'])
+    def test_an_input_over_the_cap_is_a_400_naming_it(self, rest_api, ports, key: str) -> None:
+        """Each text input of the preview, one character over the cap"""
+        value: str = 'Gi{n}' + 'x' * (TEXT_CAP - 4) if key == 'syntax' else 'x' * (TEXT_CAP + 1)
+
+        for response in (_preview(rest_api, **{key: value}), _bulk(rest_api, **{key: value})):
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert f"'{key}'" in response.get_json()['message']
+
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
+
+    def test_a_prefix_that_is_not_text_is_a_400(self, rest_api) -> None:
+        """It used to be str()-ed into every generated name"""
+        response = _preview(rest_api, syntax='{prefix}-{n}', prefix={'a': 1})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert "'prefix' must be text" in response.get_json()['message']
+
+    def test_a_generated_name_over_the_cap_is_a_400(self, rest_api, ports) -> None:
+        """Every input fits, the name built from them does not - the preview refuses it, so does the creation"""
+        body: dict[str, Any] = {'syntax': '{prefix}{n}', 'prefix': 'p' * 250, 'start_index': 1000000}
+
+        for response in (_preview(rest_api, **body), _bulk(rest_api, **body)):
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert 'generated port names are longer than 255' in response.get_json()['message']
+
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
+
+    def test_a_count_at_the_cap_is_accepted(self, rest_api) -> None:
+        """5000 names preview fine"""
+        response = _preview(rest_api, count=COUNT_CAP)
+
+        assert response.status_code == HTTPStatus.OK
+
+    def test_a_count_over_the_cap_is_a_400(self, rest_api, ports) -> None:
+        """One more is refused before a single name is built - by the preview and by the creation"""
+        for response in (_preview(rest_api, count=COUNT_CAP + 1), _bulk(rest_api, count=COUNT_CAP + 1)):
+            assert response.status_code == HTTPStatus.BAD_REQUEST
+            assert f'At most {COUNT_CAP} ports' in response.get_json()['message']
+
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0
+
+    @pytest.mark.parametrize('key', ['description', 'rear_description'])
+    def test_a_description_over_the_cap_writes_nothing(self, rest_api, ports, key: str) -> None:
+        """The creation's own text values, capped like a single port's"""
+        response = _bulk(rest_api, **{key: 'd' * (TEXT_CAP + 1)})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert f"'{key}'" in response.get_json()['message']
+        assert ports.count_documents({PortKey.OBJECT_ID.value: OWNER_OBJECT_ID}) == 0

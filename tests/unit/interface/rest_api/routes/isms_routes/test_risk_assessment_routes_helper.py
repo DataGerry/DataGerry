@@ -14,15 +14,22 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for build_ra_naming (risk_assessment_routes)
+Unit tests for the pure helpers of risk_assessment_routes
 
-The helper is pure (no database): given an IsmsRiskAssessment and the pre-fetched risk / object /
-person lookup maps, it resolves the display names for the assessment's ``naming`` block.
+``build_ra_naming``: given an IsmsRiskAssessment and the pre-fetched risk / object / person lookup maps, it
+resolves the display names for the assessment's ``naming`` block. ``_assignments_person_references``: the
+person references of the assignments a RiskAssessment write carries, read with the assignment's own keys.
 """
 from types import SimpleNamespace
 from typing import Any
 
-from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_routes import build_ra_naming
+from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_routes import (
+    _assignments_person_references,
+    build_ra_naming,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_person_reference_helper import PersonReference
+from cmdb.manager.person_reference_helper import ref_type_key
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -99,3 +106,25 @@ def test_responsible_person_group_resolves_name() -> None:
     )
 
     assert naming['responsible_persons_id_name'] == 'Ops Team'
+
+
+IMPLEMENTER_KEY: str = ControlMeasureAssignmentKey.RESPONSIBLE_FOR_IMPLEMENTATION_ID.value
+
+
+def test_assignment_references_are_read_from_every_assignment_in_order() -> None:
+    """One reference per assignment naming somebody; an assignment naming nobody adds none"""
+    assignments: list[dict[str, Any]] = [
+        {IMPLEMENTER_KEY: 70, ref_type_key(IMPLEMENTER_KEY): PersonReferenceType.PERSON.value},
+        {IMPLEMENTER_KEY: None, ref_type_key(IMPLEMENTER_KEY): None},
+        {IMPLEMENTER_KEY: 71, ref_type_key(IMPLEMENTER_KEY): PersonReferenceType.PERSON_GROUP.value},
+    ]
+
+    assert _assignments_person_references(assignments) == [
+        PersonReference(IMPLEMENTER_KEY, 70, PersonReferenceType.PERSON.value),
+        PersonReference(IMPLEMENTER_KEY, 71, PersonReferenceType.PERSON_GROUP.value),
+    ]
+
+
+def test_no_assignments_carry_no_references() -> None:
+    """A RiskAssessment write without assignments"""
+    assert not _assignments_person_references([])

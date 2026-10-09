@@ -23,6 +23,7 @@ from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.risk_assessment_cascade_helper import delete_risk_assessments_of
 
 from cmdb.models.object_group_model import (
     CmdbObjectGroup,
@@ -30,9 +31,6 @@ from cmdb.models.object_group_model import (
     ObjectReferenceType,
     ObjectGroupMode,
 )
-from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
-from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
-from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 
 from cmdb.errors.manager.object_groups_manager import (
     OBJECT_GROUPS_MANAGER_ERRORS,
@@ -79,52 +77,19 @@ class ObjectGroupsManager(GenericManager):
 
     def delete_object_group_from_risk_assessment_cascade(self, deleted_group_id: int) -> None:
         """
-        Deletes all RiskAssessments and their associated ControlMeasureAssignments that reference
-        the given CmdbObjectGroup.
+        Deletes every IsmsRiskAssessment of the given CmdbObjectGroup, and their IsmsControlMeasureAssignments
 
-        This function performs the following steps:
-        1. Finds all RiskAssessments where 'object_id_ref_type' is 'OBJECT_GROUP' and
-        'object_id' matches the deleted group ID
-        2. Deletes these RiskAssessments
-        3. Deletes all ControlMeasureAssignments referencing the deleted RiskAssessments
-
-        The cascade is intentionally self-contained (using the cross-collection delete primitive)
-        rather than delegating to the RiskAssessment/ControlMeasureAssignment managers, since a
-        manager must not depend on another manager.
+        Only assessments of OBJECT GROUPS are touched - an assessment of a CmdbObject sharing the public_id is
+        the object's. The cascade is ``risk_assessment_cascade_helper``, shared with the object delete; it is
+        manager-free, since a manager must not depend on another manager
 
         Args:
             deleted_group_id (int): The public_id of the deleted CmdbObjectGroup
+
+        Raises:
+            BaseManagerDeleteError: If deleting the assessments or the assignments fails
         """
-        # Find all RiskAssessments referencing this ObjectGroup
-        risk_assessment_query = {
-            RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: ObjectReferenceType.OBJECT_GROUP.value,
-            RiskAssessmentKey.OBJECT_ID.value: deleted_group_id,
-        }
-
-        matching_risk_assessments = list(self.dbm.find(
-            IsmsRiskAssessment.COLLECTION,
-            self.db_name,
-            risk_assessment_query,
-            projection={RiskAssessmentKey.PUBLIC_ID.value: 1}
-        ))
-
-        if not matching_risk_assessments:
-            return  # Nothing to delete
-
-        # Collect all RiskAssessment public_ids
-        risk_assessment_ids = [ra[RiskAssessmentKey.PUBLIC_ID.value] for ra in matching_risk_assessments]
-
-        # Delete the RiskAssessments
-        self.delete_many_from_other_collection(
-            IsmsRiskAssessment.COLLECTION,
-            {RiskAssessmentKey.PUBLIC_ID.value: {'$in': risk_assessment_ids}},
-        )
-
-        # Delete all ControlMeasureAssignments referencing those RiskAssessments
-        self.delete_many_from_other_collection(
-            IsmsControlMeasureAssignment.COLLECTION,
-            {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: {'$in': risk_assessment_ids}},
-        )
+        delete_risk_assessments_of(self.dbm, self.db_name, ObjectReferenceType.OBJECT_GROUP, deleted_group_id)
 
 
     def find_group_ids_containing(self, object_id: int, type_id: int) -> list[int]:

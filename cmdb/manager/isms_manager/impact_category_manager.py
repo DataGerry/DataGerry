@@ -151,7 +151,7 @@ class ImpactCategoryManager(GenericManager):
 
         # Target the IsmsRiskAssessment collection directly: this manager is bound to the
         # IsmsImpactCategory collection, so self.update_many would push into the wrong collection
-        self.dbm.update_many(IsmsRiskAssessment.COLLECTION, self.db_name, {}, update_operation, plain=True)
+        self.dbm.update_many_raw(IsmsRiskAssessment.COLLECTION, self.db_name, {}, update_operation)
 
 
     def add_new_impact_to_categories(self, new_impact_id: int) -> None:

@@ -152,10 +152,14 @@ def fixture_template_provider() -> PredefinedTemplateProvider:
     return provider
 
 
+# The user the tests run the assistant as - every created type's author
+ASSISTANT_AUTHOR_ID: int = 4242
+
+
 @pytest.fixture(name='type_constructor')
 def fixture_type_constructor(template_provider: PredefinedTemplateProvider) -> ProfileTypeConstructor:
     """A ProfileTypeConstructor backed by the pre-loaded template provider"""
-    return ProfileTypeConstructor(template_provider)
+    return ProfileTypeConstructor(template_provider, ASSISTANT_AUTHOR_ID)
 
 
 @pytest.fixture(name='empty_slot_map')

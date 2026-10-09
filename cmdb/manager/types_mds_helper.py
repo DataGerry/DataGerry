@@ -46,6 +46,8 @@ from cmdb.manager.objects_propagation_helper import (
     build_field_entry,
     build_remove_mds_fields_update,
     build_remove_mds_section_update,
+    build_remove_undeclared_mds_fields_update,
+    build_remove_undeclared_mds_sections_update,
 )
 from cmdb.models.type_model import (
     CmdbType,
@@ -59,6 +61,7 @@ from cmdb.models.type_model import (
 __all__: list[str] = [
     'MdsChangePlan',
     'build_field_definition_map',
+    'build_mds_alignment_updates',
     'build_mds_updates',
     'build_new_field_entry',
     'diff_field_names',
@@ -272,5 +275,46 @@ def build_mds_updates(type_id: int, plan: MdsChangePlan) -> list[RawUpdate]:
 
     for section_id in sorted(plan.removed_sections):
         updates.append(build_remove_mds_section_update(type_id, section_id))
+
+    return updates
+
+
+def build_mds_alignment_updates(type_instance: CmdbType) -> list[RawUpdate]:
+    """
+    The statements that bring every object's multi-data sections in line with the type as it is now
+
+    The state-based counterpart of ``plan_mds_changes`` + ``build_mds_updates``: no earlier state of the type is
+    needed, so it finishes the work of an edit whose propagation failed half-way. Every section the type does not
+    declare is dropped; in every declared section each row loses the entries the section does not declare and gains
+    each declared one it lacks (seeded from the field's definition). Each statement is idempotent - a second run
+    changes nothing
+
+    Args:
+        type_instance (CmdbType): The CmdbType as it is stored
+
+    Returns:
+        list[RawUpdate]: The statements; sections and field names sorted, so the order is deterministic
+    """
+    mds_sections = sorted(
+        (section for section in type_instance.render_meta.sections if section.type == SectionType.MDS_SECTION),
+        key=lambda section: section.name,
+    )
+    field_definitions: dict[str, dict[str, Any]] = build_field_definition_map(type_instance.fields)
+    updates: list[RawUpdate] = [
+        build_remove_undeclared_mds_sections_update(
+            type_instance.public_id, [section.name for section in mds_sections],
+        ),
+    ]
+
+    for section in mds_sections:
+        declared: list[str] = sorted(section.fields)
+        updates.append(build_remove_undeclared_mds_fields_update(type_instance.public_id, section.name, declared))
+        updates.extend(
+            build_add_mds_field_update(
+                type_instance.public_id, section.name,
+                build_field_entry(field_definitions.get(field_name, {FieldKey.NAME.value: field_name})),
+            )
+            for field_name in declared
+        )
 
     return updates

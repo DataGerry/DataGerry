@@ -47,12 +47,6 @@ class CategoryRight(BaseStrEnum):
     DELETE = 'base.framework.category.delete'
 
 
-# Why a category write's ``types`` list is refused - a CmdbType sits in at most one category, once
+# Why a category write's ``types`` list is refused - every entry a type id, each named once
 CATEGORY_TYPES_NOT_IDS_MSG: str = "A Category's types are Type IDs - positive whole numbers. Not one: {values}!"
 CATEGORY_TYPES_REPEATED_MSG: str = "A Category may name a Type only once. Named more than once: {type_ids}!"
-CATEGORY_TYPES_UNKNOWN_MSG: str = "No Type exists with the ID(s): {type_ids}!"
-CATEGORY_TYPES_CLAIMED_MSG: str = (
-    "A Type belongs to at most one Category. Already assigned elsewhere: {claims}!"
-)
-# One "type -> category ids" pair of CATEGORY_TYPES_CLAIMED_MSG
-CATEGORY_TYPE_CLAIM_TEMPLATE: str = "Type {type_id} in Category {category_ids}"

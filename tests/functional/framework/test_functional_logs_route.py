@@ -428,13 +428,13 @@ class TestErrorMapping:
     # ---- single read ---- #
     def test_single_read_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A BaseManagerGetError on the single read maps to 400."""
-        monkeypatch.setattr(LogsManager, 'get_one', _raiser(BaseManagerGetError('boom')))
+        monkeypatch.setattr(LogsManager, 'get_object_log', _raiser(BaseManagerGetError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
 
     def test_single_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error on the single read maps to 500."""
-        monkeypatch.setattr(LogsManager, 'get_one', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(LogsManager, 'get_object_log', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -463,7 +463,7 @@ class TestErrorMapping:
     # ---- corresponding ---- #
     def test_corresponding_read_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A BaseManagerGetError while reading the source log maps to 400."""
-        monkeypatch.setattr(LogsManager, 'get_one', _raiser(BaseManagerGetError('boom')))
+        monkeypatch.setattr(LogsManager, 'get_object_log', _raiser(BaseManagerGetError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}/corresponding').status_code \
             == HTTPStatus.BAD_REQUEST
@@ -482,7 +482,7 @@ class TestErrorMapping:
 
     def test_corresponding_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error maps the corresponding route to 500."""
-        monkeypatch.setattr(LogsManager, 'get_one', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(LogsManager, 'get_object_log', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(f'{ROUTE_URL}/{MISSING_LOG_ID}/corresponding').status_code \
             == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -490,7 +490,7 @@ class TestErrorMapping:
     # ---- delete ---- #
     def test_delete_read_error_returns_400(self, rest_api, monkeypatch) -> None:
         """A BaseManagerGetError while reading the log to delete maps to 400."""
-        monkeypatch.setattr(LogsManager, 'get_one', _raiser(BaseManagerGetError('boom')))
+        monkeypatch.setattr(LogsManager, 'get_object_log', _raiser(BaseManagerGetError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.BAD_REQUEST
 
@@ -507,7 +507,7 @@ class TestErrorMapping:
 
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error maps the delete to 500."""
-        monkeypatch.setattr(LogsManager, 'get_one', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(LogsManager, 'get_object_log', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{ROUTE_URL}/{MISSING_LOG_ID}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 

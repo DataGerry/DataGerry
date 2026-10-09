@@ -21,7 +21,9 @@ narrows a query the CLIENT supplied. Two properties are behaviour, not detail: t
 condition goes FIRST in a pipeline (so no client stage can change what it decides), and it never
 overwrites a key the client already used.
 """
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 from cmdb.manager.query_builder import BuilderParameters
+from cmdb.manager.query_builder import builder_parameters as builder_parameters_module
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CONDITION: dict = {'public_id': {'$in': [1, 2]}}
@@ -122,3 +124,30 @@ def test_add_criteria_twice_keeps_both_conditions_in_order() -> None:
     params.add_criteria({'active': True})
 
     assert params.get_criteria() == [{'$match': {'active': True}}, {'$match': CONDITION}]
+
+
+# ---------------------------------------------------- time budget --------------------------------------------------- #
+
+LONG_BUDGET_MS: int = 25000
+
+
+def test_the_default_budget_is_a_client_shaped_querys() -> None:
+    """Every list route's parameters run under QUERY_TIME_LIMIT_MS without naming it"""
+    assert _params({}).time_limit_ms == QUERY_TIME_LIMIT_MS
+
+
+def test_a_given_budget_is_kept() -> None:
+    """The export names its own, longer budget"""
+    assert BuilderParameters(criteria={}, time_limit_ms=LONG_BUDGET_MS).time_limit_ms == LONG_BUDGET_MS
+
+
+def test_the_default_is_read_when_the_parameters_are_built(monkeypatch) -> None:
+    """Not frozen into the signature: a changed module default reaches the next query"""
+    monkeypatch.setattr(builder_parameters_module, 'QUERY_TIME_LIMIT_MS', LONG_BUDGET_MS)
+
+    assert BuilderParameters(criteria={}).time_limit_ms == LONG_BUDGET_MS
+
+
+def test_the_budget_is_in_the_repr() -> None:
+    """A logged query says which budget it ran under"""
+    assert f'time_limit_ms={LONG_BUDGET_MS}' in repr(BuilderParameters(criteria={}, time_limit_ms=LONG_BUDGET_MS))

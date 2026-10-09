@@ -23,7 +23,6 @@ consumed as IsmsThreat.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_threat_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsThreat document

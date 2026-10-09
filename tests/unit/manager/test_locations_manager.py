@@ -564,7 +564,7 @@ class TestGetLocationsOnPathTo:
 
         assert [loc['public_id'] for loc in result] == [9]
         assert result[0]['type_icon'] == CmdbLocationDefault.TYPE_ICON
-        parent_filter = mgr.get_many.call_args.kwargs['parent']
+        parent_filter = mgr.get_many.call_args.kwargs['criteria']['parent']
         assert sorted(parent_filter['$in']) == [ROOT_PUBLIC_ID, 2, 5]
 
     def test_pipeline_walks_parent_to_public_id_from_the_target(self) -> None:
@@ -605,7 +605,7 @@ class TestGetLocationsOnPathTo:
 
         LocationsManager.get_locations_on_path_to(mgr, 9)
 
-        assert mgr.get_many.call_args.kwargs['parent'] == {'$in': [ROOT_PUBLIC_ID]}
+        assert mgr.get_many.call_args.kwargs['criteria']['parent'] == {'$in': [ROOT_PUBLIC_ID]}
 
     def test_missing_target_returns_empty_without_level_query(self) -> None:
         """An unknown target short-circuits to [] and never runs the level query."""
@@ -804,7 +804,7 @@ class TestGetChildLocationDocuments:
         mgr.get_many.return_value = []
 
         assert LocationsManager.get_child_location_documents(mgr, PARENT_ID) == []
-        mgr.get_many.assert_called_once_with(parent=PARENT_ID)
+        mgr.get_many.assert_called_once_with(criteria={'parent': PARENT_ID})
 
     def test_documents_are_canonical_with_defaulted_render_keys(self) -> None:
         """Every row carries the canonical key set; the optional render keys fall back to their defaults."""

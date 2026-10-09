@@ -17,9 +17,10 @@
 Functional smoke for the ``/isms/risk_matrix`` REST routes
 
 Covers the GET-single and PUT routes of the IsmsRiskMatrix: status codes, the GET envelope, the 404
-on a missing id, and the manager-error -> 400 mapping. The RiskMatrix is a singleton (public_id 1)
-but the routes are generic get/update by id, so these tests operate on a dedicated throwaway id to
-avoid disturbing the shared singleton. The routes are ISMS-license gated, so the check is stubbed.
+on a missing id (a missing singleton is recreated instead), and the manager-error -> 400 mapping. The
+RiskMatrix is a singleton (public_id 1) but the routes are generic get/update by id, so these tests
+operate on a dedicated throwaway id to avoid disturbing the shared singleton. The routes are ISMS-license
+gated, so the check is stubbed.
 """
 from http import HTTPStatus
 from typing import Any
@@ -32,7 +33,11 @@ from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsRiskMatrix, IsmsImpact, IsmsLikelihood
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.errors.manager.risk_matrix_manager import RiskMatrixManagerGetError, RiskMatrixManagerUpdateError
+from cmdb.errors.manager.risk_matrix_manager import (
+    RiskMatrixManagerGetError,
+    RiskMatrixManagerInsertError,
+    RiskMatrixManagerUpdateError,
+)
 
 from tests.utils.update_response import assert_body_public_id_cannot_move
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -274,6 +279,27 @@ class TestStaleGridIsRepairedOnRead:
 
         assert len(served) == HEAL_CELL_COUNT
         assert survivor[0]['risk_class_id'] == ASSIGNED_RISK_CLASS_ID
+
+    def test_a_missing_singleton_is_recreated_and_built(self, rest_api, _singleton_state) -> None:
+        """The read behind riskMatrix.view recreates it - the right-less status route only reports it missing"""
+        _singleton_state.delete_many({'public_id': RISK_MATRIX_PUBLIC_ID})
+
+        response = rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert len(response.get_json()['result']['risk_matrix']) == HEAL_CELL_COUNT
+        stored = _singleton_state.find_one({'public_id': RISK_MATRIX_PUBLIC_ID})
+        assert len(stored['risk_matrix']) == HEAL_CELL_COUNT
+
+    def test_a_failed_recreation_is_a_400(self, rest_api, monkeypatch, _singleton_state) -> None:
+        """Named like every other matrix failure, and nothing is stored"""
+        _singleton_state.delete_many({'public_id': RISK_MATRIX_PUBLIC_ID})
+        monkeypatch.setattr(RiskMatrixManager, 'insert_item', _raiser(RiskMatrixManagerInsertError('boom')))
+
+        response = rest_api.get(f'{ROUTE_URL}/{RISK_MATRIX_PUBLIC_ID}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert _singleton_state.find_one({'public_id': RISK_MATRIX_PUBLIC_ID}) is None
 
     def test_another_id_is_still_a_404(self, rest_api, _singleton_state) -> None:
         """Only the singleton is healed - no other id has scales to be measured against."""

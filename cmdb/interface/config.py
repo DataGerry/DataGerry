@@ -20,12 +20,14 @@ Both app factories - `net_app.create_app` for the SPA host and `rest_api.create_
 API - pick a class from the `app_config` mapping with `config_name_for_mode(cmdb.__MODE__)` and feed
 it to `app.config.from_object`, which copies the upper-case class attributes onto `app.config`.
 
-The three subclasses differ only in the `DEBUG` and `TESTING` flags. Nothing here names a mount
+The base class carries the request body limit every variant shares (`MAX_CONTENT_LENGTH`); the three subclasses
+differ only in the `DEBUG` and `TESTING` flags. Nothing here names a mount
 point: the two apps are mounted at different prefixes by `DispatcherMiddleware`, so `APPLICATION_ROOT`
 cannot be a shared value and each factory sets its own (the SPA host keeps Flask's default `/`; the
 REST app sets `/rest/`). On `Config` it would be shared, which would configure the SPA host - mounted
 at `/` - with the API's mount
 """
+from cmdb.interface.request_limits_constants import RequestSizeLimit
 # -------------------------------------------------------------------------------------------------------------------- #
 
 #: `cmdb.__MODE__` value -> key in `app_config`. Any mode not named here is production
@@ -64,6 +66,9 @@ class Config:
     """
     TESTING = False
     DEBUG = False
+    # Werkzeug answers 413 for a larger body before any route reads it; the upload routes raise it for
+    # themselves (`route_utils.accepts_upload`)
+    MAX_CONTENT_LENGTH = RequestSizeLimit.MAX_CONTENT_LENGTH
 
 
 class DevelopmentConfig(Config):

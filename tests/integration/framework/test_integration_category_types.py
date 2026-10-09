@@ -90,7 +90,7 @@ def test_the_assigned_set_reads_past_a_document_entry(manager: CategoriesManager
 
 def test_the_tree_builds_over_a_document_entry(manager: CategoriesManager) -> None:
     """The category holding the junk resolves its one real type"""
-    tree: CategoryTree = manager.tree
+    tree: CategoryTree = manager.get_tree(ADMIN)
 
     junk_node = next(node for node in tree.tree if node.category.get_public_id() == JUNK_ID)
     assert [a_type.public_id for a_type in junk_node.types] == [TYPE_B]

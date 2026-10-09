@@ -191,19 +191,18 @@ class TestUserName:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == USER_NAME_TAKEN_MESSAGE.format(user_name=TAKEN_USER_NAME)
 
-    def test_an_outage_on_create_is_a_500_never_a_taken_name(self, rest_api, monkeypatch) -> None:
+    def test_an_outage_on_create_is_a_503_never_a_taken_name(self, rest_api, monkeypatch) -> None:
         """
         The database write is failed for real, below every manager
 
-        UsersManager.insert_user lets the transient error through, so it reaches Flask's catch-all - hence
-        exception propagation off, as production runs.
+        UsersManager.insert_user lets the transient error through, so the app's error handler answers it: 503,
+        try again - never the clash
         """
-        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
         monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(DocumentNetworkError('connection lost')))
 
         response = _create_user(rest_api, FREE_USER_NAME)
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
         assert 'already exists' not in response.get_json()['message']
 
 
@@ -278,14 +277,13 @@ class TestGroupName:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == GROUP_NAME_TAKEN_MSG.format(name=TAKEN_GROUP_NAME)
 
-    def test_an_outage_on_create_is_a_500_never_a_taken_name(self, rest_api, monkeypatch) -> None:
-        """GroupsManager.insert_group lets the transient error through to Flask's catch-all."""
-        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
+    def test_an_outage_on_create_is_a_503_never_a_taken_name(self, rest_api, monkeypatch) -> None:
+        """GroupsManager.insert_group lets the transient error through to the app's error handler: 503."""
         monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(DocumentNetworkError('connection lost')))
 
         response = _create_group(rest_api, FREE_GROUP_NAME)
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE
         assert 'already exists' not in response.get_json()['message']
 
 

@@ -32,22 +32,25 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import TypesManager, ObjectsManager
-from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.section_type_enum import SectionType
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types import types_routes
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
+    TYPE_ALIGNMENT_FAILED_MESSAGE,
+    TypeAlignmentStep,
+)
 from cmdb.errors.manager.types_manager import (
+    TypesManagerAlignmentError,
     TypesManagerGetError,
     TypesManagerInsertError,
     TypesManagerIterationError,
     TypesManagerUpdateError,
-    TypesManagerUpdateMDSError,
     TypesManagerDeleteError,
 )
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerUpdateError
-from cmdb.errors.manager.locations_manager import LocationsManagerUpdateError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/types'
@@ -740,24 +743,41 @@ class TestTypeErrorMapping:
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 
-    @pytest.mark.parametrize('exc', [
-        LocationsManagerUpdateError('boom'),
-        ObjectsManagerUpdateError('boom'),
-        ObjectsManagerGetError('boom'),
-        TypesManagerUpdateMDSError('boom'),
-    ])
-    def test_update_side_effect_errors_return_400(
-        self, rest_api, monkeypatch, database_manager, database_name, exc,
-    ) -> None:
-        """Each post-update side-effect error family maps PUT to 400 (the Type itself was updated)."""
+    def test_a_guard_read_failure_returns_400(self, rest_api, monkeypatch, database_manager, database_name) -> None:
+        """A read the guards need fails before anything is written: 400"""
         _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
-        monkeypatch.setattr(types_routes, 'apply_type_update_side_effects', _raiser(exc))
+        monkeypatch.setattr(types_routes, 'apply_type_update_side_effects', _raiser(ObjectsManagerGetError('boom')))
 
         try:
             response = rest_api.put(
                 f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL)
             )
             assert response.status_code == HTTPStatus.BAD_REQUEST
+        finally:
+            _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
+
+    def test_a_failed_step_after_the_write_returns_500_naming_it(
+        self, rest_api, monkeypatch, database_manager, database_name,
+    ) -> None:
+        """The Type IS saved, carries alignment_pending, and the 500 says which step failed and what to do"""
+        _insert_type_doc(database_manager, database_name, TYPE_ID_FOR_UPDATE, ORIGINAL_LABEL)
+        monkeypatch.setattr(types_routes, 'apply_type_update_side_effects', _raiser(
+            TypesManagerAlignmentError('boom', TypeAlignmentStep.LOCATIONS.value),
+        ))
+
+        try:
+            response = rest_api.put(
+                f'{ROUTE_URL}/{TYPE_ID_FOR_UPDATE}', json=_type_payload(TYPE_ID_FOR_UPDATE, UPDATED_LABEL)
+            )
+
+            assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+            assert response.get_json()['message'] == TYPE_ALIGNMENT_FAILED_MESSAGE.format(
+                public_id=TYPE_ID_FOR_UPDATE, step=TypeAlignmentStep.LOCATIONS.value,
+            )
+            stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one(
+                {'public_id': TYPE_ID_FOR_UPDATE})
+            assert stored['label'] == UPDATED_LABEL
+            assert stored[TypeSchemaKey.ALIGNMENT_PENDING.value] is True
         finally:
             _drop_type(database_manager, database_name, TYPE_ID_FOR_UPDATE)
 

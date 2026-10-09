@@ -18,9 +18,9 @@ Integration tests for the CmdbUserGroup CRUD surface of GroupsManager
 
 Pins the manager-layer behavior against a real MongoDB instance after the refactor onto
 GenericManager: insert returns the new public_id and persists the doc, get_group resolves
-present ids into hydrated ``CmdbUserGroup`` instances and missing ids to None, update
-overwrites the label, delete reports the removal and refuses the protected bootstrap ids,
-iterate finds the seeded rows
+present ids into hydrated ``CmdbUserGroup`` instances and missing ids to None, group_exists answers
+from the ids alone, update overwrites the label and stores a hydrated group's rights as names, delete
+reports the removal and refuses the protected bootstrap ids, iterate finds the seeded rows - each with its rights resolved exactly as ``get_group`` resolves them
 """
 from typing import Any
 
@@ -310,6 +310,60 @@ class TestUpdateGroup:
             _delete_group_by_id(database_manager, database_name, FORGED_GROUP_ID)
 
 
+    def test_a_hydrated_group_is_stored_as_names_and_answered_as_dicts(
+        self,
+        groups_manager: GroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """The update route's write: one model, stored as name strings, answered as a following read answers"""
+        try:
+            groups_manager.insert_group(_group_data(GROUP_ID_FOR_UPDATE))
+            payload = {**_group_data(GROUP_ID_FOR_UPDATE), 'rights': [LEAF_RIGHT_NAME, BRANCH_RIGHT_NAME]}
+
+            group = groups_manager.hydrate_group(payload)
+            groups_manager.update_group(GROUP_ID_FOR_UPDATE, group)
+
+            stored = database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name)\
+                .find_one({'public_id': GROUP_ID_FOR_UPDATE})
+            read_back = groups_manager.get_group(GROUP_ID_FOR_UPDATE)
+            assert read_back is not None
+            assert stored['rights'] == [right.name for right in group.rights]
+            assert CmdbUserGroup.to_json(group) == CmdbUserGroup.to_json(read_back)
+        finally:
+            _delete_group_by_id(database_manager, database_name, GROUP_ID_FOR_UPDATE)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                     GROUP EXISTS                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestGroupExists:
+    """``GroupsManager.group_exists`` answers from the stored ids alone."""
+
+    def test_a_stored_group_exists(
+        self,
+        groups_manager: GroupsManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A seeded group is found."""
+        try:
+            groups_manager.insert_group(_group_data(GROUP_ID_FOR_GET))
+
+            assert groups_manager.group_exists(GROUP_ID_FOR_GET) is True
+        finally:
+            _delete_group_by_id(database_manager, database_name, GROUP_ID_FOR_GET)
+
+    def test_a_missing_group_does_not(self, groups_manager: GroupsManager) -> None:
+        """An id nothing is stored under is not found."""
+        assert groups_manager.group_exists(MISSING_GROUP_ID) is False
+
+    def test_the_bootstrap_groups_exist(self, groups_manager: GroupsManager) -> None:
+        """The two seeded bootstrap groups are found by their ids."""
+        assert groups_manager.group_exists(ADMIN_GROUP_ID) is True
+        assert groups_manager.group_exists(USER_GROUP_ID) is True
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                       DELETE                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -378,3 +432,27 @@ class TestIterateGroups:
         returned_ids = [group.public_id for group in result.results]
         assert returned_ids == GROUP_IDS_FOR_ITERATE
         assert result.total == len(GROUP_IDS_FOR_ITERATE)
+
+    def test_rows_carry_the_rights_the_single_read_answers(
+        self, groups_manager: GroupsManager, database_manager: MongoDatabaseManager, database_name: str,
+    ) -> None:
+        """A listed group holds the rights its document names - the same ones ``get_group`` answers."""
+        stored_rights: list[str] = [LEAF_RIGHT_NAME, BRANCH_RIGHT_NAME]
+        database_manager.get_collection(CmdbUserGroup.COLLECTION, database_name).update_one(
+            {'public_id': GROUP_IDS_FOR_ITERATE[0]}, {'$set': {'rights': stored_rights}},
+        )
+        params = BuilderParameters(criteria=[{'$match': {'public_id': GROUP_IDS_FOR_ITERATE[0]}}])
+
+        listed: CmdbUserGroup = groups_manager.iterate(params).results[0]
+        single: CmdbUserGroup = groups_manager.get_group(GROUP_IDS_FOR_ITERATE[0])
+
+        assert sorted(right.name for right in listed.rights) == sorted(stored_rights)
+        assert [right.name for right in listed.rights] == [right.name for right in single.rights]
+
+    def test_the_admin_group_lists_the_master_right(self, groups_manager: GroupsManager) -> None:
+        """The bootstrap admin group comes out of the list holding ``base.*``."""
+        params = BuilderParameters(criteria=[{'$match': {'public_id': ADMIN_GROUP_ID}}])
+
+        listed: CmdbUserGroup = groups_manager.iterate(params).results[0]
+
+        assert [right.name for right in listed.rights] == [MASTER_RIGHT_NAME]

@@ -24,6 +24,7 @@ from cmdb.manager.generic_manager import GenericManager
 from cmdb.manager.query_builder import BuilderParameters
 
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.docapi_templates_manager import (
@@ -129,12 +130,12 @@ class DocapiTemplatesManager(GenericManager):
         return self.iterate_items(builder_params)
 
 
-    def get_templates_by(self, **requirements: Any) -> list[DocapiTemplate]:
+    def get_templates_by(self, criteria: dict[str, Any]) -> list[DocapiTemplate]:
         """
-        Get multiple DocapiTemplates from the database based on the requirements filter
+        Get multiple DocapiTemplates from the database matching the criteria
 
         Args:
-            **requirements (Any): Field/value pairs the returned DocapiTemplates must match
+            criteria (dict[str, Any]): The filter the returned DocapiTemplates must match, as one dict
 
         Raises:
             DocapiTemplatesManagerGetError: When an exception occurs while retrieving the DocapiTemplates
@@ -143,22 +144,22 @@ class DocapiTemplatesManager(GenericManager):
             list[DocapiTemplate]: List of matching DocapiTemplates
         """
         try:
-            templates = self.get_many(**requirements)
+            templates = self.get_many(criteria=criteria)
 
             return [DocapiTemplate.from_data(template) for template in templates]
         except Exception as err:
             raise DocapiTemplatesManagerGetError(err) from err
 
 
-    def get_minimal_templates_by(self, **requirements: Any) -> list[dict[str, Any]]:
+    def get_minimal_templates_by(self, criteria: dict[str, Any]) -> list[dict[str, Any]]:
         """
-        Retrieve a minimal representation of DocapiTemplates matching the requirements filter
+        Retrieve a minimal representation of DocapiTemplates matching the criteria
 
         Only the public_id and label are read from the database (server-side projection), for
         lightweight listings that do not need the full template document
 
         Args:
-            **requirements (Any): Field/value pairs the returned DocapiTemplates must match
+            criteria (dict[str, Any]): The filter the returned DocapiTemplates must match, as one dict
 
         Raises:
             DocapiTemplatesManagerGetError: When an exception occurs while retrieving the DocapiTemplates
@@ -167,17 +168,17 @@ class DocapiTemplatesManager(GenericManager):
             list[dict[str, Any]]: Matching templates as {'public_id': ..., 'label': ...} dicts
         """
         try:
-            return self.find(criteria=requirements, projection=MINIMAL_TEMPLATE_PROJECTION)
+            return self.find(criteria=criteria, projection=MINIMAL_TEMPLATE_PROJECTION)
         except Exception as err:
             raise DocapiTemplatesManagerGetError(err) from err
 
 
-    def get_template_by_name(self, **requirements: Any) -> DocapiTemplate | None:
+    def get_template_by_name(self, name: str) -> DocapiTemplate | None:
         """
-        Retrieve a single DocapiTemplate matching the requirements filter
+        Retrieve the DocapiTemplate carrying this name
 
         Args:
-            **requirements (Any): Field/value pairs the returned DocapiTemplate must match
+            name (str): The template name, matched exactly
 
         Raises:
             DocapiTemplatesManagerGetError: When the DocapiTemplate could not be retrieved
@@ -186,7 +187,7 @@ class DocapiTemplatesManager(GenericManager):
             DocapiTemplate | None: The first matching DocapiTemplate, or None if none matches
         """
         try:
-            templates = self.get_many(limit=1, **requirements)
+            templates = self.get_many(limit=1, criteria={DocapiTemplateKey.NAME.value: name})
 
             if templates:
                 return DocapiTemplate.from_data(templates[0])

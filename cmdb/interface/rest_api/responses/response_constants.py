@@ -31,10 +31,10 @@ from cmdb.utils import BaseStrEnum
 DEFAULT_MIME_TYPE: str = 'application/json'
 API_VERSION: str = '1.0'
 
-# Every response body is pretty-printed. On a 50-object page of `GET /objects/` that costs +63% body
-# size and 5.7x the serialization time against a compact dump, with no compression anywhere in the
-# backend. Kept deliberately
-DEFAULT_JSON_INDENT: int = 2
+# Every response body is compact JSON - no indent, no newlines. Indenting would add about +55% in size and
+# 5x the serialization time on a page of rendered objects, and whitespace is not part of the contract.
+# Compression is the reverse proxy's job (contrib/nginx/nginx.conf), not the worker's
+DEFAULT_JSON_INDENT: int | None = None
 
 
 class ResponseKey(BaseStrEnum):

@@ -45,6 +45,12 @@ OTHER_RACK_ID: int = 46102
 OBJECT_ID: int = 46201
 OTHER_OBJECT_ID: int = 46202
 THIRD_OBJECT_ID: int = 46203
+FOURTH_OBJECT_ID: int = 46204
+
+# Stored indexes the append must read past or skip
+LONG_POSITION: int = 2**40
+STRING_POSITION: str = '99'
+DOUBLE_POSITION: float = 98.0
 
 MOUNT_IDS: list[int] = [46301, 46302, 46303, 46304]
 RACK_IDS: list[int] = [RACK_ID, OTHER_RACK_ID]
@@ -213,6 +219,39 @@ def test_get_next_position_appends_after_the_stored_rows(mounts, manager: RackMo
     ])
 
     assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == 4
+
+
+def test_get_next_position_skips_rows_without_an_integer_index(mounts, manager: RackMountsManager) -> None:
+    """A null, a string or a double takes no part in the order: the query's type filter drops them"""
+    mounts.insert_many([
+        _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.LEFT.value, position=2),
+        _mount_doc(MOUNT_IDS[1], OTHER_OBJECT_ID, RackArea.LEFT.value, position=None),
+        _mount_doc(MOUNT_IDS[2], THIRD_OBJECT_ID, RackArea.LEFT.value, position=STRING_POSITION),
+        _mount_doc(MOUNT_IDS[3], FOURTH_OBJECT_ID, RackArea.LEFT.value, position=DOUBLE_POSITION),
+    ])
+
+    assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == 3
+
+
+def test_get_next_position_reads_a_64_bit_index(mounts, manager: RackMountsManager) -> None:
+    """An index past 32 bits is stored as a long and still found, and the highest one wins"""
+    mounts.insert_many([
+        _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.UNASSIGNED.value, position=LONG_POSITION),
+        _mount_doc(MOUNT_IDS[1], OTHER_OBJECT_ID, RackArea.UNASSIGNED.value, position=1),
+    ])
+
+    assert manager.get_next_position(RACK_ID, RackArea.UNASSIGNED.value) == LONG_POSITION + 1
+
+
+def test_get_next_position_is_scoped_to_the_rack_and_the_area(mounts, manager: RackMountsManager) -> None:
+    """A higher index in another area or another rack does not move this list's end"""
+    mounts.insert_many([
+        _mount_doc(MOUNT_IDS[0], OBJECT_ID, RackArea.LEFT.value, position=1),
+        _mount_doc(MOUNT_IDS[1], OTHER_OBJECT_ID, RackArea.RIGHT.value, position=50),
+        _mount_doc(MOUNT_IDS[2], THIRD_OBJECT_ID, RackArea.LEFT.value, rack_id=OTHER_RACK_ID, position=90),
+    ])
+
+    assert manager.get_next_position(RACK_ID, RackArea.LEFT.value) == 2
 
 
 def test_count_mounts_counts_placed_and_unplaced_alike(mounts, manager: RackMountsManager) -> None:

@@ -24,13 +24,15 @@ Two jobs live here: the manager construction the three routes repeated, and the 
 list route accepts - kept out of the route so the flag's rule is stated once and testable without a
 request context.
 """
-from flask import current_app, request
+from flask import current_app
 
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.manager import OcInvokerManager
 
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.open_celium.oc_constants import OC_FLAG_DISABLED_VALUE, OC_OPS_INCLUDED_PARAM
+from cmdb.open_celium.oc_constants import OC_OPS_INCLUDED_PARAM
+from cmdb.interface.rest_api.routes.routes_helper import read_boolean_query_param
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -48,7 +50,7 @@ def build_invoker_manager(request_user: CmdbUser) -> OcInvokerManager:
     Returns:
         OcInvokerManager: The manager to talk to OpenCelium with
     """
-    return OcInvokerManager(current_app.database_manager, request_user.database)
+    return OcInvokerManager(current_app.database_manager, ManagerProvider.tenant_database(request_user))
 
 
 def read_ops_included_flag() -> bool:
@@ -56,14 +58,14 @@ def read_ops_included_flag() -> bool:
     Reads the `opsIncluded` flag of the all-invokers route
 
     Operations are **included by default** - an invoker without them is the cheaper read, not the
-    expected one - and **only the literal `false` turns them off** (case-insensitively). Deliberately
-    not `request.args.get(..., type=bool)`, which would answer True for the string `'false'`, and
-    deliberately not a list of accepted spellings: `0`, `no`, `off` and an EMPTY value all mean
-    "include". The rule lives here so that it has one place to change
+    expected one. The flag follows the API's one rule for boolean query parameters
+    (``routes_helper.read_boolean_query_param``): ``true`` / ``false`` in any casing, and anything else -
+    ``0``, ``no``, ``off``, an empty value - is refused rather than guessed at
+
+    Raises:
+        HTTPException: 400 when the flag is present but neither ``true`` nor ``false``
 
     Returns:
         bool: True when the operations should be requested with the invokers
     """
-    requested = request.args.get(OC_OPS_INCLUDED_PARAM, default='')
-
-    return requested.lower() != OC_FLAG_DISABLED_VALUE
+    return read_boolean_query_param(OC_OPS_INCLUDED_PARAM, default=True)

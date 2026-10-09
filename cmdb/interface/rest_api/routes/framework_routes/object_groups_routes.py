@@ -42,7 +42,13 @@ from cmdb.models.object_group_model import CmdbObjectGroup
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -105,6 +111,7 @@ def insert_cmdb_object_group(data: dict[str, Any], request_user: CmdbUser) -> Re
 
         return InsertSingleResponse(created_object_group, result_id).make_response()
     except ObjectGroupsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_object_group] ObjectGroupsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Could not insert the new ObjectGroup in the database!")
     except ObjectGroupsManagerGetError as err:
@@ -157,6 +164,7 @@ def get_cmdb_object_groups(params: CollectionParameters, request_user: CmdbUser)
 
         return api_response.make_response()
     except ObjectGroupsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_object_groups] ObjectGroupsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve ObjectGroups from the database!")
     except Exception as err:
@@ -243,6 +251,7 @@ def update_cmdb_object_group(public_id: int, data: dict[str, Any], request_user:
         LOGGER.error("[update_cmdb_object_group] ObjectGroupsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the ObjectGroup with ID: {public_id} from the database!")
     except ObjectGroupsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_object_group] ObjectGroupsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the ObjectGroup with ID: {public_id}!")
 

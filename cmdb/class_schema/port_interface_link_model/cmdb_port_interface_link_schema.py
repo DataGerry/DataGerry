@@ -32,7 +32,6 @@ NOT express:
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_port_interface_link_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbPortInterfaceLink document

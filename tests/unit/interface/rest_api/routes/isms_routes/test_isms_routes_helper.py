@@ -18,27 +18,32 @@ Unit tests for the shared ISMS route helpers in isms_routes_helper.
 
 Pure tests driven against MagicMock managers: ``abort_if_isms_cap_reached`` (the 400 once a bounded
 ISMS collection is full), ``bulk_delete_reporting_in_use`` (delete_item reports
-whether a document was removed) and ``update_multiple_items`` (the bulk-update orchestration that
-resolves existing ids in one batched query and reports a per-item result), plus the RiskAssessment
-required-field guard - which is where the "name every missing field at once" behaviour is asserted,
-since through HTTP the Cerberus schema already rejects four of the five before the guard is reached.
+whether a document was removed) and ``update_multiple_items`` (the all-or-nothing bulk update: every
+item judged by the write schema first, every reason named in one 400, then one bulk write undone on
+failure), plus the RiskAssessment required-field guard - which is where the "name every missing field at
+once" behaviour is asserted, since through HTTP the Cerberus schema already rejects four of the five before
+the guard is reached.
 
 Also the manager-error message helpers (``manager_error_message(s)``, which fill an entity's labels and
 leave ``{public_id}`` for the route decorator) and ``require_created_item`` (the 500 when an insert
 cannot read back its own write).
 """
 from http import HTTPStatus
+from typing import Any
 from unittest.mock import MagicMock
 
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.class_schema.write_schema_helper import build_write_schema
+from cmdb.models.isms_model import IsmsRiskClass
 from cmdb.interface.rest_api.routes.isms_routes import isms_routes_constants
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     ISMS_CAP_REACHED_MSG,
     ISMS_LIKELIHOODS_LABEL,
     MAX_ISMS_SCALE_ENTRIES,
     REQUIRED_RISK_ASSESSMENT_FIELDS,
+    RISK_CLASS_LABEL,
     THREAT_LABEL,
     VULNERABILITY_LABEL,
     IsmsEntityLabel,
@@ -47,6 +52,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     abort_if_isms_cap_reached,
     bulk_delete_reporting_in_use,
+    duplicate_bulk_ids,
     get_missing_risk_assessment_fields,
     guard_required_risk_assessment_fields,
     manager_error_message,
@@ -164,98 +170,183 @@ class TestBulkDeleteReportingInUse:
         assert result == {'successfully': [ID_A], 'in_use': [ID_B]}
 
 
-def _existence_manager(existing_ids: list[int]) -> MagicMock:
-    """Builds a MagicMock manager whose find_all returns docs for the given existing public_ids."""
+RISK_CLASS_WRITE_SCHEMA: dict[str, Any] = build_write_schema(IsmsRiskClass.SCHEMA)
+BULK_MAX_ITEMS: int = 3
+
+
+def _risk_class(public_id: Any, **overrides: Any) -> dict[str, Any]:
+    """A whole IsmsRiskClass as the frontend sends it back: the list read's nulls included"""
+    item: dict[str, Any] = {'public_id': public_id, 'name': f'class-{public_id}', 'color': '#00ff00',
+                            'sort': 0, 'description': None}
+    item.update(overrides)
+
+    return item
+
+
+def _stored_manager(existing_ids: list[int]) -> MagicMock:
+    """A manager whose find_all and get_one_by answer the stored risk classes of the given ids"""
+    stored: dict[int, dict[str, Any]] = {public_id: _risk_class(public_id, name='stored') for public_id in existing_ids}
     manager = MagicMock()
-    manager.find_all.return_value = [{'public_id': public_id} for public_id in existing_ids]
+    manager.find_all.return_value = list(stored.values())
+    manager.get_one_by.side_effect = lambda criteria: stored.get(criteria['public_id'])
+
     return manager
 
 
+def _bulk_update(manager: MagicMock, data: Any, max_items: int = BULK_MAX_ITEMS) -> list[dict[str, Any]]:
+    """Runs the helper with the real risk-class model and write schema"""
+    return update_multiple_items(manager, IsmsRiskClass, data, RISK_CLASS_WRITE_SCHEMA, RISK_CLASS_LABEL, max_items)
+
+
+def _refusal(manager: MagicMock, data: Any, max_items: int = BULK_MAX_ITEMS) -> HTTPException:
+    """The 400 a refused bulk update raises, after asserting nothing was written"""
+    with pytest.raises(HTTPException) as raised:
+        _bulk_update(manager, data, max_items)
+
+    assert raised.value.code == HTTPStatus.BAD_REQUEST
+    manager.bulk_write.assert_not_called()
+
+    return raised.value
+
+
 class TestUpdateMultipleItems:
-    """``update_multiple_items`` batches the existence check and reports a per-item result."""
+    """``update_multiple_items`` judges every item first, then writes them all in one bulk write"""
 
-    def test_non_list_body_aborts_400(self) -> None:
-        """A body that is not a list is rejected with HTTP 400."""
-        with pytest.raises(HTTPException) as exc_info:
-            update_multiple_items(MagicMock(), MagicMock(), {'public_id': ID_A}, "RiskClass", "tag")
+    def test_every_item_is_written_in_one_ordered_bulk_write(self) -> None:
+        """One existence read, one write, one success entry per item in request order"""
+        manager = _stored_manager([ID_A, ID_B])
 
-        assert exc_info.value.code == 400
+        results = _bulk_update(manager, [_risk_class(ID_B, sort=0), _risk_class(ID_A, sort=1)])
 
-    def test_resolves_existence_in_one_query_without_per_item_get(self) -> None:
-        """Existence is checked with a single batched find_all and never a per-item get_item (N+1 fix)."""
-        manager = _existence_manager([ID_A, ID_B])
-
-        update_multiple_items(
-            manager, MagicMock(), [{'public_id': ID_A}, {'public_id': ID_B}], "RiskClass", "tag"
-        )
-
-        manager.find_all.assert_called_once_with(criteria={'public_id': {'$in': [ID_A, ID_B]}})
+        assert results == [{'public_id': ID_B, 'status': 'success'}, {'public_id': ID_A, 'status': 'success'}]
+        manager.find_all.assert_called_once_with(criteria={'public_id': {'$in': [ID_B, ID_A]}})
         manager.get_item.assert_not_called()
+        manager.update_item.assert_not_called()
+        operations = manager.bulk_write.call_args.args[0]
+        assert [(op._filter, op._doc['$set']['sort']) for op in operations] == [  # pylint: disable=protected-access
+            ({'public_id': ID_B}, 0), ({'public_id': ID_A}, 1),
+        ]
 
-    def test_reports_per_item_status(self) -> None:
-        """Existing ids update and succeed; a missing id and an id-less item both fail."""
-        manager = _existence_manager([ID_A])
-        model = MagicMock()
+    def test_the_written_document_is_the_models_serialisation(self) -> None:
+        """Unknown keys are purged, the id comes from the item, a left-out optional key is stored as null"""
+        manager = _stored_manager([ID_A])
+        item = {'public_id': ID_A, 'name': 'High', 'color': '#ff0000', 'ui_state': 'dragging'}
 
-        results = update_multiple_items(
-            manager, model,
-            [{'public_id': ID_A}, {'public_id': MISSING_ID}, {'name': 'no id'}],
-            "RiskClass", "tag",
-        )
+        _bulk_update(manager, [item])
 
-        by_id = {entry['public_id']: entry['status'] for entry in results}
-        assert by_id == {ID_A: 'success', MISSING_ID: 'failed', None: 'failed'}
-        # update_item runs only for the existing id
-        manager.update_item.assert_called_once_with(ID_A, model.from_data.return_value)
+        written = manager.bulk_write.call_args.args[0][0]._doc['$set']  # pylint: disable=protected-access
+        assert written == {'public_id': ID_A, 'name': 'High', 'color': '#ff0000', 'sort': None, 'description': None}
 
-    def test_no_public_ids_skips_find_all(self) -> None:
-        """When no item carries a public_id, the existence query is skipped entirely."""
+    def test_an_empty_list_writes_nothing(self) -> None:
+        """Nothing to do is not an error"""
         manager = MagicMock()
 
-        results = update_multiple_items(manager, MagicMock(), [{'name': 'no id'}], "RiskClass", "tag")
-
+        assert _bulk_update(manager, []) == []
         manager.find_all.assert_not_called()
-        assert results == [{'public_id': None, 'status': 'failed', 'message': 'Missing public_id'}]
+        manager.bulk_write.assert_not_called()
 
-    def test_update_failure_is_isolated_per_item(self) -> None:
-        """An update_item raising for one id fails only that item; the rest still succeed."""
-        manager = _existence_manager([ID_A, ID_B])
+    @pytest.mark.parametrize('body', [{'public_id': ID_A}, None, 'items'], ids=['object', 'none', 'string'])
+    def test_a_body_that_is_not_a_list_is_refused(self, body: Any) -> None:
+        """Named with the entity's real plural"""
+        refusal = _refusal(MagicMock(), body)
 
-        def _fail_on_a(public_id: int, _data: object) -> None:
-            if public_id == ID_A:
-                raise RuntimeError('boom')
+        assert refusal.description == 'The request body must be a list of RiskClasses!'
 
-        manager.update_item.side_effect = _fail_on_a
+    def test_more_items_than_allowed_are_refused(self) -> None:
+        """The cap is checked before any item is judged"""
+        manager = MagicMock()
+        refusal = _refusal(manager, [_risk_class(ID_A)] * (BULK_MAX_ITEMS + 1))
 
-        results = update_multiple_items(
-            manager, MagicMock(), [{'public_id': ID_A}, {'public_id': ID_B}], "RiskClass", "tag"
+        assert refusal.description == (
+            f'At most {BULK_MAX_ITEMS} RiskClasses can be updated at once, but {BULK_MAX_ITEMS + 1} were sent!'
         )
-
-        by_id = {entry['public_id']: entry['status'] for entry in results}
-        assert by_id == {ID_A: 'failed', ID_B: 'success'}
-
-    def test_a_bool_public_id_is_refused_although_it_equals_an_existing_id(self) -> None:
-        """True == 1, but MongoDB would not match it - so it is refused instead of reported as success"""
-        manager = _existence_manager([TRUE_ALIASED_ID])
-
-        results = update_multiple_items(manager, MagicMock(), [{'public_id': True}], "RiskClass", "tag")
-
-        assert results == [{'public_id': True, 'status': 'failed', 'message': 'Invalid public_id'}]
-        manager.update_item.assert_not_called()
         manager.find_all.assert_not_called()
 
-    @pytest.mark.parametrize('public_id', [str(ID_A), float(ID_A), [ID_A]])
-    def test_a_public_id_that_is_not_an_integer_is_refused(self, public_id: object) -> None:
-        """Only an integer can address a stored document; anything else fails that item alone"""
-        manager = _existence_manager([ID_A, ID_B])
+    def test_exactly_the_cap_is_accepted(self) -> None:
+        """The cap itself is allowed"""
+        ids = [ID_A, ID_B, ID_C]
 
-        results = update_multiple_items(
-            manager, MagicMock(), [{'public_id': public_id}, {'public_id': ID_B}], "RiskClass", "tag"
+        assert len(_bulk_update(_stored_manager(ids), [_risk_class(i) for i in ids])) == BULK_MAX_ITEMS
+
+    def test_every_invalid_item_is_named_and_nothing_is_written(self) -> None:
+        """One bad item refuses the whole list, and the refusal names each reason with its position"""
+        manager = _stored_manager([ID_A, ID_B])
+        refusal = _refusal(manager, [
+            _risk_class(ID_A, name=123),
+            'not an item',
+            _risk_class(ID_B, color='', sort='first'),
+        ])
+
+        assert refusal.description == (
+            'No RiskClasses were updated, because some items are invalid: '
+            f'item #1 (public_id {ID_A}): name: must be of string type'
+            ' | item #2 is not an object'
+            f' | item #3 (public_id {ID_B}): color: empty values not allowed; sort: must be of integer type'
+        )
+        manager.find_all.assert_not_called()
+
+    def test_a_missing_required_key_is_named(self) -> None:
+        """A whole object is required, as on the single update"""
+        item = _risk_class(ID_A)
+        del item['color']
+
+        assert 'color: required field' in _refusal(_stored_manager([ID_A]), [item]).description
+
+    @pytest.mark.parametrize('public_id', [None, True, str(ID_A), float(ID_A), [ID_A]],
+                             ids=['missing', 'bool', 'string', 'float', 'list'])
+    def test_an_item_without_an_integer_id_is_refused(self, public_id: Any) -> None:
+        """A bool too: True == 1 in Python, but MongoDB would not match it against the stored id"""
+        item = _risk_class(public_id)
+
+        if public_id is None:
+            del item['public_id']
+
+        refusal = _refusal(_stored_manager([TRUE_ALIASED_ID, ID_A]), [_risk_class(ID_B), item])
+
+        assert refusal.description.endswith('item #2 has no integer public_id')
+
+    def test_an_id_sent_twice_is_refused(self) -> None:
+        """Last-one-wins is no order anybody chose"""
+        manager = _stored_manager([ID_A, ID_B])
+        refusal = _refusal(manager, [_risk_class(ID_A), _risk_class(ID_B), _risk_class(ID_A)])
+
+        assert refusal.description == (
+            f'No RiskClasses were updated, because these ids are sent more than once: [{ID_A}]'
+        )
+        manager.find_all.assert_not_called()
+
+    def test_an_unknown_id_is_refused(self) -> None:
+        """Every missing id named, ascending"""
+        manager = _stored_manager([ID_A])
+        refusal = _refusal(manager, [_risk_class(MISSING_ID), _risk_class(ID_A), _risk_class(ID_C)])
+
+        assert refusal.description == (
+            f'No RiskClasses were updated, because these ids do not exist: [{ID_C}, {MISSING_ID}]'
         )
 
-        assert [entry['status'] for entry in results] == ['failed', 'success']
-        assert results[0]['message'] == 'Invalid public_id'
-        manager.find_all.assert_called_once_with(criteria={'public_id': {'$in': [ID_B]}})
+    def test_a_failed_write_is_undone_and_re_raised(self) -> None:
+        """Every item goes back to its snapshot; the request fails with the error the write hit"""
+        manager = _stored_manager([ID_A, ID_B])
+        manager.bulk_write.side_effect = RuntimeError('write failed')
+
+        with pytest.raises(RuntimeError, match='write failed'):
+            _bulk_update(manager, [_risk_class(ID_A), _risk_class(ID_B)])
+
+        restored = sorted(call.args[0] for call in manager.replace.call_args_list)
+        assert restored == [ID_A, ID_B]
+        assert manager.replace.call_args_list[0].args[1]['name'] == 'stored'
+
+
+class TestDuplicateBulkIds:
+    """``duplicate_bulk_ids`` names each repeated id once"""
+
+    def test_distinct_ids_have_no_duplicates(self) -> None:
+        """All distinct"""
+        assert duplicate_bulk_ids([ID_A, ID_B]) == []
+
+    def test_each_repeat_is_named_once_ascending(self) -> None:
+        """Three of one, two of another"""
+        assert duplicate_bulk_ids([ID_B, ID_A, ID_B, ID_A, ID_B]) == [ID_A, ID_B]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

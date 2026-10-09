@@ -38,7 +38,12 @@ from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.rest_api.responses import DefaultResponse
-from cmdb.interface.rest_api.routes.auth_helper import cloud_login, local_login
+from cmdb.interface.rest_api.routes.auth_constants import LOGIN_REQUEST_SCHEMA, LoginKey
+from cmdb.interface.rest_api.routes.auth_helper import (
+    abort_if_external_provider_in_cloud,
+    cloud_login,
+    local_login,
+)
 
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -50,31 +55,35 @@ auth_blueprint = APIBlueprint('auth', __name__)
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
 @auth_blueprint.route('/login', methods=['POST'])
+@auth_blueprint.validate(LOGIN_REQUEST_SCHEMA)
 @handle_route_errors("while validating the login data")
-def post_login() -> Response:
+def post_login(data: dict[str, Any]) -> Response:
     """
     Handles user login authentication
 
-    Parses the credentials from the request body and dispatches to the matching login flow: the
-    cloud (ServicePortal) flow when ``current_app.cloud_mode`` is set, otherwise the on-premise
-    AuthModule flow. Both flows (see ``auth_helper``) return an authentication token, and the cloud
-    flow may instead return the list of subscriptions the user must choose from. This outer handler
-    only guards the credential parsing; each flow maps its own errors to HTTP statuses.
+    The body is held to ``LOGIN_REQUEST_SCHEMA`` before any credential is checked: ``user_name`` and ``password``
+    are non-empty strings, and the optional ``subscription`` (cloud mode's second step) is an object carrying its
+    ``id``. Anything else - no body, a body that is not an object, a missing or mistyped field - is a 400 naming
+    the field, and reveals nothing about accounts. Holding both names to strings is also what keeps a JSON object
+    from reaching the user lookup as a query.
+
+    Then it dispatches to the matching login flow: the cloud (ServicePortal) flow when ``current_app.cloud_mode``
+    is set, otherwise the on-premise AuthModule flow. Both flows (see ``auth_helper``) return an authentication
+    token, and the cloud flow may instead return the list of subscriptions the user must choose from; each maps
+    its own errors to HTTP statuses.
+
+    Args:
+        data (dict[str, Any]): The validated login body
+
+    Raises:
+        HTTPException: 400 when the body breaks the login contract; the flows' own answers otherwise
 
     Returns:
         Response: A response containing authentication tokens or subscription options
     """
-    login_data: Any | None = request.json
-
-    if not login_data:
-        abort(400, 'No valid JSON data was provided')
-
-    request_user_name: str = login_data['user_name']
-    request_password: str = login_data['password']
-    request_subscription = None
-
-    if 'subscription' in login_data:
-        request_subscription = login_data['subscription']
+    request_user_name: str = data[LoginKey.USER_NAME.value]
+    request_password: str = data[LoginKey.PASSWORD.value]
+    request_subscription: dict[str, Any] | None = data.get(LoginKey.SUBSCRIPTION.value)
 
     if current_app.cloud_mode:
         return cloud_login(request_user_name, request_password, request_subscription)
@@ -197,16 +206,24 @@ def get_provider_config(provider_class: str, request_user: CmdbUser) -> Response
 @handle_route_errors("while updating auth settings")
 def update_auth_settings(request_user: CmdbUser) -> Response:
     """
-    Updates authentication settings for the given user
+    Updates the authentication settings section (in cloud mode: the tenant's)
 
-    This function retrieves new authentication settings from the request payload,
-    validates the data, and updates the authentication settings in the system.
+    Takes the WHOLE section (``require_complete``), puts back any credential the payload sends masked
+    (``restore_masked_secrets``), validates it as ``CmdbAuthSettings`` and stores it. In cloud mode a section
+    that activates an external provider (LDAP) is refused: external providers are on-premise only and a
+    cloud login never runs one. Everything else - the token lifetime among it - stays writable in cloud mode
+
+    Status codes:
+        200 OK: Stored; body is the stored section, credentials masked
+        400 BAD_REQUEST: No body, a section ``CmdbAuthSettings`` cannot be built from, in cloud mode an
+            active external provider (``CLOUD_EXTERNAL_PROVIDER_MSG``), or the write was not acknowledged
+        500: An unexpected error
 
     Args:
         request_user (CmdbUser): The user performing the update
 
     Returns:
-        DefaultResponse: A response object containing the updated authentication settings if successful
+        DefaultResponse: The stored section, credentials masked
     """
     new_auth_settings_values = request.get_json()
 
@@ -233,6 +250,8 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
         # A malformed auth-settings payload is a client error, not a server fault
         LOGGER.error("[update_auth_settings] Error: %s", err)
         abort(400, f"Could not initialise auth settings from the provided data: {err}")
+
+    abort_if_external_provider_in_cloud(new_auth_settings_values)
 
     update_result = settings_manager.write(
         _id=AUTH_SETTINGS_ID,

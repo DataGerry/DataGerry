@@ -38,7 +38,13 @@ Delivery rules worth knowing before changing anything here:
   the HTTP calls are handed to a small shared pool, because ``send_webhook_event`` is called inline
   from the object create / update / delete flows in ``objects_helper``. Delivering synchronously would
   make every object save wait up to the request timeout for every active webhook.
-* **Any 2xx counts as delivered**, not only ``200``.
+* **Any 2xx counts as delivered**, not only ``200``; a redirect is never followed, so a 3xx is not delivered.
+* **Only what the owner may read.** A webhook's owner is the user who last saved it; an event about an object is
+  sent only to the webhooks whose owner may READ the object's type (``webhook_delivery_scope``), and a skipped
+  delivery leaves no event.
+* **Only public destinations.** A URL whose host resolves to a non-public address is refused when the webhook is
+  saved and again before every delivery (``webhook_destination``), because the server itself sends the request
+  from inside the installation's network.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -55,7 +61,12 @@ import requests
 from cmdb.database.json_codec import default
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import WebhooksManager, WebhooksEventManager
+from cmdb.manager import TypesManager, UsersManager, WebhooksManager, WebhooksEventManager
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_destination import refused_destination_reason
+from cmdb.interface.rest_api.routes.webhook_routes.webhook_delivery_scope import (
+    event_type_id,
+    scope_webhooks_to_owners,
+)
 
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.models.user_model import CmdbUser
@@ -79,7 +90,10 @@ from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_REQUEST_TIMEOUT_SECONDS,
     WEBHOOK_TEXT_NOT_A_STRING_MSG,
     WEBHOOK_URL_NO_HOST_MSG,
+    WEBHOOK_URL_DESTINATION_MSG,
+    TYPE_ACL_PROJECTION,
     WEBHOOK_URL_SCHEME_MSG,
+    WebhookKey,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -158,14 +172,16 @@ def _require_non_blank(value: Any, field_name: str) -> str:
 
 def _validated_webhook_url(value: Any) -> str:
     """
-    Returns the target URL, aborting when it is missing or not a fetchable http(s) URL
+    Returns the target URL, aborting when it is missing, not a fetchable http(s) URL, or one whose host
+    resolves to an address that is not public (``webhook_destination``)
 
     Args:
         value (Any): The raw ``url`` parameter
 
     Raises:
         HTTPException: 400 when the URL is missing, blank, carries a scheme outside
-            ``WEBHOOK_ALLOWED_URL_SCHEMES`` or has no host
+            ``WEBHOOK_ALLOWED_URL_SCHEMES``, has no host or an invalid port, or its host resolves to a
+            non-public address
 
     Returns:
         str: The validated URL
@@ -181,6 +197,11 @@ def _validated_webhook_url(value: Any) -> str:
 
     if not parts.netloc:
         abort(400, WEBHOOK_URL_NO_HOST_MSG)
+
+    refused: str | None = refused_destination_reason(url)
+
+    if refused:
+        abort(400, WEBHOOK_URL_DESTINATION_MSG.format(reason=refused))
 
     return url
 
@@ -309,20 +330,34 @@ def deliver_webhook_event(webhook: Any, payload: dict[str, Any],
     attempt is still logged: a transport failure is recorded with ``WEBHOOK_NO_RESPONSE_CODE`` and
     ``status`` False rather than not being recorded at all. Any 2xx counts as delivered.
 
+    The destination is judged again first (``webhook_destination``): a host that now resolves to a non-public
+    address is not sent to, and recorded like a transport failure. A redirect is never followed - a 3xx is
+    recorded with its code as not delivered.
+
     Args:
         webhook (Any): The CmdbWebhook to notify (needs ``url`` and ``public_id``)
         payload (dict[str, Any]): The event payload; this function adds the transport metadata to it
         webhook_events_manager (WebhooksEventManager): Manager used to store the CmdbWebhookEvent
     """
+    refused: str | None = refused_destination_reason(webhook.url)
+
     try:
-        response: requests.Response = requests.post(
-            webhook.url,
-            data=json.dumps(payload, default=default, ensure_ascii=False, indent=2),
-            headers={'Content-Type': 'application/json'},
-            timeout=WEBHOOK_REQUEST_TIMEOUT_SECONDS,
-        )
-        response_code = response.status_code
-        delivered = WEBHOOK_DELIVERED_STATUS_MIN <= response_code < WEBHOOK_DELIVERED_STATUS_MAX
+        if refused:
+            # The host may have resolved differently when the webhook was saved: judged again, and not sent
+            LOGGER.warning("[deliver_webhook_event] Webhook ID: %s not delivered: %s", webhook.public_id, refused)
+            response_code = WEBHOOK_NO_RESPONSE_CODE
+            delivered = False
+        else:
+            # A redirect is not followed: it would carry the request to a destination nobody judged
+            response: requests.Response = requests.post(
+                webhook.url,
+                data=json.dumps(payload, default=default, ensure_ascii=False, indent=2),
+                headers={'Content-Type': 'application/json'},
+                timeout=WEBHOOK_REQUEST_TIMEOUT_SECONDS,
+                allow_redirects=False,
+            )
+            response_code = response.status_code
+            delivered = WEBHOOK_DELIVERED_STATUS_MIN <= response_code < WEBHOOK_DELIVERED_STATUS_MAX
     except Exception as err:
         LOGGER.error("[deliver_webhook_event] Webhook ID: %s could not be reached: %s. Type: %s",
                      webhook.public_id, err, type(err).__name__)
@@ -359,6 +394,50 @@ def dispatch_webhook_deliveries(webhooks: list[Any], payload: dict[str, Any],
         DISPATCH_EXECUTOR.submit(deliver_webhook_event, webhook, dict(payload), webhook_events_manager)
 
 
+def read_event_type_document(request_user: CmdbUser, type_id: int | None) -> dict[str, Any] | None:
+    """
+    Reads the ACL of the CmdbType an event is about
+
+    Args:
+        request_user (CmdbUser): The user whose request triggered the event (selects the tenant)
+        type_id (int | None): The object's type
+
+    Returns:
+        dict[str, Any] | None: The type's document (its ``acl`` only), or None when there is no type to read
+    """
+    if type_id is None:
+        return None
+
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+    found: list[dict[str, Any]] = types_manager.find(criteria={'public_id': type_id}, projection=TYPE_ACL_PROJECTION)
+
+    return found[0] if found else None
+
+
+def read_webhook_owners(request_user: CmdbUser, webhooks: list[Any]) -> dict[int, CmdbUser]:
+    """
+    Reads the owners of the given webhooks in one query
+
+    Args:
+        request_user (CmdbUser): The user whose request triggered the event (selects the tenant)
+        webhooks (list[Any]): The webhooks
+
+    Returns:
+        dict[int, CmdbUser]: The owners that exist, by public_id
+    """
+    owner_ids: list[int] = sorted({
+        owner_id for owner_id in (getattr(webhook, WebhookKey.OWNER_ID.value, None) for webhook in webhooks)
+        if isinstance(owner_id, int)
+    })
+
+    if not owner_ids:
+        return {}
+
+    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+
+    return users_manager.get_user_lookup(owner_ids)
+
+
 def send_webhook_event(
         request_user: CmdbUser,
         operation: WebhookEventType,
@@ -371,7 +450,8 @@ def send_webhook_event(
     The webhooks are read here, on the request thread, because resolving the managers needs the
     request context; the HTTP calls are then dispatched off it. Failures while reading are swallowed
     (logged) so a webhook problem never breaks the triggering object operation - a per-delivery
-    failure is handled in ``deliver_webhook_event`` and does not reach this level.
+    failure is handled in ``deliver_webhook_event`` and does not reach this level. Only the webhooks whose
+    owner may READ the object's type are notified (``webhook_delivery_scope``); a skipped one leaves no event.
 
     Args:
         request_user (CmdbUser): The user whose request triggered the event (used to resolve managers)
@@ -386,6 +466,14 @@ def send_webhook_event(
         # Only active webhooks subscribed to this operation, filtered server-side
         builder_params = BuilderParameters({'$and': [{'active': True}, {'event_types': operation}]})
         webhooks = webhooks_manager.iterate_items(builder_params).results
+
+        # Only to webhooks whose owner may read the object - the payload leaves the installation's ACL behind
+        if webhooks:
+            webhooks = scope_webhooks_to_owners(
+                webhooks,
+                read_event_type_document(request_user, event_type_id(object_before, object_after)),
+                read_webhook_owners(request_user, webhooks),
+            )
 
         if not webhooks:
             return

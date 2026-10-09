@@ -69,6 +69,7 @@ class CmdbCategory(CmdbDAO):
 
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
         label: str | None = None,

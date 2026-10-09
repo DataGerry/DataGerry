@@ -183,12 +183,12 @@ class TestQuickSearchCounter:
         """When the aggregation yields a row, it is returned as the response body."""
         counts = {'active': 3, 'inactive': 1, 'total': 4}
 
-        def _aggregate(_self, pipeline: list[dict], **_kwargs: Any) -> list[dict[str, Any]]:
+        def _aggregate(_self, pipeline: list[dict], _time_limit_ms: int) -> list[dict[str, Any]]:
             # Building the pipeline already collects the term's referenced objects; only the count
             # pipeline itself - the one ending in the counters' $project - answers the row
             return [counts] if 'total' in pipeline[-1].get('$project', {}) else []
 
-        monkeypatch.setattr(ObjectsManager, 'aggregate_objects', _aggregate)
+        monkeypatch.setattr(ObjectsManager, 'aggregate_objects_within_time_limit', _aggregate)
 
         response = rest_api.get(QUICK_COUNT_URL)
 
@@ -197,13 +197,15 @@ class TestQuickSearchCounter:
 
     def test_iteration_error_returns_400(self, rest_api, monkeypatch) -> None:
         """An ObjectsManagerIterationError during aggregation surfaces as 400."""
-        monkeypatch.setattr(ObjectsManager, 'aggregate_objects', _raiser(ObjectsManagerIterationError('boom')))
+        monkeypatch.setattr(
+            ObjectsManager, 'aggregate_objects_within_time_limit', _raiser(ObjectsManagerIterationError('boom')),
+        )
 
         assert rest_api.get(QUICK_COUNT_URL).status_code == HTTPStatus.BAD_REQUEST
 
     def test_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error during aggregation surfaces as 500."""
-        monkeypatch.setattr(ObjectsManager, 'aggregate_objects', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(ObjectsManager, 'aggregate_objects_within_time_limit', _raiser(RuntimeError('boom')))
 
         assert rest_api.get(QUICK_COUNT_URL).status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 

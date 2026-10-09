@@ -40,7 +40,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
 from cmdb.class_schema.user_model.cmdb_user_schema import DEFAULT_CONFIG_ITEMS_LIMIT
 from cmdb.models.group_model.group_constants import ADMIN_GROUP_ID
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects import objects_side_effects_helper
+from cmdb.framework import config_item_sync
 
 from tests.utils.cloud_mode import cloud_auth_header, enable_hosted_cloud_mode
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -102,7 +102,7 @@ def fixture_cloud_mode(rest_api, monkeypatch, database_manager: MongoDatabaseMan
     """Switches the app into cloud mode and stubs the Service Portal; yields the stub to assert on."""
     enable_hosted_cloud_mode(rest_api, monkeypatch, database_manager)
     portal = MagicMock(name='DgServicePortalManager')
-    monkeypatch.setattr(objects_side_effects_helper, 'DgServicePortalManager', portal)
+    monkeypatch.setattr(config_item_sync, 'DgServicePortalManager', portal)
 
     return portal
 

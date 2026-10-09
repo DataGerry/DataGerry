@@ -53,6 +53,8 @@ __all__: list[str] = [
     'build_remove_mds_fields_update',
     'build_remove_mds_section_update',
     'build_remove_undeclared_fields_update',
+    'build_remove_undeclared_mds_fields_update',
+    'build_remove_undeclared_mds_sections_update',
 ]
 
 # The array-filter identifiers the MDS row updates use: `s` is the section, `v` one of its rows
@@ -225,4 +227,55 @@ def build_remove_mds_section_update(type_id: int, section_id: str) -> RawUpdate:
     return RawUpdate(
         filter_query={CmdbObjectKey.TYPE_ID.value: type_id},
         update={'$pull': {CmdbObjectKey.MULTI_DATA_SECTIONS.value: {CmdbObjectMdsKey.SECTION_ID.value: section_id}}},
+    )
+
+
+def build_remove_undeclared_mds_sections_update(type_id: int, declared_section_ids: list[str]) -> RawUpdate:
+    """
+    Removes every MDS section the type does not declare - all of its rows - from every object of it
+
+    The state-based counterpart of `build_remove_mds_section_update`: it does not need to know WHICH sections an
+    edit removed, so it also brings back in line an object a half-finished edit left behind
+
+    Args:
+        type_id (int): public_id of the CmdbType
+        declared_section_ids (list[str]): The names of every MDS section the type declares
+
+    Returns:
+        RawUpdate: The update
+    """
+    return RawUpdate(
+        filter_query={CmdbObjectKey.TYPE_ID.value: type_id},
+        update={'$pull': {
+            CmdbObjectKey.MULTI_DATA_SECTIONS.value: {
+                CmdbObjectMdsKey.SECTION_ID.value: {'$nin': declared_section_ids},
+            },
+        }},
+    )
+
+
+def build_remove_undeclared_mds_fields_update(type_id: int, section_id: str, declared_names: list[str]) -> RawUpdate:
+    """
+    Removes every entry whose name one MDS section does not declare, from every row of it, on every object of a type
+
+    The state-based counterpart of `build_remove_mds_fields_update`: it does not need to know WHICH fields an edit
+    removed
+
+    Args:
+        type_id (int): public_id of the CmdbType
+        section_id (str): The MDS section's id, i.e. the type section's name
+        declared_names (list[str]): Every field name the section declares
+
+    Returns:
+        RawUpdate: The update
+    """
+    all_rows_data_path: str = (
+        f'{CmdbObjectKey.MULTI_DATA_SECTIONS.value}.$[{SECTION_IDENTIFIER}].{CmdbObjectMdsKey.VALUES.value}'
+        f'.$[].{CmdbObjectMdsRowKey.DATA.value}'
+    )
+
+    return RawUpdate(
+        filter_query={CmdbObjectKey.TYPE_ID.value: type_id, MDS_SECTION_ID_PATH: section_id},
+        update={'$pull': {all_rows_data_path: {CmdbObjectFieldKey.NAME.value: {'$nin': declared_names}}}},
+        array_filters=[{f'{SECTION_IDENTIFIER}.{CmdbObjectMdsKey.SECTION_ID.value}': section_id}],
     )

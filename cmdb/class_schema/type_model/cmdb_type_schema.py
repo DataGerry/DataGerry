@@ -23,12 +23,74 @@ This module is the single source of the document's Cerberus validation schema,
 consumed as CmdbType.SCHEMA.
 """
 from typing import Any
+
+from cmdb.class_schema.field_schema_helper import get_field_definition_rules
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DEFAULT_VERSION = '1.0.0'
 
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
+
+def get_type_acl_schema() -> dict[str, Any]:
+    """
+    Builds the Cerberus rule for a CmdbType's ``acl`` block
+
+    The one declaration of the block's shape, used by ``CmdbType.SCHEMA`` and by the type import, so a route write
+    and an imported type are held to the same rule:
+
+    * ``activated`` is a boolean - the listing query and the single read both decide on it, and only a real
+      boolean means the same thing to both
+    * ``groups.includes`` maps a CmdbUserGroup public_id (as a string key) to a list of AccessControlPermission
+      values; an empty list is a group granted nothing
+
+    Every part is optional and ``groups`` / ``includes`` may be null: the create route completes a partial block
+    (``types_helper.normalize_type_acl``) and the model reads a null section as "no groups". An unknown key inside
+    the block is purged by the route validator, as the model would drop it
+
+    Returns:
+        dict[str, Any]: The rule for the ``acl`` key
+    """
+    # Imported inside the builder, like the model constants below (see the class_schema convention)
+    # pylint: disable=import-outside-toplevel
+    from cmdb.security.acl.acl_constants import ACL_GROUP_KEY_PATTERN, AclKey
+    from cmdb.security.acl.permission import AccessControlPermission
+
+    permissions: list[str] = [permission.value for permission in AccessControlPermission]
+
+    return {
+        'type': 'dict',
+        'required': False,
+        'schema': {
+            AclKey.ACTIVATED.value: {
+                'type': 'boolean',
+                'required': False,
+            },
+            AclKey.GROUPS.value: {
+                'type': 'dict',
+                'required': False,
+                'nullable': True,
+                'schema': {
+                    AclKey.INCLUDES.value: {
+                        'type': 'dict',
+                        'required': False,
+                        'nullable': True,
+                        'keysrules': {
+                            'type': 'string',
+                            'regex': ACL_GROUP_KEY_PATTERN,
+                        },
+                        'valuesrules': {
+                            'type': 'list',
+                            'schema': {
+                                'type': 'string',
+                                'allowed': permissions,
+                            },
+                        },
+                    },
+                },
+            },
+        },
+    }
+
 def get_cmdb_type_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbType document
@@ -82,6 +144,13 @@ def get_cmdb_type_schema() -> dict[str, Any]:
             'type': 'boolean',
             'default': False
         },
+        # Server-owned: True while a saved update has not yet been applied to this CmdbType's objects,
+        # locations and reports. Never accepted from a request - the write routes leave it out of their schema
+        'alignment_pending': {
+            'type': 'boolean',
+            'required': False,
+            'default': False
+        },
         # Position of the ports section among this CmdbType's sections (0 = first). Only meaningful
         # while 'uses_ports' is True - the write paths force it back to 0 when the flag is off
         'port_section_index': {
@@ -126,55 +195,14 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                         'type': 'string',
                         'required': True
                     },
-                    "rows": {
-                        'type': 'integer',
-                        'required': False
-                    },
                     "label": {
                         'type': 'string',
                         'required': True
                     },
-                    "description": {
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "regex": {
-                        'type': 'string',
-                        'required': False
-                    },
-                    "placeholder": {
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "value": {
-                        'required': False,
-                        'nullable': True,
-                    },
-                    "helperText": {
-                        'type': 'string',
-                        'required': False,
-                    },
+                    **get_field_definition_rules(),
                     "default": {
                         'nullable': True,
                         'empty': True
-                    },
-                    "options": {
-                        'type': 'list',
-                        'empty': True,
-                        'required': False,
-                        'schema': {
-                            'type': 'dict',
-                            'schema': {
-                                "name": {
-                                    'type': 'string',
-                                    'required': True
-                                },
-                                "label": {
-                                    'type': 'string',
-                                    'required': True
-                                },
-                            }
-                        }
                     },
                     "ref_types": {
                         'type': 'list',  # List of public_id of type
@@ -347,11 +375,7 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                 }
             }
         },
-        'acl': {
-            'type': 'dict',
-            'allow_unknown': True,
-            'required': False,
-        },
+        'acl': get_type_acl_schema(),
         'ci_explorer_label': {  # Stores the name of the field which should be used as the Label in the CI Explorer
             'type': 'string',
             'required': False,

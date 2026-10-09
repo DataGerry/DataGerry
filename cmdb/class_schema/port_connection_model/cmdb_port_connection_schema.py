@@ -42,7 +42,6 @@ from typing import Any
 # sends, a timestamp string from an API client, and a real datetime (an already-normalised payload)
 _DATE_TYPES: list[str] = ['dict', 'string', 'datetime']
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_port_connection_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbPortConnection document

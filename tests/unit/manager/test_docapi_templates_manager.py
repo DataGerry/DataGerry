@@ -114,11 +114,11 @@ class TestGetTemplatesBy:
         mgr = _mock_manager()
         mgr.get_many.return_value = [dict(TEMPLATE_DOC), dict(SECOND_TEMPLATE_DOC)]
 
-        result = DocapiTemplatesManager.get_templates_by(mgr, active=True)
+        result = DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
 
         assert all(isinstance(template, DocapiTemplate) for template in result)
         assert [template.name for template in result] == ['tpl', 'tpl2']
-        mgr.get_many.assert_called_once_with(active=True)
+        mgr.get_many.assert_called_once_with(criteria={'active': True})
 
     def test_wraps_failure_in_get_error(self) -> None:
         """A failure during retrieval surfaces as DocapiTemplatesManagerGetError."""
@@ -126,7 +126,7 @@ class TestGetTemplatesBy:
         mgr.get_many.side_effect = RuntimeError('db down')
 
         with pytest.raises(DocapiTemplatesManagerGetError):
-            DocapiTemplatesManager.get_templates_by(mgr, active=True)
+            DocapiTemplatesManager.get_templates_by(mgr, {'active': True})
 
 
 # ---------------------------------------------------- get_template_by_name ------------------------------------------ #
@@ -139,18 +139,18 @@ class TestGetTemplateByName:
         mgr = _mock_manager()
         mgr.get_many.return_value = [dict(TEMPLATE_DOC)]
 
-        result = DocapiTemplatesManager.get_template_by_name(mgr, name='tpl')
+        result = DocapiTemplatesManager.get_template_by_name(mgr, 'tpl')
 
         assert isinstance(result, DocapiTemplate)
         assert result.name == 'tpl'
-        mgr.get_many.assert_called_once_with(limit=1, name='tpl')
+        mgr.get_many.assert_called_once_with(limit=1, criteria={'name': 'tpl'})
 
     def test_returns_none_when_no_match(self) -> None:
         """No match returns None."""
         mgr = _mock_manager()
         mgr.get_many.return_value = []
 
-        assert DocapiTemplatesManager.get_template_by_name(mgr, name='nope') is None
+        assert DocapiTemplatesManager.get_template_by_name(mgr, 'nope') is None
 
     def test_wraps_failure_in_get_error(self) -> None:
         """A failure during retrieval surfaces as DocapiTemplatesManagerGetError."""
@@ -158,7 +158,7 @@ class TestGetTemplateByName:
         mgr.get_many.side_effect = RuntimeError('db down')
 
         with pytest.raises(DocapiTemplatesManagerGetError):
-            DocapiTemplatesManager.get_template_by_name(mgr, name='tpl')
+            DocapiTemplatesManager.get_template_by_name(mgr, 'tpl')
 
 
 # ----------------------------------------------------- update_template ---------------------------------------------- #
@@ -209,4 +209,4 @@ class TestGetMinimalTemplatesFailure:
         mgr.find.side_effect = RuntimeError('read failed')
 
         with pytest.raises(DocapiTemplatesManagerGetError):
-            DocapiTemplatesManager.get_minimal_templates_by(mgr)
+            DocapiTemplatesManager.get_minimal_templates_by(mgr, {})

@@ -27,7 +27,8 @@ The work an entry goes through, and where it lives:
     1. (update only) the stored Type is read - it decides whether there is anything to update at all,
        and both the guards and the side effects need that pre-update state
     2. the rules that judge the upload  -> `importer_type_rules`
-    3. the repairs that fix it silently -> `importer_type_repairs`
+    3. the repairs that fix it silently -> `importer_type_repairs` - among them the global-template
+       reconcile, whose one refusal (a foreign field inside a template's section) ends the entry here
     4. `repaired_structure_error` re-checks what the repairs completed - a global section template
        can contribute field definitions that no rule ever saw
     5. (update only) the rules that need the stored Type -> `stored_type_update_blocker`
@@ -78,6 +79,8 @@ from cmdb.interface.rest_api.routes.cmdb_license.license_guard import feature_lo
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     compute_removed_global_templates,
     apply_type_update_side_effects,
+    is_type_readable,
+    strip_removed_global_templates,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     validate_create_entry,
@@ -86,10 +89,10 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     stored_type_update_blocker,
     as_public_id,
 )
+from cmdb.framework.section_templates.global_template_reconcile import resolve_global_templates
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_repairs import (
     strip_uploaded_public_id,
     normalize_imported_type,
-    resolve_global_templates,
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_messages import TypeImportFailedMessage
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
@@ -97,6 +100,7 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants impo
     TypeImporterFormField,
     TypeImportError,
 )
+from cmdb.errors.manager.types_manager import TypesManagerAlignmentError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -252,33 +256,28 @@ def apply_import_create_side_effects(
 def apply_import_update_side_effects(
     request_user: CmdbUser,
     types_manager: TypesManager,
-    section_templates_manager: SectionTemplatesManager,
     old_type: CmdbType,
-    type_entry: dict[str, Any],
 ) -> None:
     """
-    Runs the persistence side effects that follow replacing a CmdbType by import
+    Brings everything that follows a CmdbType in line with it after an import replaced the type
 
-    An import update replaces the fields and sections wholesale, exactly like the normal update
-    route, so it owes the stored data the same follow-up work: dropped global section templates are
-    removed, SpecialType wiring is re-applied, label / icon / selectable changes are propagated to
-    the type's CmdbLocations, MDS field changes reach the objects' rows, and every object of the type
-    is re-aligned with the new field set (with the removed fields stripped from its reports). Without
-    this an import silently leaves every existing object holding fields the type no longer defines
+    An import update replaces the fields and sections wholesale, exactly like the normal update route, so it owes
+    the stored data the same follow-up work, through the same steps (``apply_type_update_side_effects``): the
+    SpecialType wiring, the type's CmdbLocations, the MDS rows and flat fields of its CmdbObjects and its reports.
+    The dropped global section templates were already taken out of the written document, and the write set
+    ``alignment_pending``, which the last step clears - so an import whose follow-up failed is finished by importing
+    or saving the type again
 
-    The re-read is deliberate: the update payload omits IMPORT_UPDATE_PRESERVED_FIELDS, so only the
-    stored document says what the type now really is - `special_type` in particular is NOT what the
-    upload carried
+    The re-read is deliberate: the update payload omits IMPORT_UPDATE_PRESERVED_FIELDS, so only the stored document
+    says what the type now really is - `special_type` in particular is NOT what the upload carried
 
     Args:
         request_user (CmdbUser): The user performing the import
         types_manager (TypesManager): db interface for CmdbTypes
-        section_templates_manager (SectionTemplatesManager): db interface for the section templates
         old_type (CmdbType): The state of the CmdbType before the update
-        type_entry (dict[str, Any]): The uploaded entry, read for its global_template_ids
 
     Raises:
-        Exception: Whatever a side effect raises - the caller reports it, the type is already updated
+        TypesManagerAlignmentError: When a step failed - the type is written, its marker still set
     """
     updated_type: CmdbType | None = types_manager.get_type_instance(old_type.public_id)
 
@@ -286,12 +285,7 @@ def apply_import_update_side_effects(
         # Deleted between the update and this read - there is nothing left to reconcile
         return
 
-    removed_templates = compute_removed_global_templates(
-        old_type,
-        _templates_the_update_still_claims(section_templates_manager, old_type, type_entry),
-    )
-
-    apply_type_update_side_effects(request_user, types_manager, old_type, updated_type, removed_templates)
+    apply_type_update_side_effects(request_user, types_manager, old_type, updated_type)
 
 
 def _templates_the_update_still_claims(
@@ -424,31 +418,37 @@ def _repair_entry(
         section_templates_manager (SectionTemplatesManager): Manager used by the template repair
 
     Returns:
-        str | None: A repair failure or a finding on the completed entry, else None
+        str | None: A repair failure, the refusal of a foreign field inside a global template's section, or a
+            finding on the completed entry, else None
     """
     try:
-        normalize_imported_type(type_entry, types_manager, section_templates_manager)
+        repair_refusal: str | None = normalize_imported_type(type_entry, types_manager, section_templates_manager)
     except Exception as err:
         LOGGER.error("[_repair_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.NORMALIZATION_FAILED.format(detail=err)
 
-    return repaired_structure_error(type_entry)
+    return repair_refusal or repaired_structure_error(type_entry)
 
 
 def read_type_to_update(
     type_entry: dict[str, Any],
     types_manager: TypesManager,
+    request_user: CmdbUser,
 ) -> tuple[CmdbType | None, str | None]:
     """
-    Reads the stored CmdbType an update entry addresses
+    Reads the stored CmdbType an update entry addresses, if the importer may touch it
 
     Runs before the rules and the repairs: an entry naming a Type that does not exist here has
     nothing to be judged against and no reason to cost the four queries the rules and repairs
     otherwise spend. The result is also what the guards and the side effects diff against later
 
+    A stored Type the importer's group may not READ is refused here too - judged on the STORED ACL, never
+    the uploaded one, so an upload cannot rewrite the ACL that keeps the importer out
+
     Args:
         type_entry (dict[str, Any]): A single entry of the uploaded payload
         types_manager (TypesManager): Manager used to read the stored CmdbType
+        request_user (CmdbUser): The user performing the import
 
     Returns:
         tuple[CmdbType | None, str | None]: The stored CmdbType, or None plus the message to report
@@ -465,6 +465,9 @@ def read_type_to_update(
         return None, TypeImportError.TYPE_NOT_FOUND.format(
             public_id=type_entry.get(TypeSchemaKey.PUBLIC_ID.value),
         )
+
+    if not is_type_readable(old_type, request_user):
+        return None, TypeImportError.TYPE_ACCESS_DENIED.format(public_id=old_type.public_id)
 
     return old_type, None
 
@@ -614,6 +617,9 @@ def create_type_from_entry(
         LOGGER.error("[create_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
         return TypeImportError.PUBLIC_ID_ASSIGNMENT_FAILED.format(detail=err)
 
+    # The alignment marker is server-owned: an uploaded one (an export of a type mid-save) is not taken over
+    type_entry[TypeSchemaKey.ALIGNMENT_PENDING.value] = False
+
     try:
         new_type = CmdbType.from_data(type_entry)
     except Exception as err:
@@ -655,6 +661,9 @@ def update_type_from_entry(
     sections wholesale, so the replacement has to be as sound as a new type - plus the rules that
     need the stored type (`stored_type_update_blocker`), checked once it has been read
 
+    A stored Type the caller's group may not READ is refused like every other bad entry - judged on the stored
+    ACL, so an upload cannot rewrite the ACL that keeps it out
+
     The type is read before it is written: `apply_import_update_side_effects` needs the pre-update
     state to work out what changed, and that read doubles as the existence check (the update does not
     upsert, so an unknown public_id would otherwise match nothing and look like a success).
@@ -677,7 +686,7 @@ def update_type_from_entry(
 
     # Read first: the type has to exist before anything is judged or repaired, and both the guards
     # and the side effects need this pre-update state anyway
-    old_type, read_error = read_type_to_update(type_entry, types_manager)
+    old_type, read_error = read_type_to_update(type_entry, types_manager, request_user)
 
     if read_error:
         return read_error
@@ -700,7 +709,15 @@ def update_type_from_entry(
         return blocker
 
     try:
-        update_payload = build_import_update_payload(update_type_instance)
+        # The dropped global templates go out of the document before it is written, and the write sets the
+        # alignment marker the follow-up clears
+        removed_templates = compute_removed_global_templates(
+            old_type, _templates_the_update_still_claims(section_templates_manager, old_type, type_entry),
+        )
+        update_payload = strip_removed_global_templates(
+            build_import_update_payload(update_type_instance), removed_templates,
+        )
+        update_payload[TypeSchemaKey.ALIGNMENT_PENDING.value] = True
         update_result = types_manager.update_type(old_type.public_id, update_payload)
 
         if update_result.matched_count == 0:
@@ -711,13 +728,12 @@ def update_type_from_entry(
         return TypeImportError.UPDATE_FAILED.format(detail=err)
 
     try:
-        apply_import_update_side_effects(
-            request_user, types_manager, section_templates_manager, old_type, type_entry,
-        )
+        apply_import_update_side_effects(request_user, types_manager, old_type)
+    except TypesManagerAlignmentError as err:
+        # The Type itself is written and carries alignment_pending: importing or saving it again finishes it
+        return TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(step=err.step, detail=err)
     except Exception as err:
-        # The Type itself is already updated, so this is reported as a follow-up failure - the stored
-        # Objects / Locations may be left half-reconciled and the entry should not simply be re-run
         LOGGER.error("[update_type_from_entry] Exception: %s. Type: %s.", err, type(err), exc_info=True)
-        return TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(detail=err)
+        return TypeImportError.UPDATE_SIDE_EFFECTS_FAILED.format(step=TypeImportError.UNKNOWN_STEP.value, detail=err)
 
     return None

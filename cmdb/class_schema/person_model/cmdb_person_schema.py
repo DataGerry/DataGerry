@@ -28,7 +28,6 @@ empty string / empty list, so the document a GET returns can always be sent stra
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_person_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbPerson document

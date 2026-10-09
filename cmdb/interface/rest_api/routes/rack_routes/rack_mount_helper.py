@@ -21,6 +21,7 @@ validate its geometry - so the routes read as the sequence they are and every st
 on its own. The helpers abort with HTTP 400 for a business-rule rejection (the convention in this
 codebase; 409 is not used) and 404 only for a mount or rack that does not exist
 """
+from collections.abc import Collection
 from logging import Logger, getLogger
 from typing import Any
 
@@ -59,6 +60,7 @@ from cmdb.framework.rack.occupant_validator import (
     unknown_kind_blocker,
 )
 from cmdb.framework.rack.assignable_objects import build_assignable_rows
+from cmdb.framework.rack.overview import mask_unreadable_members
 
 from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import (
     RackMountRequestKey,
@@ -512,6 +514,11 @@ def apply_mount_changes(stored: dict[str, Any], payload: dict[str, Any]) -> dict
     mount without touching its geometry. Moving INTO the unassigned bucket clears the placement while
     keeping the height as a hint, so re-placing the object can pre-fill the size the user already chose.
 
+    The order index belongs to the area it was given in. A move to another area that names no position
+    drops the old index, so the mount is appended to the end of its new area instead of landing at
+    whatever index it held in the one it left. A position the body does name is applied as it is - that
+    is how a client reorders a side list or the unassigned bucket
+
     The descriptive fields merge the same way - a reservation's label, dates and colour are each editable
     on their own, and passing null clears one. The kind is NOT merged: what a row is never changes
 
@@ -526,6 +533,9 @@ def apply_mount_changes(stored: dict[str, Any], payload: dict[str, Any]) -> dict
 
     if RackMountRequestKey.AREA.value in payload:
         candidate[RackMountKey.AREA.value] = payload[RackMountRequestKey.AREA.value]
+
+    if leaves_its_area(stored, candidate):
+        candidate[RackMountKey.POSITION.value] = None
 
     for key in GEOMETRY_KEYS:
         if key.value in payload:
@@ -542,11 +552,25 @@ def apply_mount_changes(stored: dict[str, Any], payload: dict[str, Any]) -> dict
         candidate[RackMountKey.COLOR.value] = payload[RackMountRequestKey.COLOR.value]
 
     if candidate.get(RackMountKey.AREA.value) == RackArea.UNASSIGNED.value:
-        # Unplacing frees the slots and drops the ordering of the area it left, but the height stays:
-        # it is the tedious value to re-enter, and it is what makes re-placing pre-fillable
+        # Unplacing frees the slots, but the height stays: it is the tedious value to re-enter, and it is
+        # what makes re-placing pre-fillable
         candidate[RackMountKey.START_SLOT.value] = None
 
     return candidate
+
+
+def leaves_its_area(stored: dict[str, Any], candidate: dict[str, Any]) -> bool:
+    """
+    Tells whether a PATCH moves a row out of the area it is stored in
+
+    Args:
+        stored (dict[str, Any]): The row as currently persisted
+        candidate (dict[str, Any]): The row with the request's area applied
+
+    Returns:
+        bool: True when the two areas differ
+    """
+    return candidate.get(RackMountKey.AREA.value) != stored.get(RackMountKey.AREA.value)
 
 
 def normalize_geometry_value(value: Any) -> int | None:
@@ -721,18 +745,21 @@ def get_rack_display_name(rack: dict[str, Any]) -> str:
 def resolve_mounted_object_meta(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
-        mounts: list[dict[str, Any]]) -> tuple[dict[int, str], dict[int, dict[str, Any]], dict[int, int]]:
+        mounts: list[dict[str, Any]],
+        denied_type_ids: Collection[int]) -> tuple[dict[int, str], dict[int, dict[str, Any]], dict[int, int]]:
     """
     Batch-resolves everything the overview needs about the mounted objects
 
     Three bulk reads for the whole rack regardless of how many objects it holds: the objects, their
     summary lines and their types. Resolving per mount would be an N+1 on the one route that is called
-    every time a rack is opened
+    every time a rack is opened. A member of a type the caller may not READ is resolved too - its slot is
+    occupied - and then blanked (``mask_unreadable_members``): no summary line, no type label
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         mounts (list[dict[str, Any]]): The rack's mounts
+        denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read
 
     Returns:
         tuple: ({object_id: summary_line}, {type_id: {label, icon, color}}, {object_id: type_id})
@@ -761,14 +788,19 @@ def resolve_mounted_object_meta(
         object_ids, with_type=False, object_docs=object_docs,
     )
 
-    return summary_lines, build_type_meta(types_manager, list(object_types.values())), object_types
+    masked_lines, masked_meta = mask_unreadable_members(
+        summary_lines, build_type_meta(types_manager, list(object_types.values())), object_types, denied_type_ids,
+    )
+
+    return masked_lines, masked_meta, object_types
 
 
 def shape_assignable_page(
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
         rack_mounts_manager: RackMountsManager,
-        object_docs: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        object_docs: list[dict[str, Any]],
+        denied_type_ids: Collection[int]) -> list[dict[str, Any]]:
     """
     Resolves one page of mount candidates into the rows the rack picker draws
 
@@ -781,7 +813,10 @@ def shape_assignable_page(
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
-        object_docs (list[dict[str, Any]]): The candidate CmdbObject documents of one page
+        object_docs (list[dict[str, Any]]): The candidate CmdbObject documents of one page - already only the
+            ones the caller may READ
+        denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read; a holding rack
+            of such a type keeps its id in the hint and loses its name
 
     Returns:
         list[dict[str, Any]]: One picker row per document, in input order
@@ -805,14 +840,15 @@ def shape_assignable_page(
         object_docs,
         summary_lines,
         build_type_meta(types_manager, type_ids),
-        resolve_assigned_racks(objects_manager, rack_mounts_manager, object_ids),
+        resolve_assigned_racks(objects_manager, rack_mounts_manager, object_ids, denied_type_ids),
     )
 
 
 def resolve_assigned_racks(
         objects_manager: ObjectsManager,
         rack_mounts_manager: RackMountsManager,
-        object_ids: list[int]) -> dict[int, dict[str, Any]]:
+        object_ids: list[int],
+        denied_type_ids: Collection[int]) -> dict[int, dict[str, Any]]:
     """
     Batch-resolves which rack each picker candidate is currently in
 
@@ -820,12 +856,14 @@ def resolve_assigned_racks(
     belong to. The candidates of the rack being filled are already excluded from the page, so every
     rack found here is a DIFFERENT one - the hint the frontend shows before a mount moves the object.
     A mount pointing at a rack that no longer resolves contributes no entry, so the row simply reads as
-    free rather than naming a rack the user can not open
+    free rather than naming a rack the user can not open. A rack the caller may not READ keeps its id - the
+    frontend still warns that mounting moves the object - and its name is blank
 
     Args:
         objects_manager (ObjectsManager): db interface for CmdbObjects
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
         object_ids (list[int]): public_ids of the candidates on the page
+        denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read
 
     Returns:
         dict[int, dict[str, Any]]: {object_id: {public_id, display_name}}, absent for a free candidate
@@ -846,8 +884,11 @@ def resolve_assigned_racks(
         as_dict=True,
     )
 
-    rack_names: dict[int, str] = {
-        doc[CmdbObjectKey.PUBLIC_ID.value]: get_rack_display_name(doc)
+    denied: set[int] = set(denied_type_ids)
+    rack_names: dict[int, str | None] = {
+        doc[CmdbObjectKey.PUBLIC_ID.value]: (
+            None if doc.get(CmdbObjectKey.TYPE_ID.value) in denied else get_rack_display_name(doc)
+        )
         for doc in rack_docs
         if isinstance(doc.get(CmdbObjectKey.PUBLIC_ID.value), int)
     }

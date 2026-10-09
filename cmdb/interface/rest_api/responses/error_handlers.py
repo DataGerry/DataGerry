@@ -30,6 +30,11 @@ future route invents, and including an unhandled non-HTTP exception - Flask conv
 class's default text and the `response` prefix is that class's `name`; both are read off the exception
 rather than spelled out per status, so there is nothing to keep in sync
 
+**Two database errors get a status of their own** (`database_unavailable`, `database_locked`). A lost connection
+(`DocumentNetworkError`) is a **503** and a lock timeout (`DocumentLockTimeoutError`) a **423**: both are "try again",
+not a server fault. They are registered for the app, so every route answers them the same way - the shared route tail
+`handle_route_errors` re-raises them for exactly this - and they answer the same envelope as every other failure
+
 Note this is the REST API's contract only. The SPA host (`interface/net_app`) registers a 404 of its
 own that serves the Angular entry point, and must keep it - that app answers HTML on purpose
 """
@@ -37,13 +42,20 @@ from logging import Logger, getLogger
 from typing import Any
 
 from flask import Response, request, jsonify
-from werkzeug.exceptions import HTTPException, InternalServerError
+from werkzeug.exceptions import HTTPException, InternalServerError, Locked, ServiceUnavailable
+
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
 #: Status used when an HTTPException carries no code of its own (the base class does not)
 FALLBACK_STATUS: int = InternalServerError.code
+
+#: The message of the 503 a lost database connection answers
+DATABASE_UNAVAILABLE_MSG: str = "Database connection issue. Please try again!"
+#: The message of the 423 a database lock timeout answers
+DATABASE_LOCKED_MSG: str = "Database collection currently in use. Please try again!"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 ErrorResponse - CLASS                                                #
@@ -141,3 +153,33 @@ def http_exception(error: HTTPException) -> Response:
         description=type(error).description,
         message=error.description,
     ).make_error()
+
+
+def database_unavailable(error: DocumentNetworkError) -> Response:
+    """
+    Answers a lost database connection with a 503 - the request may succeed if tried again
+
+    Args:
+        error (DocumentNetworkError): The connection failure that escaped the route
+
+    Returns:
+        Response: The JSON envelope with status 503
+    """
+    LOGGER.error("[DB Network Error] %s: %s", type(error).__name__, error, exc_info=error)
+
+    return http_exception(ServiceUnavailable(DATABASE_UNAVAILABLE_MSG))
+
+
+def database_locked(error: DocumentLockTimeoutError) -> Response:
+    """
+    Answers a database lock timeout with a 423 - the collection is busy, the request may succeed if tried again
+
+    Args:
+        error (DocumentLockTimeoutError): The lock timeout that escaped the route
+
+    Returns:
+        Response: The JSON envelope with status 423
+    """
+    LOGGER.error("[DB Lock Timeout] %s: %s", type(error).__name__, error, exc_info=error)
+
+    return http_exception(Locked(DATABASE_LOCKED_MSG))

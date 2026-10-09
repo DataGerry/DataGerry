@@ -41,6 +41,7 @@ __all__: list[str] = [
     'REQUIRED_OBJECT_ID_MESSAGE',
     'INVALID_OBJECT_ID_MESSAGE',
     'VALIDATION_ROWS_NOT_A_LIST_MESSAGE',
+    'VALIDATION_TOO_MANY_ROWS_MESSAGE',
     'VALIDATION_ROW_NOT_AN_OBJECT_MESSAGE',
     'VALIDATION_ROW_INDEX_MESSAGE',
 ]
@@ -80,6 +81,11 @@ INVALID_OBJECT_ID_MESSAGE: str = (
 # Refusal (HTTP 400) when the interface pre-check is not given a list of rows to check
 VALIDATION_ROWS_NOT_A_LIST_MESSAGE: str = (
     "'{field}' is required and must be a list of {{row_index, subnet_id, ip_address, interface_type}}!"
+)
+
+# Refusal (HTTP 400) when the pre-check carries more rows than it accepts
+VALIDATION_TOO_MANY_ROWS_MESSAGE: str = (
+    "'{field}' carries {count} rows - at most {limit} are checked in one request!"
 )
 
 # Refusal (HTTP 400) for one unusable entry of that list. Positional, because the entry has no id of

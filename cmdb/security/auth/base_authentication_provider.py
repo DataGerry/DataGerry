@@ -99,10 +99,12 @@ class BaseAuthenticationProvider:
         """
         Answers whether a provider of this class, built from `config`, is active
 
-        The one rule both halves of a login follow: the primary attempt asks a built provider, whose
-        `is_active` delegates here, and the fallback sweep asks the class before building anything - an
-        inactive provider is never constructed. By default the config's own flag decides; a provider
-        that must never be switched off overrides this
+        The one rule both halves of a login follow, and the only one: the primary attempt and the fallback
+        sweep both ask the class with the stored configuration, before building anything - an inactive
+        provider is never constructed. There is deliberately no instance-level variant, so a provider
+        cannot answer the two halves differently, and a new provider needs nothing but `authenticate`.
+        By default the config's own flag decides; a provider that must never be switched off overrides
+        this
 
         Args:
             config (BaseAuthProviderConfig): The configuration the provider is, or would be, built from

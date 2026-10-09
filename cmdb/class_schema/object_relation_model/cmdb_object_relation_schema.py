@@ -36,7 +36,6 @@ from typing import Any
 # sends, a timestamp string from an API client, and a real datetime (an already-normalised payload)
 _DATE_TYPES: list[str] = ['dict', 'string', 'datetime']
 
-# pylint: disable=R0801
 def get_cmdb_object_relation_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbObjectRelation document
@@ -46,7 +45,10 @@ def get_cmdb_object_relation_schema() -> dict[str, Any]:
     """
     # Imported inside the builder: the key enum lives in the model layer, which imports this module
     # pylint: disable=import-outside-toplevel
-    from cmdb.models.object_relation_model.object_relation_constants import ObjectRelationKey
+    from cmdb.models.object_relation_model.object_relation_constants import (
+        ObjectRelationFieldValueKey,
+        ObjectRelationKey,
+    )
 
     return {
         ObjectRelationKey.PUBLIC_ID.value: {  # public_id of CmdbObjectRelation
@@ -98,5 +100,21 @@ def get_cmdb_object_relation_schema() -> dict[str, Any]:
             'type': 'list',
             'required': False,
             'default': [],
+            # Each entry names one of the relation's fields; that the name is DECLARED by the referenced
+            # CmdbRelation is the write route's check (it needs the relation)
+            'schema': {
+                'type': 'dict',
+                'schema': {
+                    ObjectRelationFieldValueKey.NAME.value: {
+                        'type': 'string',
+                        'required': True,
+                        'empty': False,
+                    },
+                    ObjectRelationFieldValueKey.VALUE.value: {
+                        'required': False,
+                        'nullable': True,
+                    },
+                },
+            },
         }
     }

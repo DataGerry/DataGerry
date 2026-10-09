@@ -30,6 +30,11 @@ __all__: list[str] = [
     'WEBHOOK_DELIVERED_STATUS_MAX',
     'WEBHOOK_NO_RESPONSE_CODE',
     'WEBHOOK_ALLOWED_URL_SCHEMES',
+    'WEBHOOK_DEFAULT_PORTS',
+    'TYPE_ACL_PROJECTION',
+    'WEBHOOK_URL_DESTINATION_MSG',
+    'WebhookDestinationReason',
+    'WebhookKey',
     'WEBHOOK_DISPATCH_MAX_WORKERS',
     'WEBHOOK_DISPATCH_THREAD_PREFIX',
     'WEBHOOK_ENTITY_LABEL',
@@ -61,9 +66,38 @@ WEBHOOK_NO_RESPONSE_CODE: int = 0
 #: cosmetic detail - anything outside this set is refused when the webhook is created or updated
 WEBHOOK_ALLOWED_URL_SCHEMES: frozenset[str] = frozenset({'http', 'https'})
 
+# What a delivery reads of the object's CmdbType: its ACL
+TYPE_ACL_PROJECTION: dict[str, int] = {'_id': 0, 'acl': 1}
+
+# The port a URL without one is delivered to, per scheme
+WEBHOOK_DEFAULT_PORTS: dict[str, int] = {'http': 80, 'https': 443}
+
+# The 400 a webhook write answers when its URL's destination is refused (``webhook_destination``)
+WEBHOOK_URL_DESTINATION_MSG: str = "The Webhook URL may not be used: {reason}"
+
+
+class WebhookKey(BaseStrEnum):
+    """Keys of a CmdbWebhook document the routes read or set"""
+    NAME = 'name'
+    URL = 'url'
+    EVENT_TYPES = 'event_types'
+    ACTIVE = 'active'
+    #: The user who last saved the webhook - server-owned, it decides which objects the webhook may receive
+    OWNER_ID = 'owner_id'
+
+
+class WebhookDestinationReason(BaseStrEnum):
+    """Why a webhook's destination is refused (``webhook_destination.refused_destination_reason``)"""
+    NO_HOST = "it names no host"
+    INVALID_PORT = "its port is not a valid port number"
+    NOT_PUBLIC = "'{host}' resolves to an address that is not public ({addresses})"
+
 #: Size of the shared pool that delivers webhooks off the request thread, and its thread-name prefix
 WEBHOOK_DISPATCH_MAX_WORKERS: int = 4
 WEBHOOK_DISPATCH_THREAD_PREFIX: str = 'webhook-dispatch'
+
+#: Refusal (HTTP 500) when a webhook delete failed and its undo could not put everything back
+WEBHOOK_DELETE_RESIDUE_MSG: str = "Deleting the Webhook failed and could not be fully undone: {residue}"
 
 #: What a CmdbWebhook write is called in the shared refusal of a body that is not a JSON object
 WEBHOOK_ENTITY_LABEL: str = 'Webhook'

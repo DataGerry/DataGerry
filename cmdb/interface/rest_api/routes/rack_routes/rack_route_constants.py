@@ -25,8 +25,9 @@ class RackRight(BaseStrEnum):
 
     Every membership and placement write is guarded by EDIT: the requirement lists "add or remove an
     object" separately from "edit the values of the Rack", but both are the same right - there is no
-    dedicated mount right. Note these guard the RACK, not the mounted object: a caller needs rack
-    rights only, never object rights on what they are mounting
+    dedicated mount right. These guard the RACK. What a read shows of the MOUNTED objects follows the
+    caller's object READ ACL as well: the picker offers only readable candidates, and the overview draws an
+    unreadable member's slot blank. The membership writes check no object right
     """
     ADD = 'base.framework.rack.add'
     VIEW = 'base.framework.rack.view'

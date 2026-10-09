@@ -29,6 +29,7 @@ from typing import Any
 
 from flask import current_app
 
+from cmdb.manager.manager_provider_model import ManagerProvider
 from cmdb.manager import OcTemplateManager
 
 from cmdb.open_celium import is_hosted_cloud
@@ -53,7 +54,7 @@ def build_template_manager(request_user: CmdbUser) -> OcTemplateManager:
     Returns:
         OcTemplateManager: The manager to talk to OpenCelium with
     """
-    return OcTemplateManager(current_app.database_manager, request_user.database)
+    return OcTemplateManager(current_app.database_manager, ManagerProvider.tenant_database(request_user))
 
 
 def datagerry_invoker_name() -> str:

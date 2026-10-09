@@ -24,6 +24,7 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager import TypesManager, SectionTemplatesManager
+from cmdb.framework.write_ledger import WriteLedger
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.framework.ipam.special_type_wiring import handle_special_types
@@ -54,7 +55,8 @@ class ProfileBase:
             created_type_ids: dict[str, int | None],
             types_manager: TypesManager,
             section_templates_manager: SectionTemplatesManager,
-            type_constructor: ProfileTypeConstructor) -> None:
+            type_constructor: ProfileTypeConstructor,
+            ledger: WriteLedger | None = None) -> None:
         """
         Args:
             created_type_ids (dict[str, int | None]): Slot map shared across the whole profile run;
@@ -64,11 +66,14 @@ class ProfileBase:
             section_templates_manager (SectionTemplatesManager): db interface for section templates
             type_constructor (ProfileTypeConstructor): Shared builder used to assemble CmdbType dicts
                                                        (created once per run and reused by every profile)
+            ledger (WriteLedger | None): Records every created type, so a failed run can be undone. Defaults
+                                         to None (nothing recorded)
         """
         self.types_manager: TypesManager = types_manager
         self.section_templates_manager: SectionTemplatesManager = section_templates_manager
         self.created_type_ids: dict[str, int | None] = created_type_ids
         self.type_constructor: ProfileTypeConstructor = type_constructor
+        self.ledger: WriteLedger | None = ledger
 
 # ------------------------------------------------- HELPER FUNCTIONS ------------------------------------------------- #
 
@@ -127,6 +132,9 @@ class ProfileBase:
         """
         type_dict['public_id'] = self.types_manager.get_new_type_public_id()
         new_type_id: int = self.types_manager.insert_type(type_dict)
+
+        if self.ledger is not None:
+            self.ledger.inserted(self.types_manager, new_type_id)
 
         self.created_type_ids[type_name_key] = new_type_id
 

@@ -43,7 +43,7 @@ BASE_URL: str = '/object_relations/tabs'
 
 RELATION_ID: int = 96601
 COUNTERPART_TYPE_ID: int = 96602
-MAIN_OBJ: int = 96611
+MAIN_OBJ: int = 96611      # seeded object -> the tab's own object
 CHILD_OBJ: int = 96612      # seeded object -> counterpart resolves
 PARENT_OBJ: int = 96613     # NOT seeded as an object -> counterpart is null
 OR_IDS: list[int] = [96621, 96622, 96623]
@@ -63,7 +63,7 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         relations.delete_many({'public_id': RELATION_ID})
         object_relations.delete_many({'public_id': {'$in': OR_IDS}})
         types.delete_many({'public_id': COUNTERPART_TYPE_ID})
-        objects.delete_many({'public_id': CHILD_OBJ})
+        objects.delete_many({'public_id': {'$in': [MAIN_OBJ, CHILD_OBJ]}})
 
     def _or(public_id: int, parent: int, child: int) -> dict[str, Any]:
         return {'public_id': public_id, 'relation_id': RELATION_ID,
@@ -78,11 +78,18 @@ def _seed(database_manager: MongoDatabaseManager, database_name: str):
         'relation_color_parent': '#111111', 'relation_color_child': '#222222',
     })
     types.insert_one(make_type_doc(COUNTERPART_TYPE_ID, 'rel-counterpart-type'))
-    objects.insert_one({
-        'public_id': CHILD_OBJ, 'type_id': COUNTERPART_TYPE_ID, 'active': True, 'author_id': 1,
-        'version': '1.0.0', 'creation_time': datetime.now(timezone.utc),
-        'fields': [{'type': 'text', 'name': 'dg-name', 'value': CHILD_NAME}],
-    })
+    objects.insert_many([
+        {
+            'public_id': CHILD_OBJ, 'type_id': COUNTERPART_TYPE_ID, 'active': True, 'author_id': 1,
+            'version': '1.0.0', 'creation_time': datetime.now(timezone.utc),
+            'fields': [{'type': 'text', 'name': 'dg-name', 'value': CHILD_NAME}],
+        },
+        # The tab's own object: the route reads it before answering its tabs
+        {
+            'public_id': MAIN_OBJ, 'type_id': COUNTERPART_TYPE_ID, 'active': True, 'author_id': 1,
+            'version': '1.0.0', 'creation_time': datetime.now(timezone.utc), 'fields': [],
+        },
+    ])
     object_relations.insert_many([
         _or(OR_IDS[0], MAIN_OBJ, CHILD_OBJ),
         _or(OR_IDS[1], MAIN_OBJ, CHILD_OBJ),

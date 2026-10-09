@@ -28,14 +28,18 @@ body or a 500 - the replace-on-upload ordering, and the update route's required 
 parameter.
 """
 import json
+import re
 from io import BytesIO
 from http import HTTPStatus
+from urllib.parse import quote, unquote
 
 import pytest
+from gunicorn.http.wsgi import HEADER_VALUE_RE
 from werkzeug.datastructures import FileStorage
 from werkzeug.exceptions import NotFound
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.utils import CONTENT_DISPOSITION_HEADER
 from cmdb.manager import MediaFilesManager
 from cmdb.framework.media_library import MediaFile, MediaFileMetadataKey
 from cmdb.errors.manager.media_files_manager import (
@@ -215,8 +219,37 @@ class TestGetSingle:
         assert response.status_code == HTTPStatus.NOT_FOUND
 
 
+# Names a header cannot carry bare: Cyrillic (the reported case), CJK, an emoji, and latin-1 that used to go out
+# garbled; with the plain ASCII control
+NON_ASCII_NAMES: list[str] = ['dg-func-Отчёт.txt', 'dg-func-日本語.pdf', 'dg-func-📎.png', 'dg-func-Grüße.txt']
+EXACT_NAME_PATTERN: re.Pattern[str] = re.compile(r"filename\*=UTF-8''([^;]+)")
+
+
 class TestDownload:
     """GET /media_file/download/<filename> streams the file content."""
+
+    @pytest.mark.parametrize('filename', NON_ASCII_NAMES)
+    def test_a_non_ascii_name_downloads_with_a_header_the_server_can_send(self, rest_api, filename: str) -> None:
+        """The content comes back, the header passes gunicorn's own check, and it carries the exact name"""
+        _upload(rest_api, filename)
+        metadata = json.dumps({'author_id': AUTHOR_ID})
+
+        response = rest_api.get(f'{BASE_URL}/download/{quote(filename)}?metadata={quote(metadata)}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.data == b'content'
+        header: str = response.headers[CONTENT_DISPOSITION_HEADER]
+        assert HEADER_VALUE_RE.fullmatch(header)
+        assert unquote(EXACT_NAME_PATTERN.search(header).group(1)) == filename
+
+    def test_an_ascii_name_keeps_its_plain_header(self, rest_api) -> None:
+        """No second parameter for a name ASCII spells"""
+        _upload(rest_api, 'dg-func-plain.txt')
+        metadata = json.dumps({'author_id': AUTHOR_ID})
+
+        response = rest_api.get(f'{BASE_URL}/download/dg-func-plain.txt?metadata={metadata}')
+
+        assert response.headers[CONTENT_DISPOSITION_HEADER] == 'attachment; filename="dg-func-plain.txt"'
 
     def test_download_returns_content(self, rest_api) -> None:
         """A download returns the raw file content as an attachment."""

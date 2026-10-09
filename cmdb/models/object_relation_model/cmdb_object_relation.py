@@ -139,7 +139,7 @@ class CmdbObjectRelation(CmdbDAO):
     ]
 
     # Ten keyword arguments, one per document key - the shared from_data passes them all by name
-    #pylint: disable=R0913
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
             *,

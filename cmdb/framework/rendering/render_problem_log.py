@@ -42,26 +42,23 @@ class RenderProblemLog:
 
     Attributes:
         logger (Logger): Where the problems are logged
-        reported (set[tuple[Any, ...]]): The dedup keys of the problems already logged. A nested render
-            is handed its outer render's set, so it does not log them again
+        reported (set[tuple[Any, ...]]): The dedup keys of the problems already logged
         problems_by_object (dict[int, list[dict[str, Any]]]): The recorded problems, keyed by the
             public_id of the object whose render they cost
         current_object_id (int | None): The object being rendered right now, where a problem is recorded
             when no object is named
     """
 
-    def __init__(self, logger: Logger, reported: set[tuple[Any, ...]] | None = None) -> None:
+    def __init__(self, logger: Logger) -> None:
         """
         Initialises an empty RenderProblemLog
 
         Args:
             logger (Logger): Where the problems are logged - the renderer's own logger, so a log line
                 keeps naming the module that lost the data
-            reported (set[tuple[Any, ...]] | None): An outer render's set of logged problems to share.
-                Defaults to None, which starts a fresh one
         """
         self.logger: Logger = logger
-        self.reported: set[tuple[Any, ...]] = reported if reported is not None else set()
+        self.reported: set[tuple[Any, ...]] = set()
         self.problems_by_object: dict[int, list[dict[str, Any]]] = {}
         self.current_object_id: int | None = None
 
@@ -149,10 +146,7 @@ class RenderProblemLog:
 
     def record(self, problems: Iterable[dict[str, Any]], object_id: int | None = None) -> None:
         """
-        Adds problems to an object's record, each entry at most once
-
-        Used directly to hand a nested render's problems up to the object it was rendered for: what the
-        nested render lost is missing from that object's reference section
+        Adds problems to an object's record, each entry at most once - the recording half of ``report``
 
         Args:
             problems (Iterable[dict[str, Any]]): The ``RenderProblemKey`` entries to add

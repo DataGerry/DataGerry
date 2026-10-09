@@ -15,9 +15,14 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of DateSettingsDAO
+
+The instance's regional date settings - one document of the settings collection (`_id` 'date'; per tenant in
+cloud mode) that the frontend formats every date with. ``SCHEMA`` is the write's request schema
 """
 from logging import Logger, getLogger
+from typing import Any
 
+from cmdb.class_schema.settings_model.date_settings_schema import get_date_settings_schema
 from cmdb.settings.date_settings_constants import DATE_SETTINGS_SECTION, DateSettingsKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -29,7 +34,11 @@ LOGGER: Logger = getLogger(__name__)
 class DateSettingsDAO:
     """
     Handles regional date settings, including date format and timezone preferences
+
+    Attributes:
+        SCHEMA: The request schema of ``POST|PUT /date/`` - both values required, non-empty strings
     """
+    SCHEMA: dict[str, Any] = get_date_settings_schema()
 
     __DEFAULT_SETTINGS__: dict[str, str] = {
             DateSettingsKey.DATE_FORMAT: 'YYYY-MM-DDThh:mm:ssZ',

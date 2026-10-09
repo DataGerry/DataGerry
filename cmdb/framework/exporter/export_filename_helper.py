@@ -103,7 +103,7 @@ def build_object_export_subject(type_names: list[str]) -> str:
     Names what an object export contains
 
     One type is named after that type, which is the common case and the only information worth having.
-    A selection spanning several types (JSON / XML / ZIP - CSV and XLSX refuse a mixed selection) is
+    A selection spanning several types (JSON / XML / XLSX / ZIP - CSV refuses a mixed selection) is
     named by their COUNT rather than by a list, so the name stays short and never has to be elided. A
     filter that matched no object has no type to name at all
 

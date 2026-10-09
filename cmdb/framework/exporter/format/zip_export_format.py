@@ -29,7 +29,12 @@ from cmdb.framework.exporter.format.base_exporter_format import (
     TYPE_INFO_ID_KEY,
     TYPE_INFO_NAME_KEY,
 )
-from cmdb.framework.exporter.exporter_constants import EXPORT_FORMAT_MODULE_PREFIX, ExporterOptionKey
+from cmdb.framework.exporter.exporter_constants import (
+    EXPORT_FORMAT_MODULE_PREFIX,
+    ZIP_ENTRY_FALLBACK_NAME,
+    ExporterOptionKey,
+)
+from cmdb.framework.exporter.export_filename_helper import sanitize_filename_part
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -43,7 +48,9 @@ class ZipExportFormat(BaseExporterFormat):
     The ZIP export format class
 
     Packs an underlying format (`classname`): the objects are grouped by type and each type is exported
-    with the inner format into its own file inside the archive.
+    with the inner format into its own file inside the archive. The inner format is handed the request's
+    options, so each packed file reads exactly like a direct export of that type in that format - view,
+    column selection and human-readable flag included.
 
     Extends: BaseExporterFormat
     """
@@ -61,13 +68,14 @@ class ZipExportFormat(BaseExporterFormat):
         Exports the objects as a ZIP archive with one inner file per type
 
         The inner export format is chosen by the `classname` option; the objects are grouped by type id
-        and each group is serialized by the inner format into its own archive entry
-        (`<type_name>_ID_<type_id>.<inner_extension>`). An empty object list yields a valid empty archive.
-        The inner format is exported in its default (NATIVE) view - `view` / `metadata` are not forwarded.
+        and each group is serialized by the inner format, with the same options, into its own archive entry
+        (`<type_name>_ID_<type_id>.<inner_extension>`, the name sanitized like the archive's own). An empty
+        object list yields a valid empty archive.
 
         Args:
             data (list[RenderResult]): The objects to be exported
-            *args: Optional export parameters dict; `classname` selects the inner format
+            *args: Optional export parameters dict; `classname` selects the inner format, the rest (`view`,
+                `metadata`, `human_readable`, the writer's location names) is handed on to it
 
         Returns:
             io.BytesIO: An in-memory ZIP archive positioned at the start
@@ -77,18 +85,31 @@ class ZipExportFormat(BaseExporterFormat):
 
         zipped_file = io.BytesIO()
 
-        with zipfile.ZipFile(zipped_file, "a", zipfile.ZIP_DEFLATED, False) as archive:
+        with zipfile.ZipFile(zipped_file, "a", zipfile.ZIP_DEFLATED) as archive:
             for type_id, group in self._group_by_type(data):
                 objects = list(group)
                 entry_name = self._zip_entry_name(
                     objects[0].type_information[TYPE_INFO_NAME_KEY], type_id, inner_format.FILE_EXTENSION
                 )
-                content = inner_format.export(objects)
+                content = inner_format.export(objects, options)
                 archive.writestr(entry_name, self._to_bytes_or_str(content))
 
         zipped_file.seek(0)
 
         return zipped_file
+
+
+    def honours_human_readable(self, options: dict[str, Any] | None) -> bool:
+        """
+        Reports whether this export is a human-readable one - which the packed format decides
+
+        Args:
+            options (dict[str, Any] | None): The export options dict carrying the `classname` of the inner format
+
+        Returns:
+            bool: True when the `human_readable` option is truthy and the inner format honours it
+        """
+        return self._load_inner_format(options or {}).honours_human_readable(options)
 
 
     def _load_inner_format(self, options: dict[str, Any]) -> BaseExporterFormat:
@@ -131,6 +152,10 @@ class ZipExportFormat(BaseExporterFormat):
         """
         Builds the archive entry file name for one type's export
 
+        The type name is reduced the way the archive's own filename is (`sanitize_filename_part`), so a
+        stored name can never carry a path separator or `..` into the archive; a name with nothing usable
+        left becomes `ZIP_ENTRY_FALLBACK_NAME`. The type id keeps two entries apart either way
+
         Args:
             type_name (str): The type's name
             type_id (int): The type's public id
@@ -139,7 +164,9 @@ class ZipExportFormat(BaseExporterFormat):
         Returns:
             str: The archive entry name, e.g. `router_ID_5.json`
         """
-        return f'{type_name}_ID_{type_id}.{file_extension}'
+        name = sanitize_filename_part(type_name) or ZIP_ENTRY_FALLBACK_NAME
+
+        return f'{name}_ID_{type_id}.{file_extension}'
 
 
     @staticmethod

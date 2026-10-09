@@ -46,6 +46,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_or_abort,
     get_requested_height_or_abort,
     is_rack_type,
+    leaves_its_area,
     refuse_kind_change,
     resolve_kind_or_abort,
     resolve_assigned_racks,
@@ -65,6 +66,8 @@ OTHER_RACK_ID: int = 701
 RACK_TYPE_ID: int = 70
 PLAIN_TYPE_ID: int = 71
 NO_LOCATION_TYPE_ID: int = 72
+# A caller whose group may read every CmdbType
+NO_DENIED_TYPES: tuple[int, ...] = ()
 OBJECT_ID: int = 800
 MOUNT_ID: int = 900
 OTHER_MOUNT_ID: int = 901
@@ -465,6 +468,72 @@ def test_an_empty_patch_leaves_the_mount_as_it_was() -> None:
     """Nothing requested, nothing changed"""
     assert apply_mount_changes(_stored_mount(), {}) == _stored_mount()
 
+
+# A side-list row, at an index of the list it is stored in
+SIDE_POSITION: int = 4
+CHOSEN_POSITION: int = 7
+
+
+def _side_mount(area: str = RackArea.LEFT.value) -> dict[str, Any]:
+    """A stored row of an ordered area, at SIDE_POSITION"""
+    return _stored_mount(area=area, start_slot=None, height=None, position=SIDE_POSITION)
+
+
+@pytest.mark.parametrize(('source', 'target'), [
+    (RackArea.LEFT.value, RackArea.RIGHT.value),
+    (RackArea.RIGHT.value, RackArea.UNASSIGNED.value),
+    (RackArea.UNASSIGNED.value, RackArea.LEFT.value),
+], ids=['left-to-right', 'side-to-tray', 'tray-to-side'])
+def test_a_move_to_another_area_drops_the_old_index(source: str, target: str) -> None:
+    """The index belonged to the list it left - cleared, so the new list appends the row"""
+    candidate = apply_mount_changes(_side_mount(source), {'area': target})
+
+    assert candidate['area'] == target
+    assert candidate['position'] is None
+
+
+def test_a_move_that_names_a_position_keeps_it() -> None:
+    """The body's index is a deliberate placement in the new list"""
+    candidate = apply_mount_changes(_side_mount(), {'area': RackArea.RIGHT.value, 'position': CHOSEN_POSITION})
+
+    assert candidate['position'] == CHOSEN_POSITION
+
+
+def test_echoing_the_same_area_keeps_the_index() -> None:
+    """Naming the area the row is already in is not a move"""
+    candidate = apply_mount_changes(_side_mount(), {'area': RackArea.LEFT.value})
+
+    assert candidate['position'] == SIDE_POSITION
+
+
+def test_a_reorder_inside_the_area_applies_the_new_index() -> None:
+    """The reorder API: same list, a new index"""
+    candidate = apply_mount_changes(_side_mount(), {'position': CHOSEN_POSITION})
+
+    assert candidate['position'] == CHOSEN_POSITION
+
+
+def test_the_stored_row_is_not_changed_by_a_move() -> None:
+    """The merge works on a copy"""
+    stored = _side_mount()
+
+    apply_mount_changes(stored, {'area': RackArea.RIGHT.value})
+
+    assert stored['position'] == SIDE_POSITION
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               leaves_its_area                                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def test_a_different_area_is_a_move() -> None:
+    """The two areas differ"""
+    assert leaves_its_area(_side_mount(), _side_mount(RackArea.RIGHT.value)) is True
+
+
+def test_the_same_area_is_no_move() -> None:
+    """The two areas match"""
+    assert leaves_its_area(_side_mount(), _side_mount()) is False
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                         assign_position_if_needed                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -705,7 +774,7 @@ def test_the_object_meta_is_resolved_in_bulk() -> None:
     ]
 
     summary_lines, type_meta, object_types = resolve_mounted_object_meta(
-        objects_manager, types_manager, mounts,
+        objects_manager, types_manager, mounts, NO_DENIED_TYPES,
     )
 
     assert objects_manager.find_objects.call_count == 1
@@ -726,7 +795,9 @@ def test_the_object_meta_reuses_the_loaded_documents() -> None:
     types_manager = MagicMock()
     types_manager.get_types_lookup.return_value = {}
 
-    resolve_mounted_object_meta(objects_manager, types_manager, [{'public_id': 1, 'object_id': OBJECT_ID}])
+    resolve_mounted_object_meta(
+        objects_manager, types_manager, [{'public_id': 1, 'object_id': OBJECT_ID}], NO_DENIED_TYPES,
+    )
 
     assert objects_manager.get_summary_lines_lookup.call_args.kwargs['object_docs'] == docs
 
@@ -736,7 +807,7 @@ def test_no_reads_happen_for_an_empty_rack() -> None:
     objects_manager = MagicMock()
     types_manager = MagicMock()
 
-    assert resolve_mounted_object_meta(objects_manager, types_manager, []) == ({}, {}, {})
+    assert resolve_mounted_object_meta(objects_manager, types_manager, [], NO_DENIED_TYPES) == ({}, {}, {})
     objects_manager.find_objects.assert_not_called()
 
 
@@ -746,7 +817,7 @@ def test_a_mount_without_an_integer_object_id_is_skipped() -> None:
     types_manager = MagicMock()
 
     assert resolve_mounted_object_meta(
-        objects_manager, types_manager, [{'public_id': 1, 'object_id': None}],
+        objects_manager, types_manager, [{'public_id': 1, 'object_id': None}], NO_DENIED_TYPES,
     ) == ({}, {}, {})
     objects_manager.find_objects.assert_not_called()
 
@@ -827,7 +898,7 @@ def test_the_picker_page_is_resolved_in_bulk_reads() -> None:
         {'public_id': OBJECT_ID + 1, 'type_id': PLAIN_TYPE_ID},
     ]
 
-    rows = shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, docs)
+    rows = shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, docs, NO_DENIED_TYPES)
 
     assert objects_manager.get_summary_lines_lookup.call_count == 1
     assert types_manager.get_types_lookup.call_count == 1
@@ -848,7 +919,7 @@ def test_the_picker_page_reuses_the_documents_it_was_given() -> None:
     rack_mounts_manager.get_mounts_of_objects.return_value = []
     docs = [{'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}]
 
-    shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, docs)
+    shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, docs, NO_DENIED_TYPES)
 
     assert objects_manager.get_summary_lines_lookup.call_args.kwargs['object_docs'] == docs
     assert objects_manager.get_summary_lines_lookup.call_args.kwargs['with_type'] is False
@@ -861,7 +932,7 @@ def test_an_empty_picker_page_reads_nothing() -> None:
     rack_mounts_manager = MagicMock()
     rack_mounts_manager.get_mounts_of_objects.return_value = []
 
-    assert shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, []) == []
+    assert shape_assignable_page(objects_manager, types_manager, rack_mounts_manager, [], NO_DENIED_TYPES) == []
     objects_manager.get_summary_lines_lookup.assert_not_called()
     types_manager.get_types_lookup.assert_not_called()
 
@@ -875,7 +946,7 @@ def test_a_page_of_free_candidates_reads_no_rack() -> None:
     rack_mounts_manager = MagicMock()
     rack_mounts_manager.get_mounts_of_objects.return_value = []
 
-    assert resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID]) == {}
+    assert resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID], NO_DENIED_TYPES) == {}
     objects_manager.find_objects.assert_not_called()
 
 
@@ -892,7 +963,7 @@ def test_a_candidate_in_another_rack_resolves_to_that_racks_name() -> None:
         'fields': [{'name': RackField.NAME.value, 'value': 'Rack A', 'type': 'text'}],
     }]
 
-    assigned = resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID])
+    assigned = resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID], NO_DENIED_TYPES)
 
     assert assigned[OBJECT_ID]['public_id'] == OTHER_RACK_ID
     assert assigned[OBJECT_ID]['display_name'] == 'Rack A'
@@ -907,7 +978,47 @@ def test_a_mount_whose_rack_vanished_contributes_no_hint() -> None:
     objects_manager = MagicMock()
     objects_manager.find_objects.return_value = []
 
-    assert resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID]) == {}
+    assert resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID], NO_DENIED_TYPES) == {}
+
+
+def test_a_rack_the_caller_may_not_read_keeps_its_id_and_loses_its_name() -> None:
+    """The frontend still warns that the mount moves the object, and names nothing hidden"""
+    rack_mounts_manager = MagicMock()
+    rack_mounts_manager.get_mounts_of_objects.return_value = [
+        _stored_mount(public_id=OTHER_MOUNT_ID, rack_id=OTHER_RACK_ID),
+    ]
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [{
+        'public_id': OTHER_RACK_ID,
+        'type_id': RACK_TYPE_ID,
+        'fields': [{'name': RackField.NAME.value, 'value': 'Rack A', 'type': 'text'}],
+    }]
+
+    denied_rack_type: tuple[int, ...] = (RACK_TYPE_ID,)
+
+    assigned = resolve_assigned_racks(objects_manager, rack_mounts_manager, [OBJECT_ID], denied_rack_type)
+
+    assert assigned[OBJECT_ID]['public_id'] == OTHER_RACK_ID
+    assert assigned[OBJECT_ID]['display_name'] is None
+
+
+def test_the_overview_meta_of_an_unreadable_member_is_blank() -> None:
+    """Its row keeps the object and the type id; the summary line and the type's label go"""
+    objects_manager = MagicMock()
+    objects_manager.find_objects.return_value = [{'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}]
+    objects_manager.get_summary_lines_lookup.return_value = {OBJECT_ID: 'secret-server'}
+    types_manager = MagicMock()
+    types_manager.get_types_lookup.return_value = {
+        PLAIN_TYPE_ID: SimpleNamespace(label='Secret', get_icon=lambda: 'fa-lock', ci_explorer_color='#000000'),
+    }
+
+    summary_lines, type_meta, object_types = resolve_mounted_object_meta(
+        objects_manager, types_manager, [{'public_id': 1, 'object_id': OBJECT_ID}], (PLAIN_TYPE_ID,),
+    )
+
+    assert summary_lines == {}
+    assert type_meta == {PLAIN_TYPE_ID: {}}
+    assert object_types == {OBJECT_ID: PLAIN_TYPE_ID}
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

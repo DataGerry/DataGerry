@@ -26,16 +26,26 @@ update_cached_user is here for a different reason: its upsert has to satisfy the
 indexes, which the test suite never builds (nothing runs CollectionValidator), so the index-aware test
 creates them itself
 
-The manager is built with __new__ (its __init__ constructs a DgServicePortalManager, which needs an
-app context) and pointed at the test database instead of the shared dg_caches one
+The manager is built with its real constructor - it holds no Service Portal client - and pointed at the test
+database instead of the shared dg_caches one
+
+The cache-miss seeding (``oc_subscription_helper.read_or_seed_cached_user``) and the OpenCelium id check built on it
+run against the same real collection with a stubbed portal: a miss is seeded once, and the next read is the cache's
 """
+from datetime import datetime
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.system_manager.cached_user_manager import CachedUserManager
 from cmdb.models.cached_user_model import CachedUserKey, CmdbCachedUser
+from cmdb.open_celium import CachedOcIdType
+from cmdb.interface.rest_api.routes.open_celium_routes.oc_subscription_helper import (
+    oc_id_in_subscription,
+    read_or_seed_cached_user,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 EMAILS: list[str] = ['itest_a@acme.com', 'itest_b@acme.com', 'itest_c@acme.com']
@@ -44,8 +54,7 @@ EMAILS: list[str] = ['itest_a@acme.com', 'itest_b@acme.com', 'itest_c@acme.com']
 @pytest.fixture(name='cached_user_manager')
 def fixture_cached_user_manager(database_manager: MongoDatabaseManager, database_name: str) -> CachedUserManager:
     """Provides a CachedUserManager reading and writing the cache collection of the test database."""
-    manager: CachedUserManager = CachedUserManager.__new__(CachedUserManager)
-    manager.dbm = database_manager
+    manager: CachedUserManager = CachedUserManager(database_manager)
     manager.db_name = database_name
 
     return manager
@@ -109,8 +118,20 @@ class TestDeleteMultipleCachedUsers:
         """Both listed emails are gone, the third stays."""
         _seed(database_manager, database_name)
 
-        assert cached_user_manager.delete_multiple_cached_users(EMAILS[:2]) is True
+        assert cached_user_manager.delete_multiple_cached_users(EMAILS[:2]) == 2
         assert _remaining(database_manager, database_name) == [EMAILS[2]]
+
+    def test_the_count_leaves_out_what_was_not_cached(
+        self,
+        cached_user_manager: CachedUserManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """A listed email nothing is cached under is not counted"""
+        _seed(database_manager, database_name)
+
+        assert cached_user_manager.delete_multiple_cached_users([EMAILS[0], 'itest_unknown@acme.com']) == 1
+        assert sorted(_remaining(database_manager, database_name)) == sorted(EMAILS[1:])
 
 
 class TestClearCache:
@@ -200,3 +221,100 @@ class TestUpdateCachedUser:
         assert len(entries) == 1
         assert entries[0][CachedUserKey.PUBLIC_ID.value] == first_id
         assert entries[0][CachedUserKey.PASSWORD.value] == 'second'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         SEEDING A CACHE MISS FROM THE PORTAL                                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+TENANT_DB: str = 'itest_tenant'
+LISTED_SCHEDULER_ID: int = 41
+UNLISTED_SCHEDULER_ID: int = 42
+
+
+def _portal_user(email: str) -> dict[str, Any]:
+    """What the portal's user lookup answers: one subscription listing one scheduler id (as a string)"""
+    return {
+        'email': email,
+        'password': 'hashed',
+        'subscriptions': [
+            {'database': TENANT_DB, 'opencelium': {'schedules': [str(LISTED_SCHEDULER_ID)]}},
+        ],
+    }
+
+
+def test_a_miss_is_seeded_once_and_then_served_from_the_cache(cached_user_manager: CachedUserManager) -> None:
+    """The first read asks the portal and stores its answer; the second read never reaches the portal"""
+    portal = MagicMock()
+    portal.get_dg_sp_user_data.return_value = _portal_user(EMAILS[0])
+
+    first = read_or_seed_cached_user(cached_user_manager, portal, EMAILS[0])
+    second = read_or_seed_cached_user(cached_user_manager, portal, EMAILS[0])
+
+    assert first[CachedUserKey.EMAIL.value] == EMAILS[0]
+    assert CachedUserKey.CREATION_TIME.value in first
+    assert second == first
+    portal.get_dg_sp_user_data.assert_called_once_with(EMAILS[0])
+
+
+def test_a_user_the_portal_does_not_know_leaves_the_cache_empty(
+        cached_user_manager: CachedUserManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """Nothing is stored for an empty portal answer"""
+    portal = MagicMock()
+    portal.get_dg_sp_user_data.return_value = None
+
+    assert read_or_seed_cached_user(cached_user_manager, portal, EMAILS[1]) is None
+    assert database_manager.get_collection(CmdbCachedUser.COLLECTION, database_name)\
+        .count_documents({'email': EMAILS[1]}) == 0
+
+
+@pytest.mark.parametrize(('scheduler_id', 'expected'), [(LISTED_SCHEDULER_ID, True), (UNLISTED_SCHEDULER_ID, False)])
+def test_the_id_check_reads_the_seeded_subscription(
+        cached_user_manager: CachedUserManager, scheduler_id: int, expected: bool) -> None:
+    """The id list of the user's tenant database decides; the portal's per-kind check is never asked"""
+    portal = MagicMock()
+    portal.get_dg_sp_user_data.return_value = _portal_user(EMAILS[2])
+    request_user = MagicMock(email=EMAILS[2], database=TENANT_DB)
+
+    assert oc_id_in_subscription(
+        request_user, CachedOcIdType.SCHEDULERS, scheduler_id, cached_user_manager, portal,
+    ) is expected
+    portal.check_scheduler_in_sub.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                 THE NAMESPACE'S CONTRACT, AGAINST THE REAL COLLECTION                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _portal_answer(email: str) -> dict[str, Any]:
+    """A cached user as the portal answers a login - no 'active' key, a string creation_time"""
+    return {
+        CachedUserKey.EMAIL.value: email,
+        CachedUserKey.USER_NAME.value: email,
+        CachedUserKey.PASSWORD.value: 'hmac',
+        CachedUserKey.API_LEVEL.value: 1,
+        CachedUserKey.SUBSCRIPTIONS.value: [{'database': 'tenant_db', 'api_level': 1, 'config_item_limit': 10}],
+    }
+
+
+def test_a_portal_answer_is_stored_with_a_real_creation_time(
+        cached_user_manager: CachedUserManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """insert_cached_user stamps creation_time; DATE_FIELDS keeps it a BSON date, which the TTL index needs"""
+    cached_user_manager.insert_cached_user(_portal_answer(EMAILS[0]))
+
+    stored = database_manager.get_collection(CmdbCachedUser.COLLECTION, database_name).find_one({'email': EMAILS[0]})
+    assert isinstance(stored[CachedUserKey.CREATION_TIME.value], datetime)
+    assert stored[CachedUserKey.API_LEVEL.value] == 1
+    assert 'active' not in stored
+
+
+@pytest.mark.usefixtures('with_indexes')
+def test_the_unique_email_index_refuses_a_second_entry(
+        cached_user_manager: CachedUserManager, database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """One entry per user - the declared index, built by the fixture because the suite never runs CollectionValidator"""
+    collection = database_manager.get_collection(CmdbCachedUser.COLLECTION, database_name)
+    cached_user_manager.insert_cached_user(_portal_answer(EMAILS[1]))
+
+    with pytest.raises(Exception):
+        cached_user_manager.insert_cached_user(_portal_answer(EMAILS[1]))
+
+    assert collection.count_documents({'email': EMAILS[1]}) == 1
+

@@ -28,13 +28,19 @@ rules being pinned are the ones that must hold on both sides.
     nothing. A database that has not run updater_20260909 can still carry that null
   - **an unknown reference is refused before anything is written**, rather than stored and then
     mirrored into no document
-  - **the delete route makes exactly one call.** The reciprocal cleanup lives in the manager's
-    cascade, so the route must not repeat it - and must not be the only place it happens
+  - **the reciprocal write is ``sync_membership``, under the request's ledger**, with the full selection -
+    not the diff against the entity's own list - so a later save repairs a one-sided membership
+  - **the delete route makes exactly one cascade call**, after recording every write of it
+    (``record_delete_cascade``). The reciprocal cleanup lives in the manager's cascade, so the route must not
+    repeat it - and must not be the only place it happens
+  - **a failure part-way is undone**: the entity write is recorded, so the undo removes a created entity and
+    restores an updated one; an undo that cannot finish answers 500
   - the error tails: which manager error becomes a 400, and that anything else becomes a 500
 """
 # pylint: disable=too-many-arguments,too-many-positional-arguments
+from contextlib import contextmanager
 from types import SimpleNamespace
-from typing import Any, Callable, NamedTuple
+from typing import Any, Callable, Iterator, NamedTuple
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -44,6 +50,8 @@ from werkzeug.exceptions import HTTPException
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.models.person_model import PersonKey
 from cmdb.models.person_group_model import PersonGroupKey
+from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+from cmdb.framework.write_ledger import WriteLedger
 
 from cmdb.errors.manager.persons_manager import (
     PersonsManagerDeleteError,
@@ -99,9 +107,9 @@ class _Side(NamedTuple):
     own_manager_type: ManagerType
     counterpart_manager_type: ManagerType
     membership_key: str
+    counterpart_key: str
+    reference_type: PersonReferenceType
     payload: dict[str, Any]
-    add_method: str
-    sync_method: str
     get_error: type[Exception]
     insert_error: type[Exception]
     update_error: type[Exception]
@@ -119,13 +127,13 @@ PERSON_SIDE = _Side(
     ManagerType.PERSON,
     ManagerType.PERSON_GROUP,
     PersonKey.GROUPS.value,
+    PersonGroupKey.GROUP_MEMBERS.value,
+    PersonReferenceType.PERSON,
     {
         PersonKey.DISPLAY_NAME.value: 'Ada Lovelace',
         PersonKey.FIRST_NAME.value: 'Ada',
         PersonKey.LAST_NAME.value: 'Lovelace',
     },
-    'add_person_to_groups',
-    'update_person_in_groups',
     PersonsManagerGetError,
     PersonsManagerInsertError,
     PersonsManagerUpdateError,
@@ -143,9 +151,9 @@ PERSON_GROUP_SIDE = _Side(
     ManagerType.PERSON_GROUP,
     ManagerType.PERSON,
     PersonGroupKey.GROUP_MEMBERS.value,
+    PersonKey.GROUPS.value,
+    PersonReferenceType.PERSON_GROUP,
     {PersonGroupKey.NAME.value: 'Security officers', PersonGroupKey.EMAIL.value: ''},
-    'add_group_to_persons',
-    'update_group_in_persons',
     PersonGroupsManagerGetError,
     PersonGroupsManagerInsertError,
     PersonGroupsManagerUpdateError,
@@ -168,9 +176,13 @@ def _unwrap(func: Callable[..., Any]) -> Callable[..., Any]:
 
 
 class _Managers(NamedTuple):
-    """The two managers a route resolves, kept apart so a test can say which one was written"""
+    """The managers a route resolves and the two ledger helpers it calls, kept apart per role"""
     own: MagicMock
     counterpart: MagicMock
+    risk_assessments: MagicMock
+    assignments: MagicMock
+    sync: MagicMock
+    cascade: MagicMock
 
 
 @pytest.fixture(name='flask_app')
@@ -179,28 +191,38 @@ def fixture_flask_app() -> Flask:
     return Flask(__name__)
 
 
-def _patched_managers(side: _Side) -> Any:
+def _patched_managers(side: _Side) -> tuple[Any, _Managers]:
     """
-    Patches ManagerProvider.get_manager so each ManagerType returns its own mock
+    Patches ManagerProvider.get_manager so each ManagerType returns its own mock, and the two ledger helpers
+
+    ``sync_membership`` and ``record_delete_cascade`` have their own unit tests; here they are mocks, so a test
+    says what the route hands them. The entity's own ``get_one_by`` answers what ``get_item`` answers, so the
+    undo of a recorded update verifies clean unless a test says otherwise
 
     Args:
         side (_Side): The route file under test
 
     Returns:
-        Any: A context manager yielding the two managers
+        tuple[Any, _Managers]: A context manager applying the patches, and the mocks it installs
     """
-    managers = _Managers(MagicMock(), MagicMock())
+    managers = _Managers(MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock(), MagicMock())
+    managers.own.get_one_by.side_effect = lambda _criteria: managers.own.get_item.return_value
     by_type: dict[ManagerType, MagicMock] = {
         side.own_manager_type: managers.own,
         side.counterpart_manager_type: managers.counterpart,
+        ManagerType.RISK_ASSESSMENT: managers.risk_assessments,
+        ManagerType.CONTROL_MEASURE_ASSIGNMENT: managers.assignments,
     }
 
-    patcher = patch(
-        f'{side.route_path}.ManagerProvider.get_manager',
-        side_effect=lambda manager_type, _user: by_type[manager_type],
-    )
+    @contextmanager
+    def patcher() -> Iterator[None]:
+        with patch(f'{side.route_path}.ManagerProvider.get_manager',
+                   side_effect=lambda manager_type, _user: by_type[manager_type]), \
+                patch(f'{side.route_path}.sync_membership', managers.sync), \
+                patch(f'{side.route_path}.record_delete_cascade', managers.cascade):
+            yield
 
-    return patcher, managers
+    return patcher(), managers
 
 
 def _payload(side: _Side, **overrides: Any) -> dict[str, Any]:
@@ -247,7 +269,10 @@ class TestUnknownReferencesAreRefused:
                 request_user=SimpleNamespace(public_id=1),
             )
 
-        getattr(managers.counterpart, side.add_method).assert_called_once_with(NEW_ID, [5])
+        ledger, counterpart, key, member_id, selected = managers.sync.call_args.args
+
+        assert isinstance(ledger, WriteLedger)
+        assert (counterpart, key, member_id, selected) == (managers.counterpart, side.counterpart_key, NEW_ID, [5])
 
     def test_update_only_checks_the_memberships_being_added(
         self, side: _Side, flask_app: Flask,
@@ -294,7 +319,7 @@ class TestMembershipDiff:
                 request_user=SimpleNamespace(public_id=1),
             )
 
-        getattr(managers.counterpart, side.sync_method).assert_called_once_with(PUBLIC_ID, {4}, set())
+        assert managers.sync.call_args.args[1:] == (managers.counterpart, side.counterpart_key, PUBLIC_ID, {4})
 
     def test_a_null_in_the_payload_is_read_as_empty(self, side: _Side, flask_app: Flask) -> None:
         """The schemas accept null for the membership key, so the route has to as well."""
@@ -308,7 +333,28 @@ class TestMembershipDiff:
                 request_user=SimpleNamespace(public_id=1),
             )
 
-        getattr(managers.counterpart, side.sync_method).assert_called_once_with(PUBLIC_ID, set(), {1})
+        assert managers.sync.call_args.args[1:] == (managers.counterpart, side.counterpart_key, PUBLIC_ID, set())
+
+    def test_the_whole_selection_is_synced_not_the_diff(self, side: _Side, flask_app: Flask) -> None:
+        """
+        A counterpart the entity already listed is handed over too
+
+        The sync compares against what the other side stores, so a membership an earlier failure left
+        one-sided is repaired by the next save - which needs the full selection, not the diff against the
+        entity's own list.
+        """
+        patcher, managers = _patched_managers(side)
+        managers.own.get_item.return_value = {'public_id': PUBLIC_ID, side.membership_key: [1, 2]}
+        managers.counterpart.find_existing_public_ids.return_value = {3}
+
+        with patcher, flask_app.test_request_context('/', method='PUT'):
+            _unwrap(side.update)(
+                public_id=PUBLIC_ID,
+                data=_payload(side, **{side.membership_key: [1, 3]}),
+                request_user=SimpleNamespace(public_id=1),
+            )
+
+        assert managers.sync.call_args.args[4] == {1, 3}
 
     def test_the_public_id_of_the_url_wins_over_the_body(self, side: _Side, flask_app: Flask) -> None:
         """A forged body public_id must not be able to rewrite another document's identity."""
@@ -342,7 +388,7 @@ class TestMembershipDiff:
                     request_user=SimpleNamespace(public_id=1),
                 )
 
-        getattr(managers.counterpart, side.sync_method).assert_not_called()
+        managers.sync.assert_not_called()
 
 
 @pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)
@@ -363,6 +409,32 @@ class TestDeleteIsOneManagerCall:
             _unwrap(side.delete)(public_id=PUBLIC_ID, request_user=SimpleNamespace(public_id=1))
 
         managers.own.delete_with_follow_up.assert_called_once_with(PUBLIC_ID)
+
+    def test_the_cascade_is_recorded_before_it_runs(self, side: _Side, flask_app: Flask) -> None:
+        """
+        record_delete_cascade gets the snapshot and every manager the cascade writes through, first
+
+        Recorded after the cascade, a failure part-way would leave nothing in the ledger to undo.
+        """
+        patcher, managers = _patched_managers(side)
+        snapshot = {'public_id': PUBLIC_ID}
+        managers.own.get_item.return_value = snapshot
+        order = MagicMock()
+        order.attach_mock(managers.cascade, 'cascade')
+        order.attach_mock(managers.own.delete_with_follow_up, 'delete')
+
+        with patcher, flask_app.test_request_context('/', method='DELETE'):
+            _unwrap(side.delete)(public_id=PUBLIC_ID, request_user=SimpleNamespace(public_id=1))
+
+        assert [call[0] for call in order.mock_calls] == ['cascade', 'delete']
+        assert managers.cascade.call_args.args[1:] == (
+            managers.own,
+            managers.counterpart,
+            side.counterpart_key,
+            snapshot,
+            side.reference_type,
+            (managers.risk_assessments, managers.assignments),
+        )
 
     def test_does_not_repeat_the_reciprocal_cleanup(self, side: _Side, flask_app: Flask) -> None:
         """Doing it twice is harmless but hides where the responsibility lives."""
@@ -403,8 +475,12 @@ class TestErrorMapping:
 
         assert caught.value.code == HTTP_BAD_REQUEST
 
-    def test_an_unreadable_created_document_is_a_404(self, side: _Side, flask_app: Flask) -> None:
-        """The write landed but the read back found nothing, which is not a successful create."""
+    def test_an_unreadable_created_document_is_a_500(self, side: _Side, flask_app: Flask) -> None:
+        """
+        The write landed but the read back found nothing: the server failing to see its own write
+
+        Not a 404 - the client asked for no id, so there is no missing resource of theirs to report.
+        """
         patcher, managers = _patched_managers(side)
         managers.own.insert_item.return_value = NEW_ID
         managers.own.get_item.return_value = None
@@ -413,7 +489,7 @@ class TestErrorMapping:
             with pytest.raises(HTTPException) as caught:
                 _unwrap(side.insert)(data=_payload(side), request_user=SimpleNamespace(public_id=1))
 
-        assert caught.value.code == HTTP_NOT_FOUND
+        assert caught.value.code == HTTP_SERVER_ERROR
 
     def test_an_unexpected_insert_error_is_a_500(self, side: _Side, flask_app: Flask) -> None:
         """Anything the route does not map is an internal error, and is logged as one."""
@@ -555,3 +631,57 @@ class TestErrorMapping:
                 _unwrap(side.delete)(public_id=PUBLIC_ID, request_user=SimpleNamespace(public_id=1))
 
         assert caught.value.code == HTTP_SERVER_ERROR
+
+
+@pytest.mark.parametrize('side', SIDES, ids=SIDE_IDS)
+class TestAFailurePartWayIsUndone:
+    """The entity write is recorded in the ledger, so a failing reciprocal write takes it back."""
+
+    def test_a_failed_sync_removes_the_created_entity(self, side: _Side, flask_app: Flask) -> None:
+        """The insert is undone, and the request fails with the error it hit."""
+        patcher, managers = _patched_managers(side)
+        managers.own.insert_item.return_value = NEW_ID
+        managers.own.find.return_value = []
+        managers.sync.side_effect = side.update_error('nope')
+
+        with patcher, flask_app.test_request_context('/', method='POST'):
+            with pytest.raises(HTTPException) as caught:
+                _unwrap(side.insert)(data=_payload(side), request_user=SimpleNamespace(public_id=1))
+
+        assert caught.value.code == HTTP_SERVER_ERROR
+        managers.own.delete_many.assert_called_once_with({'public_id': {'$in': [NEW_ID]}})
+
+    def test_a_failed_sync_restores_the_updated_entity(self, side: _Side, flask_app: Flask) -> None:
+        """The update is undone from the snapshot read before it."""
+        patcher, managers = _patched_managers(side)
+        snapshot = {'public_id': PUBLIC_ID, side.membership_key: []}
+        managers.own.get_item.return_value = snapshot
+        managers.sync.side_effect = RuntimeError('boom')
+
+        with patcher, flask_app.test_request_context('/', method='PUT'):
+            with pytest.raises(HTTPException):
+                _unwrap(side.update)(
+                    public_id=PUBLIC_ID,
+                    data=_payload(side),
+                    request_user=SimpleNamespace(public_id=1),
+                )
+
+        managers.own.replace.assert_called_once_with(PUBLIC_ID, snapshot)
+
+    def test_an_unfinished_undo_is_a_500_naming_it(self, side: _Side, flask_app: Flask) -> None:
+        """The update cannot be restored: the 500 says the entity is still changed."""
+        patcher, managers = _patched_managers(side)
+        managers.own.get_item.return_value = {'public_id': PUBLIC_ID, side.membership_key: []}
+        managers.own.get_one_by.side_effect = lambda _criteria: {'public_id': PUBLIC_ID, 'changed': True}
+        managers.sync.side_effect = side.update_error('nope')
+
+        with patcher, flask_app.test_request_context('/', method='PUT'):
+            with pytest.raises(HTTPException) as caught:
+                _unwrap(side.update)(
+                    public_id=PUBLIC_ID,
+                    data=_payload(side),
+                    request_user=SimpleNamespace(public_id=1),
+                )
+
+        assert caught.value.code == HTTP_SERVER_ERROR
+        assert 'could not be fully undone' in caught.value.description

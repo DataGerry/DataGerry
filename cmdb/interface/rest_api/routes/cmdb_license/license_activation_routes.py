@@ -36,7 +36,7 @@ from cmdb.security.license import (
     get_machine_fingerprint,
 )
 
-from cmdb.utils import str_to_bool
+from cmdb.utils import str_to_bool, CONTENT_DISPOSITION_HEADER, attachment_disposition
 
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
@@ -101,6 +101,6 @@ def get_license_activation_request(request_user: CmdbUser) -> Response:
         return DefaultResponse({ACTIVATION_REQUEST_RESPONSE_KEY: blob}).make_response()
 
     response = Response(blob, mimetype=ACTIVATION_REQUEST_MIME_TYPE)
-    response.headers['Content-Disposition'] = f'attachment; filename="{ACTIVATION_REQUEST_FILENAME}"'
+    response.headers[CONTENT_DISPOSITION_HEADER] = attachment_disposition(ACTIVATION_REQUEST_FILENAME)
 
     return response

@@ -25,6 +25,7 @@ from collections.abc import Iterator
 from typing import Any
 from logging import Logger, getLogger
 
+from cerberus import Validator  # type: ignore
 from flask import abort, request
 from werkzeug.wrappers import Request
 from werkzeug.datastructures import FileStorage
@@ -32,8 +33,23 @@ from gridfs.grid_file import GridOut
 
 from cmdb.manager import MediaFilesManager
 from cmdb.utils import Builder
+from cmdb.framework.media_library import (
+    MEDIA_FILE_METADATA_SCHEMA,
+    MEDIA_FILE_UPDATE_SCHEMA,
+    build_media_file_metadata,
+    filename_problem,
+)
 
+from cmdb.interface.blueprints.schema_error_format import describe_schema_errors
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import (
+    BODY_NOT_AN_OBJECT_MSG,
+    FOLDER_FLAG_IMMUTABLE_MSG,
+    METADATA_NOT_AN_OBJECT_MSG,
+    PARENT_CYCLE_MSG,
+    PARENT_NOT_A_FOLDER_MSG,
+    PARENT_NOT_FOUND_MSG,
+    UNKNOWN_METADATA_KEYS_MSG,
+    UPLOAD_FILENAME_MSG,
     MediaFileKey,
     MediaFileMetadataKey,
     MediaFileRequestKey,
@@ -65,28 +81,165 @@ def metadata_field(key: MediaFileMetadataKey | str) -> str:
     return f'{MediaFileKey.METADATA.value}.{key.value if isinstance(key, MediaFileMetadataKey) else key}'
 
 
-def validate_upload_metadata(metadata: dict[str, Any]) -> None:
+def abort_if_unknown_metadata_keys(metadata: dict[str, Any]) -> None:
     """
-    Refuses upload metadata that carries a key the media library does not declare
-
-    The metadata of an upload is client-supplied and is stored as the file's metadata sub-document, so
-    only the keys MediaFileMetadataKey names may appear in it. An undeclared key reaching the manager
-    would fail the write there, answering a database-flavoured 400 for what is a request problem - and
-    leaving the content already streamed into GridFS behind. It is refused here instead, naming the key
+    Refuses a metadata sub-document carrying a key the media library does not declare, naming every one
 
     Args:
         metadata (dict[str, Any]): The metadata as it arrived with the request
 
     Raises:
-        HTTPException: 400 when the metadata is not an object, or carries an undeclared key
+        HTTPException: 400 naming the undeclared keys
     """
-    if not isinstance(metadata, dict):
-        abort(400, "The metadata of an upload must be an object!")
-
     unknown_keys: list[str] = [str(key) for key in metadata if not MediaFileMetadataKey.is_valid(str(key))]
 
     if unknown_keys:
-        abort(400, f"The metadata carries unknown key(s): {', '.join(sorted(unknown_keys))}!")
+        abort(400, UNKNOWN_METADATA_KEYS_MSG.format(keys=', '.join(sorted(unknown_keys))))
+
+
+def validate_upload_metadata(metadata: dict[str, Any]) -> None:
+    """
+    Refuses upload metadata that is not a usable metadata sub-document
+
+    The metadata of an upload is client-supplied and is stored as the file's metadata sub-document, so
+    only the keys MediaFileMetadataKey names may appear in it, each holding a value of its declared type
+    (`MEDIA_FILE_METADATA_SCHEMA`). Anything else is refused here, before any content is streamed into
+    GridFS, naming the key
+
+    Args:
+        metadata (dict[str, Any]): The metadata as it arrived with the request
+
+    Raises:
+        HTTPException: 400 when the metadata is not an object, carries an undeclared key, or a value of the
+            wrong type
+    """
+    if not isinstance(metadata, dict):
+        abort(400, METADATA_NOT_AN_OBJECT_MSG)
+
+    abort_if_unknown_metadata_keys(metadata)
+
+    validator = Validator(MEDIA_FILE_METADATA_SCHEMA)
+
+    if not validator.validate(metadata):
+        abort(400, describe_schema_errors(validator.errors))
+
+
+def validate_update_body(body: Any) -> dict[str, Any]:
+    """
+    Refuses an update body that is not a usable MediaFile
+
+    The body is the whole MediaFile: an integer `public_id`, a usable `filename` (`filename_problem`) and
+    a metadata sub-document held to the same rules as an upload's. Further keys the file explorer sends
+    along (`size`, `children`, ...) are tolerated and never stored
+
+    Args:
+        body (Any): The parsed request body
+
+    Raises:
+        HTTPException: 400 when the body is not an object, or does not satisfy `MEDIA_FILE_UPDATE_SCHEMA`
+
+    Returns:
+        dict[str, Any]: The body, now known to be usable
+    """
+    if not isinstance(body, dict):
+        abort(400, BODY_NOT_AN_OBJECT_MSG)
+
+    if isinstance(body.get(MediaFileKey.METADATA.value), dict):
+        abort_if_unknown_metadata_keys(body[MediaFileKey.METADATA.value])
+
+    validator = Validator(MEDIA_FILE_UPDATE_SCHEMA, allow_unknown=True)
+
+    if not validator.validate(body):
+        abort(400, describe_schema_errors(validator.errors))
+
+    return body
+
+
+def abort_if_filename_unusable(name: Any) -> None:
+    """
+    Refuses an uploaded file whose name breaks the naming rule (`filename_problem`)
+
+    Args:
+        name (Any): The name of the uploaded file part
+
+    Raises:
+        HTTPException: 400 naming the reason
+    """
+    problem: str | None = filename_problem(name)
+
+    if problem:
+        abort(400, UPLOAD_FILENAME_MSG.format(problem=problem))
+
+
+def abort_unless_usable_parent(
+        media_files_manager: MediaFilesManager,
+        parent: Any,
+        moved_id: int | None = None) -> None:
+    """
+    Refuses a parent that is no folder of the library, or - for a moved entry - lies inside that entry
+
+    `None` is the library root. Any other parent has to be an existing folder. When an existing entry is
+    moved, the walk up from the new parent may not meet the entry itself: a folder inside its own subtree
+    drops out of the tree and its delete would never end. The walk stops at the root, or at an entry it
+    has seen before (a loop already stored above the target, which it can not make worse)
+
+    Args:
+        media_files_manager (MediaFilesManager): db interface for MediaFiles
+        parent (Any): The requested parent, already known to be an integer or None
+        moved_id (int | None): public_id of the entry being moved; None for an upload
+
+    Raises:
+        HTTPException: 400 when the parent does not exist, is a file, or lies inside the moved entry
+    """
+    if parent is None:
+        return
+
+    folder: dict[str, Any] | None = media_files_manager.get_file(
+        metadata={MediaFileKey.PUBLIC_ID.value: parent},
+    )
+
+    if not folder:
+        abort(400, PARENT_NOT_FOUND_MSG.format(parent=parent))
+
+    if not (folder.get(MediaFileKey.METADATA.value) or {}).get(MediaFileMetadataKey.FOLDER.value):
+        abort(400, PARENT_NOT_A_FOLDER_MSG.format(parent=parent))
+
+    if moved_id is None:
+        return
+
+    seen: set[int] = set()
+    current: dict[str, Any] | None = folder
+
+    while current is not None and current[MediaFileKey.PUBLIC_ID.value] not in seen:
+        if current[MediaFileKey.PUBLIC_ID.value] == moved_id:
+            abort(400, PARENT_CYCLE_MSG)
+
+        seen.add(current[MediaFileKey.PUBLIC_ID.value])
+        above: Any = (current.get(MediaFileKey.METADATA.value) or {}).get(MediaFileMetadataKey.PARENT.value)
+        current = None if above is None else media_files_manager.get_file(
+            metadata={MediaFileKey.PUBLIC_ID.value: above},
+        )
+
+
+def unique_name_filter(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    Builds the filter asking whether ANOTHER entry of the folder already carries the entry's name
+
+    The entry itself is excluded: an update keeping its name (a move into the folder it already sits in,
+    a metadata edit) must not find itself and be renamed to `copy_(1)_<name>`
+
+    Args:
+        data (dict[str, Any]): The document about to be stored
+
+    Returns:
+        dict[str, Any]: The filter `create_attachment_name` checks
+    """
+    return {
+        MediaFileKey.FILENAME.value: data[MediaFileKey.FILENAME.value],
+        metadata_field(MediaFileMetadataKey.PARENT): data[MediaFileKey.METADATA.value].get(
+            MediaFileMetadataKey.PARENT.value),
+        MediaFileKey.PUBLIC_ID.value: {'$ne': data[MediaFileKey.PUBLIC_ID.value]},
+    }
 
 
 def generate_metadata_filter(
@@ -232,7 +385,7 @@ def recursive_delete_filter(
 
     children = media_files_manager.get_many_media_files(
         metadata={metadata_field(MediaFileMetadataKey.PARENT): public_id},
-    ).result
+    ).results
 
     for item in children:
         recursive_delete_filter(item['public_id'], media_files_manager, _ids)
@@ -306,20 +459,23 @@ def get_upload_from_request(_request: Request) -> tuple[FileStorage, dict[str, A
         _request (Request): The upload request, carrying the file and its metadata as form parts
 
     Raises:
-        HTTPException: 400 when the file part or the metadata is missing / unusable, or when the
-            metadata carries a key the media library does not declare
+        HTTPException: 400 when the file part or the metadata is missing / unusable, when the file's name
+            breaks the naming rule, or when the metadata carries an undeclared key or a value of the wrong
+            type
 
     Returns:
         tuple[FileStorage, dict[str, Any], dict[str, Any]]: The uploaded file, the filter identifying
             an already stored file of that name in that folder, and the metadata to persist
     """
     upload: FileStorage = get_file_in_request(MediaFileRequestKey.FILE.value)
+    abort_if_filename_unusable(upload.filename)
+
+    # Checked before the filter is built from it, so a value of the wrong type is refused naming the key
+    metadata: dict[str, Any] = get_element_from_data_request(MediaFileRequestKey.METADATA.value, _request)
+    validate_upload_metadata(metadata)
 
     existing_filter: dict[str, Any] = generate_metadata_filter(MediaFileRequestKey.METADATA.value, _request)
     existing_filter.update({MediaFileKey.FILENAME.value: upload.filename})
-
-    metadata: dict[str, Any] = get_element_from_data_request(MediaFileRequestKey.METADATA.value, _request)
-    validate_upload_metadata(metadata)
 
     return upload, existing_filter, metadata
 
@@ -365,29 +521,39 @@ def build_updated_file_data(
         new_file_data: dict[str, Any],
         author_id: int) -> dict[str, Any]:
     """
-    Merges an update payload onto the stored MediaFile document
+    Merges a validated update payload onto the stored MediaFile document
 
-    The public_id is taken from the stored document, so the payload can not rewrite the identity, and the
-    author is stamped as the last modifier
+    The public_id is taken from the stored document, so the payload can not rewrite the identity. The
+    metadata is the whole sub-document the payload carries (an update sends the full object), built like an
+    upload's (`build_media_file_metadata`), so both write paths store the same seven keys. Two of them are
+    server-owned: the author is stamped as the last modifier, and the mime type stays the stored one - an
+    update changes no content. Whether the entry is a folder can not change
 
     Args:
         stored_file (dict[str, Any]): The MediaFile as stored
-        new_file_data (dict[str, Any]): The parsed request body
+        new_file_data (dict[str, Any]): The request body, already held to `validate_update_body`
         author_id (int): public_id of the CmdbUser performing the update
 
     Raises:
-        HTTPException: 400 when the payload does not carry a filename or metadata
+        HTTPException: 400 when the payload would turn a file into a folder or a folder into a file
 
     Returns:
         dict[str, Any]: The document to persist
     """
-    for required_key in (MediaFileKey.FILENAME, MediaFileKey.METADATA):
-        if required_key.value not in new_file_data:
-            abort(400, f"The request body is missing '{required_key.value}'!")
+    stored_metadata: dict[str, Any] = stored_file.get(MediaFileKey.METADATA.value) or {}
+    metadata: dict[str, Any] = build_media_file_metadata({
+        **new_file_data[MediaFileKey.METADATA.value],
+        MediaFileMetadataKey.AUTHOR_ID.value: author_id,
+        MediaFileMetadataKey.MIME_TYPE.value: stored_metadata.get(MediaFileMetadataKey.MIME_TYPE.value),
+    })
+
+    was_folder: bool = bool(stored_metadata.get(MediaFileMetadataKey.FOLDER.value))
+
+    if bool(metadata[MediaFileMetadataKey.FOLDER.value]) != was_folder:
+        abort(400, FOLDER_FLAG_IMMUTABLE_MSG)
 
     stored_file[MediaFileKey.FILENAME.value] = new_file_data[MediaFileKey.FILENAME.value]
-    stored_file[MediaFileKey.METADATA.value] = new_file_data[MediaFileKey.METADATA.value]
-    stored_file[MediaFileKey.METADATA.value][MediaFileMetadataKey.AUTHOR_ID.value] = author_id
+    stored_file[MediaFileKey.METADATA.value] = metadata
 
     return stored_file
 

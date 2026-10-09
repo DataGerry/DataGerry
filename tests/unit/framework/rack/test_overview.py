@@ -39,6 +39,7 @@ from cmdb.framework.rack.overview import (
     build_rack_header,
     build_rack_overview,
     build_types_legend,
+    mask_unreadable_members,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -620,3 +621,66 @@ def test_the_two_legends_account_for_the_total_between_them() -> None:
                          for entry in overview[RackOverviewKey.OCCUPANTS_LEGEND.value])
 
     assert typed + occupants == overview[RackOverviewKey.TOTAL_MOUNTS.value] == 3
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           mask_unreadable_members                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+
+HIDDEN_TYPE_ID: int = 991
+SHOWN_TYPE_ID: int = 992
+HIDDEN_OBJECT_ID: int = 9911
+SHOWN_OBJECT_ID: int = 9921
+MASK_META: dict = {'type_label': 'Label', 'type_icon': 'fa-x', 'type_color': '#123456'}
+
+
+def _mask_inputs() -> tuple[dict, dict, dict]:
+    """Summary lines, type metadata and object types for one hidden and one shown member"""
+    return (
+        {HIDDEN_OBJECT_ID: 'secret-server', SHOWN_OBJECT_ID: 'web-01'},
+        {HIDDEN_TYPE_ID: dict(MASK_META), SHOWN_TYPE_ID: dict(MASK_META)},
+        {HIDDEN_OBJECT_ID: HIDDEN_TYPE_ID, SHOWN_OBJECT_ID: SHOWN_TYPE_ID},
+    )
+
+
+class TestMaskUnreadableMembers:
+    """A member the caller may not read keeps its row and loses its names"""
+
+    def test_the_hidden_members_line_and_type_meta_go(self) -> None:
+        """The shown member is untouched"""
+        lines, meta, types = _mask_inputs()
+
+        masked_lines, masked_meta = mask_unreadable_members(lines, meta, types, [HIDDEN_TYPE_ID])
+
+        assert masked_lines == {SHOWN_OBJECT_ID: 'web-01'}
+        assert masked_meta == {HIDDEN_TYPE_ID: {}, SHOWN_TYPE_ID: MASK_META}
+
+    def test_nothing_denied_returns_the_inputs(self) -> None:
+        """No copy, no change"""
+        lines, meta, types = _mask_inputs()
+
+        assert mask_unreadable_members(lines, meta, types, []) == (lines, meta)
+
+    def test_the_inputs_are_not_changed(self) -> None:
+        """The masking builds new dicts"""
+        lines, meta, types = _mask_inputs()
+
+        mask_unreadable_members(lines, meta, types, [HIDDEN_TYPE_ID])
+
+        assert lines[HIDDEN_OBJECT_ID] == 'secret-server'
+        assert meta[HIDDEN_TYPE_ID] == MASK_META
+
+    def test_a_masked_member_still_draws_its_row_and_its_legend_entry(self) -> None:
+        """The slot stays occupied; the legend counts the type under a blank entry"""
+        lines, meta, types = _mask_inputs()
+        masked_lines, masked_meta = mask_unreadable_members(lines, meta, types, [HIDDEN_TYPE_ID])
+        mount = {'public_id': 1, 'object_id': HIDDEN_OBJECT_ID, 'area': 'FRONT', 'start_slot': 3, 'height': 1}
+
+        row = build_mount_row(mount, masked_lines, masked_meta, types)
+        legend = build_types_legend([mount], masked_meta, types)
+
+        assert row['object_id'] == HIDDEN_OBJECT_ID and row['type_id'] == HIDDEN_TYPE_ID
+        assert row['summary_line'] is None and row['type_label'] is None and row['type_icon'] is None
+        assert legend == [{'type_id': HIDDEN_TYPE_ID, 'type_label': None, 'type_icon': None, 'type_color': None,
+                           'count': 1}]

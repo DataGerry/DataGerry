@@ -18,7 +18,7 @@ Integration tests for the IPAM picker / sidebar builders against a real MongoDB
 
 Pins the DB-touching behaviour the unit tests only mock: the sidebar tree's type-scoped
 loads and dg-supernet-ref based has_children / unassigned classification
-(build_ipam_tree, build_supernet_subnet_tree, build_unassigned_subnets), the family-filtered
+(build_ipam_tree, build_supernet_subnet_tree), the family-filtered
 subnet-options page backing the interface picker (build_subnet_options_page), and the
 assignable-objects page incl. the real render_meta.sections $elemMatch capable-type discovery
 (find_ipam_capable_type_ids / build_assignable_objects_page)
@@ -43,7 +43,6 @@ from cmdb.models.special_type_model.ipam_constants import (
 from cmdb.framework.ipam.tree_overview import (
     build_ipam_tree,
     build_supernet_subnet_tree,
-    build_unassigned_subnets,
 )
 from cmdb.framework.ipam.subnet_options import build_subnet_options_page
 from cmdb.framework.ipam.assignable_objects import (
@@ -188,15 +187,6 @@ def test_supernet_subnet_tree_nests_by_cidr_from_the_real_ref_query(
     assert _ids(roots) == [SUBNET_BROAD_ID]
     assert _ids(roots[0][IpamTreeKey.CHILDREN]) == [SUBNET_NESTED_ID]
     assert roots[0][IpamTreeKey.CHILDREN][0][IpamTreeKey.TYPE] == IpAddressFamily.IPV4
-
-
-def test_unassigned_subnets_returns_only_the_orphan(
-    objects_manager: ObjectsManager, types_manager: TypesManager,
-) -> None:
-    """The targeted-refresh route's builder lists exactly the subnet without a supernet ref"""
-    result = build_unassigned_subnets(objects_manager, types_manager)
-
-    assert _ids(result[IpamTreeKey.UNASSIGNED]) == [SUBNET_ORPHAN_ID]
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

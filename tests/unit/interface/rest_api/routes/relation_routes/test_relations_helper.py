@@ -42,7 +42,17 @@ from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     log_object_relation_change,
     log_object_relation_update,
     log_object_relation_deletions,
+    read_bulk_delete_selection,
+    delete_object_relations,
 )
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
+    MAX_BULK_DELETE_OBJECT_RELATIONS,
+    OBJECT_RELATION_BULK_BODY_NOT_AN_OBJECT_MESSAGE,
+    OBJECT_RELATION_BULK_NO_IDS_MESSAGE,
+    OBJECT_RELATION_BULK_TOO_MANY_MESSAGE,
+    BulkDeleteKey,
+)
+from cmdb.errors.manager import BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RELATION_PUBLIC_ID: int = 5
@@ -430,3 +440,116 @@ class TestResolveCounterpartSummaries:
 
         assert resolve_counterpart_summaries([None, None], MagicMock(), objects_manager) == {}
         objects_manager.iterate.assert_not_called()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         read_bulk_delete_selection                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+TARGET_IDS: str = BulkDeleteKey.TARGET_IDS.value
+
+
+def _refusal(body: Any) -> HTTPException:
+    """The HTTPException the selection reader raises for a body"""
+    with pytest.raises(HTTPException) as exc_info:
+        read_bulk_delete_selection(body)
+
+    assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+
+    return exc_info.value
+
+
+class TestReadBulkDeleteSelection:
+    """The bulk delete body: an object carrying a non-empty list of at most the limit's distinct ids"""
+
+    def test_numbers_and_digit_strings_are_read_in_order(self) -> None:
+        """Both JSON forms of an id, the order kept"""
+        assert read_bulk_delete_selection({TARGET_IDS: [3, '1', 2]}) == [3, 1, 2]
+
+    def test_duplicates_collapse_to_their_first_place(self) -> None:
+        """An id named twice - also once as a string - is one id"""
+        assert read_bulk_delete_selection({TARGET_IDS: [4, 2, '4', 4]}) == [4, 2]
+
+    @pytest.mark.parametrize('body', [[1, 2], '12', 7, None], ids=['list', 'string', 'number', 'null'])
+    def test_a_body_that_is_no_object_is_refused(self, body: Any) -> None:
+        """It was read with .get - a 500"""
+        assert _refusal(body).description == OBJECT_RELATION_BULK_BODY_NOT_AN_OBJECT_MESSAGE.format(key=TARGET_IDS)
+
+    @pytest.mark.parametrize('body', [{}, {TARGET_IDS: []}, {TARGET_IDS: None}], ids=['missing', 'empty', 'null'])
+    def test_a_missing_selection_is_refused(self, body: dict[str, Any]) -> None:
+        """Nothing named, nothing to delete"""
+        assert _refusal(body).description == OBJECT_RELATION_BULK_NO_IDS_MESSAGE
+
+    def test_a_string_selection_is_refused(self) -> None:
+        """'12' would have been the ids 1 and 2"""
+        _refusal({TARGET_IDS: '12'})
+
+    def test_exactly_the_limit_is_accepted(self) -> None:
+        """The boundary itself"""
+        selection = list(range(1, MAX_BULK_DELETE_OBJECT_RELATIONS + 1))
+
+        assert read_bulk_delete_selection({TARGET_IDS: selection}) == selection
+
+    def test_one_past_the_limit_is_refused(self) -> None:
+        """Named with the limit and the count"""
+        selection = list(range(1, MAX_BULK_DELETE_OBJECT_RELATIONS + 2))
+
+        assert _refusal({TARGET_IDS: selection}).description == OBJECT_RELATION_BULK_TOO_MANY_MESSAGE.format(
+            limit=MAX_BULK_DELETE_OBJECT_RELATIONS, count=MAX_BULK_DELETE_OBJECT_RELATIONS + 1,
+        )
+
+    def test_the_limit_counts_distinct_ids(self) -> None:
+        """Repeating one id past the limit is still one id"""
+        assert read_bulk_delete_selection({TARGET_IDS: [9] * (MAX_BULK_DELETE_OBJECT_RELATIONS + 1)}) == [9]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            delete_object_relations                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _deleting_manager(stored: dict[int, dict[str, Any]], failing_id: int | None = None) -> MagicMock:
+    """An ObjectRelationsManager whose find_one_and_delete removes from `stored` and answers what it removed"""
+    manager = MagicMock()
+
+    def _find_one_and_delete(criteria: dict[str, Any]) -> dict[str, Any] | None:
+        public_id: int = criteria['public_id']
+
+        if public_id == failing_id:
+            raise BaseManagerDeleteError('boom')
+
+        return stored.pop(public_id, None)
+
+    manager.find_one_and_delete.side_effect = _find_one_and_delete
+
+    return manager
+
+
+class TestDeleteObjectRelations:
+    """One atomic read-and-delete per id; only what this call removed is collected"""
+
+    def test_every_stored_relation_is_collected_in_order(self) -> None:
+        """Each id deleted by its own call"""
+        stored = {1: {'public_id': 1}, 2: {'public_id': 2}}
+        deleted: list[dict[str, Any]] = []
+
+        delete_object_relations(_deleting_manager(stored), [2, 1], deleted)
+
+        assert deleted == [{'public_id': 2}, {'public_id': 1}]
+        assert not stored
+
+    def test_an_id_already_gone_is_not_collected(self) -> None:
+        """Another writer deleted it, or it never existed"""
+        deleted: list[dict[str, Any]] = []
+
+        delete_object_relations(_deleting_manager({3: {'public_id': 3}}), [3, 4], deleted)
+
+        assert deleted == [{'public_id': 3}]
+
+    def test_a_failure_leaves_what_was_deleted_before_it(self) -> None:
+        """The caller still logs those; the ones after the failure are not attempted"""
+        stored = {1: {'public_id': 1}, 2: {'public_id': 2}, 3: {'public_id': 3}}
+        deleted: list[dict[str, Any]] = []
+
+        with pytest.raises(BaseManagerDeleteError):
+            delete_object_relations(_deleting_manager(stored, failing_id=2), [1, 2, 3], deleted)
+
+        assert deleted == [{'public_id': 1}]
+        assert sorted(stored) == [2, 3]

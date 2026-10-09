@@ -17,6 +17,7 @@
 Object rendering: turns stored CmdbObjects into the RenderResults every reader of an object uses
 
 `CmdbMultiRender` is the renderer, `RenderResult` what it answers, `RenderProblemLog` how a render
-records what it could not build, and `render_constants` the keys and codes all three share. Import from
-the modules themselves; this package re-exports nothing
+records what it could not build, `ReferencePrefetch` and `ReferenceReadScope` how it loads the objects it
+references - through the render user's READ ACL - and `render_constants` the keys and codes they share.
+Import from the modules themselves; this package re-exports nothing
 """

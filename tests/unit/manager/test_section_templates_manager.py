@@ -841,7 +841,7 @@ def test_cleanup_global_section_reports_strips_the_fields_from_the_types_reports
     SectionTemplatesManager.cleanup_global_section_reports(mock_self, a_type, {'f1', 'f2'})
 
     mock_self.objects_manager.get_many_from_other_collection.assert_called_once_with(
-        CmdbReport.COLLECTION, type_id=TYPE_ID,
+        CmdbReport.COLLECTION, criteria={'type_id': TYPE_ID},
     )
     mock_self.reports_manager.strip_removed_fields_from_reports.assert_called_once_with(
         stored_reports, {'f1', 'f2'}, a_type,

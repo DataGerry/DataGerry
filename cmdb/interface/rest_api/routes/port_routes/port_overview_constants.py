@@ -73,7 +73,8 @@ class PortOverviewEntryKey(BaseStrEnum):
     read answers with, CONNECTED_PORT and CONNECTED_OBJECT the two halves of the far end - the port the
     cable lands on and the CI owning it, which is how a connection is named to a user: port first, then
     device. INTERFACE_LINKS carries the links exactly as the port reads do - their rows are summarised
-    by the client, which owns how an interface is named
+    by the client, which owns how an interface is named. CONNECTED is "in any connection" (a panel's
+    INTERNAL pairing included), CABLED "an endpoint of a cable" - the flag a "Free" / "Cable" column reads
     """
     PORT_ID = 'port_id'
     SIDE = 'side'
@@ -84,6 +85,7 @@ class PortOverviewEntryKey(BaseStrEnum):
     SPEED = 'speed'
     DESCRIPTION = 'description'
     CONNECTED = 'connected'
+    CABLED = 'cabled'
     CABLE = 'cable'
     CABLE_CONNECTION_ID = 'cable_connection_id'
     CONNECTED_PORT = 'connected_port'

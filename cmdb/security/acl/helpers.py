@@ -17,8 +17,10 @@
 Access Control helper functions
 
 An ACL lives on the **CmdbType**, never on the CmdbObject, so "may this user read this object" is
-always "may this user's group read objects of this object's type". Access control is opt-in: an ACL
-that is absent or switched off permits everything, and an activated one fails closed.
+always "may this user's group read objects of this object's type". The same READ decision governs the
+type DEFINITION: a group a type's ACL denies READ is refused that type on every type route, its export,
+its import update and the category tree. Access control is opt-in: an ACL that is absent or switched off
+permits everything, and an activated one fails closed.
 
 The one decision is ``acl_grants_access``; the three functions around it differ only in what they are
 handed - a CmdbType model, a raw CmdbType document as it comes out of Mongo, or nothing to check

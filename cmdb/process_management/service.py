@@ -139,7 +139,7 @@ class AbstractCmdbService:
         """
 
 
-    #pylint: disable=unused-argument
+    # pylint: disable=unused-argument
     def _shutdown(self, signum: int | None, frame: FrameType | None) -> None:
         """
         SIGTERM handler / internal shutdown bridge that defers to `stop`

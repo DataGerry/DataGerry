@@ -18,8 +18,8 @@ Unit tests for cmdb.framework.ipam.tree_overview
 
 Covers the pure helpers (reference coercion, node shaping, display-order sorting, CIDR
 containment nesting), the type-scoped object loader (Mongo criteria pinned via
-assert_called_once_with) and the three orchestrators (build_ipam_tree,
-build_supernet_subnet_tree, build_unassigned_subnets). For the orchestrators the loaders are
+assert_called_once_with) and the two orchestrators (build_ipam_tree,
+build_supernet_subnet_tree). For the orchestrators the loaders are
 patched at the module path so each test verifies orchestration in isolation; the loaders have
 their own dedicated tests in this file. sort_tree_nodes exercises _tree_sort_key, so the key
 function is not tested directly
@@ -39,7 +39,6 @@ from cmdb.models.special_type_model.ipam_constants import (
 )
 from cmdb.framework.ipam.tree_overview import (
     TREE_NODE_PROJECTION,
-    unassigned_subnet_nodes,
     _coerce_ref_id,
     _collect_referenced_supernet_ids,
     load_all_special_type_objects,
@@ -48,7 +47,6 @@ from cmdb.framework.ipam.tree_overview import (
     _supernet_tree_node,
     build_ipam_tree,
     build_supernet_subnet_tree,
-    build_unassigned_subnets,
     nest_subnet_nodes,
     sort_tree_nodes,
 )
@@ -89,7 +87,8 @@ def _stub_special_type_icon():
     """Stubs resolve_special_type_icon so orchestrators don't hit the DB; per-family icon values."""
     icons: dict[SpecialType, str] = {SpecialType.SUPERNET: SUPERNET_ICON, SpecialType.SUBNET: SUBNET_ICON}
 
-    with patch(f'{PATH}.resolve_special_type_icon', side_effect=lambda _types_manager, special_type: icons[special_type]):
+    with patch(f'{PATH}.resolve_special_type_icon',
+               side_effect=lambda _types_manager, special_type: icons[special_type]):
         yield
 
 
@@ -560,24 +559,3 @@ def test_build_supernet_subnet_tree_returns_empty_children_for_a_bare_supernet()
         subtree = build_supernet_subnet_tree(MagicMock(), MagicMock(), SUPERNET_OBJECT_ID)
 
     assert subtree == {IpamTreeKey.CHILDREN: []}
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                             build_unassigned_subnets                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-def test_build_unassigned_subnets_filters_and_sorts_the_orphans() -> None:
-    """Only subnets without a usable ref are listed, in display order, under 'unassigned'"""
-    assigned = _make_subnet_doc(SUBNET_OBJECT_ID_A, network_range=SUBNET_RANGE_BROAD, supernet_ref=SUPERNET_OBJECT_ID)
-    orphan_high = _make_subnet_doc(SUBNET_OBJECT_ID_B, network_range=SUBNET_RANGE_SIBLING)
-    orphan_low = _make_subnet_doc(SUBNET_OBJECT_ID_C, network_range=SUBNET_RANGE_NESTED)
-
-    with patch(
-        f'{PATH}.load_all_special_type_objects',
-        return_value=[assigned, orphan_high, orphan_low],
-    ) as mock_load:
-        result = build_unassigned_subnets(MagicMock(), MagicMock())
-
-    assert mock_load.call_args.args[2] == SpecialType.SUBNET
-    assert [n[CmdbObjectKey.PUBLIC_ID] for n in result[IpamTreeKey.UNASSIGNED]] == [
-        SUBNET_OBJECT_ID_C, SUBNET_OBJECT_ID_B,
-    ]

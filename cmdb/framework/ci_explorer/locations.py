@@ -32,18 +32,25 @@ Two bug fixes against the original route (audited in Phase 2):
   - B2: types_filter is applied at the Mongo query level on the children collector so
     item_limit caps the *post-filter* visible count, matching the relation side
 """
+from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager import LocationsManager, ObjectsManager
 
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.location_model.location_constants import RootLocationDefault
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
 
 CHILD_LOCATION_REL_COLOR: str = '#C084FC'
 PARENT_LOCATION_REL_COLOR: str = '#A855F7'
 
 # A location whose parent is the root id is a top-level location (the root is not a real node)
 ROOT_LOCATION_SENTINEL_PARENT: int = RootLocationDefault.PUBLIC_ID
+
+# The location children are read in public_id order, so the item_limit cap keeps the same ones on every request
+LOCATION_CHILDREN_SORT: list[tuple[str, int]] = [(CmdbDAO.PUBLIC_ID_KEY, CmdbDAO.DAO_ASCENDING)]
 
 
 def collect_location_parent_object(
@@ -116,7 +123,9 @@ def collect_location_children_objects(
     ``types_filter`` is applied at the Mongo query level (B2 fix) so the visible cap
     behaves the same as on the relation side: the final slice to ``remaining`` happens
     after the type filter, so ``item_limit`` always bounds the visible node count rather
-    than the pre-filter count. Returns an empty list when the target has no location-
+    than the pre-filter count. The children are read in ``public_id`` order, so the cap keeps the
+    same children on every request - a rack's members among them - and a truncation is logged, the
+    payload having no field to report it. Returns an empty list when the target has no location-
     children or when ``item_limit_active`` is True and ``remaining <= 0``
 
     Args:
@@ -144,9 +153,13 @@ def collect_location_children_objects(
     if types_filter:
         criteria['type_id'] = {'$in': list(types_filter)}
 
-    child_objects: list[dict[str, Any]] = list(objects_manager.find(criteria=criteria))
+    child_objects: list[dict[str, Any]] = list(objects_manager.find(criteria=criteria, sort=LOCATION_CHILDREN_SORT))
 
     if item_limit_active and len(child_objects) > remaining:
+        LOGGER.warning(
+            "[ci_explorer] Graph of location %s truncated: %s of %s location children shown",
+            target_location['public_id'], remaining, len(child_objects),
+        )
         child_objects = child_objects[:remaining]
 
     return child_objects

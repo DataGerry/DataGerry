@@ -192,7 +192,7 @@ class TestDeduplicateMediaFiles:
         deduplicate_media_files(dbm, DB_NAME)
 
         dbm.delete.assert_not_called()
-        dbm.delete_many.assert_not_called()
+        dbm.delete_many_raw.assert_not_called()
 
     @patch('cmdb.database.updater.versions.updater_20260916.taken_names_in_folder')
     @patch('cmdb.database.updater.versions.updater_20260916.find_duplicate_file_groups')

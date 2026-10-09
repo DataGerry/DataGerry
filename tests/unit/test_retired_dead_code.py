@@ -36,7 +36,7 @@ test would be worth; neither sweep checked whether the methods had callers.
 import pytest
 
 from cmdb.framework.datagerry_assistant.profile_base import ProfileBase
-from cmdb.framework.docapi.docapi_template.docapi_template_base import TemplateManagementBase
+from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client import ChatGptClient
 from cmdb.models.category_model.category_meta import CategoryMeta
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -47,7 +47,7 @@ from cmdb.security.auth.base_authentication_provider import BaseAuthenticationPr
 
 RETIRED: list[tuple[type, str]] = [
     (ProfileBase, 'get_created_type_ids'),
-    (TemplateManagementBase, 'to_database'),
+    (DocapiTemplate, 'to_database'),
     (ChatGptClient, 'get_client'),
     (CategoryMeta, 'has_icon'),
     (CmdbSectionTemplate, 'to_data'),

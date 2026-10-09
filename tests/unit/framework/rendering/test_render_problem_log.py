@@ -43,9 +43,9 @@ OTHER_TYPE_ID: int = 8
 MESSAGE: str = 'Field %s could not be merged'
 
 
-def _problem_log(reported: set[tuple[Any, ...]] | None = None) -> RenderProblemLog:
+def _problem_log() -> RenderProblemLog:
     """A log writing to the test logger."""
-    return RenderProblemLog(logging.getLogger(LOGGER_NAME), reported)
+    return RenderProblemLog(logging.getLogger(LOGGER_NAME))
 
 
 def _entry(code: RenderProblemCode = RenderProblemCode.FIELD_MERGE_FAILED, **where: str | None) -> dict[str, Any]:
@@ -209,17 +209,6 @@ class TestLog:
             _report(problem_log, log_key=(OTHER_TYPE_ID,))
 
         assert len(caplog.records) == 2
-
-    def test_a_shared_set_suppresses_what_an_outer_render_logged(self, caplog) -> None:
-        """A nested render handed the outer set does not repeat the outer render's line"""
-        outer: RenderProblemLog = _problem_log()
-        nested: RenderProblemLog = _problem_log(outer.reported)
-
-        with caplog.at_level(logging.WARNING, logger=LOGGER_NAME):
-            _report(outer)
-            _report(nested)
-
-        assert len(caplog.records) == 1
 
     def test_a_warning_carries_no_traceback(self, caplog) -> None:
         """A configuration problem is read from its message"""

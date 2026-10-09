@@ -31,7 +31,10 @@ from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR, FieldDefaultError
+from cmdb.models.type_model.cmdb_type import CmdbType
+from cmdb.models.type_model.type_constants import IdentifierKind, TypeIdentifierError
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
+    guard_new_identifiers,
     guard_field_defaults,
     duplicated,
     guard_type_structure,
@@ -368,3 +371,58 @@ def test_a_section_entry_that_is_not_a_dict_is_skipped() -> None:
     """Its shape is the schema's to refuse; the structure rules only read real sections"""
     assert type_structure_blocker(_payload([_field(FIELD_A)], ['not-a-section', _section(SECTION_A, [FIELD_A])])) \
         is None
+
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                guard_new_identifiers                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _stored(fields: list[dict[str, Any]], sections: list[dict[str, Any]]) -> CmdbType:
+    """A stored CmdbType holding the given fields and sections"""
+    return CmdbType.from_data({'public_id': 1, 'name': 'stored', 'author_id': 1, 'fields': fields,
+                               'render_meta': {'sections': sections}})
+
+
+def test_a_create_with_usable_identifiers_passes() -> None:
+    """Dots and umlauts are ordinary names"""
+    guard_new_identifiers(_payload([_field('ip.address'), _field('größe')], [_section('main', ['ip.address'])]))
+
+
+@pytest.mark.parametrize('name, problem', [
+    ('', TypeIdentifierError.BLANK),
+    (' cpu', TypeIdentifierError.SURROUNDING_WHITESPACE),
+    ('size-[gb]', TypeIdentifierError.FORBIDDEN_CHARACTER),
+], ids=['blank', 'padded', 'bracketed'])
+def test_a_create_with_a_refused_field_identifier_aborts_400(name: str, problem: TypeIdentifierError) -> None:
+    """Every identifier of a create is new"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_new_identifiers(_payload([_field(name)], []))
+
+    assert exc_info.value.code == 400
+    assert exc_info.value.description == problem.format(kind=IdentifierKind.FIELD.value, name=name)
+
+
+def test_a_refused_section_identifier_aborts_400() -> None:
+    """Sections follow the same rule"""
+    with pytest.raises(HTTPException) as exc_info:
+        guard_new_identifiers(_payload([_field('a')], [_section('', ['a'])]))
+
+    assert exc_info.value.description == TypeIdentifierError.BLANK.format(kind=IdentifierKind.SECTION.value, name='')
+
+
+def test_an_update_keeping_a_stored_odd_identifier_passes() -> None:
+    """Immutable: a stored bracketed field and a stored padded section are never judged"""
+    old_type = _stored([_field('size-[gb]')], [_section(' main', ['size-[gb]'])])
+
+    guard_new_identifiers(_payload([_field('size-[gb]')], [_section(' main', ['size-[gb]'])]), old_type)
+
+
+def test_an_update_adding_a_refused_identifier_aborts_400() -> None:
+    """Only what the update ADDS is judged - and refused"""
+    old_type = _stored([_field('size-[gb]')], [])
+
+    with pytest.raises(HTTPException) as exc_info:
+        guard_new_identifiers(_payload([_field('size-[gb]'), _field('new-[x]')], []), old_type)
+
+    assert exc_info.value.description == TypeIdentifierError.FORBIDDEN_CHARACTER.format(
+        kind=IdentifierKind.FIELD.value, name='new-[x]')

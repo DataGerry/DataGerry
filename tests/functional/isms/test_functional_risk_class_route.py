@@ -59,16 +59,15 @@ RC_ID_FOR_UPDATE: int = 97902
 RC_ID_FOR_DELETE: int = 97903
 RC_ID_FOR_BULK: int = 97904
 RC_ID_FOR_MATRIX: int = 97905
+RC_ID_FOR_BULK_2: int = 97906
 MISSING_RC_ID: int = 97999
-# The id a bool aliases in Python (True == 1)
-TRUE_ALIASED_RC_ID: int = 1
 
 # A block of ids used to fill the collection up to the MAX_ISMS_RISK_CLASSES limit
 LIMIT_RC_IDS: list[int] = [97911, 97912, 97913, 97914, 97915, 97916, 97917, 97918, 97919, 97920]
 LIMIT_EXTRA_ID: int = 97921
 
 ALL_RC_IDS: list[int] = [
-    RC_ID_FOR_GET, RC_ID_FOR_UPDATE, RC_ID_FOR_DELETE, RC_ID_FOR_BULK, RC_ID_FOR_MATRIX,
+    RC_ID_FOR_GET, RC_ID_FOR_UPDATE, RC_ID_FOR_DELETE, RC_ID_FOR_BULK, RC_ID_FOR_BULK_2, RC_ID_FOR_MATRIX,
     LIMIT_EXTRA_ID, *LIMIT_RC_IDS,
 ]
 
@@ -195,48 +194,117 @@ class TestPutRiskClass:
 
 
 class TestUpdateMultipleRiskClasses:
-    """PUT /isms/risk_class/multiple reports a per-item result for each entry."""
+    """
+    PUT /isms/risk_classes/multiple - the wizard's drag reorder, all or nothing
 
-    def test_reports_per_item_status(self, rest_api,
-                                    database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """A mixed batch yields success, not-found, and missing-public_id results respectively."""
-        _insert_risk_class(database_manager, database_name, RC_ID_FOR_BULK)
+    Every item is judged by the single update's write schema before anything is written; any refusal is one
+    400 naming every reason, and the stored classes are left exactly as they were
+    """
 
-        payload = [
-            _risk_class_payload(RC_ID_FOR_BULK, 'Updated'),
-            _risk_class_payload(MISSING_RC_ID),
-            {'name': 'NoId', 'color': COLOR},
-        ]
+    def _stored(self, database_manager: MongoDatabaseManager, database_name: str) -> dict[int, dict[str, Any]]:
+        """The two bulk classes as stored"""
+        collection = database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name)
+
+        return {doc['public_id']: doc for doc in collection.find(
+            {'public_id': {'$in': [RC_ID_FOR_BULK, RC_ID_FOR_BULK_2]}}, {'_id': 0},
+        )}
+
+    @pytest.fixture(name='listed')
+    def fixture_listed(self, rest_api, database_manager: MongoDatabaseManager,
+                       database_name: str) -> list[dict[str, Any]]:
+        """Two stored classes, read back the way the wizard reads them: from the list"""
+        for public_id in (RC_ID_FOR_BULK, RC_ID_FOR_BULK_2):
+            _insert_risk_class(database_manager, database_name, public_id)
+
+        rows = rest_api.get(f'{ROUTE_URL}/', query_string={'limit': 0}).get_json()['results']
+
+        return [row for row in rows if row['public_id'] in (RC_ID_FOR_BULK, RC_ID_FOR_BULK_2)]
+
+    def test_the_wizards_reorder_round_trip_is_written(self, rest_api, listed, database_manager,
+                                                       database_name: str) -> None:
+        """The list rows carry null description and sort; renumbered and sent back whole, they are stored"""
+        assert {row['description'] for row in listed} == {None}
+        reordered = [{**row, 'sort': index} for index, row in enumerate(reversed(listed))]
+
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=reordered)
+
+        assert response.status_code == HTTPStatus.OK, response.get_json()
+        assert response.get_json() == [{'public_id': row['public_id'], 'status': 'success'} for row in reordered]
+        stored = self._stored(database_manager, database_name)
+        assert {public_id: doc['sort'] for public_id, doc in stored.items()} == {
+            row['public_id']: row['sort'] for row in reordered
+        }
+
+    def test_one_invalid_item_refuses_the_whole_list(self, rest_api, listed, database_manager,
+                                                    database_name: str) -> None:
+        """The valid item is not written either, and the refusal names the bad one"""
+        before = self._stored(database_manager, database_name)
+        payload = [{**listed[0], 'name': 'Renamed'}, {**listed[1], 'name': 123, 'color': ['x']}]
 
         response = rest_api.put(f'{ROUTE_URL}/multiple', json=payload)
 
-        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
-        results = response.get_json()
-        statuses = {result.get('public_id'): result['status'] for result in results}
-        assert statuses[RC_ID_FOR_BULK] == 'success'
-        assert statuses[MISSING_RC_ID] == 'failed'
-        assert statuses[None] == 'failed'
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        message = response.get_json()['message']
+        assert message.startswith('No RiskClasses were updated, because some items are invalid: item #2')
+        assert 'name: must be of string type' in message and 'color: must be of string type' in message
+        assert self._stored(database_manager, database_name) == before
 
-    def test_a_bool_public_id_is_refused_and_writes_nothing(self, rest_api,
-                                                            database_manager: MongoDatabaseManager,
+    def test_an_empty_name_is_refused(self, rest_api, listed) -> None:
+        """The single update's rule, not a looser bulk one"""
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=[{**listed[0], 'name': ''}])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'name: empty values not allowed' in response.get_json()['message']
+
+    def test_an_unknown_id_refuses_the_whole_list(self, rest_api, listed, database_manager,
+                                                 database_name: str) -> None:
+        """It used to be a 'failed' entry inside a 200 the wizard never looked at"""
+        before = self._stored(database_manager, database_name)
+
+        response = rest_api.put(f'{ROUTE_URL}/multiple',
+                                json=[{**listed[0], 'sort': 5}, _risk_class_payload(MISSING_RC_ID)])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == (
+            f'No RiskClasses were updated, because these ids do not exist: [{MISSING_RC_ID}]'
+        )
+        assert self._stored(database_manager, database_name) == before
+
+    def test_an_id_sent_twice_is_refused(self, rest_api, listed) -> None:
+        """Last-one-wins is no order anybody chose"""
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=[listed[0], listed[1], listed[0]])
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert str([RC_ID_FOR_BULK]) in response.get_json()['message']
+
+    def test_a_bool_public_id_is_refused_and_writes_nothing(self, rest_api, listed, database_manager,
                                                             database_name: str) -> None:
-        """True equals the stored id 1 in Python but not in MongoDB - refused, not a silent no-op success"""
-        collection = database_manager.get_collection(IsmsRiskClass.COLLECTION, database_name)
-        created_here: bool = collection.find_one({'public_id': TRUE_ALIASED_RC_ID}) is None
-        if created_here:
-            _insert_risk_class(database_manager, database_name, TRUE_ALIASED_RC_ID)
-        before = collection.find_one({'public_id': TRUE_ALIASED_RC_ID}, {'_id': 0})
+        """True equals the id 1 in Python but not in MongoDB - refused, not a silent no-op success"""
+        before = self._stored(database_manager, database_name)
 
-        try:
-            payload = [{**_risk_class_payload(TRUE_ALIASED_RC_ID, 'Renamed'), 'public_id': True}]
-            response = rest_api.put(f'{ROUTE_URL}/multiple', json=payload)
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=[listed[0], {**listed[1], 'public_id': True}])
 
-            assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
-            assert response.get_json() == [{'public_id': True, 'status': 'failed', 'message': 'Invalid public_id'}]
-            assert collection.find_one({'public_id': TRUE_ALIASED_RC_ID}, {'_id': 0}) == before
-        finally:
-            if created_here:
-                collection.delete_one({'public_id': TRUE_ALIASED_RC_ID})
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'].endswith('item #2 has no integer public_id')
+        assert self._stored(database_manager, database_name) == before
+
+    def test_more_items_than_there_can_be_classes_are_refused(self, rest_api) -> None:
+        """A list longer than MAX_ISMS_RISK_CLASSES cannot be a reorder"""
+        payload = [_risk_class_payload(public_id) for public_id in [*LIMIT_RC_IDS, LIMIT_EXTRA_ID]]
+
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json=payload)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == (
+            f'At most {MAX_ISMS_RISK_CLASSES} RiskClasses can be updated at once, but {len(payload)} were sent!'
+        )
+
+    def test_a_body_that_is_not_a_list_is_refused(self, rest_api) -> None:
+        """Named with the real plural"""
+        response = rest_api.put(f'{ROUTE_URL}/multiple', json={'public_id': RC_ID_FOR_BULK})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == 'The request body must be a list of RiskClasses!'
 
 
 class TestDeleteRiskClass:

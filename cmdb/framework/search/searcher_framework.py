@@ -40,6 +40,7 @@ from typing import Any
 
 from cmdb.manager.query_builder.search_pipeline_builder import SearchPipelineBuilder
 from cmdb.manager import ObjectsManager
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
@@ -105,7 +106,7 @@ class SearcherFramework:
                             Defaults to False
 
         Raises:
-            ObjectsManagerIterationError: When the aggregation itself fails
+            ObjectsManagerIterationError: When the aggregation itself fails, or ran past QUERY_TIME_LIMIT_MS
 
         Returns:
             SearchResult[RenderResult]: The rendered page, the total, the per-type groups and, per
@@ -119,7 +120,9 @@ class SearcherFramework:
 
         search_pipeline_builder.add_pipe(build_search_facet(skip, limit))
 
-        raw_result = self.objects_manager.aggregate_objects(pipeline=search_pipeline_builder.pipeline)
+        raw_result: list[dict[str, Any]] = self.objects_manager.aggregate_objects_within_time_limit(
+            search_pipeline_builder.pipeline, QUERY_TIME_LIMIT_MS,
+        )
 
         # $facet always emits exactly one document carrying all three branches; reading it defensively
         # keeps a changed facet from turning into an IndexError inside a route

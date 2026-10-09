@@ -24,7 +24,6 @@ consumed as IsmsLikelihood.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_likelihood_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsLikelihood document

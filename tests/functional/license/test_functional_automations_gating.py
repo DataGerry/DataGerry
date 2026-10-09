@@ -18,7 +18,8 @@ Functional tests for automations (OpenCelium) feature-gating over HTTP
 
 The whole OpenCelium integration is the licensed Automations feature, so with no license active
 every route - reads included - is blocked with HTTP 403 by a blueprint-level guard, before the view
-runs (so no external OpenCelium call is attempted). OpenCelium's OWN license routes stay ungated.
+runs (so no external OpenCelium call is attempted). OpenCelium's OWN license routes are gated too, each on
+its own (``requires_feature``), since their blueprint is registered outside the gated group.
 When the feature is licensed, or in local (cloud) mode, the guard lets the request through to the
 view - asserted as "not 403"; the view's own outcome (it would reach the external OpenCelium
 backend) is not exercised
@@ -45,6 +46,7 @@ CREATE_SCHEDULER_URL: str = '/open_celium/schedulers'
 
 # OpenCelium's own license routes are NOT part of the Automations feature and stay ungated
 OC_LICENSE_INFO_URL: str = '/open_celium/licenses/info'
+OC_LICENSE_ACTIVATION_URL: str = '/open_celium/licenses/activation/generate'
 
 # Every gated blueprint's representative READ route - reads lock too (whole feature)
 GATED_READ_URLS: list[str] = [
@@ -81,11 +83,15 @@ def test_create_scheduler_blocked_without_license(rest_api) -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                          OpenCelium license routes stay ungated                                     #
+#                                          OpenCelium license routes are gated too                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_oc_own_license_route_not_gated(rest_api) -> None:
-    """OpenCelium's own license route is NOT part of the automations lock and never returns the guard 403"""
-    assert rest_api.get(OC_LICENSE_INFO_URL).status_code != HTTPStatus.FORBIDDEN
+@pytest.mark.parametrize('url', [OC_LICENSE_INFO_URL, OC_LICENSE_ACTIVATION_URL], ids=['info', 'activation'])
+def test_oc_own_license_routes_are_gated(rest_api, url: str) -> None:
+    """Without the Automations licence there is no integration to report on - and no call out to OpenCelium"""
+    response = rest_api.get(url)
+
+    assert response.status_code == HTTPStatus.FORBIDDEN
+    assert response.get_json()['message'] == rest_api.get(SCHEDULERS_URL).get_json()['message']
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

@@ -643,25 +643,24 @@ class TestCardinality:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert 'already has a cable connection' in response.get_json()['message']
 
-    @pytest.mark.parametrize('failure', [
-        DocumentNetworkError('connection lost'),
-        DocumentInsertError('Operation failure: document failed validation'),
-        DocumentInsertError("text naming 'endpoints' is no duplicate"),
+    @pytest.mark.parametrize('failure, expected', [
+        (DocumentNetworkError('connection lost'), HTTPStatus.SERVICE_UNAVAILABLE),
+        (DocumentInsertError('Operation failure: document failed validation'), HTTPStatus.INTERNAL_SERVER_ERROR),
+        (DocumentInsertError("text naming 'endpoints' is no duplicate"), HTTPStatus.INTERNAL_SERVER_ERROR),
     ], ids=['outage', 'other-insert-failure', 'text-that-looks-like-a-duplicate'])
     def test_a_create_that_fails_for_any_other_reason_is_never_a_taken_slot(
-            self, rest_api, monkeypatch, failure: Exception) -> None:
+            self, rest_api, monkeypatch, failure: Exception, expected: HTTPStatus) -> None:
         """
         Only a typed duplicate is an occupied slot - not an outage, and not a message that names a key
 
         The database write is failed for real, below every manager. An outage is left unwrapped up to
-        Flask's catch-all, so the test runs with exception propagation off, as production does.
+        the app's error handler: a 503 (try again), never the clash
         """
-        monkeypatch.setitem(rest_api.application.config, 'PROPAGATE_EXCEPTIONS', False)
         monkeypatch.setattr(MongoDatabaseManager, 'insert', _raiser(failure))
 
         response = _create(rest_api, [SERVER_PORT_ID, FRONT_PORT_ID])
 
-        assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert response.status_code == expected
         assert 'already' not in response.get_json()['message']
 
 

@@ -107,7 +107,7 @@ class CiExplorerProfileManager(GenericManager):
             emptied_ids: list[int] = [profile[CiExplorerProfileKey.PUBLIC_ID.value] for profile in emptied]
 
             if emptied_ids:
-                self.delete_many_raw({CiExplorerProfileKey.PUBLIC_ID.value: {'$in': emptied_ids}})
+                self.delete_many({CiExplorerProfileKey.PUBLIC_ID.value: {'$in': emptied_ids}})
                 LOGGER.warning(
                     "[_remove_id_from_filter] Deleted CiExplorer Profile(s) %s: removing %s %s would have "
                     "emptied their filter, which widens a profile to everything",

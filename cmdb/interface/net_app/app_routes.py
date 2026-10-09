@@ -18,8 +18,10 @@ Flask Blueprint that owns the Angular SPA and the top-level browser-asset routes
 
 Registered by `cmdb.interface.net_app.create_app` at `/` inside the `DispatcherMiddleware`. The
 blueprint serves the SPA bundle (`datagerry-app/` as its static folder, surfaced at the root because
-`static_url_path=""`) plus two explicit ancillary routes for `/favicon.ico` and `/browserconfig.xml`
-read from the package's `_static/` directory.
+`static_url_path=""`) plus one explicit route, `/favicon.ico`, which answers the browser's root icon probe with the
+bundle's own `assets/img/favicon.ico`. **Everything this module serves comes from the bundle**, the one directory the
+binary build ships (`make bin`'s `--add-data`): a file read from anywhere else in the package works in a source
+checkout and 404s in the shipped product.
 
 The SPA fallback view `serve_spa_fallback` lives here but is registered by `create_app` as the
 *app-level* 404 handler, so it catches any URL this app fails to match. It does NOT see `/rest/...`:
@@ -38,23 +40,21 @@ Two rules the fallback follows, both easy to get wrong:
   Flask cannot handle, so the whole UI host answered 500 and logged two tracebacks per request. It
   now answers 503 with a message naming the cause
 """
-from os.path import join, splitext
+from os.path import splitext
 from logging import Logger, getLogger
 
-from flask import Blueprint, Response, make_response, request, send_from_directory
+from flask import Blueprint, Response, make_response, request
 from werkzeug.exceptions import HTTPException, NotFound
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-#: Directory inside this package holding the two top-level browser assets
-STATIC_DIR_NAME: str = '_static'
 
 #: The SPA entry document, served for `/` and for every unmatched client route
 INDEX_FILE: str = 'index.html'
 
-FAVICON_FILE: str = 'favicon.ico'
-BROWSER_CONFIG_FILE: str = 'browserconfig.xml'
+#: The icon `/favicon.ico` answers with, inside the bundle (copied from `app/src/assets/img/` by the Angular build)
+FAVICON_BUNDLE_PATH: str = 'assets/img/favicon.ico'
 
 #: Body and status for a request that arrives before `make webapp` has produced a bundle. 503 rather
 #: than 404: the URL is right, the deployment is incomplete
@@ -109,9 +109,6 @@ class SpaBlueprint(Blueprint):
 #: the mount. The explicit `@route(...)` rules below still win over that catch-all: Werkzeug sorts
 #: rules by specificity, and a literal rule always outranks one containing a converter
 app_pages = SpaBlueprint("app_pages", __name__, static_folder="datagerry-app", static_url_path="")
-
-#: Absolute path of the package's `_static/` directory, resolved once from the blueprint's root
-STATIC_DIR: str = join(app_pages.root_path, STATIC_DIR_NAME)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -170,23 +167,17 @@ def default_page() -> Response:
 @app_pages.route('/favicon.ico')
 def favicon() -> Response:
     """
-    Serves the top-level favicon from the package's `_static/` directory
+    Answers the browser's root icon probe with the bundle's favicon
+
+    The page declares its icons (`/assets/img/favicon-*.png` in `index.html`), but some clients still ask for
+    `/favicon.ico` at the root. The file is the bundle's own `assets/img/favicon.ico`, so the binary - which ships
+    the bundle and nothing else of this package - serves it too, with the bundle's asset cache lifetime. With no
+    bundle built it is a 404, like every other bundle file: the fallback refuses a path with an extension
 
     Returns:
-        Response: The `favicon.ico` file
+        Response: The bundle's `favicon.ico`
     """
-    return send_from_directory(STATIC_DIR, FAVICON_FILE)
-
-
-@app_pages.route('/browserconfig.xml')
-def browser_config() -> Response:
-    """
-    Serves the Windows tile / browser configuration XML from the package's `_static/` directory
-
-    Returns:
-        Response: The `browserconfig.xml` file
-    """
-    return send_from_directory(STATIC_DIR, BROWSER_CONFIG_FILE)
+    return app_pages.send_static_file(FAVICON_BUNDLE_PATH)
 
 
 def serve_spa_fallback(error: HTTPException) -> Response:

@@ -88,6 +88,16 @@ def test_defaults_come_from_the_schema_module() -> None:
     assert user.config_items_limit == DEFAULT_CONFIG_ITEMS_LIMIT
 
 
+def test_a_user_without_a_database_names_none() -> None:
+    """There is no fallback name: a missing database stays None, built or read, and is stored as None"""
+    built = _user()
+    read = CmdbUser.from_data(_document())
+
+    assert built.database is None and read.database is None
+    assert built.get_database() is None
+    assert CmdbUser.to_json(built)['database'] is None
+
+
 def test_registration_time_defaults_to_now() -> None:
     """A user built without a registration time is stamped at construction"""
     before = datetime.now(timezone.utc)

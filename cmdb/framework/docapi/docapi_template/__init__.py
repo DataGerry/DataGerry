@@ -13,3 +13,6 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+The DocapiTemplate model, its key enum and the document-generation helpers that render one into a PDF
+"""

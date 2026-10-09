@@ -179,7 +179,7 @@ class BaseAPIResponse(ABC):
         body: Any,
         status: int = 200,
         mime: str = DEFAULT_MIME_TYPE,
-        indent: int = DEFAULT_JSON_INDENT
+        indent: int | None = DEFAULT_JSON_INDENT
     ) -> Response:
         """
         Serializes a payload into a valid http response
@@ -191,7 +191,7 @@ class BaseAPIResponse(ABC):
             body (Any): The payload to serialize
             status (int): The http status code
             mime (str): The mime type to report
-            indent (int): JSON indent; every response is pretty-printed (see DEFAULT_JSON_INDENT)
+            indent (int | None): JSON indent; None - the default - is compact (see DEFAULT_JSON_INDENT)
 
         Raises:
             HTTPException: 500 when the payload cannot be serialized - the failure is logged with its

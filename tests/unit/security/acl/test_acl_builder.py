@@ -99,22 +99,19 @@ class TestBuildDeniedTypesCriteria:
 
     @staticmethod
     def _clauses() -> list[dict[str, Any]]:
-        """The three $and clauses of the criteria."""
+        """The two $and clauses of the criteria."""
         return build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ)['$and']
 
-    def test_requires_an_acl_to_be_present(self) -> None:
-        """A type with no ACL at all can never be denied."""
-        assert {'acl': {'$exists': True}} in self._clauses()
-
-    def test_excludes_a_deactivated_acl(self) -> None:
+    def test_only_an_activated_acl_can_deny(self) -> None:
         """
-        An ACL switched off denies nothing, and so does one carrying no `activated` key
+        Only `activated: true` denies - a type with no ACL, one switched off, one carrying no `activated` key
+        or a null one is never denied
 
-        That second half is the model's reading (`AccessControlList.from_data` defaults the flag to
-        False), which the query builder follows too, so a listing and a single object read never
-        disagree on the same stored document.
+        That is the model's reading (`AccessControlList.from_data` defaults the flag to False). The flag is
+        stored as a boolean only, so an equality test is that reading exactly and a listing and a single object
+        read never disagree on the same stored document.
         """
-        assert {'acl.activated': {'$exists': True, '$nin': [False, None]}} in self._clauses()
+        assert {'acl.activated': True} in self._clauses()
 
     def test_negates_the_permission_check(self) -> None:
         """The group is denied unless its list carries the permission, via $nor over $all."""
@@ -126,12 +123,12 @@ class TestBuildDeniedTypesCriteria:
         """A stored ACL holds permission strings, so the query must compare against .value."""
         criteria = build_denied_types_criteria(GROUP_ID, AccessControlPermission.UPDATE)
 
-        assert criteria['$and'][2]['$nor'][0][f'acl.groups.includes.{GROUP_ID}'] == {'$all': ['UPDATE']}
+        assert criteria['$and'][1]['$nor'][0][f'acl.groups.includes.{GROUP_ID}'] == {'$all': ['UPDATE']}
 
     @pytest.mark.parametrize('permission', list(AccessControlPermission))
     def test_every_permission_builds_a_criteria(self, permission: AccessControlPermission) -> None:
-        """Each of the four permissions produces a well-formed three-clause criteria."""
-        assert len(build_denied_types_criteria(GROUP_ID, permission)['$and']) == 3
+        """Each of the four permissions produces a well-formed two-clause criteria."""
+        assert len(build_denied_types_criteria(GROUP_ID, permission)['$and']) == 2
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -329,7 +326,7 @@ def test_denied_criteria_requires_all_of_several_permissions() -> None:
         GROUP_ID, [AccessControlPermission.READ, AccessControlPermission.CREATE],
     )
 
-    assert criteria['$and'][2] == {
+    assert criteria['$and'][1] == {
         '$nor': [{build_group_permissions_path(GROUP_ID): {'$all': ['READ', 'CREATE']}}]
     }
 
@@ -338,8 +335,7 @@ def test_denied_criteria_for_one_permission_is_unchanged_by_the_list_support() -
     """Every existing caller passes a single permission and must keep getting the same criteria."""
     assert build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ) == {
         '$and': [
-            {'acl': {'$exists': True}},
-            {'acl.activated': {'$exists': True, '$nin': [False, None]}},
+            {'acl.activated': True},
             {'$nor': [{build_group_permissions_path(GROUP_ID): {'$all': ['READ']}}]},
         ]
     }

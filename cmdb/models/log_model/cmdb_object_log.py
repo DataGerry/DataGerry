@@ -22,6 +22,7 @@ from typing import Any
 
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.models.log_model.cmdb_meta_log import CmdbMetaLog
+from cmdb.models.log_model.object_log_constants import ObjectLogKey
 
 from cmdb.class_schema.log_model.cmdb_object_log_schema import get_cmdb_object_log_schema
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -37,7 +38,8 @@ class CmdbObjectLog(CmdbMetaLog):
 
     Written only through `LogsManager.insert_log`, best-effort after the object write. `SCHEMA` describes
     that stored entry (the `changes` shape per action, `render_state` as bytes, `user_name` as the display
-    name); nothing validates it at write time -
+    name, `type_id` as the logged object's type, which the reads judge the entry by); nothing validates it
+    at write time -
     `tests/unit/models/log_model/test_cmdb_object_log_schema.py` holds it to what the writer produces
 
     Extends: CmdbMetaLog
@@ -47,8 +49,9 @@ class CmdbObjectLog(CmdbMetaLog):
 
     UNKNOWN_USER_STRING = 'Unknown'
 
-    #pylint: disable=R0913, R0917
+    # pylint: disable=too-many-arguments
     def __init__(self,
+                 *,
                  public_id: int,
                  log_type: str | None,
                  log_time: datetime,
@@ -60,7 +63,8 @@ class CmdbObjectLog(CmdbMetaLog):
                  user_name: str | None = None,
                  changes: dict[str, Any] | list[Any] | None = None,
                  comment: str | None = None,
-                 render_state: bytes | str | None = None) -> None:
+                 render_state: bytes | str | None = None,
+                 type_id: int | None = None) -> None:
         """
         Initializes a new instance of the CmdbObjectLog class,
         representing a log entry for changes made to a CMDB object.
@@ -82,8 +86,11 @@ class CmdbObjectLog(CmdbMetaLog):
             comment (str | None): Additional comments or notes regarding the log entry
             render_state (bytes | str | None): Optional serialized render snapshot of the object at the time
                 of the log (JSON-encoded bytes)
+            type_id (int | None): public_id of the logged object's CmdbType at log time - what the reads
+                judge the entry's visibility by. None for an entry whose type could not be determined
         """
         self.object_id = object_id
+        self.type_id = type_id
         self.version = version
         self.user_id = user_id
         self.user_name = user_name or self.UNKNOWN_USER_STRING
@@ -110,6 +117,7 @@ class CmdbObjectLog(CmdbMetaLog):
             user_name=data.get('user_name'),
             user_id=data.get('user_id'),
             render_state=data.get('render_state'),
+            type_id=data.get(ObjectLogKey.TYPE_ID.value),
             log_time=data.get('log_time', None),
             log_type=data.get('log_type', None),
             changes=data.get('changes', None),
@@ -134,6 +142,7 @@ class CmdbObjectLog(CmdbMetaLog):
             'user_name': instance.user_name,
             'user_id': instance.user_id,
             'render_state': instance.render_state,
+            ObjectLogKey.TYPE_ID.value: instance.type_id,
             'changes': instance.changes,
             'comment': instance.comment,
             'action_name': instance.action_name

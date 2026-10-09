@@ -43,6 +43,8 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_invoker_routes import 
     oc_invokers_blueprint,
 )
 from cmdb.errors.open_celium.invoker import OcInvokerGetError
+from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_invoker_routes'
@@ -248,6 +250,8 @@ class TestRouteRegistration:
         module has carried this guard since, and these three had none.
         """
         app = Flask(__name__)
+        # Gated first, as the factory does: registered ungated here, the real blueprint could not be gated later
+        gate_blueprint(oc_invokers_blueprint, LicenseFeature.AUTOMATIONS)
         app.register_blueprint(oc_invokers_blueprint)
 
         registered = {(rule.rule, method) for rule in app.url_map.iter_rules() for method in rule.methods}
@@ -261,6 +265,8 @@ class TestRouteRegistration:
     def test_the_read_routes_answer_head_as_well(self) -> None:
         """All three are declared GET/HEAD, which is what the docstrings claim"""
         app = Flask(__name__)
+        # Gated first, as the factory does: registered ungated here, the real blueprint could not be gated later
+        gate_blueprint(oc_invokers_blueprint, LicenseFeature.AUTOMATIONS)
         app.register_blueprint(oc_invokers_blueprint)
 
         for rule in app.url_map.iter_rules():

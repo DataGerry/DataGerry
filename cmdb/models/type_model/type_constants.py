@@ -27,6 +27,9 @@ the lowest one it may be given, and NestedSummaryKey, the keyset of a nested-sum
 
 FIELD_VALUE_MAX_LENGTHS caps how many characters an object may store in a free-text field, per field
 kind: the one size rule every CmdbType's text and textarea fields follow, whatever the type
+
+IDENTIFIER_FORBIDDEN_CHARACTERS, IdentifierKind and TypeIdentifierError are the vocabulary of the identifier rule
+(``type_identifier_rules``): what a NEW field or section name may not be
 """
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.utils import BaseStrEnum
@@ -93,3 +96,31 @@ class NestedSummaryKey(BaseStrEnum):
 # schema fills the same value in, so an entry read without the key renders as if it had been written
 # through the type route
 NESTED_SUMMARY_PREFIX_DEFAULT: bool = True
+
+
+# The characters a new field or section identifier may not contain: the object import template writes a field's
+# identifier as `[<name>]` at the end of its column header and reads it back with a bracket-free pattern
+# (importer_constants.CSV_HEADER_IDENTIFIER_PATTERN), so a bracket inside the name cannot be read back
+IDENTIFIER_FORBIDDEN_CHARACTERS: tuple[str, ...] = ('[', ']')
+
+
+class IdentifierKind(BaseStrEnum):
+    """Which identifier of a CmdbType a message is about"""
+    FIELD = 'field'
+    SECTION = 'section'
+
+
+class TypeIdentifierError(BaseStrEnum):
+    """
+    Why a new field or section identifier is refused
+
+    Attributes:
+        BLANK: The identifier is empty or whitespace only - it can be addressed nowhere
+        SURROUNDING_WHITESPACE: It starts or ends with whitespace, so it reads like another identifier
+        FORBIDDEN_CHARACTER: It contains a character the object import template cannot read back
+    """
+    BLANK = "A {kind} identifier may not be blank"
+    SURROUNDING_WHITESPACE = "The {kind} identifier '{name}' may not start or end with whitespace"
+    FORBIDDEN_CHARACTER = (
+        "The {kind} identifier '{name}' may not contain '[' or ']' - the object import template cannot read it back"
+    )

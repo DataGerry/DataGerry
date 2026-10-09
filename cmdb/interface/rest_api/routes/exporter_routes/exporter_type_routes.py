@@ -19,8 +19,9 @@ Implementation of all API routes for exporting CmdbTypes
 Exposes `POST /export/type/` (all types) and `POST /export/type/<ids>` (a comma-separated selection).
 Both serialize the types into a downloadable JSON attachment via
 `exporter_helper.build_types_json_export_response`, in ascending public_id order so two exports of the
-same system diff cleanly. NOTE: type export is JSON-only and lives on its own blueprint, separate from
-the object export engine.
+same system diff cleanly. Both export only what the caller's group may READ under the type ACL: the
+whole-catalogue export leaves the other types out, a selection naming one is refused. NOTE: type export
+is JSON-only and lives on its own blueprint, separate from the object export engine.
 """
 from logging import Logger, getLogger
 from flask import abort, Response
@@ -30,13 +31,18 @@ from cmdb.manager import TypesManager
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.type_model import CmdbType
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.rest_api.routes.routes_helper import extract_public_ids
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_helper import build_types_json_export_response
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import ExporterRight
+from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_constants import TYPE_EXPORT_ACCESS_DENIED_MESSAGE
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import is_type_readable
 
 from cmdb.errors.models.cmdb_type import CmdbTypeToJsonError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
@@ -55,10 +61,11 @@ exporter_type_blueprint = APIBlueprint('exporter_type', __name__)
 @handle_route_errors("while exporting Types")
 def export_cmdb_types(request_user: CmdbUser) -> Response:
     """
-    Exports every CmdbType as a downloadable JSON file
+    Exports every CmdbType the caller's group may READ as a downloadable JSON file
 
-    The whole catalogue is serialized into a formatted JSON attachment, ordered by ascending
-    public_id
+    The catalogue is serialized into a formatted JSON attachment, ordered by ascending public_id. A type
+    whose ACL does not grant the group READ is left out, as the type listing leaves it out - the filter
+    is part of the query, so the hidden types are never read
 
     NOTE this route also answers a by-ids export whose id list came out EMPTY: `/export/type/` is
     what `/export/type/<public_ids>` collapses to when the caller joins an empty selection into the
@@ -78,7 +85,11 @@ def export_cmdb_types(request_user: CmdbUser) -> Response:
     """
     try:
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
-        types: list[CmdbType] = types_manager.get_all_types(direction=CmdbDAO.DAO_ASCENDING)
+        types: list[CmdbType] = types_manager.get_types_by(
+            sort=TypeSchemaKey.PUBLIC_ID.value,
+            direction=CmdbDAO.DAO_ASCENDING,
+            criteria=build_permitted_types_criteria(request_user.group_id, AccessControlPermission.READ),
+        )
 
         return build_types_json_export_response(types)
     except TypesManagerGetError as err:
@@ -102,7 +113,8 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
 
     The requested types are serialized into a formatted JSON attachment, ordered by ascending
     public_id. public_ids that do not exist are skipped rather than reported, so a selection of
-    unknown ids exports an empty list
+    unknown ids exports an empty list. A selection naming a type the caller's group may not READ is
+    refused as a whole (403, naming those ids) - like every route that addresses a type by its id
 
     Every id must be a plain positive number (`extract_public_ids`); an EMPTY selection never reaches
     this route at all - the URL then collapses onto the whole-catalogue export, see
@@ -114,7 +126,8 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
 
     Raises:
         HTTPException: 400 if an id is not a plain positive number or the types could not be
-                       retrieved, 500 if a Type could not be serialized or on an unexpected error
+                       retrieved, 403 if a selected Type may not be read by the caller's group,
+                       500 if a Type could not be serialized or on an unexpected error
 
     Returns:
         Response: A Flask response object containing the exported types as a JSON attachment
@@ -124,10 +137,15 @@ def export_cmdb_types_by_ids(public_ids: str, request_user: CmdbUser) -> Respons
 
         requested_ids: list[int] = extract_public_ids(public_ids)
         types: list[CmdbType] = types_manager.get_types_by(
-            sort='public_id',
+            sort=TypeSchemaKey.PUBLIC_ID.value,
             direction=CmdbDAO.DAO_ASCENDING,
-            public_id={'$in': requested_ids},
+            criteria={TypeSchemaKey.PUBLIC_ID.value: {'$in': requested_ids}},
         )
+
+        denied_ids: list[int] = [a_type.public_id for a_type in types if not is_type_readable(a_type, request_user)]
+
+        if denied_ids:
+            abort(403, TYPE_EXPORT_ACCESS_DENIED_MESSAGE.format(public_ids=', '.join(map(str, denied_ids))))
 
         return build_types_json_export_response(types)
     except TypesManagerGetError as err:

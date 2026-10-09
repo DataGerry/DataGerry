@@ -104,6 +104,8 @@ BASIS_HIGH: float = 3.0
 MISSING_CONTROL_MEASURE_ID: int = 99290
 
 RISK_NAME: str = 'Enrichment Risk'
+PERSON_NAME: str = 'Alice'
+PERSON_GROUP_NAME: str = 'Group X'
 OBJECT_GROUP_NAME: str = 'Enrichment Group'
 
 ALL_RA_IDS: list[int] = [
@@ -182,8 +184,10 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
     def _purge() -> None:
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RA_IDS}})
+        # By measure too: an assignment stored through a route carries an id the server picked
         database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_CMA_IDS}})
+            .delete_many({'$or': [{'public_id': {'$in': ALL_CMA_IDS}},
+                                  {'control_measure_id': {'$in': ALL_CONTROL_MEASURE_IDS}}]})
         database_manager.get_collection(IsmsRisk.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_IDS}})
         database_manager.get_collection(CmdbObjectGroup.COLLECTION, database_name)\
@@ -192,16 +196,64 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
             .delete_many({'public_id': {'$in': ALL_IMPACT_IDS}})
         database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_OBJECT_IDS}})
-        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
-        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_PERSON_GROUP_IDS}})
+        purge_referenced_persons(database_manager, database_name)
         database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_CONTROL_MEASURE_IDS}})
 
     _purge()
+    seed_referenced_persons(database_manager, database_name)
+    database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
+        .insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
     yield
     _purge()
+
+
+def seed_referenced_persons(database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """
+    Stores the CmdbPerson and the CmdbPersonGroup the bodies reference
+
+    The write routes resolve every person reference, so a body naming PERSON_ID needs that person to exist
+    """
+    database_manager.get_collection(CmdbPerson.COLLECTION, database_name).replace_one(
+        {'public_id': PERSON_ID}, {'public_id': PERSON_ID, 'display_name': PERSON_NAME}, upsert=True,
+    )
+    database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).replace_one(
+        {'public_id': PERSON_GROUP_ID}, {'public_id': PERSON_GROUP_ID, 'name': PERSON_GROUP_NAME}, upsert=True,
+    )
+
+
+def purge_referenced_persons(database_manager: MongoDatabaseManager, database_name: str) -> None:
+    """Removes what seed_referenced_persons stored"""
+    database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+        .delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
+    database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
+        .delete_many({'public_id': {'$in': ALL_PERSON_GROUP_IDS}})
+
+
+def assignment_entry(control_measure_id: int = CONTROL_MEASURE_ID, **overrides: Any) -> dict[str, Any]:
+    """
+    One embedded ControlMeasureAssignment as the frontend's assignment form sends it: every key of the
+    assignment write schema but ``risk_assessment_id``, which the route stamps
+
+    Args:
+        control_measure_id (int): The assigned ControlMeasure
+        **overrides (Any): Keys to replace or add
+
+    Returns:
+        dict[str, Any]: The entry
+    """
+    entry: dict[str, Any] = {
+        'control_measure_id': control_measure_id,
+        'planned_implementation_date': None,
+        'implementation_status': 1,
+        'finished_implementation_date': None,
+        'priority': Priority.LOW.value,
+        'responsible_for_implementation_id_ref_type': PERSON_REF,
+        'responsible_for_implementation_id': PERSON_ID,
+    }
+    entry.update(overrides)
+
+    return entry
 
 
 def _insert_ra(database_manager: MongoDatabaseManager, database_name: str, public_id: int, **overrides: Any) -> None:
@@ -246,9 +298,7 @@ class TestPostRiskAssessment:
 
     def test_insert_rejects_unknown_control_measure(self, rest_api) -> None:
         """A control_measure_assignment referencing a non-existent ControlMeasure is rejected with 400."""
-        payload = _ra_body(RA_ID_FOR_GET, control_measure_assignments=[
-            {'public_id': CMA_ID_TO_CREATE, 'control_measure_id': MISSING_CONTROL_MEASURE_ID},
-        ])
+        payload = _ra_body(RA_ID_FOR_GET, control_measure_assignments=[assignment_entry(MISSING_CONTROL_MEASURE_ID)])
 
         assert rest_api.post(f'{ROUTE_URL}/', json=payload).status_code == HTTPStatus.BAD_REQUEST
 
@@ -280,22 +330,24 @@ class TestPostRiskAssessment:
     def test_insert_creates_control_measure_assignment(self, rest_api,
                                                      database_manager: MongoDatabaseManager,
                                                      database_name: str) -> None:
-        """A control_measure_assignment supplied on create is inserted and linked to the new assessment."""
-        database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
-            .insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
-        cma_collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
+        """
+        A control_measure_assignment supplied on create is inserted and linked to the new assessment
 
-        payload = _ra_body(RA_ID_FOR_GET, control_measure_assignments=[
-            {'public_id': CMA_ID_TO_CREATE, 'control_measure_id': CONTROL_MEASURE_ID},
-        ])
+        Both identities are server-owned: the link points at the id the route assigned the assessment, and the
+        assignment is stored under an id of the server's, not the one the entry carried
+        """
+        cma_collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
+        entry: dict[str, Any] = assignment_entry()
+
+        payload = _ra_body(RA_ID_FOR_GET, control_measure_assignments=[{**entry, 'public_id': CMA_ID_TO_CREATE}])
         response = rest_api.post(f'{ROUTE_URL}/', json=payload)
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
-        # The assessment's identity is server-owned, so the link points at the id the route assigned
         created_id: int = response.get_json()['result_id']
-        created = cma_collection.find_one({'public_id': CMA_ID_TO_CREATE})
+        created = cma_collection.find_one({'risk_assessment_id': created_id})
         assert created is not None
-        assert created['risk_assessment_id'] == created_id
+        assert created['public_id'] != CMA_ID_TO_CREATE
+        assert {key: created[key] for key in entry} == entry
 
 
 class TestRequiredFieldsGuard:
@@ -447,10 +499,6 @@ class TestGetRiskAssessment:
     def test_list_enriches_person_naming(self, rest_api,
                                        database_manager: MongoDatabaseManager, database_name: str) -> None:
         """The list route resolves interviewed persons, a responsible person and a responsible group."""
-        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
-            .insert_one({'public_id': PERSON_ID, 'display_name': 'Alice'})
-        database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
-            .insert_one({'public_id': PERSON_GROUP_ID, 'name': 'Group X'})
         database_manager.get_collection(CmdbObject.COLLECTION, database_name)\
             .insert_one({'public_id': OBJECT_ID, 'type_id': TYPE_ID, 'author_id': 1})
 
@@ -466,9 +514,9 @@ class TestGetRiskAssessment:
 
         assert response.status_code == HTTPStatus.OK
         by_id = {item['public_id']: item for item in response.get_json()['results']}
-        assert by_id[RA_ID_ENRICH_OBJECT]['naming']['interviewed_persons_names'] == ['Alice']
-        assert by_id[RA_ID_ENRICH_OBJECT]['naming']['responsible_persons_id_name'] == 'Alice'
-        assert by_id[RA_ID_ENRICH_PGROUP]['naming']['responsible_persons_id_name'] == 'Group X'
+        assert by_id[RA_ID_ENRICH_OBJECT]['naming']['interviewed_persons_names'] == [PERSON_NAME]
+        assert by_id[RA_ID_ENRICH_OBJECT]['naming']['responsible_persons_id_name'] == PERSON_NAME
+        assert by_id[RA_ID_ENRICH_PGROUP]['naming']['responsible_persons_id_name'] == PERSON_GROUP_NAME
 
 
 class TestPutRiskAssessment:
@@ -505,10 +553,12 @@ class TestPutRiskAssessment:
         """The created / deleted entries of control_measure_assignments are applied on update."""
         _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
         cma_collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
-        cma_collection.insert_one({'public_id': CMA_ID_TO_DELETE, 'risk_assessment_id': RA_ID_FOR_UPDATE})
+        # The deleted one holds the measure the created one takes over - legal, it is gone after the diff
+        cma_collection.insert_one({'public_id': CMA_ID_TO_DELETE, 'risk_assessment_id': RA_ID_FOR_UPDATE,
+                                   'control_measure_id': CONTROL_MEASURE_ID})
 
         payload = _ra_body(RA_ID_FOR_UPDATE, control_measure_assignments={
-            'created': [{'public_id': CMA_ID_TO_CREATE, 'risk_assessment_id': RA_ID_FOR_UPDATE}],
+            'created': [assignment_entry()],
             'updated': [],
             'deleted': [CMA_ID_TO_DELETE],
         })
@@ -516,8 +566,9 @@ class TestPutRiskAssessment:
         response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=payload)
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
-        assert cma_collection.find_one({'public_id': CMA_ID_TO_CREATE}) is not None
         assert cma_collection.find_one({'public_id': CMA_ID_TO_DELETE}) is None
+        assert cma_collection.count_documents({'risk_assessment_id': RA_ID_FOR_UPDATE,
+                                               'control_measure_id': CONTROL_MEASURE_ID}) == 1
 
     def test_created_cma_without_id_is_linked_to_ra(self, rest_api,
                                                    database_manager: MongoDatabaseManager,
@@ -527,7 +578,7 @@ class TestPutRiskAssessment:
         cma_collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
 
         payload = _ra_body(RA_ID_FOR_UPDATE, control_measure_assignments={
-            'created': [{'public_id': CMA_ID_CREATE_NO_ID}],
+            'created': [assignment_entry()],
             'updated': [],
             'deleted': [],
         })
@@ -535,9 +586,8 @@ class TestPutRiskAssessment:
         response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=payload)
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
-        created = cma_collection.find_one({'public_id': CMA_ID_CREATE_NO_ID})
-        assert created is not None
-        assert created['risk_assessment_id'] == RA_ID_FOR_UPDATE
+        assert cma_collection.find_one({'control_measure_id': CONTROL_MEASURE_ID})['risk_assessment_id'] \
+            == RA_ID_FOR_UPDATE
 
     def test_update_rejects_deleting_foreign_cma(self, rest_api,
                                                database_manager: MongoDatabaseManager,
@@ -566,13 +616,14 @@ class TestPutRiskAssessment:
 
         payload = _ra_body(RA_ID_FOR_UPDATE, control_measure_assignments={
             'created': [],
-            'updated': [{'public_id': CMA_ID_FOREIGN}],
+            'updated': [assignment_entry(public_id=CMA_ID_FOREIGN)],
             'deleted': [],
         })
 
         response = rest_api.put(f'{ROUTE_URL}/{RA_ID_FOR_UPDATE}', json=payload)
 
         assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'is not linked to' in response.get_json()['message']
 
     def test_update_rejects_unknown_control_measure(self, rest_api,
                                                   database_manager: MongoDatabaseManager,
@@ -581,7 +632,7 @@ class TestPutRiskAssessment:
         _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
 
         payload = _ra_body(RA_ID_FOR_UPDATE, control_measure_assignments={
-            'created': [{'public_id': CMA_ID_CREATE_NO_ID, 'control_measure_id': MISSING_CONTROL_MEASURE_ID}],
+            'created': [assignment_entry(MISSING_CONTROL_MEASURE_ID)],
             'updated': [], 'deleted': [],
         })
 
@@ -592,15 +643,13 @@ class TestPutRiskAssessment:
                                                           database_name: str) -> None:
         """Updating an assignment that belongs to the RiskAssessment applies the change (priority 1 -> 3)."""
         _insert_ra(database_manager, database_name, RA_ID_FOR_UPDATE)
-        database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
-            .insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
         cma_collection = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
         cma_collection.insert_one({'public_id': CMA_ID_OWNED, 'risk_assessment_id': RA_ID_FOR_UPDATE,
                                    'control_measure_id': CONTROL_MEASURE_ID, 'priority': 1})
 
         payload = _ra_body(RA_ID_FOR_UPDATE, control_measure_assignments={
             'created': [],
-            'updated': [{'public_id': CMA_ID_OWNED, 'control_measure_id': CONTROL_MEASURE_ID, 'priority': 3}],
+            'updated': [assignment_entry(public_id=CMA_ID_OWNED, priority=Priority.HIGH.value)],
             'deleted': [],
         })
 
@@ -982,19 +1031,15 @@ class TestStoredDateShape:
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """The assignments travel in the assessment's payload, through their own manager."""
-        database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
-            .insert_one({'public_id': CONTROL_MEASURE_ID, 'title': 'CM', 'control_measure_type': 'CONTROL'})
 
-        payload = _ra_body(RA_ID_FOR_GET, control_measure_assignments=[{
-            'public_id': CMA_ID_TO_CREATE,
-            'control_measure_id': CONTROL_MEASURE_ID,
-            'planned_implementation_date': {'$date': 1600000000000},
-        }])
+        payload = _ra_body(RA_ID_FOR_GET, control_measure_assignments=[
+            assignment_entry(planned_implementation_date={'$date': 1600000000000}),
+        ])
         response = rest_api.post(f'{ROUTE_URL}/', json=payload)
 
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
         stored = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)\
-            .find_one({'public_id': CMA_ID_TO_CREATE})
+            .find_one({'risk_assessment_id': response.get_json()['result_id']})
         assert isinstance(stored['planned_implementation_date'], datetime)
 
 

@@ -20,8 +20,10 @@ Pure: no Mongo, no Flask. A CmdbUserGroup is where authorisation actually gets d
 `route_utils.user_has_right` asks `has_right` and then `has_extended_right` for the right named on
 the route - so the two membership checks and the two serialisers are what this pins.
 
-Three rules get their own tests:
+Four rules get their own tests:
 
+* `from_data` refuses to build a group without the right tree: the stored names would resolve to nothing,
+  and a group holding no rights must not be what a forgotten argument looks like
 * `has_extended_right` must not recurse forever on a name carrying no dot (`rsplit` returns such a
   name unchanged) - that would be a RecursionError instead of a denial
 * `to_json` builds its rights list inside its own try block, so a failure there surfaces as
@@ -35,6 +37,7 @@ from typing import Any
 import pytest
 
 from cmdb.models.group_model.cmdb_user_group import CmdbUserGroup
+from cmdb.models.group_model.group_constants import RIGHT_TREE_REQUIRED_MSG
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.levels_enum import Levels
 
@@ -123,13 +126,29 @@ class TestFromData:
 
         assert group.rights == []
 
-    def test_without_known_rights_yields_no_rights(self) -> None:
-        """Called without the rights catalogue, nothing can be resolved."""
+    def test_without_the_right_tree_is_refused(self) -> None:
+        """Called without the tree, the stored names could not resolve - refused rather than read as no rights."""
+        with pytest.raises(CmdbUserGroupInitFromDataError) as exc_info:
+            CmdbUserGroup.from_data({'public_id': PUBLIC_ID, 'name': GROUP_NAME, 'rights': [OBJECT_VIEW_RIGHT]})
+
+        assert str(exc_info.value.args[0]) == RIGHT_TREE_REQUIRED_MSG
+
+    def test_an_empty_tree_resolves_nothing(self) -> None:
+        """An empty tree is a tree: the group is read, holding no rights."""
         group = CmdbUserGroup.from_data(
-            {'public_id': PUBLIC_ID, 'name': GROUP_NAME, 'rights': [OBJECT_VIEW_RIGHT]},
+            {'public_id': PUBLIC_ID, 'name': GROUP_NAME, 'rights': [OBJECT_VIEW_RIGHT]}, rights=[],
         )
 
         assert group.rights == []
+
+    def test_rights_come_in_the_order_of_the_tree(self) -> None:
+        """The stored order does not matter; the tree's does."""
+        known: list[BaseRight] = [_right(MASTER_RIGHT), _right(OBJECT_VIEW_RIGHT)]
+        group = CmdbUserGroup.from_data(
+            {'public_id': PUBLIC_ID, 'name': GROUP_NAME, 'rights': [OBJECT_VIEW_RIGHT, MASTER_RIGHT]}, rights=known,
+        )
+
+        assert [right.name for right in group.rights] == [MASTER_RIGHT, OBJECT_VIEW_RIGHT]
 
     def test_tolerates_a_null_rights_key(self) -> None:
         """A document storing rights as null is read as 'no rights', not as a crash."""
@@ -152,7 +171,7 @@ class TestFromData:
     def test_unusable_data_raises_from_data_error(self) -> None:
         """A document without a name fails as CmdbUserGroupInitFromDataError."""
         with pytest.raises(CmdbUserGroupInitFromDataError):
-            CmdbUserGroup.from_data({'public_id': PUBLIC_ID})
+            CmdbUserGroup.from_data({'public_id': PUBLIC_ID}, rights=[])
 
 
 class TestToJson:

@@ -21,6 +21,9 @@ Decorators run top-down, so a parser or validator listed above ``insert_request_
 sending a malformed ``filter`` is answered with the parser's own error text (400) instead of the 401 every
 other route gives, and a user without the right learns how the route parses before being refused.
 
+The authentication decorators keep their own order too: ``insert_request_user`` before ``verify_api_access``
+before every ``protect`` - the level and the right are checks ON the injected user.
+
 Read with ``ast`` rather than by importing the routes, so the census covers every route file whether or
 not a test imports it. A route that needs an exception has to be listed here with its reason
 """
@@ -96,6 +99,17 @@ def test_no_input_is_read_before_the_caller_is_authenticated(route_file: str, fu
     assert min(reader_positions) > max(auth_positions), (
         f'{route_file}::{function} reads its input before authenticating: {names}'
     )
+
+
+AUTH_ORDER: tuple[str, ...] = ('insert_request_user', 'verify_api_access', 'protect')
+
+
+@pytest.mark.parametrize('route_file, function, names', ROUTES, ids=[f'{r[0]}::{r[1]}' for r in ROUTES])
+def test_the_authentication_decorators_keep_their_order(route_file: str, function: str, names: list[str]) -> None:
+    """insert_request_user, then verify_api_access, then every protect - whichever of them a route carries"""
+    ranks: list[int] = [AUTH_ORDER.index(name) for name in names if name in AUTH_ORDER]
+
+    assert ranks == sorted(ranks), f'{route_file}::{function} orders its authentication decorators {names}'
 
 
 def test_every_exemption_still_names_a_route() -> None:

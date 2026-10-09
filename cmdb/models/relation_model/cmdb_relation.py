@@ -37,7 +37,6 @@ LOGGER: Logger = getLogger(__name__)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 CmdbRelation - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
-#pylint: disable=too-many-instance-attributes
 class CmdbRelation(CmdbDAO):
     """
     Implementation of a CmdbRelation in DataGerry
@@ -61,9 +60,10 @@ class CmdbRelation(CmdbDAO):
 
     SCHEMA: dict[str, Any] = get_cmdb_relation_schema()
 
-    #pylint: disable=R0913, R0917
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
+            *,
             public_id: int,
             relation_name: str,
             parent_type_ids: list[int],

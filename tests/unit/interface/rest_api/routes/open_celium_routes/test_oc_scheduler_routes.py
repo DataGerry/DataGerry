@@ -17,8 +17,8 @@
 Unit tests for cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_routes
 
 Each handler is unwrapped past its decorator chain and driven inside a BaseCmdbApp
-test_request_context with the managers (OcSchedulerManager, OcConnectionManager,
-DgServicePortalManager, `get_cached_user_manager`) patched at the route module path - no external OpenCelium
+test_request_context with the managers (OcSchedulerManager, OcConnectionManager - at the helper paths their
+builders live in - DgServicePortalManager, `get_cached_user_manager`) patched - no external OpenCelium
 HTTP, no Mongo. The app runs on-premise (cloud_mode/local_mode False), so the cloud title-mapping /
 Service-Portal branches are skipped and the local code paths are exercised. The AUTOMATIONS 403 gate
 is covered by the functional automations-gating suite.
@@ -56,6 +56,9 @@ from cmdb.errors.open_celium.connection import OcConnectionCreateError, OcConnec
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_routes'
+# The managers are built in the helpers (build_scheduler_manager / build_connection_manager), so they are patched there
+SCHED_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper'
+CONN_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper'
 
 SCHEDULER_ID: int = 5
 CONNECTION_ID: int = 10
@@ -99,8 +102,8 @@ def fixture_conn_manager() -> MagicMock:
 @pytest.fixture(name='patched_managers')
 def fixture_patched_managers(sched_manager: MagicMock, conn_manager: MagicMock) -> Any:
     """Patches the four managers the scheduler handlers construct at the route module path."""
-    with patch(f'{ROUTE_PATH}.OcSchedulerManager', return_value=sched_manager), \
-         patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=conn_manager), \
+    with patch(f'{SCHED_HELPER}.OcSchedulerManager', return_value=sched_manager), \
+         patch(f'{CONN_HELPER}.OcConnectionManager', return_value=conn_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=MagicMock()), \
          patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=MagicMock()):
         yield
@@ -450,8 +453,6 @@ class TestCreateOcSchedulerConnectionErrors:
 # In cloud mode the scheduler handlers map/unmap tenant titles, validate id access (cache-first, Service
 # Portal fallback via the helpers) and keep the Service Portal id-lists in sync.
 
-SCHED_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_scheduler_helper'
-CONN_HELPER: str = 'cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper'
 
 CLOUD_DB: str = 'gfSKkjoRzAxJwC'
 CLOUD_USER: SimpleNamespace = SimpleNamespace(database=CLOUD_DB, email='user@test.com', public_id=1)
@@ -502,8 +503,8 @@ def fixture_cloud_managers(sched_manager: MagicMock, conn_manager: MagicMock) ->
     """
     cached = MagicMock()
     dg_sp = MagicMock()
-    with patch(f'{ROUTE_PATH}.OcSchedulerManager', return_value=sched_manager), \
-         patch(f'{ROUTE_PATH}.OcConnectionManager', return_value=conn_manager), \
+    with patch(f'{SCHED_HELPER}.OcSchedulerManager', return_value=sched_manager), \
+         patch(f'{CONN_HELPER}.OcConnectionManager', return_value=conn_manager), \
          patch(f'{ROUTE_PATH}.DgServicePortalManager', return_value=dg_sp), \
          patch(f'{ROUTE_PATH}.get_cached_user_manager', return_value=cached), \
          patch(f'{SCHED_HELPER}.DgServicePortalManager', return_value=dg_sp), \
@@ -564,7 +565,7 @@ class TestGetOcSchedulerCloud:
     def test_not_in_subscription_returns_400(self, cloud_app, sched_manager, cloud_managers) -> None:
         """A scheduler outside the subscription aborts 400 before any fetch."""
         cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_scheduler_in_sub.return_value = False
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = None
 
         with cloud_app.test_request_context():
             with pytest.raises(HTTPException) as exc_info:
@@ -572,6 +573,9 @@ class TestGetOcSchedulerCloud:
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
         sched_manager.get_scheduler.assert_not_called()
+        # A user the portal knows no data for has no subscription: one portal call, not a second per-kind check
+        cloud_managers.dg_sp.get_dg_sp_user_data.assert_called_once_with(CLOUD_USER.email)
+        cloud_managers.dg_sp.check_scheduler_in_sub.assert_not_called()
 
 
 class TestGetAllOcSchedulersCloud:
@@ -645,7 +649,7 @@ class TestGetOcSchedulerLogsCloud:
     def test_not_in_subscription_returns_400(self, cloud_app, sched_manager, cloud_managers) -> None:
         """A scheduler outside the subscription aborts 400 before the logs fetch."""
         cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_scheduler_in_sub.return_value = False
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = None
 
         with cloud_app.test_request_context(f'/?scheduler_id={SCHEDULER_ID}&status=s'):
             with pytest.raises(HTTPException) as exc_info:
@@ -711,7 +715,7 @@ class TestDeleteOcSchedulerCloud:
         """A scheduler outside the subscription aborts 400."""
         del conn_manager
         cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_scheduler_in_sub.return_value = False
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = None
         sched_manager.get_scheduler.return_value = {'connection': {'connectionId': CONNECTION_ID}}
 
         with cloud_app.test_request_context():
@@ -794,7 +798,7 @@ class TestSchedulerBranchCoverage:
     def test_execute_not_in_subscription_returns_400(self, cloud_app, sched_manager, cloud_managers) -> None:
         """Executing a scheduler outside the subscription aborts 400 before running it."""
         cloud_managers.cached.get_cached_user.return_value = None
-        cloud_managers.dg_sp.check_scheduler_in_sub.return_value = False
+        cloud_managers.dg_sp.get_dg_sp_user_data.return_value = None
 
         with cloud_app.test_request_context():
             with pytest.raises(HTTPException) as exc_info:
@@ -835,3 +839,164 @@ class TestSchedulerBranchCoverage:
         with flask_app.test_request_context():
             with pytest.raises(HTTPException):
                 _unwrap(get_oc_running_schedulers)(request_user=REQUEST_USER)
+
+
+# ------------------------------------------- create_oc_scheduler: all or nothing ------------------------------------ #
+
+CREATE_BODY: dict[str, Any] = {'connection': {'title': 'conn'}, 'scheduler': {'title': 'sched'}}
+
+
+def _create_body() -> dict[str, Any]:
+    """A fresh valid create body (the route writes into it)"""
+    return {'connection': dict(CREATE_BODY['connection']), 'scheduler': dict(CREATE_BODY['scheduler'])}
+
+
+class TestCreateIsAllOrNothing:
+    """On premise: a failed scheduler create deletes the connection it was made for"""
+
+    def test_a_scheduler_failure_deletes_the_connection(self, flask_app, sched_manager, conn_manager,
+                                                        patched_managers) -> None:
+        """The filed case: the connection used to stay behind in OpenCelium"""
+        del patched_managers
+        conn_manager.check_connection_name_exists.return_value = False
+        conn_manager.create_connection.return_value = {'connectionId': CONNECTION_ID}
+        conn_manager.delete_connection.return_value = True
+        sched_manager.create_scheduler.side_effect = OcSchedulerCreateError('boom')
+
+        with flask_app.test_request_context(json=_create_body()):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(create_oc_scheduler)(request_user=REQUEST_USER)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert exc_info.value.description == 'Failed to create the Automation!'
+        conn_manager.delete_connection.assert_called_once_with(CONNECTION_ID)
+
+    def test_an_undo_that_cannot_finish_names_what_it_left(self, flask_app, sched_manager, conn_manager,
+                                                           patched_managers) -> None:
+        """OpenCelium refuses the delete: the 500 says the connection is still there"""
+        del patched_managers
+        conn_manager.check_connection_name_exists.return_value = False
+        conn_manager.create_connection.return_value = {'connectionId': CONNECTION_ID}
+        conn_manager.delete_connection.return_value = False
+        sched_manager.create_scheduler.side_effect = OcSchedulerCreateError('boom')
+
+        with flask_app.test_request_context(json=_create_body()):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(create_oc_scheduler)(request_user=REQUEST_USER)
+
+        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert f'connection {CONNECTION_ID}' in exc_info.value.description
+        assert 'undo left these behind' in exc_info.value.description
+
+    def test_a_success_deletes_nothing(self, flask_app, sched_manager, conn_manager, patched_managers) -> None:
+        """Nothing is undone when every step succeeded"""
+        del patched_managers
+        conn_manager.check_connection_name_exists.return_value = False
+        conn_manager.create_connection.return_value = {'connectionId': CONNECTION_ID}
+        sched_manager.create_scheduler.return_value = {'schedulerId': SCHEDULER_ID, 'title': 'sched'}
+
+        with flask_app.test_request_context(json=_create_body()):
+            _unwrap(create_oc_scheduler)(request_user=REQUEST_USER)
+
+        conn_manager.delete_connection.assert_not_called()
+        sched_manager.delete_scheduler.assert_not_called()
+        assert sched_manager.create_scheduler.call_args.args[0]['connectionId'] == CONNECTION_ID
+
+    @pytest.mark.parametrize(('part', 'body'), [
+        ('connection', {'connection': {'other': 1}, 'scheduler': {'title': 'sched'}}),
+        ('scheduler', {'connection': {'title': 'conn'}, 'scheduler': {'other': 1}}),
+    ], ids=['connection', 'scheduler'])
+    def test_a_missing_title_is_a_400_before_any_write(self, flask_app, sched_manager, conn_manager,
+                                                       patched_managers, part: str, body: dict) -> None:
+        """The scheduler's title used to be read after the connection existed - a 500 with a connection behind"""
+        del patched_managers
+
+        with flask_app.test_request_context(json=body):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(create_oc_scheduler)(request_user=REQUEST_USER)
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert f"'{part}.title'" in exc_info.value.description
+        conn_manager.check_connection_name_exists.assert_not_called()
+        conn_manager.create_connection.assert_not_called()
+        sched_manager.create_scheduler.assert_not_called()
+
+
+class TestCreateIsAllOrNothingCloud:
+    """Cloud mode: the portal registrations are part of the create, and undone with it"""
+
+    @staticmethod
+    def _created(conn_manager: MagicMock, sched_manager: MagicMock, cloud_managers: Any) -> None:
+        """Every remote write succeeds and every delete is acknowledged"""
+        conn_manager.check_connection_name_exists.return_value = False
+        conn_manager.create_connection.return_value = {'connectionId': CONNECTION_ID}
+        conn_manager.delete_connection.return_value = True
+        sched_manager.create_scheduler.return_value = {'schedulerId': SCHEDULER_ID, 'title': f'{CLOUD_DB}_sched'}
+        sched_manager.delete_scheduler.return_value = True
+        cloud_managers.dg_sp.save_connection_id.return_value = True
+        cloud_managers.dg_sp.save_scheduler_id.return_value = True
+        cloud_managers.dg_sp.delete_connection_id.return_value = True
+        cloud_managers.dg_sp.delete_scheduler_id.return_value = True
+
+    def _create(self, cloud_app) -> HTTPException:
+        """Runs the create and returns the abort it ends in"""
+        with cloud_app.test_request_context(json=_create_body()):
+            with pytest.raises(HTTPException) as exc_info:
+                _unwrap(create_oc_scheduler)(request_user=CLOUD_USER)
+
+        return exc_info.value
+
+    def test_a_scheduler_failure_deletes_the_connection_and_its_portal_id(
+            self, cloud_app, sched_manager, conn_manager, cloud_managers) -> None:
+        """Both the OpenCelium connection and the connectionId the portal holds"""
+        self._created(conn_manager, sched_manager, cloud_managers)
+        sched_manager.create_scheduler.side_effect = OcSchedulerCreateError('boom')
+
+        assert self._create(cloud_app).code == HTTPStatus.INTERNAL_SERVER_ERROR
+        cloud_managers.dg_sp.delete_connection_id.assert_called_once_with(CONNECTION_ID, CLOUD_USER.email, CLOUD_DB)
+        conn_manager.delete_connection.assert_called_once_with(CONNECTION_ID)
+        sched_manager.delete_scheduler.assert_not_called()
+
+    def test_a_refused_connection_registration_undoes_the_connection(
+            self, cloud_app, sched_manager, conn_manager, cloud_managers) -> None:
+        """The portal's False used to be stepped over - the connection then sat outside the subscription"""
+        self._created(conn_manager, sched_manager, cloud_managers)
+        cloud_managers.dg_sp.save_connection_id.return_value = False
+
+        error: HTTPException = self._create(cloud_app)
+
+        assert error.code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert error.description == 'Failed to register the Automation with the Service Portal!'
+        conn_manager.delete_connection.assert_called_once_with(CONNECTION_ID)
+        cloud_managers.dg_sp.delete_connection_id.assert_not_called()
+        sched_manager.create_scheduler.assert_not_called()
+
+    def test_a_refused_scheduler_registration_undoes_everything_newest_first(
+            self, cloud_app, sched_manager, conn_manager, cloud_managers) -> None:
+        """The create used to answer success with an Automation the user could never see; now nothing is left"""
+        self._created(conn_manager, sched_manager, cloud_managers)
+        cloud_managers.dg_sp.save_scheduler_id.return_value = False
+        order = MagicMock()
+        order.attach_mock(sched_manager.delete_scheduler, 'delete_scheduler')
+        order.attach_mock(cloud_managers.dg_sp.delete_connection_id, 'delete_connection_id')
+        order.attach_mock(conn_manager.delete_connection, 'delete_connection')
+
+        assert self._create(cloud_app).code == HTTPStatus.INTERNAL_SERVER_ERROR
+        assert [call[0] for call in order.mock_calls] == ['delete_scheduler', 'delete_connection_id',
+                                                          'delete_connection']
+        cloud_managers.dg_sp.delete_scheduler_id.assert_not_called()
+
+    def test_a_cloud_success_undoes_nothing(self, cloud_app, sched_manager, conn_manager, cloud_managers) -> None:
+        """Both ids registered, the cache evicted twice, nothing deleted"""
+        self._created(conn_manager, sched_manager, cloud_managers)
+
+        with cloud_app.test_request_context(json=_create_body()):
+            response = _unwrap(create_oc_scheduler)(request_user=CLOUD_USER)
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['title'] == 'sched'
+        assert cloud_managers.cached.delete_cached_user.call_count == 2
+        for delete in (conn_manager.delete_connection, sched_manager.delete_scheduler,
+                       cloud_managers.dg_sp.delete_connection_id, cloud_managers.dg_sp.delete_scheduler_id):
+            delete.assert_not_called()
+

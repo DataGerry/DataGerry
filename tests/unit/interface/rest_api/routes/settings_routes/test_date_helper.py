@@ -18,7 +18,7 @@ Unit tests for build_date_settings (date_helper).
 
 The helper turns a settings dictionary into a DateSettingsDAO while ignoring persistence keys such
 as the stored MongoDB '_id', so a stored 'date' section (which carries '_id') can be splatted back
-into DateSettingsDAO.
+into DateSettingsDAO. A missing or unusable value is read as its default, one key at a time.
 """
 import pytest
 
@@ -70,10 +70,30 @@ def test_default_settings_round_trip() -> None:
 
 
 @pytest.mark.parametrize('missing_key', ['date_format', 'timezone'])
-def test_missing_required_key_raises_key_error(missing_key: str) -> None:
-    """A missing required field raises KeyError (schema-level 400 handling is tracked separately)."""
+def test_a_missing_key_falls_back_to_its_default(missing_key: str) -> None:
+    """A stored section missing one key is read with that key's default; the other key is kept."""
     data = {'date_format': DATE_FORMAT, 'timezone': TIMEZONE}
     data.pop(missing_key)
 
-    with pytest.raises(KeyError):
-        build_date_settings(data)
+    dao = build_date_settings(data)
+
+    assert getattr(dao, missing_key) == DateSettingsDAO.__DEFAULT_SETTINGS__[missing_key]
+    kept_key: str = 'timezone' if missing_key == 'date_format' else 'date_format'
+    assert getattr(dao, kept_key) == data[kept_key]
+
+
+@pytest.mark.parametrize('unusable', [None, '', 12, {'tz': 'UTC'}, ['UTC']],
+                         ids=['null', 'empty', 'number', 'dict', 'list'])
+def test_an_unusable_value_falls_back_to_its_default(unusable: object) -> None:
+    """A value the write's schema would refuse - written before it, or by hand - reads as the default."""
+    dao = build_date_settings({'date_format': unusable, 'timezone': unusable})
+
+    assert dao.date_format == DateSettingsDAO.__DEFAULT_SETTINGS__['date_format']
+    assert dao.timezone == DateSettingsDAO.__DEFAULT_SETTINGS__['timezone']
+
+
+def test_an_empty_section_reads_as_the_defaults() -> None:
+    """Nothing usable at all is the default settings, not an error."""
+    dao = build_date_settings({'_id': 'date'})
+
+    assert dao.to_json() == build_date_settings(DateSettingsDAO.__DEFAULT_SETTINGS__).to_json()

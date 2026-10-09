@@ -18,10 +18,10 @@ Flask app that serves the bundled Angular SPA at the dispatcher's root mount
 
 `create_app()` produces the WSGI application `WebCmdbService._run` mounts at `/` inside the
 `DispatcherMiddleware` (alongside `/rest`). The app's job is narrow: serve the
-compiled Angular bundle that `make webapp` copies into `cmdb/interface/net_app/datagerry-app/`,
-plus two top-level static files (`favicon.ico`, `browserconfig.xml`) read from the package's
-`_static/` directory, and fall back to `index.html` on any 404 so the browser can resolve
-client-side routes after a hard reload. CORS is enabled wide-open so the dev workflow
+compiled Angular bundle that `make webapp` copies into `cmdb/interface/net_app/datagerry-app/`
+(the root `/favicon.ico` probe included, answered from the bundle), and fall back to `index.html` on a 404 for a
+client route so the browser can resolve it after a hard reload. Everything comes from the bundle - the one
+directory of this package the binary ships. CORS is enabled wide-open so the dev workflow
 (`npm start` on `:4200`) can hit the REST API on a different origin
 """
 from flask_cors import CORS
@@ -44,8 +44,7 @@ def create_app() -> BaseCmdbApp:
     whole app so the Angular dev server can call the backend cross-origin; in a production
     deployment the same WSGI app serves UI and API on one origin and CORS is functionally a
     no-op. Registers the `app_pages` blueprint at `/` — that blueprint owns the SPA bundle
-    under `datagerry-app/` and the two top-level static routes (`/favicon.ico`,
-    `/browserconfig.xml`) backed by the package's `_static/` directory. Finally wires
+    under `datagerry-app/` and the `/favicon.ico` route, which serves the bundle's own icon. Finally wires
     `serve_spa_fallback` (defined in `app_routes`) as the app-level 404 handler.
 
     That handler catches any URL **this app** fails to match; it is not reached for `/rest/...`,

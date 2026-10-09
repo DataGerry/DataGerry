@@ -92,7 +92,7 @@ class CmdbUser(CmdbDAO):
 
     SCHEMA: dict[str, Any] = get_cmdb_user_schema()
 
-    # Keyword-only (see the class docstring), which is what keeps R0917 off this list
+    # Keyword-only like every model constructor (CmdbDAO), which keeps too-many-positional-arguments off this list
     # pylint: disable=too-many-arguments, too-many-locals
     def __init__(
         self,
@@ -103,7 +103,7 @@ class CmdbUser(CmdbDAO):
         group_id: int | None = None,
         registration_time: datetime | None = None,
         password: str | None = None,
-        database: str = DEFAULT_DATABASE,
+        database: str | None = DEFAULT_DATABASE,
         api_level: int = DEFAULT_API_LEVEL,
         config_items_limit: int | None = DEFAULT_CONFIG_ITEMS_LIMIT,
         image: str | None = None,
@@ -126,9 +126,10 @@ class CmdbUser(CmdbDAO):
             group_id (int, optional): public_id of the CmdbUser's CmdbUserGroup. Defaults to None
             registration_time (datetime, optional): When the CmdbUser was created. Defaults to now
             password (str, optional): The CmdbUser's password DIGEST (see the module docstring)
-            database (str, optional): Name of the database the user belongs to. Defaults to
-                DEFAULT_DATABASE. Stored as given - a falsy value is NOT replaced here; in cloud mode
-                ManagerProvider refuses it rather than let it fall through to another tenant
+            database (str | None, optional): Name of the tenant database a cloud user belongs to. Defaults to
+                None - there is no fallback name. Stored as given; in cloud mode
+                ManagerProvider.tenant_database refuses a falsy one rather than let it fall through to another
+                tenant, and on premise nothing reads it
             api_level (int, optional): API access level of the CmdbUser. Defaults to DEFAULT_API_LEVEL
             config_items_limit (int | None, optional): How many CmdbObjects the user's tenant may hold
                 in cloud mode. Defaults to DEFAULT_CONFIG_ITEMS_LIMIT; None means "not configured" and
@@ -157,7 +158,7 @@ class CmdbUser(CmdbDAO):
             self.group_id: int = group_id or CmdbUser.DEFAULT_GROUP
             self.authenticator: str = authenticator or CmdbUser.DEFAULT_AUTHENTICATOR
             self.registration_time: datetime = registration_time or datetime.now(timezone.utc)
-            self.database: str = database
+            self.database: str | None = database
             self.api_level: int = api_level
             self.config_items_limit: int = (
                 DEFAULT_CONFIG_ITEMS_LIMIT if config_items_limit is None else config_items_limit
@@ -307,12 +308,12 @@ class CmdbUser(CmdbDAO):
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
-    def get_database(self) -> str:
+    def get_database(self) -> str | None:
         """
-        Retrieves the database name of the CmdbUser
+        Retrieves the tenant database name of the CmdbUser
 
         Returns:
-            str: Name of the database
+            str | None: Name of the tenant database, None when the document names none (every on-premise user)
         """
         return self.database
 

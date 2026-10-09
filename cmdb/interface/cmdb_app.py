@@ -19,7 +19,8 @@
 `BaseCmdbApp` extends `Flask` with a handful of attributes the rest of the codebase reads
 off `current_app` to avoid plumbing them through every call site: the active
 `MongoDatabaseManager`, the cloud / local CLI-mode snapshots that `__main__` sets on the
-`cmdb` package globals, a scratch temp folder used by the importer, and a pair of hardcoded
+`cmdb` package globals, the tenant databases that failed their startup update, a scratch temp
+folder used by the importer, and a pair of hardcoded
 dev RSA + AES keys (only consulted by the cloud-and-local code path in `holder.py` /
 `security_manager.py`). The same class is instantiated twice in a running process —
 `net_app.create_app()` builds the SPA host with no database handle, while
@@ -63,6 +64,9 @@ class BaseCmdbApp(Flask):
             `local_mode` are both True (see `security/key/holder.py`). Hardcoded literal
         symmetric_key (bytes): AES key used only when `cloud_mode` *and* `local_mode` are
             both True (see `manager/security_manager.py`). Hardcoded literal
+        unavailable_tenants (frozenset[str]): Tenant databases that failed their startup validation or
+            update (cloud mode). Every request bound to one of them is answered 503 until the next start
+            (`cmdb.interface.tenant_availability`); empty everywhere else
     """
     def __init__(
         self,
@@ -92,6 +96,7 @@ class BaseCmdbApp(Flask):
         self.database_manager: MongoDatabaseManager | None = database_manager
         self.cloud_mode: bool = __CLOUD_MODE__
         self.local_mode: bool = __LOCAL_MODE__
+        self.unavailable_tenants: frozenset[str] = frozenset()
 
         # Dev-only RSA keypair: only consulted by `holder.py` when cloud_mode AND
         # local_mode are both True. Hardcoded literal

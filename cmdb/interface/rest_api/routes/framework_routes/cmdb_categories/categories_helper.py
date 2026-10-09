@@ -18,7 +18,9 @@ Guards shared by the CmdbCategory write routes
 
 A category's ``types`` names the CmdbTypes shown under it in the sidebar. The schema holds every entry to a
 positive integer; these guards hold the list to what the frontend already assumes: every id names an
-existing CmdbType, names it once, and a CmdbType sits in **at most one** category
+existing CmdbType, names it once, and a CmdbType sits in **at most one** category. A malformed list is
+refused; an id that names no CmdbType or a CmdbType another category holds is dropped, so a category that
+still carries a deleted type can always be saved again
 """
 from collections import Counter
 from typing import Any
@@ -28,15 +30,12 @@ from flask import abort
 from cmdb.manager import CategoriesManager
 from cmdb.models.category_model import is_type_id
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import (
-    CATEGORY_TYPE_CLAIM_TEMPLATE,
-    CATEGORY_TYPES_CLAIMED_MSG,
     CATEGORY_TYPES_NOT_IDS_MSG,
     CATEGORY_TYPES_REPEATED_MSG,
-    CATEGORY_TYPES_UNKNOWN_MSG,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__ = ['abort_if_category_types_unusable', 'find_repeated_type_ids', 'format_type_claims']
+__all__ = ['drop_type_ids', 'find_repeated_type_ids', 'usable_category_types']
 
 
 def find_repeated_type_ids(type_ids: list[int]) -> list[int]:
@@ -52,34 +51,31 @@ def find_repeated_type_ids(type_ids: list[int]) -> list[int]:
     return sorted(type_id for type_id, count in Counter(type_ids).items() if count > 1)
 
 
-def format_type_claims(claims: dict[int, list[int]]) -> str:
+def drop_type_ids(type_ids: list[int], dropped: set[int]) -> list[int]:
     """
-    Spells the "already assigned elsewhere" pairs for the refusal message
+    Answers a ``types`` list without the given ids, keeping the order of the rest
 
     Args:
-        claims (dict[int, list[int]]): ``{type id: [ids of the categories holding it]}``
+        type_ids (list[int]): The validated ``types`` list
+        dropped (set[int]): The ids to leave out
 
     Returns:
-        str: One "Type <id> in Category [<ids>]" part per claimed type, by type id
+        list[int]: The remaining ids, in their original order
     """
-    return ', '.join(
-        CATEGORY_TYPE_CLAIM_TEMPLATE.format(type_id=type_id, category_ids=sorted(category_ids))
-        for type_id, category_ids in sorted(claims.items())
-    )
+    return [type_id for type_id in type_ids if type_id not in dropped]
 
 
-def abort_if_category_types_unusable(
+def usable_category_types(
         categories_manager: CategoriesManager,
         type_ids: Any,
-        category_public_id: int | None) -> None:
+        category_public_id: int | None) -> list[int]:
     """
-    Refuses a category write whose ``types`` list names a Type twice, an unknown Type, or a Type another
-    category already holds
+    Answers the ``types`` list a category write stores: refuses a malformed list, drops the unusable ids
 
     Runs before anything is written. An entry that is no positive integer (a boolean slips past the schema's
-    integer rule) is refused first; then the three checks are asked in that order - the cheap one first, then
-    one projected read over the types, then one over the other categories - and the first that fires
-    answers
+    integer rule) and an id named twice are refused. Of the rest, an id no CmdbType carries and a CmdbType
+    another category already holds are dropped - one projected read over the types, then one over the other
+    categories for the ids that exist. The other category keeps its type
 
     Args:
         categories_manager (CategoriesManager): Manager used for the two lookups
@@ -87,12 +83,15 @@ def abort_if_category_types_unusable(
         category_public_id (int | None): public_id of the category an update writes; None on a create
 
     Raises:
-        HTTPException: 400 naming the offending ids
+        HTTPException: 400 naming the entries that are no id or the ids named twice
+
+    Returns:
+        list[int]: The ids to store, in the order the write named them
     """
     ids: list[Any] = list(type_ids or [])
 
     if not ids:
-        return
+        return ids
 
     # The schema already refuses most non-ids; a boolean passes Cerberus' integer rule, so it is caught here
     not_ids: list[Any] = [value for value in ids if not is_type_id(value)]
@@ -105,12 +104,7 @@ def abort_if_category_types_unusable(
     if repeated:
         abort(400, CATEGORY_TYPES_REPEATED_MSG.format(type_ids=repeated))
 
-    unknown: list[int] = categories_manager.find_unknown_type_ids(ids)
+    known: list[int] = drop_type_ids(ids, set(categories_manager.find_unknown_type_ids(ids)))
+    claimed: set[int] = set(categories_manager.find_type_claims(known, category_public_id))
 
-    if unknown:
-        abort(400, CATEGORY_TYPES_UNKNOWN_MSG.format(type_ids=unknown))
-
-    claims: dict[int, list[int]] = categories_manager.find_type_claims(ids, category_public_id)
-
-    if claims:
-        abort(400, CATEGORY_TYPES_CLAIMED_MSG.format(claims=format_type_claims(claims)))
+    return drop_type_ids(known, claimed)

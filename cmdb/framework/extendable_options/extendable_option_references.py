@@ -226,7 +226,7 @@ def repoint_option_references(
                 {reference.field: to_id},
                 add_to_set=True,
             )
-            result = dbm.update_many_pull(reference.collection, db_name, criteria, {reference.field: from_id})
+            result = dbm.update_many_raw(reference.collection, db_name, criteria, {'$pull': {reference.field: from_id}})
         else:
             result = dbm.update_many(reference.collection, db_name, criteria, {reference.field: to_id})
 

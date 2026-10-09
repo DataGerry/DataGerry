@@ -31,6 +31,8 @@ An override's return annotation is accepted when it is:
 * anything, when the base's is ``Any`` or missing (the base promises nothing to narrow), or a TypeVar
   (``CmdbDAO.from_data -> T``): any class satisfies it, within the TypeVar's bound when it has one
 * a subclass of a generic base's origin (``GroupACL`` under ``AccessControlListSection[T]``)
+* the base's generic with every argument kept or narrowed by these same rules (``dict[int, X]`` under
+  ``dict[Any, X]``)
 
 A MISSING or bare-generic override annotation (``-> dict`` under ``dict[str, Any]``) is not reported here:
 that is annotation debt, and ``test_annotation_tripwire.py`` counts it already.
@@ -110,6 +112,21 @@ def _satisfies_bound(override: Any, bound: Any) -> bool:
     return inspect.isclass(bound) and issubclass(override, bound)
 
 
+def _arguments_agree(override: Any, base: Any) -> bool:
+    """Whether two parameterized generics share their origin and each override argument keeps the base's"""
+    base_origin: Any = typing.get_origin(base)
+    base_arguments: tuple[Any, ...] = typing.get_args(base)
+    override_arguments: tuple[Any, ...] = typing.get_args(override)
+
+    if base_origin is None or typing.get_origin(override) is not base_origin:
+        return False
+
+    if not base_arguments or len(override_arguments) != len(base_arguments):
+        return False
+
+    return all(_returns_agree(mine, theirs) for mine, theirs in zip(override_arguments, base_arguments))
+
+
 def _is_narrower(override: Any, base: Any) -> bool:
     """Whether a single (non-union) annotation is the base's, or a class below the base's class"""
     if override == base:
@@ -117,6 +134,9 @@ def _is_narrower(override: Any, base: Any) -> bool:
 
     if isinstance(base, typing.TypeVar):
         return _satisfies_bound(override, base.__bound__)
+
+    if _arguments_agree(override, base):
+        return True
 
     base_class: Any = typing.get_origin(base) or base
 
@@ -253,6 +273,10 @@ class SampleBase:
         """A classmethod"""
         return 0
 
+    def mapping(self) -> dict[Any, int | None]:
+        """A generic, its key unpromised"""
+        return {}
+
     def __call__(self) -> int:
         """A dunder, never compared"""
         return 0
@@ -294,9 +318,29 @@ class KeepsTheContract(SampleBase):
         """A subclass of the base's (forward-referenced) class"""
         return KeepsTheContract()
 
+    def mapping(self) -> dict[int, int]:
+        """Each argument narrowed: the key from Any, the value to a member of its union"""
+        return {}
+
     def __call__(self) -> str:  # type: ignore[override]
         """A dunder may change shape"""
         return ''
+
+
+class WidensAnArgument(SampleBase):
+    """The key may narrow, but str is not a member of the value's int | None"""
+
+    def mapping(self) -> dict[int, str]:
+        """Breaks the contract"""
+        return {}
+
+
+class ChangesTheOrigin(SampleBase):
+    """The same arguments on another generic"""
+
+    def mapping(self) -> list[int]:
+        """Breaks the contract"""
+        return []
 
 
 class LeavesTheUnion(SampleBase):
@@ -312,7 +356,8 @@ class TestTheRule:
 
     @pytest.mark.parametrize('override, method', [
         (ChangesTheReturn, 'names'), (ChangesAClassmethod, 'build'), (LeavesTheUnion, 'maybe'),
-    ], ids=['different-return', 'classmethod', 'outside-the-union'])
+        (WidensAnArgument, 'mapping'), (ChangesTheOrigin, 'mapping'),
+    ], ids=['different-return', 'classmethod', 'outside-the-union', 'widened-argument', 'other-origin'])
     def test_a_broken_contract_is_reported(self, override: type, method: str) -> None:
         """One disagreement, naming the method"""
         found: list[str] = find_disagreements([override], SAMPLE_PREFIX)
@@ -321,7 +366,7 @@ class TestTheRule:
         assert f'.{method}:' in found[0]
 
     def test_every_allowed_override_agrees(self) -> None:
-        """Same type, forward reference, narrowing from Any, union member, subclass, dunder"""
+        """Same type, forward reference, narrowing from Any, union member, subclass, narrowed arguments, dunder"""
         assert find_disagreements([KeepsTheContract], SAMPLE_PREFIX) == []
 
     def test_a_base_outside_the_compared_prefix_is_skipped(self) -> None:

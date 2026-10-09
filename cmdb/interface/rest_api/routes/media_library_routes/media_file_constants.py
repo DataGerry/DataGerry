@@ -28,6 +28,14 @@ from cmdb.models.right_model.right_constants import ObjectRightName
 __all__: list[str] = [
     'DOWNLOAD_MIMETYPE',
     'UNPAGED_LIMIT',
+    'BODY_NOT_AN_OBJECT_MSG',
+    'METADATA_NOT_AN_OBJECT_MSG',
+    'UNKNOWN_METADATA_KEYS_MSG',
+    'UPLOAD_FILENAME_MSG',
+    'PARENT_NOT_FOUND_MSG',
+    'PARENT_NOT_A_FOLDER_MSG',
+    'PARENT_CYCLE_MSG',
+    'FOLDER_FLAG_IMMUTABLE_MSG',
     'MediaFileRight',
     'MediaFileRequestKey',
     'MediaFileKey',
@@ -41,6 +49,16 @@ UNPAGED_LIMIT: int = 0
 # What a download is answered as, whatever the stored mime type - the browser saves it rather than
 # rendering it
 DOWNLOAD_MIMETYPE: str = 'application/octet-stream'
+
+# Refusals of a write: the update body / upload metadata shape, the uploaded file's name, and the tree rules
+BODY_NOT_AN_OBJECT_MSG: str = 'The request body must be a JSON object!'
+METADATA_NOT_AN_OBJECT_MSG: str = 'The metadata of an upload must be an object!'
+UNKNOWN_METADATA_KEYS_MSG: str = 'The metadata carries unknown key(s): {keys}!'
+UPLOAD_FILENAME_MSG: str = "The uploaded file's name {problem}!"
+PARENT_NOT_FOUND_MSG: str = 'The parent folder with ID: {parent} was not found!'
+PARENT_NOT_A_FOLDER_MSG: str = 'The parent with ID: {parent} is a file, not a folder!'
+PARENT_CYCLE_MSG: str = 'A folder can not be moved into itself or into one of its own subfolders!'
+FOLDER_FLAG_IMMUTABLE_MSG: str = 'An update can not turn a file into a folder or a folder into a file!'
 
 
 class MediaFileRight(BaseStrEnum):

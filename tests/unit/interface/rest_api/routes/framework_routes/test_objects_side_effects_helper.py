@@ -24,14 +24,16 @@ the object they describe has already been stored. Most tests here therefore asse
 NOT raise, and that the next side effect still ran.
 """
 from datetime import datetime, timezone
-from types import SimpleNamespace
 from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
 from werkzeug.exceptions import BadRequest, HTTPException
 
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import OBJECT_LOG_LOST_MARKER
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import (
+    OBJECT_LOG_LOST_MARKER,
+    RELATION_CASCADE_MAX_ROUNDS,
+)
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
     build_object_log_data,
     build_object_write_emitter,
@@ -39,14 +41,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     report_lost_object_log,
     write_object_log,
     RELATION_DELETE_LOG_PROJECTION,
-    build_type_object_counts,
     emit_object_state_change_events,
     emit_object_update_events,
     handle_create_object_log,
     handle_delete_invalid_object_relations,
     handle_delete_object_location,
     handle_notify_webhooks,
-    handle_sync_config_item_count,
     render_single_object,
 )
 from cmdb.models.object_model import CmdbObject
@@ -73,10 +73,15 @@ def _make_object(fields: list[dict[str, Any]], special_type: Any = None, public_
     )
 
 
+# The type the stand-in render result names - what a log entry built from it is stamped with
+RENDERED_TYPE_ID: int = 31
+
+
 def _rendered(object_id: int = 5, version: str = '1.0.1') -> MagicMock:
     """A RenderResult stand-in carrying the object_information a log entry reads."""
     rendered = MagicMock(spec=RenderResult)
     rendered.object_information = {'object_id': object_id, 'version': version}
+    rendered.type_information = {'type_id': RENDERED_TYPE_ID}
 
     return rendered
 
@@ -223,7 +228,7 @@ class TestBuildObjectLogData:
     """The entry every object write path stores."""
 
     def test_builds_the_entry_from_the_render(self) -> None:
-        """The user, the comment, the version and the JSON-encoded render"""
+        """The user, the comment, the version, the JSON-encoded render and the type the render names"""
         user = MagicMock()
         user.get_public_id.return_value = 1
         user.get_display_name.return_value = 'admin'
@@ -233,7 +238,7 @@ class TestBuildObjectLogData:
 
         assert entry == {
             'object_id': 5, 'version': '1.0.1', 'user_id': 1, 'user_name': 'admin', 'comment': 'note',
-            'render_state': b'{}', 'changes': {'old': 1, 'new': 2},
+            'render_state': b'{}', 'type_id': RENDERED_TYPE_ID, 'changes': {'old': 1, 'new': 2},
         }
 
     def test_an_action_without_changes_stores_no_changes_key(self) -> None:
@@ -318,92 +323,6 @@ class TestHandleDeleteObjectLocation:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                apply_object_update                                                   #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-
-class TestBuildTypeObjectCounts:
-    """build_type_object_counts joins the per-type object counts with each CmdbType's label."""
-
-    def test_maps_counts_to_type_labels(self) -> None:
-        """Each counted type_id is resolved to its label and paired with the object count."""
-        objects_manager = MagicMock()
-        objects_manager.count_objects_grouped_by_type_with_total.return_value = ({1: 30, 2: 12}, 42)
-        types_manager = MagicMock()
-        types_manager.get_types_lookup.return_value = {
-            1: SimpleNamespace(label='Server'),
-            2: SimpleNamespace(label='Client'),
-        }
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
-            type_counts, total = build_type_object_counts(MagicMock())
-
-        assert type_counts == [{'name': 'Server', 'count': 30}, {'name': 'Client', 'count': 12}]
-        assert total == 42
-
-    def test_no_objects_returns_empty_without_type_lookup(self) -> None:
-        """With no objects the helper returns [] and never queries the type lookup."""
-        objects_manager = MagicMock()
-        objects_manager.count_objects_grouped_by_type_with_total.return_value = ({}, 0)
-        types_manager = MagicMock()
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
-            type_counts, total = build_type_object_counts(MagicMock())
-
-        assert not type_counts
-        assert total == 0
-        types_manager.get_types_lookup.assert_not_called()
-
-    def test_skips_type_missing_from_lookup(self) -> None:
-        """A counted type_id whose CmdbType no longer exists is skipped, not emitted with no label."""
-        objects_manager = MagicMock()
-        objects_manager.count_objects_grouped_by_type_with_total.return_value = ({1: 30, 99: 5}, 35)
-        types_manager = MagicMock()
-        types_manager.get_types_lookup.return_value = {1: SimpleNamespace(label='Server')}
-
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[objects_manager, types_manager]):
-            type_counts, total = build_type_object_counts(MagicMock())
-
-        # the skipped type still counts toward the total the portal is told about
-        assert type_counts == [{'name': 'Server', 'count': 30}]
-        assert total == 35
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                          handle_sync_config_item_count                                              #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-
-class TestHandleSyncConfigItemCount:
-    """handle_sync_config_item_count forwards the count plus the per-type breakdown to the portal."""
-
-    def test_passes_count_and_type_breakdown_to_manager(self) -> None:
-        """The built type-count list is passed straight into DgServicePortalManager.sync_config_items."""
-        request_user = MagicMock()
-        manager_instance = MagicMock()
-        type_counts = [{'name': 'Server', 'count': 30}]
-
-        with patch(f'{HELPER_PATH}.build_type_object_counts', return_value=(type_counts, 30)), \
-             patch(f'{HELPER_PATH}.DgServicePortalManager', return_value=manager_instance):
-            handle_sync_config_item_count(request_user, 42)
-
-        # an explicitly supplied count wins over the aggregation's total
-        manager_instance.sync_config_items.assert_called_once_with(request_user, 42, type_counts)
-
-    def test_derives_the_total_from_the_breakdown_when_no_count_is_given(self) -> None:
-        """Omitting the count takes the total from the same aggregation - no extra full-collection count."""
-        request_user = MagicMock()
-        manager_instance = MagicMock()
-        type_counts = [{'name': 'Server', 'count': 30}]
-
-        with patch(f'{HELPER_PATH}.build_type_object_counts', return_value=(type_counts, 31)), \
-             patch(f'{HELPER_PATH}.DgServicePortalManager', return_value=manager_instance):
-            handle_sync_config_item_count(request_user)
-
-        manager_instance.sync_config_items.assert_called_once_with(request_user, 31, type_counts)
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                          validate_object_patch_payload                                              #
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -422,8 +341,9 @@ class TestEmitObjectStateChangeEvents:
         before, after = self._objects()
         logs_manager = MagicMock()
 
-        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook:
-            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, True)
+        with patch(f'{HELPER_PATH}.send_webhook_event') as webhook, \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, _rendered(), True)
 
         webhook.assert_called_once()
         logs_manager.insert_log.assert_called_once()
@@ -434,8 +354,9 @@ class TestEmitObjectStateChangeEvents:
         before, after = self._objects()
         logs_manager = MagicMock()
 
-        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')):
-            emit_object_state_change_events(MagicMock(), logs_manager, before, after, {'rendered': True}, False)
+        with patch(f'{HELPER_PATH}.send_webhook_event', side_effect=RuntimeError('boom')), \
+             patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
+            emit_object_state_change_events(MagicMock(), logs_manager, before, after, _rendered(), False)
 
         logs_manager.insert_log.assert_called_once()
 
@@ -506,8 +427,7 @@ class TestHandleCreateObjectLog:
     def test_writes_the_log_entry(self) -> None:
         """The rendered object's id and version land on the persisted log document."""
         logs_manager = MagicMock()
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
+        rendered = _rendered()
 
         target = MagicMock()
         target.get_public_id.return_value = 5
@@ -524,8 +444,7 @@ class TestHandleCreateObjectLog:
     def test_a_delete_is_labelled_as_one(self) -> None:
         """The DELETE action gets its own comment."""
         logs_manager = MagicMock()
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
+        rendered = _rendered()
 
         with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
@@ -557,8 +476,7 @@ class TestHandleCreateObjectLog:
         """A logging problem must never fail the surrounding object operation - it is reported instead."""
         logs_manager = MagicMock()
         logs_manager.insert_log.side_effect = RuntimeError('logs collection down')
-        rendered = MagicMock(spec=RenderResult)
-        rendered.object_information = {'object_id': 5, 'version': '1.0.1'}
+        rendered = _rendered()
 
         with patch(f'{HELPER_PATH}.render_single_object', return_value=rendered), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'), \
@@ -573,76 +491,146 @@ class TestHandleCreateObjectLog:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
+DELETED_OBJECT_ID: int = 5
+SECOND_DELETED_OBJECT_ID: int = 6
+RELATION_QUERY: dict[str, Any] = {'$or': ['relations of the deleted objects']}
+
+
 class TestHandleDeleteInvalidObjectRelations:
-    """The relation half of the object-delete cascade: bulk delete plus one log per relation."""
+    """
+    The relation half of the object-delete cascade: exactly the relations read are deleted and logged,
+    round after round, until none are left
+    """
 
     @staticmethod
-    def _managers(relations: list[dict[str, Any]]) -> tuple[MagicMock, MagicMock]:
-        """Builds the relation + relation-log managers with the given relations found."""
+    def _managers(*reads: list[dict[str, Any]]) -> tuple[MagicMock, MagicMock]:
+        """Builds the relation + relation-log managers; each find answers the next read, then nothing."""
         relations_manager = MagicMock()
-        relations_manager.find.return_value = relations
-        relations_manager.get_related_relations_query.return_value = {'$or': []}
+        relations_manager.find.side_effect = [*reads, []]
+        relations_manager.get_relations_of_objects_query.return_value = RELATION_QUERY
         logs_manager = MagicMock()
 
         return relations_manager, logs_manager
 
-    def test_no_relations_writes_nothing(self) -> None:
-        """An object with no relations short-circuits before the delete and the log work."""
-        relations_manager, logs_manager = self._managers([])
-
+    @staticmethod
+    def _run(relations_manager: MagicMock, logs_manager: MagicMock,
+             public_ids: list[int] | None = None) -> None:
+        """Runs the cascade with the two managers handed out by the provider."""
         with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
+            handle_delete_invalid_object_relations(MagicMock(), public_ids or [DELETED_OBJECT_ID])
 
-        relations_manager.delete_many_raw.assert_not_called()
+    def test_no_objects_resolves_nothing(self) -> None:
+        """An empty selection is a no-op before any manager is resolved"""
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager') as get_manager:
+            handle_delete_invalid_object_relations(MagicMock(), [])
+
+        get_manager.assert_not_called()
+
+    def test_no_relations_writes_nothing(self) -> None:
+        """An object with no relations stops after the first read"""
+        relations_manager, logs_manager = self._managers()
+
+        self._run(relations_manager, logs_manager)
+
+        relations_manager.delete_many.assert_not_called()
         logs_manager.insert_many.assert_not_called()
 
+    def test_the_query_covers_every_deleted_object(self) -> None:
+        """One query for the whole selection - the bulk delete pays one read, not one per object"""
+        relations_manager, logs_manager = self._managers()
+
+        self._run(relations_manager, logs_manager, [DELETED_OBJECT_ID, SECOND_DELETED_OBJECT_ID])
+
+        relations_manager.get_relations_of_objects_query.assert_called_once_with(
+            [DELETED_OBJECT_ID, SECOND_DELETED_OBJECT_ID],
+        )
+        assert relations_manager.find.call_args.kwargs['criteria'] is RELATION_QUERY
+
     def test_reads_back_only_the_keys_the_log_needs(self) -> None:
-        """The relations are read with a projection - the full documents are never loaded."""
+        """The relations are read with a projection - the full documents are never loaded"""
         relations_manager, logs_manager = self._managers([{'public_id': 1}])
         logs_manager.format_object_relation_log_data.side_effect = [{'a': 1}]
         logs_manager.reserve_public_ids.return_value = [10]
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
+        self._run(relations_manager, logs_manager)
 
         assert relations_manager.find.call_args.kwargs['projection'] == RELATION_DELETE_LOG_PROJECTION
 
-    def test_deletes_and_logs_every_affected_relation(self) -> None:
-        """One bulk delete, one reserved id per log, then a single insert_many."""
-        relations = [{'public_id': 1}, {'public_id': 2}]
-        relations_manager, logs_manager = self._managers(relations)
+    def test_deletes_the_ids_it_read_not_the_query(self) -> None:
+        """The delete names the relations that were read - one created after the read is not swept up unlogged"""
+        relations_manager, logs_manager = self._managers([{'public_id': 1}, {'public_id': 2}])
         logs_manager.format_object_relation_log_data.side_effect = [{'a': 1}, {'b': 2}]
         logs_manager.reserve_public_ids.return_value = [10, 11]
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
+        self._run(relations_manager, logs_manager)
 
-        relations_manager.delete_many_raw.assert_called_once_with({'$or': []})
+        relations_manager.delete_many.assert_called_once_with({'public_id': {'$in': [1, 2]}})
         logs_manager.reserve_public_ids.assert_called_once_with(2)
         logs_manager.insert_many.assert_called_once_with(
             [{'a': 1, 'public_id': 10}, {'b': 2, 'public_id': 11}], skip_public=True,
         )
 
+    def test_a_relation_created_during_the_cascade_is_deleted_and_logged_in_the_next_round(self) -> None:
+        """The re-read finds it; it is deleted by its own id and gets its own log"""
+        relations_manager, logs_manager = self._managers([{'public_id': 1}], [{'public_id': 2}])
+        logs_manager.format_object_relation_log_data.side_effect = [{'a': 1}, {'b': 2}]
+        logs_manager.reserve_public_ids.side_effect = [[10], [11]]
+
+        self._run(relations_manager, logs_manager)
+
+        assert [entry.args[0] for entry in relations_manager.delete_many.call_args_list] == [
+            {'public_id': {'$in': [1]}}, {'public_id': {'$in': [2]}},
+        ]
+        assert [entry.args[0] for entry in logs_manager.insert_many.call_args_list] == [
+            [{'a': 1, 'public_id': 10}], [{'b': 2, 'public_id': 11}],
+        ]
+        assert relations_manager.find.call_count == 3
+
+    def test_relations_that_keep_appearing_stop_after_the_round_cap(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Each round still deletes and logs what it read; after the cap the rest is left with a warning"""
+        relations_manager, logs_manager = MagicMock(), MagicMock()
+        relations_manager.find.return_value = [{'public_id': 1}]
+        logs_manager.format_object_relation_log_data.return_value = {'a': 1}
+        logs_manager.reserve_public_ids.return_value = [10]
+
+        self._run(relations_manager, logs_manager)
+
+        assert relations_manager.delete_many.call_count == RELATION_CASCADE_MAX_ROUNDS
+        assert logs_manager.insert_many.call_count == RELATION_CASCADE_MAX_ROUNDS
+        assert 'kept appearing' in caplog.text
+
+    def test_the_logs_are_prepared_before_the_delete(self) -> None:
+        """A relation whose entry cannot be built is known before it is gone"""
+        recorder = MagicMock()
+        relations_manager, logs_manager = self._managers([{'public_id': 1}])
+        recorder.attach_mock(logs_manager.format_object_relation_log_data, 'prepare')
+        recorder.attach_mock(relations_manager.delete_many, 'delete')
+        recorder.attach_mock(logs_manager.insert_many, 'insert')
+        logs_manager.format_object_relation_log_data.return_value = {'a': 1}
+        logs_manager.reserve_public_ids.return_value = [10]
+
+        self._run(relations_manager, logs_manager)
+
+        assert [name for name, _args, _kwargs in recorder.mock_calls] == ['prepare', 'delete', 'insert']
+
     def test_a_failing_log_prep_skips_only_that_relation(self) -> None:
-        """One unformattable relation must not cost the others their log entry."""
+        """One unformattable relation must not cost the others their log entry"""
         relations_manager, logs_manager = self._managers([{'public_id': 1}, {'public_id': 2}])
         logs_manager.format_object_relation_log_data.side_effect = [RuntimeError('bad relation'), {'b': 2}]
         logs_manager.reserve_public_ids.return_value = [11]
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
+        self._run(relations_manager, logs_manager)
 
         logs_manager.insert_many.assert_called_once_with([{'b': 2, 'public_id': 11}], skip_public=True)
 
-    def test_every_log_prep_failing_writes_no_logs(self) -> None:
-        """The relations are still deleted, but there is nothing to insert."""
+    def test_every_log_prep_failing_still_deletes_and_writes_no_logs(self) -> None:
+        """The relations are still deleted - a relation left on a deleted object is worse - but nothing is inserted"""
         relations_manager, logs_manager = self._managers([{'public_id': 1}])
         logs_manager.format_object_relation_log_data.side_effect = RuntimeError('bad relation')
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            handle_delete_invalid_object_relations(MagicMock(), 5)
+        self._run(relations_manager, logs_manager)
 
-        relations_manager.delete_many_raw.assert_called_once()
+        relations_manager.delete_many.assert_called_once()
         logs_manager.reserve_public_ids.assert_not_called()
         logs_manager.insert_many.assert_not_called()
 
@@ -658,9 +646,8 @@ class TestHandleDeleteInvalidObjectRelations:
         logs_manager.format_object_relation_log_data.side_effect = [{'a': 1}, {'b': 2}]
         logs_manager.reserve_public_ids.return_value = [10]
 
-        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', side_effect=[relations_manager, logs_manager]):
-            with pytest.raises(ValueError):
-                handle_delete_invalid_object_relations(MagicMock(), 5)
+        with pytest.raises(ValueError):
+            self._run(relations_manager, logs_manager)
 
         logs_manager.insert_many.assert_not_called()
 
@@ -710,7 +697,7 @@ class TestEmitObjectStateChangeEventsErrorArm:
         with patch(f'{HELPER_PATH}.send_webhook_event'), \
              patch(f'{HELPER_PATH}.CmdbObject.to_json', return_value={}), \
              patch(f'{HELPER_PATH}.json.dumps', return_value='{}'):
-            emit_object_state_change_events(MagicMock(), logs_manager, before, MagicMock(), {}, True)
+            emit_object_state_change_events(MagicMock(), logs_manager, before, MagicMock(), _rendered(), True)
 
         logs_manager.insert_log.assert_called_once()
 

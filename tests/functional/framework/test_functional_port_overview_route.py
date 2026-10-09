@@ -43,6 +43,7 @@ from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.database import MongoDatabaseManager
 
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PORT_CABLED_KEY, PORT_CONNECTED_KEY
 from cmdb.interface.rest_api.routes.port_routes.port_overview_constants import (
     ConnectedObjectKey,
     ConnectedPortKey,
@@ -353,6 +354,87 @@ class TestPatchPanelOverview:
 
         assert connected[ConnectedObjectKey.RESTRICTED.value] is True
         assert connected[ConnectedObjectKey.LABEL.value] is None
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         CONNECTED vs CABLED, on every read                                           #
+# -------------------------------------------------------------------------------------------------------------------- #
+# (connected, cabled) per seeded port: the panel front is paired to its rear and carries no cable - the case the
+# second flag exists for; the rear is paired AND cabled; the lone front is free; the device port is cabled
+EXPECTED_FLAGS: dict[int, tuple[bool, bool]] = {
+    PANEL_FRONT_ID: (True, False),
+    PANEL_REAR_ID: (True, True),
+    PANEL_LONE_FRONT_ID: (False, False),
+    DEVICE_PORT_ID: (True, True),
+}
+PORT_ID_KEYS: tuple[str, ...] = (PortKey.PUBLIC_ID.value, PortOverviewEntryKey.PORT_ID.value)
+
+
+def _port_entries(body: Any) -> dict[int, dict[str, Any]]:
+    """Every port entry in a response, by id - whichever shape the read answers ports in."""
+    found: dict[int, dict[str, Any]] = {}
+
+    if isinstance(body, dict):
+        if PORT_CONNECTED_KEY in body:
+            found[next(body[key] for key in PORT_ID_KEYS if key in body)] = body
+
+        for value in body.values():
+            found.update(_port_entries(value))
+    elif isinstance(body, list):
+        for value in body:
+            found.update(_port_entries(value))
+
+    return found
+
+
+def _flags(entry: dict[str, Any]) -> tuple[bool, bool]:
+    """(connected, cabled) of one port entry."""
+    return entry[PORT_CONNECTED_KEY], entry[PORT_CABLED_KEY]
+
+
+class TestConnectedAndCabled:
+    """Every read that answers `connected` answers `cabled` beside it, from the same connections."""
+
+    @pytest.mark.parametrize('port_id', list(EXPECTED_FLAGS), ids=['front-paired', 'rear-paired-cabled',
+                                                                   'front-free', 'device-cabled'])
+    def test_the_single_port_read(self, rest_api, port_id: int) -> None:
+        """GET /ports/<id>"""
+        response = rest_api.get(f'{ROUTE_URL}/{port_id}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert _flags(_port_entries(response.get_json())[port_id]) == EXPECTED_FLAGS[port_id]
+
+    @pytest.mark.parametrize('object_id', [PANEL_OBJECT_ID, DEVICE_OBJECT_ID], ids=['panel', 'device'])
+    def test_the_ports_panel_read(self, rest_api, object_id: int) -> None:
+        """GET /ports/object/<id> - the read the connection picker uses"""
+        entries = _port_entries(rest_api.get(f'{ROUTE_URL}/object/{object_id}').get_json())
+
+        assert {port_id: _flags(entry) for port_id, entry in entries.items()} == \
+            {port_id: flags for port_id, flags in EXPECTED_FLAGS.items() if port_id in entries}
+        assert entries
+
+    @pytest.mark.parametrize('object_id', [PANEL_OBJECT_ID, DEVICE_OBJECT_ID], ids=['panel', 'device'])
+    def test_the_overview(self, rest_api, object_id: int) -> None:
+        """GET /ports/object/<id>/overview - every entry, front and rear alike"""
+        entries = _port_entries(_overview(rest_api, object_id).get_json())
+
+        assert {port_id: _flags(entry) for port_id, entry in entries.items()} == \
+            {port_id: flags for port_id, flags in EXPECTED_FLAGS.items() if port_id in entries}
+        assert entries
+
+    def test_the_cabling_view(self, rest_api) -> None:
+        """GET /ports/object/<id>/cabling - the panel's own node"""
+        entries = _port_entries(rest_api.get(f'{ROUTE_URL}/object/{PANEL_OBJECT_ID}/cabling').get_json())
+
+        assert _flags(entries[PANEL_FRONT_ID]) == EXPECTED_FLAGS[PANEL_FRONT_ID]
+        assert _flags(entries[PANEL_REAR_ID]) == EXPECTED_FLAGS[PANEL_REAR_ID]
+
+    def test_cabled_matches_the_cable_the_overview_names(self, rest_api) -> None:
+        """The flag agrees with the entry's own cable: cabled exactly when cable_connection_id is set"""
+        entries = _port_entries(_overview(rest_api, PANEL_OBJECT_ID).get_json())
+
+        assert all(entry[PORT_CABLED_KEY] == (entry[PortOverviewEntryKey.CABLE_CONNECTION_ID.value] is not None)
+                   for entry in entries.values())
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

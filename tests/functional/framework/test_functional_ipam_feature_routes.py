@@ -23,7 +23,10 @@ overview family (main / invalid / sector / export / unassign), the supernet over
 Assertions stay at the wire-contract level (status code + envelope keys + one shape detail);
 the substantive behaviour belongs to the framework layer
 """
+import csv
 from http import HTTPStatus
+from io import StringIO
+from ipaddress import IPv4Network
 from typing import Any
 
 import pytest
@@ -40,6 +43,8 @@ from cmdb.models.special_type_model.ipam_constants import (
     IpamSection,
     IpAddressFamily,
     IpamUnassignLimits,
+    IpamSubnetIpsExport,
+    IpamValidationLimits,
 )
 from tests.utils.ipam_doc_builders import make_field, make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -67,6 +72,14 @@ SUBNET_ORPHAN_RANGE: str = '192.168.0.0/16'
 ASSIGNED_IP: str = '10.1.4.5'
 
 UNKNOWN_PUBLIC_ID: int = 49999
+
+# A second supernet, seeded only inside the no-row-limit test, with one subnet more than the SUBNET IP
+# export would allow - every /30 of BULK_SUPERNET_RANGE in order, ids counted up from BULK_FIRST_SUBNET_ID
+BULK_SUPERNET_ID: int = 4650
+BULK_SUPERNET_RANGE: str = '172.16.0.0/12'
+BULK_SUBNET_PREFIX: int = 30
+BULK_FIRST_SUBNET_ID: int = 4_660_000
+BULK_SUBNET_COUNT: int = IpamSubnetIpsExport.MAX_EXPORT_ROWS + 1
 
 # A second carrier whose interface row carries a real multi_data_id, as the application assigns it
 # (highest_id + 1, so the FIRST row is 1 while its position in 'values' is 0). The frontend sends that
@@ -102,6 +115,11 @@ def _subnet_doc(public_id: int, name: str, cidr: str, supernet_ref: int | None) 
         fields.append(make_field(SubnetField.PARENT_SUPERNET, supernet_ref))
 
     return make_object_doc(public_id, SUBNET_TYPE_ID, fields)
+
+
+def _read_csv(content: bytes) -> list[list[str]]:
+    """Decodes a CSV export body into its rows of string cells."""
+    return list(csv.reader(StringIO(content.decode('utf-8'))))
 
 
 @pytest.fixture(scope='module', autouse=True)
@@ -159,7 +177,7 @@ def _seed_ipam_route_topology(request, database_manager, database_name):
 #                                                   TREE ROUTES                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestIpamTreeRoutes:
-    """Smoke-level wire contract of the three sidebar-tree routes."""
+    """Smoke-level wire contract of the two sidebar-tree routes."""
 
     def test_tree_root_returns_supernets_and_unassigned(self, rest_api):
         """GET /ipam/tree/ delivers both blocks with the seeded entries"""
@@ -186,12 +204,9 @@ class TestIpamTreeRoutes:
 
         assert response.status_code == HTTPStatus.NOT_FOUND
 
-    def test_tree_unassigned_returns_the_orphan_block(self, rest_api):
-        """GET /ipam/tree/unassigned delivers the flat orphan list"""
-        response = rest_api.get(f'{TREE_URL}unassigned')
-
-        assert response.status_code == HTTPStatus.OK
-        assert [s['public_id'] for s in response.get_json()['unassigned']] == [SUBNET_ORPHAN_ID]
+    def test_there_is_no_separate_unassigned_route(self, rest_api):
+        """The 'unassigned' block comes with GET /ipam/tree/ - the retired route answers 404"""
+        assert rest_api.get(f'{TREE_URL}unassigned').status_code == HTTPStatus.NOT_FOUND
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -305,6 +320,58 @@ class TestIpamSupernetOverviewRoutes:
         assert response.status_code == HTTPStatus.OK
         assert 'text/csv' in response.headers['Content-Type']
 
+    def test_supernet_subnets_export_writes_the_overview_figures(self, rest_api):
+        """Every assigned subnet in CIDR order, with the used / free counts the overview reports"""
+        export = rest_api.get(f'{SUPERNET_OVERVIEW_URL}/{SUPERNET_ID}/subnets/export')
+        children = rest_api.get(f'{SUPERNET_OVERVIEW_URL}/{SUPERNET_ID}/subnets/children/{SUBNET_PARENT_ID}')
+        overview = rest_api.get(f'{SUPERNET_OVERVIEW_URL}/{SUPERNET_ID}')
+
+        overview_rows = overview.get_json()['subnets']['rows'] + children.get_json()['rows']
+        csv_rows = _read_csv(export.data)[1:]
+
+        # the orphan subnet references no supernet and is not exported
+        assert [row[0] for row in csv_rows] == [SUBNET_PARENT_RANGE, SUBNET_CHILD_RANGE]
+        assert [(row[2], row[3]) for row in csv_rows] == [
+            (str(r['used_ips']), str(r['free_ips'])) for r in overview_rows
+        ]
+
+    @pytest.mark.parametrize('public_id, status', [
+        (UNKNOWN_PUBLIC_ID, HTTPStatus.NOT_FOUND),
+        (SUBNET_PARENT_ID, HTTPStatus.BAD_REQUEST),
+    ])
+    def test_supernet_subnets_export_refuses_what_is_no_supernet(self, rest_api, public_id, status):
+        """A missing id answers 404 and a non-supernet object 400, with no file"""
+        response = rest_api.get(f'{SUPERNET_OVERVIEW_URL}/{public_id}/subnets/export')
+
+        assert response.status_code == status
+        assert 'text/csv' not in response.headers['Content-Type']
+
+    def test_supernet_subnets_export_has_no_row_limit(self, rest_api, database_manager, database_name):
+        """One subnet more than the SUBNET IP export allows is still exported in full"""
+        objects = database_manager.get_collection(CmdbObject.COLLECTION, database_name)
+        networks = IPv4Network(BULK_SUPERNET_RANGE).subnets(new_prefix=BULK_SUBNET_PREFIX)
+        subnet_ids = list(range(BULK_FIRST_SUBNET_ID, BULK_FIRST_SUBNET_ID + BULK_SUBNET_COUNT))
+
+        objects.insert_many([
+            make_object_doc(BULK_SUPERNET_ID, SUPERNET_TYPE_ID, [
+                make_field(SupernetField.NAME, 'fn-bulk-sn'),
+                make_field(SupernetField.TYPE, IpAddressFamily.IPV4),
+                make_field(SupernetField.NETWORK_RANGE, BULK_SUPERNET_RANGE),
+            ]),
+            *[
+                _subnet_doc(public_id, f'fn-bulk-{public_id}', str(next(networks)), BULK_SUPERNET_ID)
+                for public_id in subnet_ids
+            ],
+        ])
+
+        try:
+            response = rest_api.get(f'{SUPERNET_OVERVIEW_URL}/{BULK_SUPERNET_ID}/subnets/export')
+        finally:
+            objects.delete_many({'public_id': {'$in': [BULK_SUPERNET_ID, *subnet_ids]}})
+
+        assert response.status_code == HTTPStatus.OK
+        assert len(_read_csv(response.data)) == BULK_SUBNET_COUNT + 1
+
     def test_supernet_unassign_refuses_an_oversized_batch(self, rest_api):
         """
         The batch cap answers 400 over the wire, and writes nothing
@@ -377,6 +444,25 @@ class TestIpamValidationRoutes:
         body = response.get_json()
         assert body['valid'] is False
         assert any('is required' in e['message'] for e in body['errors'])
+
+    def test_validate_interface_route_refuses_a_batch_over_the_cap(self, rest_api):
+        """One row over the cap: 400 naming the cap - the frontend reads a failed pre-check as 'no result'"""
+        rows: list[dict[str, Any]] = [{'row_index': index}
+                                      for index in range(IpamValidationLimits.MAX_VALIDATION_ROWS + 1)]
+
+        response = rest_api.post(f'{VALIDATE_URL}/interface', json={'rows': rows})
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert str(IpamValidationLimits.MAX_VALIDATION_ROWS) in response.get_json()['message']
+
+    def test_validate_interface_route_checks_a_batch_of_exactly_the_cap(self, rest_api):
+        """The cap itself is checked: placeholder rows are accepted silently"""
+        rows: list[dict[str, Any]] = [{'row_index': index} for index in range(IpamValidationLimits.MAX_VALIDATION_ROWS)]
+
+        response = rest_api.post(f'{VALIDATE_URL}/interface', json={'rows': rows})
+
+        assert response.status_code == HTTPStatus.OK
+        assert response.get_json()['valid'] is True
 
 
 class TestInterfaceEditDoesNotCollideWithItself:

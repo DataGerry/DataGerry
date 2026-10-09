@@ -16,9 +16,10 @@
 """
 Implementation of all API routes for the IsmsControlMeasureAssignments
 """
+from http import HTTPStatus
 from logging import Logger, getLogger
 from typing import Any
-from flask import request, abort
+from flask import abort, request
 from werkzeug import Response
 
 from cmdb.manager import (
@@ -37,6 +38,8 @@ from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRisk
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.isms_model.isms_risk_constants import RiskKey
+from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
+from cmdb.manager.person_reference_helper import CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS
 
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
@@ -48,13 +51,24 @@ from cmdb.interface.route_utils import (
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
+    abort_on_unknown_control_measures,
     get_item_or_404,
     manager_error_messages,
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    ASSIGNMENT_ALREADY_ASSIGNED_MSG,
     CONTROL_MEASURE_ASSIGNMENT_LABEL,
+    REFERENCE_LOOKUP_FAILED_MSG,
+    RISK_ASSESSMENT_LABEL,
     IsmsManagerErrorMessage,
+)
+from cmdb.interface.rest_api.routes.isms_routes.isms_person_reference_helper import (
+    PERSON_REFERENCE_LOOKUP_ERRORS,
+    PersonReference,
+    check_person_references,
+    collect_person_references,
+    new_person_references,
 )
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -66,6 +80,7 @@ from cmdb.interface.rest_api.responses import (
     DeleteSingleResponse,
 )
 
+from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerGetError
 from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerInsertError,
     ControlMeasureAssignmentManagerGetError,
@@ -73,7 +88,12 @@ from cmdb.errors.manager.control_measure_assignment_manager import (
     ControlMeasureAssignmentManagerDeleteError,
     ControlMeasureAssignmentManagerIterationError,
 )
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body, pin_public_id, update_item_from_payload
+from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_on_unknown_references,
+    pin_public_id,
+    request_wants_body,
+    update_item_from_payload,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -133,27 +153,88 @@ def build_cma_summary(
 
 # ---------------------------------------------------- CRUD-CREATE --------------------------------------------------- #
 
+# The handle_manager_errors entries of the two write routes for the lookups guard_assignment_references makes
+ASSIGNMENT_REFERENCE_LOOKUP_ERRORS: dict[type[Exception], str] = {
+    RiskAssessmentManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=RISK_ASSESSMENT_LABEL.singular),
+    **PERSON_REFERENCE_LOOKUP_ERRORS,
+}
+
+
+def guard_assignment_references(
+        data: dict[str, Any],
+        person_references: list[PersonReference],
+        c_m_assignment_manager: ControlMeasureAssignmentManager,
+        request_user: CmdbUser,
+        exclude_public_id: int | None = None) -> None:
+    """
+    Refuses an assignment write whose references do not resolve, before anything is written
+
+    The ControlMeasure and the RiskAssessment the assignment links must exist, and so must every person
+    reference the write is judged on. The RiskAssessment may not hold another assignment of the same
+    ControlMeasure
+
+    Args:
+        data (dict[str, Any]): The validated assignment payload
+        person_references (list[PersonReference]): The person references to resolve - all of a create's, only
+            the ones an update introduces
+        c_m_assignment_manager (ControlMeasureAssignmentManager): Manager of the assignments
+        request_user (CmdbUser): The user issuing the request
+        exclude_public_id (int | None): The assignment being updated, which does not count as the other
+            assignment. Defaults to None (a create)
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 naming the first reference kind that does not resolve,
+            or the ControlMeasure the RiskAssessment already holds
+    """
+    abort_on_unknown_control_measures(c_m_assignment_manager, [data])
+
+    risk_assessment_manager: RiskAssessmentManager = ManagerProvider.get_manager(
+        ManagerType.RISK_ASSESSMENT, request_user
+    )
+
+    abort_on_unknown_references(
+        risk_assessment_manager,
+        [data[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value]],
+        RISK_ASSESSMENT_LABEL.singular,
+    )
+
+    check_person_references(person_references, request_user)
+
+    risk_assessment_id: int = data[ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value]
+    control_measure_id: int = data[ControlMeasureAssignmentKey.CONTROL_MEASURE_ID.value]
+
+    if c_m_assignment_manager.is_control_measure_assigned(risk_assessment_id, control_measure_id, exclude_public_id):
+        abort(HTTPStatus.BAD_REQUEST, ASSIGNMENT_ALREADY_ASSIGNED_MSG.format(
+            control_measure_id=control_measure_id, risk_assessment_id=risk_assessment_id,
+        ))
+
 @control_measure_assignment_blueprint.route('/', methods=['POST'])
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.add')
 @control_measure_assignment_blueprint.validate(build_write_schema(IsmsControlMeasureAssignment.SCHEMA))
 @handle_route_errors("while creating the ControlMeasure Assignment")
-@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_ASSIGNMENT_LABEL, {
+@handle_manager_errors({**manager_error_messages(CONTROL_MEASURE_ASSIGNMENT_LABEL, {
     ControlMeasureAssignmentManagerInsertError: IsmsManagerErrorMessage.INSERT,
     ControlMeasureAssignmentManagerGetError: IsmsManagerErrorMessage.GET_CREATED,
-}))
+}), **ASSIGNMENT_REFERENCE_LOOKUP_ERRORS})
 def insert_isms_control_measure_assignment(data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `POST` route to insert an IsmsControlMeasureAssignment into the database
+
+    The ControlMeasure, the RiskAssessment and the responsible person or group it references must all exist
+    (``guard_assignment_references``), checked before anything is written
 
     Args:
         data (IsmsControlMeasureAssignment.SCHEMA): Data of the IsmsControlMeasureAssignment which should be inserted
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 400 when the insert or the read-back of the created ControlMeasureAssignment fails, 500 when
-            the created ControlMeasureAssignment cannot be found afterwards or on an unexpected error
+        HTTPException: 400 when a referenced ControlMeasure or RiskAssessment does not exist, when the person
+            reference does not resolve, when the RiskAssessment already holds an assignment of the ControlMeasure,
+            or when the insert, a reference lookup or the read-back of the created
+            ControlMeasureAssignment fails; 500 when the created ControlMeasureAssignment cannot be found
+            afterwards or on an unexpected error
 
     Returns:
         InsertSingleResponse: The new IsmsControlMeasureAssignment and its public_id
@@ -163,9 +244,12 @@ def insert_isms_control_measure_assignment(data: dict[str, Any], request_user: C
                                                                         request_user
                                                                      )
 
-    missing_control_measures = c_m_assignment_manager.get_missing_control_measure_ids([data])
-    if missing_control_measures:
-        abort(400, f"Unknown ControlMeasure(s) referenced: {sorted(missing_control_measures)}!")
+    guard_assignment_references(
+        data,
+        collect_person_references(data, CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS),
+        c_m_assignment_manager,
+        request_user,
+    )
 
     result_id = c_m_assignment_manager.insert_item(data)
 
@@ -260,7 +344,7 @@ def get_isms_control_measure_assignments(params: CollectionParameters, request_u
         risk[RiskKey.PUBLIC_ID.value]: risk
         for risk in risk_manager.get_many_from_other_collection(
             IsmsRisk.COLLECTION,
-            public_id={'$in': list(risk_ids)}
+            criteria={RiskKey.PUBLIC_ID.value: {'$in': list(risk_ids)}},
         )
     }
 
@@ -348,18 +432,28 @@ def get_isms_control_measure_assignment(public_id: int, request_user: CmdbUser) 
 @control_measure_assignment_blueprint.protect(auth=True, right='base.isms.controlMeasureAssignment.edit')
 @control_measure_assignment_blueprint.validate(build_write_schema(IsmsControlMeasureAssignment.SCHEMA))
 @handle_route_errors("while updating the ControlMeasure Assignment with ID: {public_id}")
-@handle_manager_errors(manager_error_messages(CONTROL_MEASURE_ASSIGNMENT_LABEL, {
+@handle_manager_errors({**manager_error_messages(CONTROL_MEASURE_ASSIGNMENT_LABEL, {
     ControlMeasureAssignmentManagerGetError: IsmsManagerErrorMessage.GET,
     ControlMeasureAssignmentManagerUpdateError: IsmsManagerErrorMessage.UPDATE,
-}))
+}), **ASSIGNMENT_REFERENCE_LOOKUP_ERRORS})
 def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any], request_user: CmdbUser) -> Response:
     """
     HTTP `PUT`/`PATCH` route to update a single IsmsControlMeasureAssignment
+
+    Takes the whole assignment. The ControlMeasure and the RiskAssessment it references must exist, and a person
+    reference the update introduces must resolve; one the stored assignment already holds is not judged again
 
     Args:
         public_id (int): public_id of the IsmsControlMeasureAssignment which should be updated
         data (IsmsControlMeasureAssignment.SCHEMA): New IsmsControlMeasureAssignment data
         request_user (CmdbUser): User requesting this data
+
+    Raises:
+        HTTPException: 404 when the assignment does not exist; 400 when a referenced ControlMeasure or
+            RiskAssessment does not exist, when a new person reference does not resolve, when another assignment
+            of the RiskAssessment already holds the ControlMeasure, or when a read, a
+            reference lookup or the update fails - every refusal before anything is written; 500 on an
+            unexpected error
 
     Returns:
         UpdateSingleResponse: The new data of the IsmsControlMeasureAssignment
@@ -369,11 +463,20 @@ def update_isms_control_measure_assignment(public_id: int, data: dict[str, Any],
                                                                         request_user
                                                                      )
 
-    get_item_or_404(c_m_assignment_manager, public_id,
-                    f"The ControlMeasure Assignment with ID:{public_id} was not found!", as_dict=False)
+    stored_assignment: dict[str, Any] = get_item_or_404(
+        c_m_assignment_manager, public_id, f"The ControlMeasure Assignment with ID:{public_id} was not found!",
+    )
+
+    # A person reference the stored assignment already holds is not judged again
+    guard_assignment_references(
+        data,
+        new_person_references(data, stored_assignment, CONTROL_MEASURE_ASSIGNMENT_PERSON_REFERENCE_KEYS),
+        c_m_assignment_manager,
+        request_user,
+        exclude_public_id=public_id,
+    )
 
     # The URL owns the identity: a body public_id would otherwise be $set onto the document
-
     pin_public_id(data, public_id)
 
     stored: dict[str, Any] = update_item_from_payload(

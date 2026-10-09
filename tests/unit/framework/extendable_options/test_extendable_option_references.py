@@ -63,7 +63,7 @@ def _dbm(counts_by_collection: dict[str, int] | None = None, modified: int = 0,
     # `count` is the flat answer for every collection, `counts_by_collection` the per-collection one
     dbm.count.side_effect = lambda collection, _db, _criteria, limit=None: counts.get(collection, count)
     dbm.update_many.return_value = MagicMock(modified_count=modified)
-    dbm.update_many_pull.return_value = MagicMock(modified_count=modified)
+    dbm.update_many_raw.return_value = MagicMock(modified_count=modified)
 
     return dbm
 
@@ -235,7 +235,7 @@ class TestRepointOptionReferences:
             {ExtendableOptionUsageField.CATEGORY_ID.value: OPTION_ID},
             {ExtendableOptionUsageField.CATEGORY_ID.value: KEEPER_ID},
         )
-        dbm.update_many_pull.assert_not_called()
+        dbm.update_many_raw.assert_not_called()
         assert modified == 2
 
     def test_array_reference_adds_the_keeper_before_pulling_the_duplicate(self) -> None:
@@ -245,7 +245,7 @@ class TestRepointOptionReferences:
         dbm.update_many.side_effect = lambda *args, **kwargs: (
             calls.append('addToSet'), MagicMock(modified_count=1),
         )[1]
-        dbm.update_many_pull.side_effect = lambda *args, **kwargs: (
+        dbm.update_many_raw.side_effect = lambda *args, **kwargs: (
             calls.append('pull'), MagicMock(modified_count=1),
         )[1]
 
@@ -266,18 +266,18 @@ class TestRepointOptionReferences:
             {ExtendableOptionUsageField.CATEGORIES.value: KEEPER_ID},
             add_to_set=True,
         )
-        dbm.update_many_pull.assert_called_once_with(
+        dbm.update_many_raw.assert_called_once_with(
             CmdbObjectGroup.COLLECTION,
             DB_NAME,
             {ExtendableOptionUsageField.CATEGORIES.value: OPTION_ID},
-            {ExtendableOptionUsageField.CATEGORIES.value: OPTION_ID},
+            {'$pull': {ExtendableOptionUsageField.CATEGORIES.value: OPTION_ID}},
         )
 
     def test_an_array_reference_reports_the_pull_count_only(self) -> None:
         """The $addToSet and the $pull touch the same documents - counting both would double it."""
         dbm = _dbm()
         dbm.update_many.return_value = MagicMock(modified_count=3)
-        dbm.update_many_pull.return_value = MagicMock(modified_count=3)
+        dbm.update_many_raw.return_value = MagicMock(modified_count=3)
 
         assert repoint_option_references(dbm, DB_NAME, OptionType.OBJECT_GROUP, OPTION_ID, KEEPER_ID) == 3
 

@@ -100,7 +100,8 @@ class RiskManager(GenericManager):
         try:
             # Only existing Risks are reported / cascaded; the delete_many below removes exactly these
             existing_risk_ids: list[int] = [
-                risk[RiskKey.PUBLIC_ID.value] for risk in self.get_many(public_id={'$in': public_ids})
+                risk[RiskKey.PUBLIC_ID.value]
+                for risk in self.get_many(criteria={RiskKey.PUBLIC_ID.value: {'$in': public_ids}})
             ]
 
             if not existing_risk_ids:
@@ -133,7 +134,7 @@ class RiskManager(GenericManager):
         """
         linked_risk_assessments: list[dict[str, Any]] = self.get_many_from_other_collection(
             IsmsRiskAssessment.COLLECTION,
-            risk_id={'$in': risk_ids},
+            criteria={RiskAssessmentKey.RISK_ID.value: {'$in': risk_ids}},
         )
 
         linked_risk_assessment_ids: list[int] = [

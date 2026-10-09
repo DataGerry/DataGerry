@@ -76,7 +76,7 @@ class _StubCategory:
 class _StubCategoriesManager:
     """Stand-in for CategoriesManager returning a fixed category for any query."""
 
-    def get_categories_by(self, **_kwargs: Any) -> list[_StubCategory]:
+    def get_categories_by(self, _criteria: dict[str, Any]) -> list[_StubCategory]:
         """Mirrors CategoriesManager.get_categories_by, ignoring the filter."""
         return [_StubCategory(CATEGORY_TYPE_IDS)]
 
@@ -88,11 +88,11 @@ class _CountingCategoriesManager(_StubCategoriesManager):
         """Starts with an empty call log."""
         self.calls: list[dict[str, Any]] = []
 
-    def get_categories_by(self, **kwargs: Any) -> list[_StubCategory]:
+    def get_categories_by(self, _criteria: dict[str, Any]) -> list[_StubCategory]:
         """Records the criteria before answering the fixed category."""
-        self.calls.append(kwargs)
+        self.calls.append(_criteria)
 
-        return super().get_categories_by(**kwargs)
+        return super().get_categories_by(_criteria)
 
 
 class _StubTypesManager:

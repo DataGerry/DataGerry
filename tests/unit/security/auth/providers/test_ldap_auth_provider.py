@@ -172,9 +172,11 @@ class TestInitialisation:
         ldap.server_factory.assert_called_once()
 
     @pytest.mark.parametrize('active', [True, False], ids=['active', 'inactive'])
-    def test_is_active_follows_the_config(self, ldap, active: bool) -> None:
+    def test_is_active_for_follows_the_config(self, ldap, active: bool) -> None:
         """AuthModule skips the provider when it is deactivated, so this must mirror the setting."""
-        assert ldap.build(active=active).is_active() is active
+        provider = ldap.build(active=active)
+
+        assert type(provider).is_active_for(provider.get_config()) is active
 
 
 class TestConnectionLifecycle:

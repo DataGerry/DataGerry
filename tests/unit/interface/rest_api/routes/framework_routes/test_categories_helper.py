@@ -26,19 +26,18 @@ import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import (
-    CATEGORY_TYPES_CLAIMED_MSG,
     CATEGORY_TYPES_NOT_IDS_MSG,
     CATEGORY_TYPES_REPEATED_MSG,
-    CATEGORY_TYPES_UNKNOWN_MSG,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_helper import (
-    abort_if_category_types_unusable,
+    drop_type_ids,
     find_repeated_type_ids,
-    format_type_claims,
+    usable_category_types,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CATEGORY_ID: int = 5
+OTHER_CATEGORY_ID: int = 8
 
 
 def _manager(unknown: list[int] | None = None, claims: dict[int, list[int]] | None = None) -> MagicMock:
@@ -52,7 +51,7 @@ def _manager(unknown: list[int] | None = None, claims: dict[int, list[int]] | No
 def _refusal(manager: MagicMock, type_ids: Any, category_id: int | None = CATEGORY_ID) -> HTTPException:
     """The HTTPException a refused list raises."""
     with pytest.raises(HTTPException) as exc_info:
-        abort_if_category_types_unusable(manager, type_ids, category_id)
+        usable_category_types(manager, type_ids, category_id)
 
     assert exc_info.value.code == 400
     return exc_info.value
@@ -69,21 +68,24 @@ class TestHelpers:
         """The ordinary case"""
         assert find_repeated_type_ids([1, 2, 3]) == []
 
-    def test_claims_are_spelled_by_type_id(self) -> None:
-        """Deterministic, whatever order the lookup answered in"""
-        assert format_type_claims({7: [4, 2], 3: [9]}) == 'Type 3 in Category [9], Type 7 in Category [2, 4]'
+    def test_dropping_keeps_the_order_of_the_rest(self) -> None:
+        """The sidebar order the write named survives"""
+        assert drop_type_ids([7, 3, 9, 1], {9, 3}) == [7, 1]
+
+    def test_dropping_nothing_keeps_everything(self) -> None:
+        """The ordinary case"""
+        assert drop_type_ids([2, 1], set()) == [2, 1]
 
 
 class TestTheGuard:
-    """abort_if_category_types_unusable."""
+    """usable_category_types."""
 
     @pytest.mark.parametrize('type_ids', [None, []], ids=['none', 'empty'])
     def test_no_types_ask_nothing(self, type_ids: Any) -> None:
         """A category without types is legal and costs no read"""
         manager = _manager()
 
-        abort_if_category_types_unusable(manager, type_ids, CATEGORY_ID)
-
+        assert usable_category_types(manager, type_ids, CATEGORY_ID) == []
         manager.find_unknown_type_ids.assert_not_called()
         manager.find_type_claims.assert_not_called()
 
@@ -101,21 +103,26 @@ class TestTheGuard:
         assert _refusal(manager, [1, 2, 1]).description == CATEGORY_TYPES_REPEATED_MSG.format(type_ids=[1])
         manager.find_unknown_type_ids.assert_not_called()
 
-    def test_an_unknown_id_is_refused_before_the_claims(self) -> None:
-        """Naming the ids no Type carries"""
+    def test_an_unknown_id_is_dropped_and_not_asked_about_claims(self) -> None:
+        """A deleted type no longer blocks the save"""
         manager = _manager(unknown=[99])
 
-        assert _refusal(manager, [1, 99]).description == CATEGORY_TYPES_UNKNOWN_MSG.format(type_ids=[99])
-        manager.find_type_claims.assert_not_called()
+        assert usable_category_types(manager, [3, 99, 1], CATEGORY_ID) == [3, 1]
+        manager.find_type_claims.assert_called_once_with([3, 1], CATEGORY_ID)
 
-    def test_a_type_held_elsewhere_is_refused(self) -> None:
-        """A type sits in at most one category"""
-        manager = _manager(claims={1: [8]})
+    def test_a_type_held_elsewhere_is_dropped(self) -> None:
+        """The other category keeps it"""
+        manager = _manager(claims={1: [OTHER_CATEGORY_ID]})
 
-        assert _refusal(manager, [1, 2]).description == CATEGORY_TYPES_CLAIMED_MSG.format(
-            claims='Type 1 in Category [8]')
-        manager.find_type_claims.assert_called_once_with([1, 2], CATEGORY_ID)
+        assert usable_category_types(manager, [2, 1, 4], CATEGORY_ID) == [2, 4]
+        manager.find_type_claims.assert_called_once_with([2, 1, 4], CATEGORY_ID)
 
-    def test_a_usable_list_passes(self) -> None:
+    def test_unknown_and_claimed_are_both_dropped(self) -> None:
+        """Each lookup removes its own ids"""
+        manager = _manager(unknown=[6], claims={2: [OTHER_CATEGORY_ID]})
+
+        assert usable_category_types(manager, [6, 2, 5], None) == [5]
+
+    def test_a_usable_list_is_kept_as_named(self) -> None:
         """Every id once, existing, unclaimed"""
-        abort_if_category_types_unusable(_manager(), [1, 2], None)
+        assert usable_category_types(_manager(), [2, 1], None) == [2, 1]

@@ -76,7 +76,9 @@ from cmdb.framework.importer.helper.importer_helper import (
     OBJECT_IMPORTER_CONFIG_REGISTRY,
 )
 from cmdb.interface.rest_api.responses import DefaultResponse
+from cmdb.interface.request_limits_constants import RequestSizeLimit
 from cmdb.interface.route_utils import (
+    accepts_upload,
     insert_request_user,
     verify_api_access,
 )
@@ -228,6 +230,7 @@ def get_default_object_parser_config(
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 def parse_objects(request_user: CmdbUser) -> Response:
     """
     Parse uploaded object data using the specified parser configuration
@@ -287,6 +290,7 @@ def parse_objects(request_user: CmdbUser) -> Response:
 @insert_request_user
 @verify_api_access(required_api_level=ApiLevel.LOCKED)
 @importer_object_blueprint.protect(auth=True, right=ImporterRight.OBJECT.value)
+@accepts_upload(RequestSizeLimit.UPLOAD_MAX_CONTENT_LENGTH)
 def import_objects(request_user: CmdbUser) -> Response:
     """
     Handle the full import of objects into the CMDB system using an uploaded file

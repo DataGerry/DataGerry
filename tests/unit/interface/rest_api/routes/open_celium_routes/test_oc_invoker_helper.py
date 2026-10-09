@@ -18,15 +18,14 @@ Unit tests for the OpenCelium invoker route helpers
 
 The `opsIncluded` flag and the manager construction, extracted from the routes.
 
-**The flag's rule is pinned in both directions on purpose.** Operations are included by default and
-only the literal `false` turns them off; `0`, `no`, `off` and an EMPTY value all mean "include".
-That is deliberate rather than accidental - `request.args.get(..., type=bool)` answers True for the
-string `'false'`, which is the footgun the explicit parse avoids. These tests pin the other
-spellings so that widening the set is a visible change: they fail loudly if it happens.
+**The flag follows the API's one rule for boolean query parameters.** Operations are included by
+default; `true` / `false` in any casing set it; any other value - `0`, `no`, `off`, an EMPTY value - is
+refused with a 400 rather than guessed at.
 """
 from typing import Any
 
 import pytest
+from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_invoker_helper import (
@@ -38,6 +37,7 @@ from cmdb.open_celium.oc_constants import OC_OPS_INCLUDED_PARAM
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USER_DATABASE: str = 'db_customer'
+HTTP_BAD_REQUEST: int = 400
 
 
 def _app() -> BaseCmdbApp:
@@ -82,25 +82,25 @@ class TestReadOpsIncludedFlag:
         with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=true'):
             assert read_ops_included_flag() is True
 
-    @pytest.mark.parametrize('value', ['0', 'no', 'off', 'null', 'False!'])
-    def test_other_falsy_looking_spellings_still_include_them(self, value: str) -> None:
-        """
-        Only `false` disables - recorded as behaviour, not asserted as desirable
+    def test_surrounding_whitespace_is_ignored(self) -> None:
+        """A padded value is still the value it spells"""
+        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=%20false%20'):
+            assert read_ops_included_flag() is False
 
-        Pinning them here is what makes widening the set visible: these expectations flip with
-        it.
+    @pytest.mark.parametrize('value', ['', '0', 'no', 'off', 'null', 'False!', '1', 'yes'])
+    def test_any_other_value_is_refused(self, value: str) -> None:
         """
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}={value}'):
-            assert read_ops_included_flag() is True
+        Refused rather than guessed at - an empty `?opsIncluded=` included
 
-    def test_an_empty_value_still_includes_them(self) -> None:
+        A caller who sent the parameter meant something; reading `0` or a blank as "include" answered the
+        opposite of what they most likely asked for
         """
-        `?opsIncluded=` means "include" today
+        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}={value}'), \
+                pytest.raises(HTTPException) as refused:
+            read_ops_included_flag()
 
-        The case most likely to surprise a caller who sent the parameter and left it blank.
-        """
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}='):
-            assert read_ops_included_flag() is True
+        assert refused.value.code == HTTP_BAD_REQUEST
+        assert OC_OPS_INCLUDED_PARAM in refused.value.description
 
     def test_the_string_false_is_not_read_for_truthiness(self) -> None:
         """
@@ -119,9 +119,13 @@ class TestReadOpsIncludedFlag:
 class TestBuildInvokerManager:
     """The construction the three invoker routes used to repeat."""
 
-    def test_it_scopes_the_manager_to_the_users_database(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    @pytest.mark.parametrize('cloud_mode, expected', [(True, USER_DATABASE), (False, None)],
+                             ids=['cloud', 'on-premise'])
+    def test_it_scopes_the_manager_to_the_users_database(
+        self, monkeypatch: pytest.MonkeyPatch, cloud_mode: bool, expected: str | None,
+    ) -> None:
         """
-        The caller's database selects the OpenCelium installation to read from
+        The caller's tenant database in cloud mode; on premise None - the configured database
 
         Every route test patches this factory out, so its body is asserted here - otherwise the one
         line that reaches OcInvokerManager would be covered by nothing.
@@ -141,10 +145,13 @@ class TestBuildInvokerManager:
             _RecordingManager,
         )
 
-        request_user = type('_User', (), {'database': USER_DATABASE})()
+        request_user = type('_User', (), {'database': expected})()
 
-        with _app().test_request_context():
+        app = _app()
+        app.cloud_mode = cloud_mode
+
+        with app.test_request_context():
             manager = build_invoker_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': USER_DATABASE}
+        assert recorded == {'dbm': 'the-dbm', 'database': expected}

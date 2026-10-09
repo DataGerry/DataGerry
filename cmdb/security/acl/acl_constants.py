@@ -33,3 +33,7 @@ class AclKey(BaseStrEnum):
     ACTIVATED = 'activated'
     GROUPS = 'groups'
     INCLUDES = 'includes'
+
+
+# A key of the INCLUDES mapping: a CmdbUserGroup public_id, written as the string a JSON / BSON object key is
+ACL_GROUP_KEY_PATTERN: str = r'^[1-9][0-9]*$'

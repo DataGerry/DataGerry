@@ -14,7 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Whether a CmdbPort is connected - derived on read, never stored
+Whether a CmdbPort is connected, and whether it carries a cable - both derived on read, never stored
+
+Two flags, because a port can be in two kinds of connection. ``connected`` is any connection at all -
+a cable, or a patch panel's INTERNAL front-to-rear pairing - and ``cabled`` is a CABLE only. A panel
+front face paired to its rear and carrying no cable is therefore connected and not cabled: it is not
+free (it leads somewhere), but it can still take a cable. A client deciding "Free" / "Cable" reads
+``cabled``; one deciding "does this port lead anywhere" reads ``connected``
 
 A stored flag would be a second truth about something the connections collection already answers, and
 a derived value that can go stale is worse than a cheap one that cannot: every write path that creates,
@@ -35,7 +41,7 @@ other end
 from logging import Logger, getLogger
 from typing import Any, Iterable
 
-from cmdb.models.port_connection_model.port_connection_constants import PortConnectionKey
+from cmdb.models.port_connection_model.port_connection_constants import ConnectionType, PortConnectionKey
 from cmdb.models.port_model.port_constants import PortKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -70,35 +76,61 @@ def collect_connected_port_ids(connections: Iterable[dict[str, Any]]) -> set[int
     return connected_ids
 
 
+def collect_cabled_port_ids(connections: Iterable[dict[str, Any]]) -> set[int]:
+    """
+    Returns every CmdbPort public_id that is an endpoint of a CABLE connection
+
+    The CABLE half of ``collect_connected_port_ids``, under the same membership rule: an INTERNAL
+    pairing makes its two ports connected, never cabled
+
+    Args:
+        connections (Iterable[dict[str, Any]]): The CmdbPortConnection documents to read
+
+    Returns:
+        set[int]: The public_ids of the ports a cable connects, empty when there are none
+    """
+    return collect_connected_port_ids(
+        connection for connection in connections
+        if connection.get(PortConnectionKey.CONNECTION_TYPE.value) == ConnectionType.CABLE
+    )
+
+
 def project_connected(
         ports: list[dict[str, Any]],
         connections: Iterable[dict[str, Any]],
-        connected_key: str) -> list[dict[str, Any]]:
+        connected_key: str,
+        cabled_key: str) -> list[dict[str, Any]]:
     """
-    Adds the derived connected flag to every port of a response
+    Adds the derived connected and cabled flags to every port of a response
 
     The ports are mutated in place and returned, which is what the routes want - the documents came
     straight out of the manager and are about to be serialised, so copying them would only cost a
     second dict per port on a path that runs for every ports panel.
 
-    Every port receives the key, including the free ones: a response where 'connected' is present on
-    some rows and absent on others would make the frontend distinguish 'free' from 'unknown', and there
-    is no such state
+    Every port receives both keys, including the free ones: a response where a flag is present on some
+    rows and absent on others would make the frontend distinguish 'free' from 'unknown', and there is no
+    such state. Both are written from the one set of connections, so the four reads that carry them
+    cannot disagree
 
     Args:
         ports (list[dict[str, Any]]): The port documents to annotate
         connections (Iterable[dict[str, Any]]): The connections touching those ports, read in one
             batched query by the caller
-        connected_key (str): The response key to write the flag under. Passed in rather than imported,
+        connected_key (str): The response key of "in any connection". Passed in rather than imported,
             because it is a RESPONSE key and deliberately not a member of PortKey - there is no such
             field on a stored port
+        cabled_key (str): The response key of "an endpoint of a cable", for the same reason
 
     Returns:
-        list[dict[str, Any]]: The same port documents, each carrying the flag
+        list[dict[str, Any]]: The same port documents, each carrying both flags
     """
+    connections = list(connections)
     connected_ids: set[int] = collect_connected_port_ids(connections)
+    cabled_ids: set[int] = collect_cabled_port_ids(connections)
 
     for port in ports:
-        port[connected_key] = port.get(PortKey.PUBLIC_ID.value) in connected_ids
+        port_id: Any = port.get(PortKey.PUBLIC_ID.value)
+        port[connected_key] = port_id in connected_ids
+        port[cabled_key] = port_id in cabled_ids
 
     return ports

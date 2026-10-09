@@ -23,7 +23,12 @@ standalone JSON serialization that deliberately bypasses the object export engin
 """
 # -------------------------------------------------------------------------------------------------------------------- #
 
-__all__: list[str] = ['TYPE_EXPORT_MIMETYPE', 'TYPE_EXPORT_FILE_EXTENSION', 'TYPE_EXPORT_JSON_INDENT']
+__all__: list[str] = [
+    'TYPE_EXPORT_MIMETYPE',
+    'TYPE_EXPORT_FILE_EXTENSION',
+    'TYPE_EXPORT_JSON_INDENT',
+    'TYPE_EXPORT_ACCESS_DENIED_MESSAGE',
+]
 
 # Mimetype + file extension of the CmdbType export (JSON only). These intentionally MIRROR
 # JsonExportFormat.MIME_TYPE / .FILE_EXTENSION instead of importing them - coupling the type export to a
@@ -34,3 +39,6 @@ TYPE_EXPORT_FILE_EXTENSION: str = 'json'
 
 # Indentation of the exported CmdbType JSON - the export is meant to be read and diffed, not minified
 TYPE_EXPORT_JSON_INDENT: int = 2
+
+# Refusal (HTTP 403) of a selected export naming Types the caller's group may not READ under their ACL
+TYPE_EXPORT_ACCESS_DENIED_MESSAGE: str = 'The Types with ID: {public_ids} are protected by their access control list!'

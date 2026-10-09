@@ -312,10 +312,10 @@ def test_get_types_by_forwards_sort_direction_and_filter() -> None:
     mgr.get_many.return_value = []
     criteria = {'public_id': {'$in': [1, 2]}}  # the shape the type-export route sends
 
-    TypesManager.get_types_by(mgr, sort='public_id', direction=CmdbDAO.DAO_ASCENDING, **criteria)
+    TypesManager.get_types_by(mgr, sort='public_id', direction=CmdbDAO.DAO_ASCENDING, criteria=criteria)
 
     mgr.get_many.assert_called_once_with(
-        sort='public_id', direction=CmdbDAO.DAO_ASCENDING, **criteria
+        sort='public_id', direction=CmdbDAO.DAO_ASCENDING, criteria=criteria
     )
 
 
@@ -326,7 +326,7 @@ def test_get_types_by_defaults_to_descending() -> None:
 
     TypesManager.get_types_by(mgr)
 
-    mgr.get_many.assert_called_once_with(sort='public_id', direction=CmdbDAO.DAO_DESCENDING)
+    mgr.get_many.assert_called_once_with(sort='public_id', direction=CmdbDAO.DAO_DESCENDING, criteria=None)
 
 
 # ----------------------------------------------------- error wrapping ----------------------------------------------- #

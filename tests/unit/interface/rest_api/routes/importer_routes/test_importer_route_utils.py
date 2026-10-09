@@ -177,6 +177,15 @@ class TestVerifyImportAccessUsesTheSharedRule:
 
         assert "'$all': ['READ', 'CREATE', 'UPDATE']" in str(criteria)
 
-    def test_it_no_longer_spells_the_activated_flag_itself(self) -> None:
-        """The hand-rolled `{'acl.activated': True}` branch is gone with the copy."""
-        assert "{'acl.activated': True}" not in str(self._captured_criteria())
+    def test_it_adds_nothing_but_the_type_it_imports_into(self) -> None:
+        """The shared rule and the type's own id - no ACL clause of the importer's own beside the rule"""
+        expected = build_permitted_types_criteria(
+            2,
+            [
+                AccessControlPermission.READ,
+                AccessControlPermission.CREATE,
+                AccessControlPermission.UPDATE,
+            ],
+        )
+
+        assert self._captured_criteria() == {'$and': [expected, {'public_id': 5}]}

@@ -27,6 +27,8 @@ a regression on either would be invisible without these tests, because werkzeug 
 drops the body afterwards.
 
 The users routes are used because `conftest` seeds exactly one CmdbUser, so the counts are known
+
+And the encoding: every body - success or error - is compact JSON.
 """
 from http import HTTPStatus
 from json import dumps
@@ -35,6 +37,7 @@ from unittest.mock import patch
 
 USERS_URL: str = '/users'
 ADMIN_ID: int = 1
+MISSING_USER_ID: int = 9999
 
 RESPONSE_TYPE_KEY: str = 'response_type'
 TIME_KEY: str = 'time'
@@ -147,3 +150,21 @@ class TestHeadRequests:
     def test_a_head_on_a_missing_resource_is_still_a_404(self, rest_api) -> None:
         """The refusal is not a payload, so suppressing the body may not suppress the error"""
         assert rest_api.head(f'{USERS_URL}/9999').status_code == HTTPStatus.NOT_FOUND
+
+
+class TestTheEncoding:
+    """Success and error bodies leave the server in one encoding: compact JSON, no indent, no newline."""
+
+    def test_a_success_body_is_compact(self, rest_api) -> None:
+        """A collection page - nested keys, so an indent would show"""
+        body: bytes = rest_api.get(f'{USERS_URL}/').get_data()
+
+        assert b'\n' not in body
+        assert b'  ' not in body
+
+    def test_an_error_body_is_compact_too(self, rest_api) -> None:
+        """Flask's own encoder answers the errors; the test app runs with DEBUG on, which would indent it"""
+        response = rest_api.get(f'{USERS_URL}/{MISSING_USER_ID}')
+
+        assert response.status_code == HTTPStatus.NOT_FOUND
+        assert b'\n' not in response.get_data().rstrip(b'\n')

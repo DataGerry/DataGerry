@@ -75,9 +75,14 @@ class PortRequestKey(BaseStrEnum):
 # keeps that invariant legible; a member of PortKey would invite a write path to persist it, which is
 # the exact second truth the derivation exists to avoid.
 #
-# The frontend renders it as "Free" / "Connected" rather than false / true; that is presentation and
-# not this layer's business
+# It is true for ANY connection, a patch panel's INTERNAL front-to-rear pairing included - "does this port
+# lead anywhere". Whether the port carries a cable is PORT_CABLED_KEY (see framework/port/connected.py)
 PORT_CONNECTED_KEY: str = 'connected'
+
+# Response-only key carrying the derived "does this Port carry a cable" flag: true only for an endpoint of a
+# CABLE connection, so a panel face paired to its rear without a cable reads connected and not cabled. What a
+# client deciding "Free" / "Cable" reads. Not a member of PortKey, for the same reason as PORT_CONNECTED_KEY
+PORT_CABLED_KEY: str = 'cabled'
 
 # Refusal (HTTP 404) when the addressed port does not exist
 PORT_NOT_FOUND_MESSAGE: str = 'The Port with ID:{public_id} was not found!'

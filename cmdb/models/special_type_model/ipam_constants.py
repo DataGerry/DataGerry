@@ -189,6 +189,18 @@ class IpamDistributionLimits:
     MAX_SECTORS_PER_RANGE: int = 16
 
 
+class IpamValidationLimits:
+    """
+    Size bound for the interface pre-check (``POST /ipam/validate/interface``)
+
+    MAX_VALIDATION_ROWS caps how many rows one pre-check may carry - a request above it is refused (HTTP 400)
+    before any row is parsed. The pre-check writes nothing and its cost grows with every row (parsing, the subnet
+    and uniqueness ``$in`` lists, one error per bad row in the response), so the cap bounds the work, not a product
+    rule: the save path validates an object's stored rows with no such cap
+    """
+    MAX_VALIDATION_ROWS: int = 5000
+
+
 class IpamSubnetTableLimits:
     """
     Size bound for candidate-IP materialization in the subnet IP table

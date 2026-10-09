@@ -27,11 +27,10 @@ The ladder lives here once. Written out per caller it differs only in a dict key
 variable name, which is how one missing-environment-variable bug comes to exist in several copies at
 once.
 
-Nothing here imports from ``cmdb.manager``: ``KeyHolder`` and ``SecurityManager`` sit on opposite
-sides of that package boundary (``cmdb.security.key`` imports the manager layer, and the manager layer
-imports this module), so a manager import here would close the cycle. The settings read is therefore
-passed in as a callable rather than performed here, which also keeps it LAZY - the on-premise branch
-must not touch the database when the answer comes from an environment variable
+Nothing here imports from ``cmdb.manager``: the manager layer imports this package, so a manager import here would
+close the cycle. The settings read is passed in as a callable rather than performed here, which also keeps it LAZY -
+the on-premise branch must not touch the database when the answer comes from an environment variable. The read itself
+is ``security_settings.read_security_setting``, which every runtime reader of the ``security`` document goes through
 """
 import base64
 import binascii

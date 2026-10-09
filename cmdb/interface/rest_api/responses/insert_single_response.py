@@ -34,18 +34,24 @@ class InsertSingleResponse(BaseAPIResponse):
     """
     API Response for insert call of a single resource
     """
-    def __init__(self, raw: dict[str, Any], result_id: str | int | None = None) -> None:
+    def __init__(self, raw: dict[str, Any], result_id: int) -> None:
         """
         Constructor of InsertSingleResponse
 
         Args:
             raw (dict[str, Any]): The raw document as it was stored
-            result_id (str | int | None): The new public_id of the inserted resource. Coerced with
-                `int()`, so omitting it - which this signature still allows - raises inside the
-                constructor; every call site passes one
+            result_id (int): The new resource's public_id - always an int, the id the frontend navigates to.
+                Required, and not coerced: anything else is a programming error in the route, reported here
+                rather than turned into some other value
+
+        Raises:
+            TypeError: When ``result_id`` is not an int (a bool is refused too - ``True`` is an int to Python)
         """
+        if not isinstance(result_id, int) or isinstance(result_id, bool):
+            raise TypeError(f"InsertSingleResponse needs the new public_id as an int, got {type(result_id).__name__}!")
+
         self.raw: dict[str, Any] = raw
-        self.result_id: int = int(result_id)
+        self.result_id: int = result_id
         super().__init__(operation_type=OperationType.INSERT)
 
 

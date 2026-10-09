@@ -39,6 +39,10 @@ class TypeSchemaKey(BaseStrEnum):
 
     PORT_SECTION_INDEX is the companion of USES_PORTS: where among the type's sections the frontend
     draws the (virtual) ports section. It is read only while USES_PORTS is true
+
+    ALIGNMENT_PENDING is server-owned: true from the moment a type update is written until its objects,
+    locations and reports have been brought in line with it - so a save that failed half-way shows, and the
+    next save finishes it
     """
     SPECIAL_TYPE = 'special_type'
     SECTIONS = 'sections'
@@ -59,6 +63,7 @@ class TypeSchemaKey(BaseStrEnum):
     SELECTABLE_AS_PARENT = 'selectable_as_parent'
     USES_PORTS = 'uses_ports'
     PORT_SECTION_INDEX = 'port_section_index'
+    ALIGNMENT_PENDING = 'alignment_pending'
     VERSION = 'version'
     DESCRIPTION = 'description'
     CI_EXPLORER_LABEL = 'ci_explorer_label'

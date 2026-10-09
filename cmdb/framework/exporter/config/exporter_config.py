@@ -16,9 +16,12 @@
 """
 Implementation of ExporterConfig
 """
-from typing import Any
+from typing import Any, TYPE_CHECKING
 
-from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
+if TYPE_CHECKING:
+    # For the annotations only: the collection parameters are the REST layer's type, which this framework module
+    # must not import at runtime
+    from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class ExporterConfig:
@@ -27,11 +30,11 @@ class ExporterConfig:
     used to fetch the objects, and the optional query parameters (e.g. classname, zip, metadata, view)
     consumed by the chosen export format
     """
-    def __init__(self, parameters: CollectionParameters, options: dict[str, Any] | None = None) -> None:
+    def __init__(self, parameters: 'CollectionParameters', options: dict[str, Any] | None = None) -> None:
         """
         Args:
             parameters (CollectionParameters): Filter / sort / order options for the object query
             options (dict[str, Any] | None): Optional export parameters (classname, zip, metadata, view, ...)
         """
-        self.parameters: CollectionParameters = parameters
+        self.parameters: 'CollectionParameters' = parameters
         self.options: dict[str, Any] | None = options

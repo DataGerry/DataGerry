@@ -79,7 +79,7 @@ class SafeObject:
         return SafeNull()
 
 
-    def __call__(self, *args: Any, **kwargs: Any) -> 'SafeObject':  # pylint: disable=unused-argument
+    def __call__(self, *args: Any, **kwargs: Any) -> 'SafeObject':
         # Absorbs a call so invoking a missing object in a template returns a SafeObject instead
         # of raising TypeError.
         return self

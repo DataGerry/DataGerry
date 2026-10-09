@@ -55,7 +55,13 @@ from cmdb.models.object_relation_model import ObjectRelationKey
 from cmdb.framework.results import IterationResult
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import (
@@ -169,6 +175,7 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
         LOGGER.error("[insert_cmdb_relation] TypesManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to validate the Types referenced by the Relation!")
     except RelationsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[insert_cmdb_relation] RelationsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new Relation in the database!")
     except RelationsManagerGetError as err:
@@ -217,6 +224,7 @@ def get_cmdb_relations(params: CollectionParameters, request_user: CmdbUser) -> 
 
         return api_response.make_response()
     except RelationsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_relations] RelationsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Relations from the database!")
     except Exception as err:
@@ -327,10 +335,12 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
         LOGGER.error("[update_cmdb_relation] RelationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the Relation with ID: {public_id} from the database!")
     except RelationsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_relation] RelationsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Relation with ID: {public_id}!")
     except (BaseManagerDeleteError, BaseManagerUpdateError) as err:
         # The relation itself is already updated at this point - report the partial application
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_relation] Cascade failed: %s", err, exc_info=True)
         abort(500, f"The Relation with ID: {public_id} was updated, but its ObjectRelations could not "
                    "be updated accordingly!")
@@ -411,6 +421,7 @@ def delete_cmdb_relation(public_id: int, request_user: CmdbUser) -> Response:
         abort(400, f"Failed to check whether the Relation with ID:{public_id} is still in use!")
     except CiExplorerProfileManagerUpdateError as err:
         # The relation is already deleted at this point - report the partial application
+        abort_if_too_large(err)
         LOGGER.error("[delete_cmdb_relation] CiExplorerProfile cleanup failed: %s", err, exc_info=True)
         abort(500, f"The Relation with ID:{public_id} was deleted, but could not be removed from all "
                    "CI Explorer profiles!")

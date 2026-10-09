@@ -96,6 +96,31 @@ class TestCsvExport:
         assert rows[0] == ['public_id', 'dg-name']
         assert rows[1] == ['10', 'host-1']
 
+    def test_render_metadata_without_columns_keeps_the_types_fields(self) -> None:
+        """A metadata override leaving `columns` out selects the type's own fields, not none at all."""
+        metadata = json.dumps({'header': ['public_id']})
+        rows = _read(CsvExportFormat().export([_obj(10)], {'view': 'render', 'metadata': metadata}))
+
+        assert rows[0] == ['public_id', 'dg-name']
+        assert rows[1] == ['10', 'host-1']
+
+    def test_render_metadata_with_empty_columns_has_no_field_column(self) -> None:
+        """An empty `columns` list is a selection of its own: the identity columns alone."""
+        metadata = json.dumps({'header': ['public_id'], 'columns': []})
+        rows = _read(CsvExportFormat().export([_obj(10)], {'view': 'render', 'metadata': metadata}))
+
+        assert rows[0] == ['public_id']
+
+    def test_render_selection_is_narrowed_to_the_types_fields(self) -> None:
+        """A selected field the type does not have is no column, the rest keep the selection's order."""
+        fields = [{'name': 'dg-name', 'type': 'text', 'value': 'host-1'}, {'name': 'ip', 'type': 'text', 'value': '1'}]
+        metadata = json.dumps({'header': ['public_id'], 'columns': ['ip', 'not-on-this-type', 'dg-name']})
+
+        rows = _read(CsvExportFormat().export([_obj(10, fields=fields)], {'view': 'render', 'metadata': metadata}))
+
+        assert rows[0] == ['public_id', 'ip', 'dg-name']
+        assert rows[1] == ['10', '1', 'host-1']
+
     def test_declares_csv_mime_type(self) -> None:
         """CSV declares its (correct) text/csv mime type."""
         assert CsvExportFormat.MIME_TYPE == 'text/csv'

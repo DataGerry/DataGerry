@@ -20,8 +20,18 @@ The helper is pure (no database): it maps the per-section entry counts plus the 
 "all cells classed" flag to the readiness booleans returned by GET /isms/config/status. The scale
 sections become ready at their minimum thresholds, and the risk_matrix flag additionally requires
 all three scale sections to be ready.
+
+``is_risk_matrix_ready`` judges the stored matrix without repairing it: missing, stale (another cell count than
+impacts x likelihoods) or not fully classed is not ready.
 """
-from cmdb.interface.rest_api.routes.isms_routes.isms_config_helper import build_isms_config_status
+from typing import Any
+
+import pytest
+
+from cmdb.interface.rest_api.routes.isms_routes.isms_config_helper import (
+    build_isms_config_status,
+    is_risk_matrix_ready,
+)
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     MIN_CONFIGURED_RISK_CLASSES,
     MIN_CONFIGURED_LIKELIHOODS,
@@ -107,3 +117,48 @@ class TestBuildIsmsConfigStatus:
 
         assert status['impact_categories'] is False
         assert status['risk_matrix'] is True
+
+
+# ----------------------------------------------- is_risk_matrix_ready ----------------------------------------------- #
+
+IMPACTS: int = 3
+LIKELIHOODS: int = 2
+CLASSED_CELL: dict[str, int] = {'risk_class_id': 7}
+UNCLASSED_CELL: dict[str, int] = {'risk_class_id': 0}
+
+
+def _matrix(cells: list[dict[str, Any]]) -> dict[str, Any]:
+    """A stored IsmsRiskMatrix holding ``cells``"""
+    return {'public_id': 1, 'risk_matrix': cells, 'matrix_unit': None}
+
+
+class TestIsRiskMatrixReady:
+    """Current and fully classed, as stored"""
+
+    def test_a_current_fully_classed_grid_is_ready(self) -> None:
+        """One classed cell per pair"""
+        assert is_risk_matrix_ready(_matrix([CLASSED_CELL] * (IMPACTS * LIKELIHOODS)), IMPACTS, LIKELIHOODS)
+
+    @pytest.mark.parametrize('cells', [
+        [CLASSED_CELL] * (IMPACTS * LIKELIHOODS - 1),
+        [CLASSED_CELL] * (IMPACTS * LIKELIHOODS + 1),
+        [],
+    ], ids=['short', 'too-many', 'empty'])
+    def test_a_stale_grid_is_not_ready(self, cells: list[dict[str, Any]]) -> None:
+        """Every stored cell classed, but not one per pair of the current scales"""
+        assert not is_risk_matrix_ready(_matrix(cells), IMPACTS, LIKELIHOODS)
+
+    def test_an_unclassed_cell_is_not_ready(self) -> None:
+        """The right size, one cell without a class"""
+        cells = [CLASSED_CELL] * (IMPACTS * LIKELIHOODS - 1) + [UNCLASSED_CELL]
+
+        assert not is_risk_matrix_ready(_matrix(cells), IMPACTS, LIKELIHOODS)
+
+    @pytest.mark.parametrize('stored', [None, {}], ids=['missing', 'empty-document'])
+    def test_a_missing_matrix_is_not_ready(self, stored: dict[str, Any] | None) -> None:
+        """Reported, not recreated"""
+        assert not is_risk_matrix_ready(stored, IMPACTS, LIKELIHOODS)
+
+    def test_empty_scales_and_an_empty_grid_are_not_ready(self) -> None:
+        """0 x 0 cells match, but a grid with no cells is never finished"""
+        assert not is_risk_matrix_ready(_matrix([]), 0, 0)

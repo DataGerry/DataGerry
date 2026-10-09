@@ -17,7 +17,7 @@
 Integration tests for ObjectsManager methods not covered by the CRUD suite
 
 Pins, against a real MongoDB: the ISMS risk-assessment cascade on object deletion
-(delete_object_from_risk_assessment_cascade), the server-side field statements
+(delete_objects_from_risk_assessment_cascade), the server-side field statements
 (apply_raw_updates, driven through the flat re-alignment), and the batched object lookup
 (get_objects_lookup)
 """
@@ -118,7 +118,7 @@ def fixture_objects_manager(database_manager: MongoDatabaseManager) -> ObjectsMa
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                  delete_object_from_risk_assessment_cascade                                         #
+#                                  delete_objects_from_risk_assessment_cascade                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestRiskAssessmentCascade:
     """Deleting an object removes its RiskAssessments + ControlMeasureAssignments, and only those."""
@@ -147,7 +147,7 @@ class TestRiskAssessmentCascade:
         self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """The target object's RA + CMA are deleted; the unrelated object's RA + CMA survive."""
-        objects_manager.delete_object_from_risk_assessment_cascade(CASCADE_OBJECT_ID)
+        objects_manager.delete_objects_from_risk_assessment_cascade([CASCADE_OBJECT_ID])
 
         risk_assessments = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
         assignments = database_manager.get_collection(IsmsControlMeasureAssignment.COLLECTION, database_name)
@@ -160,7 +160,7 @@ class TestRiskAssessmentCascade:
 
     def test_cascade_is_noop_when_object_has_no_risk_assessments(self, objects_manager: ObjectsManager) -> None:
         """An object with no RiskAssessments returns cleanly without touching anything."""
-        objects_manager.delete_object_from_risk_assessment_cascade(LOOKUP_MISSING_ID)
+        objects_manager.delete_objects_from_risk_assessment_cascade([LOOKUP_MISSING_ID])
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -568,7 +568,7 @@ class TestGroupObjectsByValue:
 
 
 class TestSummaryLines:
-    """get_summary_line and get_summary_lines_lookup compose the type-label + summary-field line."""
+    """get_summary_lines_lookup composes the type-label + summary-field line."""
 
     @pytest.fixture(autouse=True)
     def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
@@ -581,23 +581,13 @@ class TestSummaryLines:
         types.delete_one({'public_id': SUMMARY_TYPE_ID})
         objects.delete_many({'public_id': SUMMARY_OBJECT_ID})
 
-    def test_get_summary_line_includes_label_and_value(self, objects_manager: ObjectsManager) -> None:
-        """The composed line carries the type label and the summary field value."""
-        line = objects_manager.get_summary_line(SUMMARY_OBJECT_ID)
-
-        assert 'hello' in line
-        assert str(SUMMARY_OBJECT_ID) in line
-
-    def test_get_summary_line_empty_public_id_returns_empty(self, objects_manager: ObjectsManager) -> None:
-        """A falsy public_id yields the empty default line."""
-        assert objects_manager.get_summary_line(0) == ""
-
     def test_lookup_resolves_requested_ids(self, objects_manager: ObjectsManager) -> None:
-        """get_summary_lines_lookup returns a line for the requested (resolvable) id."""
+        """get_summary_lines_lookup returns a line for the requested id, carrying its id and summary value."""
         result = objects_manager.get_summary_lines_lookup([SUMMARY_OBJECT_ID])
 
         assert SUMMARY_OBJECT_ID in result
         assert 'hello' in result[SUMMARY_OBJECT_ID]
+        assert str(SUMMARY_OBJECT_ID) in result[SUMMARY_OBJECT_ID]
 
     def test_lookup_with_supplied_docs_skips_fetch(
         self, objects_manager: ObjectsManager, database_manager: MongoDatabaseManager, database_name: str,
@@ -635,7 +625,7 @@ class TestSummaryLines:
         objects.insert_one(doc)
 
         try:
-            line = objects_manager.get_summary_line(unset_object_id, with_type=False)
+            line = objects_manager.get_summary_lines_lookup([unset_object_id], with_type=False)[unset_object_id]
 
             assert line == f'#{unset_object_id}'
             assert 'None' not in line

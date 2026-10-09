@@ -21,10 +21,8 @@ pinned here is the document contract (`from_data` / `to_json`, guarded by a roun
 both halves are keyed by `TypeSchemaKey`) and the accessors the renderer and the managers read the
 schema through.
 
-Two behaviours are asserted because they are easy to get wrong and easy to
-reintroduce: `get_nested_summaries` collects every reference field's overrides rather than the first
-one's, and the summary accessors skip a name that no longer resolves to a field instead of raising
-for the whole summary - a stale summary name is a normal state, because removing a field from a type
+One behaviour is asserted because it is easy to get wrong and easy to reintroduce: the summary
+accessors skip a name that no longer resolves to a field instead of raising for the whole summary - a stale summary name is a normal state, because removing a field from a type
 does not clean it out of the summaries that referenced it.
 """
 from datetime import datetime, timezone
@@ -33,6 +31,7 @@ from typing import Any
 import pytest
 from cerberus import Validator
 
+from cmdb.security.acl.access_control_list import AccessControlList
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -90,6 +89,14 @@ def _type(**overrides: Any) -> CmdbType:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                      __init__                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('stored', [None, {}, 'on', ['READ']], ids=['null', 'empty', 'string', 'list'])
+def test_an_acl_that_is_no_usable_document_reads_as_no_access_control(stored: Any) -> None:
+    """A stored null or non-document used to fail the whole type; it reads as an absent one"""
+    acl_dict = CmdbType.to_json(_type(**{TypeSchemaKey.ACL.value: stored}))[TypeSchemaKey.ACL.value]
+
+    assert acl_dict == AccessControlList.default_json()
+
+
 def test_defaults_are_applied() -> None:
     """An omitted optional argument falls back to its documented default"""
     cmdb_type = _type()
@@ -326,38 +333,6 @@ def test_get_icon_is_none_when_render_meta_carries_none() -> None:
 def _nested(type_id: int, **extra: Any) -> dict[str, Any]:
     """Builds one nested-summary entry addressing the given type."""
     return {NestedSummaryKey.TYPE_ID.value: type_id, **extra}
-
-
-def test_get_nested_summaries_collects_every_reference_field() -> None:
-    """
-    Regression: it must not return only the FIRST reference field's overrides
-
-    A type with two reference fields may override the same referenced type differently, so both
-    entries have to come back.
-    """
-    cmdb_type = _type(**{TypeSchemaKey.FIELDS.value: [
-        _field(NAME_FIELD, FieldType.TEXT),
-        _field(OWNER_FIELD, FieldType.REFERENCE, **{FieldKey.SUMMARIES.value: [_nested(1)]}),
-        _field('ref-site', FieldType.REFERENCE, **{FieldKey.SUMMARIES.value: [_nested(2)]}),
-    ]})
-
-    assert cmdb_type.get_nested_summaries() == [_nested(1), _nested(2)]
-
-
-def test_get_nested_summaries_ignores_non_reference_fields() -> None:
-    """The comparison is against FieldType.REFERENCE, never a bare 'ref' literal"""
-    cmdb_type = _type(**{TypeSchemaKey.FIELDS.value: [
-        _field(NAME_FIELD, FieldType.TEXT, **{FieldKey.SUMMARIES.value: [_nested(1)]}),
-    ]})
-
-    assert not cmdb_type.get_nested_summaries()
-
-
-def test_get_nested_summaries_is_empty_without_overrides() -> None:
-    """A reference field that declares no summaries contributes nothing"""
-    cmdb_type = _type(**{TypeSchemaKey.FIELDS.value: [_field(OWNER_FIELD, FieldType.REFERENCE)]})
-
-    assert not cmdb_type.get_nested_summaries()
 
 
 def test_nested_prefix_and_line_match_on_type_id() -> None:
@@ -642,3 +617,26 @@ class TestUnreadableTimestampsAreRefused:
         built = CmdbType.from_data(_document(creation_time={'$date': 1772000000000}))
 
         assert isinstance(built.creation_time, datetime)
+
+
+# ---------------------------------------------------- alignment_pending -------------------------------------------- #
+
+def test_a_type_starts_without_the_alignment_marker() -> None:
+    """Absent from a stored document, it reads False"""
+    assert _type().alignment_pending is False
+
+
+def test_the_alignment_marker_round_trips() -> None:
+    """Read from the document and written back under its key"""
+    pending = CmdbType.from_data(_document(alignment_pending=True))
+
+    assert pending.alignment_pending is True
+    assert CmdbType.to_json(pending)[TypeSchemaKey.ALIGNMENT_PENDING.value] is True
+
+
+def test_the_marker_is_in_the_schema_with_a_false_default() -> None:
+    """A boolean the document schema knows, defaulting to False"""
+    rules = CmdbType.SCHEMA[TypeSchemaKey.ALIGNMENT_PENDING.value]
+
+    assert rules['type'] == 'boolean'
+    assert rules['default'] is False

@@ -23,6 +23,7 @@ payload -> 400 not 500). Cloud tests flip the app into cloud+local mode so token
 keys instead of the (unset) cloud env keys.
 """
 from http import HTTPStatus
+from typing import Any
 
 import pytest
 
@@ -30,7 +31,6 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.auth_module import AuthModule
 from cmdb.manager.system_manager.settings_manager import SettingsManager
-from cmdb.errors.provider import AuthenticationProviderNotActivated, AuthenticationProviderNotFoundError
 from cmdb.errors.security.security_errors import (
     InvalidCloudUserError,
     NoAccessTokenError,
@@ -41,6 +41,8 @@ from cmdb.errors.database import DatabaseConnectionError
 from cmdb.errors.manager.users_manager import UsersManagerGetError, UsersManagerInsertError
 from cmdb.errors.models.cmdb_auth_settings import AuthSettingsInitError
 from cmdb.interface.rest_api.routes import auth_helper, auth_routes
+from cmdb.interface.rest_api.routes.auth_constants import LoginKey
+from cmdb.interface.blueprints.api_blueprint_constants import BODY_NOT_AN_OBJECT_MESSAGE
 from cmdb.security.auth.auth_settings_masking import MASKED_SECRET
 from cmdb.security.auth.base_provider_config import PROVIDER_ACTIVE_KEY
 from cmdb.models.security_models.auth_settings_constants import AUTH_SETTINGS_ID as AUTH_SETTINGS_SECTION
@@ -101,20 +103,6 @@ class TestLocalLogin:
         """An empty body is rejected with 400."""
         assert rest_api.post(LOGIN_URL, json={}).status_code == HTTPStatus.BAD_REQUEST
 
-    def test_login_provider_not_activated_returns_400(self, rest_api, monkeypatch) -> None:
-        """An AuthenticationProviderNotActivated maps to 400."""
-        monkeypatch.setattr(AuthModule, 'login', _raiser(AuthenticationProviderNotActivated('boom')))
-
-        assert rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'}).status_code \
-            == HTTPStatus.BAD_REQUEST
-
-    def test_login_provider_not_found_returns_400(self, rest_api, monkeypatch) -> None:
-        """An AuthenticationProviderNotFoundError maps to 400."""
-        monkeypatch.setattr(AuthModule, 'login', _raiser(AuthenticationProviderNotFoundError('boom')))
-
-        assert rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'}).status_code \
-            == HTTPStatus.BAD_REQUEST
-
     def test_login_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
         """An unexpected error in the local flow maps to 500."""
         monkeypatch.setattr(AuthModule, 'login', _raiser(RuntimeError('boom')))
@@ -129,10 +117,56 @@ class TestLocalLogin:
         assert rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'}).status_code \
             == HTTPStatus.UNAUTHORIZED
 
-    def test_login_missing_field_returns_500(self, rest_api) -> None:
-        """A body missing 'password' hits the outer handler as a 500 (preserved behaviour)."""
-        assert rest_api.post(LOGIN_URL, json={'user_name': 'admin'}).status_code \
-            == HTTPStatus.INTERNAL_SERVER_ERROR
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                LOGIN BODY CONTRACT                                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestTheLoginBodyContract:
+    """A body that breaks the contract is a 400 naming the field - before any credential is checked."""
+
+    @pytest.mark.parametrize(('body', 'named'), [
+        ({'user_name': 'admin'}, LoginKey.PASSWORD.value),
+        ({'password': 'admin'}, LoginKey.USER_NAME.value),
+        ({'user_name': None, 'password': 'admin'}, LoginKey.USER_NAME.value),
+        ({'user_name': 5, 'password': 'admin'}, LoginKey.USER_NAME.value),
+        ({'user_name': 'admin', 'password': 5}, LoginKey.PASSWORD.value),
+        ({'user_name': '', 'password': 'admin'}, LoginKey.USER_NAME.value),
+        ({'user_name': 'admin', 'password': ''}, LoginKey.PASSWORD.value),
+        ({'user_name': 'admin', 'password': 'admin', 'subscription': 's1'}, LoginKey.SUBSCRIPTION.value),
+        ({'user_name': 'admin', 'password': 'admin', 'subscription': {'name': 'Sub'}}, LoginKey.SUBSCRIPTION.value),
+    ], ids=['no password', 'no user_name', 'null user_name', 'numeric user_name', 'numeric password',
+            'empty user_name', 'empty password', 'subscription string', 'subscription without id'])
+    def test_a_malformed_field_is_named(self, rest_api, body: dict[str, Any], named: str) -> None:
+        """400, and the message names the field"""
+        response = rest_api.post(LOGIN_URL, json=body, unauthorized=True)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert named in response.get_json()['message']
+
+    @pytest.mark.parametrize('raw_body', ['["admin"]', '"admin"', '5', 'null'], ids=['list', 'string', 'number', 'null'])
+    def test_a_body_that_is_not_an_object_is_refused(self, rest_api, raw_body: str) -> None:
+        """Its own message, not a validator failure and never a 500"""
+        response = rest_api.post(LOGIN_URL, data=raw_body, content_type='application/json', unauthorized=True)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == f'{BODY_NOT_AN_OBJECT_MESSAGE}!'
+
+    @pytest.mark.parametrize('user_name', [{'$ne': 'nobody'}, {'$regex': '^adm'}, ['admin']],
+                             ids=['$ne', '$regex', 'list'])
+    def test_a_query_shaped_login_name_never_reaches_the_lookup(self, rest_api, monkeypatch, user_name: Any) -> None:
+        """Refused by the contract, with the right password - the AuthModule is never asked"""
+        calls: list[Any] = []
+        monkeypatch.setattr(AuthModule, 'login', lambda _self, name, _password: calls.append(name))
+
+        response = rest_api.post(LOGIN_URL, json={'user_name': user_name, 'password': 'admin'}, unauthorized=True)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert not calls
+
+    def test_the_frontends_first_step_is_accepted(self, rest_api) -> None:
+        """The control: user_name + password"""
+        assert rest_api.post(LOGIN_URL, json={'user_name': 'admin', 'password': 'admin'}).status_code == HTTPStatus.OK
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

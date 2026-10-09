@@ -24,7 +24,6 @@ consumed as CmdbExtendableOption.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_extendable_option_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbExtendableOption document

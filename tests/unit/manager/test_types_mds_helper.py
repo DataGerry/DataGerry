@@ -31,11 +31,14 @@ What the statements do to a real collection is pinned in the integration tier; h
 from typing import Any
 
 from cmdb.manager.objects_propagation_helper import (
+    build_remove_undeclared_mds_fields_update,
+    build_remove_undeclared_mds_sections_update,
     build_add_mds_field_update,
     build_remove_mds_fields_update,
     build_remove_mds_section_update,
 )
 from cmdb.manager.types_mds_helper import (
+    build_mds_alignment_updates,
     MdsChangePlan,
     build_field_definition_map,
     build_mds_updates,
@@ -346,3 +349,30 @@ class TestBuildMdsUpdates:
             build_remove_mds_section_update(TYPE_ID, 'c'),
             build_remove_mds_section_update(TYPE_ID, 'x'),
         ]
+
+
+# ------------------------------------------------ build_mds_alignment_updates --------------------------------------- #
+
+def test_the_alignment_drops_undeclared_sections_first() -> None:
+    """One pull of every section the type does not declare, before the per-section statements"""
+    updates = build_mds_alignment_updates(_old_type(['a', 'b']))
+
+    assert updates[0] == build_remove_undeclared_mds_sections_update(TYPE_ID, [SECTION_ID])
+
+
+def test_the_alignment_strips_undeclared_and_adds_every_declared_field() -> None:
+    """Per section: one pull of what it does not declare, one push per declared field (rows lacking it)"""
+    updates = build_mds_alignment_updates(_old_type(['b', 'a']))
+
+    assert updates[1] == build_remove_undeclared_mds_fields_update(TYPE_ID, SECTION_ID, ['a', 'b'])
+    assert updates[2:] == [
+        build_add_mds_field_update(TYPE_ID, SECTION_ID, _entry('a')),
+        build_add_mds_field_update(TYPE_ID, SECTION_ID, _entry('b')),
+    ]
+
+
+def test_a_type_without_mds_sections_drops_every_section_of_its_objects() -> None:
+    """No section declared: the one statement pulls them all"""
+    assert build_mds_alignment_updates(_old_type(['a'], SectionType.SECTION.value)) == [
+        build_remove_undeclared_mds_sections_update(TYPE_ID, []),
+    ]

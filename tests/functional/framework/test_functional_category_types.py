@@ -16,8 +16,9 @@
 """
 Functional coverage of what a CmdbCategory's ``types`` may hold
 
-The two write routes accept only ids of existing CmdbTypes, each once, and a type that no other category
-holds - what the frontend's category form already assumes. And the two reads a stored document entry
+The two write routes refuse an entry that is no type id and an id named twice; an id no CmdbType carries and a
+type another category holds are dropped from the stored list (the other category keeps it), so a category still
+naming a deleted type can be saved again. And the two reads a stored document entry
 would break (the category tree, the uncategorized-types listing) skip it instead of answering 500
 """
 from http import HTTPStatus
@@ -27,10 +28,8 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_categories.categories_constants import (
-    CATEGORY_TYPES_CLAIMED_MSG,
     CATEGORY_TYPES_NOT_IDS_MSG,
     CATEGORY_TYPES_REPEATED_MSG,
-    CATEGORY_TYPES_UNKNOWN_MSG,
 )
 from cmdb.models.category_model import CmdbCategory
 from cmdb.models.type_model import CmdbType
@@ -99,21 +98,31 @@ class TestWhatAWriteMayName:
         assert response.status_code == HTTPStatus.BAD_REQUEST
         assert response.get_json()['message'] == CATEGORY_TYPES_REPEATED_MSG.format(type_ids=[TYPE_B])
 
-    def test_an_unknown_type_is_refused(self, rest_api, categories) -> None:
-        """An id no CmdbType carries"""
-        response = rest_api.post(f'{ROUTE_URL}/', json=_payload(NEW_NAME, [TYPE_B, MISSING_TYPE]))
+    def test_an_unknown_type_is_dropped_on_create(self, rest_api, categories) -> None:
+        """An id no CmdbType carries is left out, the rest kept in order"""
+        response = rest_api.post(f'{ROUTE_URL}/', json=_payload(NEW_NAME, [MISSING_TYPE, TYPE_B]))
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert response.get_json()['message'] == CATEGORY_TYPES_UNKNOWN_MSG.format(type_ids=[MISSING_TYPE])
+        assert response.status_code == HTTPStatus.CREATED
+        assert categories.find_one({'name': NEW_NAME})['types'] == [TYPE_B]
 
-    def test_a_type_another_category_holds_is_refused(self, rest_api, categories) -> None:
-        """A type sits in at most one category - on the update as on the create"""
-        response = rest_api.put(f'{ROUTE_URL}/{EDITED_ID}', json=_payload('category-types-edited', [TYPE_A]))
+    def test_a_category_naming_a_deleted_type_can_be_moved(self, rest_api, categories) -> None:
+        """The stored dead id no longer blocks a save - here moving the category under another"""
+        categories.update_one({'public_id': EDITED_ID}, {'$set': {'types': [MISSING_TYPE, TYPE_B]}})
+        body = {**_payload('category-types-edited', [MISSING_TYPE, TYPE_B]), 'parent': HOLDER_ID}
 
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert response.get_json()['message'] == CATEGORY_TYPES_CLAIMED_MSG.format(
-            claims=f'Type {TYPE_A} in Category [{HOLDER_ID}]')
-        assert categories.find_one({'public_id': EDITED_ID})['types'] == []
+        response = rest_api.put(f'{ROUTE_URL}/{EDITED_ID}', json=body)
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        stored = categories.find_one({'public_id': EDITED_ID})
+        assert (stored['types'], stored['parent']) == ([TYPE_B], HOLDER_ID)
+
+    def test_a_type_another_category_holds_is_dropped(self, rest_api, categories) -> None:
+        """A type sits in at most one category - the other category keeps it"""
+        response = rest_api.put(f'{ROUTE_URL}/{EDITED_ID}', json=_payload('category-types-edited', [TYPE_A, TYPE_B]))
+
+        assert response.status_code == HTTPStatus.ACCEPTED
+        assert categories.find_one({'public_id': EDITED_ID})['types'] == [TYPE_B]
+        assert categories.find_one({'public_id': HOLDER_ID})['types'] == [TYPE_A]
 
     def test_a_category_keeping_its_own_types_saves(self, rest_api, categories) -> None:
         """Its own current types are no clash"""
@@ -126,7 +135,8 @@ class TestWhatAWriteMayName:
         """The control"""
         response = rest_api.post(f'{ROUTE_URL}/', json=_payload(NEW_NAME, [TYPE_B]))
 
-        assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+        assert response.status_code == HTTPStatus.CREATED
+        assert categories.find_one({'name': NEW_NAME})['types'] == [TYPE_B]
 
 
 class TestStoredJunkDoesNotBreakTheReads:

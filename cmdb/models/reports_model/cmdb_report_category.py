@@ -47,7 +47,7 @@ class CmdbReportCategory(CmdbDAO):
 
 # ---------------------------------------------------- CONSTRUCTOR --------------------------------------------------- #
 
-    def __init__(self, name: str, predefined: bool = False, **kwargs: Any) -> None:
+    def __init__(self, *, name: str, predefined: bool = False, **kwargs: Any) -> None:
         """
         Initialises a CmdbReportCategory
 

@@ -21,6 +21,12 @@ Exposes the report CRUD surface (create / read / list / update / delete), a per-
 requires ApiLevel.ADMIN access and the matching ``ReportRight`` (reads and the run route VIEW, create
 ADD, update EDIT, delete DELETE).
 
+**A report is as visible as the objects of its type.** A report has exactly one CmdbType (its compiled query is
+AND-ed with that ``type_id``), so the caller's READ on that type decides every route at once: the run, the
+single read, the update and the delete answer 403 for a report over a type the caller may not read, the list reads
+through the type ACL, and a create or update refuses to build a report over such a type. The run reads its rows
+through the caller's READ ACL as well (see ``report_helper.is_report_type_readable``).
+
 The handlers stay thin orchestrators: the domain logic - payload sanitising / normalisation, the
 foreign-key and Ref-Section-Field guards, building the persisted report query and the safe evaluation
 of a stored query - lives in ``report_helper``; the request / document string keys, the write whitelist
@@ -28,8 +34,8 @@ and the repeated abort messages in ``report_constants``. The two server-owned ke
 from a client: 'public_id' comes from the URL and 'predefined' is set by the system (create forces it
 False, update carries the stored value over), and 'report_query' is always rebuilt from 'conditions'.
 Business-rule rejections (missing or malformed parameters, an unresolved category or type, a
-referenced Ref-Section-Field, a malformed query flag) abort with HTTP 400; a missing report with 404;
-unexpected failures with 500.
+referenced Ref-Section-Field, a malformed query flag) abort with HTTP 400; a report over a type the caller may not
+read with 403; a missing report with 404; unexpected failures with 500.
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -47,8 +53,15 @@ from cmdb.manager import (
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.reports_model.cmdb_report import CmdbReport
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import handle_route_errors, insert_request_user, verify_api_access
+from cmdb.interface.route_utils import (
+    abort_if_query_too_slow,
+    abort_if_too_large,
+    handle_route_errors,
+    insert_request_user,
+    verify_api_access,
+)
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse, UpdateSingleResponse
@@ -64,10 +77,11 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (
+    abort_unless_report_readable,
+    abort_unless_report_target_type_readable,
     build_report_create_payload,
     build_report_update_payload,
     load_report_or_404,
-    parse_boolean_param,
     resolve_report_query,
 )
 
@@ -82,6 +96,7 @@ from cmdb.errors.manager.reports_manager import (
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
     build_searchable_builder_params,
+    read_boolean_query_param,
     read_write_payload,
     request_wants_body,
 )
@@ -125,7 +140,8 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
     Raises:
         HTTPException: 400 on missing / malformed parameters, an unresolved category or type, a
                        referenced Ref-Section-Field, an unbuildable condition tree or a failed
-                       insert; 500 on an unexpected failure
+                       insert; 403 when the caller may not read the objects of the report's type; 500 on an
+                       unexpected failure
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
@@ -133,6 +149,7 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
         payload: dict[str, Any] = build_report_create_payload(
             reports_manager, read_write_payload(params, REPORT_ENTITY_LABEL),
         )
+        abort_unless_report_target_type_readable(reports_manager, payload[ReportKey.TYPE_ID], request_user)
 
         new_report_id: int = reports_manager.insert_item(payload)
 
@@ -141,6 +158,7 @@ def create_cmdb_report(params: dict[str, Any], request_user: CmdbUser) -> Respon
         LOGGER.error("[create_cmdb_report] %s: %s", type(err).__name__, err, exc_info=True)
         abort(400, REPORT_CONDITIONS_INVALID_MSG.format(reason=err))
     except ReportsManagerInsertError as err:
+        abort_if_too_large(err)
         LOGGER.error("[create_cmdb_report] ReportsManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the new Report in the database!")
 
@@ -155,6 +173,9 @@ def get_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
     """
     Retrieves the CmdbReport with the given public_id
 
+    A report over a CmdbType the caller may not read is refused: its definition names the type's fields and the
+    values its conditions filter on
+
     Args:
         public_id (int): public_id of CmdbReport which should be retrieved
         request_user (CmdbUser): User which is requesting the CmdbReport
@@ -163,13 +184,14 @@ def get_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
         DefaultResponse: The requested CmdbReport
 
     Raises:
-        HTTPException: 404 when the CmdbReport does not exist, 400 on a failed retrieval, 500 on an
-                       unexpected failure
+        HTTPException: 404 when the CmdbReport does not exist, 403 when the caller may not read the objects
+                       of its type, 400 on a failed retrieval, 500 on an unexpected failure
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
         requested_report: dict[str, Any] = load_report_or_404(reports_manager, public_id)
+        abort_unless_report_readable(reports_manager, requested_report, request_user)
 
         return DefaultResponse(requested_report).make_response()
     except ReportsManagerGetError as err:
@@ -187,6 +209,8 @@ def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Re
     """
     Returns all CmdbReports based on the params
 
+    Read through the caller's READ ACL on each report's CmdbType, ahead of the paging
+
     Args:
         params (CollectionParameters): Parameters to identify documents in database
         request_user (CmdbUser): User which is requesting the CmdbReports
@@ -202,7 +226,10 @@ def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Re
 
         builder_params: BuilderParameters = build_searchable_builder_params(params, REPORT_SEARCHABLE_FIELDS)
 
-        iteration_result: IterationResult[CmdbReport] = reports_manager.iterate_items(builder_params)
+        # Through the type ACL: a report over a type the caller may not read is neither listed nor counted
+        iteration_result: IterationResult[CmdbReport] = reports_manager.iterate_items(
+            builder_params, request_user, AccessControlPermission.READ,
+        )
         report_list: list[dict[str, Any]] = [CmdbReport.to_json(report_) for report_ in iteration_result.results]
 
         api_response = GetMultiResponse(report_list,
@@ -213,6 +240,7 @@ def get_cmdb_reports(params: CollectionParameters, request_user: CmdbUser) -> Re
 
         return api_response.make_response()
     except ReportsManagerIterationError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_reports] ReportsManagerIterationError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve Reports from the database!")
 
@@ -280,6 +308,10 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
     route would throw away, and serialises them explicitly with ``CmdbObject.to_json`` rather than
     relying on the generic ``__dict__`` fallback of the response encoder
 
+    A report has exactly one CmdbType (its query is AND-ed with that ``type_id``), so whether the caller may run
+    it is one decision: a report over a type the caller may not read is a 403, never a silently empty result.
+    The rows are read through the caller's READ ACL too - the same reading the DocAPI report table applies
+
     Args:
         public_id (int): public_id of the CmdbReport to run
         request_user (CmdbUser): CmdbUser which is requesting this data
@@ -289,15 +321,17 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 400 on a malformed 'preview' flag or a failed retrieval; 404 when the report
-                       does not exist; 500 on an unevaluable stored query or an unexpected failure
+                       does not exist; 403 when the caller may not read the objects of its type; 500 on an
+                       unevaluable stored query or an unexpected failure
     """
     try:
-        preview_mode: bool = parse_boolean_param(request.args.get(PREVIEW_PARAM, default='false'), PREVIEW_PARAM)
+        preview_mode: bool = read_boolean_query_param(PREVIEW_PARAM, default=False)
 
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
         requested_report: dict[str, Any] = load_report_or_404(reports_manager, public_id)
+        abort_unless_report_readable(reports_manager, requested_report, request_user)
 
         report_query: dict[str, Any] = resolve_report_query(requested_report, public_id)
 
@@ -309,7 +343,10 @@ def run_cmdb_report_query(public_id: int, request_user: CmdbUser) -> Response:
             limit: int = PREVIEW_LIMIT if preview_mode else 0
             builder_params: BuilderParameters = BuilderParameters(criteria=report_query, limit=limit)
 
-            matched_objects: list[CmdbObject] = objects_manager.iterate_results(builder_params)
+            # Read through the caller's ACL as well: the type was judged above, and the stored query cannot widen it
+            matched_objects: list[CmdbObject] = objects_manager.iterate_results(
+                builder_params, request_user, AccessControlPermission.READ,
+            )
             result = [CmdbObject.to_json(matched_object) for matched_object in matched_objects]
 
         return DefaultResponse(result).make_response()
@@ -349,16 +386,19 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
     Raises:
         HTTPException: 400 on missing / malformed parameters, an unresolved category or type, a
                        referenced Ref-Section-Field or a failed retrieval / update; 404 when the report
-                       does not exist; 500 on an unexpected failure
+                       does not exist; 403 when the caller may not read the objects of the stored report's
+                       type or of the type it would be moved to; 500 on an unexpected failure
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
         current_report: dict[str, Any] = load_report_or_404(reports_manager, public_id)
+        abort_unless_report_readable(reports_manager, current_report, request_user)
 
         payload: dict[str, Any] = build_report_update_payload(
             reports_manager, read_write_payload(params, REPORT_ENTITY_LABEL), public_id, current_report,
         )
+        abort_unless_report_target_type_readable(reports_manager, payload[ReportKey.TYPE_ID], request_user)
 
         reports_manager.update_item(public_id, payload)
 
@@ -370,6 +410,7 @@ def update_cmdb_report(public_id: int, params: dict[str, Any], request_user: Cmd
         LOGGER.error("[update_cmdb_report] ReportsManagerGetError: %s", err, exc_info=True)
         abort(400, REPORT_RETRIEVE_FAILED_MSG.format(public_id=public_id))
     except ReportsManagerUpdateError as err:
+        abort_if_too_large(err)
         LOGGER.error("[update_cmdb_report] ReportsManagerUpdateError: %s", err, exc_info=True)
         abort(400, f"Failed to update the Report with ID: {public_id}!")
 
@@ -384,6 +425,8 @@ def delete_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
     """
     Deletes the CmdbReport with the given public_id
 
+    A report over a CmdbType the caller may not read cannot be deleted either - it cannot even be seen
+
     Args:
         public_id (int): public_id of CmdbReport which should be deleted
         request_user (CmdbUser): User which is requesting the deletion
@@ -392,14 +435,15 @@ def delete_cmdb_report(public_id: int, request_user: CmdbUser) -> Response:
         DefaultResponse: True if deletion was successful, else False
 
     Raises:
-        HTTPException: 404 when the CmdbReport does not exist, 400 on a failed retrieval / deletion,
-                       500 on an unexpected failure
+        HTTPException: 404 when the CmdbReport does not exist, 403 when the caller may not read the
+                       objects of its type, 400 on a failed retrieval / deletion, 500 on an unexpected failure
     """
     try:
         reports_manager: ReportsManager = ManagerProvider.get_manager(ManagerType.REPORTS, request_user)
 
-        # Only an existence check is needed here, so the raw document is enough (no model build)
-        load_report_or_404(reports_manager, public_id)
+        # The raw document is enough (no model build): its existence and its type are all that is read
+        stored_report: dict[str, Any] = load_report_or_404(reports_manager, public_id)
+        abort_unless_report_readable(reports_manager, stored_report, request_user)
 
         ack: bool = reports_manager.delete_item(public_id)
 

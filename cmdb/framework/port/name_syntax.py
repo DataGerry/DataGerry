@@ -40,6 +40,7 @@ from typing import Any
 import re
 
 from cmdb.framework.port.name_syntax_constants import (
+    MAX_BULK_PORT_COUNT,
     MAX_PAD_WIDTH,
     PortNameSyntaxError,
     SyntaxToken,
@@ -123,7 +124,7 @@ def syntax_blockers(syntax: Any, count: Any, start_index: Any) -> list[str]:
 
     Args:
         syntax (Any): The name syntax
-        count (Any): How many names to generate
+        count (Any): How many names to generate - at least 1, at most ``MAX_BULK_PORT_COUNT``
         start_index (Any): The value {n} takes for the first name
 
     Returns:
@@ -149,6 +150,8 @@ def syntax_blockers(syntax: Any, count: Any, start_index: Any) -> list[str]:
 
     if not isinstance(count, int) or isinstance(count, bool) or count < 1:
         blockers.append(PortNameSyntaxError.INVALID_COUNT.format(value=count))
+    elif count > MAX_BULK_PORT_COUNT:
+        blockers.append(PortNameSyntaxError.COUNT_TOO_LARGE.format(maximum=MAX_BULK_PORT_COUNT, value=count))
 
     if not isinstance(start_index, int) or isinstance(start_index, bool) or start_index < 0:
         blockers.append(PortNameSyntaxError.INVALID_START_INDEX.format(value=start_index))

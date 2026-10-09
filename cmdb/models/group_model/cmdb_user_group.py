@@ -15,12 +15,19 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Represents a CmdbUserGroup in DataGerry
+
+A group is where rights live: every CmdbUser holds a ``group_id``, and the group holds the rights its members
+get. The document stores the rights as **name strings** of the static right tree; the model holds them as
+``BaseRight`` instances. ``from_data`` resolves names into rights and needs the tree for it (callers pass
+``GroupsManager.rights``); ``to_json`` writes them back as names (``insert_mode=True``, the stored form) or as
+full right dicts (the API form)
 """
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.right_constants import GLOBAL_RIGHT_IDENTIFIER
+from cmdb.models.group_model.group_constants import RIGHT_TREE_REQUIRED_MSG
 
 from cmdb.class_schema.group_model.cmdb_user_group_schema import get_cmdb_user_group_schema
 
@@ -48,6 +55,7 @@ class CmdbUserGroup(CmdbDAO):
 
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
         label: str | None = None,
@@ -81,25 +89,32 @@ class CmdbUserGroup(CmdbDAO):
         """
         Initialises a CmdbUserGroup from a dict
 
+        **The right tree is required.** A group stores its rights as name strings, and only the tree can
+        turn them into rights; a call without it would build a group holding no rights at all, which a
+        reader cannot tell apart from a group that has none. It is refused instead. The argument keeps
+        its default only so the signature still matches ``CmdbDAO.from_data``, which the generic
+        manager paths call with the document alone - those paths are not used for groups
+
         Args:
             data (dict[str, Any]): Data with which the CmdbUserGroup should be initialised
-            rights (list[BaseRight] | None): Known rights used to resolve the data's right-name list
-                into BaseRight instances; names not present here are dropped. Defaults to None
+            rights (list[BaseRight] | None): The right tree (``GroupsManager.rights``) used to resolve the
+                data's right-name list into BaseRight instances; names not present here are dropped
 
         Raises:
-            CmdbUserGroupInitFromDataError: If the initialisation with the given data fails
+            CmdbUserGroupInitFromDataError: If the right tree is missing, or the initialisation with the
+                given data fails
 
         Returns:
-            CmdbUserGroup: CmdbUserGroup with the given data
+            CmdbUserGroup: CmdbUserGroup with the given data, its rights in the order of the tree
         """
         try:
-            if rights:
-                # A set, not the raw list: the tree holds ~200 rights and every one of them was
-                # tested against the stored name list, which made deserialising a group O(n*m)
-                granted_names: set[str] = set(data.get('rights') or [])
-                rights = [right for right in rights if right['name'] in granted_names]
-            else:
-                rights = []
+            if rights is None:
+                raise ValueError(RIGHT_TREE_REQUIRED_MSG)
+
+            # A set, not the raw list: the tree holds ~200 rights and every one of them is tested
+            # against the stored name list, which made deserialising a group O(n*m)
+            granted_names: set[str] = set(data.get('rights') or [])
+            rights = [right for right in rights if right['name'] in granted_names]
 
             return cls(
                 public_id=data.get('public_id'),

@@ -24,6 +24,8 @@ import re
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
+from cmdb.framework.exporter.format.base_exporter_format import BaseExporterFormat
 from cmdb.framework.exporter.writer.base_export_writer import BaseExportWriter
 from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,10 +45,11 @@ def _rendered(type_name: str) -> SimpleNamespace:
     return SimpleNamespace(type_information={'type_name': type_name}, fields=[])
 
 
-class _FakeFormat:
-    """A minimal export format that records its export() args and returns fixed content."""
+class _FakeFormat(BaseExporterFormat):
+    """A minimal export format honouring the human-readable flag, recording its export() args."""
     FILE_EXTENSION = 'json'
     MIME_TYPE = 'application/json'
+    HUMAN_READABLE_SUPPORT = True
 
     def __init__(self) -> None:
         self.called_with = None
@@ -55,6 +58,11 @@ class _FakeFormat:
         """Records (data, options) and returns fixed content."""
         self.called_with = (data, options)
         return 'EXPORTED_CONTENT'
+
+
+class _FakeRawFormat(_FakeFormat):
+    """A fake format writing the same file whether or not the human-readable flag is set."""
+    HUMAN_READABLE_SUPPORT = False
 
 
 class _FakeZipFormat(_FakeFormat):
@@ -107,6 +115,16 @@ class TestExport:
 
         assert re.match(READABLE_FILENAME_PATTERN, disposition)
 
+    def test_filename_is_not_marked_when_the_format_ignores_the_flag(self) -> None:
+        """A format writing the same file either way is no presentation export, so the name says nothing."""
+        writer = BaseExportWriter(_FakeRawFormat(), SimpleNamespace(options={'human_readable': 'true'}))
+        writer.data = [_rendered('router')]
+
+        response = writer.export()
+
+        assert re.match(FILENAME_PATTERN, response.headers['Content-Disposition'])
+        assert not re.match(READABLE_FILENAME_PATTERN, response.headers['Content-Disposition'])
+
     def test_uses_the_formats_declared_mime_type(self) -> None:
         """The response mimetype is exactly the export format's declared MIME_TYPE."""
         writer = BaseExportWriter(_FakeZipFormat(), SimpleNamespace(options={}))
@@ -135,7 +153,9 @@ class TestFromDatabase:
             writer.from_database(dbm, user, permission, db_name='cloud_db')
 
         objects_manager_cls.assert_called_once_with(dbm, 'cloud_db')
-        builder_params_cls.assert_called_once_with(criteria={'type_id': 1}, sort='public_id', order=1)
+        builder_params_cls.assert_called_once_with(
+            criteria={'type_id': 1}, sort='public_id', order=1, time_limit_ms=LONG_QUERY_TIME_LIMIT_MS,
+        )
         objects_manager_cls.return_value.iterate.assert_called_once_with(
             builder_params_cls.return_value, user, permission
         )
@@ -185,6 +205,18 @@ class TestHumanReadableLocationResolution:
         """Without the flag no LocationsManager is built and no location_names are injected."""
         fmt = _FakeFormat()
         writer = BaseExportWriter(fmt, SimpleNamespace(options={'view': 'native'}))
+        writer.data = [SimpleNamespace(fields=[{'type': 'location', 'value': 42}])]
+
+        with patch(f'{MODULE_PATH}.LocationsManager') as locations_manager_cls:
+            writer.export()
+
+        locations_manager_cls.assert_not_called()
+        assert 'location_names' not in fmt.called_with[1]
+
+    def test_a_format_ignoring_the_flag_resolves_no_location(self) -> None:
+        """The flag set on a format that ignores it costs no location lookup."""
+        fmt = _FakeRawFormat()
+        writer = BaseExportWriter(fmt, SimpleNamespace(options={'human_readable': 'true'}))
         writer.data = [SimpleNamespace(fields=[{'type': 'location', 'value': 42}])]
 
         with patch(f'{MODULE_PATH}.LocationsManager') as locations_manager_cls:

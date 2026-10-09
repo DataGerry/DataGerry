@@ -47,6 +47,7 @@ class CmdbSectionTemplate(CmdbDAO):
 
     def __init__(
         self,
+        *,
         name: str,
         label: str,
         fields: list[dict[str, Any]],

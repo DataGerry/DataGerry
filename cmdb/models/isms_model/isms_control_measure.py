@@ -89,7 +89,7 @@ class IsmsControlMeasure(CmdbDAO):
     # only move the same names one level down. R0917 does not apply - the signature is keyword-only,
     # which it must be: CmdbDAO.__new__ requires public_id in **kwargs, so a positional call fails with
     # 'A required InitKey is missing: public_id!' before __init__ ever runs
-    # pylint: disable=R0913
+    # pylint: disable=too-many-arguments
     def __init__(
             self,
             *,

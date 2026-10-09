@@ -23,8 +23,9 @@ is the most frequently written collection in the product and its payloads are op
 
 **Identity is `(user_id, resource)`, not a public_id.** That pair carries the unique compound index
 below, and it is what every manager call and every route filters on. The collection nevertheless
-*holds* a `public_id` - `GenericManager.insert_item` stamps one on every insert - and the
-single-resource read answers it while the list read does not.
+*holds* a `public_id` - `GenericManager.insert_item` stamps one on every insert - but it is not part of a
+setting: no route answers it (every one answers the same four keys,
+`user_settings_helper.serialize_user_setting`); the create reports it only as the envelope's `result_id`.
 
 **The scope (`setting_type`) is a label the frontend maintains.** Nothing server-side branches on it;
 see `UserSettingType`.

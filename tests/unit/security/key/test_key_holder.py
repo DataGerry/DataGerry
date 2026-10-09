@@ -22,26 +22,28 @@ bug where base64.b64decode(os.getenv(...)) crashed on a missing env var and only
 The KeyHolder is constructed under a cloud+local context so its eager __init__ needs no database.
 """
 import base64
+from typing import Any
 
 import pytest
 
 from cmdb.interface.cmdb_app import BaseCmdbApp
+from cmdb.security.key import holder as holder_module
 from cmdb.security.key.holder import KeyHolder
-from cmdb.security.key.secret_resolver import ASYMMETRIC_KEY_SETTING, SECURITY_SECTION
+from cmdb.security.key.secret_resolver import ASYMMETRIC_KEY_SETTING
+from cmdb.security.key.security_settings import read_security_setting
 
 
-class _CountingSettingsManager:
-    """Wraps a SettingsManager and counts the reads that actually reach it."""
+class _CountingRead:
+    """Wraps read_security_setting and counts the reads that actually reach the database."""
 
-    def __init__(self, wrapped) -> None:
-        self.wrapped = wrapped
+    def __init__(self) -> None:
         self.reads = 0
 
-    def get_value(self, name: str, section: str):
+    def __call__(self, dbm: Any, database: str | None, key: str) -> Any:
         """Records the call and delegates."""
         self.reads += 1
 
-        return self.wrapped.get_value(name, section)
+        return read_security_setting(dbm, database, key)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -127,42 +129,32 @@ class TestTheStoredKeypairIsReadOnce:
     """
 
     @staticmethod
-    def _on_premise_holder(database_manager):
-        """Builds a holder on-premise with its settings reads counted."""
+    def _on_premise_app() -> BaseCmdbApp:
+        """An on-premise app: the keys come from the stored security document"""
         app = BaseCmdbApp(__name__)
         app.cloud_mode = False
         app.local_mode = False
+        return app
 
-        with app.app_context():
-            holder = KeyHolder(database_manager)
-            counter = _CountingSettingsManager(holder.settings_manager)
-            holder.settings_manager = counter
+    def test_building_a_holder_reads_the_document_once(self, database_manager, monkeypatch) -> None:
+        """Two keys, one read - counted where the read reaches the database, not inferred from the cache."""
+        counter = _CountingRead()
+        monkeypatch.setattr(holder_module, 'read_security_setting', counter)
 
-            return app, holder, counter
-
-    def test_building_a_holder_reads_the_document_once(self, database_manager) -> None:
-        """Two keys, one read - counted at the settings manager, not inferred from the cache."""
-        app = BaseCmdbApp(__name__)
-        app.cloud_mode = False
-        app.local_mode = False
-
-        with app.app_context():
-            probe = KeyHolder(database_manager, with_private_key=False)
-            counter = _CountingSettingsManager(probe.settings_manager)
-
-            holder = KeyHolder.__new__(KeyHolder)
-            holder.settings_manager = counter
-            holder._stored_keypair = None  # pylint: disable=protected-access
-            holder.rsa_public = holder.get_public_key()
-            holder.rsa_private = holder.get_private_key()
+        with self._on_premise_app().app_context():
+            KeyHolder(database_manager)
 
         assert counter.reads == 1
 
-    def test_a_later_key_access_reads_nothing(self, database_manager) -> None:
+    def test_a_later_key_access_reads_nothing(self, database_manager, monkeypatch) -> None:
         """What `TokenGenerator` does per token must not reach the database."""
-        app, holder, counter = self._on_premise_holder(database_manager)
+        counter = _CountingRead()
+        monkeypatch.setattr(holder_module, 'read_security_setting', counter)
+        app = self._on_premise_app()
 
         with app.app_context():
+            holder = KeyHolder(database_manager)
+
             before = counter.reads
 
             holder.get_private_key()
@@ -178,7 +170,23 @@ class TestTheStoredKeypairIsReadOnce:
 
         with app.app_context():
             holder = KeyHolder(database_manager)
-            stored = holder.settings_manager.get_value(ASYMMETRIC_KEY_SETTING, SECURITY_SECTION)
+            stored = read_security_setting(database_manager, None, ASYMMETRIC_KEY_SETTING)
 
             assert holder.get_public_key() == stored['public']
             assert holder.get_private_key() == stored['private']
+
+
+class TestNoManagerIsHeld:
+    """The holder reads the security document through security_settings and holds no SettingsManager"""
+
+    def test_it_holds_no_settings_manager(self, database_manager) -> None:
+        """A manager holds no other manager - and the holder is not even a manager"""
+        app = BaseCmdbApp(__name__)
+        app.cloud_mode = False
+        app.local_mode = False
+
+        with app.app_context():
+            holder = KeyHolder(database_manager)
+
+        assert not hasattr(holder, 'settings_manager')
+        assert holder.dbm is database_manager

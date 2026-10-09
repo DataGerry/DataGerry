@@ -175,14 +175,24 @@ def setup_ipam_ci_explorer_fixture(request, connector: MongoConnector, database_
 class TestCiExplorerIpamRelations:
     """Pins the with_ipam_relations contract across the four target-role flows."""
 
-    def test_omitting_flag_yields_no_ipam_nodes(self, rest_api):
-        """Without with_ipam_relations the IPAM neighbours are not grafted (default-off behaviour)"""
-        response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_SUPERNET}&target_type=BOTH')
+    def test_an_explicit_false_yields_no_ipam_nodes(self, rest_api):
+        """with_ipam_relations=false: the IPAM neighbours are not grafted"""
+        response = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_SUPERNET}&target_type=BOTH&with_ipam_relations=false')
 
         assert response.status_code == HTTPStatus.OK
         body = response.get_json()
         assert body.get('children_nodes', []) == []
         assert body.get('parent_nodes', []) == []
+
+    def test_omitting_the_flag_grafts_the_ipam_nodes(self, rest_api):
+        """Omitted means the frontend's default - on - so it answers what an explicit true answers"""
+        omitted = rest_api.get(f'{ROUTE_URL}?target_id={OBJ_SUPERNET}&target_type=BOTH').get_json()
+        explicit = rest_api.get(
+            f'{ROUTE_URL}?target_id={OBJ_SUPERNET}&target_type=BOTH&with_ipam_relations=true',
+        ).get_json()
+
+        assert omitted.get('children_nodes')
+        assert omitted.get('children_nodes') == explicit.get('children_nodes')
 
 
     def test_supernet_target_grafts_child_subnets_with_ipam_source_tag(self, rest_api):

@@ -39,6 +39,11 @@ AUTH_SETTINGS_ID: str = 'auth'
 DEFAULT_TOKEN_LIFETIME: int = MINUTES_PER_DAY
 
 
+#: The 400 an auth-settings update gets in cloud mode when it activates an external provider; formatted
+#: with the provider class names. External providers are on-premise only (`AuthModule.external_providers_allowed`)
+CLOUD_EXTERNAL_PROVIDER_MSG: str = "External authentication providers are not available in cloud mode: {names}!"
+
+
 class AuthSettingsKey(BaseStrEnum):
     """
     Keys of the stored `auth` settings document

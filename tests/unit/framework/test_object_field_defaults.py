@@ -31,7 +31,7 @@ from cmdb.framework.object_field_defaults import (
     fill_object_defaults,
     usable_default,
 )
-from cmdb.framework.object_field_value_rules import build_field_value_rules
+from cmdb.framework.object_field_value_rules import PatternBudget, build_field_value_rules
 from cmdb.models.type_model import CmdbType, FieldType, SectionType, TEXT_VALUE_MAX_LENGTH
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -211,3 +211,24 @@ class TestFillObjectDefaults:
         fill_object_defaults(document, _type(text_default=None, row_default=None))
 
         assert document == {'fields': [{'name': TEXT_FIELD, 'value': None}]}
+
+
+def test_a_default_whose_pattern_times_out_is_not_used(caplog: pytest.LogCaptureFixture) -> None:
+    """It could not be shown to pass its own pattern, so a new object is not filled from it"""
+    field: dict[str, Any] = {'type': FieldType.TEXT.value, 'name': TEXT_FIELD, 'regex': '(a|aa)+b', 'value': 'a' * 60}
+
+    with caplog.at_level(logging.WARNING):
+        assert _usable(field) is None
+
+    assert 'in time' in caplog.text
+
+
+def test_the_defaults_of_one_fill_share_one_budget() -> None:
+    """A spent budget is handed on: the next default's check runs nothing and is not used either"""
+    field: dict[str, Any] = {'type': FieldType.TEXT.value, 'name': TEXT_FIELD, 'regex': '[a-z]+', 'value': 'fine'}
+    rule = build_field_value_rules([field])[TEXT_FIELD]
+    budget = PatternBudget()
+    budget.exhausted = True
+
+    assert usable_default(field, rule, budget) is None
+    assert usable_default(field, rule) == 'fine'

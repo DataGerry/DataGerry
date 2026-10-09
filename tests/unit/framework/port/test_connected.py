@@ -28,12 +28,13 @@ from typing import Any
 
 import pytest
 
-from cmdb.framework.port.connected import collect_connected_port_ids, project_connected
+from cmdb.framework.port.connected import collect_cabled_port_ids, collect_connected_port_ids, project_connected
 from cmdb.models.port_connection_model import ConnectionType, PortConnectionKey
 from cmdb.models.port_model import PortKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CONNECTED_KEY: str = 'connected'
+CABLED_KEY: str = 'cabled'
 
 LOW_PORT: int = 3
 HIGH_PORT: int = 10
@@ -131,15 +132,15 @@ class TestProjectConnected:
         would depend on nothing but the ids chosen.
         """
         ports = project_connected(
-            [_port(port_id)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY,
+            [_port(port_id)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY, CABLED_KEY,
         )
 
         assert ports[0][CONNECTED_KEY] is True
 
     def test_a_free_port_reports_false(self) -> None:
-        """The other half - 'Free' is what the frontend renders from it"""
+        """The other half - a port in no connection"""
         ports = project_connected(
-            [_port(FREE_PORT)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY,
+            [_port(FREE_PORT)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY, CABLED_KEY,
         )
 
         assert ports[0][CONNECTED_KEY] is False
@@ -152,7 +153,7 @@ class TestProjectConnected:
         distinguish 'free' from 'unknown', and there is no such state.
         """
         ports = project_connected(
-            [_port(LOW_PORT), _port(FREE_PORT)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY,
+            [_port(LOW_PORT), _port(FREE_PORT)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY, CABLED_KEY,
         )
 
         assert all(CONNECTED_KEY in port for port in ports)
@@ -165,7 +166,7 @@ class TestProjectConnected:
                 _connection([LOW_PORT, HIGH_PORT]),
                 _connection([HIGH_PORT, REAR_PORT], ConnectionType.INTERNAL.value),
             ],
-            CONNECTED_KEY,
+            CONNECTED_KEY, CABLED_KEY,
         )
 
         assert ports[0][CONNECTED_KEY] is True
@@ -180,55 +181,117 @@ class TestProjectConnected:
         ports = project_connected(
             [_port(HIGH_PORT)],
             [_connection([HIGH_PORT, REAR_PORT], ConnectionType.INTERNAL.value)],
-            CONNECTED_KEY,
+            CONNECTED_KEY, CABLED_KEY,
         )
 
         assert ports[0][CONNECTED_KEY] is True
 
     def test_no_connections_marks_every_port_free(self) -> None:
         """An object whose ports are all unused"""
-        ports = project_connected([_port(LOW_PORT), _port(FREE_PORT)], [], CONNECTED_KEY)
+        ports = project_connected([_port(LOW_PORT), _port(FREE_PORT)], [], CONNECTED_KEY, CABLED_KEY)
 
         assert [port[CONNECTED_KEY] for port in ports] == [False, False]
 
     def test_an_empty_page_is_returned_unchanged(self) -> None:
         """An object with no ports at all"""
-        assert project_connected([], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY) == []
+        assert project_connected([], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY, CABLED_KEY) == []
 
     def test_the_flag_is_a_real_boolean(self) -> None:
         """
         Not a truthy value
 
-        The frontend renders Free / Connected from it, and a JSON client comparing against false has to
-        get a false rather than a null or a missing key.
+        A JSON client comparing against false has to get a false rather than a null or a missing key.
         """
-        ports = project_connected([_port(FREE_PORT)], [], CONNECTED_KEY)
+        ports = project_connected([_port(FREE_PORT)], [], CONNECTED_KEY, CABLED_KEY)
 
         assert isinstance(ports[0][CONNECTED_KEY], bool)
 
     def test_a_port_without_a_usable_id_reports_free_rather_than_raising(self) -> None:
         """A drifted port row must not take the response down"""
         ports = project_connected(
-            [_port(None)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY,
+            [_port(None)], [_connection([LOW_PORT, HIGH_PORT])], CONNECTED_KEY, CABLED_KEY,
         )
 
         assert ports[0][CONNECTED_KEY] is False
 
     def test_the_other_port_fields_are_untouched(self) -> None:
-        """The projection adds one key and changes nothing else"""
-        ports = project_connected([_port(LOW_PORT)], [], CONNECTED_KEY)
+        """The projection adds its two keys and changes nothing else"""
+        ports = project_connected([_port(LOW_PORT)], [], CONNECTED_KEY, CABLED_KEY)
 
         assert ports[0][PortKey.NAME.value] == f'port-{LOW_PORT}'
         assert ports[0][PortKey.PUBLIC_ID.value] == LOW_PORT
 
     def test_the_key_is_the_one_the_caller_names(self) -> None:
         """
-        The response key is passed in, not imported
+        The response keys are passed in, not imported
 
         It is deliberately not a member of PortKey - there is no such field on a stored port - so the
         projection must not hard-code it.
         """
-        ports = project_connected([_port(LOW_PORT)], [], 'some_other_key')
+        ports = project_connected([_port(LOW_PORT)], [], 'some_other_key', 'another_key')
 
         assert 'some_other_key' in ports[0]
+        assert 'another_key' in ports[0]
         assert CONNECTED_KEY not in ports[0]
+        assert CABLED_KEY not in ports[0]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                  the cabled half                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestCollectCabledPortIds:
+    """Only the endpoints of CABLE connections."""
+
+    @pytest.mark.parametrize('port_id', [LOW_PORT, HIGH_PORT], ids=['first-in-pair', 'second-in-pair'])
+    def test_both_ends_of_a_cable_are_cabled(self, port_id: int) -> None:
+        """The membership rule of the connected half: neither position of the sorted pair means anything"""
+        assert port_id in collect_cabled_port_ids([_connection([LOW_PORT, HIGH_PORT])])
+
+    def test_an_internal_pairing_cables_nothing(self) -> None:
+        """A panel's front-to-rear pairing carries no cable"""
+        assert collect_cabled_port_ids([_connection([HIGH_PORT, REAR_PORT], ConnectionType.INTERNAL.value)]) == set()
+
+    def test_a_connection_without_a_type_cables_nothing(self) -> None:
+        """A drifted row is not read as a cable"""
+        connection: dict[str, Any] = _connection([LOW_PORT, HIGH_PORT])
+        del connection[PortConnectionKey.CONNECTION_TYPE.value]
+
+        assert collect_cabled_port_ids([connection]) == set()
+
+    def test_a_generator_is_read_once_for_both_flags(self) -> None:
+        """project_connected reads its connections twice; a one-shot iterable must answer both flags"""
+        connections = (connection for connection in [_connection([LOW_PORT, HIGH_PORT])])
+
+        ports = project_connected([_port(LOW_PORT)], connections, CONNECTED_KEY, CABLED_KEY)
+
+        assert (ports[0][CONNECTED_KEY], ports[0][CABLED_KEY]) == (True, True)
+
+
+class TestProjectCabled:
+    """The cabled flag beside the connected one."""
+
+    @pytest.mark.parametrize('connections, expected', [
+        ([], (False, False)),
+        ([_connection([HIGH_PORT, REAR_PORT], ConnectionType.INTERNAL.value)], (True, False)),
+        ([_connection([LOW_PORT, HIGH_PORT])], (True, True)),
+        ([_connection([LOW_PORT, HIGH_PORT]),
+          _connection([HIGH_PORT, REAR_PORT], ConnectionType.INTERNAL.value)], (True, True)),
+    ], ids=['free', 'paired-only', 'cabled', 'cabled-and-paired'])
+    def test_the_two_flags_per_kind_of_connection(self, connections: list[dict[str, Any]],
+                                                  expected: tuple[bool, bool]) -> None:
+        """
+        (connected, cabled) for a panel front face in each state it can be in
+
+        Paired to its rear and carrying no cable is the case the second flag exists for: connected, not cabled
+        """
+        ports = project_connected([_port(HIGH_PORT)], connections, CONNECTED_KEY, CABLED_KEY)
+
+        assert (ports[0][CONNECTED_KEY], ports[0][CABLED_KEY]) == expected
+
+    def test_every_port_receives_a_real_boolean(self) -> None:
+        """Present on the free rows too, and false rather than null"""
+        ports = project_connected([_port(LOW_PORT), _port(FREE_PORT)], [_connection([LOW_PORT, HIGH_PORT])],
+                                  CONNECTED_KEY, CABLED_KEY)
+
+        assert [port[CABLED_KEY] for port in ports] == [True, False]
+        assert all(isinstance(port[CABLED_KEY], bool) for port in ports)

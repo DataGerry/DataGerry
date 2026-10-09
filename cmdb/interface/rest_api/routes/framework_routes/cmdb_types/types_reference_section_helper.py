@@ -44,6 +44,8 @@ from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKe
 from cmdb.models.type_model.type_reference_section import TypeReferenceSection
 from cmdb.models.type_model.type_reference_section_entry import resolve_pulled_field_names
 from cmdb.models.user_model.cmdb_user import CmdbUser
+from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants import (
     REFERENCED_SECTION_REMOVAL_MESSAGE,
     REFERENCED_SECTION_DEPENDENT_FORMAT,
@@ -584,6 +586,11 @@ def build_referenced_section_usage_payload(request_user: CmdbUser, target_type: 
     REFERENCING_TYPE_IDS but under no section, which is correct: no section of this type may be
     deleted on its account, but the type itself is still referenced
 
+    COUNT and IN_USE count every dependent, because the guards refuse on every one of them. Only the
+    dependents the caller's group may READ are NAMED - in REFERENCING_TYPE_IDS and in each section's
+    list - so a section that only hidden types reference is present with an empty list: still blocked,
+    without saying by whom
+
     Args:
         request_user (CmdbUser): User performing the request
         target_type (CmdbType): The CmdbType to inspect
@@ -603,16 +610,24 @@ def build_referenced_section_usage_payload(request_user: CmdbUser, target_type: 
             TypeSchemaKey.NAME.value: 1,
             TypeSchemaKey.LABEL.value: 1,
             f'{TypeSchemaKey.RENDER_META.value}.{TypeSchemaKey.SECTIONS.value}': 1,
+            TypeSchemaKey.ACL.value: 1,
         },
     )
-    referencing_type_ids: list[int] = sorted(
+    readable_ids: set[int] = {
         dependent[TypeSchemaKey.PUBLIC_ID.value] for dependent in dependents
-    )
-    sections: dict[str, list[dict[str, Any]]] = _group_dependents_by_section(dependents, type_id)
+        if has_type_document_access(dependent, request_user, AccessControlPermission.READ)
+    }
+    referencing_type_ids: list[int] = sorted(readable_ids)
+    sections: dict[str, list[dict[str, Any]]] = {
+        section_name: [
+            identity for identity in identities if identity[TypeSchemaKey.PUBLIC_ID.value] in readable_ids
+        ]
+        for section_name, identities in _group_dependents_by_section(dependents, type_id).items()
+    }
 
     return {
-        ReferencedSectionUsageKey.IN_USE.value: bool(referencing_type_ids),
-        ReferencedSectionUsageKey.COUNT.value: len(referencing_type_ids),
+        ReferencedSectionUsageKey.IN_USE.value: bool(dependents),
+        ReferencedSectionUsageKey.COUNT.value: len(dependents),
         ReferencedSectionUsageKey.REFERENCING_TYPE_IDS.value: referencing_type_ids,
         ReferencedSectionUsageKey.SECTIONS.value: sections,
     }

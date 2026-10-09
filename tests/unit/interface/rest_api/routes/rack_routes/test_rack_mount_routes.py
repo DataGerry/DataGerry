@@ -26,6 +26,8 @@ manager class while driving a real request
 from flask import Flask
 
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_routes import rack_mounts_blueprint
+from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import gate_blueprint
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.rest_api.routes.rack_routes.rack_mount_routes'
@@ -52,6 +54,8 @@ def test_the_mounted_url_set_is_pinned() -> None:
     A rack_id in the path on every write is what keeps a payload from choosing the rack.
     """
     local_app = Flask(__name__)
+    # Gated first, as the factory does: registered ungated here, the real blueprint could not be gated later
+    gate_blueprint(rack_mounts_blueprint, LicenseFeature.IPAM)
     local_app.register_blueprint(rack_mounts_blueprint, url_prefix=URL_PREFIX)
 
     rules = {rule.rule for rule in local_app.url_map.iter_rules() if rule.rule.startswith(URL_PREFIX)}

@@ -192,6 +192,19 @@ class TestTheSchema:
 
         assert Validator(get_isms_impact_category_schema()).validate(broken) is False
 
+    def test_what_the_model_serialises_for_a_minimal_category_validates(self) -> None:
+        """The list read answers a null sort, and the reorder sends it back - it must be writable"""
+        minimal = IsmsImpactCategory.from_data({ImpactCategoryKey.PUBLIC_ID.value: PUBLIC_ID,
+                                                ImpactCategoryKey.NAME.value: 'Financial'})
+        serialised = IsmsImpactCategory.to_json(minimal)
+
+        assert serialised[ImpactCategoryKey.SORT.value] is None
+        assert Validator(get_isms_impact_category_schema()).validate(serialised) is True
+
+    def test_descriptions_that_are_not_a_list_are_refused(self) -> None:
+        """The impact fan-out adds to this list with $addToSet, which a string breaks"""
+        assert Validator(get_isms_impact_category_schema()).validate(_document(impact_descriptions='x')) is False
+
     def test_the_model_is_a_cmdb_dao(self) -> None:
         """The shared document machinery only applies to CmdbDAO subclasses"""
         assert issubclass(IsmsImpactCategory, CmdbDAO)

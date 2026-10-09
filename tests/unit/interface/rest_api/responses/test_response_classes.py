@@ -228,6 +228,23 @@ class TestInsertSingleResponse:
         assert payload[ResponseKey.RAW.value] == DOCUMENT
         assert payload[ResponseKey.RESPONSE_TYPE.value] == OperationType.INSERT.value
 
+    def test_the_id_is_required(self) -> None:
+        """No default: a route that forgets the id fails at the constructor call, not later"""
+        with pytest.raises(TypeError):
+            InsertSingleResponse(DOCUMENT)  # pylint: disable=no-value-for-parameter
+
+    @pytest.mark.parametrize('result_id', [None, '5', 5.0, True], ids=['none', 'numeric-string', 'float', 'bool'])
+    def test_anything_but_an_int_is_refused_by_name(self, result_id: Any) -> None:
+        """Not coerced - the error names what the route passed"""
+        with pytest.raises(TypeError, match=type(result_id).__name__):
+            InsertSingleResponse(DOCUMENT, result_id)
+
+    def test_the_id_is_answered_as_given(self) -> None:
+        """An int goes through untouched, by keyword as by position"""
+        response = InsertSingleResponse(raw=DOCUMENT, result_id=42)
+
+        assert loads(response.make_response().get_data())[ResponseKey.RESULT_ID.value] == 42
+
 
 class TestUpdateSingleResponse:
     """PUT / PATCH: 202 and the updated resource."""
