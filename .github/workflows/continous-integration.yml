@@ -84,7 +84,11 @@ jobs:
       - name: Import-order scan (every cmdb module imported first)
         run: python -m tests.utils.first_import_scan
       - name: Lint with pylint
-        run: pylint --rcfile=$CONFIG_FILE --fail-under=$FAIL_THRESHOLD ./cmdb | tee pylint-report_python-${{ matrix.python-version }}.txt
+        # shell: bash runs with -o pipefail; the default shell does not, so tee's exit code would hide pylint's
+        shell: bash
+        # --fail-on: a waiver that suppresses nothing fails the build (useless-suppression is informational,
+        # so the score alone never sees it)
+        run: pylint --rcfile=$CONFIG_FILE --fail-under=$FAIL_THRESHOLD --fail-on=useless-suppression ./cmdb | tee pylint-report_python-${{ matrix.python-version }}.txt
         env:
           FAIL_THRESHOLD: 5.0
           CONFIG_FILE: .pylintrc

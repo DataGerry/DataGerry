@@ -27,7 +27,7 @@ from flask import abort, Response
 
 from cmdb.database.json_codec import default
 from cmdb.models.type_model import CmdbType
-from cmdb.utils import is_truthy_query_arg
+from cmdb.utils import is_truthy_query_arg, CONTENT_DISPOSITION_HEADER, attachment_disposition
 from cmdb.framework.exporter.export_filename_helper import build_type_export_filename
 from cmdb.framework.exporter.writer.supported_exporter_extension import SupportedExporterExtension
 from cmdb.interface.rest_api.routes.exporter_routes.exporter_constants import (
@@ -129,6 +129,6 @@ def build_types_json_export_response(types: list[CmdbType]) -> Response:
         mimetype=TYPE_EXPORT_MIMETYPE,
         headers={
             # Quoted for the same reason as the object export: the name carries more than a timestamp now
-            "Content-Disposition": f'attachment; filename="{filename}"'
+            CONTENT_DISPOSITION_HEADER: attachment_disposition(filename)
         }
     )

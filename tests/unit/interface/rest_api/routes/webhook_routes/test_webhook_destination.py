@@ -119,8 +119,10 @@ class TestRefusedDestinationReason:
 
     @pytest.mark.parametrize('allowed', [['LOCALHOST'], ['127.0.0.0/8'], ['127.0.0.1']],
                              ids=['by-name', 'by-network', 'by-single-address'])
-    def test_an_allowed_host_passes(self, allowed: list[str]) -> None:
+    def test_an_allowed_host_passes(self, monkeypatch, allowed: list[str]) -> None:
         """By name in any case, or every address inside an allowed network"""
+        _resolving_to(monkeypatch, '127.0.0.1')
+
         assert refused_destination_reason('http://localhost/hook', allowed) is None
 
     def test_an_allowed_network_must_hold_every_address(self, monkeypatch) -> None:

@@ -29,7 +29,6 @@ stored
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_person_group_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbPersonGroup document

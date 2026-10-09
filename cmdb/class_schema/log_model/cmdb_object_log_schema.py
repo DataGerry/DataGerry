@@ -37,7 +37,6 @@ kept honest by a test instead: every entry shape the writer produces must valida
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_object_log_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbObjectLog document

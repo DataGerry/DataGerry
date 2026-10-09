@@ -24,7 +24,6 @@ consumed as IsmsProtectionGoal.SCHEMA.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_isms_protection_goal_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a IsmsProtectionGoal document

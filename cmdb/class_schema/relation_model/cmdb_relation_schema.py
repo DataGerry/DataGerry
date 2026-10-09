@@ -29,8 +29,9 @@ SHAPE: a section's ``fields`` is a list of non-blank strings, and a field's ``ty
 used twice - is enforced by ``relation_structure_helper`` on both write routes
 """
 from typing import Any
+
+from cmdb.class_schema.field_schema_helper import get_field_definition_rules
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_relation_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbRelation document
@@ -151,53 +152,12 @@ def get_cmdb_relation_schema() -> dict[str, Any]:
                         'required': True,
                         'empty': False
                     },
-                    "rows": {  # Number of rows for TextArea Field
-                        'type': 'integer',
-                        'required': False
-                    },
                     "label": {  # Label of the field
                         'type': 'string',
                         'required': True,
                         'empty': False
                     },
-                    "description": {  # Description of the field
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "regex": {  # Regex of the field
-                        'type': 'string',
-                        'required': False
-                    },
-                    "placeholder": {  # Placeholder of the field
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "value": {  # The value for this field
-                        'required': False,
-                        'nullable': True,
-                    },
-                    "helperText": {  # Helpertext for this field
-                        'type': 'string',
-                        'required': False,
-                    },
-                    "options": {  # Options for RadioField and SelectField
-                        'type': 'list',
-                        'empty': True,
-                        'required': False,
-                        'schema': {
-                            'type': 'dict',
-                            'schema': {
-                                "name": {  # Name of the option (not visible to the user)
-                                    'type': 'string',
-                                    'required': True
-                                },
-                                "label": {  # Value of the option (visible to the user)
-                                    'type': 'string',
-                                    'required': True
-                                },
-                            }
-                        }
-                    }
+                    **get_field_definition_rules(),
                 }
             },
         }

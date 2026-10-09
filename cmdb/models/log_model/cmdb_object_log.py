@@ -49,8 +49,9 @@ class CmdbObjectLog(CmdbMetaLog):
 
     UNKNOWN_USER_STRING = 'Unknown'
 
-    #pylint: disable=R0913, R0917
+    # pylint: disable=too-many-arguments
     def __init__(self,
+                 *,
                  public_id: int,
                  log_type: str | None,
                  log_time: datetime,

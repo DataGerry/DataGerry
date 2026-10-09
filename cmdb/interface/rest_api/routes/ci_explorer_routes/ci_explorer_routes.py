@@ -110,6 +110,7 @@ from cmdb.errors.manager.ci_explorer_profile_manager import (
     CiExplorerProfileManagerIterationError,
 )
 from cmdb.errors.manager.types_manager import TypesManagerGetError, TypesManagerUpdateError
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import abort_unless_type_readable
 from cmdb.interface.rest_api.routes.ci_explorer_routes.ci_explorer_constants import (
     CiExplorerParam,
     CiExplorerResponseKey,
@@ -394,7 +395,8 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
     gives "db-01", "web-02", … rather than one string repeated on every node. Sending ``null``
     clears it, and the nodes fall back to "no label selected".
 
-    Requires the ``base.framework.ciExplorer.edit`` right. The body is ``{'ci_explorer_label':
+    Requires the ``base.framework.ciExplorer.edit`` right, and READ on the Type's ACL - like every route on
+    one Type, since the answer names the Type's fields. The body is ``{'ci_explorer_label':
     <field name | null>}``. A name the Type does not offer is refused with 400 rather than stored -
     an unresolvable nomination is invisible in the UI except as unlabelled nodes. Multi-data-section
     fields are not offered: their values live per row, and a node can only show one.
@@ -409,8 +411,9 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the body is invalid, the
-                       nominated field is not one the Type offers, or the TypesManager fails;
+        HTTPException: 403 when the user lacks the right or the caller's group may not READ the Type;
+                       400 when the body is invalid, the nominated field is not one the Type offers,
+                       or the TypesManager fails;
                        404 when the Type does not exist; 500 on an unexpected failure
 
     Returns:
@@ -428,6 +431,9 @@ def update_type_label_field(public_id: int, data: dict[str, Any], request_user: 
             TypeSchemaKey.CI_EXPLORER_LABEL.value,
             "Type",
         )
+
+        # A Type the caller's group may not READ is refused here as on every route that addresses one Type
+        abort_unless_type_readable(target_type, request_user)
 
         # The nomination has to name a field of THIS Type, or the graph shows unlabelled nodes with
         # nothing anywhere saying why

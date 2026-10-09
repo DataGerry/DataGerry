@@ -79,6 +79,7 @@ class CmdbWebhookEvent(CmdbDAO):
 
     def __init__(
             self,
+            *,
             event_time: datetime | None,
             operation: WebhookEventType,
             webhook_id: int,

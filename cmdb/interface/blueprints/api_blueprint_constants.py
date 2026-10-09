@@ -24,6 +24,10 @@ names and texts of the right check `protect` runs
 # Leads every refusal, so a client can tell a schema rejection from a route's own 400
 INVALID_BODY_MESSAGE: str = 'Invalid data provided'
 
+# Answered when the request body is not a JSON object - no body at all, or a list, a string or a number - so the
+# schema of a write route has nothing to check
+BODY_NOT_AN_OBJECT_MESSAGE: str = 'The request body must be a JSON object'
+
 # Answered when the validator itself fails. It names nothing: the schema is internal, and the
 # exception is logged with its traceback instead
 VALIDATION_FAILED_MESSAGE: str = 'The request body could not be validated'

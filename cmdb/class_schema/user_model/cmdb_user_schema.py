@@ -42,7 +42,6 @@ DEFAULT_CONFIG_ITEMS_LIMIT: int = 1000
 DEFAULT_DATABASE: str | None = None
 
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_user_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbUser document

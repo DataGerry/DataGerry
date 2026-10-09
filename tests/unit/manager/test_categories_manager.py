@@ -17,7 +17,7 @@
 Unit tests for cmdb.manager.categories_manager.CategoriesManager
 
 Pure tests: no Mongo. Only the methods that carry their own behavior beyond the GenericManager
-forwarders are exercised here - ``tree``, ``iterate``, ``get_categories_by``,
+forwarders are exercised here - ``get_tree``, ``iterate``, ``get_categories_by``,
 ``remove_category_as_parent``, ``remove_type_from_categories``, ``validate_parent_assignment`` (with
 the ``_get_ancestor_ids`` failure path), ``get_category_type_ids`` and ``get_assigned_type_ids``. The
 one-line delegations (``insert_category``, ``get_category``,
@@ -32,6 +32,9 @@ import pytest
 
 from cmdb.manager.categories_manager import CategoriesManager
 from cmdb.models.category_model import CmdbCategory
+from cmdb.models.type_model import CmdbType
+from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -55,6 +58,10 @@ GRANDPARENT_PUBLIC_ID: int = 2
 MISSING_CATEGORY_PUBLIC_ID: int = 99
 DELETED_TYPE_PUBLIC_ID: int = 42
 TOTAL_CATEGORIES: int = 2
+TREE_GROUP_ID: int = 5
+
+# Only the group id is read off the user the tree is built for
+TREE_USER: MagicMock = MagicMock(group_id=TREE_GROUP_ID)
 
 SAMPLE_CATEGORY_DICT: dict[str, Any] = {'public_id': CATEGORY_PUBLIC_ID, 'name': 'c', 'label': 'C'}
 SAMPLE_CATEGORY_DICTS: list[dict[str, Any]] = [
@@ -72,7 +79,7 @@ def _mock_manager() -> MagicMock:
 #                                                          tree                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTree:
-    """``tree`` composes a CategoryTree from the bound categories and the type collection."""
+    """``get_tree`` composes a CategoryTree from the categories and the types the user's group may READ."""
 
     def test_builds_category_tree_from_categories_and_types(self) -> None:
         """The happy path passes hydrated types and the iterated categories to ``CategoryTree``."""
@@ -85,10 +92,24 @@ class TestTree:
 
         with patch(f'{MODULE_PATH}.CmdbType.from_data', side_effect=lambda data: ('T', data['public_id'])), \
              patch(f'{MODULE_PATH}.CategoryTree', return_value=sentinel_tree) as tree_ctor:
-            result = CategoriesManager.tree.fget(mgr)  # pylint: disable=assignment-from-no-return
+            result = CategoriesManager.get_tree(mgr, TREE_USER)
 
         assert result is sentinel_tree
         tree_ctor.assert_called_once_with(hydrated_categories, [('T', 1), ('T', 2)])
+
+    def test_reads_only_the_types_the_group_may_read(self) -> None:
+        """The READ filter of the user's group is part of the type query, so a hidden type is never read."""
+        mgr = _mock_manager()
+        mgr.get_many_from_other_collection.return_value = []
+        mgr.iterate.return_value = MagicMock(results=[])
+
+        with patch(f'{MODULE_PATH}.CategoryTree'):
+            CategoriesManager.get_tree(mgr, TREE_USER)
+
+        mgr.get_many_from_other_collection.assert_called_once_with(
+            CmdbType.COLLECTION,
+            criteria=build_permitted_types_criteria(TREE_USER.group_id, AccessControlPermission.READ),
+        )
 
     def test_unexpected_error_wraps_as_tree_init_error(self) -> None:
         """A failure anywhere in the composition is surfaced as ``CategoriesManagerTreeInitError``."""
@@ -96,7 +117,7 @@ class TestTree:
         mgr.get_many_from_other_collection.side_effect = RuntimeError('db down')
 
         with pytest.raises(CategoriesManagerTreeInitError):
-            CategoriesManager.tree.fget(mgr)  # pylint: disable=assignment-from-no-return
+            CategoriesManager.get_tree(mgr, TREE_USER)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

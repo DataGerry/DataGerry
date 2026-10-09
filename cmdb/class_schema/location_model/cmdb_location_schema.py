@@ -28,7 +28,6 @@ one document cannot drift apart.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_location_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a stored CmdbLocation document

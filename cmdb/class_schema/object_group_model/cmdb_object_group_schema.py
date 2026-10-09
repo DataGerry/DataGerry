@@ -34,7 +34,6 @@ categories and the IsmsRiskAssessments that assess it, which read the group only
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
-# pylint: disable=R0801
 def get_cmdb_object_group_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbObjectGroup document

@@ -35,7 +35,6 @@ class TypeMultiDataSection(TypeSection):
     Extends: TypeSection
     """
 
-    #pylint: disable=too-many-positional-arguments
     def __init__(
         self,
         type: str,

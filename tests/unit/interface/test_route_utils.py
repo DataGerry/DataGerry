@@ -567,6 +567,19 @@ class TestInsertRequestUser:
         handler.assert_called_once()
         parse.assert_not_called()
 
+    def test_cloud_basic_without_an_api_key_is_refused_with_its_own_401(self) -> None:
+        """Not the generic token failure: the caller is told the key is missing, and nothing is authenticated"""
+        handler = MagicMock()
+        with patch(f'{MODULE_PATH}.parse_authorization_header') as parse:
+            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+                with pytest.raises(HTTPException) as exc_info:
+                    ru.insert_request_user(handler)()
+
+        assert exc_info.value.code == 401
+        assert exc_info.value.description == ru.CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE
+        parse.assert_not_called()
+        handler.assert_not_called()
+
     def test_an_error_of_the_route_on_the_api_key_path_is_not_a_token_failure(self) -> None:
         """The route's own error reaches the caller - it is not turned into 'Token could not be validated!'"""
         handler = MagicMock(side_effect=RuntimeError('the route failed'))
@@ -1298,56 +1311,21 @@ class TestAuthenticateBasic:
             with _app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt-token'
 
-    def test_cloud_portal_rejects_returns_none(self) -> None:
-        """In cloud mode, a portal that rejects the user yields None."""
-        with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=None):
-            with _app(cloud_mode=True).test_request_context():
+    @pytest.mark.parametrize('local_mode', [False, True], ids=['hosted', 'local'])
+    def test_cloud_mode_never_logs_in(self, local_mode: bool) -> None:
+        """
+        Cloud Basic without an x-api-key has no tenant to log into: refused before the portal or a provider runs
+
+        The portal's key-less answer names every subscription and no database, and the password digest a portal
+        user stores is checked by the portal, not here - so nothing on this path could ever succeed
+        """
+        with self._patches(login_result=MagicMock()), \
+             patch(f'{MODULE_PATH}.check_user_in_service_portal') as portal:
+            with _app(cloud_mode=True, local_mode=local_mode).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
-    def test_cloud_local_mode_uses_subscription_db(self) -> None:
-        """In cloud+local mode the target db is taken from the first subscription."""
-        user = MagicMock()
-        user.get_public_id.return_value = 5
-        user.database = 'sub_db'
-        portal_user = {'subscriptions': [{'database': 'sub_db'}], 'database': 'ignored'}
-        with self._patches(login_result=user), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user):
-            with _app(cloud_mode=True, local_mode=True).test_request_context():
-                assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt'
-
-    def test_cloud_non_local_uses_user_database(self) -> None:
-        """In cloud (non-local) mode the target db comes from the portal user's 'database'."""
-        user = MagicMock()
-        user.get_public_id.return_value = 5
-        user.database = 'the_db'
-        portal_user = {'database': 'the_db'}
-        with self._patches(login_result=user), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user):
-            with _app(cloud_mode=True, local_mode=False).test_request_context():
-                assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt'
-
-    def test_cloud_logs_in_with_the_address_the_portal_answered_with(self) -> None:
-        """The tenant user is stored under the portal's address, whatever spelling was typed"""
-        user = MagicMock()
-        portal_user = {'database': 'the_db', 'email': NORMALISED_EMAIL}
-        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
-        with self._patches(login_result=user), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=portal_user) as portal:
-            with _app(cloud_mode=True, local_mode=False).test_request_context():
-                ru._authenticate_basic(credentials)
-
-            assert ru.AuthModule.return_value.login.call_args.args == (NORMALISED_EMAIL, 'secret')
-        assert portal.call_args.args[0] == TYPED_EMAIL.strip()
-
-    def test_a_portal_answer_without_an_email_keeps_the_typed_login(self) -> None:
-        """Nothing better to go by - the stripped login is used"""
-        credentials: str = base64.b64encode(f'{TYPED_EMAIL}:secret'.encode('utf-8')).decode('utf-8')
-        with self._patches(login_result=MagicMock()), \
-             patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value={'database': 'the_db'}):
-            with _app(cloud_mode=True, local_mode=False).test_request_context():
-                ru._authenticate_basic(credentials)
-
-            assert ru.AuthModule.return_value.login.call_args.args[0] == TYPED_EMAIL.strip()
+            portal.assert_not_called()
+            ru.AuthModule.return_value.login.assert_not_called()
 
     def test_on_premise_the_login_is_stripped(self) -> None:
         """The case is AuthModule's to try; the whitespace is removed here"""
@@ -1458,11 +1436,21 @@ class TestCheckUserInServicePortal:
     """``check_user_in_service_portal`` validates users locally or via the portal + cache."""
 
     def test_local_mode_delegates_to_local_loader(self) -> None:
-        """In local mode the local test-user loader is used."""
-        with patch(f'{MODULE_PATH}._load_local_test_user', return_value={'email': 'x'}) as loader:
+        """In local mode the local test-user loader is used, and its plaintext password comes back as its HMAC"""
+        with patch(f'{MODULE_PATH}._load_local_test_user', return_value={'email': 'x', 'password': 'p'}) as loader, \
+             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
+            security_manager.return_value.generate_hmac.side_effect = lambda plain: f'hmac({plain})'
             with _app(local_mode=True).test_request_context():
-                assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x'}
+                assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x', 'password': 'hmac(p)'}
         loader.assert_called_once_with('x', 'p')
+
+    def test_local_mode_refusal_stays_none(self) -> None:
+        """Nothing to hash when the fixture refuses"""
+        with patch(f'{MODULE_PATH}._load_local_test_user', return_value=None), \
+             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
+            with _app(local_mode=True).test_request_context():
+                assert ru.check_user_in_service_portal('x', 'p') is None
+        security_manager.return_value.generate_hmac.assert_not_called()
 
     def test_the_email_is_normalised_before_the_local_loader(self) -> None:
         """Stripped and lower-cased, whatever the caller submitted"""
@@ -1879,6 +1867,30 @@ class TestSetAdminUser:
         users_manager.update_user.assert_called_once()
         assert existing.database == 'db'
 
+    def test_a_created_user_stores_the_digest_it_is_handed(self) -> None:
+        """The portal check already HMACed the password; hashing it again stored a digest nothing could match"""
+        users_manager = MagicMock()
+        users_manager.get_user_by.return_value = None
+        users_manager.get_next_public_id.return_value = 1
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
+             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
+            with _app().test_request_context():
+                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
+
+        assert users_manager.insert_user.call_args.args[0].password == self.USER_DATA['password']
+        security_manager.return_value.generate_hmac.assert_not_called()
+
+    def test_an_update_leaves_the_stored_password_alone(self) -> None:
+        """Only the subscription's three fields are refreshed"""
+        users_manager = MagicMock()
+        existing = MagicMock(password='stored-digest')
+        users_manager.get_user_by.return_value = existing
+        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
+            with _app().test_request_context():
+                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
+
+        assert existing.password == 'stored-digest'
+
     # The portal's numbers as strings: both branches have to convert them to int
     STRING_SUBSCRIPTION: dict[str, Any] = {'database': 'db', 'api_level': '1', 'config_item_limit': '10'}
 
@@ -2150,6 +2162,20 @@ def test_request_authenticates_by_api_key(cloud_mode: bool, headers: dict[str, s
     """Only a cloud request pairing the key with Basic credentials is left to verify_api_access"""
     with _app(cloud_mode=cloud_mode).test_request_context(headers=headers):
         assert ru.request_authenticates_by_api_key() is expected
+
+
+# ==================================== request_is_cloud_basic_without_api_key ======================================== #
+
+@pytest.mark.parametrize(('cloud_mode', 'headers', 'expected'), [
+    (True, {'Authorization': BASIC_HEADER}, True),
+    (True, API_KEY_BASIC_HEADERS, False),
+    (True, {'Authorization': BEARER_HEADER}, False),
+    (False, {'Authorization': BASIC_HEADER}, False),
+], ids=['cloud Basic only', 'cloud key+Basic', 'cloud Bearer', 'on-premise Basic'])
+def test_request_is_cloud_basic_without_api_key(cloud_mode: bool, headers: dict[str, str], expected: bool) -> None:
+    """Only cloud Basic credentials with no key are the refused case"""
+    with _app(cloud_mode=cloud_mode).test_request_context(headers=headers):
+        assert ru.request_is_cloud_basic_without_api_key() is expected
 
 
 # ============================================== no nested application context ======================================= #

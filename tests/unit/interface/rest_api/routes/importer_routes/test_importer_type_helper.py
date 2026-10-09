@@ -59,6 +59,7 @@ from tests.utils.type_import_builders import (
     MISSING_PUBLIC_ID,
     NEW_PUBLIC_ID,
     IMPORTER,
+    IMPORTER_GROUP_ID,
     IMPORTER_ID,
     RULES,
     HELPER,
@@ -70,6 +71,9 @@ from tests.utils.type_import_builders import (
     unreachable,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# A group other than the importer's, the only one a hidden stored type grants READ
+OTHER_GROUP_ID: int = IMPORTER_GROUP_ID + 1
 
 # A render_meta the import rules let through and only CmdbType.from_data refuses: a summary that is no object
 UNBUILDABLE_RENDER_META: dict[str, Any] = {'summary': 'not-an-object'}
@@ -428,6 +432,49 @@ class TestCreateTypeFromEntry:
 
         assert create_type_from_entry(entry, types_manager, no_templates(), IMPORTER) \
             == TypeImportError.IMPORT_FAILED.format(detail=BOOM)
+
+
+def _stored_type_granting(group_id: int) -> CmdbType:
+    """The stored type an update addresses, its ACL on and granting READ to that group alone."""
+    doc = make_type_doc(EXISTING_PUBLIC_ID, 'stored-type')
+    doc[TypeSchemaKey.ACL.value] = {'activated': True, 'groups': {'includes': {str(group_id): ['READ']}}}
+
+    return CmdbType.from_data(doc)
+
+
+class TestUpdateRefusesAStoredTypeTheImporterMayNotRead:
+    """The stored type's ACL decides - an uploaded ACL that lets the importer in changes nothing."""
+
+    def test_a_hidden_stored_type_is_reported_and_not_written(self) -> None:
+        """One failed entry naming the type, no write"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(OTHER_GROUP_ID))
+
+        result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
+
+        assert result == TypeImportError.TYPE_ACCESS_DENIED.format(public_id=EXISTING_PUBLIC_ID)
+        assert not types_manager.updated
+
+    def test_an_uploaded_acl_granting_the_importer_does_not_open_it(self) -> None:
+        """The upload's ACL is never consulted: rewriting the ACL that keeps the caller out is the escalation"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        entry[TypeSchemaKey.ACL.value] = {
+            'activated': True, 'groups': {'includes': {str(IMPORTER_GROUP_ID): ['READ', 'UPDATE']}},
+        }
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(OTHER_GROUP_ID))
+
+        result = update_type_from_entry(entry, types_manager, no_templates(), IMPORTER)
+
+        assert result == TypeImportError.TYPE_ACCESS_DENIED.format(public_id=EXISTING_PUBLIC_ID)
+        assert not types_manager.updated
+
+    def test_a_stored_type_granting_the_importer_is_written(self) -> None:
+        """The control: the same ACL granting the importer's group lets the update through"""
+        entry = make_type_doc(EXISTING_PUBLIC_ID, 'imported-type')
+        types_manager = StubTypesManager(stored_type_instance=_stored_type_granting(IMPORTER_GROUP_ID))
+
+        assert update_type_from_entry(entry, types_manager, no_templates(), IMPORTER) is None
+        assert len(types_manager.updated) == 1
 
 
 class TestUpdateTypeFromEntry:

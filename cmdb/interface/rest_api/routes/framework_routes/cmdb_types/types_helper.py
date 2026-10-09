@@ -65,6 +65,8 @@ from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.models.type_model.type_constants import DEFAULT_PORT_SECTION_INDEX, MIN_PORT_SECTION_INDEX
 from cmdb.security.acl.access_control_list import AccessControlList
+from cmdb.security.acl.helpers import has_access_control, has_type_document_access
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model import CmdbObjectKey, CmdbObjectFieldKey
@@ -94,6 +96,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_constants 
     PORT_SECTION_INDEX_INVALID_MESSAGE,
     MDS_SECTION_IDENTIFIER_IMMUTABLE_MESSAGE,
     TYPE_NOT_FOUND_MESSAGE,
+    TYPE_ACCESS_DENIED_MESSAGE,
     USES_PORTS_DISABLE_MESSAGE,
     UsesPortsUsageKey,
     REFERENCED_TYPE_DELETE_MESSAGE,
@@ -363,6 +366,49 @@ def get_type_instance_or_404(types_manager: TypesManager, public_id: int) -> Cmd
         abort(404, TYPE_NOT_FOUND_MESSAGE.format(public_id=public_id))
 
     return target_type
+
+
+def is_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbUser) -> bool:
+    """
+    Decides whether the caller's group may READ a CmdbType under its access control list
+
+    The one reading of a type ACL for the type definition itself: a type a group may not read objects of is a type
+    whose definition, pre-checks, update, delete, export and import that group is refused as well - the same rule
+    the type listings apply, so a type is either visible everywhere or nowhere
+
+    Args:
+        target_type (CmdbType | dict[str, Any]): The CmdbType, as a model or as its stored document
+        request_user (CmdbUser): The caller
+
+    Returns:
+        bool: True when the caller may read the type
+    """
+    if isinstance(target_type, CmdbType):
+        return has_access_control(target_type, request_user, AccessControlPermission.READ)
+
+    return has_type_document_access(target_type, request_user, AccessControlPermission.READ)
+
+
+def abort_unless_type_readable(target_type: CmdbType | dict[str, Any], request_user: CmdbUser) -> None:
+    """
+    Refuses a request on a CmdbType the caller's group may not READ
+
+    Args:
+        target_type (CmdbType | dict[str, Any]): The CmdbType, as a model or as its stored document
+        request_user (CmdbUser): The caller
+
+    Raises:
+        HTTPException: 403 when the caller may not read the type
+    """
+    if is_type_readable(target_type, request_user):
+        return
+
+    public_id: Any = (
+        target_type.public_id if isinstance(target_type, CmdbType)
+        else target_type.get(TypeSchemaKey.PUBLIC_ID.value)
+    )
+
+    abort(403, TYPE_ACCESS_DENIED_MESSAGE.format(public_id=public_id))
 
 
 def get_location_field(target_type: CmdbType) -> dict[str, Any] | None:

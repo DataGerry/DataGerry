@@ -134,6 +134,8 @@ class TypeImportError(BaseStrEnum):
     INVALID_TYPE_DATA = 'Failed to create a Type instance from the provided data: {detail}'
     IMPORT_FAILED = 'Failed to import this Type: {detail}'
     TYPE_NOT_FOUND = 'No Type with public_id {public_id} exists, it can not be updated!'
+    TYPE_ACCESS_DENIED = 'The Type with public_id {public_id} is protected by its access control list, ' \
+                         'it can not be updated!'
     UPDATE_FAILED = 'Failed to update this Type: {detail}'
     # Reported for an entry whose import failed with an error the import itself did not anticipate. The
     # batch keeps running and the entry lands in failed_imports like any other rejection, so a defect

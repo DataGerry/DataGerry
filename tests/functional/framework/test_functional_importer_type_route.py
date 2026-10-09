@@ -1937,8 +1937,9 @@ class TestExportImportRoundTrip:
             {'name': 'wiki', 'href': 'http://example.org/{}', 'label': 'Wiki', 'icon': 'fa',
              'fields': ['dg-name']},
         ]
-        # group 2 is the predefined 'user' group, so the grant resolves and the ACL stays on
-        doc['acl'] = {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
+        # group 2 is the predefined 'user' group, so the grant resolves and the ACL stays on; the admin group (1)
+        # is granted READ too, since a type the caller may not read is neither exported nor updated by import
+        doc['acl'] = {'activated': True, 'groups': {'includes': {'1': ['READ'], '2': ['READ']}}}
 
         return doc
 
@@ -1973,7 +1974,7 @@ class TestExportImportRoundTrip:
         assert [section['name'] for section in stored['render_meta']['sections']] == ['main', 'notes']
         assert stored['render_meta']['summary']['fields'] == ['dg-name']
         assert stored['render_meta']['externals'][0]['name'] == 'wiki'
-        assert stored['acl'] == {'activated': True, 'groups': {'includes': {'2': ['READ']}}}
+        assert stored['acl'] == {'activated': True, 'groups': {'includes': {'1': ['READ'], '2': ['READ']}}}
 
     def test_an_exported_type_re_imports_as_a_new_type(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str

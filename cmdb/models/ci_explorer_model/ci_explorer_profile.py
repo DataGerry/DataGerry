@@ -53,6 +53,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
 
     def __init__(
         self,
+        *,
         public_id: int,
         name: str,
         types_filter: list[int],

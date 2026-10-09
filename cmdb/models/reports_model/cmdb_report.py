@@ -161,6 +161,7 @@ class CmdbReport(CmdbDAO):
 
     def __init__(
         self,
+        *,
         report_category_id: int,
         name: str,
         type_id: int,
