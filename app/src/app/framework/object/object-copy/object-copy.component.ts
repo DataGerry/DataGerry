@@ -32,7 +32,10 @@ import { RenderResult } from '../../models/cmdb-render';
 import { CmdbType } from '../../models/cmdb-type';
 import { SpecialType } from '../../models/special-type';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { finalize } from 'rxjs';
+import { PortsLicenseService } from '../object-view/ports-overview/services/ports-license.service';
+import { PortsAccess } from '../object-view/ports-overview/models/ports-license.types';
+import { PORT_ADD_RIGHT } from '../object-view/ports-overview/models/ports-overview.types';
+import { finalize, map } from 'rxjs';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 @Component({
@@ -53,6 +56,13 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
     private newLocationParentID: number = 0;
     public isLoading$ = this.loaderService.isLoading$;
 
+    /** Opt-in: the new object also gets the ports of the source object. */
+    public clonePorts = false;
+    public readonly portAddRight = PORT_ADD_RIGHT;
+
+    /** Copied ports are new ports, so only a license that still allows adding them offers it. */
+    public readonly portsCloneable$ = this.portsLicense.access$().pipe(map(access => access === PortsAccess.FULL));
+
 
     /* ------------------------------------------------------------------------------------------------------------------ */
     /*                                                     LIFE CYCLE                                                     */
@@ -66,7 +76,8 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
         private sidebarService: SidebarService,
         private toastService: ToastService,
         private locationService: LocationService,
-        private loaderService: LoaderService,) {
+        private loaderService: LoaderService,
+        private portsLicense: PortsLicenseService) {
 
         this.route.params.subscribe((params) => {
             this.objectID = params.publicID;
@@ -108,6 +119,14 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
     /** Special type of the copied object, taken from its type and falling back to the source object. */
     public get specialType(): SpecialType | null {
         return this.typeInstance?.special_type ?? this.renderResult?.object_information?.special_type ?? null;
+    }
+
+
+    /** Slot the ports take among the type's sections, or null while the type has no ports. */
+    public get portsSectionIndex(): number | null {
+        return this.renderResult?.type_information?.uses_ports === true
+            ? (this.renderResult.type_information.port_section_index ?? 0)
+            : null;
     }
 
     /* ------------------------------------------------------------------------------------------------------------------ */
@@ -152,8 +171,11 @@ export class ObjectCopyComponent implements OnInit, OnDestroy {
                 newObjectInstance.location_name = this.locationService.locationTreeName;
             }
 
+            const clonePortsFrom = this.clonePorts ? this.renderResult.object_information.object_id : undefined;
+
             let ack = null;
-            this.objectService.postObject(newObjectInstance).pipe(finalize(() => this.loaderService.hide()))
+            this.objectService.postObject(newObjectInstance, clonePortsFrom)
+                .pipe(finalize(() => this.loaderService.hide()))
                 .subscribe({
                     next: (newObjectID) => {
                         ack = newObjectID;

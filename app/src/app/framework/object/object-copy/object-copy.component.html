@@ -38,7 +38,25 @@
                 [renderResult]="renderResult"
                 [mode]="mode"
                 [renderForm]="renderForm"
+                [sectionSlot]="portsSlot"
+                [sectionSlotIndex]="portsSectionIndex"
             />
+
+            <ng-template #portsSlot>
+                @if (portsCloneable$ | async) {
+                    <fieldset *permissionLink="[portAddRight]">
+                        <legend>Ports</legend>
+                        <app-checkbox
+                            [id]="'object-copy-clone-ports'"
+                            label="Also copy the ports of this object"
+                            [checked]="clonePorts"
+                            (checkedChange)="clonePorts = $event"
+                        />
+                        <small class="form-text text-muted">Cables and interface links are not copied.</small>
+                    </fieldset>
+                }
+            </ng-template>
+
             <div id="object-form-action" class="shadow p-3 mb-5 bg-white rounded text-center">
                 <div class="row d-flex justify-content-center align-items-center">
                     <p class="pt-3 mx-4">Do you want to save the copy of

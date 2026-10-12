@@ -103,9 +103,16 @@ export class ObjectService<T = CmdbObject | RenderResult> implements ApiServiceP
 
     /* -------------------------------------------------- CRUD - CREATE ------------------------------------------------- */
 
-    public postObject(objectInstance: CmdbObject): Observable<any> {
-        const options = this.options;
-        options.params = new HttpParams();
+    /** `clonePortsFrom` copies the ports of that object onto the new one. */
+    public postObject(objectInstance: CmdbObject, clonePortsFrom?: number): Observable<any> {
+        let params = new HttpParams();
+
+        if (clonePortsFrom != null) {
+            params = params.set('clone_ports_from', clonePortsFrom);
+        }
+
+        // Own copy, so the flag never rides along on the next call through the shared options.
+        const options = { ...this.options, params };
         return this.api.callPost<CmdbObject>(this.servicePrefix + '/', objectInstance, options).pipe(
             map((apiResponse) => {
                 return apiResponse.body;
