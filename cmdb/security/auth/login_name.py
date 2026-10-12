@@ -23,12 +23,16 @@ drift apart again:
     (``normalize_login_email``). Every cloud entry point - the login route, HTTP Basic with and without
     an ``x-api-key`` - sends the portal the same spelling, and the user cache is keyed on it
   - **toward the stored CmdbUser** the login is stripped and tried as given, then - on premise only -
-    lower-cased (``login_lookup_queries``). On premise a user name is stored exactly as it was created,
-    so ``Admin`` must still find ``Admin`` while ``ADMIN`` finds ``admin``. In cloud mode the lookup is
-    by email and uses the address the portal answered with, which is the spelling the tenant user was
-    stored under, so it is tried as given only
+    lower-cased (``login_lookup_queries``). On premise a user name is stored in the case it was created
+    in - and, by the name rule, never blank or padded - so ``Admin`` must still find ``Admin`` while
+    ``ADMIN`` finds ``admin``. In cloud mode the lookup is by email and uses the address the portal
+    answered with, which is the spelling the tenant user was stored under, so it is tried as given only
+  - **toward every authentication provider** ``AuthModule.login`` strips the login once, before the
+    first provider sees it, and refuses one that is blank after stripping - so the login route and HTTP
+    Basic hand the local and the LDAP provider the same spelling
 """
 from cmdb.models.user_model import CmdbUserKey
+from cmdb.utils import strip_name
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__ = [
@@ -43,7 +47,9 @@ def strip_login(login: str) -> str:
     Removes the whitespace around a submitted login
 
     A login is never meant to start or end with whitespace; a trailing space picked up by a copy-paste
-    or an API client would otherwise make a correct login fail
+    or an API client would otherwise make a correct login fail. It is the same strip the name rule
+    (``cmdb.utils.name_shape_problem``) holds a stored user name to, so every name that can be stored can be
+    typed
 
     Args:
         login (str): The login as submitted
@@ -51,7 +57,7 @@ def strip_login(login: str) -> str:
     Returns:
         str: The login without leading and trailing whitespace
     """
-    return login.strip()
+    return strip_name(login)
 
 
 def normalize_login_email(email: str) -> str:

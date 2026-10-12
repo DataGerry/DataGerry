@@ -23,6 +23,7 @@ import pytest
 
 from cmdb.models.user_model import CmdbUserKey
 from cmdb.security.auth.login_name import login_lookup_queries, normalize_login_email, strip_login
+from cmdb.utils import name_shape_problem, strip_name
 # -------------------------------------------------------------------------------------------------------------------- #
 
 USER_NAME: str = CmdbUserKey.USER_NAME.value
@@ -38,6 +39,19 @@ class TestStripLogin:
     def test_only_the_surrounding_whitespace_goes(self, login: str, expected: str) -> None:
         """Inside the login nothing changes"""
         assert strip_login(login) == expected
+
+    @pytest.mark.parametrize('login', [' admin ', '\u00a0admin', 'admin\u2003', 'ad min', '\t\n'],
+                             ids=['spaces', 'no-break-space', 'em-space', 'inner-space', 'blank'])
+    def test_it_is_the_strip_of_the_stored_name_rule(self, login: str) -> None:
+        """What the login strips is what a stored name may not carry - every storable name can be typed"""
+        assert strip_login(login) == strip_name(login)
+
+    @pytest.mark.parametrize('login', ['\u00a0admin', 'admin\u2003', ' admin'],
+                             ids=['no-break-space', 'em-space', 'space'])
+    def test_a_name_the_strip_changes_is_one_the_rule_refuses(self, login: str) -> None:
+        """Including the Unicode spaces str.strip removes"""
+        assert strip_login(login) != login
+        assert name_shape_problem(login) is not None
 
 
 class TestNormalizeLoginEmail:

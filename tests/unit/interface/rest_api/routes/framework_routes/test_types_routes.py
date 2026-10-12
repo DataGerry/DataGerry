@@ -581,6 +581,13 @@ class TestLocationFieldUsageErrorMapping:
 class TestUpdateCmdbType:
     """``update_cmdb_type`` guards immutable/destructive changes, updates, then re-reads."""
 
+    @pytest.fixture(autouse=True)
+    def _no_reference_repair(self) -> Any:
+        """The stored Type is a stand-in here; the repair has tests of its own"""
+        with patch(f'{ROUTE_PATH}.drop_stale_type_references'):
+            yield
+
+
     @staticmethod
     def _call(flask_app: Flask, data: dict[str, Any]) -> Any:
         with flask_app.test_request_context('/7', method='PUT'):
@@ -596,6 +603,7 @@ class TestUpdateCmdbType:
             # The identifier rule reads the stored type's fields and sections, which this stub does not carry; it is
             # pinned by its own tests (test_types_structure_helper / test_type_identifier_rules)
             patch(f'{ROUTE_PATH}.guard_new_identifiers'),
+            patch(f'{ROUTE_PATH}.guard_field_patterns'),
             patch(f'{ROUTE_PATH}.CmdbType'),
             patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True),
             patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -654,6 +662,7 @@ class TestUpdateCmdbType:
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type='OLD')), \
              patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.enforce_special_type_license'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=False), \
@@ -671,6 +680,7 @@ class TestUpdateCmdbType:
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -696,6 +706,7 @@ class TestUpdateCmdbType:
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -716,6 +727,7 @@ class TestUpdateCmdbType:
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -741,6 +753,7 @@ class TestUpdateCmdbType:
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -762,6 +775,7 @@ class TestUpdateCmdbType:
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType'), \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \
@@ -825,6 +839,7 @@ class TestUpdateCmdbType:
 
         with patch(f'{ROUTE_PATH}.get_type_instance_or_404', return_value=SimpleNamespace(special_type=None)), \
              patch(f'{ROUTE_PATH}.guard_new_identifiers'), \
+             patch(f'{ROUTE_PATH}.guard_field_patterns'), \
              patch(f'{ROUTE_PATH}.CmdbType') as cmdb_type, \
              patch(f'{ROUTE_PATH}.special_type_is_unchanged', return_value=True), \
              patch(f'{ROUTE_PATH}.guard_field_identifier_change'), \

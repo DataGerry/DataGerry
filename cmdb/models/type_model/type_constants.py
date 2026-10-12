@@ -124,3 +124,48 @@ class TypeIdentifierError(BaseStrEnum):
     FORBIDDEN_CHARACTER = (
         "The {kind} identifier '{name}' may not contain '[' or ']' - the object import template cannot read it back"
     )
+
+
+# A type can break several structure rules at once; the findings are reported as one message, joined by this
+STRUCTURE_ERROR_SEPARATOR: str = '; '
+
+# Older type documents spell the external-link list 'external' instead of 'externals'; it is read as well
+LEGACY_EXTERNALS_KEY: str = 'external'
+
+# The pseudo-field an external link may name besides the declared fields - the object's own public_id
+EXTERNAL_LINK_OBJECT_ID: str = 'object_id'
+# The key of an external link's own name, which tells two links of one Type apart
+EXTERNAL_LINK_NAME_KEY: str = 'name'
+
+
+class TypeStructureError(BaseStrEnum):
+    """
+    Why a CmdbType's field / section structure is refused - by the type write routes and the type import alike
+    """
+    INVALID_FIELD_TYPES = 'Field(s) with an unknown type: {fields}. Allowed types: {allowed}'
+    SECTION_FIELD_NOT_DEFINED = 'Section(s) reference field(s) the Type does not define: {names}'
+    DUPLICATE_FIELD_NAMES = 'Duplicate field name(s): {names}'
+    DUPLICATE_SECTION_NAMES = 'Duplicate section name(s): {names}'
+    FIELD_IN_MULTIPLE_SECTIONS = 'Field(s) assigned to more than one section: {names}'
+    MISSING_FIELD_NAMES = 'Field(s) without a name at position(s): {positions}'
+    MISSING_FIELD_LABELS = 'Field(s) without a label: {names}'
+    MISSING_SECTION_LABELS = 'Section(s) without a label: {names}'
+    MULTIPLE_LOCATION_FIELDS = 'A Type may declare at most one location field, found: {names}'
+    RESERVED_LOCATION_FIELD_NAME = (
+        "The name '{reserved}' is reserved for the location field: {names} must either use the location type or "
+        "another name"
+    )
+    MISSING_SECTION_NAMES = 'Section(s) without a name at position(s): {positions}'
+    INVALID_SECTION_TYPES = 'Section(s) with an unknown type: {sections}. Allowed types: {allowed}'
+    SUMMARY_FIELD_NOT_DEFINED = 'The summary references field(s) the Type does not define: {names}'
+    EXTERNAL_FIELD_NOT_DEFINED = 'External link(s) reference field(s) the Type does not define: {names}'
+    SUMMARY_FIELD_REPEATED = 'The summary names field(s) more than once: {names}'
+
+
+class TypeReferencePlace(BaseStrEnum):
+    """
+    The three places of a CmdbType that name its fields without declaring them
+    """
+    SECTION = 'section'
+    SUMMARY = 'summary'
+    EXTERNAL = 'external'

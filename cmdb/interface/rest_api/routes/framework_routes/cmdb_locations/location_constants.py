@@ -59,3 +59,10 @@ LOCATION_DELETE_UNDO_INCOMPLETE_MSG: str = (
     "Deleting the Location failed, and undoing what it had already written did not finish. "
     "These writes are still in effect and have to be checked by hand: {residue}"
 )
+
+# Refusal (HTTP 403) of a read that names a node the reader may not see: the node's object, or the object of a node
+# above it, is of a Type the reader's group may not READ - a hidden node hides its whole branch
+LOCATION_NOT_READABLE_MSG: str = (
+    "No permission to read the Location with ID:{public_id} - it, or a Location above it, holds an Object of a Type "
+    "you may not read!"
+)

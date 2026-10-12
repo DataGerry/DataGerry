@@ -110,6 +110,8 @@ from cmdb.framework.object_field_defaults import fill_object_defaults
 from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
     guard_cable_objects_delete,
     handle_object_deleted as handle_port_object_deleted,
+    insert_object_with_cloned_ports,
+    plan_object_port_clone,
 )
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     guard_rack_location_change,
@@ -909,6 +911,7 @@ def apply_object_insert(
         request_user: CmdbUser,
         objects_manager: ObjectsManager,
         types_manager: TypesManager,
+        port_clone_source: int | None = None,
     ) -> int:
     """
     Inserts one CmdbObject and runs its side effects, the counterpart of `apply_object_update`
@@ -924,11 +927,13 @@ def apply_object_insert(
         request_user (CmdbUser): The CmdbUser making the request
         objects_manager (ObjectsManager): db interface for CmdbObjects
         types_manager (TypesManager): db interface for CmdbTypes (IPAM license checks)
+        port_clone_source (int | None): public_id of the object whose ports the new object gets copies of -
+            written with the object, all or nothing (`port_object_hooks.plan_object_port_clone`)
 
     Raises:
         HTTPException: 400 when the ConfigItem limit is reached, the payload is unusable or an IPAM
             invariant is violated, 403 when the IPAM license is missing, 404 when the type is unknown,
-            500 when the created object cannot be read back
+            500 when the created object cannot be read back; a port clone adds its own refusals
 
     Returns:
         int: public_id of the created CmdbObject
@@ -989,11 +994,11 @@ def apply_object_insert(
             request_user, new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
         )
 
-    new_object_id: int = objects_manager.insert_object(
-        new_object_data,
-        request_user,
-        AccessControlPermission.CREATE,
+    clone_plan = None if port_clone_source is None else plan_object_port_clone(
+        request_user, port_clone_source, object_type, objects_manager,
     )
+
+    new_object_id: int = insert_object_with_cloned_ports(objects_manager, new_object_data, request_user, clone_plan)
 
     # Mirror the placement into the CmdbLocation tree (best-effort, after the object is saved)
     if has_location_field:

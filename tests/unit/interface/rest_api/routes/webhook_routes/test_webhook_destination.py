@@ -131,6 +131,20 @@ class TestRefusedDestinationReason:
 
         assert refused_destination_reason('http://inner.example/', ['10.0.0.0/8']) is not None
 
+    @pytest.mark.parametrize('allowed', [['127.0.0.0/8'], ['127.0.0.1']], ids=['by-network', 'by-single-address'])
+    def test_an_ipv4_allowance_does_not_cover_the_ipv6_loopback(self, monkeypatch, allowed: list[str]) -> None:
+        """A dual-stack localhost also resolves to ::1, which the IPv4 entry leaves outside"""
+        _resolving_to(monkeypatch, '127.0.0.1', '::1')
+
+        assert refused_destination_reason('http://localhost/hook', allowed) == \
+            WebhookDestinationReason.NOT_PUBLIC.value.format(host='localhost', addresses='127.0.0.1, ::1')
+
+    def test_a_dual_stack_host_allowed_by_name_passes(self, monkeypatch) -> None:
+        """The name covers every address it resolves to"""
+        _resolving_to(monkeypatch, '127.0.0.1', '::1')
+
+        assert refused_destination_reason('http://localhost/hook', ['localhost']) is None
+
 
 class TestTheDelivery:
     """deliver_webhook_event"""

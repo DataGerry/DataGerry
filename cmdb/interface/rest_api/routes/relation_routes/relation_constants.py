@@ -47,6 +47,8 @@ __all__: list[str] = [
     'TabInstancesKey',
     'BulkDeleteKey',
     'MAX_BULK_DELETE_OBJECT_RELATIONS',
+    'RELATION_NAME_TAKEN_MESSAGE',
+    'RELATION_NAME_SHAPE_MESSAGE',
 ]
 
 # Page size used when the relation-tab instances route is called without an explicit 'limit'
@@ -197,3 +199,9 @@ OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE: str = (
 class BulkDeleteKey(BaseStrEnum):
     """Keys of a bulk-delete request body"""
     TARGET_IDS = 'target_ids'
+
+# Refusals of a relation's technical name: another relation holds it, or it holds a character the rule refuses
+RELATION_NAME_TAKEN_MESSAGE: str = "A Relation named '{name}' already exists!"
+RELATION_NAME_SHAPE_MESSAGE: str = (
+    "The Relation name '{name}' may only hold letters, digits, '_' and '-'!"
+)

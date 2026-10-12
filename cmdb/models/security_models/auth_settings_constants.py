@@ -43,6 +43,11 @@ DEFAULT_TOKEN_LIFETIME: int = MINUTES_PER_DAY
 #: with the provider class names. External providers are on-premise only (`AuthModule.external_providers_allowed`)
 CLOUD_EXTERNAL_PROVIDER_MSG: str = "External authentication providers are not available in cloud mode: {names}!"
 
+#: The 400 an auth-settings update gets when the LDAP provider's default group or a group mapping row holds a value
+#: that is no CmdbUserGroup id; formatted with the values. A value that is an id but names no group is refused
+#: with the shared unknown-reference message instead
+LDAP_GROUP_NOT_AN_ID_MSG: str = "The LDAP settings name groups by their ID - not one: {values}!"
+
 
 class AuthSettingsKey(BaseStrEnum):
     """

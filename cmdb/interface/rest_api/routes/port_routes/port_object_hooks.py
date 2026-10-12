@@ -33,9 +33,13 @@ Two jobs, in the order the routes run them:
 Both are used by the single AND the bulk object delete: the guard through
 `objects_helper.guard_object[s]_delete`, the cascade by each route's own cleanup. A bulk delete asks
 the guard once for the whole selection, so it costs one query however many objects it carries
+
+And one job of the create route: an object created with ``?clone_ports_from=<id>`` gets a copy of every port
+of that object (`plan_object_port_clone` checks before the object is written, `insert_object_with_cloned_ports`
+writes the object and its ports all-or-nothing)
 """
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Mapping
 
 from flask import abort
 
@@ -45,11 +49,25 @@ from cmdb.manager.port_interface_links_manager import PortInterfaceLinksManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
+from cmdb.manager import ObjectsManager
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
+from cmdb.models.port_model import PortKey
+from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.user_model import CmdbUser
 
 from cmdb.framework.port.cable_usage import cable_usage_blocker, collect_cable_usage
+from cmdb.framework.port.clone import PortClonePlan, PortCloneResult, clone_ports, internal_pairs_of
+from cmdb.framework.port.name_syntax_constants import MAX_BULK_PORT_COUNT
+from cmdb.framework.write_ledger import WriteLedger
+from cmdb.security.acl.permission import AccessControlPermission
+from cmdb.security.license.license_constants import LicenseFeature
+from cmdb.interface.route_utils import request_authenticates_by_api_key, user_has_right
+from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
+from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
+from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortCloneError, PortRight
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_constants import ObjectQueryParam
+from cmdb.errors.security import AccessDeniedError
 from cmdb.framework.port.cascade import (
     delete_connections_of_ports,
     delete_interface_links_of_ports,
@@ -180,3 +198,167 @@ def guard_cable_objects_delete(
 
     if blocker:
         abort(400, blocker)
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         cloning an object's ports                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+
+def read_port_clone_source(args: Mapping[str, str]) -> int | None:
+    """
+    The public_id of the object whose ports a new object clones, read off the create request
+
+    Args:
+        args (Mapping[str, str]): The request's query parameters
+
+    Raises:
+        HTTPException: 400 when the parameter is present but is no positive integer
+
+    Returns:
+        int | None: The source object's public_id, or None when the create clones no ports
+    """
+    param: str = ObjectQueryParam.CLONE_PORTS_FROM.value
+    value: str | None = args.get(param)
+
+    if value is None:
+        return None
+
+    if not value.isascii() or not value.isdigit() or int(value) < 1:
+        abort(400, PortCloneError.SOURCE_INVALID.format(param=param, value=value))
+
+    return int(value)
+
+
+def plan_object_port_clone(
+        request_user: CmdbUser,
+        source_object_id: int,
+        target_type: CmdbType,
+        objects_manager: ObjectsManager) -> PortClonePlan | None:
+    """
+    Checks that a new object may clone the source object's ports, and reads what the clone will write
+
+    Runs before the new object is written, so every refusal leaves nothing behind. The source must exist and be
+    readable by the caller. A source without ports clones nothing and needs nothing more; one with ports needs a
+    caller other than the cloud API key, the IPAM licence, the right to add ports, a Type of the new object that
+    uses ports, and at most as many ports as a bulk create may write
+
+    Args:
+        request_user (CmdbUser): The CmdbUser creating the object
+        source_object_id (int): public_id of the object whose ports are cloned
+        target_type (CmdbType): The Type of the new object
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+
+    Raises:
+        HTTPException: 400 when the source has too many ports or the new object's Type does not use ports, 403
+            when the caller may not read the source, authenticates by the cloud API key, the IPAM licence is missing
+            or the caller lacks the right to add ports, 404 when the source does not exist
+
+    Returns:
+        PortClonePlan | None: The source's ports and INTERNAL pairs, or None when it has no port
+    """
+    try:
+        source: dict[str, Any] | None = objects_manager.get_object(
+            source_object_id, request_user, AccessControlPermission.READ,
+        )
+    except AccessDeniedError:
+        abort(403, PortCloneError.SOURCE_NOT_READABLE.format(object_id=source_object_id))
+
+    if not source:
+        abort(404, PortCloneError.SOURCE_NOT_FOUND.format(object_id=source_object_id))
+
+    ports_manager: PortsManager = ManagerProvider.get_manager(ManagerType.PORTS, request_user)
+    port_count: int = ports_manager.count_documents(
+        {PortKey.OBJECT_ID.value: source_object_id}, limit=MAX_BULK_PORT_COUNT + 1,
+    )
+
+    if not port_count:
+        return None
+
+    # The port routes are closed to the cloud API key, so the ports may not be reached through the object create
+    if request_authenticates_by_api_key():
+        abort(403, PortCloneError.API_KEY_LOCKED.format(object_id=source_object_id))
+
+    abort_if_feature_locked(LicenseFeature.IPAM, request_user)
+
+    if not user_has_right(PortRight.ADD.value, request_user):
+        abort(403, PortCloneError.RIGHT_MISSING.format(object_id=source_object_id, right=PortRight.ADD.value))
+
+    if port_count > MAX_BULK_PORT_COUNT:
+        abort(400, PortCloneError.TOO_MANY.format(object_id=source_object_id, limit=MAX_BULK_PORT_COUNT))
+
+    if target_type.uses_ports is not True:
+        abort(400, PortCloneError.TYPE_WITHOUT_PORTS.format(object_id=source_object_id))
+
+    port_connections_manager: PortConnectionsManager = ManagerProvider.get_manager(
+        ManagerType.PORT_CONNECTIONS, request_user,
+    )
+
+    ports: list[dict[str, Any]] = ports_manager.get_ports_of_object(source_object_id)
+    port_ids: list[int] = [port[PortKey.PUBLIC_ID.value] for port in ports]
+
+    return PortClonePlan(
+        ports=ports,
+        internal_pairs=internal_pairs_of(set(port_ids), port_connections_manager.get_connections_of_ports(port_ids)),
+    )
+
+
+def insert_object_with_cloned_ports(
+        objects_manager: ObjectsManager,
+        new_object_data: dict[str, Any],
+        request_user: CmdbUser,
+        plan: PortClonePlan | None) -> int:
+    """
+    Writes a new object and, when it clones ports, the cloned ports - all or nothing
+
+    The object, its ports and their INTERNAL connections are recorded as they are written; when a write fails,
+    the ones before it are undone and the error is raised unchanged
+
+    Args:
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        new_object_data (dict[str, Any]): The normalised new object
+        request_user (CmdbUser): The CmdbUser creating the object
+        plan (PortClonePlan | None): What `plan_object_port_clone` read, or None when no port is cloned
+
+    Raises:
+        HTTPException: 500 naming what is left when a failed clone could not be fully undone
+
+    Returns:
+        int: public_id of the new object
+    """
+    if plan is None:
+        return objects_manager.insert_object(new_object_data, request_user, AccessControlPermission.CREATE)
+
+    with undone_on_failure(PortCloneError.RESIDUE.value) as ledger:
+        new_object_id: int = objects_manager.insert_object(
+            new_object_data, request_user, AccessControlPermission.CREATE,
+        )
+        ledger.inserted(objects_manager, new_object_id)
+        clone_object_ports(request_user, plan, new_object_id, ledger)
+
+    return new_object_id
+
+
+def clone_object_ports(
+        request_user: CmdbUser,
+        plan: PortClonePlan,
+        target_object_id: int,
+        ledger: WriteLedger) -> PortCloneResult:
+    """
+    Writes the cloned ports of a new object with the managers of the caller's database
+
+    Args:
+        request_user (CmdbUser): The CmdbUser creating the object; the new ports' author
+        plan (PortClonePlan): What `plan_object_port_clone` read
+        target_object_id (int): public_id of the new object
+        ledger (WriteLedger): The request's record of its writes
+
+    Returns:
+        PortCloneResult: The new ports' and connections' public_ids
+    """
+    return clone_ports(
+        ManagerProvider.get_manager(ManagerType.PORTS, request_user),
+        ManagerProvider.get_manager(ManagerType.PORT_CONNECTIONS, request_user),
+        plan,
+        target_object_id,
+        request_user.public_id,
+        ledger,
+    )

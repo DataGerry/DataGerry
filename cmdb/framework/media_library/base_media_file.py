@@ -15,11 +15,19 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of BaseMediaFile
+
+The base of a media library file (``MediaFile``, one GridFS file document). It is **not** a ``CmdbDAO``: a file is
+built straight from its stored GridFS document, so there is no ``from_data`` / ``REQUIRED_INIT_KEYS`` machinery
+here - what a written file must carry is the write contract's business (``media_file_schema``, ``filename``
+required and checked on upload and update)
 """
 from logging import Logger, getLogger
 from typing import Any
 
 from pymongo import IndexModel
+
+from cmdb.framework.media_library.media_file_keys import MediaFileKey
+from cmdb.models.cmdb_dao import CmdbDAO
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -34,16 +42,19 @@ class BaseMediaFile:
     This class provides foundational attributes and methods for handling media file metadata
     It defines indexing structures for MongoDB and initializes object attributes dynamically
     """
-    ASCENDING = 1
-    DESCENDING = -1
+    # The declared default; every concrete media file names its own GridFS bucket (MediaFile: 'media.libary')
     COLLECTION = 'media.*'
 
+    # Every stored file carries DataGerry's own top-level public_id, unique across the bucket
     SUPER_INDEX_KEYS: list[dict[str, Any]] = [
-        {'keys': [('public_id', ASCENDING)], 'name': 'public_id', 'unique': True}
+        {
+            'keys': [(MediaFileKey.PUBLIC_ID.value, CmdbDAO.DAO_ASCENDING)],
+            'name': MediaFileKey.PUBLIC_ID.value,
+            'unique': True,
+        }
     ]
 
-    REQUIRED_INIT_KEYS = []
-    INDEX_KEYS = []
+    INDEX_KEYS: list[dict[str, Any]] = []
 
 
     def __init__(self, **kwargs: Any) -> None:

@@ -28,6 +28,11 @@ applied at the single serialization point in ``base_api_response``) and the fron
 wrapper back, because it PUTs the whole user it was given. What is STORED is a BSON date, and
 ``CmdbUser.registration_time`` is a ``datetime`` in between. Three shapes, one field; when this rule
 changes, the one it describes is the wire.
+
+``user_name`` follows the name rule (``cmdb.utils.name_shape_problem``): every login is stripped before it is
+looked up, so a padded name could never log in and a blank one would be reached by typing spaces. A stored user
+whose name breaks the rule is refused on every save until an administrator renames it - the whole user is always
+sent, its name with it.
 """
 from typing import Any
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -56,14 +61,16 @@ def get_cmdb_user_schema() -> dict[str, Any]:
     """
     # pylint: disable=import-outside-toplevel
     from cmdb.models.user_model.cmdb_user_key_enum import CmdbUserKey
+    from cmdb.utils import check_name_shape
 
     return {
         CmdbUserKey.PUBLIC_ID.value: {
             'type': 'integer'
         },
-        CmdbUserKey.USER_NAME.value: {
+        CmdbUserKey.USER_NAME.value: {  # The login name: non-blank, unpadded, no control character
             'type': 'string',
             'required': True,
+            'check_with': check_name_shape,
         },
         CmdbUserKey.ACTIVE.value: {
             'type': 'boolean',

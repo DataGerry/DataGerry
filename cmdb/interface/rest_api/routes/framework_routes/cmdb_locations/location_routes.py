@@ -21,7 +21,13 @@ object_id it belongs to, the parent node it hangs under, and the object's type m
 Every route is guarded by a ``base.framework.location.*`` right (see ``LocationRight``) on top of
 ``ApiLevel.ADMIN``
 
-Five things govern a change here:
+Six things govern a change here:
+
+* **A read shows only what the reader may read.** A node carries its object's name and Type, so it is exactly as
+  visible as its object: a node whose object's Type the reader's group may not READ is left out of every level,
+  search and path, and it hides its whole branch. A read that names such a node - or one below it - is refused with
+  403 (``location_read_scope``), the answer ``GET /objects/<id>`` gives. The flat list judges a node by its own
+  Type only, having no ancestors to judge by.
 
 * **The placement writes are the two moves.** ``PATCH /<object_id>/parent`` places, moves or - with a null or
   non-positive parent - removes one object's placement (its node's children are promoted onto the node's parent);
@@ -57,6 +63,7 @@ from cmdb.manager import (
     ObjectsManager,
 )
 
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.route_utils import (
     abort_if_query_too_slow,
@@ -71,6 +78,10 @@ from cmdb.interface.rest_api.responses.response_parameters import CollectionPara
 from cmdb.interface.rest_api.responses import (
     GetMultiResponse,
     DefaultResponse,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_read_scope import (
+    abort_unless_location_readable,
+    read_denied_type_ids,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
     build_location_forest,
@@ -123,7 +134,8 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the iteration fails; 500 on an
+        HTTPException: 403 when the user lacks the right (nodes the user may not see are left out, not
+            refused); 400 when the iteration fails; 500 on an
             unexpected error
 
     Returns:
@@ -136,7 +148,10 @@ def get_cmdb_locations(params: CollectionParameters, request_user: CmdbUser) -> 
 
         # Canonical documents straight from the read: the route only passes the result on as JSON,
         # so hydrating a CmdbLocation per row and converting it back would be two objects per node
-        location_list, total = locations_manager.iterate_location_documents(builder_params)
+        # A node the reader may not READ the object of is left out - by its own Type, the list has no ancestors
+        location_list, total = locations_manager.iterate_location_documents(
+            builder_params, request_user, AccessControlPermission.READ,
+        )
 
         api_response = GetMultiResponse(location_list,
                                         total=total,
@@ -170,7 +185,8 @@ def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User requesting the data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the read fails; 500 on an
+        HTTPException: 403 when the user lacks the right (nodes the user may not see are left out, not
+            refused); 400 when the read fails; 500 on an
             unexpected error
 
     Returns:
@@ -180,11 +196,12 @@ def get_cmdb_location_tree_roots(request_user: CmdbUser) -> Response:
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
+        denied_type_ids: list[int] = read_denied_type_ids(request_user)
         children: list[dict[str, Any]] = locations_manager.get_child_location_documents(
-            RootLocationDefault.PUBLIC_ID
+            RootLocationDefault.PUBLIC_ID, denied_type_ids,
         )
 
-        return DefaultResponse(build_location_level(children, locations_manager)).make_response()
+        return DefaultResponse(build_location_level(children, locations_manager, denied_type_ids)).make_response()
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location_tree_roots] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, "Failed to retrieve the root Locations from the database!")
@@ -215,7 +232,8 @@ def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User requesting the data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the search fails; 500 on an
+        HTTPException: 403 when the user lacks the right (nodes the user may not see are left out, not
+            refused); 400 when the search fails; 500 on an
             unexpected error
 
     Returns:
@@ -226,11 +244,15 @@ def search_cmdb_location_tree(request_user: CmdbUser) -> Response:
 
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
-        matches_and_ancestors: list[dict[str, Any]] = locations_manager.search_locations_with_ancestors(query)
+        # A match the reader may not see - itself or an ancestor hidden - is dropped with its chain
+        denied_type_ids: list[int] = read_denied_type_ids(request_user)
+        matches_and_ancestors: list[dict[str, Any]] = locations_manager.search_locations_with_ancestors(
+            query, denied_type_ids,
+        )
 
-        # has_children reflects real direct children (some may be pruned out of the search result)
+        # has_children reflects the reader's direct children (some may be pruned out of the search result)
         node_ids: list[int] = [location[LocationKey.PUBLIC_ID.value] for location in matches_and_ancestors]
-        parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids)
+        parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids, denied_type_ids)
 
         forest: list[dict[str, Any]] = build_location_forest(matches_and_ancestors, parents_with_children)
 
@@ -265,7 +287,8 @@ def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Respo
         request_user (CmdbUser): User requesting the data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when no CmdbLocation carries the
+        HTTPException: 403 when the user lacks the right or may not see the node it names (itself or a node
+            above it holds an Object of a Type the user may not read); 404 when no CmdbLocation carries the
             public_id; 400 when the read fails; 500 on an unexpected error
 
     Returns:
@@ -275,14 +298,18 @@ def get_cmdb_location_tree_path(public_id: int, request_user: CmdbUser) -> Respo
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
-        path_locations: list[dict[str, Any]] = locations_manager.get_locations_on_path_to(public_id)
+        # A path through a node the reader may not see is not opened - 403
+        denied_type_ids: list[int] = read_denied_type_ids(request_user)
+        abort_unless_location_readable(locations_manager, public_id, denied_type_ids)
+
+        path_locations: list[dict[str, Any]] = locations_manager.get_locations_on_path_to(public_id, denied_type_ids)
 
         if not path_locations:
             abort(404, f"The Location with ID:{public_id} was not found!")
 
-        # has_children reflects real direct children in the FULL tree (deeper levels are not fetched)
+        # has_children reflects the reader's direct children in the full tree (deeper levels are not fetched)
         node_ids: list[int] = [location[LocationKey.PUBLIC_ID.value] for location in path_locations]
-        parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids)
+        parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids, denied_type_ids)
 
         forest: list[dict[str, Any]] = build_location_forest(path_locations, parents_with_children)
 
@@ -312,7 +339,8 @@ def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> R
         request_user (CmdbUser): User requesting the data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the read fails; 500 on an
+        HTTPException: 403 when the user lacks the right or may not see the node it names (itself or a node
+            above it holds an Object of a Type the user may not read); 400 when the read fails; 500 on an
             unexpected error
 
     Returns:
@@ -322,9 +350,13 @@ def get_cmdb_location_tree_children(public_id: int, request_user: CmdbUser) -> R
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
 
-        children: list[dict[str, Any]] = locations_manager.get_child_location_documents(public_id)
+        # The children of a node the reader may not see are not listed - 403
+        denied_type_ids: list[int] = read_denied_type_ids(request_user)
+        abort_unless_location_readable(locations_manager, public_id, denied_type_ids)
 
-        return DefaultResponse(build_location_level(children, locations_manager)).make_response()
+        children: list[dict[str, Any]] = locations_manager.get_child_location_documents(public_id, denied_type_ids)
+
+        return DefaultResponse(build_location_level(children, locations_manager, denied_type_ids)).make_response()
     except LocationsManagerGetError as err:
         LOGGER.error("[get_cmdb_location_tree_children] LocationsManagerGetError: %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the child Locations of Location with ID:{public_id}!")
@@ -346,7 +378,8 @@ def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User requesting this data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when no CmdbLocation carries the
+        HTTPException: 403 when the user lacks the right or may not see the node it names (itself or a node
+            above it holds an Object of a Type the user may not read); 404 when no CmdbLocation carries the
             public_id; 400 when the read fails; 500 on an unexpected error
 
     Returns:
@@ -354,6 +387,8 @@ def get_cmdb_location(public_id: int, request_user: CmdbUser) -> Response:
     """
     try:
         locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
+
+        abort_unless_location_readable(locations_manager, public_id, read_denied_type_ids(request_user))
 
         requested_location = locations_manager.get_location(public_id)
 
@@ -382,7 +417,8 @@ def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Resp
         request_user (CmdbUser): User which is requesting the data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 404 when the CmdbObject has no CmdbLocation;
+        HTTPException: 403 when the user lacks the right or may not see the node it names (itself or a node
+            above it holds an Object of a Type the user may not read); 404 when the CmdbObject has no CmdbLocation;
             400 when the read fails; 500 on an unexpected error
 
     Returns:
@@ -395,6 +431,11 @@ def get_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Resp
 
         if not requested_location:
             abort(404, f"The Location for Object with ID:{object_id} was not found!")
+
+        # The object's node, judged with the nodes above it
+        abort_unless_location_readable(
+            locations_manager, requested_location.get(LocationKey.PUBLIC_ID.value), read_denied_type_ids(request_user),
+        )
 
         return DefaultResponse(requested_location).make_response()
     except LocationsManagerGetError as err:
@@ -423,7 +464,8 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response
         request_user (CmdbUser): User which is requesting the data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the read fails; 500 on an
+        HTTPException: 403 when the user lacks the right or may not see the node it names (itself or a node
+            above it holds an Object of a Type the user may not read); 400 when the read fails; 500 on an
             unexpected error
 
     Returns:
@@ -437,6 +479,11 @@ def get_cmdb_location_parent(object_id: int, request_user: CmdbUser) -> Response
         current_location = locations_manager.get_location_for_object(object_id)
 
         if current_location:
+            # The node's chain holds its parent - a hidden one refuses the read
+            abort_unless_location_readable(
+                locations_manager, current_location.get(LocationKey.PUBLIC_ID.value),
+                read_denied_type_ids(request_user),
+            )
             parent = locations_manager.get_location(current_location[LocationKey.PARENT.value])
 
             if not parent:
@@ -474,7 +521,8 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
         request_user (CmdbUser): User which is requesting the data
 
     Raises:
-        HTTPException: 403 when the user lacks the right; 400 when the read fails; 500 on an
+        HTTPException: 403 when the user lacks the right or may not see the node it names (itself or a node
+            above it holds an Object of a Type the user may not read); 400 when the read fails; 500 on an
             unexpected error
 
     Returns:
@@ -489,8 +537,12 @@ def get_cmdb_children(object_id: int, request_user: CmdbUser) -> Response:
         current_location = locations_manager.get_location_for_object(object_id)
 
         if current_location:
+            denied_type_ids: list[int] = read_denied_type_ids(request_user)
+            abort_unless_location_readable(
+                locations_manager, current_location.get(LocationKey.PUBLIC_ID.value), denied_type_ids,
+            )
             children = locations_manager.get_child_location_documents(
-                current_location[LocationKey.PUBLIC_ID.value]
+                current_location[LocationKey.PUBLIC_ID.value], denied_type_ids,
             )
 
         return DefaultResponse(children).make_response()

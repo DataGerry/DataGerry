@@ -18,7 +18,7 @@ Helper methods shared by the CmdbLocation REST routes
 """
 from copy import deepcopy
 from logging import Logger, getLogger
-from typing import Any, NamedTuple
+from typing import Any, NamedTuple, Collection
 
 from flask import abort
 
@@ -330,7 +330,8 @@ def build_location_forest(
 
 def build_location_level(
         child_locations: list[dict[str, Any]],
-        locations_manager: LocationsManager) -> list[dict[str, Any]]:
+        locations_manager: LocationsManager,
+        denied_type_ids: Collection[int] = ()) -> list[dict[str, Any]]:
     """
     Serialises one level of the location tree, flagging which nodes have children of their own
 
@@ -344,12 +345,14 @@ def build_location_level(
     Args:
         child_locations (list[dict[str, Any]]): The CmdbLocation dicts of a single tree level
         locations_manager (LocationsManager): db interface used for the grouped children lookup
+        denied_type_ids (Collection[int]): Types the reader may not READ - a child of one does not make a node
+            expandable
 
     Returns:
         list[dict[str, Any]]: The level's nodes, each with an added ``has_children`` boolean
     """
     node_ids: list[int] = [location[LocationKey.PUBLIC_ID.value] for location in child_locations]
-    parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids)
+    parents_with_children: set[int] = locations_manager.get_parents_with_children(node_ids, denied_type_ids)
 
     nodes: list[dict[str, Any]] = []
 

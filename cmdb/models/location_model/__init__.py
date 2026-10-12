@@ -15,7 +15,7 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Provides CmdbLocation related helpers: the canonical document read, the tree-level ordering, the
-root-document check and the two coercions the model and that read share
+root-document check, the two coercions the model and that read share, and which nodes a reader may see
 """
 from .location_utils import (
     coerce_type_icon,
@@ -24,11 +24,14 @@ from .location_utils import (
     to_location_document,
     validate_root_location,
 )
+from .location_visibility import chain_is_hidden, node_is_hidden
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'chain_is_hidden',
     'coerce_type_icon',
     'coerce_type_selectable',
+    'node_is_hidden',
     'sort_locations_by_name',
     'to_location_document',
     'validate_root_location',

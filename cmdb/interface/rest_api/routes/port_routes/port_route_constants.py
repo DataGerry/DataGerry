@@ -134,3 +134,19 @@ PORT_FIELD_IMMUTABLE_MESSAGE: str = "The '{field}' of a Port can not be changed!
 # but these routes read the body themselves (a port has server-owned fields the payload must not set),
 # so the check is stated here too
 PORT_NAME_REQUIRED_MESSAGE: str = 'A Port needs a name!'
+
+
+class PortCloneError(BaseStrEnum):
+    """
+    Refusals of an object create that clones another object's ports
+    """
+    SOURCE_INVALID = "The '{param}' parameter must be the public_id of an Object, got '{value}'!"
+    SOURCE_NOT_FOUND = "The Object with ID:{object_id} to clone the Ports from was not found!"
+    SOURCE_NOT_READABLE = "No permission to read the Object with ID:{object_id} to clone its Ports from!"
+    API_KEY_LOCKED = "The Ports of the Object with ID:{object_id} can not be cloned through the cloud API key!"
+    RIGHT_MISSING = "Cloning the Ports of the Object with ID:{object_id} needs the right '{right}'!"
+    TOO_MANY = "The Object with ID:{object_id} has more than {limit} Ports - too many to clone!"
+    TYPE_WITHOUT_PORTS = (
+        "The Ports of the Object with ID:{object_id} can not be cloned: the new Object's Type does not use Ports!"
+    )
+    RESIDUE = "The Object and its cloned Ports could not be created, and the undo left these behind: {residue}"

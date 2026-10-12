@@ -29,6 +29,9 @@ an Object by, and the Object reads as if it simply had no value there.
 
 Both write routes are covered because both write the whole document. The type import enforces the
 same rules (``validate_type_structure``), so the routes the UI uses and the import agree.
+
+An update refuses only a name it newly writes: a name the stored Type already carried in the same place, or
+one naming a field the update removes, is dropped instead (``type_structure_repairs``).
 """
 import uuid
 from http import HTTPStatus
@@ -181,8 +184,8 @@ class TestCreateRefusesAnInconsistentType:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 PUT /types/<id>                                                      #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestUpdateRefusesAnInconsistentType:
-    """An update writes the whole document, so it can introduce the same state."""
+class TestUpdateWithAnInconsistentType:
+    """An update writes the whole document: a name it newly writes is refused, a name it inherited is dropped."""
 
     @pytest.fixture(name='stored_type')
     def fixture_stored_type(self, rest_api):
@@ -194,23 +197,27 @@ class TestUpdateRefusesAnInconsistentType:
 
         return created.get_json()['raw']
 
-    def test_renaming_a_field_without_its_reference_is_refused(self, rest_api, stored_type) -> None:
-        """This answered 202 and left the Type rendering 0 of 1 fields"""
+    def test_removing_a_field_drops_its_section_reference(self, rest_api, stored_type) -> None:
+        """The section named the field the update removes - the name goes with it"""
         stored_type['fields'] = [_field('text-renamed')]
 
         response = rest_api.put(f"{ROUTE_URL}{stored_type['public_id']}", json=stored_type)
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert FIELD_A in response.get_json()['message']
-
-    def test_the_stored_type_is_left_untouched(self, rest_api, stored_type) -> None:
-        """A refused update may not have written half of itself"""
-        stored_type['fields'] = [_field('text-renamed')]
-        rest_api.put(f"{ROUTE_URL}{stored_type['public_id']}", json=stored_type)
-
         reread = rest_api.get(f"{ROUTE_URL}{stored_type['public_id']}").get_json()['result']
 
-        assert [field['name'] for field in reread['fields']] == [FIELD_A]
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert [field['name'] for field in reread['fields']] == ['text-renamed']
+        assert reread['render_meta']['sections'][0]['fields'] == []
+
+    def test_a_section_newly_naming_an_undeclared_field_is_refused(self, rest_api, stored_type) -> None:
+        """The update chose that name - and the stored Type is left untouched"""
+        stored_type['render_meta']['sections'] = [_section(SECTION_A, [FIELD_A, 'text-ghost'])]
+
+        response = rest_api.put(f"{ROUTE_URL}{stored_type['public_id']}", json=stored_type)
+        reread = rest_api.get(f"{ROUTE_URL}{stored_type['public_id']}").get_json()['result']
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'text-ghost' in response.get_json()['message']
+        assert reread['render_meta']['sections'][0]['fields'] == [FIELD_A]
 
     def test_renaming_both_halves_together_is_accepted(self, rest_api, stored_type) -> None:
         """The fix for the refused update: rewrite the section reference too"""
@@ -225,8 +232,8 @@ class TestUpdateRefusesAnInconsistentType:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        PUT /types/<id> - the summary line                                            #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestUpdateRefusesAnInconsistentSummary:
-    """Dropping a field the summary line still names is the way an update breaks the summary."""
+class TestUpdateWithAnInconsistentSummary:
+    """Dropping a field the summary line still names takes it off the line; a new unknown name is refused."""
 
     @pytest.fixture(name='summary_type')
     def fixture_summary_type(self, rest_api):
@@ -243,24 +250,26 @@ class TestUpdateRefusesAnInconsistentSummary:
 
         return created.get_json()['raw']
 
-    def test_dropping_a_field_the_summary_still_names_is_refused(self, rest_api, summary_type) -> None:
-        """This answered 202 and left the summary line one entry shorter than configured"""
+    def test_dropping_a_field_takes_it_off_the_summary(self, rest_api, summary_type) -> None:
+        """The summary named the field the update removes"""
         summary_type['fields'] = [_field(FIELD_A)]
         summary_type['render_meta']['sections'] = [_section(SECTION_A, [FIELD_A])]
 
         response = rest_api.put(f"{ROUTE_URL}{summary_type['public_id']}", json=summary_type)
-
-        assert response.status_code == HTTPStatus.BAD_REQUEST
-        assert FIELD_B in response.get_json()['message']
-
-    def test_the_stored_summary_is_left_untouched(self, rest_api, summary_type) -> None:
-        """A refused update may not have written half of itself"""
-        summary_type['fields'] = [_field(FIELD_A)]
-        summary_type['render_meta']['sections'] = [_section(SECTION_A, [FIELD_A])]
-        rest_api.put(f"{ROUTE_URL}{summary_type['public_id']}", json=summary_type)
-
         reread = rest_api.get(f"{ROUTE_URL}{summary_type['public_id']}").get_json()['result']
 
+        assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
+        assert reread['render_meta']['summary']['fields'] == []
+
+    def test_a_summary_newly_naming_an_undeclared_field_is_refused(self, rest_api, summary_type) -> None:
+        """The update chose that name - and the stored summary is left untouched"""
+        summary_type['render_meta']['summary']['fields'] = [FIELD_B, 'text-ghost']
+
+        response = rest_api.put(f"{ROUTE_URL}{summary_type['public_id']}", json=summary_type)
+        reread = rest_api.get(f"{ROUTE_URL}{summary_type['public_id']}").get_json()['result']
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'text-ghost' in response.get_json()['message']
         assert reread['render_meta']['summary']['fields'] == [FIELD_B]
 
     def test_repeating_a_summary_entry_is_refused(self, rest_api, summary_type) -> None:

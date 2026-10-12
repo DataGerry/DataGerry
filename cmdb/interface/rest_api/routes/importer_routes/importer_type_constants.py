@@ -22,8 +22,6 @@ from cmdb.models.type_model import TypeSchemaKey
 
 __all__: list[str] = [
     'IMPORT_UPDATE_PRESERVED_FIELDS',
-    'STRUCTURE_ERROR_SEPARATOR',
-    'LEGACY_EXTERNALS_KEY',
     'DEFAULT_TYPE_ICON',
     'IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS',
     'TypeImporterFormField',
@@ -36,10 +34,6 @@ __all__: list[str] = [
 # NOTE the renderer resolves the same field by the naming convention `<section name>-field`
 # (cmdb_multi_render._merge_reference_section); the type is what identifies it here
 
-# A type can break several structural rules at once; an entry is reported with one message, so the
-# individual findings are joined into that one message
-STRUCTURE_ERROR_SEPARATOR: str = '; '
-
 # Fields an import UPDATE must never write. `author_id` / `creation_time` / `version` describe how the
 # type came to exist on THIS system, and `special_type` is immutable by design - it may only be set
 # when the type is created. The uploaded values are dropped from the update payload; because the
@@ -50,10 +44,6 @@ IMPORT_UPDATE_PRESERVED_FIELDS: tuple[str, ...] = (
     TypeSchemaKey.SPECIAL_TYPE.value,
     TypeSchemaKey.VERSION.value,
 )
-
-# Older type documents spell the external-link list 'external' instead of 'externals'.
-# TypeRenderMeta.from_data still falls back to it, so the import validates that spelling too
-LEGACY_EXTERNALS_KEY: str = 'external'
 
 # Free Font Awesome class stamped onto 'render_meta.icon' when the upload brings no icon. A type
 # without one renders with no symbol at all in the type list, object tables and the CI explorer, so
@@ -103,24 +93,6 @@ class TypeImportError(BaseStrEnum):
     SPECIAL_TYPE_IMMUTABLE = 'The special Type of a stored Type can not be changed by an import ' \
                              '(stored: {stored}, uploaded: {uploaded})!'
     NOT_A_TYPE_ENTRY = 'This entry is not a Type object!'
-    INVALID_FIELD_TYPES = 'Field(s) with an unknown type: {fields}. Allowed types: {allowed}'
-    SECTION_FIELD_NOT_DEFINED = 'Section(s) reference field(s) the Type does not define: {names}'
-    DUPLICATE_FIELD_NAMES = 'Duplicate field name(s): {names}'
-    DUPLICATE_SECTION_NAMES = 'Duplicate section name(s): {names}'
-    FIELD_IN_MULTIPLE_SECTIONS = 'Field(s) assigned to more than one section: {names}'
-    FIELD_WITHOUT_SECTION = 'Field(s) not assigned to any section: {names}'
-    MISSING_FIELD_NAMES = 'Field(s) without a name at position(s): {positions}'
-    MISSING_FIELD_LABELS = 'Field(s) without a label: {names}'
-    MISSING_SECTION_LABELS = 'Section(s) without a label: {names}'
-    MISSING_FIELD_OPTIONS = 'Field(s) of type select/radio without usable options: {names}'
-    MULTIPLE_LOCATION_FIELDS = 'A Type may declare at most one location field, found: {names}'
-    RESERVED_LOCATION_FIELD_NAME = "The name '{reserved}' is reserved for the location field: " \
-                                   '{names} must either use the location type or another name'
-    MISSING_SECTION_NAMES = 'Section(s) without a name at position(s): {positions}'
-    INVALID_SECTION_TYPES = 'Section(s) with an unknown type: {sections}. Allowed types: {allowed}'
-    EMPTY_SECTION = 'Section(s) without any field: {names}'
-    SUMMARY_FIELD_NOT_DEFINED = 'The summary references field(s) the Type does not define: {names}'
-    EXTERNAL_FIELD_NOT_DEFINED = 'External link(s) reference field(s) the Type does not define: {names}'
     NORMALIZATION_FAILED = 'Failed to prepare this Type for import: {detail}'
     FOREIGN_FIELD_IN_TEMPLATE_SECTION = 'The section of the global section template "{template}" holds ' \
                                         'field(s) the template does not own: {names}'

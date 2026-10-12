@@ -35,7 +35,9 @@ from unittest.mock import MagicMock, patch
 import pytest
 from ldap3.core.exceptions import LDAPExceptionError
 
+from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
@@ -44,7 +46,7 @@ from cmdb.errors.manager.users_manager import (
 )
 from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
-from cmdb.security.auth.providers.ldap_constants import ProvisionedUserKey
+from cmdb.security.auth.providers.ldap_constants import LdapAuthMessage, ProvisionedUserKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.security.auth.providers.ldap_auth_provider'
@@ -59,6 +61,8 @@ ADMIN_GROUP_CN: str = 'admins'
 
 DEFAULT_GROUP_ID: int = 2
 MAPPED_GROUP_ID: int = 7
+SECOND_MAPPED_GROUP_ID: int = 8
+STAFF_GROUP_DN: str = 'cn=staff,ou=groups,dc=example,dc=com'
 STORED_USER_ID: int = 42
 NEW_USER_ID: int = 43
 
@@ -129,6 +133,8 @@ def ldap_fixture():
 
         users_manager = MagicMock(name='users_manager')
         users_manager.get_user_by.return_value = _stored_user()
+        # Every group the settings name exists unless a test says otherwise (one matching group per count)
+        users_manager.count_from_other_collection.return_value = 1
 
         def _build(**overrides: Any) -> LdapAuthenticationProvider:
             config = LdapAuthenticationProviderConfig(**_settings(**overrides))
@@ -363,6 +369,19 @@ class TestPasswordVerification:
         assert ldap.service.search.call_count == 1  # the user search only
 
 
+def _group_search(ldap, group_entries: list) -> Any:
+    """Search side effect: the user search first, then the group search with the given entries."""
+    def _search(*_args: Any, **_kwargs: Any) -> bool:
+        if ldap.service.search.call_count > 1:
+            ldap.service.entries = group_entries
+        else:
+            ldap.service.entries = [_entry(USER_DN)]
+
+        return True
+
+    return _search
+
+
 class TestGroupResolution:
     """The mapped group is optional and never decides whether a login succeeds."""
 
@@ -394,7 +413,7 @@ class TestGroupResolution:
     def test_maps_a_group_by_dn_or_cn(self, ldap, configured_dn: str) -> None:
         """The settings UI asks for a DN; the CN stays accepted for installations configured that way."""
         ldap.service.entries = [_entry(USER_DN)]
-        ldap.service.search.side_effect = self._group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
         ldap.users_manager.get_user_by.return_value = _stored_user()
 
         provider = ldap.build(**_group_settings([{'group_dn': configured_dn, 'group_id': MAPPED_GROUP_ID}]))
@@ -406,7 +425,7 @@ class TestGroupResolution:
 
     def test_a_malformed_group_dn_does_not_break_the_login(self, ldap) -> None:
         """A DN the CN pattern does not fit must not raise an AttributeError out of authenticate."""
-        ldap.service.search.side_effect = self._group_search(ldap, [_entry('malformed-dn')])
+        ldap.service.search.side_effect = _group_search(ldap, [_entry('malformed-dn')])
         ldap.users_manager.get_user_by.return_value = _stored_user()
 
         provider = ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))
@@ -416,7 +435,7 @@ class TestGroupResolution:
 
     def test_an_unusable_group_id_is_skipped(self, ldap) -> None:
         """A mapping whose group_id is not a number is a config mistake, not a login failure."""
-        ldap.service.search.side_effect = self._group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
         ldap.users_manager.get_user_by.return_value = _stored_user()
 
         provider = ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': 'not-a-number'}]))
@@ -426,25 +445,102 @@ class TestGroupResolution:
 
     def test_an_empty_mapping_keeps_the_default_group(self, ldap) -> None:
         """Group search on, nothing configured to map: the default group applies."""
-        ldap.service.search.side_effect = self._group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
         ldap.users_manager.get_user_by.return_value = _stored_user()
 
         ldap.build(**_group_settings([])).authenticate(USER_NAME, PASSWORD)
 
         ldap.users_manager.update_user.assert_not_called()
 
+
+class TestMissingGroups:
+    """A group the settings name that does not exist is never provisioned into or moved into."""
+
     @staticmethod
-    def _group_search(ldap, group_entries: list) -> Any:
-        """Search side effect: the user search first, then the group search with the given entries."""
-        def _search(*_args: Any, **_kwargs: Any) -> bool:
-            if ldap.service.search.call_count > 1:
-                ldap.service.entries = group_entries
-            else:
-                ldap.service.entries = [_entry(USER_DN)]
+    def _missing(ldap, *missing: int) -> None:
+        """Makes the given groups answer 'does not exist'; every other group exists."""
+        ldap.users_manager.count_from_other_collection.side_effect = \
+            lambda _collection, criteria: 0 if criteria['public_id'] in missing else 1
 
-            return True
+    def test_the_existence_is_asked_of_the_groups_collection(self, ldap) -> None:
+        """One count by public_id"""
+        ldap.build().authenticate(USER_NAME, PASSWORD)
 
-        return _search
+        ldap.users_manager.count_from_other_collection.assert_called_once_with(
+            CmdbUserGroup.COLLECTION, {'public_id': DEFAULT_GROUP_ID})
+
+    def test_a_mapping_to_a_missing_group_is_skipped(self, ldap) -> None:
+        """The stored user is not moved into it - nor, with no other match, anywhere"""
+        self._missing(ldap, MAPPED_GROUP_ID)
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+
+        ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))\
+            .authenticate(USER_NAME, PASSWORD)
+
+        ldap.users_manager.update_user.assert_not_called()
+
+    def test_the_next_mapping_to_an_existing_group_applies(self, ldap) -> None:
+        """First usable match wins"""
+        self._missing(ldap, MAPPED_GROUP_ID)
+        ldap.service.search.side_effect = _group_search(
+            ldap, [_entry(ADMIN_GROUP_DN), _entry(STAFF_GROUP_DN)])
+
+        ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID},
+                                      {'group_dn': STAFF_GROUP_DN, 'group_id': SECOND_MAPPED_GROUP_ID}]))\
+            .authenticate(USER_NAME, PASSWORD)
+
+        assert ldap.users_manager.update_user.call_args.args[1].group_id == SECOND_MAPPED_GROUP_ID
+
+    def test_a_new_user_without_an_existing_default_group_is_refused(self, ldap) -> None:
+        """Never provisioned powerless - the login fails with the reason"""
+        self._missing(ldap, DEFAULT_GROUP_ID)
+        ldap.users_manager.get_user_by.return_value = None
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            ldap.build().authenticate(USER_NAME, PASSWORD)
+
+        assert str(exc_info.value) == LdapAuthMessage.NO_USABLE_GROUP.format(group_id=DEFAULT_GROUP_ID)
+        ldap.users_manager.insert_user.assert_not_called()
+
+    def test_a_new_user_whose_mapped_group_is_missing_gets_the_default(self, ldap) -> None:
+        """The default group still exists"""
+        self._missing(ldap, MAPPED_GROUP_ID)
+        ldap.users_manager.get_user_by.return_value = None
+        ldap.users_manager.get_user.return_value = _stored_user()
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+
+        ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))\
+            .authenticate(USER_NAME, PASSWORD)
+
+        assert ldap.users_manager.insert_user.call_args.args[0][ProvisionedUserKey.GROUP_ID.value] == DEFAULT_GROUP_ID
+
+    def test_a_stored_user_logs_in_although_the_default_group_is_missing(self, ldap) -> None:
+        """Mapping off: its own group is not the default's business"""
+        self._missing(ldap, DEFAULT_GROUP_ID)
+        stored = _stored_user()
+        ldap.users_manager.get_user_by.return_value = stored
+
+        assert ldap.build().authenticate(USER_NAME, PASSWORD) is stored
+
+    def test_a_stored_user_keeps_its_group_when_no_named_group_exists(self, ldap) -> None:
+        """Mapping on, mapped and default group both missing: not moved"""
+        self._missing(ldap, MAPPED_GROUP_ID, DEFAULT_GROUP_ID)
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+
+        ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))\
+            .authenticate(USER_NAME, PASSWORD)
+
+        ldap.users_manager.update_user.assert_not_called()
+
+    def test_a_failing_group_read_is_an_authentication_error(self, ldap) -> None:
+        """Named as what it is"""
+        error = BaseManagerGetError('db down')
+        ldap.users_manager.count_from_other_collection.side_effect = error
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            ldap.build().authenticate(USER_NAME, PASSWORD)
+
+        assert str(exc_info.value) == LdapAuthMessage.GROUP_READ_FAILED.format(detail=error)
 
 
 class TestLocalUserSync:
@@ -473,7 +569,7 @@ class TestLocalUserSync:
         """The written instance is returned as-is, so the update costs one query, not two."""
         stored = _stored_user()
         ldap.users_manager.get_user_by.return_value = stored
-        ldap.service.search.side_effect = TestGroupResolution._group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
 
         provider = ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))
         result = provider.authenticate(USER_NAME, PASSWORD)
@@ -486,7 +582,7 @@ class TestLocalUserSync:
         """The regression: a swallowed update error gets the user created a second time."""
         ldap.users_manager.get_user_by.return_value = _stored_user()
         ldap.users_manager.update_user.side_effect = UsersManagerUpdateError('write failed')
-        ldap.service.search.side_effect = TestGroupResolution._group_search(ldap, [_entry(ADMIN_GROUP_DN)])
+        ldap.service.search.side_effect = _group_search(ldap, [_entry(ADMIN_GROUP_DN)])
 
         provider = ldap.build(**_group_settings([{'group_dn': ADMIN_GROUP_DN, 'group_id': MAPPED_GROUP_ID}]))
 

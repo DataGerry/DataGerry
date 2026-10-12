@@ -117,6 +117,13 @@ def _failed_types(response) -> list[Any]:
     return [failure['failed_type'] for failure in response.get_json()['failed_imports']]
 
 
+def _stored_render_meta(database_manager: MongoDatabaseManager, database_name: str) -> dict[str, Any]:
+    """The render_meta of the type the test imported under NEW_TYPE_NAME."""
+    stored = database_manager.get_collection(CmdbType.COLLECTION, database_name).find_one({'name': NEW_TYPE_NAME})
+
+    return stored['render_meta']
+
+
 def _imported_count(response) -> int:
     """How many entries the partial report reports as imported."""
     return response.get_json()['success_imports']
@@ -575,8 +582,8 @@ class TestFieldAndSectionRules:
         (message,) = _errors(response)
         assert 'Duplicate section name(s)' in message
 
-    def test_field_without_a_section_is_rejected(self, rest_api) -> None:
-        """Every field must be assigned to a section."""
+    def test_a_field_without_a_section_is_imported(self, rest_api) -> None:
+        """A field no section shows renders nowhere - allowed, as on the type routes"""
         payload = make_type_doc(
             0, NEW_TYPE_NAME,
             fields=[{'type': 'text', 'name': 'a', 'label': 'A'}, {'type': 'text', 'name': 'orphan', 'label': 'O'}],
@@ -586,8 +593,7 @@ class TestFieldAndSectionRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = _errors(response)
-        assert "not assigned to any section: ['orphan']" in message
+        assert not _errors(response)
 
     def test_field_in_two_sections_is_rejected(self, rest_api) -> None:
         """A field may not be claimed by two sections."""
@@ -641,15 +647,14 @@ class TestFieldAndSectionRules:
 
         broken = make_type_doc(
             UPDATE_TYPE_ID, 'imported-type-update',
-            fields=[{'type': 'text', 'name': 'a', 'label': 'A'}],
-            sections=[],
+            fields=[{'type': 'text', 'name': 'a', 'label': 'A'}, {'type': 'text', 'name': 'a', 'label': 'B'}],
         )
 
         response = rest_api.post(UPDATE_URL, data=_upload_form([broken]), content_type='multipart/form-data')
 
         assert response.status_code == HTTPStatus.OK
         (message,) = _errors(response)
-        assert 'not assigned to any section' in message
+        assert 'Duplicate field name(s)' in message
 
 
 class TestNameAndFieldTypeRules:
@@ -721,8 +726,9 @@ class TestNameAndFieldTypeRules:
         (message,) = _errors(response)
         assert 'a (not-a-type)' in message
 
-    def test_section_referencing_an_undefined_field_is_rejected(self, rest_api) -> None:
-        """A section may only name fields the type defines."""
+    def test_section_referencing_an_undefined_field_is_repaired(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A stale name in an export is dropped; the declared ones stay."""
         payload = make_type_doc(
             0, NEW_TYPE_NAME,
             fields=[{'type': 'text', 'name': 'a', 'label': 'A'}],
@@ -732,8 +738,8 @@ class TestNameAndFieldTypeRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = _errors(response)
-        assert "does not define: ['ghost']" in message or "not define: ['ghost']" in message
+        assert not _errors(response)
+        assert _stored_render_meta(database_manager, database_name)['sections'][0]['fields'] == ['a']
 
 
 class TestUploadAndNameCompletenessRules:
@@ -793,8 +799,8 @@ class TestSectionContentRules:
         (message,) = _errors(response)
         assert 'main (mutli-data-section)' in message
 
-    def test_empty_section_is_rejected(self, rest_api) -> None:
-        """A section holding no field at all is refused."""
+    def test_an_empty_section_is_imported(self, rest_api) -> None:
+        """A section holding no field renders as an empty box - allowed, as on the type routes"""
         payload = make_type_doc(
             0, NEW_TYPE_NAME,
             fields=[{'type': 'text', 'name': 'a', 'label': 'A'}],
@@ -807,32 +813,33 @@ class TestSectionContentRules:
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = _errors(response)
-        assert "without any field: ['empty']" in message
+        assert not _errors(response)
 
-    def test_undefined_summary_field_is_rejected(self, rest_api) -> None:
-        """The summary line may only name fields the type defines."""
+    def test_undefined_summary_field_is_repaired(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A stale summary name in an export is dropped."""
         payload = make_type_doc(0, NEW_TYPE_NAME)
         payload.pop('public_id')
         payload['render_meta']['summary'] = {'fields': ['ghost']}
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = _errors(response)
-        assert "summary references field(s) the Type does not define: ['ghost']" in message
+        assert not _errors(response)
+        assert _stored_render_meta(database_manager, database_name)['summary']['fields'] == []
 
-    def test_undefined_external_link_field_is_rejected(self, rest_api) -> None:
-        """An external link may only interpolate fields the type defines."""
+    def test_undefined_external_link_field_is_repaired(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A stale external-link name in an export is dropped; object_id stays."""
         payload = make_type_doc(0, NEW_TYPE_NAME)
         payload.pop('public_id')
         payload['render_meta']['externals'] = [
-            {'name': 'wiki', 'href': 'http://example.org/{}', 'label': 'Wiki', 'fields': ['ghost']},
+            {'name': 'wiki', 'href': 'http://example.org/{}/{}', 'label': 'Wiki', 'fields': ['ghost', 'object_id']},
         ]
 
         response = rest_api.post(CREATE_URL, data=_upload_form([payload]), content_type='multipart/form-data')
 
-        (message,) = _errors(response)
-        assert "External link(s) reference field(s) the Type does not define: ['ghost']" in message
+        assert not _errors(response)
+        assert _stored_render_meta(database_manager, database_name)['externals'][0]['fields'] == ['object_id']
 
 
 class TestImportRepairs:
@@ -1578,12 +1585,11 @@ class TestFieldContentRules:
         (message,) = _errors(response)
         assert "Section(s) without a label: ['main']" in message
 
-    def test_choice_field_without_options_is_rejected(self, rest_api) -> None:
-        """A select with nothing to pick from can never hold a value."""
+    def test_a_choice_field_without_options_is_imported(self, rest_api) -> None:
+        """It holds no value until options are added - allowed, as on the type routes"""
         response = self._post(rest_api, [{'type': 'select', 'name': 'choice', 'label': 'Choice'}])
 
-        (message,) = _errors(response)
-        assert "select/radio without usable options: ['choice']" in message
+        assert not _errors(response)
 
     def test_choice_field_with_options_is_accepted(
         self, rest_api, database_manager: MongoDatabaseManager, database_name: str

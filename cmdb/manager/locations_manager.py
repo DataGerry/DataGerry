@@ -38,7 +38,7 @@ depends on insertion order
 """
 import re
 from logging import Logger, getLogger
-from typing import Any
+from typing import Any, Collection
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
@@ -54,6 +54,10 @@ from cmdb.models.location_model.cmdb_location import CmdbLocation
 
 from cmdb.models.location_model.location_constants import LocationKey, RootLocationDefault
 from cmdb.models.location_model.location_utils import sort_locations_by_name, to_location_document
+from cmdb.models.location_model.location_visibility import chain_is_hidden
+from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.builder import build_denied_types_condition
+from cmdb.security.acl.permission import AccessControlPermission
 
 from cmdb.errors.manager import (
     BaseManagerGetError,
@@ -94,6 +98,23 @@ def ancestors_lookup_stage() -> dict[str, Any]:
         LocationKey.PUBLIC_ID.value,
         LocationLookupField.ANCESTORS.value,
     )
+
+
+def visible_criteria(criteria: dict[str, Any], denied_type_ids: Collection[int]) -> dict[str, Any]:
+    """
+    Narrows a node criteria to the nodes of Types the reader may READ
+
+    Args:
+        criteria (dict[str, Any]): The criteria
+        denied_type_ids (Collection[int]): Types the reader may not READ; empty leaves the criteria as it is
+
+    Returns:
+        dict[str, Any]: The criteria, with the denied Types excluded when there are any
+    """
+    if not denied_type_ids:
+        return criteria
+
+    return {**criteria, **build_denied_types_condition(sorted(denied_type_ids))}
 
 
 def descendants_lookup_stage() -> dict[str, Any]:
@@ -179,7 +200,9 @@ class LocationsManager(BaseManager):
 
     def iterate_location_documents(
             self,
-            builder_params: BuilderParameters) -> tuple[list[dict[str, Any]], int]:
+            builder_params: BuilderParameters,
+            user: CmdbUser | None = None,
+            permission: AccessControlPermission | None = None) -> tuple[list[dict[str, Any]], int]:
         """
         Retrieves the matching CmdbLocations as canonical documents, with the total match count
 
@@ -188,8 +211,14 @@ class LocationsManager(BaseManager):
         route only passes the result on as JSON: hydrating a CmdbLocation per row and converting it
         straight back would be two objects per location for a response that is a document either way
 
+        Given a user and a permission, a node whose object's Type the user's group may not access is left out of
+        the rows and the total alike (``apply_acl_to_builder_params``) - by its own Type only: the flat list
+        carries no ancestors, so a readable node below a hidden one stays listed
+
         Args:
-            builder_params (BuilderParameters): Filter, sort and pagination for the read
+            builder_params (BuilderParameters): Filter, sort and pagination for the read, narrowed in place
+            user (CmdbUser | None): The reader; None reads every node (internal callers)
+            permission (AccessControlPermission | None): The permission the reader's group must hold
 
         Raises:
             LocationsManagerIterationError: When the iteration failed
@@ -199,6 +228,7 @@ class LocationsManager(BaseManager):
                 number of matches (counted independently of the page)
         """
         try:
+            self.apply_acl_to_builder_params(builder_params, user, permission)
             aggregation_result, total = self.iterate_query(builder_params)
 
             return [to_location_document(document) for document in aggregation_result], total
@@ -341,7 +371,10 @@ class LocationsManager(BaseManager):
             raise LocationsManagerGetError(err) from err
 
 
-    def get_child_location_documents(self, parent_id: int) -> list[dict[str, Any]]:
+    def get_child_location_documents(
+            self,
+            parent_id: int,
+            denied_type_ids: Collection[int] = ()) -> list[dict[str, Any]]:
         """
         Retrieves the direct children of a CmdbLocation as canonical, name-ordered documents
 
@@ -353,6 +386,8 @@ class LocationsManager(BaseManager):
 
         Args:
             parent_id (int): public_id of the parent CmdbLocation whose children are requested
+            denied_type_ids (Collection[int]): Types the reader may not READ - their nodes are left out (a child
+                is hidden by its own Type only, its ancestors being the caller's business)
 
         Raises:
             LocationsManagerGetError: If the child CmdbLocations could not be retrieved
@@ -361,7 +396,9 @@ class LocationsManager(BaseManager):
             list[dict[str, Any]]: The canonical documents of the direct children, name-ascending
         """
         try:
-            documents: list[dict[str, Any]] = self.get_many(criteria={LocationKey.PARENT.value: parent_id})
+            documents: list[dict[str, Any]] = self.get_many(
+                criteria=visible_criteria({LocationKey.PARENT.value: parent_id}, denied_type_ids),
+            )
         except BaseManagerGetError as err:
             raise LocationsManagerGetError(err) from err
         except Exception as err:
@@ -419,7 +456,7 @@ class LocationsManager(BaseManager):
             raise LocationsManagerChildrenError(err) from err
 
 
-    def get_parents_with_children(self, parent_ids: list[int]) -> set[int]:
+    def get_parents_with_children(self, parent_ids: list[int], denied_type_ids: Collection[int] = ()) -> set[int]:
         """
         Determines which of the given CmdbLocations have at least one direct child
 
@@ -430,6 +467,8 @@ class LocationsManager(BaseManager):
 
         Args:
             parent_ids (list[int]): public_ids of the CmdbLocations to test for children
+            denied_type_ids (Collection[int]): Types the reader may not READ - a child of one does not count, so a
+                node whose only children are hidden shows no expand control
 
         Raises:
             LocationsManagerGetError: If the grouped lookup could not be executed
@@ -441,7 +480,7 @@ class LocationsManager(BaseManager):
             return set()
 
         pipeline: list[dict[str, Any]] = [
-            Builder.match_(Builder.in_(LocationKey.PARENT.value, parent_ids)),
+            Builder.match_(visible_criteria(Builder.in_(LocationKey.PARENT.value, parent_ids), denied_type_ids)),
             Builder.group_(f"${LocationKey.PARENT.value}"),
         ]
 
@@ -452,7 +491,10 @@ class LocationsManager(BaseManager):
             raise LocationsManagerGetError(err) from err
 
 
-    def search_locations_with_ancestors(self, query: str) -> list[dict[str, Any]]:
+    def search_locations_with_ancestors(
+            self,
+            query: str,
+            denied_type_ids: Collection[int] = ()) -> list[dict[str, Any]]:
         """
         Finds locations whose name matches the query and returns them plus their ancestor chains
 
@@ -470,8 +512,13 @@ class LocationsManager(BaseManager):
         substrings), so the match stage is a deliberate collection scan bounded by the number of
         locations - typically the smallest collection in the database
 
+        A match that is hidden from the reader - its own Type or an ancestor's denied
+        (``location_visibility.chain_is_hidden``) - is dropped with its whole chain, so neither a hidden node nor
+        a readable one below it is found
+
         Args:
             query (str): The search string; an empty/whitespace query yields no matches
+            denied_type_ids (Collection[int]): Types the reader may not READ
 
         Raises:
             LocationsManagerGetError: If the search aggregation fails
@@ -510,6 +557,9 @@ class LocationsManager(BaseManager):
         for match in matches:
             ancestors: list[dict[str, Any]] = match.pop(ancestors_field, [])
 
+            if chain_is_hidden([match, *ancestors], denied_type_ids):
+                continue
+
             for location in [match, *ancestors]:
                 public_id: int = location[LocationKey.PUBLIC_ID.value]
 
@@ -521,7 +571,10 @@ class LocationsManager(BaseManager):
         return sort_locations_by_name(list(collected.values()))
 
 
-    def get_locations_on_path_to(self, public_id: int) -> list[dict[str, Any]]:
+    def get_locations_on_path_to(
+            self,
+            public_id: int,
+            denied_type_ids: Collection[int] = ()) -> list[dict[str, Any]]:
         """
         Retrieves the location tree expanded along the ancestor path of a single CmdbLocation
 
@@ -539,8 +592,12 @@ class LocationsManager(BaseManager):
         query over {root} + {ancestors}, returned as canonical, name-ordered documents. Returns an
         empty list when the target does not exist. Requires MongoDB 3.4+ (well within the 7.0 floor)
 
+        The caller judges the path itself (``get_location_chain``); here a sibling of a denied Type is left out
+        of every level
+
         Args:
             public_id (int): public_id of the target CmdbLocation to expand the tree to
+            denied_type_ids (Collection[int]): Types the reader may not READ
 
         Raises:
             LocationsManagerGetError: If the path/level aggregation fails
@@ -580,9 +637,9 @@ class LocationsManager(BaseManager):
             }
 
             # One $in over all sibling levels at once (children of the root + of each ancestor)
-            documents: list[dict[str, Any]] = self.get_many(
-                criteria={LocationKey.PARENT.value: {'$in': list(expand_parents)}}
-            )
+            documents: list[dict[str, Any]] = self.get_many(criteria=visible_criteria(
+                {LocationKey.PARENT.value: {'$in': list(expand_parents)}}, denied_type_ids,
+            ))
 
             return sort_locations_by_name([to_location_document(document) for document in documents])
         except (BaseManagerGetError, BaseManagerIterationError) as err:
@@ -590,6 +647,52 @@ class LocationsManager(BaseManager):
         except Exception as err:
             LOGGER.error("[get_locations_on_path_to] Exception: %s. Type: %s", err, type(err))
             raise LocationsManagerGetError(err) from err
+
+    def get_location_chain(self, public_id: int) -> list[dict[str, Any]]:
+        """
+        Retrieves a CmdbLocation and every ancestor of it, each as its public_id and type_id
+
+        What a reader's view of a node is judged on (``location_visibility.chain_is_hidden``): one ``$graphLookup``
+        over the ancestors, projected to the two keys
+
+        Args:
+            public_id (int): public_id of the CmdbLocation
+
+        Raises:
+            LocationsManagerGetError: If the chain could not be read
+
+        Returns:
+            list[dict[str, Any]]: The node first, then its ancestors (the synthetic root included); empty when the
+                node does not exist
+        """
+        ancestors_field: str = LocationLookupField.ANCESTORS.value
+        identity: dict[str, int] = {LocationKey.PUBLIC_ID.value: 1, LocationKey.TYPE_ID.value: 1}
+
+        pipeline: list[dict[str, Any]] = [
+            Builder.match_({LocationKey.PUBLIC_ID.value: public_id}),
+            ancestors_lookup_stage(),
+            Builder.project_({
+                MONGO_ID_KEY: 0,
+                **identity,
+                **{f"{ancestors_field}.{key}": value for key, value in identity.items()},
+            }),
+        ]
+
+        try:
+            matches: list[dict[str, Any]] = list(self.aggregate(pipeline))
+        except BaseManagerIterationError as err:
+            raise LocationsManagerGetError(err) from err
+        except Exception as err:
+            LOGGER.error("[get_location_chain] Exception: %s. Type: %s", err, type(err))
+            raise LocationsManagerGetError(err) from err
+
+        if not matches:
+            return []
+
+        ancestors: list[dict[str, Any]] = matches[0].pop(ancestors_field, [])
+
+        return [matches[0], *ancestors]
+
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 

@@ -47,7 +47,7 @@ def get_cmdb_relation_schema() -> dict[str, Any]:
         'public_id': {  # public_id of CmdbRelation
             'type': 'integer'
         },
-        'relation_name': {  # Name of the CmdbRelation
+        'relation_name': {  # Unique technical name of the CmdbRelation; letters, digits, '_' and '-'
             'type': 'string',
             'required': True,
             'empty': False
