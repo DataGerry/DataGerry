@@ -30,5 +30,6 @@ export class User {
   public registration_time: string;
   public authenticator: string;
   public group_id: number;
+  public active?: boolean;
   config_items_limit: number;
 }

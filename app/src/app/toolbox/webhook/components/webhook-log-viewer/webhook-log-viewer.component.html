@@ -6,6 +6,10 @@
       <i class="fas fa-arrow-left icon-margin"></i> Go Back
   </button>                       
 <hr />
+<p class="text-muted">
+  <i class="fas fa-info-circle me-1" aria-hidden="true"></i>
+  Changes to objects the webhook owner may not read are skipped and not logged.
+</p>
  <cmdb-table
   [items]="logs"
   [columns]="columns"

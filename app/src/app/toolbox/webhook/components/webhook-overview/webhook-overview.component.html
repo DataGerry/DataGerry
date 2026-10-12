@@ -44,6 +44,25 @@
 </span>
 </ng-template>
 
+<!-- Owner Template -->
+<ng-template #ownerTemplate let-item="item">
+  @switch (item.owner?.status) {
+    @case ('none') {
+      <span class="badge text-bg-warning" title="Receives no changes until someone saves it">No owner</span>
+    }
+    @case ('inactive') {
+      <span>{{ item.owner.label }}</span>
+      <span class="badge text-bg-secondary ms-1" title="An inactive owner's webhook receives no changes">Inactive</span>
+    }
+    @case ('deleted') {
+      <span class="badge text-bg-danger" title="Receives no changes until someone saves it">{{ item.owner.label }}</span>
+    }
+    @default {
+      <span>{{ item.owner?.label }}</span>
+    }
+  }
+</ng-template>
+
 <!-- status Template -->
 <ng-template #statusTemplate let-item="item">
   <span [ngClass]="{'text-success': item.active, 'text-danger': !item.active}">
