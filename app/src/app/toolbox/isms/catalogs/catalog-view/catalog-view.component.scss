@@ -1,0 +1,15 @@
+.catalog-heading {
+  margin-bottom: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.catalog-frame {
+  display: block;
+  width: 100%;
+  height: calc(100vh - 260px);
+  min-height: 500px;
+  border: 1px solid #dee2e6;
+  border-radius: 4px;
+  background: #fff;
+}

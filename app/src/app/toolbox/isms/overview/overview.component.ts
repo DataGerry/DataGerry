@@ -69,6 +69,12 @@ export class OverviewComponent implements OnInit {
       right: 'base.isms.controlMeasure.view'
     },
     {
+      title: 'Catalogs',
+      icon: 'fas fa-book',
+      link: '/isms/catalogs',
+      right: 'base.isms.controlMeasure.view'
+    },
+    {
       title: 'Threats',
       icon: 'fas fa-bolt',
       link: '/isms/threats',
