@@ -1,0 +1,32 @@
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2 class="catalog-heading">{{ catalog?.title ?? 'Catalog' }}</h2>
+  <div class="d-flex align-items-center gap-2">
+    <button class="btn btn-sm btn-secondary" (click)="onBack()" title="Back to catalogs">
+      <i class="fas fa-arrow-left"></i> Back
+    </button>
+    @if (catalog) {
+      <a class="btn btn-sm btn-outline-primary" [href]="getDownloadUrl()" [attr.download]="getFileName()"
+        title="Download OSCAL JSON">
+        <i class="fas fa-download"></i> Download
+      </a>
+      <button class="btn btn-sm btn-primary" (click)="onOpenInNewTab()" title="Open the viewer in a new tab">
+        <i class="fas fa-external-link-alt"></i> New Tab
+      </button>
+    }
+  </div>
+</div>
+<hr />
+
+@if (notFound) {
+  <div class="alert alert-warning">This catalog is not part of the bundled catalogs.</div>
+}
+
+@if (catalog && safeViewerUrl) {
+  <p class="text-muted small">
+    {{ catalog.publisher }} &middot; Version {{ catalog.version }} &middot; {{ catalog.controls }} controls &middot;
+    {{ catalog.license }}
+  </p>
+  <iframe class="catalog-frame" [src]="safeViewerUrl" [title]="catalog.title"
+    sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-downloads"
+    referrerpolicy="no-referrer"></iframe>
+}

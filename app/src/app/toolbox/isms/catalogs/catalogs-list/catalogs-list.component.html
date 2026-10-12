@@ -1,0 +1,48 @@
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h2>Catalogs</h2>
+</div>
+<hr />
+
+<p class="text-muted catalogs-intro">
+  Reference catalogs in OSCAL format that ship with DATAGERRY. They are read-only and open in the bundled OSCAL viewer;
+  no data leaves this server.
+</p>
+
+<cmdb-table [items]="filteredCatalogs" [columns]="columns" [id]="'oscal-catalogs-table'"
+  [emptyMessage]="'No catalogs found.'" [totalItems]="filteredCatalogs.length" [loading]="loading"
+  [paginationEnabled]="false" [pageSizeEnabled]="false" [toggleable]="true"
+  [initialVisibleColumns]="initialVisibleColumns" (searchChange)="onSearchChange($event)">
+</cmdb-table>
+
+@if (manifest?.viewer; as viewer) {
+<p class="text-muted small mt-3 catalogs-attribution">
+  Viewer: <a [href]="viewer.source" target="_blank" rel="noopener noreferrer">{{ viewer.name }}</a>
+  ({{ viewer.license }}). BSI content &copy; Bundesamt f&uuml;r Sicherheit in der Informationstechnik, licensed under
+  CC BY-SA 4.0; NIST content is in the public domain. Bundled files were minified only.
+</p>
+}
+
+<!-- Title Template -->
+<ng-template #titleTemplate let-data="data" let-item="item">
+  <a class="catalog-title" (click)="onView(item)" title="View catalog">{{ data }}</a>
+</ng-template>
+
+<!-- Size Template -->
+<ng-template #sizeTemplate let-data="data">
+  <span>{{ formatSize(data) }}</span>
+</ng-template>
+
+<!-- License Template -->
+<ng-template #licenseTemplate let-data="data" let-item="item">
+  <a [href]="getLicenseUrl(item)" target="_blank" rel="noopener noreferrer" title="Show license text">{{ data }}</a>
+</ng-template>
+
+<!-- Action Template -->
+<ng-template #actionTemplate let-item="item">
+  <i class="far fa-eye icon-margin icon-view spacing-right" (click)="onView(item)" title="View Catalog"></i>
+  <i class="fas fa-external-link-alt icon-margin spacing-right clickable" (click)="onOpenInNewTab(item)"
+    title="Open in new tab"></i>
+  <a [href]="getDownloadUrl(item)" [attr.download]="getFileName(item)" title="Download OSCAL JSON">
+    <i class="fas fa-download icon-margin"></i>
+  </a>
+</ng-template>

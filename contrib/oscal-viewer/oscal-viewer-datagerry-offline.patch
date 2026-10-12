@@ -1,0 +1,166 @@
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/index.html build/oscal-viewer-main/index.html
+--- orig/oscal-viewer-main/index.html	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/index.html	2026-10-12 16:18:35.350140763 +0000
+@@ -2,25 +2,9 @@
+ <html lang="en">
+   <head>
+     <meta charset="UTF-8" />
+-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
++    <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+     <title>OSCAL Viewer</title>
+-    <!-- Google Analytics — only loads if cookie consent was accepted -->
+-    <script>
+-      (function() {
+-        var match = document.cookie.split('; ').find(function(r) { return r.startsWith('cookie_consent='); });
+-        if (match && match.split('=')[1] === 'accepted') {
+-          var s = document.createElement('script');
+-          s.async = true;
+-          s.src = 'https://www.googletagmanager.com/gtag/js?id=G-J56BFX8610';
+-          document.head.appendChild(s);
+-          window.dataLayer = window.dataLayer || [];
+-          function gtag(){dataLayer.push(arguments);}
+-          gtag('js', new Date());
+-          gtag('config', 'G-J56BFX8610');
+-        }
+-      })();
+-    </script>
+   </head>
+   <body>
+     <div id="root"></div>
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/public/staticwebapp.config.json build/oscal-viewer-main/public/staticwebapp.config.json
+--- orig/oscal-viewer-main/public/staticwebapp.config.json	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/public/staticwebapp.config.json	1970-01-01 00:00:00.000000000 +0000
+@@ -1,9 +0,0 @@
+-{
+-  "navigationFallback": {
+-    "rewrite": "/index.html",
+-    "exclude": ["/assets/*", "/samples/*", "*.{css,js,json,ico,png,svg,jpg,jpeg,gif,woff,woff2,ttf,eot}"]
+-  },
+-  "globalHeaders": {
+-    "Content-Security-Policy": "script-src 'self' 'sha256-TKKq6EP6FHA7Eyh90hHMO2mbujgZbML2CtLpFsgKmLU=' https://*.googletagmanager.com; base-uri 'self'; form-action 'self'"
+-  }
+-}
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/src/App.tsx build/oscal-viewer-main/src/App.tsx
+--- orig/oscal-viewer-main/src/App.tsx	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/src/App.tsx	2026-10-12 16:18:35.347420214 +0000
+@@ -1,9 +1,8 @@
+-import { BrowserRouter, Routes, Route } from "react-router-dom";
++import { HashRouter, Routes, Route } from "react-router-dom";
+ import { OscalProvider } from "./context/OscalContext";
+ import { AuthProvider } from "./context/AuthContext";
+ import { ThemeProvider } from "./context/ThemeContext";
+ import Layout from "./components/Layout";
+-import AnalyticsPageTracker from "./components/AnalyticsPageTracker";
+ import HomePage from "./pages/HomePage";
+ import CatalogPage from "./pages/CatalogPage";
+ import ProfilePage from "./pages/ProfilePage";
+@@ -21,8 +20,7 @@
+     <ThemeProvider>
+     <AuthProvider>
+     <OscalProvider>
+-    <BrowserRouter>
+-      <AnalyticsPageTracker />
++    <HashRouter>
+       <Routes>
+         <Route element={<Layout />}>
+           <Route index element={<HomePage />} />
+@@ -45,7 +43,7 @@
+           <Route path="privacy" element={<PrivacyPolicyPage />} />
+         </Route>
+       </Routes>
+-    </BrowserRouter>
++    </HashRouter>
+     </OscalProvider>
+     </AuthProvider>
+     </ThemeProvider>
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/src/components/Layout.tsx build/oscal-viewer-main/src/components/Layout.tsx
+--- orig/oscal-viewer-main/src/components/Layout.tsx	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/src/components/Layout.tsx	2026-10-12 16:18:35.348724181 +0000
+@@ -14,7 +14,6 @@
+ import { Lock, Moon, Sun, Unlock } from "lucide-react";
+ import useIsMobile from "../hooks/useIsMobile";
+ import { markupLineText } from "../utils/markup";
+-import CookieBanner from "./CookieBanner";
+ 
+ export default function Layout() {
+   const location = useLocation();
+@@ -300,7 +299,6 @@
+       </footer>
+ 
+       {/* ── Cookie Consent Banner ── */}
+-      <CookieBanner />
+     </div>
+   );
+ }
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/src/context/AuthContext.tsx build/oscal-viewer-main/src/context/AuthContext.tsx
+--- orig/oscal-viewer-main/src/context/AuthContext.tsx	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/src/context/AuthContext.tsx	2026-10-12 16:22:36.607804072 +0000
+@@ -177,6 +177,12 @@
+   token: string | null,
+   opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+ ): Promise<Response> {
++  // DataGerry bundle: only documents served by the hosting application may be loaded,
++  // so a crafted `?url=` link cannot pull in or reach out to foreign hosts.
++  if (isCrossOrigin(url)) {
++    return Promise.reject(new Error("Only documents from this server can be opened in the bundled viewer."));
++  }
++
+   const needsCredentials = isOscalApiOrigin(url);
+   const shouldSendAuthHeader = token != null && isOscalAuthOrigin(url);
+   const requestHeaders: Record<string, string> = {
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/src/hooks/useCookieConsent.ts build/oscal-viewer-main/src/hooks/useCookieConsent.ts
+--- orig/oscal-viewer-main/src/hooks/useCookieConsent.ts	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/src/hooks/useCookieConsent.ts	2026-10-12 16:18:35.349802747 +0000
+@@ -15,6 +15,7 @@
+ const COOKIE_NAME = "cookie_consent";
+ const MAX_AGE_DAYS = 365;
+ const GA_ID = "G-J56BFX8610";
++const OFFLINE_BUNDLE = true;
+ const CONSENT_CHANGED_EVENT = "oscal-cookie-consent-changed";
+ 
+ /** Read the current consent cookie (returns null if unset). */
+@@ -52,6 +53,8 @@
+ 
+ /** Dynamically inject GA if it hasn't been loaded yet. */
+ function enableGA() {
++  // DataGerry bundle: analytics disabled (offline, no third-party requests)
++  if (OFFLINE_BUNDLE) return;
+   if (gaLoaded) {
+     // Re-enable if it was previously disabled
+     window[`ga-disable-${GA_ID}`] = false;
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/src/hooks/useUrlDocument.ts build/oscal-viewer-main/src/hooks/useUrlDocument.ts
+--- orig/oscal-viewer-main/src/hooks/useUrlDocument.ts	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/src/hooks/useUrlDocument.ts	2026-10-12 16:18:35.349891297 +0000
+@@ -42,7 +42,7 @@
+ 
+     let cancelled = false;
+     const controller = new AbortController();
+-    const timeoutId = setTimeout(() => controller.abort(), 10_000);
++    const timeoutId = setTimeout(() => controller.abort(), 120_000);
+     setIsLoading(true);
+     setError(null);
+     setJson(null);
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/src/theme/global.css build/oscal-viewer-main/src/theme/global.css
+--- orig/oscal-viewer-main/src/theme/global.css	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/src/theme/global.css	2026-10-12 16:19:17.634430182 +0000
+@@ -4,7 +4,6 @@
+    Colors use CSS custom properties injected by applyTheme().
+    ═══════════════════════════════════════════════════════════════════════════ */
+ 
+-@import url('https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,300;0,400;0,500;0,700;1,400;1,700&family=Roboto+Mono:wght@400;500&display=swap');
+ 
+ /* ── Reset ── */
+ *,
+diff -ruN -x node_modules -x dist -x '*.tsbuildinfo' orig/oscal-viewer-main/vite.config.ts build/oscal-viewer-main/vite.config.ts
+--- orig/oscal-viewer-main/vite.config.ts	2026-10-08 19:50:38.000000000 +0000
++++ build/oscal-viewer-main/vite.config.ts	2026-10-12 16:18:35.350273406 +0000
+@@ -163,6 +163,8 @@
+ 
+ // https://vite.dev/config/
+ export default defineConfig({
++  base: './',
++  build: { chunkSizeWarningLimit: 4000 },
+   plugins: [react(), corsProxyPlugin()],
+   server: {
+     port: 5173,

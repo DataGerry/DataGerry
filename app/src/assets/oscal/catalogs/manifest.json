@@ -1,0 +1,88 @@
+{
+  "schemaVersion": 1,
+  "viewer": {
+    "path": "assets/oscal/viewer/index.html",
+    "name": "OSCAL Viewer (EasyDynamics/oscal-viewer)",
+    "license": "MIT",
+    "licenseFile": "assets/oscal/licenses/oscal-viewer-MIT.txt",
+    "source": "https://github.com/EasyDynamics/oscal-viewer",
+    "notes": "Static build with hash routing; analytics, cookie banner and web fonts removed for offline use; only same-origin documents can be loaded."
+  },
+  "catalogs": [
+    {
+      "id": "bsi-grundschutz-plus-plus",
+      "title": "Anwenderkatalog Grundschutz++",
+      "publisher": "BSI",
+      "version": "2026-09-24",
+      "lastModified": "2026-09-24T07:12:47Z",
+      "language": "de",
+      "groups": 20,
+      "controls": 1000,
+      "file": "assets/oscal/catalogs/bsi-grundschutz-plus-plus.json",
+      "size": 3303845,
+      "license": "CC-BY-SA-4.0",
+      "licenseFile": "assets/oscal/licenses/bsi-stand-der-technik-CC-BY-SA-4.0.txt",
+      "source": "https://github.com/BSI-Bund/Stand-der-Technik-Bibliothek/blob/main/control_layer/Grundschutz%2B%2B/Grundschutz%2B%2B-resolved_catalog.json"
+    },
+    {
+      "id": "bsi-lieferkettensicherheit",
+      "title": "Supply Chain Security (Lieferkettensicherheit)",
+      "publisher": "BSI",
+      "version": "2026-09-24",
+      "lastModified": "2026-09-24T07:13:10Z",
+      "language": "de",
+      "groups": 7,
+      "controls": 146,
+      "file": "assets/oscal/catalogs/bsi-lieferkettensicherheit.json",
+      "size": 416628,
+      "license": "CC-BY-SA-4.0",
+      "licenseFile": "assets/oscal/licenses/bsi-stand-der-technik-CC-BY-SA-4.0.txt",
+      "source": "https://github.com/BSI-Bund/Stand-der-Technik-Bibliothek/blob/main/control_layer/Lieferkettensicherheit/Lieferkettensicherheit-resolved_catalog.json"
+    },
+    {
+      "id": "bsi-wlan",
+      "title": "Stand der Technik WLAN",
+      "publisher": "BSI",
+      "version": "2026-09-24",
+      "lastModified": "2026-09-24T07:15:17Z",
+      "language": "de",
+      "groups": 6,
+      "controls": 48,
+      "file": "assets/oscal/catalogs/bsi-wlan.json",
+      "size": 184222,
+      "license": "CC-BY-SA-4.0",
+      "licenseFile": "assets/oscal/licenses/bsi-stand-der-technik-CC-BY-SA-4.0.txt",
+      "source": "https://github.com/BSI-Bund/Stand-der-Technik-Bibliothek/blob/main/control_layer/WLAN/WLAN-resolved_catalog.json"
+    },
+    {
+      "id": "nist-sp800-53-rev5",
+      "title": "NIST SP 800-53 Rev. 5.2.0 Controls and SP 800-53A Assessment Procedures",
+      "publisher": "NIST",
+      "version": "5.2.0",
+      "lastModified": "2026-05-11T16:01:09Z",
+      "language": "en",
+      "groups": 20,
+      "controls": 1196,
+      "file": "assets/oscal/catalogs/nist-sp800-53-rev5.json",
+      "size": 4883858,
+      "license": "Public Domain (CC0-1.0)",
+      "licenseFile": "assets/oscal/licenses/nist-oscal-content-public-domain.md",
+      "source": "https://github.com/usnistgov/oscal-content/blob/main/nist.gov/SP800-53/rev5/json/NIST_SP-800-53_rev5_catalog-min.json"
+    },
+    {
+      "id": "nist-csf-2.0",
+      "title": "NIST Cybersecurity Framework 2.0",
+      "publisher": "NIST",
+      "version": "2.0 (OSCAL 1.2.0)",
+      "lastModified": "2026-05-11T16:01:09Z",
+      "language": "en",
+      "groups": 6,
+      "controls": 219,
+      "file": "assets/oscal/catalogs/nist-csf-2.0.json",
+      "size": 173296,
+      "license": "Public Domain (CC0-1.0)",
+      "licenseFile": "assets/oscal/licenses/nist-oscal-content-public-domain.md",
+      "source": "https://github.com/usnistgov/oscal-content/blob/main/nist.gov/CSF/v2.0/json/NIST_CSF_v2.0_catalog-min.json"
+    }
+  ]
+}
