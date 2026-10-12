@@ -71,6 +71,7 @@ python-bidi==0.6.6
 python-dateutil==2.9.0.post0
 PyYAML==6.0.2
 qrcode==8.2
+regex==2026.9.29
 reportlab==4.5.1
 requests==2.34.2
 six==1.17.0
