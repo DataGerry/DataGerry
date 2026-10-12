@@ -38,8 +38,9 @@ from cmdb.models.isms_model import (
     IsmsControlMeasureAssignment,
 )
 from cmdb.framework.isms import RiskMatrixReportBuilder
-from cmdb.models.person_model import CmdbPerson, PersonKey
-from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
+from cmdb.models.person_model import PersonKey
+from cmdb.models.person_group_model import PersonGroupKey, PersonReferenceType
+from cmdb.framework.person.directory import person_lookup_stage
 from cmdb.models.isms_model.isms_control_measure_constants import ControlMeasureKey
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_protection_goal_constants import ProtectionGoalKey
@@ -233,18 +234,8 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
         *object_reference_lookup_stages(),
 
         # Step 6: Lookup person/personGroup
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
-            RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonKey.PUBLIC_ID.value,
-            ReportAlias.RESPONSIBLE_PERSON.value,
-        ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
-            RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
-            ReportAlias.RESPONSIBLE_PERSON_GROUP.value,
-        ),
+        person_lookup_stage(RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value, ReportAlias.RESPONSIBLE_PERSON.value),
+        person_lookup_stage(RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value, ReportAlias.RESPONSIBLE_PERSON_GROUP.value),
 
         # Resolve each risk_calculation matrix cell + its risk class (before and after treatment)
         *risk_matrix_class_lookup_stages(

@@ -72,8 +72,9 @@ from cmdb.models.extendable_option_model import CmdbExtendableOption, Extendable
 from cmdb.models.object_model import CmdbObject, CmdbObjectKey
 from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey, ObjectReferenceType
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
-from cmdb.models.person_model import CmdbPerson, PersonKey
-from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey, PersonReferenceType
+from cmdb.models.person_model import PersonKey
+from cmdb.models.person_group_model import PersonGroupKey, PersonReferenceType
+from cmdb.framework.person.directory import person_lookup_stage
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Resolved (post-lookup) display fields the RiskAssessment report free-text search matches against.
@@ -540,66 +541,26 @@ def risk_assessment_report_stages() -> list[dict[str, Any]]:
         *object_reference_lookup_stages(),
 
         # Step 7: Lookup the Risk Assessor (P)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
-            RiskAssessmentKey.RISK_ASSESSOR_ID.value,
-            PersonKey.PUBLIC_ID.value,
-            ReportAlias.RISK_ASSESSOR_PERSON.value,
-        ),
+        person_lookup_stage(RiskAssessmentKey.RISK_ASSESSOR_ID.value, ReportAlias.RISK_ASSESSOR_PERSON.value),
         Builder.unwind_({
             "path": field_reference(ReportAlias.RISK_ASSESSOR_PERSON),
             "preserveNullAndEmptyArrays": True,
         }),
 
         # Step 8: Lookup Risk Owner (P or PG)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
-            RiskAssessmentKey.RISK_OWNER_ID.value,
-            PersonKey.PUBLIC_ID.value,
-            ReportAlias.RISK_OWNER_PERSON.value,
-        ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
-            RiskAssessmentKey.RISK_OWNER_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
-            ReportAlias.RISK_OWNER_GROUP.value,
-        ),
+        person_lookup_stage(RiskAssessmentKey.RISK_OWNER_ID.value, ReportAlias.RISK_OWNER_PERSON.value),
+        person_lookup_stage(RiskAssessmentKey.RISK_OWNER_ID.value, ReportAlias.RISK_OWNER_GROUP.value),
 
         # Step 9: Lookup Responsible Person (P or PG)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
-            RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonKey.PUBLIC_ID.value,
-            ReportAlias.RESPONSIBLE_PERSON.value,
-        ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
-            RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
-            ReportAlias.RESPONSIBLE_PERSON_GROUP.value,
-        ),
+        person_lookup_stage(RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value, ReportAlias.RESPONSIBLE_PERSON.value),
+        person_lookup_stage(RiskAssessmentKey.RESPONSIBLE_PERSONS_ID.value, ReportAlias.RESPONSIBLE_PERSON_GROUP.value),
 
         # Step 10: Lookup Auditor (P or PG)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
-            RiskAssessmentKey.AUDITOR_ID.value,
-            PersonKey.PUBLIC_ID.value,
-            ReportAlias.AUDITOR_PERSON.value,
-        ),
-        Builder.lookup_(
-            CmdbPersonGroup.COLLECTION,
-            RiskAssessmentKey.AUDITOR_ID.value,
-            PersonGroupKey.PUBLIC_ID.value,
-            ReportAlias.AUDITOR_GROUP.value,
-        ),
+        person_lookup_stage(RiskAssessmentKey.AUDITOR_ID.value, ReportAlias.AUDITOR_PERSON.value),
+        person_lookup_stage(RiskAssessmentKey.AUDITOR_ID.value, ReportAlias.AUDITOR_GROUP.value),
 
         # Step 11: Lookup Interviewed Persons (multiple P)
-        Builder.lookup_(
-            CmdbPerson.COLLECTION,
-            RiskAssessmentKey.INTERVIEWED_PERSONS.value,
-            PersonKey.PUBLIC_ID.value,
-            ReportAlias.INTERVIEWED_PERSONS_DATA.value,
-        ),
+        person_lookup_stage(RiskAssessmentKey.INTERVIEWED_PERSONS.value, ReportAlias.INTERVIEWED_PERSONS_DATA.value),
 
         # Step 12: Lookup risk class matrix values for risk_before
         Builder.correlated_lookup_(

@@ -103,6 +103,7 @@ def get_cmdb_type_schema() -> dict[str, Any]:
     # pylint: disable=import-outside-toplevel
     from cmdb.models.type_model.section_type_enum import SectionType
     from cmdb.models.type_model.type_constants import NESTED_SUMMARY_PREFIX_DEFAULT
+    from cmdb.models.special_type_model.person_constants import PersonRefKind
 
     return {
         'public_id': {  # public_id of the CmdbType
@@ -211,6 +212,15 @@ def get_cmdb_type_schema() -> dict[str, Any]:
                         'schema': {
                             'type': ['integer', 'list'],
                         }
+                    },
+                    "person_ref_kind": {  # What a 'person' field may select - a PersonRefKind value
+                        'type': 'string',
+                        'required': False,
+                        'allowed': [member.value for member in PersonRefKind],
+                    },
+                    "multiple": {  # Whether a 'person' field holds a list of selections
+                        'type': 'boolean',
+                        'required': False,
                     },
                     "summaries": {
                         'type': 'list',

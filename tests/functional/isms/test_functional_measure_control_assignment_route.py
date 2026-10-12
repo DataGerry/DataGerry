@@ -31,7 +31,6 @@ from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment, IsmsRiskAssessment, IsmsRisk
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
-from cmdb.models.person_model.cmdb_person import CmdbPerson
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.errors.manager.control_measure_assignment_manager import (
@@ -46,6 +45,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     IsmsManagerErrorMessage,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
+from tests.utils.person_seed import ensure_person_types, insert_objects, person_doc, remove_objects
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/control_measure_assignments'
@@ -118,8 +118,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
             .delete_many({'public_id': {'$in': ALL_OBJECT_GROUP_IDS}})
         database_manager.get_collection(IsmsControlMeasure.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_CONTROL_MEASURE_IDS}})
-        database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
+        remove_objects(database_manager, database_name, ALL_PERSON_IDS)
 
     _purge()
     # Seed what _cma_payload references - the ControlMeasure, the RiskAssessment and the responsible person -
@@ -128,9 +127,8 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
         {'public_id': CONTROL_MEASURE_ID, 'title': 'Seeded Control', 'control_measure_type': 'CONTROL'}
     )
     _store_risk_assessment(database_manager, database_name, {'public_id': RISK_ASSESSMENT_ID})
-    database_manager.get_collection(CmdbPerson.COLLECTION, database_name).insert_one(
-        {'public_id': RESPONSIBLE_PERSON_ID, 'display_name': 'Responsible'}
-    )
+    person_type_id, _ = ensure_person_types(database_manager, database_name)
+    insert_objects(database_manager, database_name, person_doc(RESPONSIBLE_PERSON_ID, person_type_id, 'Responsible'))
     yield
     _purge()
 

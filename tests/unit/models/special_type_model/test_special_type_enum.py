@@ -37,6 +37,8 @@ def test_get_special_types_maps_every_member_to_its_display_label() -> None:
         SpecialType.VLAN: 'IPAM - VLAN class',
         SpecialType.RACK: 'Rack View - Rack class',
         SpecialType.CABLE: 'Port Connectivity - Cable class',
+        SpecialType.PERSON: 'Persons - Person class',
+        SpecialType.PERSON_GROUP: 'Persons - Person group class',
     }
 
 
@@ -54,6 +56,7 @@ def test_get_unused_types_omits_claimed_special_types() -> None:
 
     assert set(unused) == {
         SpecialType.SUPERNET, SpecialType.VLAN, SpecialType.RACK, SpecialType.CABLE,
+        SpecialType.PERSON, SpecialType.PERSON_GROUP,
     }
 
 
@@ -131,14 +134,48 @@ def test_get_license_gated_types_is_the_ipam_members_plus_rack_and_cable() -> No
     )
 
 
-def test_every_member_is_either_an_ipam_type_or_gated_on_its_own() -> None:
+def test_every_member_is_either_gated_or_a_person_type() -> None:
     """
     Adding a SpecialType without deciding its license gating fails loudly here
 
     An ungated member would be creatable on an unlicensed instance, which is the one thing a
-    SpecialType must never be by accident.
+    SpecialType must never be by accident. The person types are the one deliberate exception:
+    persons are a standard DataGerry feature, so PERSON and PERSON_GROUP stay ungated
     """
-    assert set(SpecialType) == SpecialType.get_license_gated_types()
+    assert set(SpecialType) == SpecialType.get_license_gated_types() | SpecialType.get_person_types()
+    assert not SpecialType.get_license_gated_types() & SpecialType.get_person_types()
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               person membership (ungated)                                            #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_person_types_holds_exactly_person_and_person_group() -> None:
+    """The members a person field may select"""
+    assert SpecialType.get_person_types() == frozenset({SpecialType.PERSON, SpecialType.PERSON_GROUP})
+
+
+@pytest.mark.parametrize('value', [SpecialType.PERSON, SpecialType.PERSON_GROUP, 'PERSON', 'PERSON_GROUP'])
+def test_the_person_types_are_not_license_gated(value: object) -> None:
+    """Persons are not behind any license: neither the member nor its stored string is gated"""
+    assert SpecialType.is_license_gated(value) is False
+
+
+@pytest.mark.parametrize('value', [SpecialType.PERSON, SpecialType.PERSON_GROUP, 'PERSON', 'PERSON_GROUP'])
+def test_the_person_types_are_no_ipam_types(value: object) -> None:
+    """Nor do they belong to the IPAM feature"""
+    assert SpecialType.is_ipam_type(value) is False
+
+
+@pytest.mark.parametrize('value', [SpecialType.PERSON, SpecialType.PERSON_GROUP, 'PERSON', 'PERSON_GROUP'])
+def test_is_person_type_accepts_the_members_and_their_raw_values(value: object) -> None:
+    """Members and their stored string values both resolve"""
+    assert SpecialType.is_person_type(value) is True
+
+
+@pytest.mark.parametrize('value', [SpecialType.SUBNET, SpecialType.RACK, 'CABLE', None, '', 'person', 42])
+def test_is_person_type_refuses_everything_else(value: object) -> None:
+    """Other members, a wrong-case token and non-strings are no person type - and do not raise"""
+    assert SpecialType.is_person_type(value) is False
 
 
 @pytest.mark.parametrize('member', [SpecialType.RACK, SpecialType.CABLE], ids=str)

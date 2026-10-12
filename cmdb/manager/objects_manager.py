@@ -78,6 +78,8 @@ from cmdb.manager.objects_reference_helper import (
 )
 from cmdb.manager.objects_summary_helper import compose_summary_line
 from cmdb.manager.risk_assessment_cascade_helper import delete_risk_assessments_of
+from cmdb.manager.person_reference_helper import clear_object_person_references
+from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRiskAssessment
 from cmdb.manager.objects_propagation_helper import RawUpdate
 
 from cmdb.errors.manager import (
@@ -1180,6 +1182,10 @@ class ObjectsManager(BaseManager):
         bulk ``update_many_raw`` writes (regular fields, then MDS rows). A cleared reference becomes
         an empty string. An empty list is a no-op
 
+        A deleted person or person group is also removed from every person field selecting it (a single
+        selection becomes None, a multiple one loses the entry) and from the ISMS documents referencing it
+        - see ``_person_scrubs`` and ``clear_object_person_references``
+
         Args:
             public_ids (int | list[int]): A single object public_id or a list of them whose
                 references should be removed from all other objects
@@ -1206,6 +1212,17 @@ class ObjectsManager(BaseManager):
                 ("multi_data_sections.values.data", "multi_data_sections.$[].values.$[].data.$[f].value"),
             ):
                 self.update_many_raw(**self._reference_scrub(rows_path, value_path, ids_filter))
+
+                for person_scrub in self._person_scrubs(rows_path, value_path, ids_filter):
+                    self.update_many_raw(**person_scrub)
+
+            clear_object_person_references(
+                self.dbm,
+                self.db_name,
+                IsmsRiskAssessment.COLLECTION,
+                IsmsControlMeasureAssignment.COLLECTION,
+                public_ids if isinstance(public_ids, list) else [public_ids],
+            )
         except Exception as err:
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
@@ -1235,6 +1252,43 @@ class ObjectsManager(BaseManager):
             "update": {"$set": {value_path: ""}},
             "array_filters": [{"f.type": {"$in": ref_field_types}, "f.value": ids_filter}],
         }
+
+
+    @staticmethod
+    def _person_scrubs(rows_path: str, value_path: str, ids_filter: Any) -> list[dict[str, Any]]:
+        """
+        Builds the ``update_many_raw`` calls that drop the given ids from every person field
+
+        A person field (FieldType.PERSON) holds one ``{'ref_type', 'id'}`` pair or a list of them, and the two
+        need different writes: a single selection naming a deleted id is set to None, a list loses the
+        matching entries through ``$pull`` (which refuses a non-array value - hence the split on the value's
+        BSON type in the array filters)
+
+        Args:
+            rows_path (str): Where the rows sit (``fields``, or the MDS rows' ``data``)
+            value_path (str): The positional path of a matching row's ``value``, through ``$[f]``
+            ids_filter (Any): The id filter - one public_id, or an ``$in`` clause
+
+        Returns:
+            list[dict[str, Any]]: The keyword arguments of the single-selection and of the list write
+        """
+        person_type: str = FieldType.PERSON.value
+        row_match: dict[str, Any] = {"type": person_type, "value.id": ids_filter}
+
+        return [
+            {
+                "filter_query": {rows_path: {"$elemMatch": row_match}},
+                "update": {"$set": {value_path: None}},
+                "array_filters": [
+                    {"f.type": person_type, "f.value.id": ids_filter, "f.value": {"$not": {"$type": "array"}}},
+                ],
+            },
+            {
+                "filter_query": {rows_path: {"$elemMatch": row_match}},
+                "update": {"$pull": {value_path: {"id": ids_filter}}},
+                "array_filters": [{"f.type": person_type, "f.value": {"$type": "array"}}],
+            },
+        ]
 
 
     def set_location_field_for_objects(self, object_ids: list[int], parent_id: int | None) -> None:

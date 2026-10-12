@@ -66,7 +66,7 @@ def test_interviewed_persons_accepts_positive_integer_ids(interviewed: Any) -> N
                          ids=['zero', 'negative', 'string', 'fraction', 'document', 'nested-list'])
 def test_interviewed_persons_refuses_an_entry_that_is_no_id(entry: Any) -> None:
     """
-    Each entry is a CmdbPerson public_id, so anything else is refused before the reference check
+    Each entry is the public_id of a PERSON object, so anything else is refused before the reference check
 
     A bool is not among them: Cerberus counts it as an integer, so it is the reference check that refuses it
     """

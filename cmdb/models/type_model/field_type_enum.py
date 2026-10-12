@@ -34,3 +34,4 @@ class FieldType(BaseStrEnum):
     REFERENCE = 'ref'
     LOCATION = 'location'
     REF_SECTION = 'ref-section-field'
+    PERSON = 'person'

@@ -36,6 +36,7 @@ from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterCon
 from cmdb.framework.exporter.exporter_constants import ExporterOptionKey, ExporterMetadataKey
 from cmdb.framework.rendering.render_constants import RenderedFieldKey
 from cmdb.framework.rendering.render_result import RenderResult
+from cmdb.framework.person.person_values import referenced_ids
 
 from cmdb.errors.exporter import ExporterColumnError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -589,6 +590,15 @@ class BaseExporterFormat:
         Returns:
             Any: The resolved display value
         """
+        if isinstance(field, dict) and field.get(FieldKey.TYPE.value) == FieldType.PERSON.value:
+            # A person field holds {'ref_type', 'id'} pairs; exported as 'PERSON #12; PERSON_GROUP #3'
+            selections = [
+                f"{ref_type} #{object_id}"
+                for ref_type, object_id in referenced_ids(field.get(FieldKey.VALUE.value))
+            ]
+
+            return '; '.join(selections) if selections else EMPTY_CELL
+
         if human_readable and isinstance(field, dict):
             field_type = field.get(FieldKey.TYPE.value)
 

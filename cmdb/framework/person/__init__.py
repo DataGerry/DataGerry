@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,5 +14,9 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Schema definitions for the classes of the person_group_model
+The Persons feature: the PERSON / PERSON_GROUP SpecialTypes and the person field (FieldType.PERSON)
+
+* ``person_values`` - pure helpers for the value a person field stores
+* ``enforcement`` - the person invariants on the CmdbObject write path
+* ``directory`` - reads persons and groups as the ISMS module and the person routes see them
 """

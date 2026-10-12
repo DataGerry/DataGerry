@@ -21,7 +21,11 @@ fields copes:
 
   - the model reads the document back and writes it out unchanged
   - the risk-assessment report names nobody for both, and still names the people of an assessment that has them
-  - the person and person-group delete cascades leave the null pairs alone - their criteria match nothing there
+  - the object delete cleanup of a person or group leaves the null pairs alone - it matches nothing there - and
+    still clears the references of the assessment that has them
+
+Persons and groups are CmdbObjects of the PERSON / PERSON_GROUP SpecialTypes; the report joins them from the
+object collection
 """
 from typing import Any
 
@@ -29,11 +33,9 @@ import pytest
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentManager
-from cmdb.manager.person_reference_helper import risk_assessment_reference_criteria
-from cmdb.models.isms_model import IsmsRisk, IsmsRiskAssessment
+from cmdb.manager.person_reference_helper import clear_object_person_references
+from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRisk, IsmsRiskAssessment
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
-from cmdb.models.person_model import CmdbPerson
-from cmdb.models.person_group_model import CmdbPersonGroup
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import RiskAssessmentReportKey
 from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
@@ -42,6 +44,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_helper import (
 )
 
 from tests.functional.isms.test_functional_risk_assessment_route import _ra_body
+from tests.utils.person_seed import ensure_person_types, group_doc, insert_objects, person_doc, remove_objects
 # -------------------------------------------------------------------------------------------------------------------- #
 
 EMPTY_RA_ID: int = 98701
@@ -76,20 +79,21 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
     collections: dict[str, Any] = {
         'assessments': database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name),
         'risks': database_manager.get_collection(IsmsRisk.COLLECTION, database_name),
-        'persons': database_manager.get_collection(CmdbPerson.COLLECTION, database_name),
-        'groups': database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name),
     }
+    person_type_id, group_type_id = ensure_person_types(database_manager, database_name)
 
     def _purge() -> None:
         collections['assessments'].delete_many({'public_id': {'$in': RA_IDS}})
         collections['risks'].delete_many({'public_id': RISK_ID})
-        collections['persons'].delete_many({'public_id': PERSON_ID})
-        collections['groups'].delete_many({'public_id': GROUP_ID})
+        remove_objects(database_manager, database_name, [PERSON_ID, GROUP_ID])
 
     _purge()
     collections['risks'].insert_one({'public_id': RISK_ID, 'name': 'Null pair risk'})
-    collections['persons'].insert_one({'public_id': PERSON_ID, 'display_name': PERSON_NAME})
-    collections['groups'].insert_one({'public_id': GROUP_ID, 'name': GROUP_NAME})
+    insert_objects(
+        database_manager, database_name,
+        person_doc(PERSON_ID, person_type_id, PERSON_NAME),
+        group_doc(GROUP_ID, group_type_id, GROUP_NAME, [PERSON_ID]),
+    )
     collections['assessments'].insert_many([
         _assessment(EMPTY_RA_ID, OTHER_OWNER_ID, **NULL_PAIRS),
         _assessment(STAFFED_RA_ID, PERSON_ID, **{
@@ -126,19 +130,19 @@ def test_the_report_names_nobody_for_a_null_pair(collections) -> None:
         == (GROUP_NAME, PERSON_NAME)
 
 
-@pytest.mark.parametrize('referenced_id, reference_type', [
-    (PERSON_ID, PersonReferenceType.PERSON), (GROUP_ID, PersonReferenceType.PERSON_GROUP),
-])
-def test_the_delete_cascades_do_not_match_a_null_pair(collections, referenced_id: int,
-                                                      reference_type: PersonReferenceType) -> None:
-    """The cascade criteria pair the id with its type, so a null pair is no one's reference"""
-    matched: set[int] = {
-        doc['public_id']
-        for doc in collections['assessments'].find({
-            '$and': [risk_assessment_reference_criteria(referenced_id, reference_type),
-                     {'public_id': {'$in': RA_IDS}}],
-        })
-    }
+@pytest.mark.parametrize('referenced_id', [PERSON_ID, GROUP_ID])
+def test_the_delete_cleanup_does_not_touch_a_null_pair(database_manager: MongoDatabaseManager, database_name: str,
+                                                      collections, referenced_id: int) -> None:
+    """The cleanup matches the bare id, so a null pair is no one's reference - the staffed one is cleared"""
+    empty_before: dict[str, Any] = collections['assessments'].find_one({'public_id': EMPTY_RA_ID})
 
-    assert EMPTY_RA_ID not in matched
-    assert STAFFED_RA_ID in matched
+    clear_object_person_references(
+        database_manager, database_name, IsmsRiskAssessment.COLLECTION, IsmsControlMeasureAssignment.COLLECTION,
+        [referenced_id],
+    )
+
+    staffed: dict[str, Any] = collections['assessments'].find_one({'public_id': STAFFED_RA_ID})
+    cleared_key: str = AUDITOR_KEY if referenced_id == PERSON_ID else RESPONSIBLE_KEY
+
+    assert collections['assessments'].find_one({'public_id': EMPTY_RA_ID}) == empty_before
+    assert staffed[cleared_key] is None

@@ -27,8 +27,6 @@ from cmdb.manager import (
     ObjectsManager,
     ControlMeasureAssignmentManager,
     RiskManager,
-    PersonsManager,
-    PersonGroupsManager,
 )
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -46,6 +44,7 @@ from cmdb.manager.person_reference_helper import (
 )
 
 from cmdb.framework.results import IterationResult
+from cmdb.framework.person.directory import get_person_labels
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import (
@@ -478,13 +477,6 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
                                                         request_user
                                                       )
     risk_manager: RiskManager = ManagerProvider.get_manager(ManagerType.RISK, request_user)
-    persons_manager: PersonsManager = ManagerProvider.get_manager(
-        ManagerType.PERSON, request_user
-    )
-    person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(
-        ManagerType.PERSON_GROUP,
-        request_user
-    )
 
     # Add RiskAssessments from ObjectGroups
     # # STEP 1: Extract object_id from the fixed filter
@@ -560,25 +552,19 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
         g['public_id']: g['name'] for g in
         object_groups_manager.find_all(criteria={'public_id': {'$in': list(object_group_ids)}})
     }
-    persons = {}
-    if person_ids:
-        persons = {
-            p['public_id']: p['display_name'] for p in
-            persons_manager.find_all(criteria={'public_id': {'$in': list(person_ids)}})
-        }
-
-    responsible_persons = {}
-    if responsible_person_ids:
-        responsible_persons = {
-            p['public_id']: p['display_name'] for p in
-            persons_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_ids)}})
-        }
-    responsible_person_groups = {}
-    if responsible_person_group_ids:
-        responsible_person_groups = {
-            g['public_id']: g['name'] for g in
-            person_groups_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_group_ids)}})
-        }
+    # Persons and groups are CmdbObjects; one query labels every person and group the page references
+    person_labels: dict[int, str] = get_person_labels(
+        objects_manager,
+        ManagerProvider.get_manager(ManagerType.TYPES, request_user),
+        person_ids | responsible_person_ids | responsible_person_group_ids,
+    )
+    persons = {person_id: person_labels[person_id] for person_id in person_ids if person_id in person_labels}
+    responsible_persons = {
+        person_id: person_labels[person_id] for person_id in responsible_person_ids if person_id in person_labels
+    }
+    responsible_person_groups = {
+        group_id: person_labels[group_id] for group_id in responsible_person_group_ids if group_id in person_labels
+    }
 
     # Resolve the referenced objects' summary lines in a single batch instead of one per assessment
     object_summaries = objects_manager.get_summary_lines_lookup(list(object_ids)) if object_ids else {}

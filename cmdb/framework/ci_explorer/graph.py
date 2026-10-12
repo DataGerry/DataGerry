@@ -58,6 +58,8 @@ Pipeline:
      second branch reflects the slots the first one spent
   5. When ``with_ipam_relations``, walk one hop in each direction of the IPAM SpecialType hierarchy
      (SUPERNET <-> SUBNET <-> VLAN/Interface) and collect the raw neighbour CmdbObjects
+  5b. When ``with_person_relations``, collect the persons and groups the focal object's person fields
+     select (children) and the objects whose person fields select it (parents) - see ``persons.py``
   5a. When ``with_port_connections``, walk the physical chain out of every cabled port of the focal
      object and collect the CIs its cables reach, patch panels included (see ``connections.py``)
   6. Bulk-fetch the CmdbType documents for every object in scope (single $in)
@@ -104,6 +106,12 @@ from cmdb.framework.ci_explorer.enrichment import (
     build_summary_lookup,
     collect_ref_and_location_ids,
     flatten_object_fields,
+)
+from cmdb.framework.ci_explorer.persons import (
+    PERSON_RELATION_COLOR,
+    PersonNeighbour,
+    collect_person_neighbours,
+    compose_person_edge,
 )
 from cmdb.framework.ci_explorer.ipam import (
     IPAM_RELATION_COLOR,
@@ -705,6 +713,47 @@ def compose_ipam_buckets(
             ))
 
 
+def compose_person_buckets(
+        request: CiExplorerGraphRequest,
+        person_neighbours: list[PersonNeighbour],
+        types_by_id: dict[int, dict[str, Any]],
+        enriched_by_id: dict[int, dict[str, Any]],
+        buckets: GraphBuckets) -> None:
+    """
+    Composes the person-field neighbours into the standard parent / child buckets, in place
+
+    Their edges carry ``metadata.source='person'`` so the frontend can tell them from CmdbRelation edges
+
+    Args:
+        request (CiExplorerGraphRequest): What the caller asked for
+        person_neighbours (list[PersonNeighbour]): The neighbours the person source found
+        types_by_id (dict[int, dict[str, Any]]): The CmdbTypes of the in-scope objects
+        enriched_by_id (dict[int, dict[str, Any]]): The enriched objects by public_id
+        buckets (GraphBuckets): The buckets to fill
+    """
+    for person_neighbour in person_neighbours:
+        composable = resolve_composable(
+            person_neighbour.neighbour_object, types_by_id, enriched_by_id, 'person neighbour',
+        )
+
+        if composable is None:
+            continue
+
+        neighbour_id, type_doc, enriched_obj = composable
+        node: dict[str, Any] = compose_node(enriched_obj, type_doc, PERSON_RELATION_COLOR)
+
+        if person_neighbour.is_child_of_target:
+            buckets.child_nodes_by_id[neighbour_id] = node
+            buckets.child_edges.append(
+                compose_person_edge(request.target_id, neighbour_id, person_neighbour.field_label),
+            )
+        else:
+            buckets.parent_nodes_by_id[neighbour_id] = node
+            buckets.parent_edges.append(
+                compose_person_edge(neighbour_id, request.target_id, person_neighbour.field_label),
+            )
+
+
 def load_types_in_scope(
         in_scope_objects: list[dict[str, Any]],
         managers: CiExplorerManagers) -> dict[int, dict[str, Any]]:
@@ -826,6 +875,22 @@ def build_ci_explorer_graph(
         max(0, location_neighbourhood.remaining - len(ipam_neighbours))
         if request.item_limit_active else 0
     )
+
+    person_neighbours: list[PersonNeighbour] = []
+
+    if request.with_person_relations:
+        person_neighbours = collect_person_neighbours(
+            target_id=request.target_id,
+            target_object=root_object,
+            include_parents=request.include_parents,
+            include_children=request.include_children,
+            types_filter=request.types_filter,
+            remaining=remaining,
+            item_limit_active=request.item_limit_active,
+            objects_manager=managers.objects,
+            types_manager=managers.types,
+        )
+        remaining = max(0, remaining - len(person_neighbours)) if request.item_limit_active else 0
     connection_neighbourhood: ConnectionNeighbourhood = load_connection_neighbourhood(
         request, managers, remaining,
     )
@@ -838,6 +903,7 @@ def build_ci_explorer_graph(
 
     in_scope_objects.extend(location_neighbourhood.children_objects)
     in_scope_objects.extend(neighbour.neighbour_object for neighbour in ipam_neighbours)
+    in_scope_objects.extend(neighbour.neighbour_object for neighbour in person_neighbours)
     in_scope_objects.extend(connection_neighbourhood.objects.values())
 
     types_by_id: dict[int, dict[str, Any]] = load_types_in_scope(in_scope_objects, managers)
@@ -854,6 +920,10 @@ def build_ci_explorer_graph(
         ipam_neighbours = drop_denied_neighbours(
             relation_neighbourhood, location_neighbourhood, ipam_neighbours, denied_type_ids,
         )
+        person_neighbours = [
+            neighbour for neighbour in person_neighbours
+            if not is_denied(neighbour.neighbour_object, denied_type_ids)
+        ]
         connection_neighbourhood.objects = {
             neighbour_id: neighbour_object
             for neighbour_id, neighbour_object in connection_neighbourhood.objects.items()
@@ -875,6 +945,7 @@ def build_ci_explorer_graph(
     compose_relation_buckets(relation_neighbourhood, types_by_id, enriched_by_id, buckets)
     compose_location_buckets(request, location_neighbourhood, types_by_id, enriched_by_id, buckets)
     compose_ipam_buckets(request, ipam_neighbours, types_by_id, enriched_by_id, buckets)
+    compose_person_buckets(request, person_neighbours, types_by_id, enriched_by_id, buckets)
     compose_connection_buckets(request, connection_neighbourhood, types_by_id, enriched_by_id, buckets)
 
     if request.include_children:

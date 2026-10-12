@@ -1,4 +1,4 @@
-# DataGerry - OpenSource Enterprise CMDB
+# DATAGERRY - OpenSource Enterprise CMDB
 # Copyright (C) 2026 becon GmbH
 #
 # This program is free software: you can redistribute it and/or modify
@@ -14,19 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for CmdbPersons
-"""
-from .cmdb_person_errors import (
-    CmdbPersonError,
-    CmdbPersonInitError,
-    CmdbPersonInitFromDataError,
-    CmdbPersonToJsonError,
-)
-# -------------------------------------------------------------------------------------------------------------------- #
+Unit tests for cmdb.framework.person
 
-__all__: list[str] = [
-    'CmdbPersonError',
-    'CmdbPersonInitError',
-    'CmdbPersonInitFromDataError',
-    'CmdbPersonToJsonError',
-]
+Each module here mirrors a single source file in cmdb/framework/person/. All of them are pure (no Mongo,
+no Flask): the managers are the in-memory stand-ins of tests.utils.person_stubs
+"""

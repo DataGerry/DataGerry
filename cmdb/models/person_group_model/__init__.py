@@ -14,19 +14,18 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbPersonGroup relevant classes
+PersonReferenceType and the document keys of the former CmdbPersonGroup - the shape GET /person_groups
+still answers a group in (person groups are CmdbObjects of the PERSON_GROUP SpecialType, see cmdb.framework.person)
 """
 from .person_group_constants import (
     PersonGroupKey,
     PERSON_GROUP_OPTIONAL_TEXT_KEYS,
     PERSON_GROUP_LIST_KEYS,
 )
-from .cmdb_person_group import CmdbPersonGroup
 from .person_reference_type_enum import PersonReferenceType
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'CmdbPersonGroup',
     'PersonReferenceType',
     'PersonGroupKey',
     'PERSON_GROUP_OPTIONAL_TEXT_KEYS',

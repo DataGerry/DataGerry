@@ -219,7 +219,7 @@ class TestProfileCrud:
             assert deleted['public_id'] == PROFILE_FOR_DELETE
             assert set(deleted) == {
                 'public_id', 'name', 'types_filter', 'relations_filter',
-                'with_locations', 'with_ipam_relations', 'with_port_connections',
+                'with_locations', 'with_ipam_relations', 'with_port_connections', 'with_person_relations',
             }
         finally:
             collection.delete_one({'public_id': PROFILE_FOR_DELETE})
@@ -229,9 +229,11 @@ class TestProfileCrud:
 #                                                    LABEL FIELD                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestTheThreeToggles:
-    """with_locations, with_ipam_relations and with_port_connections on a profile write."""
+    """with_locations, with_ipam_relations, with_port_connections and with_person_relations on a profile write."""
 
-    TOGGLES: tuple[str, ...] = ('with_locations', 'with_ipam_relations', 'with_port_connections')
+    TOGGLES: tuple[str, ...] = (
+        'with_locations', 'with_ipam_relations', 'with_port_connections', 'with_person_relations',
+    )
 
     @staticmethod
     def _bare(name: str = ORIGINAL_NAME) -> dict[str, Any]:
@@ -247,7 +249,7 @@ class TestTheThreeToggles:
 
     def test_a_create_without_toggles_stores_the_frontends_defaults(
             self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """All three on"""
+        """All four on"""
         new_id = rest_api.post(f'{ROUTE_URL}/profile', json=self._bare()).get_json()['result_id']
 
         try:
@@ -265,6 +267,19 @@ class TestTheThreeToggles:
         try:
             assert self._stored(database_manager, database_name, new_id)['with_port_connections'] is False
             assert response.get_json()['raw']['with_port_connections'] is False
+        finally:
+            database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
+                {'public_id': new_id})
+
+    def test_the_person_relations_toggle_is_stored_and_answered(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Saved like the others, and in the created profile the response carries"""
+        response = rest_api.post(f'{ROUTE_URL}/profile', json={**self._bare(), 'with_person_relations': False})
+        new_id = response.get_json()['result_id']
+
+        try:
+            assert self._stored(database_manager, database_name, new_id)['with_person_relations'] is False
+            assert response.get_json()['raw']['with_person_relations'] is False
         finally:
             database_manager.get_collection(CmdbCiExplorerProfile.COLLECTION, database_name).delete_one(
                 {'public_id': new_id})

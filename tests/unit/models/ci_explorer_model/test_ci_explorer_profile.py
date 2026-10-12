@@ -45,9 +45,12 @@ KEY_RELATIONS_FILTER: str = CiExplorerProfileKey.RELATIONS_FILTER.value
 KEY_WITH_LOCATIONS: str = CiExplorerProfileKey.WITH_LOCATIONS.value
 KEY_WITH_IPAM_RELATIONS: str = CiExplorerProfileKey.WITH_IPAM_RELATIONS.value
 KEY_WITH_PORT_CONNECTIONS: str = CiExplorerProfileKey.WITH_PORT_CONNECTIONS.value
+KEY_WITH_PERSON_RELATIONS: str = CiExplorerProfileKey.WITH_PERSON_RELATIONS.value
 
 ALL_KEYS: frozenset[str] = frozenset(key.value for key in CiExplorerProfileKey)
-TOGGLE_KEYS: tuple[str, ...] = (KEY_WITH_LOCATIONS, KEY_WITH_IPAM_RELATIONS, KEY_WITH_PORT_CONNECTIONS)
+TOGGLE_KEYS: tuple[str, ...] = (
+    KEY_WITH_LOCATIONS, KEY_WITH_IPAM_RELATIONS, KEY_WITH_PORT_CONNECTIONS, KEY_WITH_PERSON_RELATIONS,
+)
 
 # Sample data reused across tests
 SAMPLE_PUBLIC_ID: int = 7
@@ -57,7 +60,7 @@ SAMPLE_RELATIONS_FILTER: list[int] = [10, 20]
 
 
 def _full_profile_dict() -> dict[str, Any]:
-    """A complete profile document with every key set and the three toggles off - away from their defaults"""
+    """A complete profile document with every key set and the four toggles off - away from their defaults"""
     return {
         KEY_PUBLIC_ID: SAMPLE_PUBLIC_ID,
         KEY_NAME: SAMPLE_NAME,
@@ -66,6 +69,7 @@ def _full_profile_dict() -> dict[str, Any]:
         KEY_WITH_LOCATIONS: False,
         KEY_WITH_IPAM_RELATIONS: False,
         KEY_WITH_PORT_CONNECTIONS: False,
+        KEY_WITH_PERSON_RELATIONS: False,
     }
 
 
@@ -73,12 +77,13 @@ def _full_profile_dict() -> dict[str, Any]:
 #                                          from_data - defaults & normalisation                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_from_data_applies_defaults_for_omitted_optionals() -> None:
-    """With only public_id + name set, filters default to [] and all three toggles to True - an older document too"""
+    """With only public_id + name set, filters default to [] and all four toggles to True - an older document too"""
     profile = CmdbCiExplorerProfile.from_data({KEY_PUBLIC_ID: SAMPLE_PUBLIC_ID, KEY_NAME: SAMPLE_NAME})
 
     assert profile.types_filter == []
     assert profile.relations_filter == []
-    assert (profile.with_locations, profile.with_ipam_relations, profile.with_port_connections) == (True, True, True)
+    assert (profile.with_locations, profile.with_ipam_relations, profile.with_port_connections,
+            profile.with_person_relations) == (True, True, True, True)
 
 
 @pytest.mark.parametrize('filter_value', [None, []])
@@ -103,7 +108,8 @@ def test_from_data_preserves_given_values() -> None:
     assert profile.name == SAMPLE_NAME
     assert profile.types_filter == SAMPLE_TYPES_FILTER
     assert profile.relations_filter == SAMPLE_RELATIONS_FILTER
-    assert (profile.with_locations, profile.with_ipam_relations, profile.with_port_connections) == (False, False, False)
+    assert (profile.with_locations, profile.with_ipam_relations, profile.with_port_connections,
+            profile.with_person_relations) == (False, False, False, False)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -151,7 +157,7 @@ def test_toggle_flags_survive_round_trip(with_locations: bool, with_ipam_relatio
 #                                                constructor behaviour                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_init_defaults_when_toggles_omitted() -> None:
-    """Constructing without the toggles yields all three True - the frontend graph's defaults"""
+    """Constructing without the toggles yields all four True - the frontend graph's defaults"""
     profile = CmdbCiExplorerProfile(
         public_id=SAMPLE_PUBLIC_ID,
         name=SAMPLE_NAME,
@@ -159,7 +165,8 @@ def test_init_defaults_when_toggles_omitted() -> None:
         relations_filter=[],
     )
 
-    assert (profile.with_locations, profile.with_ipam_relations, profile.with_port_connections) == (True, True, True)
+    assert (profile.with_locations, profile.with_ipam_relations, profile.with_port_connections,
+            profile.with_person_relations) == (True, True, True, True)
 
 
 @pytest.mark.parametrize('filter_value', [None, []])
@@ -223,8 +230,18 @@ def test_the_port_connections_toggle_round_trips(with_port_connections: bool) ->
     assert result[KEY_WITH_PORT_CONNECTIONS] is with_port_connections
 
 
+@pytest.mark.parametrize('with_person_relations', [True, False])
+def test_the_person_relations_toggle_round_trips(with_person_relations: bool) -> None:
+    """with_person_relations is stored and answered like the other toggles"""
+    source = {KEY_PUBLIC_ID: SAMPLE_PUBLIC_ID, KEY_NAME: SAMPLE_NAME, KEY_WITH_PERSON_RELATIONS: with_person_relations}
+
+    result = CmdbCiExplorerProfile.to_json(CmdbCiExplorerProfile.from_data(source))
+
+    assert result[KEY_WITH_PERSON_RELATIONS] is with_person_relations
+
+
 def test_the_defaults_are_the_frontends() -> None:
-    """All three on - DEFAULT_CI_EXPLORER_SCOPE in ci-explorer.model.ts"""
+    """All four on - DEFAULT_CI_EXPLORER_SCOPE in ci-explorer.model.ts"""
     assert DEFAULT_PROFILE_SCOPE == {key: True for key in TOGGLE_KEYS}
 
 

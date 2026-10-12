@@ -101,3 +101,37 @@ def test_both_features_rejecting_yields_both_messages() -> None:
 
     assert 'IPAM validation failed: bad cidr' in message
     assert 'Rack validation failed: bad height' in message
+
+
+def test_runs_the_person_validator() -> None:
+    """The person fields are judged on every write, beside IPAM and Rack"""
+    objects_manager = MagicMock()
+    types_manager = MagicMock()
+
+    with patch(f'{PATH}.enforce_object_invariants', return_value=[]), \
+         patch(f'{PATH}.enforce_rack_object_invariants', return_value=[]), \
+         patch(f'{PATH}.enforce_person_object_invariants', return_value=[]) as person:
+        assert enforce_object_write_invariants(objects_manager, types_manager, CANDIDATE) is None
+
+    person.assert_called_once_with(objects_manager, types_manager, CANDIDATE)
+
+
+def test_person_errors_keep_the_person_wording() -> None:
+    """A person-field rejection is reported under its own feature name"""
+    with patch(f'{PATH}.enforce_object_invariants', return_value=[]), \
+         patch(f'{PATH}.enforce_rack_object_invariants', return_value=[]), \
+         patch(f'{PATH}.enforce_person_object_invariants', return_value=[_error('bad owner'), _error('bad lead')]):
+        message = enforce_object_write_invariants(MagicMock(), MagicMock(), CANDIDATE)
+
+    assert message == 'Person validation failed: bad owner | bad lead'
+
+
+def test_rack_and_person_rejecting_yields_both_messages() -> None:
+    """Each feature keeps its own prefix when two of them reject the same candidate"""
+    with patch(f'{PATH}.enforce_object_invariants', return_value=[]), \
+         patch(f'{PATH}.enforce_rack_object_invariants', return_value=[_error('bad height')]), \
+         patch(f'{PATH}.enforce_person_object_invariants', return_value=[_error('bad owner')]):
+        message = enforce_object_write_invariants(MagicMock(), MagicMock(), CANDIDATE)
+
+    assert 'Rack validation failed: bad height' in message
+    assert 'Person validation failed: bad owner' in message

@@ -55,6 +55,7 @@ from cmdb.framework.ci_explorer.graph import (
     resolve_composable,
 )
 from cmdb.framework.ci_explorer.ipam import IpamEdgeCategory, IpamNeighbour
+from cmdb.framework.ci_explorer.persons import PersonNeighbour
 from cmdb.models.ci_explorer_model import NodeType
 from cmdb.errors.ci_explorer import CiExplorerGraphBuildError, CiExplorerTargetNotFoundError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1054,3 +1055,52 @@ class TestThePortConnectionSource:
         in_scope_ids = [obj['public_id'] for obj in mock_enrich.call_args.args[0]]
 
         assert CONNECTED_CI_ID in in_scope_ids
+
+
+class TestThePersonNeighboursFoldIntoTheStandardBuckets:
+    """Person-field hops are drawn as ordinary parent/child neighbours, with a 'person' edge."""
+
+    @pytest.mark.parametrize('is_child, node_key, edge_key', [
+        (True, 'children_nodes', 'child_edges'),
+        (False, 'parent_nodes', 'parent_edges'),
+    ], ids=['selected_by_target', 'selecting_the_target'])
+    def test_the_direction_decides_the_bucket(
+        self, is_child: bool, node_key: str, edge_key: str,
+    ) -> None:
+        """A person the focal object selects is a child; an object selecting the focal person is a parent"""
+        neighbour = PersonNeighbour(neighbour_object=_object(78), is_child_of_target=is_child, field_label='Owner')
+        managers = _managers(types=[_type_doc()])
+
+        with patch(f'{MODULE_PATH}.collect_person_neighbours', return_value=[neighbour]):
+            response = build_ci_explorer_graph(_request(with_person_relations=True), managers)
+
+        assert [node['linked_object']['public_id'] for node in response[node_key]] == [78]
+        [edge] = response[edge_key]
+        assert edge['metadata']['source'] == 'person'
+        assert edge['metadata']['relation_label'] == 'Owner'
+        assert (edge['from'], edge['to']) == ((TARGET_ID, 78) if is_child else (78, TARGET_ID))
+
+    def test_no_person_walk_happens_when_the_flag_is_off(self) -> None:
+        """The person branch costs nothing when it is not asked for."""
+        managers = _managers()
+
+        with patch(f'{MODULE_PATH}.collect_person_neighbours') as mock_persons:
+            build_ci_explorer_graph(_request(with_person_relations=False), managers)
+
+        mock_persons.assert_not_called()
+
+    def test_the_walk_is_handed_the_request_scope(self) -> None:
+        """Directions, type filter and the slot budget reach the collector"""
+        managers = _managers()
+
+        with patch(f'{MODULE_PATH}.collect_person_neighbours', return_value=[]) as mock_persons:
+            build_ci_explorer_graph(
+                _request(with_person_relations=True, target_type=NodeType.CHILD, types_filter=frozenset({TYPE_ID})),
+                managers,
+            )
+
+        kwargs = mock_persons.call_args.kwargs
+        assert kwargs['target_id'] == TARGET_ID
+        assert kwargs['include_parents'] is False
+        assert kwargs['types_filter'] == frozenset({TYPE_ID})
+        assert kwargs['objects_manager'] is managers.objects

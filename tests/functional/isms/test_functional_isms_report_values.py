@@ -50,9 +50,8 @@ from cmdb.models.isms_model import (
 )
 from cmdb.models.isms_model.isms_risk_matrix_constants import RISK_MATRIX_PUBLIC_ID
 from cmdb.models.object_group_model import CmdbObjectGroup
-from cmdb.models.person_model import CmdbPerson
-from cmdb.models.person_group_model import CmdbPersonGroup
 from cmdb.security.license.license_constants import LicenseFeature
+from tests.utils.person_seed import ensure_person_types, group_doc, insert_objects, person_doc, remove_objects
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/reports'
@@ -180,6 +179,17 @@ def _assessment(public_id: int, ref_type: str, owner: int, responsible: int, aud
     }
 
 
+# The persons and groups the assessments name - CmdbObjects of the PERSON / PERSON_GROUP SpecialTypes
+SEEDED_PERSONS: tuple[tuple[int, str], ...] = (
+    (ASSESSOR_ID, ASSESSOR_NAME), (OWNER_ID, OWNER_NAME), (RESPONSIBLE_ID, RESPONSIBLE_NAME),
+    (AUDITOR_ID, AUDITOR_NAME), (INTERVIEWEE_ID, INTERVIEWEE_NAME),
+)
+SEEDED_GROUPS: tuple[tuple[int, str], ...] = (
+    (OWNER_GROUP_ID, OWNER_GROUP_NAME), (RESPONSIBLE_GROUP_ID, RESPONSIBLE_GROUP_NAME),
+    (AUDITOR_GROUP_ID, AUDITOR_GROUP_NAME),
+)
+SEEDED_PERSON_OBJECT_IDS: list[int] = [object_id for object_id, _ in SEEDED_PERSONS + SEEDED_GROUPS]
+
 SEEDED_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
     CmdbExtendableOption.COLLECTION: [
         {'public_id': CATEGORY_OPTION_ID, 'value': CATEGORY_VALUE, 'option_type': OptionType.RISK.value},
@@ -191,18 +201,6 @@ SEEDED_DOCUMENTS: dict[str, list[dict[str, Any]]] = {
         'public_id': RISK_ID, 'name': RISK_NAME, 'identifier': RISK_IDENTIFIER, 'description': RISK_DESCRIPTION,
         'category_id': CATEGORY_OPTION_ID, 'protection_goals': [PROTECTION_GOAL_ID],
     }],
-    CmdbPerson.COLLECTION: [
-        {'public_id': person_id, 'display_name': name} for person_id, name in (
-            (ASSESSOR_ID, ASSESSOR_NAME), (OWNER_ID, OWNER_NAME), (RESPONSIBLE_ID, RESPONSIBLE_NAME),
-            (AUDITOR_ID, AUDITOR_NAME), (INTERVIEWEE_ID, INTERVIEWEE_NAME),
-        )
-    ],
-    CmdbPersonGroup.COLLECTION: [
-        {'public_id': group_id, 'name': name} for group_id, name in (
-            (OWNER_GROUP_ID, OWNER_GROUP_NAME), (RESPONSIBLE_GROUP_ID, RESPONSIBLE_GROUP_NAME),
-            (AUDITOR_GROUP_ID, AUDITOR_GROUP_NAME),
-        )
-    ],
     IsmsLikelihood.COLLECTION: [
         {'public_id': LIKELIHOOD_BEFORE_ID, 'name': LIKELIHOOD_BEFORE_NAME,
          'calculation_basis': LIKELIHOOD_BEFORE_BASIS, 'description': SCALE_DESCRIPTION},
@@ -268,6 +266,13 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
     for collection, documents in SEEDED_DOCUMENTS.items():
         database_manager.get_collection(collection, database_name).insert_many([dict(doc) for doc in documents])
 
+    person_type_id, group_type_id = ensure_person_types(database_manager, database_name)
+    insert_objects(
+        database_manager, database_name,
+        *[person_doc(object_id, person_type_id, name) for object_id, name in SEEDED_PERSONS],
+        *[group_doc(object_id, group_type_id, name) for object_id, name in SEEDED_GROUPS],
+    )
+
     matrices = database_manager.get_collection(IsmsRiskMatrix.COLLECTION, database_name)
     created_matrix: bool = matrices.find_one({'public_id': RISK_MATRIX_PUBLIC_ID}) is None
 
@@ -291,6 +296,8 @@ def fixture_seeded(database_manager: MongoDatabaseManager, database_name: str) -
             database_manager.get_collection(collection, database_name).delete_many(
                 {'public_id': {'$in': [doc['public_id'] for doc in documents]}}
             )
+
+        remove_objects(database_manager, database_name, SEEDED_PERSON_OBJECT_IDS)
 
 
 def _report_row(rest_api, report: str, assessment_id: int) -> dict[str, Any]:

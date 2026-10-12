@@ -26,7 +26,7 @@ would notice breaking:
   the read routes rely on because they answer with ``to_json(from_data(document))``, and which the
   Cerberus schema must therefore agree with key for key
 * an unreadable date is refused rather than guessed
-* the fields the CmdbPerson delete-cascade filters on are indexed
+* the fields the person delete cleanup filters on are indexed
 
 Pure tests: no Mongo, no Flask
 """
@@ -65,7 +65,7 @@ PERSON_ID: int = 9
 STAMP_MILLIS: int = 1600000000000
 STAMP: datetime = datetime(2020, 9, 13, 12, 26, 40, tzinfo=timezone.utc)
 
-# The fields the CmdbPerson delete-cascade filters on (PersonsManager.remove_person_from_risk_assessments):
+# The fields the person delete cleanup filters on (person_reference_helper.clear_object_person_references):
 # one filtered update per entry, so each of them needs an index of its own
 PERSON_CASCADE_FIELDS: tuple[RiskAssessmentKey, ...] = (
     RiskAssessmentKey.RISK_ASSESSOR_ID,
@@ -299,7 +299,7 @@ class TestIndexes:
     @pytest.mark.parametrize('field', PERSON_CASCADE_FIELDS)
     def test_every_person_cascade_field_is_indexed(self, field: RiskAssessmentKey) -> None:
         """
-        Deleting one CmdbPerson runs a filtered update per field over the whole collection.
+        Deleting a person object runs a filtered update per field over the whole collection.
 
         'risk_assessor_id' and the 'risk_owner_id' pair were the two that were missing, so half of
         that cascade was a collection scan while the other half was served from an index.

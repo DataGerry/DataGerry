@@ -98,9 +98,9 @@ class IsmsRiskAssessment(CmdbDAO):
             'unique': False
         },
         # Both person-reference halves of the assessor / owner pair are indexed like the responsible
-        # and auditor pairs below: deleting one CmdbPerson runs a filtered update over every one of
-        # them (see PersonsManager.remove_person_from_risk_assessments), and a missing index turns that
-        # cascade into a collection scan
+        # and auditor pairs below: deleting a person object runs a filtered update over every one of
+        # them (see person_reference_helper.clear_object_person_references), and a missing index turns
+        # that cascade into a collection scan
         {
             'keys': [(RiskAssessmentKey.RISK_ASSESSOR_ID.value, CmdbDAO.DAO_ASCENDING)],
             'name': RiskAssessmentKey.RISK_ASSESSOR_ID.value,

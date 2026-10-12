@@ -16,7 +16,8 @@
 """
 The write-side check of the ISMS person references
 
-An IsmsRiskAssessment and an IsmsControlMeasureAssignment reference CmdbPersons and CmdbPersonGroups by public_id.
+An IsmsRiskAssessment and an IsmsControlMeasureAssignment reference persons and person groups - CmdbObjects of the
+PERSON / PERSON_GROUP SpecialTypes - by public_id.
 A polymorphic reference is stored beside a ``<key>_ref_type`` sibling naming which of the two collections the id
 is in; a person-only reference always means a CmdbPerson. The delete cascades clear a reference by filtering on
 BOTH halves, so a reference is only ever cleaned when the id exists in the collection its ref_type names. The
@@ -26,7 +27,8 @@ write routes therefore resolve every reference against that collection before an
 * ``new_person_references`` keeps the ones an update introduces - a reference the stored document already holds
   is not judged again, so a document carrying a reference that went stale can still be saved
 * ``abort_on_unknown_person_references`` answers 400 for a reference that is not a public_id, names no known
-  reference type, or names an id its collection does not hold - one projected ``$in`` query per collection
+  reference type, or names an id that is no CmdbObject of the PERSON / PERSON_GROUP SpecialType its reference
+  type names - one projected ``$in`` query for all of them
 * ``check_person_references`` is that check bound to the request user's tenant, for the routes
 
 The keys come from ``person_reference_helper``, the same lists the delete cascades clear.
@@ -36,15 +38,17 @@ from typing import Any, NamedTuple
 
 from flask import abort
 
-from cmdb.manager import PersonGroupsManager, PersonsManager
+from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.person_reference_helper import PersonReferenceKeys, ref_type_key
 
-from cmdb.errors.manager.persons_manager import PersonsManagerGetError
-from cmdb.errors.manager.person_groups_manager import PersonGroupsManagerGetError
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
+from cmdb.errors.manager.types_manager import TypesManagerGetError
+from cmdb.framework.person.directory import resolve_person_kinds
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
-from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_references
+from cmdb.interface.rest_api.routes.routes_helper import UNKNOWN_REFERENCES_MSG
 from cmdb.interface.rest_api.routes.user_management_routes.person_constants import PERSON_GROUP_LABEL, PERSON_LABEL
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
     INVALID_PERSON_REFERENCE_ID_MSG,
@@ -68,8 +72,10 @@ _ALLOWED_REFERENCE_TYPES: list[str] = [reference_type.value for reference_type i
 # The handle_manager_errors entries of a route that runs the check: a failed lookup is a 400, like every other
 # manager read failure of the ISMS routes
 PERSON_REFERENCE_LOOKUP_ERRORS: dict[type[Exception], str] = {
-    PersonsManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_LABEL),
-    PersonGroupsManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_GROUP_LABEL),
+    # resolve_person_kinds reads through BaseManager.find and TypesManager.get_type_ids_of_special_type
+    ObjectsManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_LABEL),
+    BaseManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_LABEL),
+    TypesManagerGetError: REFERENCE_LOOKUP_FAILED_MSG.format(label=PERSON_LABEL),
 }
 
 
@@ -176,25 +182,25 @@ def _is_public_id(value: Any) -> bool:
 
 def abort_on_unknown_person_references(
         references: list[PersonReference],
-        persons_manager: PersonsManager,
-        person_groups_manager: PersonGroupsManager) -> None:
+        objects_manager: ObjectsManager,
+        types_manager: TypesManager) -> None:
     """
-    Refuses the request when a person reference does not resolve in the collection its reference type names
+    Refuses the request when a person reference does not name an object of the kind its reference type names
 
-    Every reference is shape-checked first, then the ids are grouped by collection and each collection is asked
-    once - at most two projected queries, however many keys reference it
+    Persons and groups are CmdbObjects of the PERSON / PERSON_GROUP SpecialTypes. Every reference is
+    shape-checked first, then every id is resolved in one projected query (``resolve_person_kinds``)
 
     Args:
         references (list[PersonReference]): The references to resolve; nothing is queried for an empty list
-        persons_manager (PersonsManager): Manager of the CmdbPersons
-        person_groups_manager (PersonGroupsManager): Manager of the CmdbPersonGroups
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        types_manager (TypesManager): db interface for CmdbTypes
 
     Raises:
         werkzeug.exceptions.BadRequest: Aborts with 400 when a reference is not a public_id, names no known
             reference type (a null ``_ref_type`` beside a set id among them - the schema lets a null one through
-            for the id-less case), or names an id its collection does not hold
+            for the id-less case), or names an id that is no object of that kind
     """
-    ids_by_type: dict[PersonReferenceType, list[int]] = {reference_type: [] for reference_type in PersonReferenceType}
+    unknown_by_type: dict[PersonReferenceType, set[int]] = {reference_type: set() for reference_type in PersonReferenceType}
 
     for reference in references:
         if not _is_public_id(reference.public_id):
@@ -208,12 +214,23 @@ def abort_on_unknown_person_references(
                 key=reference.key, value=reference.reference_type, allowed=_ALLOWED_REFERENCE_TYPES,
             ))
 
-        ids_by_type[PersonReferenceType(reference.reference_type)].append(reference.public_id)
+    if not references:
+        return
 
-    abort_on_unknown_references(persons_manager, ids_by_type[PersonReferenceType.PERSON], PERSON_LABEL)
-    abort_on_unknown_references(
-        person_groups_manager, ids_by_type[PersonReferenceType.PERSON_GROUP], PERSON_GROUP_LABEL,
+    kinds: dict[int, str] = resolve_person_kinds(
+        objects_manager, types_manager, (reference.public_id for reference in references),
     )
+
+    for reference in references:
+        if kinds.get(reference.public_id) != reference.reference_type:
+            unknown_by_type[PersonReferenceType(reference.reference_type)].add(reference.public_id)
+
+    for reference_type, label in ((PersonReferenceType.PERSON, PERSON_LABEL),
+                                  (PersonReferenceType.PERSON_GROUP, PERSON_GROUP_LABEL)):
+        if unknown_by_type[reference_type]:
+            abort(HTTPStatus.BAD_REQUEST, UNKNOWN_REFERENCES_MSG.format(
+                entity_label=label, unknown=sorted(unknown_by_type[reference_type]),
+            ))
 
 
 def check_person_references(references: list[PersonReference], request_user: CmdbUser) -> None:
@@ -232,7 +249,7 @@ def check_person_references(references: list[PersonReference], request_user: Cmd
     if not references:
         return
 
-    persons_manager: PersonsManager = ManagerProvider.get_manager(ManagerType.PERSON, request_user)
-    person_groups_manager: PersonGroupsManager = ManagerProvider.get_manager(ManagerType.PERSON_GROUP, request_user)
+    objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-    abort_on_unknown_person_references(references, persons_manager, person_groups_manager)
+    abort_on_unknown_person_references(references, objects_manager, types_manager)

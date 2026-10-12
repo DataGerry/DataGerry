@@ -467,14 +467,71 @@ def test_delete_all_object_references_falsy_non_list_raises() -> None:
         ObjectsManager.delete_all_object_references(mock_self, 0)
 
 
-def test_delete_all_object_references_runs_two_scrubs_for_valid_ids() -> None:
-    """A valid id list scrubs both the flat fields and the multi-data-section fields"""
+def test_delete_all_object_references_runs_six_scrubs_for_valid_ids() -> None:
+    """
+    A valid id list scrubs both the flat fields and the multi-data-section fields: per location one reference
+    scrub and the two person-field scrubs (single selection, list)
+    """
     mock_self = MagicMock()
     mock_self._reference_scrub = ObjectsManager._reference_scrub
+    mock_self._person_scrubs = ObjectsManager._person_scrubs
 
-    ObjectsManager.delete_all_object_references(mock_self, [OWNER_OBJECT_ID])
+    with patch('cmdb.manager.objects_manager.clear_object_person_references'):
+        ObjectsManager.delete_all_object_references(mock_self, [OWNER_OBJECT_ID])
 
-    assert mock_self.update_many_raw.call_count == 2
+    assert mock_self.update_many_raw.call_count == 6
+
+
+@pytest.mark.parametrize('ids, ids_filter', [([OWNER_OBJECT_ID], {'$in': [OWNER_OBJECT_ID]}),
+                                             (OWNER_OBJECT_ID, OWNER_OBJECT_ID)], ids=['list', 'scalar'])
+def test_delete_all_object_references_drops_the_ids_from_every_person_field(ids: Any, ids_filter: Any) -> None:
+    """
+    A single person selection naming a deleted id becomes None, a list loses the matching entries
+
+    The two writes are split on the BSON type of the value because '$pull' refuses a non-array value
+    """
+    mock_self = MagicMock()
+    mock_self._reference_scrub = ObjectsManager._reference_scrub
+    mock_self._person_scrubs = ObjectsManager._person_scrubs
+    person_row: dict[str, Any] = {'type': FieldType.PERSON.value, 'value.id': ids_filter}
+
+    with patch('cmdb.manager.objects_manager.clear_object_person_references'):
+        ObjectsManager.delete_all_object_references(mock_self, ids)
+
+    calls = [call.kwargs for call in mock_self.update_many_raw.call_args_list]
+    fields_single, fields_list = calls[1], calls[2]
+    mds_single, mds_list = calls[4], calls[5]
+
+    assert fields_single == {
+        'filter_query': {'fields': {'$elemMatch': person_row}},
+        'update': {'$set': {'fields.$[f].value': None}},
+        'array_filters': [{'f.type': FieldType.PERSON.value, 'f.value.id': ids_filter,
+                           'f.value': {'$not': {'$type': 'array'}}}],
+    }
+    assert fields_list == {
+        'filter_query': {'fields': {'$elemMatch': person_row}},
+        'update': {'$pull': {'fields.$[f].value': {'id': ids_filter}}},
+        'array_filters': [{'f.type': FieldType.PERSON.value, 'f.value': {'$type': 'array'}}],
+    }
+    assert mds_single['filter_query'] == {'multi_data_sections.values.data': {'$elemMatch': person_row}}
+    assert mds_single['update'] == {'$set': {'multi_data_sections.$[].values.$[].data.$[f].value': None}}
+    assert mds_list['update'] == {'$pull': {'multi_data_sections.$[].values.$[].data.$[f].value': {'id': ids_filter}}}
+
+
+@pytest.mark.parametrize('ids, expected', [([OWNER_OBJECT_ID, 5], [OWNER_OBJECT_ID, 5]),
+                                           (OWNER_OBJECT_ID, [OWNER_OBJECT_ID])], ids=['list', 'scalar'])
+def test_delete_all_object_references_clears_the_isms_person_references(ids: Any, expected: list[int]) -> None:
+    """A deleted person or group is cleared from the ISMS documents, always given as a list of ids"""
+    mock_self = MagicMock()
+    mock_self._reference_scrub = ObjectsManager._reference_scrub
+    mock_self._person_scrubs = ObjectsManager._person_scrubs
+
+    with patch('cmdb.manager.objects_manager.clear_object_person_references') as clear:
+        ObjectsManager.delete_all_object_references(mock_self, ids)
+
+    clear.assert_called_once_with(
+        mock_self.dbm, mock_self.db_name, 'isms.riskAssessment', 'isms.controlMeasureAssignment', expected,
+    )
 
 
 @pytest.mark.parametrize('ids, ids_filter', [([OWNER_OBJECT_ID], {'$in': [OWNER_OBJECT_ID]}),

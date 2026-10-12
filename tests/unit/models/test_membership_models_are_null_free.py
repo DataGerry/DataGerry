@@ -14,18 +14,15 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the rule the three membership models share: a stored document is never null
+Unit tests for the rule the membership models share: a stored document is never null
 
-Pure tests: no Mongo, no Flask. CmdbPerson, CmdbPersonGroup and CmdbObjectGroup each write a document
-whose optional keys are easily left null whenever the payload does not carry them - and each of their
-Cerberus schemas types those keys ``string`` / ``list``. The result was a document the API produced and
-then refused: a GET followed by an unmodified PUT was answered ``400 Invalid data provided!``, and on
-the person-group side a stored ``group_members: null`` made the update route read ``set(None)`` and
-answer 500.
+Pure tests: no Mongo, no Flask. A membership model (today CmdbObjectGroup; CmdbPerson and CmdbPersonGroup
+were removed when persons became CmdbObjects of the PERSON / PERSON_GROUP SpecialTypes) writes a document
+whose optional keys are easily left null whenever the payload does not carry them - while its Cerberus
+schema types those keys ``string`` / ``list``. The result was a document the API produced and then
+refused: a GET followed by an unmodified PUT was answered ``400 Invalid data provided!``.
 
-The rule is asserted once here, over all three models, because it is one rule and three copies of it
-would let the models drift apart again. What is specific to a model is pinned in that model's own
-module. ``updater_20260909`` converges stored documents that still carry a null.
+The rule is asserted here over the list of membership models, so a new one only needs an entry.
 
 Three things are checked per model:
 
@@ -45,14 +42,8 @@ from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.utils import BaseStrEnum
 from cmdb.errors.cmdb_object import RequiredInitKeyNotFoundError
 
-from cmdb.models.person_model import CmdbPerson, PersonKey, PERSON_LIST_KEYS, PERSON_OPTIONAL_TEXT_KEYS
-from cmdb.models.person_group_model import (
-    CmdbPersonGroup,
-    PersonGroupKey,
-    PERSON_GROUP_LIST_KEYS,
-    PERSON_GROUP_OPTIONAL_TEXT_KEYS,
-)
 from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupKey, ObjectGroupMode
+from cmdb.models.isms_model import IsmsImpact
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 4
@@ -68,28 +59,6 @@ class _Membership(NamedTuple):
 
 
 MEMBERSHIP_MODELS: list[_Membership] = [
-    _Membership(
-        CmdbPerson,
-        PersonKey,
-        {
-            PersonKey.PUBLIC_ID.value: PUBLIC_ID,
-            PersonKey.DISPLAY_NAME.value: 'Ada Lovelace',
-            PersonKey.FIRST_NAME.value: 'Ada',
-            PersonKey.LAST_NAME.value: 'Lovelace',
-        },
-        PERSON_OPTIONAL_TEXT_KEYS,
-        PERSON_LIST_KEYS,
-    ),
-    _Membership(
-        CmdbPersonGroup,
-        PersonGroupKey,
-        {
-            PersonGroupKey.PUBLIC_ID.value: PUBLIC_ID,
-            PersonGroupKey.NAME.value: 'Security officers',
-        },
-        PERSON_GROUP_OPTIONAL_TEXT_KEYS,
-        PERSON_GROUP_LIST_KEYS,
-    ),
     _Membership(
         CmdbObjectGroup,
         ObjectGroupKey,
@@ -236,7 +205,7 @@ def test_to_json_emits_exactly_the_key_enum(membership: _Membership) -> None:
 @pytest.mark.parametrize('membership', MEMBERSHIP_MODELS, ids=MODEL_IDS)
 def test_the_key_enum_names_the_constructor_arguments(membership: _Membership) -> None:
     """
-    What lets all three share CmdbDAO.from_data: every key is a constructor parameter of that name
+    What lets every membership model share CmdbDAO.from_data: every key is a constructor parameter of that name
 
     A key added to the enum without the matching parameter would fail on the next read of any
     document, so it is asserted here rather than discovered there.
@@ -276,11 +245,10 @@ def test_to_json_refuses_another_models_instance(membership: _Membership) -> Non
     """
     The shared to_json type-checks its instance, so one model cannot serialise as another
 
-    CmdbPerson and CmdbPersonGroup are not structurally identical, but they are handled side by side
-    in every membership path, which is exactly where a swapped argument goes unnoticed.
+    Another KEYS-based model stands in for the foreign instance: a swapped argument between models
+    handled side by side is exactly where it would go unnoticed.
     """
-    other: _Membership = next(entry for entry in MEMBERSHIP_MODELS if entry.model is not membership.model)
-    foreign_instance: CmdbDAO = other.model.from_data(other.minimal_document)
+    foreign_instance: CmdbDAO = IsmsImpact(public_id=PUBLIC_ID, name='High', calculation_basis=3.0)
 
     with pytest.raises(membership.model.TO_JSON_ERROR):
         membership.model.to_json(foreign_instance)

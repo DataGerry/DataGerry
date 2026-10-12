@@ -226,6 +226,24 @@ class TestResolveExportValue:
         field = {'type': 'location', 'value': ''}
         assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True, {}) == ''
 
+    @pytest.mark.parametrize('human_readable', [False, True])
+    def test_a_multiple_person_field_lists_every_selection(self, human_readable: bool) -> None:
+        """Each {'ref_type', 'id'} pair becomes '<ref_type> #<id>', joined by '; ' - in both export modes."""
+        field = {'type': 'person', 'value': [{'ref_type': 'PERSON', 'id': 12}, {'ref_type': 'PERSON_GROUP', 'id': 3}]}
+        result = BaseExporterFormat.resolve_export_value(_obj(), field, 'native', human_readable)
+        assert result == 'PERSON #12; PERSON_GROUP #3'
+
+    def test_a_single_person_field(self) -> None:
+        """A single selection is the one pair."""
+        field = {'type': 'person', 'value': {'ref_type': 'PERSON', 'id': 12}}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native') == 'PERSON #12'
+
+    @pytest.mark.parametrize('value', [None, [], 'junk', [{'ref_type': 'PERSON', 'id': 'x'}]])
+    def test_an_empty_or_malformed_person_field_is_an_empty_cell(self, value: object) -> None:
+        """Nothing selectable to export: an empty cell, never the raw dict."""
+        field = {'type': 'person', 'value': value}
+        assert BaseExporterFormat.resolve_export_value(_obj(), field, 'native', True) == ''
+
 
 class TestHeaderLabels:
     """build_field_label_map / label_for_column / relabel_header handle the human-readable header."""

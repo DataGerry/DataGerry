@@ -36,6 +36,10 @@ class FieldKey(BaseStrEnum):
     selectable values are CmdbExtendableOptions of that OptionType rather than the inline OPTIONS list
     a stored type's select carries. It tells the frontend which list to load and to extend through
     `POST /rest/extendable_options/`; no stored CmdbType field ever has it
+
+    PERSON_REF_KIND and MULTIPLE only appear on a `FieldType.PERSON` field: the first says which of the
+    person SpecialTypes may be selected (a `PersonRefKind` value), the second whether the field holds one
+    selection or a list of them
     """
     TYPE = 'type'
     NAME = 'name'
@@ -48,3 +52,5 @@ class FieldKey(BaseStrEnum):
     VALUE = 'value'
     SUMMARIES = 'summaries'
     OPTION_TYPE = 'option_type'
+    PERSON_REF_KIND = 'person_ref_kind'
+    MULTIPLE = 'multiple'

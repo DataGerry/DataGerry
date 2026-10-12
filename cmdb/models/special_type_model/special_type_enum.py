@@ -40,6 +40,8 @@ class SpecialType(BaseStrEnum):
     VLAN = 'VLAN'
     RACK = 'RACK'
     CABLE = 'CABLE'
+    PERSON = 'PERSON'
+    PERSON_GROUP = 'PERSON_GROUP'
 
 
     @classmethod
@@ -59,7 +61,9 @@ class SpecialType(BaseStrEnum):
             cls.SUBNET: "IPAM - Subnet class",
             cls.VLAN: "IPAM - VLAN class",
             cls.RACK: "Rack View - Rack class",
-            cls.CABLE: "Port Connectivity - Cable class"
+            cls.CABLE: "Port Connectivity - Cable class",
+            cls.PERSON: "Persons - Person class",
+            cls.PERSON_GROUP: "Persons - Person group class",
         }
 
 
@@ -76,6 +80,39 @@ class SpecialType(BaseStrEnum):
             frozenset[SpecialType]: The IPAM SpecialType members
         """
         return frozenset({cls.SUPERNET, cls.SUBNET, cls.VLAN})
+
+
+    @classmethod
+    def get_person_types(cls) -> frozenset["SpecialType"]:
+        """
+        Returns the SpecialTypes whose objects a person field (FieldType.PERSON) may select
+
+        Persons are a standard DataGerry feature: neither member is license gated, so both stay out of
+        get_license_gated_types
+
+        Returns:
+            frozenset[SpecialType]: The PERSON and PERSON_GROUP members
+        """
+        return frozenset({cls.PERSON, cls.PERSON_GROUP})
+
+
+    @classmethod
+    def is_person_type(cls, value: Any) -> bool:
+        """
+        Checks whether a value names one of the person SpecialTypes
+
+        Tolerates None and any non-SpecialType value, like is_ipam_type
+
+        Args:
+            value (Any): A SpecialType member, its string value, or anything else
+
+        Returns:
+            bool: True if the value is PERSON or PERSON_GROUP, else False
+        """
+        if not cls.is_valid(value):
+            return False
+
+        return cls(value) in cls.get_person_types()
 
 
     @classmethod

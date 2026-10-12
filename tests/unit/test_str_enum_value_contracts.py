@@ -76,6 +76,14 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_report_constants import (
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.person_group_model.person_reference_type_enum import PersonReferenceType
+from cmdb.models.special_type_model.person_constants import (
+    PersonField,
+    PersonGroupField,
+    PersonGroupSection,
+    PersonRefKind,
+    PersonSection,
+    PersonValueKey,
+)
 from cmdb.models.ci_explorer_model.node_type_enum import NodeType
 from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.section_reference_key_enum import SectionReferenceKey
@@ -398,6 +406,27 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
     (DocapiTemplateType, {'OBJECT': 'OBJECT', 'DEFAULT': 'DEFAULT'}),
     (WebhookEventType, {'CREATE': 'CREATE', 'UPDATE': 'UPDATE', 'DELETE': 'DELETE'}),
     (PersonReferenceType, {'PERSON': 'PERSON', 'PERSON_GROUP': 'PERSON_GROUP'}),
+    # The PERSON / PERSON_GROUP SpecialTypes: field and section names are stored on every person / group object
+    (PersonField, {
+        'DISPLAY_NAME': 'dg-person-display-name',
+        'SALUTATION': 'dg-person-salutation',
+        'FIRST_NAME': 'dg-person-first-name',
+        'LAST_NAME': 'dg-person-last-name',
+        'EMAIL': 'dg-person-email',
+        'PHONE_NUMBER': 'dg-person-phone-number',
+    }),
+    (PersonGroupField, {
+        'NAME': 'dg-person-group-name',
+        'EMAIL': 'dg-person-group-email',
+        'MEMBERS': 'dg-person-group-members',
+    }),
+    (PersonSection, {'INFORMATION': 'dg-person-information'}),
+    (PersonGroupSection, {
+        'INFORMATION': 'dg-person-group-information',
+        'MEMBERS': 'dg-person-group-members-section',
+    }),
+    (PersonRefKind, {'PERSON': 'PERSON', 'PERSON_GROUP': 'PERSON_GROUP', 'BOTH': 'BOTH'}),
+    (PersonValueKey, {'REF_TYPE': 'ref_type', 'ID': 'id'}),
     (NodeType, {'CHILD': 'CHILD', 'PARENT': 'PARENT', 'BOTH': 'BOTH'}),
     (SectionKey, {'TYPE': 'type', 'NAME': 'name', 'LABEL': 'label', 'FIELDS': 'fields',
                   'HIDDEN_FIELDS': 'hidden_fields', 'REFERENCE': 'reference'}),
@@ -415,6 +444,8 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'VALUE': 'value',
         'SUMMARIES': 'summaries',
         'OPTION_TYPE': 'option_type',
+        'PERSON_REF_KIND': 'person_ref_kind',
+        'MULTIPLE': 'multiple',
     }),
     (NestedSummaryKey, {
         'TYPE_ID': 'type_id',
@@ -434,6 +465,7 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'REFERENCE': 'ref',
         'LOCATION': 'location',
         'REF_SECTION': 'ref-section-field',
+        'PERSON': 'person',
     }),
     (SectionType, {'SECTION': 'section', 'MDS_SECTION': 'multi-data-section', 'REF_SECTION': 'ref-section'}),
     (TypeSchemaKey, {

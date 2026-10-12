@@ -44,8 +44,6 @@ from cmdb.models.isms_model import (
 )
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_group_model.cmdb_object_group import CmdbObjectGroup
-from cmdb.models.person_model.cmdb_person import CmdbPerson
-from cmdb.models.person_group_model.cmdb_person_group import CmdbPersonGroup
 from cmdb.models.isms_model.priority_enum import Priority
 from cmdb.models.isms_model.treatment_option_enum import TreatmentOption
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
@@ -65,6 +63,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import manager_error_message
 from tests.utils.update_response import assert_body_public_id_cannot_move
+from tests.utils.person_seed import ensure_person_types, group_doc, insert_objects, person_doc, remove_objects
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_URL: str = '/isms/risk_assessments'
@@ -210,24 +209,22 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
 
 def seed_referenced_persons(database_manager: MongoDatabaseManager, database_name: str) -> None:
     """
-    Stores the CmdbPerson and the CmdbPersonGroup the bodies reference
+    Stores the person and the person group the bodies reference - CmdbObjects of the PERSON / PERSON_GROUP
+    SpecialTypes, whose types are created when missing
 
     The write routes resolve every person reference, so a body naming PERSON_ID needs that person to exist
     """
-    database_manager.get_collection(CmdbPerson.COLLECTION, database_name).replace_one(
-        {'public_id': PERSON_ID}, {'public_id': PERSON_ID, 'display_name': PERSON_NAME}, upsert=True,
-    )
-    database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name).replace_one(
-        {'public_id': PERSON_GROUP_ID}, {'public_id': PERSON_GROUP_ID, 'name': PERSON_GROUP_NAME}, upsert=True,
+    person_type_id, group_type_id = ensure_person_types(database_manager, database_name)
+    insert_objects(
+        database_manager, database_name,
+        person_doc(PERSON_ID, person_type_id, PERSON_NAME),
+        group_doc(PERSON_GROUP_ID, group_type_id, PERSON_GROUP_NAME),
     )
 
 
 def purge_referenced_persons(database_manager: MongoDatabaseManager, database_name: str) -> None:
     """Removes what seed_referenced_persons stored"""
-    database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
-        .delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
-    database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
-        .delete_many({'public_id': {'$in': ALL_PERSON_GROUP_IDS}})
+    remove_objects(database_manager, database_name, ALL_PERSON_IDS + ALL_PERSON_GROUP_IDS)
 
 
 def assignment_entry(control_measure_id: int = CONTROL_MEASURE_ID, **overrides: Any) -> dict[str, Any]:
