@@ -23,6 +23,7 @@ import { catchError, map, switchMap, take } from 'rxjs/operators';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { RenderResult } from 'src/app/framework/models/cmdb-render';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { isLicenseGatedSpecialType } from 'src/app/framework/models/special-type';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 
 /**
@@ -54,7 +55,7 @@ export const ipamObjectGuard: CanActivateFn = (route): Observable<boolean> => {
 
       return objectService.getObject<RenderResult>(publicId).pipe(
         map((render: RenderResult) => {
-          const isSpecialTypeObject = !!render?.object_information?.special_type;
+          const isSpecialTypeObject = isLicenseGatedSpecialType(render?.object_information?.special_type);
 
           if (!isSpecialTypeObject) {
             return true;

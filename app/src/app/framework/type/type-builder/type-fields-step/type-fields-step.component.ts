@@ -42,6 +42,7 @@ import { MultiSectionControl } from 'src/app/framework/builder/controls/multi-se
 import { RefSectionControl } from 'src/app/framework/builder/controls/ref-section.common';
 import { ReferenceControl } from 'src/app/framework/builder/controls/specials/ref.control';
 import { LocationControl } from 'src/app/framework/builder/controls/specials/location.control';
+import { PersonControl } from 'src/app/framework/builder/controls/specials/person.control';
 import { BASIC_CONTROLS } from 'src/app/framework/builder/controls/basic-controls';
 import {
     BuilderPaletteGroup,
@@ -106,7 +107,9 @@ export class TypeFieldsStepComponent extends TypeBuilderStepComponent implements
 
   private readonly specialItems = paletteItemsFromControls([
     new ReferenceControl(),
-    new LocationControl()
+    // Location must stay second: LocationFieldEditComponent dims the palette entry by its position
+    new LocationControl(),
+    new PersonControl()
   ]);
 
   private cachedPaletteGroups: Array<BuilderPaletteGroup> | null = null;

@@ -64,3 +64,13 @@ $badge-border: #e5e7eb;
   --accent: #d97706;
   --accent-ring: rgba(217, 119, 6, 0.18);
 }
+
+.special-type-badge--person {
+  --accent: #db2777;
+  --accent-ring: rgba(219, 39, 119, 0.16);
+}
+
+.special-type-badge--person_group {
+  --accent: #9333ea;
+  --accent-ring: rgba(147, 51, 234, 0.16);
+}

@@ -30,7 +30,8 @@ export class CiExplorerService extends BaseApiService<never> {
   private buildScope(scope: CiExplorerScope): string {
     return `&with_locations=${scope.withLocations}` +
            `&with_ipam_relations=${scope.withIpamRelations}` +
-           `&with_port_connections=${scope.withPortConnections}`;
+           `&with_port_connections=${scope.withPortConnections}` +
+           `&with_person_relations=${scope.withPersonRelations}`;
   }
 
   /* ---------------- initial root + 1-hop ------------------------- */

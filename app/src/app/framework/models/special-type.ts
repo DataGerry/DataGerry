@@ -21,7 +21,28 @@ export enum SpecialType {
     SUBNET = 'SUBNET',
     VLAN = 'VLAN',
     RACK = 'RACK',
-    CABLE = 'CABLE'
+    CABLE = 'CABLE',
+    PERSON = 'PERSON',
+    PERSON_GROUP = 'PERSON_GROUP'
+}
+
+
+/**
+ * The special types whose management needs the IPAM license - mirrors the backend's
+ * SpecialType.get_license_gated_types. PERSON and PERSON_GROUP are a standard feature and stay out.
+ */
+export const LICENSE_GATED_SPECIAL_TYPES: ReadonlySet<string> = new Set<string>([
+    SpecialType.SUPERNET,
+    SpecialType.SUBNET,
+    SpecialType.VLAN,
+    SpecialType.RACK,
+    SpecialType.CABLE
+]);
+
+
+/** Tolerates null and any unknown token, so a raw `special_type` marker can be passed straight in. */
+export function isLicenseGatedSpecialType(value: string | null | undefined): boolean {
+    return !!value && LICENSE_GATED_SPECIAL_TYPES.has(value);
 }
 
 

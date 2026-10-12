@@ -200,6 +200,23 @@ describe('TypeBasicStepComponent (type creation - basic information)', () => {
             expect(component.lockedSpecialTypeOptions[0].disabled).toBeTrue();
         });
 
+        it('keeps the person special types selectable while IPAM is locked', () => {
+            premiumFeatureService.isAvailable$.and.returnValue(of(false));
+            specialTypeService.getAvailableSpecialTypes.and.returnValue(of({
+                SUBNET: 'A subnet',
+                PERSON: 'Persons - Person class',
+                PERSON_GROUP: 'Persons - Person group class'
+            }));
+
+            component.ngOnInit();
+
+            const disabledByType = Object.fromEntries(
+                component.lockedSpecialTypeOptions.map(option => [option.value, option.disabled])
+            );
+            expect(component.ipamAvailable).toBeFalse();
+            expect(disabledByType).toEqual({ SUBNET: true, PERSON: false, PERSON_GROUP: false });
+        });
+
         it('shows an error toast when loading available special types fails', () => {
             specialTypeService.getAvailableSpecialTypes.and.returnValue(
                 throwError(() => ({ error: { message: 'boom' } }))

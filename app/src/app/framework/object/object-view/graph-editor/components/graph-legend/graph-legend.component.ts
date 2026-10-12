@@ -34,7 +34,8 @@ const LEGEND_LABELS: ReadonlyArray<{ kind: GraphEdgeKind; label: string }> = [
     { kind: 'relation', label: 'Relations' },
     { kind: 'cable', label: 'Port connections' },
     { kind: 'ipam', label: 'IPAM relations' },
-    { kind: 'location', label: 'Locations' }
+    { kind: 'location', label: 'Locations' },
+    { kind: 'person', label: 'Person relations' }
 ];
 
 /** Reads the edge kinds currently drawn; an unknown kind has no entry, so it is not explained. */

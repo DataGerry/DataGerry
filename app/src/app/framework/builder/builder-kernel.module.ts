@@ -42,6 +42,7 @@ import { SectionFieldEditComponent } from './configs/section/section-field-edit.
 import { SectionRefFieldEditComponent } from './configs/section/section-ref-field-edit.component';
 import { RefFieldEditComponent } from './configs/special/ref-field-edit.component';
 import { LocationFieldEditComponent } from './configs/special/location-field-edit.component';
+import { PersonFieldEditComponent } from './configs/special/person-field-edit.component';
 import { PreviewModalComponent } from './modals/preview-modal/preview-modal.component';
 import { DiagnosticModalComponent } from './modals/diagnostic-modal/diagnostic-modal.component';
 import { LocationFieldInUseModalComponent } from './modals/location-field-in-use-modal/location-field-in-use-modal.component';
@@ -91,6 +92,7 @@ import { BuilderStepStatusComponent } from './wizard/builder-step-status.compone
         SectionRefFieldEditComponent,
         RefFieldEditComponent,
         LocationFieldEditComponent,
+        PersonFieldEditComponent,
         PreviewModalComponent,
         DiagnosticModalComponent,
         LocationFieldInUseModalComponent

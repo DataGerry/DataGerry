@@ -53,7 +53,7 @@ export interface GraphNode {
 }
 
 /** Which source produced an edge; `unknown` keeps the default relation styling. */
-export type GraphEdgeKind = 'relation' | 'cable' | 'ipam' | 'location' | 'unknown';
+export type GraphEdgeKind = 'relation' | 'cable' | 'ipam' | 'location' | 'person' | 'unknown';
 
 export interface Connection {
   from: number;

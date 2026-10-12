@@ -132,6 +132,8 @@ export class BuilderUtils {
                 return 'retweet';
             case 'location':
                 return 'globe';
+            case 'person':
+                return 'user-tag';
             case 'date':
                 return 'calendar-alt';
             default:

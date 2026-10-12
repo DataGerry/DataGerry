@@ -36,6 +36,7 @@ export const EDGE_STYLES: Readonly<Record<GraphEdgeKind, EdgeStyle>> = {
     cable: { stroke: '#8E44AD', dash: null, width: 3 },
     ipam: { stroke: '#3B7DD8', dash: '6 4', width: 3 },
     location: { stroke: '#546E7A', dash: '2 4', width: 3 },
+    person: { stroke: '#C2185B', dash: '10 4 2 4', width: 3 },
     unknown: { stroke: '#607D8B', dash: null }
 };
 

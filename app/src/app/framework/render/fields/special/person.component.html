@@ -1,0 +1,82 @@
+<div class="row mb-3" [formGroup]="parentFormGroup">
+    <label class="col-sm-3 col-form-label">
+        {{ data.label }}: @if (data?.required) {
+        <span class="text-danger">*</span>
+        }
+    </label>
+
+    <div class="col-sm-9">
+        @switch (true) {
+        @case (mode == MODES.View) {
+        <div class="form-control form-control-sm bg-light text-start overflow-auto person-view" readonly>
+            @for (selection of viewSelections; track selection.key) {
+            <span class="person-chip" [class.person-chip--missing]="selection.missing">
+                <i [class]="iconOf(selection)" aria-hidden="true"></i>
+                @if (selection.missing) {
+                <span [title]="loading ? 'Loading...' : 'This object no longer exists'">{{ selection.label }}</span>
+                } @else {
+                <a [routerLink]="['/framework/object/view', selection.id]">{{ selection.label }}</a>
+                }
+            </span>
+            } @empty {
+            <span class="text-muted">None selected</span>
+            }
+        </div>
+        }
+
+        @case (mode == MODES.Create || mode == MODES.Edit || mode == MODES.Bulk) {
+        @if (mode == MODES.Bulk) {
+        <cmdb-object-bulk-input-appends [data]="data" [controller]="controller" [changeForm]="changeForm" />
+        }
+
+        <cmdb-input-appends [data]="data" [mode]="mode" [parentFormGroup]="parentFormGroup">
+            <ng-select class="form-select person-select" [items]="items" bindLabel="label" bindValue="key"
+                [multiple]="isMultiple" [closeOnSelect]="!isMultiple" [loading]="loading" loadingText="Loading..."
+                [placeholder]="placeholder" groupBy="groupLabel" [searchFn]="searchItem"
+                [disabled]="controller.disabled" [ngModel]="selectedKeys" [ngModelOptions]="{ standalone: true }"
+                (ngModelChange)="selectedKeys = $event; onSelectionChange($event)" (blur)="controller.markAsTouched()"
+                [ngClass]="{ 'is-valid': controller.valid && (controller.dirty || controller.touched),
+                    'is-invalid': controller.invalid && (controller.dirty || controller.touched) }">
+                <ng-template ng-optgroup-tmp let-item="item">
+                    <span class="fw-semibold">{{ item.groupLabel }}</span>
+                </ng-template>
+                <ng-template ng-label-tmp let-item="item" let-clear="clear">
+                    @if (isMultiple) {
+                    <span class="ng-value-icon left" (click)="clear(item)" aria-hidden="true">×</span>
+                    }
+                    <span class="ng-value-label" [class.text-muted]="item.missing">
+                        <i [class]="iconOf(item)" aria-hidden="true"></i> {{ item.label }}
+                    </span>
+                </ng-template>
+                <ng-template ng-option-tmp let-item="item">
+                    <i [class]="iconOf(item)" aria-hidden="true"></i> {{ item.label }}
+                    <span class="text-muted small">#{{ item.id }}</span>
+                </ng-template>
+            </ng-select>
+        </cmdb-input-appends>
+        }
+
+        @default {
+        <div>
+            <cmdb-mode-error />
+        </div>
+        }
+        }
+
+        @if (controller.invalid && (controller.dirty || controller.touched)) {
+        <div class="invalid-feedback d-block">
+            @if (controller.errors?.required) {
+            <div class="text-end">
+                {{ data.label }} is a required field.
+            </div>
+            }
+            @if (controller.errors?.backendValidation; as backendError) {
+            <div class="text-end">
+                {{ backendError.message }}
+            </div>
+            }
+        </div>
+        }
+        <small class="description form-text text-muted">{{ data?.description }}</small>
+    </div>
+</div>

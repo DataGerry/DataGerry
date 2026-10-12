@@ -69,9 +69,15 @@ export function edgeKind(meta: RelationMeta | undefined): GraphEdgeKind {
     switch (meta.source) {
         case 'port_connection': return 'cable';
         case 'ipam': return 'ipam';
+        case 'person': return 'person';
         case undefined: return meta.relation_id != null ? 'relation' : 'unknown';
         default: return 'unknown';
     }
+}
+
+/** The text drawn on an edge: a relation's label, or the person field a person edge was drawn from. */
+export function edgeLabelOf(meta: RelationMeta | undefined): string | undefined {
+    return meta?.relation_label ?? (meta?.source === 'person' ? meta?.label : undefined);
 }
 
 /** A collapsed path can span several hops, so the first coloured cable names the run. */

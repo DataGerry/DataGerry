@@ -20,6 +20,7 @@ import { SectionFieldEditComponent } from './section/section-field-edit.componen
 import { TextareaEditComponent } from './text/textarea-edit.component';
 import { RefFieldEditComponent } from './special/ref-field-edit.component';
 import { LocationFieldEditComponent } from './special/location-field-edit.component';
+import { PersonFieldEditComponent } from './special/person-field-edit.component';
 import { ChoiceFieldEditComponent } from './choice/choice-field-edit.component';
 import { CheckFieldEditComponent } from './choice/check-field-edit.component';
 import { DateFieldEditComponent } from './date-time/date-field-edit.component';
@@ -35,6 +36,7 @@ export const configComponents: { [type: string]: any } = {
     'textarea': TextareaEditComponent,
     'ref': RefFieldEditComponent,
     'location': LocationFieldEditComponent,
+    'person': PersonFieldEditComponent,
     'checkbox': CheckFieldEditComponent,
     'radio': ChoiceFieldEditComponent,
     'select': ChoiceFieldEditComponent,

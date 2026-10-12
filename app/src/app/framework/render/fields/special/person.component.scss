@@ -1,0 +1,22 @@
+.person-view {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.25rem 0.75rem;
+    min-height: calc(1.5em + 0.5rem + 2px);
+    height: auto;
+}
+
+.person-chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+
+    i {
+        color: #6c757d;
+    }
+}
+
+.person-chip--missing {
+    color: #6c757d;
+    font-style: italic;
+}

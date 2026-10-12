@@ -25,7 +25,7 @@ import { TypeBuilderStepComponent } from '../type-builder-step.component';
 import { finalize, take, takeUntil } from 'rxjs/operators';
 import { CmdbType } from '../../../models/cmdb-type';
 import { alphanumericValidator } from './alphanumeric-validator';
-import { SpecialType, SpecialTypeOption, SpecialTypeSchema } from '../../../models/special-type';
+import { SpecialType, SpecialTypeOption, SpecialTypeSchema, isLicenseGatedSpecialType } from '../../../models/special-type';
 import { SpecialTypeService } from '../../../services/special-type.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -50,10 +50,11 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
   public readonly modes = CmdbMode;
   public form: UntypedFormGroup;
   public specialTypeOptions: Array<SpecialTypeOption> = [];
-  // Special types (subnets/supernets) belong to IPAM; when locked the dropdown is shown as a Pro upsell.
+  // The IPAM-gated special types (see LICENSE_GATED_SPECIAL_TYPES) are shown as a Pro upsell while IPAM is
+  // locked; the standard ones (PERSON, PERSON_GROUP) stay selectable in every edition.
   public ipamAvailable = false;
 
-  public lockedSpecialTypeOptions: Array<SpecialTypeOption & { disabled: true }> = [];
+  public lockedSpecialTypeOptions: Array<SpecialTypeOption & { disabled: boolean }> = [];
 
   // Edit mode only: the special type the type was created with, rendered as a disabled dropdown.
   public assignedSpecialTypeOptions: Array<SpecialTypeOption> = [];
@@ -238,9 +239,9 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
 
 
   /**
-   * Tracks IPAM entitlement so the special-type dropdown renders functionally only when unlocked,
-   * and as a "Pro" upsell otherwise. The available special types are loaded from the backend either
-   * way so the locked dropdown lists the same options.
+   * Tracks IPAM entitlement so the special-type dropdown offers every special type when unlocked; otherwise
+   * the IPAM-gated ones are listed disabled as a "Pro" upsell next to the standard ones. The available
+   * special types are loaded from the backend either way so both dropdowns list the same options.
    */
   private watchIpamAvailability(): void {
     this.premiumFeatureService.isAvailable$(LicenseFeature.Ipam)
@@ -264,7 +265,10 @@ export class TypeBasicStepComponent extends TypeBuilderStepComponent implements 
           label: `${type} - ${description}`,
           description
         }));
-        this.lockedSpecialTypeOptions = this.specialTypeOptions.map((option) => ({ ...option, disabled: true }));
+        this.lockedSpecialTypeOptions = this.specialTypeOptions.map((option) => ({
+          ...option,
+          disabled: isLicenseGatedSpecialType(option.value)
+        }));
       },
       error: (error) => {
         this.toastService.error(error?.error?.message);
