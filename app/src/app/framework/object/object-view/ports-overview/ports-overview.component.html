@@ -9,63 +9,69 @@
     </cmdb-premium-locked>
   } @else if (access) {
     @if (manageable) {
-      <div class="ports-toolbar">
-        @if (canAdd) {
-          <app-button
-            *permissionLink="[portAddRight]"
-            label="Add"
-            icon="fas fa-plus"
-            bootstrapClass="btn-success btn-sm"
-            title="Add ports to this object"
-            (clicked)="onAddPorts()">
-          </app-button>
-        }
+      @if (canWrite) {
+        <p class="ports-note" role="note">
+          <i class="fas fa-info-circle" aria-hidden="true"></i>
+          <span>Port changes are saved right away, even if you don't save the object.</span>
+        </p>
 
-        @if (canEdit) {
-          <app-button
-            label="Bulk Change"
-            icon="fas fa-tasks"
-            bootstrapClass="btn-secondary btn-sm"
-            badgeClass="bg-primary"
-            [badge]="selectedRows.length"
-            [disabled]="!selectedRows.length"
-            [title]="selectedRows.length
-              ? 'Edit the ' + selectedRows.length + ' selected ports'
-              : 'Select ports to edit them together'"
-            (clicked)="onBulkEditPorts(selectedRows)">
-          </app-button>
-        }
+        <div class="ports-toolbar">
+          @if (canAdd) {
+            <app-button
+              label="Add"
+              icon="fas fa-plus"
+              bootstrapClass="btn-success btn-sm"
+              title="Add ports to this object"
+              (clicked)="onAddPorts()">
+            </app-button>
+          }
 
-        @if (canDisconnect) {
-          <app-button
-            label="Disconnect Selected"
-            icon="fas fa-unlink"
-            bootstrapClass="btn-secondary btn-sm"
-            badgeClass="bg-primary"
-            [badge]="selectedConnectedRows.length"
-            [disabled]="!selectedConnectedRows.length"
-            [title]="selectedConnectedRows.length
-              ? 'Cut the cables of ' + selectedConnectedRows.length + ' selected ports'
-              : 'Select cabled ports to disconnect them'"
-            (clicked)="onBulkDisconnectPorts(selectedConnectedRows)">
-          </app-button>
-        }
+          @if (canEdit) {
+            <app-button
+              label="Bulk Change"
+              icon="fas fa-tasks"
+              bootstrapClass="btn-secondary btn-sm"
+              badgeClass="bg-primary"
+              [badge]="selectedRows.length"
+              [disabled]="!selectedRows.length"
+              [title]="selectedRows.length
+                ? 'Edit the ' + selectedRows.length + ' selected ports'
+                : 'Select ports to edit them together'"
+              (clicked)="onBulkEditPorts(selectedRows)">
+            </app-button>
+          }
 
-        @if (canDelete) {
-          <app-button
-            label="Delete Selected"
-            icon="far fa-trash-alt"
-            bootstrapClass="btn-danger btn-sm"
-            badgeClass="bg-secondary"
-            [badge]="selectedRows.length"
-            [disabled]="!selectedRows.length"
-            [title]="selectedRows.length
-              ? 'Delete the ' + selectedRows.length + ' selected ports'
-              : 'Select ports to delete them'"
-            (clicked)="onBulkDeletePorts(selectedRows)">
-          </app-button>
-        }
-      </div>
+          @if (canDisconnect) {
+            <app-button
+              label="Disconnect Selected"
+              icon="fas fa-unlink"
+              bootstrapClass="btn-secondary btn-sm"
+              badgeClass="bg-primary"
+              [badge]="selectedConnectedRows.length"
+              [disabled]="!selectedConnectedRows.length"
+              [title]="selectedConnectedRows.length
+                ? 'Cut the cables of ' + selectedConnectedRows.length + ' selected ports'
+                : 'Select cabled ports to disconnect them'"
+              (clicked)="onBulkDisconnectPorts(selectedConnectedRows)">
+            </app-button>
+          }
+
+          @if (canDelete) {
+            <app-button
+              label="Delete Selected"
+              icon="far fa-trash-alt"
+              bootstrapClass="btn-danger btn-sm"
+              badgeClass="bg-secondary"
+              [badge]="selectedRows.length"
+              [disabled]="!selectedRows.length"
+              [title]="selectedRows.length
+                ? 'Delete the ' + selectedRows.length + ' selected ports'
+                : 'Select ports to delete them'"
+              (clicked)="onBulkDeletePorts(selectedRows)">
+            </app-button>
+          }
+        </div>
+      }
 
       @if (isLapsed) {
         <app-warning-alert

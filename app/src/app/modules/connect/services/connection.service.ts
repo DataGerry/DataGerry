@@ -21,6 +21,7 @@ import { BehaviorSubject, Observable, lastValueFrom } from 'rxjs';
 import { map, distinctUntilChanged } from 'rxjs/operators';
 import { environment } from 'src/environments/environment';
 import { RuntimeConfigService } from './runtime-config.service';
+import { BackendInfo } from '../models/backend-info';
 
 @Injectable({ providedIn: 'root' })
 export class ConnectionService {
@@ -154,6 +155,11 @@ export class ConnectionService {
     this.removeStoredConnection();
     this.connection$.next('');
     this.connectionStatus = false;
+  }
+
+  /** Unauthenticated `GET /rest/`: title, version and database status. */
+  public getBackendInfo(): Observable<BackendInfo> {
+    return this.http.get<BackendInfo>(`${this.currentConnection}/rest/`);
   }
 
   /** For your API calls */

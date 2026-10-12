@@ -31,6 +31,7 @@ import { PortDeviceKind } from './models/port-bulk.types';
 import { PortsAccess } from './models/ports-license.types';
 import {
     OverviewPort,
+    PORT_ADD_RIGHT,
     PORT_DELETE_RIGHT,
     PORT_EDIT_RIGHT,
     PortOverviewResponse,
@@ -133,8 +134,20 @@ describe('PortsOverviewComponent', () => {
         it('are hidden while the section only lists the ports', () => {
             component.manageable = false;
 
+            expect(component.canAdd).toBeFalse();
             expect(component.canEdit).toBeFalse();
             expect(component.canDelete).toBeFalse();
+            expect(component.canConnect).toBeFalse();
+            expect(component.canEditConnection).toBeFalse();
+            expect(component.canDisconnect).toBeFalse();
+            expect(component.canWrite).toBeFalse();
+        });
+
+        it('offer no write without any write right', () => {
+            component.manageable = true;
+            permission.hasRight.and.returnValue(false);
+
+            expect(component.canWrite).toBeFalse();
         });
 
         it('follow the user\'s rights where the section may write', () => {
@@ -326,6 +339,17 @@ describe('PortsOverviewComponent', () => {
 
             expect(modalService.open.calls.mostRecent().returnValue.componentInstance.existingKind)
                 .toBe(PortDeviceKind.PATCH_PANEL);
+        });
+
+        it('needs the add right', () => {
+            component.manageable = true;
+            permission.hasRight.and.callFake((right: string) => right !== PORT_ADD_RIGHT);
+            component.ngOnChanges(objectIdChange(20));
+
+            component.onAddPorts();
+
+            expect(component.canAdd).toBeFalse();
+            expect(modalService.open).not.toHaveBeenCalled();
         });
     });
 

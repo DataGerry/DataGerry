@@ -98,7 +98,7 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
     @Input() public objectId: number | null = null;
 
-    /** Ports are created from the object view; the edit form only lists them. */
+    /** Ports are written from the edit form; the object view only lists them. */
     @Input() public manageable = false;
 
     /** Passed on as the modal's subtitle. */
@@ -135,7 +135,6 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
     public readonly isLoading$ = this.loaderService.isLoading$;
     public readonly licenseFeature = PORTS_LICENSE_FEATURE;
-    public readonly portAddRight = PORT_ADD_RIGHT;
     public readonly patchPanel = PortDeviceKind.PATCH_PANEL;
 
     private allRows: PortRow[] = [];
@@ -352,9 +351,9 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
     }
 
 
-    /** The add right is checked on the button itself. */
+    /** Adding needs a full license on top of the add right. */
     public get canAdd(): boolean {
-        return this.manageable && this.access === PortsAccess.FULL;
+        return this.manageable && this.access === PortsAccess.FULL && this.hasRight(PORT_ADD_RIGHT);
     }
 
 
@@ -382,6 +381,13 @@ export class PortsOverviewComponent implements OnChanges, OnDestroy {
 
     public get canDisconnect(): boolean {
         return this.manageable && this.hasRight(CONNECTION_DELETE_RIGHT);
+    }
+
+
+    /** Every port write is stored at once, apart from saving the object. */
+    public get canWrite(): boolean {
+        return this.canAdd || this.canEdit || this.canDelete
+            || this.canConnect || this.canEditConnection || this.canDisconnect;
     }
 
 

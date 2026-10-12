@@ -26,7 +26,7 @@ import { ToastService } from 'src/app/layout/toast/toast.service';
 import { WebhookLog } from '../models/WebhookLog.model';
 import { ApiServicePrefix, resp, ApiCallService } from 'src/app/services/api-call.service';
 import { CollectionParameters } from 'src/app/services/models/api-parameter';
-import { APIGetMultiResponse, APIGetSingleResponse, APIInsertSingleResponse, APIUpdateSingleResponse, APIDeleteSingleResponse } from 'src/app/services/models/api-response';
+import { APIGetMultiResponse, APIInsertSingleResponse, APIUpdateSingleResponse, APIDeleteSingleResponse } from 'src/app/services/models/api-response';
 
 @Injectable({
     providedIn: 'root',
@@ -96,12 +96,12 @@ export class WebhookService<T = any> implements ApiServicePrefix {
     /**
      * Fetches a single webhook by its public ID.
      */
-    public getWebhookById(publicId: number): Observable<APIGetSingleResponse<T>> {
+    public getWebhookById(publicId: number): Observable<Webhook> {
         const options = this.options;
         options.params = new HttpParams();
 
-        return this.api.callGet<APIGetSingleResponse<T>>(`${this.servicePrefix}/${publicId}`, options).pipe(
-            map((apiResponse: HttpResponse<APIGetSingleResponse<T>>) => apiResponse.body),
+        return this.api.callGet<Webhook>(`${this.servicePrefix}/${publicId}`, options).pipe(
+            map((apiResponse: HttpResponse<Webhook>) => apiResponse.body),
             catchError((error) => {
                 this.toast.error(error?.error?.message)
                 throw error;
