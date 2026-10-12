@@ -30,6 +30,7 @@ from cmdb.models.special_type_model.schemas.subnet_schema import get_subnet_sche
 from cmdb.models.special_type_model.schemas.vlan_schema import get_vlan_schema
 from cmdb.models.special_type_model.schemas.rack_schema import get_rack_schema
 from cmdb.models.special_type_model.schemas.cable_schema import get_cable_schema
+from cmdb.models.special_type_model.schemas.person_schema import get_person_schema, get_person_group_schema
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -81,5 +82,11 @@ class SchemaProvider:
 
         if special_type == SpecialType.CABLE:
             return get_cable_schema(cable_type_values or [])
+
+        if special_type == SpecialType.PERSON:
+            return get_person_schema()
+
+        if special_type == SpecialType.PERSON_GROUP:
+            return get_person_group_schema()
 
         raise ValueError(f"Unkown SpecialType: {special_type} provided to Schema!")

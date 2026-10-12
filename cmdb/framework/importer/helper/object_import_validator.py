@@ -102,6 +102,7 @@ _CLEARABLE_FIELD_TYPES: frozenset[str] = frozenset({
     FieldType.REFERENCE.value,
     FieldType.REF_SECTION.value,
     FieldType.LOCATION.value,
+    FieldType.PERSON.value,
 })
 
 

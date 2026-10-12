@@ -14,5 +14,5 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Unit tests for the cmdb.models.person_group_model package (the CmdbPersonGroup document, its constants and PersonReferenceType)
+Unit tests for the cmdb.models.person_group_model package (PersonReferenceType)
 """

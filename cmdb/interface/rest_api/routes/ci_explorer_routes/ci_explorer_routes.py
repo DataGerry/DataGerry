@@ -282,6 +282,9 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
             metadata.undirected=true, plus the collapsed physical path in metadata.path.
             Requires the licensed IPAM feature: without it the flag yields nothing rather
             than refusing the request, since the rest of the graph is not IPAM surface
+        with_person_relations (bool, default true): include the persons and groups the focal
+            object's person fields select (children) and the objects whose person fields select
+            the focal object (parents), with metadata.source='person' on each edge
         item_limit (int, default 0=unlimited): cap on neighbour nodes
 
     The three edge-source toggles default to TRUE - the frontend graph's defaults, and a saved
@@ -317,6 +320,10 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
             request.args.get(CiExplorerParam.WITH_PORT_CONNECTIONS),
             default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_PORT_CONNECTIONS],
         ) and not feature_locked(LicenseFeature.IPAM, request_user)
+        with_person_relations: bool = parse_bool_arg(
+            request.args.get(CiExplorerParam.WITH_PERSON_RELATIONS),
+            default=DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_PERSON_RELATIONS],
+        )
         item_limit: int = clamp_item_limit(request.args.get(CiExplorerParam.ITEM_LIMIT, type=int))
         types_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.TYPES_FILTER))
         relations_filter: frozenset[int] = parse_int_list_filter(request.args.get(CiExplorerParam.RELATIONS_FILTER))
@@ -353,6 +360,7 @@ def get_ci_explorer_nodes_edges(request_user: CmdbUser) -> Response:  # pylint: 
                 with_locations=with_locations,
                 with_ipam_relations=with_ipam_relations,
                 with_port_connections=with_port_connections,
+                with_person_relations=with_person_relations,
                 item_limit=item_limit,
                 types_filter=types_filter,
                 relations_filter=relations_filter,

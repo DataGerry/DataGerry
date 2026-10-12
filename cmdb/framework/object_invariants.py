@@ -33,6 +33,7 @@ from cmdb.manager import ObjectsManager, TypesManager
 
 from cmdb.framework.ipam.enforcement import enforce_object_invariants, format_errors_for_abort
 from cmdb.framework.rack.enforcement import enforce_rack_object_invariants, format_rack_errors_for_abort
+from cmdb.framework.person.enforcement import enforce_person_object_invariants, format_person_errors_for_abort
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -50,8 +51,8 @@ def enforce_object_write_invariants(
     """
     Runs every feature's write invariants against the candidate and returns the abort message
 
-    Currently IPAM (SpecialType objects plus dg-ipam-interface rows on any object) and Rack. Both
-    normalise the candidate in place before validating, so the caller must pass the very dict it is
+    Currently IPAM (SpecialType objects plus dg-ipam-interface rows on any object), Rack and the person
+    fields (FieldType.PERSON, on any object). All of them normalise the candidate in place before validating, so the caller must pass the very dict it is
     about to persist. Each feature's errors are formatted by that feature, so the message names the
     feature the user actually tripped over; when several features reject the same candidate their
     messages are joined
@@ -81,6 +82,13 @@ def enforce_object_write_invariants(
 
     if rack_errors:
         messages.append(format_rack_errors_for_abort(rack_errors))
+
+    person_errors: list[dict[str, Any]] = enforce_person_object_invariants(
+        objects_manager, types_manager, candidate_object,
+    )
+
+    if person_errors:
+        messages.append(format_person_errors_for_abort(person_errors))
 
     if not messages:
         return None

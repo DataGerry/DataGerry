@@ -17,7 +17,7 @@
 Implementation of CmdbCiExplorerProfile in DataGerry
 
 A profile is a named, shared CI Explorer filter: the two id filters and the three edge-source toggles
-(``with_locations``, ``with_ipam_relations``, ``with_port_connections``). A toggle the stored document
+(``with_locations``, ``with_ipam_relations``, ``with_port_connections``, ``with_person_relations``). A toggle the stored document
 lacks reads as its default - TRUE, the frontend graph's own default (``DEFAULT_PROFILE_SCOPE``)
 """
 from typing import Any
@@ -61,6 +61,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
         with_locations: bool = DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_LOCATIONS],
         with_ipam_relations: bool = DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_IPAM_RELATIONS],
         with_port_connections: bool = DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_PORT_CONNECTIONS],
+        with_person_relations: bool = DEFAULT_PROFILE_SCOPE[CiExplorerProfileKey.WITH_PERSON_RELATIONS],
     ) -> None:
         """
         Initialises a CmdbCiExplorerProfile
@@ -76,6 +77,8 @@ class CmdbCiExplorerProfile(CmdbDAO):
                                         Defaults to True
             with_port_connections (bool): If True the saved filter includes the CIs the object is cabled
                                           to. Defaults to True
+            with_person_relations (bool): If True the saved filter includes the persons and groups a
+                                          person field selects. Defaults to True
 
         Raises:
             CmdbCiExplorerProfileInitError: When the CmdbCiExplorerProfile could not be initialised
@@ -87,6 +90,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
             self.with_locations = with_locations
             self.with_ipam_relations = with_ipam_relations
             self.with_port_connections = with_port_connections
+            self.with_person_relations = with_person_relations
 
             super().__init__(public_id=public_id)
         except Exception as err:
@@ -143,6 +147,7 @@ class CmdbCiExplorerProfile(CmdbDAO):
                 CiExplorerProfileKey.WITH_LOCATIONS.value: instance.with_locations,
                 CiExplorerProfileKey.WITH_IPAM_RELATIONS.value: instance.with_ipam_relations,
                 CiExplorerProfileKey.WITH_PORT_CONNECTIONS.value: instance.with_port_connections,
+                CiExplorerProfileKey.WITH_PERSON_RELATIONS.value: instance.with_person_relations,
             }
         except Exception as err:
             raise CmdbCiExplorerProfileToJsonError(err) from err

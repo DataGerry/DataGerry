@@ -23,6 +23,10 @@ the ISMS feature too by a blueprint-level guard - even though they keep their ow
 (/object_groups, /persons, /person_groups) rather than living under /isms/. With no license active
 every route (reads included) is blocked with HTTP 403, before the view runs. When ISMS is licensed,
 or in local (cloud) mode, the guard lets the request through (asserted as "not 403")
+
+Persons and person groups are CmdbObjects of the PERSON / PERSON_GROUP SpecialTypes now: /persons and
+/person_groups are read-only (the ISMS module still reads them there) and stay gated, while the objects
+themselves and the /person_relations routes are a standard feature and are not gated at all
 """
 from http import HTTPStatus
 
@@ -63,10 +67,23 @@ def test_shared_entity_read_routes_blocked_without_license(rest_api, url: str) -
     assert rest_api.get(url).status_code == HTTPStatus.FORBIDDEN
 
 
-@pytest.mark.parametrize('url', GATED_READ_URLS)
-def test_shared_entity_write_routes_blocked_without_license(rest_api, url: str) -> None:
-    """Every ISMS-dependent shared-entity write route is blocked with 403 when ISMS is not licensed"""
-    assert rest_api.post(url, json={}).status_code == HTTPStatus.FORBIDDEN
+def test_shared_entity_write_routes_blocked_without_license(rest_api) -> None:
+    """The ISMS-dependent shared-entity write route is blocked with 403 when ISMS is not licensed"""
+    assert rest_api.post(OBJECT_GROUPS_URL, json={}).status_code == HTTPStatus.FORBIDDEN
+
+
+@pytest.mark.parametrize('url', [PERSONS_URL, PERSON_GROUPS_URL])
+def test_the_person_routes_take_no_write(rest_api, monkeypatch: pytest.MonkeyPatch, url: str) -> None:
+    """Persons and groups are written through /objects; their legacy routes only answer GET"""
+    monkeypatch.setattr(LicenseService, 'has_feature', lambda _self, feature: feature == LicenseFeature.ISMS)
+
+    assert rest_api.post(url, json={}).status_code == HTTPStatus.METHOD_NOT_ALLOWED
+
+
+@pytest.mark.parametrize('url', ['/person_relations/types', '/person_relations/candidates'])
+def test_the_person_relation_routes_are_not_gated(rest_api, url: str) -> None:
+    """Persons are a standard feature: no license is needed for the relation routes"""
+    assert rest_api.get(url).status_code == HTTPStatus.OK
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

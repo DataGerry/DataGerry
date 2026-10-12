@@ -59,6 +59,7 @@ class CiExplorerGraphRequest:
         with_port_connections (bool): Whether physically connected CIs are grafted in. The route
             clears it when the IPAM feature is unlicensed, so the source yields nothing rather than
             refusing an otherwise valid request
+        with_person_relations (bool): Whether the persons and groups of person fields are grafted in
         item_limit (int): Upper bound on neighbour nodes; 0 means unlimited
         types_filter (frozenset[int]): Allowed neighbour type_ids; empty disables filtering
         relations_filter (frozenset[int]): Allowed CmdbRelation public_ids; empty disables filtering
@@ -69,6 +70,7 @@ class CiExplorerGraphRequest:
     with_locations: bool = False
     with_ipam_relations: bool = False
     with_port_connections: bool = False
+    with_person_relations: bool = False
     item_limit: int = 0
     types_filter: frozenset[int] = frozenset()
     relations_filter: frozenset[int] = frozenset()

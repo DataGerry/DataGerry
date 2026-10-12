@@ -23,18 +23,22 @@ and that a second run changes nothing.
 A real server is needed for the part that matters: whether MongoDB's ``$exists`` / null filter really
 does pass over a document that already holds an empty value is the whole re-run-safety argument, and a
 stubbed manager can only prove the filter's shape. The end state is then checked the way the API sees
-it - the stored documents pass their own Cerberus schema, which is the round trip most at risk of
-answered 400
+it - every stored document carries every normalised key and none of them is null (the CmdbPerson /
+CmdbPersonGroup models and their schemas are gone; updater_20261012 later reads these documents)
 """
 from typing import Any
 
 import pytest
-from cerberus import Validator
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.updater.versions.updater_20260909 import Update20260909
-from cmdb.models.person_model import CmdbPerson, PersonKey
-from cmdb.models.person_group_model import CmdbPersonGroup, PersonGroupKey
+from cmdb.database.updater.versions.updater_20260909 import (
+    NULLABLE_KEYS_BY_COLLECTION,
+    PERSON_COLLECTION,
+    PERSON_GROUP_COLLECTION,
+    Update20260909,
+)
+from cmdb.models.person_model import PersonKey
+from cmdb.models.person_group_model import PersonGroupKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 NULLED_PERSON_ID: int = 9960
@@ -55,8 +59,8 @@ GROUP_EMAIL: str = 'security@example.com'
 @pytest.fixture(name='pre_migration_db', autouse=True)
 def fixture_pre_migration_db(database_manager: MongoDatabaseManager, database_name: str):
     """Seeds persons and groups in their pre-migration shapes, cleaning up after"""
-    persons = database_manager.get_collection(CmdbPerson.COLLECTION, database_name)
-    groups = database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)
+    persons = database_manager.get_collection(PERSON_COLLECTION, database_name)
+    groups = database_manager.get_collection(PERSON_GROUP_COLLECTION, database_name)
 
     def _purge() -> None:
         persons.delete_many({'public_id': {'$in': ALL_PERSON_IDS}})
@@ -123,13 +127,13 @@ def _run_migration(database_manager: MongoDatabaseManager, database_name: str) -
 
 def _person(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> dict[str, Any]:
     """Reads one seeded person back"""
-    return database_manager.get_collection(CmdbPerson.COLLECTION, database_name)\
+    return database_manager.get_collection(PERSON_COLLECTION, database_name)\
                            .find_one({'public_id': public_id})
 
 
 def _group(database_manager: MongoDatabaseManager, database_name: str, public_id: int) -> dict[str, Any]:
     """Reads one seeded person group back"""
-    return database_manager.get_collection(CmdbPersonGroup.COLLECTION, database_name)\
+    return database_manager.get_collection(PERSON_GROUP_COLLECTION, database_name)\
                            .find_one({'public_id': public_id})
 
 
@@ -214,35 +218,32 @@ class TestTheResultIsWhatTheApiExpects:
     """The end state, checked the way a client sees it."""
 
     @pytest.mark.parametrize('public_id', ALL_PERSON_IDS)
-    def test_every_person_document_passes_the_person_schema(
+    def test_every_person_document_carries_every_key_without_null(
         self, database_manager: MongoDatabaseManager, database_name: str, public_id: int,
     ) -> None:
         """
-        GET then an unmodified PUT, which is what every DataGerry write route expects
-
-        This is the assertion the whole migration exists for: before it, two of these three documents
-        were refused by the very schema that produced them.
+        The end state the migration exists for: no person document holds null or lacks a key
         """
         _run_migration(database_manager, database_name)
 
         document: dict[str, Any] = _person(database_manager, database_name, public_id)
-        document.pop('_id')
-        validator = Validator(CmdbPerson.SCHEMA)
 
-        assert validator.validate(document), validator.errors
+        for key in NULLABLE_KEYS_BY_COLLECTION[PERSON_COLLECTION]:
+            assert key in document
+            assert document[key] is not None
 
     @pytest.mark.parametrize('public_id', ALL_GROUP_IDS)
-    def test_every_group_document_passes_the_group_schema(
+    def test_every_group_document_carries_every_key_without_null(
         self, database_manager: MongoDatabaseManager, database_name: str, public_id: int,
     ) -> None:
-        """The same round trip on the group side."""
+        """The same end state on the group side."""
         _run_migration(database_manager, database_name)
 
         document: dict[str, Any] = _group(database_manager, database_name, public_id)
-        document.pop('_id')
-        validator = Validator(CmdbPersonGroup.SCHEMA)
 
-        assert validator.validate(document), validator.errors
+        for key in NULLABLE_KEYS_BY_COLLECTION[PERSON_GROUP_COLLECTION]:
+            assert key in document
+            assert document[key] is not None
 
 
 class TestReRun:
@@ -288,7 +289,7 @@ class TestReRun:
         """
         _run_migration(database_manager, database_name)
 
-        persons = database_manager.get_collection(CmdbPerson.COLLECTION, database_name)
+        persons = database_manager.get_collection(PERSON_COLLECTION, database_name)
         still_matching: int = persons.count_documents({
             'public_id': {'$in': ALL_PERSON_IDS},
             '$or': [

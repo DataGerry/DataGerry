@@ -38,8 +38,9 @@ class CiExplorerProfileKey(BaseStrEnum):
         WITH_LOCATIONS: Whether the graph includes the location hierarchy
         WITH_IPAM_RELATIONS: Whether the graph includes the IPAM hierarchy
         WITH_PORT_CONNECTIONS: Whether the graph includes the CIs the object is cabled to
+        WITH_PERSON_RELATIONS: Whether the graph includes the persons and groups a person field selects
 
-    The three WITH_* toggles default to **true** - the frontend's own defaults for the graph
+    The four WITH_* toggles default to **true** - the frontend's own defaults for the graph
     (``DEFAULT_CI_EXPLORER_SCOPE``), so a profile saved without them means what the graph shows by default
     """
     PUBLIC_ID = 'public_id'
@@ -49,11 +50,13 @@ class CiExplorerProfileKey(BaseStrEnum):
     WITH_LOCATIONS = 'with_locations'
     WITH_IPAM_RELATIONS = 'with_ipam_relations'
     WITH_PORT_CONNECTIONS = 'with_port_connections'
+    WITH_PERSON_RELATIONS = 'with_person_relations'
 
 
-# The default of every WITH_* toggle of a profile: the frontend graph's defaults, all three on
+# The default of every WITH_* toggle of a profile: the frontend graph's defaults, all four on
 DEFAULT_PROFILE_SCOPE: dict[str, bool] = {
     CiExplorerProfileKey.WITH_LOCATIONS.value: True,
     CiExplorerProfileKey.WITH_IPAM_RELATIONS.value: True,
     CiExplorerProfileKey.WITH_PORT_CONNECTIONS.value: True,
+    CiExplorerProfileKey.WITH_PERSON_RELATIONS.value: True,
 }

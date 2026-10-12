@@ -66,6 +66,7 @@ class CiExplorerParam(BaseStrEnum):
     WITH_LOCATIONS = 'with_locations'
     WITH_IPAM_RELATIONS = 'with_ipam_relations'
     WITH_PORT_CONNECTIONS = 'with_port_connections'
+    WITH_PERSON_RELATIONS = 'with_person_relations'
     ITEM_LIMIT = 'item_limit'
     TYPES_FILTER = 'types_filter'
     RELATIONS_FILTER = 'relations_filter'

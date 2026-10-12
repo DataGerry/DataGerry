@@ -53,6 +53,7 @@ FILE_LEVELS: dict[str, str] = {
     'framework_routes/cmdb_section_templates/section_template_routes.py': ADMIN,
     'framework_routes/cmdb_types/types_routes.py': ADMIN,
     'framework_routes/object_groups_routes.py': ADMIN,
+    'framework_routes/person_relation_routes.py': ADMIN,
     'relation_routes/object_relation_routes.py': ADMIN,
     'relation_routes/relations_routes.py': ADMIN,
     'report_routes/report_category_routes.py': ADMIN,

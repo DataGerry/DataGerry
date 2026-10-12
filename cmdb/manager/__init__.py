@@ -42,8 +42,6 @@ from cmdb.manager.webhooks_manager import WebhooksManager
 from cmdb.manager.extendable_options_manager import ExtendableOptionsManager
 from cmdb.manager.object_groups_manager import ObjectGroupsManager
 from cmdb.manager.user_settings_manager import UserSettingsManager
-from cmdb.manager.persons_manager import PersonsManager
-from cmdb.manager.person_groups_manager import PersonGroupsManager
 from cmdb.manager.ci_explorer_profile_manager import CiExplorerProfileManager
 
 # System Managers
@@ -121,8 +119,6 @@ __all__: list[str] = [
     'UserSettingsManager',
     'RiskManager',
     'ControlMeasureManager',
-    'PersonsManager',
-    'PersonGroupsManager',
     'RiskAssessmentManager',
     'ControlMeasureAssignmentManager',
     'CachedUserManager',

@@ -272,7 +272,8 @@ def _register_core(app: BaseCmdbApp) -> None:
 
 def _register_framework(app: BaseCmdbApp) -> None:
     """
-    Mounts the CMDB core: objects, types, categories, locations, section templates, options, search and logs
+    Mounts the CMDB core: objects, types, categories, locations, section templates, options, search, logs and
+    the person relations
 
     Args:
         app (BaseCmdbApp): Flask app the blueprints are mounted on
@@ -289,6 +290,7 @@ def _register_framework(app: BaseCmdbApp) -> None:
     )
     from cmdb.interface.rest_api.routes.framework_routes.search_routes import search_blueprint
     from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs import logs_blueprint
+    from cmdb.interface.rest_api.routes.framework_routes.person_relation_routes import person_relations_blueprint
 
     app.register_blueprint(objects_blueprint, url_prefix='/objects')
     app.register_blueprint(types_blueprint, url_prefix='/types')
@@ -299,6 +301,7 @@ def _register_framework(app: BaseCmdbApp) -> None:
     app.register_blueprint(framework_routes.extendable_option_blueprint, url_prefix='/extendable_options')
     app.register_blueprint(search_blueprint, url_prefix='/search')
     app.register_blueprint(logs_blueprint, url_prefix='/logs')
+    app.register_blueprint(person_relations_blueprint, url_prefix='/person_relations')
 
 
 def _register_documents_and_ai(app: BaseCmdbApp) -> None:

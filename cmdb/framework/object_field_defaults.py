@@ -71,6 +71,7 @@ DEFAULT_EXCLUDED_KINDS: frozenset[str] = frozenset({
     FieldType.REFERENCE.value,
     FieldType.REF_SECTION.value,
     FieldType.LOCATION.value,
+    FieldType.PERSON.value,
 })
 
 

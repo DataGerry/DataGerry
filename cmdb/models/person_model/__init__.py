@@ -14,14 +14,13 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Provides all CmdbPerson relevant classes
+The document keys of the former CmdbPerson - the shape GET /persons still answers a person in
+(persons are CmdbObjects of the PERSON SpecialType, see cmdb.framework.person)
 """
 from .person_constants import PersonKey, PERSON_OPTIONAL_TEXT_KEYS, PERSON_LIST_KEYS
-from .cmdb_person import CmdbPerson
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'CmdbPerson',
     'PersonKey',
     'PERSON_OPTIONAL_TEXT_KEYS',
     'PERSON_LIST_KEYS',
