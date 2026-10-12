@@ -43,6 +43,7 @@ from cmdb.security.auth.auth_module import (
     PROVIDERS_KEY,
     AuthModule,
 )
+from cmdb.security.auth.auth_constants import BLANK_LOGIN_MESSAGE
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
 from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, PROVIDER_ACTIVE_KEY
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
@@ -503,6 +504,39 @@ class TestLogin:
         module.login(f' {USER_NAME} ', PASSWORD)
 
         assert module.users_manager.get_user_by.call_args.args[0] == {CmdbUserKey.USER_NAME.value: USER_NAME}
+
+    def test_the_primary_provider_is_handed_the_stripped_login(self, cmdb_app) -> None:
+        """The LDAP provider provisions under the name it is handed - so it must be the stripped one"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+        module.users_manager.get_user_by.return_value = self._user('_StubProvider')
+
+        module.login(f' {USER_NAME}\t', PASSWORD)
+
+        assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
+
+    def test_the_sweep_is_handed_the_stripped_login(self, cmdb_app) -> None:
+        """No stored user: the providers of the sweep see the stripped spelling too"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+        module.users_manager.get_user_by.return_value = None
+
+        module.login(f'  {USER_NAME} ', PASSWORD)
+
+        assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
+
+    @pytest.mark.parametrize('login', [' ', '   ', '\t \n'], ids=['space', 'spaces', 'mixed'])
+    def test_a_login_blank_once_stripped_reaches_no_provider(self, cmdb_app, login: str) -> None:
+        """Refused before any lookup: it would reach a user stored with a blank name"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            module.login(login, PASSWORD)
+
+        assert str(exc_info.value) == BLANK_LOGIN_MESSAGE
+        module.users_manager.get_user_by.assert_not_called()
+        assert not _StubProvider.calls
 
     def test_cloud_mode_resolves_the_user_by_email(self, cmdb_app) -> None:
         """In cloud mode the login is looked up as an email."""

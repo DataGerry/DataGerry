@@ -56,6 +56,8 @@ methods on the class are exactly the ones that touch the database.
 from typing import Any
 from datetime import datetime, timezone
 
+from pymongo import ASCENDING
+
 from cmdb.database.updater.base_database_update import BaseDatabaseUpdate
 
 from cmdb.errors.updater import UpdaterException
@@ -353,7 +355,8 @@ class Update20260226(BaseDatabaseUpdate):
         Returns the catch-all relation to migrate onto, creating it when it does not exist yet
 
         One read answers both questions - whether the relation exists and what its public_id is. An
-        existing relation is adopted as-is (an earlier crashed run, or a user-created one) and the pairs
+        existing relation is adopted as-is (an earlier crashed run, or a user-created one; the lowest public_id
+        when several hold the name) and the pairs
         it already holds are read so they are not migrated twice; a freshly created relation cannot hold
         any pair, so no second query is paid for it
 
@@ -366,7 +369,9 @@ class Update20260226(BaseDatabaseUpdate):
                 RELATION_COLLECTION,
                 self.db_name,
                 filter={RELATION_NAME_FIELD: MAPPER_RELATION_NAME},
-                projection={PUBLIC_ID_FIELD: 1, MONGO_ID_FIELD: 0}
+                projection={PUBLIC_ID_FIELD: 1, MONGO_ID_FIELD: 0},
+                # Several relations may hold the name where it is not unique yet: the oldest is adopted
+                sort=[(PUBLIC_ID_FIELD, ASCENDING)],
             ),
             None,
         )

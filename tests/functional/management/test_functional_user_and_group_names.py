@@ -20,8 +20,9 @@ Both are held by a unique index; each write route pre-checks the name so the ord
 a message naming it, and the index's own refusal - what a concurrent write runs into - is answered with the
 same message. Anything else the write raises is a 500: an outage is never reported as a taken name.
 
-The names are compared EXACTLY as sent, the way the index compares them: another case or surrounding blanks
-is a different name here (folding them is backlog T253 / T252), and a stored near-twin never blocks a write.
+The names are compared EXACTLY as sent, the way the index compares them: another case is a different name here
+(case is not folded), and a stored near-twin never blocks a write. A padded name is not a twin either: the name
+rule refuses it before the pre-check.
 
 The indexes are built by the fixture: the test database never goes through CollectionValidator, so without
 them a duplicate write would simply succeed and the race tests would prove nothing.
@@ -54,7 +55,7 @@ TAKEN_GROUP_NAME: str = 'names-taken-group'
 FREE_GROUP_NAME: str = 'names-free-group'
 
 # The spellings the index treats as different names, and so does the pre-check
-NEAR_TWINS: dict[str, str] = {'other-case': 'Names-Taken-{kind}', 'padded': ' names-taken-{kind}'}
+NEAR_TWINS: dict[str, str] = {'other-case': 'Names-Taken-{kind}'}
 
 USER_NAMES: list[str] = [TAKEN_USER_NAME, FREE_USER_NAME] + [t.format(kind='User') for t in NEAR_TWINS.values()]
 GROUP_NAMES: list[str] = [TAKEN_GROUP_NAME, FREE_GROUP_NAME] + [t.format(kind='Group') for t in NEAR_TWINS.values()]
@@ -158,7 +159,7 @@ class TestUserName:
 
     @pytest.mark.parametrize('twin', list(NEAR_TWINS.values()), ids=list(NEAR_TWINS))
     def test_a_near_twin_is_a_different_user_name(self, rest_api, twin: str) -> None:
-        """Compared as sent, like the index: another case or padding is not refused here (T253 / T252)."""
+        """Compared as sent, like the index: another case is not refused here."""
         _create_user(rest_api, TAKEN_USER_NAME)
 
         assert _create_user(rest_api, twin.format(kind='User')).status_code in (HTTPStatus.OK, HTTPStatus.CREATED)

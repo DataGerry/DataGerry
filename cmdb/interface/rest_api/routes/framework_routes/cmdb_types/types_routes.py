@@ -52,7 +52,7 @@ from werkzeug import Response
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
-from cmdb.manager import TypesManager, ObjectsManager, UsersManager, SectionTemplatesManager
+from cmdb.manager import GroupsManager, TypesManager, ObjectsManager, UsersManager, SectionTemplatesManager
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
@@ -75,9 +75,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
     guard_field_defaults,
+    guard_field_patterns,
     guard_new_identifiers,
     guard_type_structure,
+    drop_stale_type_references,
 )
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_acl_helper import abort_if_unknown_acl_groups
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     normalize_type_acl,
     verify_type_is_unique,
@@ -180,8 +183,8 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
     Raises:
         HTTPException: 403 when the user lacks the right or the IPAM license; 400 when the payload
             carries no name, the name is already taken, a claimed global template's section holds a field the
-            template does not own, or the insert fails; 404 when the created
-            Type cannot be read back; 500 on an unexpected error
+            template does not own, the ``acl`` names a UserGroup that does not exist, or the insert fails; 404
+            when the created Type cannot be read back; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The new CmdbType and its public_id
@@ -218,6 +221,9 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # the entry it was configured to show
         guard_type_structure(data)
 
+        # A field pattern the browser and the server read alike, so the form and the write agree
+        guard_field_patterns(data)
+
         # A field's default is what every new object starts from, so it has to pass the field's own rules
         guard_field_defaults(data)
 
@@ -227,6 +233,10 @@ def insert_cmdb_type(data: dict[str, Any], request_user: CmdbUser) -> Response:
         # The insert stores the payload as given, so the ACL is completed here - an update and an
         # import get the same block for free by going through the model
         normalize_type_acl(data)
+
+        # Every group the ACL names must exist - a list granting only unknown groups locks the type for everyone
+        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+        abort_if_unknown_acl_groups(data, groups_manager)
 
         verify_type_is_unique(
             types_manager,
@@ -655,7 +665,8 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         HTTPException: 403 when the user lacks the right or the IPAM license, or the caller's group may not
             READ the stored Type; 404 when the Type does not exist, disappeared before the write, or cannot be
             read back afterwards; 400 when a guard refuses the change (a claimed global template's section
-            holding a field the template does not own among them) or the Type write fails; 500 when a step
+            holding a field the template does not own, or an ``acl`` naming a UserGroup that does not exist and
+            the stored list does not already name, among them) or the Type write fails; 500 when a step
             after the write fails (the Type IS saved and carries ``alignment_pending``; the message names the
             step) or on an unexpected error
 
@@ -694,6 +705,9 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # nominated field clears the nomination instead of being refused over it
         normalize_ci_explorer_label(data, old_type)
 
+        # Names a stale stored Type carries, or that name a field this update removes, are dropped, not refused
+        drop_stale_type_references(data, old_type)
+
         # The identifiers this update ADDS follow the identifier rule; the stored ones are immutable and pass
         guard_new_identifiers(data, old_type)
 
@@ -701,8 +715,15 @@ def update_cmdb_type(public_id: int, data: dict[str, Any], request_user: CmdbUse
         # can: sections or a summary line referencing fields the payload does not declare
         guard_type_structure(data)
 
+        # The pattern rule of the create - only the patterns this update adds or changes; a stored one passes
+        guard_field_patterns(data, old_type)
+
         # Same default rule as the create - a Type stored with a bad default is refused until it is fixed
         guard_field_defaults(data)
+
+        # A group the stored ACL does not already name must exist; an entry left by an earlier delete passes
+        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+        abort_if_unknown_acl_groups(data, groups_manager, CmdbType.to_json(old_type).get(TypeSchemaKey.ACL.value))
 
         data[TypeSchemaKey.LAST_EDIT_TIME] = datetime.now(timezone.utc)
         data[TypeSchemaKey.EDITOR_ID] = request_user.public_id

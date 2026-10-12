@@ -46,7 +46,8 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
-from cmdb.security.auth.login_name import login_lookup_queries
+from cmdb.security.auth.auth_constants import BLANK_LOGIN_MESSAGE
+from cmdb.security.auth.login_name import login_lookup_queries, strip_login
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.models.security_models.auth_settings_constants import (
     AUTH_SETTINGS_ID,
@@ -486,17 +487,28 @@ class AuthModule:
         provider. So whatever the primary attempt ran into, a failed login ends in one
         `AuthenticationError`: it never says which provider was off or missing
 
+        The login is stripped once, before either attempt, so every provider - the LDAP one provisions a
+        CmdbUser under the name it is handed - sees the spelling HTTP Basic and the local lookup see. A login
+        that is blank once stripped is refused before any provider runs
+
         Args:
-            user_name (str): Name (or, in cloud mode, email) of the user
+            user_name (str): Name (or, in cloud mode, email) of the user, as submitted
             password (str): The password to verify
 
         Raises:
-            AuthenticationError: When no provider accepted the credentials; the primary failure is
-                chained as the cause
+            AuthenticationError: When the login is blank once stripped, or when no provider accepted the
+                credentials; the primary failure is chained as the cause
 
         Returns:
             CmdbUser: The authenticated user
         """
+        # Once, for every provider: the local and the LDAP provider see the spelling HTTP Basic sees
+        user_name = strip_login(user_name)
+
+        if not user_name:
+            # Never handed to a provider: a blank login would reach a user stored with a blank name
+            raise AuthenticationError(BLANK_LOGIN_MESSAGE)
+
         try:
             user: CmdbUser | None = self.resolve_user(user_name)
 

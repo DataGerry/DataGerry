@@ -92,6 +92,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_helper
     apply_object_insert,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_write_context import ObjectWriteContext
+from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import read_port_clone_source
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_bulk_delete_helper import (
     BulkDeleteManagers,
     delete_selected_object,
@@ -167,6 +168,11 @@ def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response
     placement is validated - all BEFORE the write. Afterwards the CmdbLocation mirror, the
     select-option sync, the CREATE webhook, the cloud item count and the create log run best-effort
 
+    ``?clone_ports_from=<id>`` gives the new object a copy of every port of that object - side, name, number and
+    field values, and its INTERNAL connections remapped onto the new ports; no cable connection and no interface
+    link. The object and its ports are written all or nothing. A source with ports needs the IPAM license, the
+    right to add ports, a port-bearing Type and at most as many ports as a bulk create
+
     The body is validated against ``CmdbObject.SCHEMA`` like the update route's, so a malformed
     payload is a clean 400 here instead of an error from deeper in the pipeline. ``author_id`` is
     mandatory either way - ``CmdbObject.REQUIRED_INIT_KEYS`` demands it - so the schema only decides
@@ -189,7 +195,11 @@ def insert_cmdb_object(data: dict[str, Any], request_user: CmdbUser) -> Response
         objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
         types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
 
-        new_object_id: int = apply_object_insert(data, request_user, objects_manager, types_manager)
+        port_clone_source: int | None = read_port_clone_source(request.args)
+
+        new_object_id: int = apply_object_insert(
+            data, request_user, objects_manager, types_manager, port_clone_source,
+        )
 
         return DefaultResponse(new_object_id).make_response()
     except ObjectsManagerInsertError as err:

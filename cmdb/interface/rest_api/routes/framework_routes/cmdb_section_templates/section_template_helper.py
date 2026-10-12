@@ -37,6 +37,7 @@ from cmdb.models.section_template_model.section_template_constants import (
     SectionTemplateKey,
 )
 from cmdb.framework.object_field_value_rules import find_default_value_errors
+from cmdb.framework.field_pattern_rule import find_field_pattern_errors
 from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
@@ -94,7 +95,7 @@ def require_text(raw: Any, param_name: str) -> str:
     return raw
 
 
-def guard_template_fields(fields: list[dict[str, Any]]) -> None:
+def guard_template_fields(fields: list[dict[str, Any]], stored_fields: list[dict[str, Any]] | None = None) -> None:
     """
     Aborts 400 when a field entry could not be used as a CmdbType field
 
@@ -112,9 +113,12 @@ def guard_template_fields(fields: list[dict[str, Any]]) -> None:
         every new object would start from it
       - names unique within the template - two fields sharing one name make every read of that name
         ambiguous, and the type they are inlined into would be refused for it
+      - a ``regex`` the browser and the server read alike (``field_pattern_rule``) - judged before the defaults,
+        which are matched against it; on an update only the patterns the update adds or changes
 
     Args:
         fields (list[dict[str, Any]]): The parsed field list
+        stored_fields (list[dict[str, Any]] | None): The stored template's fields on an update; None on a create
 
     Raises:
         HTTPException: 400 naming the first rule a field entry breaks
@@ -141,6 +145,12 @@ def guard_template_fields(fields: list[dict[str, Any]]) -> None:
                        f"once: {name}!")
 
         seen.add(name)
+
+    # The object form and the object write read the pattern in two dialects - it has to mean the same to both
+    pattern_errors: list[str] = find_field_pattern_errors(fields, stored_fields)
+
+    if pattern_errors:
+        abort(400, FIELD_DEFAULT_ERROR_SEPARATOR.join(pattern_errors))
 
     # A template field's default is inlined into every consuming type and written into their objects, so
     # it has to pass the field's own rules like any object value

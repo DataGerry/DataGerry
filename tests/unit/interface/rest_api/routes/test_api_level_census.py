@@ -41,7 +41,7 @@ SUPER_ADMIN: str = 'SUPER_ADMIN'
 LOCKED: str = 'LOCKED'
 
 # The routes there are - the count must not silently shrink; a route removed on purpose lowers it here
-MIN_ROUTES: int = 360
+MIN_ROUTES: int = 361
 
 # route file -> the level its routes require
 FILE_LEVELS: dict[str, str] = {

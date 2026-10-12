@@ -46,6 +46,13 @@ class CmdbRelation(CmdbDAO):
     COLLECTION = "framework.relations"
 
     INDEX_KEYS: list[dict[str, Any]] = [
+        # The technical name identifies a relation, the way a CmdbType's name does - its display texts are
+        # relation_name_parent / relation_name_child. Compared exactly, as stored
+        {
+            'keys': [(RelationKey.RELATION_NAME.value, CmdbDAO.DAO_ASCENDING)],
+            'name': RelationKey.RELATION_NAME.value,
+            'unique': True,
+        },
         {
             'keys': [(RelationKey.PARENT_TYPE_IDS.value, CmdbDAO.DAO_ASCENDING)],
             'name': RelationKey.PARENT_TYPE_IDS.value,

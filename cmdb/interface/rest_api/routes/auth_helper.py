@@ -32,6 +32,7 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import (
+    GroupsManager,
     SecurityManager,
     SettingsManager,
     UsersManager,
@@ -39,7 +40,8 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.auth_module import AuthModule
-from cmdb.models.security_models.auth_settings_constants import CLOUD_EXTERNAL_PROVIDER_MSG
+from cmdb.models.security_models.auth_settings_constants import CLOUD_EXTERNAL_PROVIDER_MSG, LDAP_GROUP_NOT_AN_ID_MSG
+from cmdb.security.auth.providers.ldap_group_references import as_group_id, ldap_group_references
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.route_utils import (
     abort_if_too_large,
@@ -52,6 +54,8 @@ from cmdb.interface.route_utils import (
 )
 from cmdb.interface.rest_api.responses import DefaultResponse, LoginResponse
 from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
+from cmdb.interface.rest_api.routes.routes_helper import abort_on_unknown_references
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
 
 from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.provider import AuthenticationError
@@ -304,3 +308,29 @@ def abort_if_external_provider_in_cloud(settings_values: dict[str, Any]) -> None
 
     if active_names:
         abort(400, CLOUD_EXTERNAL_PROVIDER_MSG.format(names=', '.join(active_names)))
+
+
+def abort_if_ldap_groups_unusable(settings_values: dict[str, Any], groups_manager: GroupsManager) -> None:
+    """
+    Refuses an auth-settings section whose LDAP default group or group mapping names no existing CmdbUserGroup
+
+    A directory user is provisioned into the default group and moved into a mapped group on every login; a group
+    that does not exist leaves them authenticated and refused every right, without a word why. Checked whether the
+    provider is active or not - the settings are what an activation later uses
+
+    Args:
+        settings_values (dict[str, Any]): The section as it will be stored
+        groups_manager (GroupsManager): Answers which groups exist, in one read
+
+    Raises:
+        HTTPException: 400 naming the values that are no group id, or the ids no group carries
+    """
+    references = ldap_group_references(settings_values)
+    not_ids: list[Any] = [reference.value for reference in references if as_group_id(reference.value) is None]
+
+    if not_ids:
+        abort(400, LDAP_GROUP_NOT_AN_ID_MSG.format(values=not_ids))
+
+    abort_on_unknown_references(
+        groups_manager, sorted({as_group_id(reference.value) for reference in references}), USER_GROUP_LABEL,
+    )
