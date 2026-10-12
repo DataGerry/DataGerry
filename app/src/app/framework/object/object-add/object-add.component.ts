@@ -34,7 +34,7 @@ import { CmdbType } from '../../models/cmdb-type';
 import { CmdbMode } from '../../modes.enum';
 import { RenderComponent } from '../../render/render.component';
 import { CmdbObject } from '../../models/cmdb-object';
-import { SpecialType } from '../../models/special-type';
+import { SpecialType, isLicenseGatedSpecialType } from '../../models/special-type';
 import { AccessControlPermission } from 'src/app/modules/acl/acl.types';
 import { finalize, take } from 'rxjs/operators';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -157,7 +157,7 @@ export class ObjectAddComponent implements OnInit, OnDestroy {
      * user is never wrongly bounced. No-op for non-special types and entitled editions.
      */
     private enforceIpamForSpecialType(typeInstance: CmdbType): void {
-        if (!typeInstance?.special_type) {
+        if (!isLicenseGatedSpecialType(typeInstance?.special_type)) {
             return;
         }
 

@@ -56,6 +56,7 @@ export const mappingComponents: { [type: string]: any } = {
 export const unsupportedImportFieldTypes: { [type: string]: string } = {
     'ref': 'Reference',
     'location': 'Location',
+    'person': 'Person / Person group',
     'ref-section-field': 'Referenced section'
 };
 

@@ -349,14 +349,15 @@ export class BuilderCanvasComponent implements OnInit, OnChanges, OnDestroy, Aft
     }
 
     /**
-     * This prevents the special control "Location" from being placed inside a multi-data-section.
+     * This prevents the special controls "Location" and "Person / Person group" from being placed inside
+     * a multi-data-section.
      */
     public getFieldDropTypes(section: BuilderSection): Array<string> {
         if (section?.type == "multi-data-section") {
             return ['inputs'];
         }
 
-        return ['inputs', 'location'];
+        return ['inputs', 'location', 'person'];
     }
 
     /** On the canvas a field editor is told the real section type, so an MDS offers its hide control. */

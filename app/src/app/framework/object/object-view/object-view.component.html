@@ -134,6 +134,10 @@
               <hr class="object-section-divider" />
               <cmdb-rack-overview [publicId]="currentObjectID"></cmdb-rack-overview>
             </ng-container>
+          } @else if (isPerson || isPersonGroup) {
+            <hr class="object-section-divider" />
+            <cmdb-person-overview [publicId]="currentObjectID"
+              [specialType]="renderResult.object_information.special_type"></cmdb-person-overview>
           }
         </cmdb-object-relations>
       </div>

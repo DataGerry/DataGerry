@@ -1,0 +1,10 @@
+@for (entry of entries; track entry.key; let last = $last) {
+<span class="person-simple" [class.person-simple--missing]="entry.missing">
+  <i [class]="iconOf(entry)" aria-hidden="true"></i>
+  @if (entry.missing) {
+  {{ entry.label }}
+  } @else {
+  <a [routerLink]="['/framework/object/view', entry.id]" (click)="$event.stopPropagation()">{{ entry.label }}</a>
+  }
+</span>@if (!last) {<span>, </span>}
+}

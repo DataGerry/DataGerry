@@ -25,7 +25,7 @@ import {
     GraphRespParents
 } from 'src/app/framework/models/ci-explorer.model';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
-import { cableColorOf, edgeByNeighbour, undirectedNeighbours } from '../utils/graph-edge.util';
+import { cableColorOf, edgeByNeighbour, edgeLabelOf, undirectedNeighbours } from '../utils/graph-edge.util';
 import { GraphDataService } from './graph-data.service';
 import { firstValueFrom } from 'rxjs';
 import { ConnectionTrackerService } from './connection-tracker.service';
@@ -132,7 +132,7 @@ export class GraphExpansionService {
                         from: p?.id, to: id,
                         fromLevel: p?.level, toLevel: ui?.level,
                         fromUid: p?.uid, toUid: ui?.uid,
-                        relationLabel: edge?.meta?.relation_label,
+                        relationLabel: edgeLabelOf(edge?.meta),
                         relationColor: edge?.meta?.relation_color ?? cn?.relation_color,
                         relationIcon: edge?.meta?.relation_icon,
                         metadata: edge?.meta,
@@ -177,7 +177,7 @@ export class GraphExpansionService {
                         from: id, to: k?.id,
                         fromLevel: ui?.level, toLevel: k?.level,
                         fromUid: ui?.uid, toUid: k?.uid,
-                        relationLabel: edge?.meta?.relation_label,
+                        relationLabel: edgeLabelOf(edge?.meta),
                         relationColor: edge?.meta?.relation_color ?? cn?.relation_color,
                         relationIcon: edge?.meta?.relation_icon,
                         metadata: edge?.meta,

@@ -28,7 +28,7 @@ import {
 } from 'src/app/framework/models/ci-explorer.model';
 import { CiExplorerService } from 'src/app/framework/services/ci-explorer.service';
 import { GraphNode, Connection } from '../interfaces/graph.interfaces';
-import { cableColorOf, edgeKind, edgeMeta } from '../utils/graph-edge.util';
+import { cableColorOf, edgeKind, edgeLabelOf, edgeMeta } from '../utils/graph-edge.util';
 import { titleForLabelField } from '../utils/graph-label.util';
 
 @Injectable()
@@ -266,7 +266,7 @@ export class GraphDataService {
             from: f.id, to: t.id,
             fromLevel: f.level, toLevel: t.level,
             fromUid: f.uid, toUid: t.uid,
-            relationLabel: meta?.relation_label,
+            relationLabel: edgeLabelOf(meta),
             relationColor: meta?.relation_color,
             relationIcon: meta?.relation_icon,
             metadata: meta,

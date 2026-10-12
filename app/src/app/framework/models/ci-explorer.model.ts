@@ -67,12 +67,14 @@ export interface Field {
     withLocations: boolean;
     withIpamRelations: boolean;
     withPortConnections: boolean;
+    withPersonRelations: boolean;
   }
 
   export const DEFAULT_CI_EXPLORER_SCOPE: CiExplorerScope = {
     withLocations: true,
     withIpamRelations: true,
-    withPortConnections: true
+    withPortConnections: true,
+    withPersonRelations: true
   };
   
   /* -------- Node shape received from / sent to the UI ------------------- */
@@ -111,8 +113,10 @@ export interface Field {
     relation_label?: string;
     relation_icon?: string;
     relation_color?: string;
-    /** Where the edge came from when it is not a modelled relation, e.g. `ipam`, `port_connection`. */
+    /** Where the edge came from when it is not a modelled relation, e.g. `ipam`, `port_connection`, `person`. */
     source?: string;
+    /** A person edge names the person field it was drawn from here. */
+    label?: string;
     /** A port connection has no direction, so it is drawn without an arrow head. */
     undirected?: boolean;
     /** The physical hops a port connection collapsed, focal end first. */

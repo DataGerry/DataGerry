@@ -52,6 +52,12 @@ describe('SpecialTypeBadgeComponent', () => {
         expect(component.displayToken).toBe('');
     });
 
+    it('reads a compound token as separate words', () => {
+        component.specialType = SpecialType.PERSON_GROUP;
+        expect(component.displayToken).toBe('Person group');
+        expect(component.badgeClass).toBe('special-type-badge special-type-badge--person_group');
+    });
+
     it('renders the token as text only, without an icon', () => {
         component.specialType = SpecialType.RACK;
         fixture.detectChanges();

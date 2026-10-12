@@ -67,9 +67,9 @@
                   'base.framework.object.view',
                   'base.framework.type.view',
                   'base.framework.category.view',
-                ]" class="nav-item dropdown">
+                ]" class="nav-item dropdown" (mouseenter)="refreshMissingPersonTypes()">
                 <a class="nav-link" href="#" role="button" data-bs-toggle="dropdown" aria-haspopup="true"
-                  aria-expanded="false">
+                  aria-expanded="false" (focus)="refreshMissingPersonTypes()">
                   <i class="fas fa-map hover-trigger"></i>
                 </a>
                 <div class="dropdown-menu dropdown">
@@ -94,21 +94,19 @@
                     [routerLink]="['/framework/relation']">
                     <i class="fas fa-exchange-alt"></i> Relations
                   </a>
-                  <a class="dropdown-item" *permissionLink="'base.user-management.person.view'"
-                    [routerLink]="['/framework/persons']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
+                  @if (personTypeIds?.PERSON; as personTypeId) {
+                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
+                    [routerLink]="['/framework/object/type', personTypeId]">
                     <i class="fas fa-user-friends"></i> Persons
-                    @if (isLocked(LicenseFeature.Isms)) {
-                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
-                    }
                   </a>
+                  }
 
-                  <a class="dropdown-item" *permissionLink="'base.user-management.personGroup.view'"
-                    [routerLink]="['/framework/person-groups']" [class.dg-premium-locked]="isLocked(LicenseFeature.Isms)">
+                  @if (personTypeIds?.PERSON_GROUP; as personGroupTypeId) {
+                  <a class="dropdown-item" *permissionLink="'base.framework.object.view'"
+                    [routerLink]="['/framework/object/type', personGroupTypeId]">
                     <i class="fas fa-users"></i> Person Groups
-                    @if (isLocked(LicenseFeature.Isms)) {
-                    <span class="dg-premium-badge" title="Premium feature">Pro</span>
-                    }
                   </a>
+                  }
 
                   <ng-container>
                     <a class="dropdown-item" *permissionLink="'base.framework.objectGroup.view'"

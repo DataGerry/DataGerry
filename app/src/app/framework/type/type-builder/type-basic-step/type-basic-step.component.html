@@ -83,12 +83,14 @@
         } @else {
         <label class="form-label" for="specialTypePremiumSelect">Special type</label>
         <ng-select labelForId="specialTypePremiumSelect" class="dg-premium-select" [items]="lockedSpecialTypeOptions"
-          bindLabel="label" bindValue="value" placeholder="Select a special type" [clearable]="false"
+          bindLabel="label" bindValue="value" placeholder="Select a special type" formControlName="special_type"
           [searchable]="false">
           <ng-template ng-option-tmp let-item="item">
             <span class="dg-premium-option">
               <span class="dg-premium-option__label">{{ item.label }}</span>
+              @if (item.disabled) {
               <span class="dg-premium-badge dg-premium-badge--inline" title="Premium feature">Pro</span>
+              }
             </span>
           </ng-template>
         </ng-select>

@@ -25,6 +25,7 @@ import { environment } from 'src/environments/environment';
 import { ObjectService } from 'src/app/framework/services/object.service';
 import { catchError, debounceTime, Observable, of, Subject, Subscription, takeUntil } from 'rxjs';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { isLicenseGatedSpecialType } from 'src/app/framework/models/special-type';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 
 @Component({
@@ -61,7 +62,7 @@ export class ObjectTableHeadComponent implements OnInit, OnDestroy, OnChanges {
 
   /** A special-type list (subnet/supernet/…) is locked for add and bulk actions without IPAM. */
   public get isPremiumLocked(): boolean {
-    return !!this.type?.special_type && !this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
+    return isLicenseGatedSpecialType(this.type?.special_type) && !this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
   }
 
   ngOnInit(): void {

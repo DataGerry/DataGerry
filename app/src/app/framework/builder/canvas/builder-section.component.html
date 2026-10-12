@@ -76,7 +76,7 @@
                     <ng-container *ngFor="let field of section.fields; let y = index">
                         <div
                             [dndEffectAllowed]="host.getFieldDragEffect(field)"
-                            [dndType]="field?.type === 'location' ? 'location' : 'inputs'"
+                            [dndType]="field?.type === 'location' || field?.type === 'person' ? field.type : 'inputs'"
                             [dndDraggable]="field"
                             (dndStart)="host.onFieldDragStart(field, section, y)"
                         >

@@ -1,0 +1,13 @@
+.person-simple {
+    white-space: nowrap;
+
+    i {
+        color: #6c757d;
+        margin-right: 0.2rem;
+    }
+}
+
+.person-simple--missing {
+    color: #6c757d;
+    font-style: italic;
+}

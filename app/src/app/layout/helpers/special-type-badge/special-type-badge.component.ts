@@ -50,9 +50,12 @@ export class SpecialTypeBadgeComponent {
     }
 
 
-    /** The backend stores the token in upper case; the list reads better with sentence casing. */
+    /**
+     * The backend stores the token in upper case; the list reads better with sentence casing, and a
+     * compound token such as PERSON_GROUP reads as two words.
+     */
     public get displayToken(): string {
-        const token = this.specialType ?? '';
+        const token = (this.specialType ?? '').replace(/_/g, ' ');
         return token ? token.charAt(0).toUpperCase() + token.slice(1).toLowerCase() : '';
     }
 

@@ -33,6 +33,8 @@ import { Router } from '@angular/router';
 import { NotificationQuery } from 'src/app/core/state/notification/notification.query';
 import { LICENSE_TIER_LABELS, LicenseFeature, LicenseTier } from 'src/app/settings/license-management/models/license.model';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
+import { PersonRelationsService } from 'src/app/framework/services/person-relations.service';
+import { PersonRelationTypes } from 'src/app/framework/models/person.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 declare global {
@@ -65,6 +67,10 @@ export class NavigationComponent implements OnInit {
     private premiumSubscription?: Subscription;
     private lockedFeatures = new Set<LicenseFeature>();
 
+    /** The types carrying the PERSON / PERSON_GROUP special type; a menu entry is hidden while its type is missing. */
+    public personTypeIds: PersonRelationTypes | null = null;
+    private personTypesLoading = false;
+
 
     /* --------------------------------------------------- LIFE CYCLE --------------------------------------------------- */
 
@@ -75,7 +81,8 @@ export class NavigationComponent implements OnInit {
         private objectService: ObjectService,
         private router: Router,
         private notificationQuery: NotificationQuery,
-        private premiumFeatureService: PremiumFeatureService
+        private premiumFeatureService: PremiumFeatureService,
+        private personRelationsService: PersonRelationsService
     ) {
         this.user = this.userService.getCurrentUser();
         this.notificationCount$ = this.notificationQuery.selectCount();
@@ -109,6 +116,7 @@ export class NavigationComponent implements OnInit {
         }
 
         this.resolveLockedPremiumFeatures();
+        this.resolvePersonTypes();
         this.dropdownSubmenu();
     }
 
@@ -155,6 +163,40 @@ export class NavigationComponent implements OnInit {
             .subscribe((locked) => {
                 this.lockedFeatures = locked;
             });
+    }
+
+
+    /**
+     * Persons and person groups are ordinary objects of the type carrying the PERSON / PERSON_GROUP special
+     * type, so their menu entries open that type's object list.
+     */
+    public resolvePersonTypes(): void {
+        if (!this.user || this.personTypesLoading) {
+            return;
+        }
+
+        this.personTypesLoading = true;
+        this.personRelationsService.getTypes().subscribe({
+            next: (types) => {
+                this.personTypeIds = types;
+                this.personTypesLoading = false;
+            },
+            error: () => {
+                this.personTypeIds = null;
+                this.personTypesLoading = false;
+            }
+        });
+    }
+
+
+    /**
+     * A person type created after the bar loaded would stay hidden until a reload, so opening the Framework
+     * menu looks again - but only while one of the two is still missing.
+     */
+    public refreshMissingPersonTypes(): void {
+        if (!this.personTypeIds?.PERSON || !this.personTypeIds?.PERSON_GROUP) {
+            this.resolvePersonTypes();
+        }
     }
 
 

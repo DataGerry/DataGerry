@@ -26,6 +26,7 @@ import { ObjectDeleteModalComponent } from '../../modals/object-delete-modal/obj
 import { RenderResult } from '../../../models/cmdb-render';
 import { AccessControlList } from 'src/app/modules/acl/acl.types';
 import { LicenseFeature } from 'src/app/settings/license-management/models/license.model';
+import { isLicenseGatedSpecialType } from 'src/app/framework/models/special-type';
 import { PremiumFeatureService } from 'src/app/settings/license-management/premium-feature/premium-feature.service';
 import { CableDeleteGuardService } from '../../object-view/ports-overview/services/cable-delete-guard.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
@@ -130,7 +131,7 @@ export class ObjectTableActionsComponent implements OnDestroy {
      * View/edit/copy navigate and are blocked by the route guard, so they are not re-checked here.
      */
     private isPremiumLocked(): boolean {
-        return !!this.result?.object_information?.special_type
+        return isLicenseGatedSpecialType(this.result?.object_information?.special_type)
             && !this.premiumFeatureService.isAvailable(LicenseFeature.Ipam);
     }
 }

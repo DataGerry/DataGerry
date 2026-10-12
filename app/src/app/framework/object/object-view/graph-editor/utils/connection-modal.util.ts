@@ -19,6 +19,7 @@ import { CIEdge, RelationMeta } from 'src/app/framework/models/ci-explorer.model
 
 import { ConnectionDetailsData, NodeDetailsData } from '../modals/connection-details/connection-details-modal.component';
 import { Connection, GraphNode, UidBasedConnection } from '../interfaces/graph.interfaces';
+import { edgeLabelOf } from './graph-edge.util';
 
 /** Shown when an edge carries no relation, which is how location links arrive. */
 const LOCATION_RELATION = {
@@ -83,8 +84,8 @@ function toModalMetadata(meta: RelationMeta | undefined, fromNode: GraphNode): C
 
     return {
         relation_id: meta.relation_id,
-        relation_name: meta.relation_name,
-        relation_label: meta.relation_label,
+        relation_name: meta.relation_name ?? edgeLabelOf(meta),
+        relation_label: edgeLabelOf(meta),
         relation_color: meta.relation_color,
         relation_icon: normalizeRelationIcon(meta.relation_icon),
         source: meta.source

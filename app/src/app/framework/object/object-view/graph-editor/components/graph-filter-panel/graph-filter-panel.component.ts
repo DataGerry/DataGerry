@@ -42,7 +42,8 @@ interface ScopeToggle {
 const SCOPE_TOGGLES: readonly ScopeToggle[] = [
     { key: 'withLocations', label: 'Include locations' },
     { key: 'withIpamRelations', label: 'Include IPAM relations' },
-    { key: 'withPortConnections', label: 'Include port connections' }
+    { key: 'withPortConnections', label: 'Include port connections' },
+    { key: 'withPersonRelations', label: 'Include person relations' }
 ];
 
 /** The collapsible filter bar: manual type/relation pickers, or a saved profile. */

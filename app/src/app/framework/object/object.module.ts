@@ -66,6 +66,7 @@ import { ChoiceCardGroupComponent } from './object-view/ports-overview/component
 import { ObjectOptionPickerComponent } from './object-view/ports-overview/components/object-option-picker/object-option-picker.component';
 import { CableCiPickerComponent } from './object-view/ports-overview/components/cable-ci-picker/cable-ci-picker.component';
 import { RackOverviewComponent } from './object-view/rack-overview/rack-overview.component';
+import { PersonOverviewComponent } from './object-view/person-overview/person-overview.component';
 import { RackElevationComponent } from './object-view/rack-overview/components/rack-elevation/rack-elevation.component';
 import { RackInspectorComponent } from './object-view/rack-overview/components/rack-inspector/rack-inspector.component';
 import { RackTrayComponent } from './object-view/rack-overview/components/rack-tray/rack-tray.component';
@@ -151,6 +152,7 @@ import { CablingViewComponent } from './object-view/cabling-view/cabling-view.co
         ConnectionFormModalComponent,
         InterfaceLinksModalComponent,
         RackOverviewComponent,
+        PersonOverviewComponent,
         RackElevationComponent,
         RackInspectorComponent,
         RackTrayComponent,

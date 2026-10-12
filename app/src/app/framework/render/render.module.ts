@@ -32,6 +32,7 @@ import { RadioComponent } from './fields/choice/radio.component';
 import { SelectComponent } from './fields/choice/select.component';
 import { RefComponent } from './fields/special/ref.component';
 import { LocationComponent } from './fields/special/location.component';
+import { PersonComponent } from './fields/special/person.component';
 import { CheckboxComponent } from './fields/choice/checkbox.component';
 import { TextareaComponent } from './fields/textarea/textarea.component';
 import { ModeErrorComponent } from './components/mode-error/mode-error.component';
@@ -43,6 +44,7 @@ import { RadioSimpleComponent } from './simple/choice/radio-simple.component';
 import { SelectSimpleComponent } from './simple/choice/select-simple.component';
 import { RefSimpleComponent } from './simple/special/ref-simple.component';
 import { LocationSimpleComponent } from './simple/special/location-simple.component';
+import { PersonSimpleComponent } from './simple/special/person-simple.component';
 import { DateComponent } from './fields/date/date.component';
 import { DateSimpleComponent } from './simple/date/date-simple.component';
 import { NumberComponent } from './fields/math/number.component';
@@ -88,6 +90,7 @@ import { CoreModule } from '../../core/core.module';
         SelectComponent,
         RefComponent,
         LocationComponent,
+        PersonComponent,
         CheckboxComponent,
         TextareaComponent,
         ModeErrorComponent,
@@ -99,6 +102,7 @@ import { CoreModule } from '../../core/core.module';
         SelectSimpleComponent,
         RefSimpleComponent,
         LocationSimpleComponent,
+        PersonSimpleComponent,
         DateSimpleComponent,
         DateComponent,
         NumberComponent,

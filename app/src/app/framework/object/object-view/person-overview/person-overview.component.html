@@ -1,0 +1,120 @@
+<section class="person-overview">
+  @if (loading && !relations) {
+  <div class="text-muted small py-2"><i class="fas fa-spinner fa-spin me-1" aria-hidden="true"></i>Loading...</div>
+  } @else if (hasError && !relations) {
+  <div class="alert alert-warning py-2 mb-0">The person relations could not be loaded.</div>
+  } @else {
+
+  <!-- ------------------------------------------ GROUP MEMBERSHIPS ------------------------------------------ -->
+  <div class="card mb-3">
+    <div class="card-header d-flex align-items-center justify-content-between">
+      <h3 class="person-overview__title mb-0">
+        <i class="fas fa-users me-1" aria-hidden="true"></i> Group memberships
+        <span class="badge bg-secondary ms-1">{{ linked.length }}</span>
+      </h3>
+    </div>
+    <div class="card-body">
+      @if (isPerson) {
+      <p class="text-muted small mb-2">The person groups this person is a member of.</p>
+      } @else {
+      <p class="text-muted small mb-2">The persons that are members of this group.</p>
+      }
+
+      @if (linked.length) {
+      <ul class="list-group mb-3">
+        @for (entry of linked; track entry.id) {
+        <li class="list-group-item d-flex align-items-center justify-content-between">
+          <span>
+            <i [class]="isPerson ? 'fas fa-users me-2' : 'fas fa-user me-2'" aria-hidden="true"></i>
+            <a [routerLink]="['/framework/object/view', entry.id]">{{ entry.label }}</a>
+            <span class="text-muted small ms-1">#{{ entry.id }}</span>
+          </span>
+          @if (canEdit) {
+          <button type="button" class="btn btn-sm btn-outline-danger" [disabled]="saving"
+            [title]="isPerson ? 'Remove the person from this group' : 'Remove this person from the group'"
+            (click)="removeLinked(entry)">
+            <i class="fas fa-user-minus" aria-hidden="true"></i> Remove
+          </button>
+          }
+        </li>
+        }
+      </ul>
+      } @else {
+      <p class="mb-3">{{ isPerson ? 'The person is not a member of any group.' : 'The group has no members.' }}</p>
+      }
+
+      @if (canEdit) {
+      @if (isPerson) {
+      <div class="person-overview__add">
+        <ng-select class="flex-grow-1" [items]="candidates" bindLabel="label" bindValue="id"
+          [loading]="candidatesLoading" loadingText="Loading..." placeholder="Select a person group"
+          notFoundText="No further person groups" [(ngModel)]="selectedGroupId" [disabled]="saving"
+          labelForId="person-overview-group-select" aria-label="Person group">
+        </ng-select>
+        <button type="button" class="btn btn-sm btn-primary" [disabled]="!selectedGroupId || saving"
+          (click)="addToGroup()">
+          <i class="fas fa-user-plus" aria-hidden="true"></i> Add to group
+        </button>
+      </div>
+      } @else {
+      <div class="person-overview__add">
+        <ng-select class="flex-grow-1" [items]="candidates" bindLabel="label" bindValue="id" [multiple]="true"
+          [closeOnSelect]="false" [loading]="candidatesLoading" loadingText="Loading..." placeholder="Select persons"
+          notFoundText="No further persons" [(ngModel)]="selectedPersonIds" [disabled]="saving"
+          labelForId="person-overview-person-select" aria-label="Persons">
+        </ng-select>
+        <button type="button" class="btn btn-sm btn-primary" [disabled]="!selectedPersonIds.length || saving"
+          (click)="addPersons()">
+          <i class="fas fa-user-plus" aria-hidden="true"></i> Add {{ selectedPersonIds.length > 1 ? 'persons' : 'person' }}
+        </button>
+      </div>
+      }
+      }
+    </div>
+  </div>
+
+  <!-- ---------------------------------------------- ASSIGNMENTS -------------------------------------------- -->
+  <div class="card">
+    <div class="card-header">
+      <h3 class="person-overview__title mb-0">
+        <i class="fas fa-link me-1" aria-hidden="true"></i> Assignments
+        <span class="badge bg-secondary ms-1">{{ assignments.length }}</span>
+      </h3>
+    </div>
+    <div class="card-body">
+      <p class="text-muted small mb-2">
+        The objects this {{ isPerson ? 'person' : 'person group' }} is assigned to through a person field.
+      </p>
+      @if (assignments.length) {
+      <div class="table-responsive">
+        <table class="table table-sm table-hover mb-0">
+          <thead>
+            <tr>
+              <th scope="col">Object</th>
+              <th scope="col">Type</th>
+              <th scope="col">Field</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (assignment of assignments; track assignment.object_id + '-' + assignment.field_name) {
+            <tr>
+              <td>
+                <a [routerLink]="['/framework/object/view', assignment.object_id]">{{ assignment.label || ('#' + assignment.object_id) }}</a>
+                <span class="text-muted small ms-1">#{{ assignment.object_id }}</span>
+              </td>
+              <td>
+                <a [routerLink]="['/framework/object/type', assignment.type_id]">{{ assignment.type_label }}</a>
+              </td>
+              <td>{{ assignment.field_label || assignment.field_name }}</td>
+            </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+      } @else {
+      <p class="mb-0">No object is assigned to this {{ isPerson ? 'person' : 'person group' }}.</p>
+      }
+    </div>
+  </div>
+  }
+</section>

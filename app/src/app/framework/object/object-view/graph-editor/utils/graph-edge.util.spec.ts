@@ -16,7 +16,7 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 import { ciEdge, pathHop, relationMeta, resolvedCable } from '../testing/graph-fixtures';
-import { cableColorOf, edgeByNeighbour, edgeKind, edgeMeta, isUndirectedEdge, undirectedNeighbours } from './graph-edge.util';
+import { cableColorOf, edgeByNeighbour, edgeKind, edgeLabelOf, edgeMeta, isUndirectedEdge, undirectedNeighbours } from './graph-edge.util';
 
 describe('graph-edge.util', () => {
     const portConnection = () => relationMeta({ source: 'port_connection', undirected: true });
@@ -86,6 +86,21 @@ describe('graph-edge.util', () => {
 
         it('does not call an unbacked edge a relation', () => {
             expect(edgeKind(relationMeta({ relation_id: null }))).toBe('unknown');
+        });
+    });
+
+    describe('person edges', () => {
+        it('reads a person edge as its own kind', () => {
+            expect(edgeKind(relationMeta({ relation_id: null, source: 'person' }))).toBe('person');
+        });
+
+        it('labels a person edge with its field label', () => {
+            expect(edgeLabelOf(relationMeta({ relation_id: null, relation_label: undefined, source: 'person', label: 'Owner' })))
+                .toBe('Owner');
+        });
+
+        it('keeps the relation label of any other edge', () => {
+            expect(edgeLabelOf(relationMeta({ relation_label: 'Runs on', label: 'ignored' }))).toBe('Runs on');
         });
     });
 
