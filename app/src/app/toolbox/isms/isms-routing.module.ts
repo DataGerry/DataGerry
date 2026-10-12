@@ -46,6 +46,8 @@ import { SoaComponent } from './reporting/soa/soa.component';
 import { RiskTreatmentPlanComponent } from './reporting/risk-treatment-plan/risk-treatment-plan.component';
 import { RiskAssesmentsComponent } from './reporting/risk-assesments/risk-assesments.component';
 import { ReportsOverviewComponent } from './reporting/overview/reports-overview.component';
+import { CatalogsListComponent } from './catalogs/catalogs-list/catalogs-list.component';
+import { CatalogViewComponent } from './catalogs/catalog-view/catalog-view.component';
 
 const routes: Routes = [
   {
@@ -218,6 +220,23 @@ const routes: Routes = [
           breadcrumb: 'Add Assign Control',
           right: 'base.isms.controlMeasureAssignment.add'
         }
+      },
+
+      /* ─────────── Catalogs (bundled OSCAL reference catalogs) ─────────── */
+      {
+        path: 'catalogs',
+        children: [
+          {
+            path: '',
+            component: CatalogsListComponent,
+            data: { breadcrumb: 'Catalogs', right: 'base.isms.controlMeasure.view' }
+          },
+          {
+            path: 'view/:id',
+            component: CatalogViewComponent,
+            data: { breadcrumb: 'View Catalog', right: 'base.isms.controlMeasure.view' }
+          }
+        ]
       },
 
       /* ─────────── Reports ─────────── */
