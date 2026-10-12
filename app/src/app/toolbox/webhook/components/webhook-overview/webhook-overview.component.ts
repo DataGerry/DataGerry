@@ -17,12 +17,13 @@
 */
 import { Component, inject, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { WebhookService } from '../../services/webhook.service';
-import { Webhook } from '../../models/webhook.model';
+import { WebhookRow } from '../../models/webhook.model';
+import { WebhookOwnerService } from '../../services/webhook-owner.service';
 import { Router } from '@angular/router';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { DeleteModalService } from 'src/app/core/services/delete-modal.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
-import { debounceTime, finalize, Subject, Subscription } from 'rxjs';
+import { debounceTime, finalize, Subject, Subscription, switchMap } from 'rxjs';
 import { FilterBuilderService } from 'src/app/core/services/filter-builder.service';
 import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 
@@ -40,8 +41,9 @@ export class WebhookOverviewComponent implements OnInit {
     private readonly loaderService = inject(LoaderService);
     private readonly filterBuilderService = inject(FilterBuilderService);
     private readonly permissionService = inject(PermissionService);
+    private readonly webhookOwnerService = inject(WebhookOwnerService);
 
-    public webhooks: Webhook[] = [];
+    public webhooks: WebhookRow[] = [];
     public totalWebhooks: number = 0;
     public page: number = 1;
     public limit: number = 10;
@@ -52,6 +54,7 @@ export class WebhookOverviewComponent implements OnInit {
 
     @ViewChild('actionsTemplate', { static: true }) actionsTemplate: TemplateRef<any>; // Reference the actions template
     @ViewChild('statusTemplate', { static: true }) statusTemplate: TemplateRef<any>; // Reference the template
+    @ViewChild('ownerTemplate', { static: true }) ownerTemplate: TemplateRef<any>;
 
 
     public columns: Array<any>;
@@ -80,6 +83,7 @@ export class WebhookOverviewComponent implements OnInit {
             { display: 'ID', name: 'public_id_str', data: 'public_id', searchable: true, sortable: true, style: { width: '80px', 'text-align': 'center' } },
             { display: 'Name', name: 'name', data: 'name', sortable: true },
             { display: 'URL', name: 'url', data: 'url', sortable: true },
+            { display: 'Owner', name: 'owner', data: 'owner_id', sortable: false, template: this.ownerTemplate, style: { width: '200px' } },
             { display: 'Status', name: 'active', data: 'active', sortable: false, template: this.statusTemplate, style: { width: '140px', 'text-align': 'center' } }
         ];
 
@@ -114,10 +118,15 @@ export class WebhookOverviewComponent implements OnInit {
             page: this.page,
             sort: 'name',
             order: 1,
-        }).pipe(finalize(() => this.loaderService.hide())).subscribe({
-            next: (data) => {
-                this.webhooks = data.results;
+        }).pipe(
+            switchMap((data) => {
                 this.totalWebhooks = data.total;
+                return this.webhookOwnerService.withOwners(data.results ?? []);
+            }),
+            finalize(() => this.loaderService.hide())
+        ).subscribe({
+            next: (rows) => {
+                this.webhooks = rows;
             },
             error: (error) => {
                 this.webhooks = [];

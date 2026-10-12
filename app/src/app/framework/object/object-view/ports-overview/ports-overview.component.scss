@@ -1,3 +1,5 @@
+@import "src/scss/variables";
+
 :host {
     display: block;
 }
@@ -9,4 +11,26 @@
     align-items: center;
     gap: 0.25rem;
     margin: 0 0 5px 5px;
+}
+
+// Same note as the license activation's portal note.
+.ports-note {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.5rem;
+    width: fit-content;
+    max-width: 100%;
+    margin: 0 0 0.75rem 5px;
+    padding: 0.5rem 0.85rem;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    color: #6b7280;
+    background-color: #f8fafc;
+    border: 1px solid #eef1f4;
+    border-radius: 0.6rem;
+
+    i {
+        margin-top: 0.2rem;
+        color: $primary;
+    }
 }

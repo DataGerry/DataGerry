@@ -214,7 +214,7 @@
                           <i class="far fa-smile"></i> <span>Feedback</span>
                         </a>
                       </div>
-                      <div class="col">
+                      <div class="col" *permissionLink="['base.framework.type.add', 'base.framework.category.add']">
                         <a class="dropdown-icon-item" (click)="openIntroModal()">
                           <fa-icon icon="magic"></fa-icon><span>Assistant</span>
                         </a>
