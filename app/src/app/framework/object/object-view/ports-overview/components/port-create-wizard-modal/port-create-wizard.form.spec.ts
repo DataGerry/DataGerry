@@ -48,6 +48,24 @@ describe('PortCreateWizardForm', () => {
                 .toBe('The rear side needs a different name from the front, e.g. -R instead of -F.');
         });
 
+        it('offers one port for a standard device and 24 for a patch panel', () => {
+            form.selectDeviceKind(PortDeviceKind.STANDARD);
+            expect(form.group.controls.count.value).toBe('1');
+
+            form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
+            expect(form.group.controls.count.value).toBe('24');
+        });
+
+        it('keeps a count the user entered when the kind changes', () => {
+            form.selectDeviceKind(PortDeviceKind.STANDARD);
+            form.group.controls.count.setValue('8');
+            form.group.controls.count.markAsDirty();
+
+            form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
+
+            expect(form.group.controls.count.value).toBe('8');
+        });
+
         it('drops the rear name and its rule for a standard device', () => {
             form.selectDeviceKind(PortDeviceKind.PATCH_PANEL);
             form.group.patchValue({ syntax: 'P{n}', rearSyntax: 'P{n}-R' });

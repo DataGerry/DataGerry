@@ -15,11 +15,12 @@
 * You should have received a copy of the GNU Affero General Public License
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
-import { Component, OnInit } from '@angular/core';
+import { Component, inject, OnInit } from '@angular/core';
 import { ActivatedRoute, Router } from '@angular/router';
 import { FormBuilder, FormGroup, Validators } from '@angular/forms';
 import { WebhookService } from '../../services/webhook.service';
-import { Webhook } from '../../models/webhook.model';
+import { Webhook, WebhookCreate } from '../../models/webhook.model';
+import { WebhookOwnerService } from '../../services/webhook-owner.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { Location } from '@angular/common';
 import { LoaderService } from 'src/app/core/services/loader.service';
@@ -35,6 +36,11 @@ export class WebhookFormComponent implements OnInit {
     public webhookForm: FormGroup;
     publicId?: number;
     public isLoading$ = this.loaderService.isLoading$;
+
+    /** Set on edit when saving would transfer ownership to the current user. */
+    public ownerNotice = '';
+
+    private readonly webhookOwnerService = inject(WebhookOwnerService);
 
     eventOptions = [
         { label: 'Create', value: 'CREATE' },
@@ -115,8 +121,9 @@ export class WebhookFormComponent implements OnInit {
     private loadWebhookDetails(publicId: number): void {
         this.loaderService.show();
         this.webhookService.getWebhookById(publicId).pipe(finalize(() => this.loaderService.hide())).subscribe({
-            next: (webhook) => {
+            next: (webhook: Webhook) => {
                 this.webhookForm.patchValue(webhook);
+                this.ownerNotice = this.buildOwnerNotice(webhook);
             },
             error: (err) => {
                 this.toast.error(err?.error?.message)
@@ -136,10 +143,10 @@ export class WebhookFormComponent implements OnInit {
 
         this.loaderService.show();
 
-        const webhook: Webhook = this.webhookForm.value;
+        const webhook: WebhookCreate = this.webhookForm.value;
         if (this.publicId) {
             // Update existing webhook
-            this.webhookService.updateWebhook(this.publicId, webhook).pipe(finalize(() => this.loaderService.hide())).subscribe({
+            this.webhookService.updateWebhook(this.publicId, { ...webhook, public_id: this.publicId }).pipe(finalize(() => this.loaderService.hide())).subscribe({
                 next: () => {
                     this.toast.success('Webhook updated successfully.');
                     this.router.navigate(['/webhooks']);
@@ -169,5 +176,18 @@ export class WebhookFormComponent implements OnInit {
      */
     goBack(): void {
         this.location.back()
+    }
+
+    /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
+
+    private buildOwnerNotice(webhook: Webhook): string {
+        if (this.webhookOwnerService.isCurrentUserOwner(webhook)) {
+            return '';
+        }
+
+        const scope = 'so it will then deliver only changes to types your group may read.';
+        return webhook.owner_id === null || webhook.owner_id === undefined
+            ? `This webhook has no owner and receives no changes. Saving makes you its owner, ${scope}`
+            : `You are not the owner of this webhook. Saving makes you its owner, ${scope}`;
     }
 }

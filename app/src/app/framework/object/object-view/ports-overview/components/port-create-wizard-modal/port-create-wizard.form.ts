@@ -30,6 +30,12 @@ const STEP_CONTROLS: readonly (readonly PortWizardControl[])[] = [
     []
 ];
 
+/** Count offered for each device kind until the user enters one. */
+const DEFAULT_PORT_COUNT: Record<PortDeviceKind, string> = {
+    [PortDeviceKind.STANDARD]: '1',
+    [PortDeviceKind.PATCH_PANEL]: '24'
+};
+
 /** A second face is named and valued on a patch panel only. */
 const PANEL_ONLY_CONTROLS: readonly PortWizardControl[] = ['rearSyntax', 'rearDescription'];
 
@@ -74,7 +80,7 @@ export class PortCreateWizardForm {
         rearSyntax: new FormControl<string>('', [Validators.maxLength(MAX_TEXT_LENGTH)]),
         prefix: new FormControl<string>('', [Validators.maxLength(MAX_TEXT_LENGTH)]),
         slot: new FormControl<string>('', [Validators.maxLength(MAX_TEXT_LENGTH)]),
-        count: new FormControl<string>('24', [nonBlank, Validators.pattern(/^\d+$/), Validators.min(1)]),
+        count: new FormControl<string>('1', [nonBlank, Validators.pattern(/^\d+$/), Validators.min(1)]),
         startIndex: new FormControl<string>('1', [nonBlank, Validators.pattern(/^\d+$/)]),
         status: new FormControl<string | null>(null),
         portType: new FormControl<string | null>(null),
@@ -107,6 +113,12 @@ export class PortCreateWizardForm {
     /** Picks the device kind and re-applies the rules that depend on it. */
     public selectDeviceKind(kind: PortDeviceKind): void {
         this.group.controls.deviceKind.setValue(kind);
+
+        const count = this.group.controls.count;
+
+        if (count.pristine) {
+            count.setValue(DEFAULT_PORT_COUNT[kind]);
+        }
 
         const rearSyntax = this.group.controls.rearSyntax;
 

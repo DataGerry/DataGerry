@@ -35,6 +35,7 @@ import { ObjectRelationService } from 'src/app/framework/services/object-relatio
 import { RelationService } from 'src/app/framework/services/relaion.service';
 import { ToastService } from 'src/app/layout/toast/toast.service';
 import { LoaderService } from 'src/app/core/services/loader.service';
+import { PermissionService } from 'src/app/modules/auth/services/permission.service';
 import { CoreDeleteConfirmationModalComponent } from 'src/app/core/components/dialog/delete-dialog/core-delete-confirmation-modal.component';
 import { ObjectRelationSelectModalComponent } from './object-relation-select-modal/object-relation-select-modal.component';
 import { RelationRoleDialogComponent } from '../relation-role-dialog/relation-role-dialog.component';
@@ -58,6 +59,7 @@ interface RelationFocus {
 }
 
 const ATTRIBUTES_KEY = 'attributes';
+const OBJECT_RELATION_VIEW_RIGHT = 'base.framework.objectRelation.view';
 
 /**
  * Orchestrates the object-relations panel: it owns the single tab strip
@@ -110,6 +112,10 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
   private readonly toastService = inject(ToastService);
   private readonly loaderService = inject(LoaderService);
   private readonly modalService = inject(NgbModal);
+  private readonly permissionService = inject(PermissionService);
+
+  private readonly canViewRelations = this.permissionService.hasRight(OBJECT_RELATION_VIEW_RIGHT)
+    || this.permissionService.hasExtendedRight(OBJECT_RELATION_VIEW_RIGHT);
 
   public readonly isLoading$ = this.loaderService.isLoading$;
 
@@ -325,7 +331,7 @@ export class ObjectRelationsComponent implements OnChanges, OnDestroy {
 
   private reloadTabs(focus?: RelationFocus | null): void {
     const objectId = this.objectId();
-    if (!objectId) {
+    if (!objectId || !this.canViewRelations) {
       return;
     }
 

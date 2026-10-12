@@ -122,10 +122,11 @@ const routes: Routes = [
             {
                 path: 'licenses',
                 data: {
-                    breadcrumb: 'Licenses'
+                    breadcrumb: 'Licenses',
+                    right: 'base.openCelium.connection.view'
                 },
-                canActivate: [AuthGuard],
-                canActivateChild: [AuthGuard],
+                canActivate: [AuthGuard, PermissionGuard],
+                canActivateChild: [AuthGuard, PermissionGuard],
                 loadChildren: () => import('../../toolbox/automations/licenses/licenses.module').then(m => m.LicensesModule)
             }
         ]
