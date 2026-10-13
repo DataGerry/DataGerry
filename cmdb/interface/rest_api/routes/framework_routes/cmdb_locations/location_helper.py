@@ -125,6 +125,54 @@ def resolve_placed_object_type(cmdb_object: CmdbObject, objects_manager: Objects
     return object_type
 
 
+def object_write_blocker(
+        object_id: int,
+        type_id: int,
+        object_type: CmdbType,
+        objects_manager: ObjectsManager,
+        request_user: CmdbUser,
+        read_denied_message: str = LINKED_OBJECT_DENIED_MSG,
+        update_denied_message: str = LINKED_OBJECT_UPDATE_DENIED_MSG) -> str | None:
+    """
+    Answers why the caller may not make a write that both reads and changes an object - or None when they may
+
+    The rule of a placement write (and of a rack membership write, which is one): the caller's ACL has to grant
+    READ and UPDATE on the object's type, and the type has to be active, as on every other object write
+    (``ObjectsManager.guard_writable_type``). Decided on the type alone, so a batch asks once per type. Answers
+    the reason rather than aborting, so a write (which refuses) and a dry run (which reports) share it
+
+    Args:
+        object_id (int): public_id of the CmdbObject the write is for, named in the reason
+        type_id (int): The object's type_id, as stored on it
+        object_type (CmdbType): Its resolved CmdbType
+        objects_manager (ObjectsManager): db interface for CmdbObjects
+        request_user (CmdbUser): The caller
+        read_denied_message (str): The reason when READ is not granted; ``{object_id}`` is filled in
+        update_denied_message (str): The reason when UPDATE is not granted; ``{object_id}`` is filled in
+
+    Returns:
+        str | None: The reason the write is refused - not readable, not changeable, or the type deactivated -
+            or None when it is allowed
+    """
+    try:
+        verify_access(object_type, request_user, AccessControlPermission.READ)
+    except AccessDeniedError:
+        return read_denied_message.format(object_id=object_id)
+
+    try:
+        objects_manager.guard_writable_type(
+            type_id, request_user, AccessControlPermission.UPDATE, ObjectsManagerGetError,
+            ObjectWriteVerb.UPDATED, object_type=object_type,
+        )
+    except AccessDeniedError as err:
+        if not object_type.active:
+            return str(err)
+
+        return update_denied_message.format(object_id=object_id)
+
+    return None
+
+
 def authorize_object_placement(
         cmdb_object: CmdbObject,
         object_type: CmdbType,
@@ -134,9 +182,7 @@ def authorize_object_placement(
     Refuses a placement write the caller may not make on the object it is for
 
     A placement write is both a READ of the object - its node is named after the object's summary - and an
-    UPDATE of it, because the object's location field is written. So the caller's ACL has to grant both on
-    the object's type, and the type has to be active, as on every other object write
-    (``ObjectsManager.guard_writable_type``). Decided on the type alone, so a batch asks once per type
+    UPDATE of it, because the object's location field is written. See ``object_write_blocker`` for the rule
 
     Args:
         cmdb_object (CmdbObject): The CmdbObject the placement is written for
@@ -148,23 +194,12 @@ def authorize_object_placement(
         HTTPException: 403 when the caller may not read the object, may not change it, or its type is
             deactivated - each with its own message
     """
-    object_id: int = cmdb_object.get_public_id()
+    blocker: str | None = object_write_blocker(
+        cmdb_object.get_public_id(), cmdb_object.get_type_id(), object_type, objects_manager, request_user,
+    )
 
-    try:
-        verify_access(object_type, request_user, AccessControlPermission.READ)
-    except AccessDeniedError:
-        abort(403, LINKED_OBJECT_DENIED_MSG.format(object_id=object_id))
-
-    try:
-        objects_manager.guard_writable_type(
-            cmdb_object.get_type_id(), request_user, AccessControlPermission.UPDATE, ObjectsManagerGetError,
-            ObjectWriteVerb.UPDATED, object_type=object_type,
-        )
-    except AccessDeniedError as err:
-        if not object_type.active:
-            abort(403, str(err))
-
-        abort(403, LINKED_OBJECT_UPDATE_DENIED_MSG.format(object_id=object_id))
+    if blocker:
+        abort(403, blocker)
 
 
 def read_placeable_object(

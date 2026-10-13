@@ -19,29 +19,22 @@ Implementation of ObjectTemplateData
 from logging import Logger, getLogger
 from typing import Any
 
-from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
-from cmdb.manager import ObjectsManager, LocationsManager
+from cmdb.manager import ObjectsManager
 
-from cmdb.models.object_model import CmdbObject
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model.field_type_enum import FieldType
-from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
+from cmdb.models.docapi_model.docapi_reference_constants import DEFAULT_REFERENCE_DEPTH
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
+from cmdb.models.docapi_model.document_reference_resolver import (
+    DocumentReferenceResolver,
+    ExtractionKey,
+    is_location_field,
+)
 from cmdb.models.docapi_model.reference_result import ReferenceResult
-from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.framework.rendering.render_result import RenderResult
-from cmdb.security.acl.permission import AccessControlPermission
-
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
-from cmdb.errors.security import AccessDeniedError
-from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
-
-# Reserved `name` of the location field on every locatable type
-# Initial recursion depth for resolving nested reference chains
-DEFAULT_REFERENCE_DEPTH: int = 3
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                              ObjectTemplateData - CLASS                                              #
@@ -49,13 +42,18 @@ DEFAULT_REFERENCE_DEPTH: int = 3
 class ObjectTemplateData:
     """
     Prepares and retrieves template data for a given RenderResult
+
+    The objects the render's references lead to are rendered by the document's `DocumentReferenceResolver`, one
+    level at a time and once per document, before anything is extracted; what is extracted per referenced object
+    and depth is kept there too
     """
     def __init__(
         self,
         cmdb_render_object: RenderResult,
         objects_manager: ObjectsManager,
         request_user: CmdbUser,
-        template_type: DocapiTemplateType
+        template_type: DocapiTemplateType,
+        reference_resolver: DocumentReferenceResolver | None = None,
     ) -> None:
         """
         Initializes the ObjectTemplateData
@@ -66,6 +64,8 @@ class ObjectTemplateData:
             request_user (CmdbUser): The user requesting the document
             template_type (DocapiTemplateType): The template type (DEFAULT enables the modern
                 template data shape)
+            reference_resolver (DocumentReferenceResolver | None): The document's resolver, shared by every
+                object the document renders. None starts one for this object alone
         """
         self.objects_manager: ObjectsManager = objects_manager
         self.request_user: CmdbUser = request_user
@@ -73,9 +73,10 @@ class ObjectTemplateData:
 
         self.modern_templates: bool = self.template_type == DocapiTemplateType.DEFAULT
 
-        self.locations_manager: LocationsManager = ManagerProvider.get_manager(
-            ManagerType.LOCATIONS, request_user
+        self.reference_resolver: DocumentReferenceResolver = reference_resolver or DocumentReferenceResolver(
+            request_user, objects_manager,
         )
+        self.reference_resolver.prepare([cmdb_render_object], DEFAULT_REFERENCE_DEPTH, self.modern_templates)
 
         self.template_data: dict[str, Any] = self.extract_object_data(cmdb_render_object, DEFAULT_REFERENCE_DEPTH)
 
@@ -94,9 +95,10 @@ class ObjectTemplateData:
         """
         Resolves a referenced object into its extracted template data - if the requesting user may read it
 
-        The referenced object is read through the requesting user's READ ACL. One their group may not
-        read resolves to None, exactly like one that does not exist: the template renders it blank, and
-        the document carries none of its values
+        The object's render comes from the document's resolver, which read it through the requesting user's
+        READ ACL. One their group may not read resolves to None, exactly like one that does not exist: the
+        template renders it blank, and the document carries none of its values. What is extracted is kept per
+        object, depth and template mode, so a reference reached again costs nothing
 
         Args:
             public_id (int): The referenced object's public id
@@ -106,50 +108,21 @@ class ObjectTemplateData:
             dict[str, Any] | None: The referenced object's extracted data, or None if it cannot
                 be retrieved, does not exist or may not be read
         """
-        try:
-            related_object: CmdbObject | None = self.objects_manager.get_object(
-                public_id, self.request_user, AccessControlPermission.READ, as_dict=False,
-            )
-        except AccessDeniedError:
-            LOGGER.debug("Reference object with public_id '%s' is not readable for the requesting user", public_id)
-            return None
-        except ObjectsManagerGetError:
-            LOGGER.error("Failed to resolve reference object with public_id '%s'", public_id)
-            return None
+        key: ExtractionKey = (public_id, depth, self.modern_templates)
 
-        if related_object is None:
+        if key in self.reference_resolver.extracted:
+            return self.reference_resolver.extracted[key]
+
+        related_render: RenderResult | None = self.reference_resolver.render_for(public_id)
+
+        if related_render is None:
+            LOGGER.debug("Reference object with public_id '%s' is not readable or does not exist", public_id)
             return None
 
-        # Rendered with its own references resolved, so the next hop has values to follow too
-        related_render: RenderResult = CmdbMultiRender(
-            [related_object],
-            self.request_user,
-            ref_render=True,
-        ).result(single_object=True)
+        extracted: dict[str, Any] = self.extract_object_data(related_render, depth - 1)
+        self.reference_resolver.extracted[key] = extracted
 
-        return self.extract_object_data(related_render, depth - 1)
-
-
-    def _resolve_location(self, value: Any) -> str:
-        """
-        Resolves a location field value into the location's name
-
-        Args:
-            value (Any): The stored location public id (falsy when unset)
-
-        Returns:
-            str: The location name, or an empty string when unset or not resolvable
-        """
-        if not value:
-            return ""
-
-        try:
-            location: dict[str, Any] | None = self.locations_manager.get_location(value)
-        except LocationsManagerGetError:
-            LOGGER.error("Failed to resolve location '%s'", value)
-            return ""
-
-        return location.get("name") if location else ""
+        return extracted
 
 
     def _resolve_field(self, name: str, ftype: str, value: Any, references: dict[str, Any] | None, depth: int) -> Any:
@@ -169,8 +142,8 @@ class ObjectTemplateData:
         Returns:
             Any: The resolved field value
         """
-        if ftype == FieldType.LOCATION or name == DG_LOCATION_FIELD_NAME:
-            return self._resolve_location(value)
+        if is_location_field(name, ftype):
+            return self.reference_resolver.location_name(value)
 
         if self.modern_templates:
             return self._resolve_modern_field(ftype, value, references, depth)

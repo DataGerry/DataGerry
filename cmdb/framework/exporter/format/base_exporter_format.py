@@ -17,6 +17,7 @@
 Implementation of the BaseExporterFormat
 """
 import json
+import re
 from io import BytesIO, StringIO
 from json import JSONDecodeError
 from typing import Any
@@ -37,7 +38,7 @@ from cmdb.framework.exporter.exporter_constants import ExporterOptionKey, Export
 from cmdb.framework.rendering.render_constants import RenderedFieldKey
 from cmdb.framework.rendering.render_result import RenderResult
 
-from cmdb.errors.exporter import ExporterColumnError, ExporterMetadataError
+from cmdb.errors.exporter import ExporterCharacterError, ExporterColumnError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # RenderResult keys read while exporting (these live on the render result / type information / object
@@ -51,6 +52,58 @@ OBJECT_INFO_ID_KEY: str = 'object_id'
 # Value written into a tabular (CSV / XLSX) cell that carries no data: a continuation row's identity /
 # regular columns, or a multi-data-section column whose section has no entry for that row
 EMPTY_CELL: str = ''
+
+# Characters XML 1.0 cannot carry at all - the C0 controls other than tab, line feed and carriage return,
+# the two non-characters U+FFFE / U+FFFF and lone surrogates. An XLSX workbook is XML inside, so neither format
+# can write them; CSV and JSON can
+XML_ILLEGAL_CHARACTER_PATTERN: re.Pattern[str] = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]')
+
+
+def describe_value_location(object_id: Any, name: Any, section_id: Any = None) -> str:
+    """
+    Names where an exported value sits, for a refusal the reader has to act on
+
+    Args:
+        object_id (Any): The object's public_id
+        name (Any): The field's name, or the header entry's
+        section_id (Any): The multi-data section the field belongs to, None for a top-level value
+
+    Returns:
+        str: e.g. ``Object 12, field 'port' of multi-data section 'ports'``
+    """
+    location: str = f"Object {object_id}, field '{name}'"
+
+    return location if section_id is None else f"{location} of multi-data section '{section_id}'"
+
+
+def assert_writable_text(value: Any, location: str) -> Any:
+    """
+    Returns a value unchanged once it is known to hold only characters an XML or XLSX file can carry
+
+    Args:
+        value (Any): The value about to be written; anything but a string is passed through
+        location (str): Where the value sits (see ``describe_value_location``)
+
+    Raises:
+        ExporterCharacterError: If the value holds a character XML 1.0 cannot represent - the message names the
+            location, the code point and the text before it
+
+    Returns:
+        Any: The value
+    """
+    if not isinstance(value, str):
+        return value
+
+    illegal = XML_ILLEGAL_CHARACTER_PATTERN.search(value)
+
+    if illegal:
+        raise ExporterCharacterError(
+            f"{location}: the value '{value[:illegal.start()]}…' holds the character U+{ord(illegal.group()):04X}, "
+            "which an XML or XLSX file cannot carry - remove it, or export as CSV or JSON!"
+        )
+
+    return value
+
 
 # Friendly header labels for the identity columns in a HUMAN_READABLE export (they have no field
 # definition to source a label from)
@@ -367,6 +420,39 @@ class BaseExporterFormat:
                 ))
 
         return layout
+
+    @staticmethod
+    def mds_field_names(mds_layout: list[tuple[str, list[str]]]) -> list[str]:
+        """
+        Flattens a multi-data-section layout into its field names
+
+        Args:
+            mds_layout (list[tuple[str, list[str]]]): The `(section_id, field_names)` layout of the type
+
+        Returns:
+            list[str]: Every MDS field name, in layout order
+        """
+        return [name for _, field_names in mds_layout for name in field_names]
+
+    @staticmethod
+    def without_mds_fields(columns: list[str], mds_layout: list[tuple[str, list[str]]]) -> list[str]:
+        """
+        Leaves the multi-data-section fields out of a list of field columns
+
+        The flat field list of a rendered object carries every MDS field once more, with the object's flat
+        value - one no row holds (often the field's default). A format that writes the rows keeps those
+        names out of its regular fields, so each MDS field appears once, with its per-row values
+
+        Args:
+            columns (list[str]): Field names, in output order
+            mds_layout (list[tuple[str, list[str]]]): The `(section_id, field_names)` layout of the type
+
+        Returns:
+            list[str]: The columns that are not MDS fields, in their order
+        """
+        mds_names: set[str] = set(BaseExporterFormat.mds_field_names(mds_layout))
+
+        return [name for name in columns if name not in mds_names]
 
     @staticmethod
     def assert_unique_columns(columns: list[str]) -> None:

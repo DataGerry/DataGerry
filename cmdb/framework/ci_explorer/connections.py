@@ -50,6 +50,7 @@ from cmdb.manager import ExtendableOptionsManager, ObjectsManager
 from cmdb.manager.port_connections_manager import PortConnectionsManager
 from cmdb.manager.ports_manager import PortsManager
 from cmdb.models.port_model import PortKey
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -64,7 +65,6 @@ PORT_CONNECTION_RELATION_ICON: str = 'fas fa-ethernet'
 PORT_CONNECTION_RELATION_COLOR: str = '#8E44AD'
 
 PUBLIC_ID_KEY: str = 'public_id'
-TYPE_ID_KEY: str = 'type_id'
 
 
 @dataclass(frozen=True)
@@ -143,7 +143,7 @@ def load_far_port_owners(
 
 def collect_connection_neighbours(
         target_id: int,
-        types_filter: frozenset[int],
+        type_scope: NeighbourTypeScope,
         remaining: int,
         item_limit_active: bool,
         managers: ConnectionSourceManagers) -> tuple[list[ConnectionNeighbour], dict[int, dict[str, Any]]]:
@@ -157,7 +157,7 @@ def collect_connection_neighbours(
 
     Args:
         target_id (int): public_id of the focal CmdbObject
-        types_filter (frozenset[int]): Allowed neighbour type_ids; empty disables filtering
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
         remaining (int): Neighbour slots left by the earlier sources
         item_limit_active (bool): Whether a cap applies at all
         managers (ConnectionSourceManagers): The managers to read through
@@ -200,7 +200,7 @@ def collect_connection_neighbours(
         return [], {}
 
     neighbour_objects: dict[int, dict[str, Any]] = load_neighbour_objects(
-        sorted({owner_id for _connection, owner_id in reachable}), types_filter, managers,
+        sorted({owner_id for _connection, owner_id in reachable}), type_scope, managers,
     )
 
     neighbours: list[ConnectionNeighbour] = []
@@ -226,23 +226,20 @@ def collect_connection_neighbours(
 
 def load_neighbour_objects(
         neighbour_ids: list[int],
-        types_filter: frozenset[int],
+        type_scope: NeighbourTypeScope,
         managers: ConnectionSourceManagers) -> dict[int, dict[str, Any]]:
     """
-    Bulk-loads the far-side CmdbObjects, applying the caller's type filter in the same query
+    Bulk-loads the far-side CmdbObjects, applying the type scope in the same query
 
     Args:
         neighbour_ids (list[int]): public_ids of the objects the cables reach
-        types_filter (frozenset[int]): Allowed neighbour type_ids; empty disables filtering
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
         managers (ConnectionSourceManagers): The managers to read through
 
     Returns:
         dict[int, dict[str, Any]]: {public_id: CmdbObject document}
     """
-    criteria: dict[str, Any] = {PUBLIC_ID_KEY: {'$in': neighbour_ids}}
-
-    if types_filter:
-        criteria[TYPE_ID_KEY] = {'$in': sorted(types_filter)}
+    criteria: dict[str, Any] = {PUBLIC_ID_KEY: {'$in': neighbour_ids}, **type_scope.object_criteria()}
 
     return {
         neighbour[PUBLIC_ID_KEY]: neighbour

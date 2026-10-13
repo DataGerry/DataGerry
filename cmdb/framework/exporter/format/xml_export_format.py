@@ -31,12 +31,14 @@ from cmdb.framework.exporter.format.base_exporter_format import (
     BaseExporterFormat,
     TYPE_INFO_LABEL_KEY,
     OBJECT_INFO_ID_KEY,
+    assert_writable_text,
+    describe_value_location,
     to_export_cell,
 )
 from cmdb.framework.exporter.config.exporter_config_type_enum import ExporterConfigType
 from cmdb.framework.rendering.render_result import RenderResult
 
-from cmdb.errors.exporter import ExporterCharacterError, ExporterMetadataError
+from cmdb.errors.exporter import ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -63,9 +65,44 @@ XML_ROW_TAG: str = 'row'
 # is left out because it would name an undeclared namespace prefix
 XML_ELEMENT_NAME_PATTERN: re.Pattern[str] = re.compile(r'[A-Za-z_][A-Za-z0-9_.\-]*')
 
-# Characters XML 1.0 cannot carry at all - the C0 controls other than tab, line feed and carriage return,
-# the two non-characters U+FFFE / U+FFFF and lone surrogates
-XML_ILLEGAL_CHARACTER_PATTERN: re.Pattern[str] = re.compile(r'[\x00-\x08\x0b\x0c\x0e-\x1f\ud800-\udfff\ufffe\uffff]')
+# An attribute value in the serialized document. minidom writes every '"' of the data as &quot;, so a raw '"' only
+# ever delimits an attribute value - this matches attribute values and nothing else
+XML_ATTRIBUTE_VALUE_PATTERN: re.Pattern[str] = re.compile(r'="[^"]*"')
+
+# Written raw into an attribute value, each of these is read back as a space (XML attribute-value normalisation);
+# as a character reference it is read back as itself
+XML_ATTRIBUTE_WHITESPACE_REFERENCES: dict[str, str] = {'\n': '&#10;', '\r': '&#13;', '\t': '&#9;'}
+
+# A raw carriage return anywhere is read back as a line feed (end-of-line handling); pretty-printing never writes
+# one, so every carriage return in the serialized document is data
+XML_CARRIAGE_RETURN: str = '\r'
+XML_CARRIAGE_RETURN_REFERENCE: str = '&#13;'
+
+
+def keep_whitespace_references(document_text: str) -> str:
+    """
+    Writes the whitespace an XML reader would change as character references, so every value reads back as exported
+
+    A line feed, carriage return or tab inside an attribute value, and a carriage return in element text. A Python
+    whose minidom already escapes them leaves nothing raw to replace, so the output is the same on either
+
+    Args:
+        document_text (str): The serialized document
+
+    Returns:
+        str: The document with those characters written as `&#10;` / `&#13;` / `&#9;`
+    """
+    def _escape_attribute(match: re.Match[str]) -> str:
+        attribute: str = match.group()
+
+        for character, reference in XML_ATTRIBUTE_WHITESPACE_REFERENCES.items():
+            attribute = attribute.replace(character, reference)
+
+        return attribute
+
+    return XML_ATTRIBUTE_VALUE_PATTERN.sub(_escape_attribute, document_text).replace(
+        XML_CARRIAGE_RETURN, XML_CARRIAGE_RETURN_REFERENCE,
+    )
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                XmlExportFormat - CLASS                                               #
@@ -77,6 +114,10 @@ class XmlExportFormat(BaseExporterFormat):
     One document holds the whole selection, also when it spans several types: each `<object>` carries the
     fields of its own type only (as the JSON export does), so a field another type declares never appears on
     it, and a `<field value="">` always is a field of the object's type that holds nothing
+
+    A multi-data-section field is written once, per row, under `<multi_data_sections>` - as CSV and XLSX do. Its
+    entry in the object's flat field list is left out of `<fields>`: that value is no row's (often the field's
+    default), and the XML has no importer that would read it back. The JSON export keeps it - see there
 
     Extends: BaseExporterFormat
     """
@@ -94,7 +135,8 @@ class XmlExportFormat(BaseExporterFormat):
         Exports the given objects as a formatted XML string
 
         The document is `<objects>` with one `<object>` per entry, each holding a `<meta>` block (the
-        identity/header columns) and a `<fields>` block with the object's own fields. In the RENDER view a
+        identity/header columns), a `<fields>` block with the object's own fields other than its MDS fields, and -
+        when it has any - a `<multi_data_sections>` block with the MDS rows. In the RENDER view a
         supplied `metadata` override selects the header and the field columns; each object then carries the
         selected fields its type owns, in the order of the selection. An empty object list yields `<objects/>`.
 
@@ -111,7 +153,7 @@ class XmlExportFormat(BaseExporterFormat):
         """
         header, selected_columns, view = self._get_export_settings(args)
 
-        return self._create_xml_document(data, header, selected_columns, view).toprettyxml()
+        return keep_whitespace_references(self._create_xml_document(data, header, selected_columns, view).toprettyxml())
 
 
     def _get_export_settings(self, args: tuple[Any, ...]) -> tuple[list[str], list[str] | None, str]:
@@ -188,11 +230,17 @@ class XmlExportFormat(BaseExporterFormat):
 
         for obj in data:
             obj_fields_dict = self._extract_object_fields(obj, view)
-            columns = BaseExporterFormat.select_owned_columns(selected_columns, list(obj_fields_dict))
+            owned_columns = BaseExporterFormat.select_owned_columns(selected_columns, list(obj_fields_dict))
+            # An MDS field is written once, in its rows under <multi_data_sections> - not again under <fields>
+            # with the flat value no row holds (a multi-type export reads each object's own layout)
+            columns = BaseExporterFormat.without_mds_fields(
+                owned_columns, BaseExporterFormat.extract_mds_layout(obj.sections),
+            )
 
             cmdb_object = self._append_element(document, cmdb_object_list, XML_OBJECT_TAG)
             self._add_meta_data(document, cmdb_object, obj, header)
-            self._add_field_data(document, cmdb_object, obj_fields_dict, columns)
+            self._add_field_data(document, cmdb_object, obj_fields_dict, columns,
+                                 obj.object_information.get(OBJECT_INFO_ID_KEY))
             self._add_multi_data_sections(document, cmdb_object, obj)
 
         return document
@@ -204,7 +252,8 @@ class XmlExportFormat(BaseExporterFormat):
             parent: Document | Element,
             tag: str,
             attributes: dict[str, str] | None = None,
-            text: str | None = None) -> Element:
+            text: str | None = None,
+            location: str | None = None) -> Element:
         """
         Appends one element with its attributes and its text to a parent node
 
@@ -217,6 +266,7 @@ class XmlExportFormat(BaseExporterFormat):
             tag (str): The element's tag name
             attributes (dict[str, str] | None): The element's attributes, in output order
             text (str | None): The element's text content
+            location (str | None): Where the values sit, named in a refusal; None names the element
 
         Raises:
             ExporterCharacterError: If an attribute value or the text holds a character XML cannot represent
@@ -224,42 +274,18 @@ class XmlExportFormat(BaseExporterFormat):
         Returns:
             Element: The appended element
         """
+        where: str = location or f"Element <{tag}>"
         element = document.createElement(tag)
 
         for name, value in (attributes or {}).items():
-            element.setAttribute(name, XmlExportFormat._checked_text(value))
+            element.setAttribute(name, assert_writable_text(value, where))
 
         if text:
-            element.appendChild(document.createTextNode(XmlExportFormat._checked_text(text)))
+            element.appendChild(document.createTextNode(assert_writable_text(text, where)))
 
         parent.appendChild(element)
 
         return element
-
-
-    @staticmethod
-    def _checked_text(value: str) -> str:
-        """
-        Returns a value unchanged once it is known to hold only characters XML 1.0 can represent
-
-        Args:
-            value (str): The attribute value or element text
-
-        Raises:
-            ExporterCharacterError: If the value holds a character XML cannot represent
-
-        Returns:
-            str: The value
-        """
-        illegal = XML_ILLEGAL_CHARACTER_PATTERN.search(value)
-
-        if illegal:
-            raise ExporterCharacterError(
-                f"The value '{value[:illegal.start()]}…' holds the character U+{ord(illegal.group()):04X}, "
-                "which an XML document cannot carry!"
-            )
-
-        return value
 
 
     def _extract_object_fields(self, obj: RenderResult, view: str) -> dict[str, Any]:
@@ -293,17 +319,20 @@ class XmlExportFormat(BaseExporterFormat):
             header (list[str]): List of metadata fields
         """
         cmdb_object_meta = self._append_element(document, cmdb_object, XML_META_TAG)
+        object_id: Any = obj.object_information.get(OBJECT_INFO_ID_KEY)
 
         for head in header:
+            location: str = describe_value_location(object_id, head)
+
             if head == CmdbObjectKey.PUBLIC_ID.value:
                 text = str(obj.object_information.get(OBJECT_INFO_ID_KEY, ''))
-                self._append_element(document, cmdb_object_meta, head, text=text)
+                self._append_element(document, cmdb_object_meta, head, text=text, location=location)
             elif head == TYPE_INFO_LABEL_KEY:
                 text = obj.type_information.get(TYPE_INFO_LABEL_KEY, '')
-                self._append_element(document, cmdb_object_meta, XML_TYPE_TAG, text=text)
+                self._append_element(document, cmdb_object_meta, XML_TYPE_TAG, text=text, location=location)
             else:
                 text = str(obj.object_information.get(head, ''))
-                self._append_element(document, cmdb_object_meta, head, text=text)
+                self._append_element(document, cmdb_object_meta, head, text=text, location=location)
 
 
     def _add_field_data(
@@ -311,7 +340,8 @@ class XmlExportFormat(BaseExporterFormat):
             document: Document,
             cmdb_object: Element,
             obj_fields_dict: dict[str, Any],
-            columns: list[str]) -> None:
+            columns: list[str],
+            object_id: Any = None) -> None:
         """
         Adds field elements to the XML structure
 
@@ -320,6 +350,7 @@ class XmlExportFormat(BaseExporterFormat):
             cmdb_object (Element): The parent XML element
             obj_fields_dict (dict[str, Any]): Dictionary of object fields and their values
             columns (list[str]): The field names to include, all of them fields of the object's type
+            object_id (Any): The object's public_id, named in a refusal
         """
         cmdb_object_fields = self._append_element(document, cmdb_object, XML_FIELDS_TAG)
 
@@ -327,7 +358,7 @@ class XmlExportFormat(BaseExporterFormat):
             self._append_element(document, cmdb_object_fields, XML_FIELD_TAG, {
                 FieldKey.NAME.value: str(field),
                 FieldKey.VALUE.value: to_export_cell(obj_fields_dict.get(field))
-            })
+            }, location=describe_value_location(object_id, field))
 
 
     def _add_multi_data_sections(self, document: Document, cmdb_object: Element, obj: RenderResult) -> None:
@@ -349,12 +380,14 @@ class XmlExportFormat(BaseExporterFormat):
             return
 
         mds_element = self._append_element(document, cmdb_object, XML_MDS_TAG)
+        object_id: Any = obj.object_information.get(OBJECT_INFO_ID_KEY)
 
         for section in sections:
+            section_id: Any = section.get(CmdbObjectMdsKey.SECTION_ID.value, '')
             section_element = self._append_element(document, mds_element, XML_SECTION_TAG, {
-                CmdbObjectMdsKey.SECTION_ID.value: str(section.get(CmdbObjectMdsKey.SECTION_ID.value, '')),
+                CmdbObjectMdsKey.SECTION_ID.value: str(section_id),
                 CmdbObjectMdsKey.HIGHEST_ID.value: str(section.get(CmdbObjectMdsKey.HIGHEST_ID.value, '')),
-            })
+            }, location=f"Object {object_id}, multi-data section '{section_id}'")
 
             for row in section.get(CmdbObjectMdsKey.VALUES.value, []):
                 row_element = self._append_element(document, section_element, XML_ROW_TAG, {
@@ -362,7 +395,8 @@ class XmlExportFormat(BaseExporterFormat):
                 })
 
                 for entry in row.get(CmdbObjectMdsRowKey.DATA.value, []):
+                    name: Any = entry.get(FieldKey.NAME.value, '')
                     self._append_element(document, row_element, XML_FIELD_TAG, {
-                        FieldKey.NAME.value: str(entry.get(FieldKey.NAME.value, '')),
+                        FieldKey.NAME.value: str(name),
                         FieldKey.VALUE.value: to_export_cell(entry.get(FieldKey.VALUE.value)),
-                    })
+                    }, location=describe_value_location(object_id, name, section_id))

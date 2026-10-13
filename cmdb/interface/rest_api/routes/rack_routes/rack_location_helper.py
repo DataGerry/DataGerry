@@ -371,6 +371,12 @@ def reconcile_member_locations(
 
     Must run AFTER the rack's own location has been mirrored, since it reads the result of that
 
+    **No member's ACL is asked.** A member only joins a rack through a write that asked READ and UPDATE on it - a
+    mount (``rack_access_helper``) or a location move onto the rack's node (``location_helper``) - so where it
+    sits is the rack's to decide from then on: the members follow the rack, whoever moves the rack. Refusing the
+    rack's move over a member its mover may not change would make the rack hostage to its contents; moving only
+    some members would leave the tree and the rack disagreeing
+
     Args:
         rack_id (int): public_id of the Rack CmdbObject
         request_user (CmdbUser): The user performing the operation

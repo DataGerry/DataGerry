@@ -58,6 +58,7 @@ from cmdb.framework.ipam.references import (
     find_vlans_referencing_subnet,
     resolve_special_type_id,
 )
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -245,7 +246,7 @@ def collect_ipam_neighbours(
     target_object: dict[str, Any],
     include_parents: bool,
     include_children: bool,
-    types_filter: frozenset[int],
+    type_scope: NeighbourTypeScope,
     remaining: int,
     item_limit_active: bool,
     objects_manager: ObjectsManager,
@@ -260,8 +261,8 @@ def collect_ipam_neighbours(
       2. Drop plan entries whose direction the caller did not request (so the bulk fetch
          only touches objects that will appear in the response)
       3. Bulk-load the candidate objects with a single ``find({'public_id': {'$in': ...}})``,
-         AND-combined with the ``type_id`` ``$in`` constraint when ``types_filter`` is active
-         so the filter is applied at the Mongo level (matches the relation and location
+         AND-combined with the type scope's ``type_id`` clause - the caller's filter and the types they may not
+         read - so it is applied at the Mongo level, before the cap (matches the relation and location
          children semantics)
       4. Filter the plan to only the candidates that survived the bulk load
       5. Apply ``item_limit`` to the post-filter list so the visible count is consistent
@@ -275,7 +276,7 @@ def collect_ipam_neighbours(
             SUPERNET parent of a SUBNET target) are returned
         include_children (bool): When True, neighbours where the target sits above (e.g.
             SUBNETs of a SUPERNET target) are returned
-        types_filter (frozenset[int]): Allowed neighbour type_ids; empty set disables filtering
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
         remaining (int): Slot budget still available; only honored when ``item_limit_active``
         item_limit_active (bool): Whether the route is operating under an item_limit cap
         objects_manager (ObjectsManager): db interface for CmdbObjects
@@ -305,10 +306,7 @@ def collect_ipam_neighbours(
         return []
 
     public_ids: list[int] = [public_id for public_id, _, _ in plan]
-    criteria: dict[str, Any] = {CmdbObjectKey.PUBLIC_ID: {'$in': public_ids}}
-
-    if types_filter:
-        criteria[CmdbObjectKey.TYPE_ID] = {'$in': list(types_filter)}
+    criteria: dict[str, Any] = {CmdbObjectKey.PUBLIC_ID: {'$in': public_ids}, **type_scope.object_criteria()}
 
     full_objects: list[dict[str, Any]] = list(objects_manager.find(criteria=criteria))
 

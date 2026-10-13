@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable
 
 from cmdb.manager import ObjectRelationsManager
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
@@ -68,21 +69,19 @@ class DirectionalEdge:
 
 def build_relation_criteria(
     target_id: int,
-    types_filter: frozenset[int],
+    type_scope: NeighbourTypeScope,
     relations_filter: frozenset[int],
 ) -> dict[str, Any]:
     """
     Builds the Mongo $or criteria for object_relations touching ``target_id``
 
-    The criteria is direction-aware: when ``types_filter`` is set, the *other* side's
-    type_id is the one constrained, because the user wants to see neighbours of those
-    types - not relations where the target happens to be of those types. ``relations_filter``
-    is AND-combined as a top-level ``relation_id`` constraint
+    The criteria is direction-aware: the *other* side's stamped type is the one the type scope constrains, because
+    the scope is about the neighbours - the caller's ``types`` filter and the types the caller may not read - not
+    about the target. ``relations_filter`` is AND-combined as a top-level ``relation_id`` constraint
 
     Args:
         target_id (int): public_id of the focal CmdbObject
-        types_filter (frozenset[int]): Allowed neighbour CmdbType public_ids; empty set
-            disables type filtering
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
         relations_filter (frozenset[int]): Allowed CmdbRelation public_ids; empty set
             disables relation filtering
 
@@ -90,15 +89,17 @@ def build_relation_criteria(
         dict[str, Any]: A Mongo criteria document with an ``$or`` over (target as parent,
             target as child) and optional ``relation_id`` ``$in`` clause
     """
-    if types_filter:
+    type_clause: dict[str, Any] = type_scope.type_clause()
+
+    if type_clause:
         or_clauses: list[dict[str, Any]] = [
             {
                 'relation_parent_id': target_id,
-                'relation_child_type_id': {'$in': list(types_filter)},
+                'relation_child_type_id': type_clause,
             },
             {
                 'relation_child_id': target_id,
-                'relation_parent_type_id': {'$in': list(types_filter)},
+                'relation_parent_type_id': type_clause,
             },
         ]
     else:

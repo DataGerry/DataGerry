@@ -39,6 +39,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     reconcile_object_rack_membership,
     resolve_rack_of_location_node,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import MemberCheck
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HOOKS_PATH: str = 'cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks'
@@ -351,7 +352,7 @@ def test_pointing_an_object_at_a_rack_creates_an_unassigned_membership() -> None
 
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager), \
          patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=RACK_ID), \
-         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=(MEMBER_ID, None)):
+         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=MemberCheck(MEMBER_ID, None)):
         reconcile_object_rack_membership(
             _request_user(), MEMBER_ID, OTHER_NODE_ID, objects_manager, types_manager, locations_manager,
         )
@@ -385,7 +386,7 @@ def test_moving_an_unassigned_member_to_another_rack_moves_the_membership() -> N
 
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager), \
          patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=OTHER_RACK_ID), \
-         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=(MEMBER_ID, None)):
+         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=MemberCheck(MEMBER_ID, None)):
         reconcile_object_rack_membership(
             _request_user(), MEMBER_ID, OTHER_NODE_ID, objects_manager, types_manager, locations_manager,
         )
@@ -437,7 +438,7 @@ def test_an_object_the_rack_view_would_refuse_gets_no_membership() -> None:
 
     with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', return_value=mounts_manager), \
          patch(f'{HOOKS_PATH}.resolve_rack_of_location_node', return_value=RACK_ID), \
-         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=(None, 'no location field')):
+         patch(f'{HOOKS_PATH}.member_object_blocker', return_value=MemberCheck(None, 'no location field')):
         reconcile_object_rack_membership(
             _request_user(), MEMBER_ID, OTHER_NODE_ID, objects_manager, types_manager, locations_manager,
         )

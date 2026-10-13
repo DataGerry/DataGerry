@@ -54,7 +54,12 @@ COMMENT: str = 'query-time-limit-test'
 
 
 def _burn() -> list[dict[str, Any]]:
-    """A stage the client filter guard accepts that costs server CPU per document - and is not constant-folded"""
+    """
+    A stage that costs server CPU per document - and is not constant-folded
+
+    The client filter guard refuses ``$range``; this module goes to the database directly, below the guard, because
+    what it tests is the server's budget, not what a client may send
+    """
     return [{'$addFields': {'burn': {'$reduce': {
         'input': {'$range': [0, {'$add': [BURN_LENGTH, '$public_id']}]},
         'initialValue': 0,

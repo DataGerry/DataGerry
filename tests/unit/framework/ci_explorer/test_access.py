@@ -29,12 +29,16 @@ from typing import Any
 
 import pytest
 
+from unittest.mock import MagicMock
+
 from cmdb.framework.ci_explorer.access import (
     CI_EXPLORER_PERMISSION,
     collect_denied_type_ids,
     filter_accessible_objects,
     is_denied,
+    load_denied_type_ids,
 )
+from cmdb.security.acl.builder import DENIED_TYPES_PROJECTION, build_denied_types_criteria
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -183,3 +187,41 @@ class TestFilterAccessibleObjects:
         documents = [_object(100, DENIED_TYPE_ID), _object(101, DENIED_TYPE_ID)]
 
         assert filter_accessible_objects(documents, {DENIED_TYPE_ID}) == []
+
+
+class TestLoadDeniedTypeIds:
+    """The up-front read: which types the user may not read, before any source reads."""
+
+    def test_no_user_no_query(self) -> None:
+        """An internal caller is not filtered - and pays nothing"""
+        types_manager = MagicMock()
+
+        assert load_denied_type_ids(types_manager, None) == frozenset()
+        types_manager.find.assert_not_called()
+
+    def test_one_projected_query_for_the_users_group(self) -> None:
+        """The shared rule's criteria, READ, and only the ids projected"""
+        types_manager = MagicMock()
+        types_manager.find.return_value = [{'public_id': DENIED_TYPE_ID}, {'public_id': ORPHAN_TYPE_ID}]
+
+        denied = load_denied_type_ids(types_manager, _user())
+
+        assert denied == frozenset({DENIED_TYPE_ID, ORPHAN_TYPE_ID})
+        types_manager.find.assert_called_once_with(
+            criteria=build_denied_types_criteria(GROUP_ID, AccessControlPermission.READ),
+            projection=DENIED_TYPES_PROJECTION,
+        )
+
+    def test_a_document_without_an_id_is_skipped(self) -> None:
+        """Nothing to exclude by"""
+        types_manager = MagicMock()
+        types_manager.find.return_value = [{'public_id': None}, {}, {'public_id': OPEN_TYPE_ID}]
+
+        assert load_denied_type_ids(types_manager, _user()) == frozenset({OPEN_TYPE_ID})
+
+    def test_it_agrees_with_the_per_object_pass(self) -> None:
+        """Both read an ACL alike: the documents the query would return are the ones the pass denies"""
+        documents = [_type_doc(OPEN_TYPE_ID), _type_doc(DENIED_TYPE_ID, _locked_acl()),
+                     _type_doc(ORPHAN_TYPE_ID, _locked_acl({str(GROUP_ID): ['READ']}))]
+
+        assert collect_denied_type_ids({d['public_id']: d for d in documents}, _user()) == {DENIED_TYPE_ID}

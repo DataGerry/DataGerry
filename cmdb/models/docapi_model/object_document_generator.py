@@ -33,6 +33,7 @@ from cmdb.framework.docapi.docapi_template.docgen_header_footer import PageHeade
 from cmdb.models.docapi_model.template_engine import TemplateEngine
 from cmdb.models.docapi_model.pdf_document_type import PdfDocumentType
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
+from cmdb.models.docapi_model.document_reference_resolver import DocumentReferenceResolver
 from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
 from cmdb.models.docapi_model.default_template_data import DefaultTemplateData
 from cmdb.framework.rendering.render_result import RenderResult
@@ -93,7 +94,8 @@ class ObjectDocumentGenerator:
         cmdb_render_object: RenderResult,
         doctype: PdfDocumentType,
         objects_manager: ObjectsManager,
-        request_user: CmdbUser | None = None
+        request_user: CmdbUser | None = None,
+        reference_resolver: DocumentReferenceResolver | None = None,
         ) -> None:
         """
         Initializes the ObjectDocumentGenerator
@@ -104,12 +106,15 @@ class ObjectDocumentGenerator:
             doctype (PdfDocumentType): The document type that determines the final output format
             objects_manager (ObjectsManager): The manager responsible for CmdbObject operations
             request_user (CmdbUser | None): The user requesting the document (optional)
+            reference_resolver (DocumentReferenceResolver | None): The document's resolver, which already holds
+                the root's render; None starts one when the template data is built
         """
         self.template: DocapiTemplate = template
         self.cmdb_render_object: RenderResult = cmdb_render_object
         self.doctype: PdfDocumentType = doctype
         self.objects_manager: ObjectsManager = objects_manager
         self.request_user: CmdbUser | None = request_user
+        self.reference_resolver: DocumentReferenceResolver | None = reference_resolver
 
 
     def generate_doc(self) -> BytesIO:
@@ -170,13 +175,15 @@ class ObjectDocumentGenerator:
                 template_str,
                 self.request_user,
                 self.template.template_type,
+                self.reference_resolver,
             ).get_template_data()
 
         return ObjectTemplateData(
             self.cmdb_render_object,
             self.objects_manager,
             self.request_user,
-            self.template.template_type
+            self.template.template_type,
+            self.reference_resolver,
         ).get_template_data()
 
 

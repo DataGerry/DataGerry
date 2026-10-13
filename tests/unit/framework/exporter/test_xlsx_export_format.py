@@ -25,7 +25,7 @@ import pytest
 from openpyxl import load_workbook
 
 from cmdb.framework.exporter.format.xlsx_export_format import XlsxExportFormat, MAX_SHEET_TITLE_LENGTH
-from cmdb.errors.exporter import ExporterColumnError
+from cmdb.errors.exporter import ExporterCharacterError, ExporterColumnError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 SHARED_FIELD: str = 'name'
@@ -304,3 +304,34 @@ class TestNormalizeSheetTitle:
     def test_truncates_to_excel_limit(self) -> None:
         """A title longer than Excel's 31-character limit is truncated."""
         assert XlsxExportFormat._normalize_sheet_title('x' * 50) == 'x' * MAX_SHEET_TITLE_LENGTH
+
+
+class TestXlsxExportCharacters:
+    """A workbook is XML inside: what XML cannot carry is refused with a 400-type error, never openpyxl's crash."""
+
+    def test_a_control_character_is_refused_naming_the_object_and_the_field(self) -> None:
+        """Not openpyxl's IllegalCharacterError - the export route answers this one with a 400"""
+        with pytest.raises(ExporterCharacterError, match=r"Object 10, field 'dg-name'.*U\+0007"):
+            XlsxExportFormat().export([_obj(10, fields=[_field('dg-name', 'bell\x07')])])
+
+    def test_an_mds_cell_names_its_section(self) -> None:
+        """The column is an MDS field - its section is named"""
+        obj = _obj(10, fields=[_field('dg-name', 'h'), _field('port', 'x')],
+                   sections=[_mds_section('ports', ['port'])], mds=[_mds('ports', [{'port': 'eth\x1b'}])])
+
+        with pytest.raises(ExporterCharacterError, match=r"field 'port' of multi-data section 'ports'"):
+            XlsxExportFormat().export([obj])
+
+    def test_a_header_cell_is_checked_too(self) -> None:
+        """A field label written as a header in a human-readable export"""
+        obj = _obj(10, fields=[{'name': 'dg-name', 'label': 'Na\x07me', 'type': 'text', 'value': 'h'}])
+
+        with pytest.raises(ExporterCharacterError, match=r"Column header"):
+            XlsxExportFormat().export([obj], {'human_readable': True})
+
+    @pytest.mark.parametrize('value', ['line1\nline2', 'tab\there', 'crlf\r\nnext'])
+    def test_whitespace_a_workbook_can_carry_reads_back(self, value: str) -> None:
+        """Written and read back as it is"""
+        sheet = _workbook([_obj(10, fields=[_field('dg-name', value)])]).active
+
+        assert _row(sheet, 2)[-1] == value

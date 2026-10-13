@@ -29,6 +29,7 @@ from cmdb.framework.ci_explorer.locations import (
     collect_location_children_objects,
     collect_location_parent_object,
 )
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.ci_explorer.locations'
@@ -53,7 +54,7 @@ def test_collect_location_parent_object_returns_none_when_parent_is_root_sentine
 
     result = collect_location_parent_object(
         _target_location_with_parent(ROOT_LOCATION_SENTINEL_PARENT),
-        frozenset(), remaining=10, item_limit_active=False,
+        NeighbourTypeScope(), remaining=10, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -68,7 +69,7 @@ def test_collect_location_parent_object_returns_none_when_no_remaining_slots() -
 
     result = collect_location_parent_object(
         _target_location_with_parent(PARENT_LOCATION_ID),
-        frozenset(), remaining=0, item_limit_active=True,
+        NeighbourTypeScope(), remaining=0, item_limit_active=True,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -84,7 +85,7 @@ def test_collect_location_parent_object_returns_none_when_parent_location_missin
 
     result = collect_location_parent_object(
         _target_location_with_parent(PARENT_LOCATION_ID),
-        frozenset(), remaining=10, item_limit_active=False,
+        NeighbourTypeScope(), remaining=10, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -106,7 +107,7 @@ def test_collect_location_parent_object_returns_none_when_the_parent_object_is_g
 
     result = collect_location_parent_object(
         _target_location_with_parent(PARENT_LOCATION_ID),
-        frozenset(), remaining=10, item_limit_active=False,
+        NeighbourTypeScope(), remaining=10, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -122,7 +123,7 @@ def test_collect_location_parent_object_returns_none_when_types_filter_excludes(
 
     result = collect_location_parent_object(
         _target_location_with_parent(PARENT_LOCATION_ID),
-        frozenset({TARGET_TYPE_ID}), remaining=10, item_limit_active=False,
+        NeighbourTypeScope(allowed=frozenset({TARGET_TYPE_ID})), remaining=10, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -139,7 +140,7 @@ def test_collect_location_parent_object_returns_parent_object_in_happy_path() ->
 
     result = collect_location_parent_object(
         _target_location_with_parent(PARENT_LOCATION_ID),
-        frozenset({TARGET_TYPE_ID}), remaining=10, item_limit_active=True,
+        NeighbourTypeScope(allowed=frozenset({TARGET_TYPE_ID})), remaining=10, item_limit_active=True,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -156,7 +157,7 @@ def test_collect_location_children_objects_returns_empty_when_no_remaining_slots
 
     result = collect_location_children_objects(
         {'public_id': TARGET_LOCATION_ID, 'parent': PARENT_LOCATION_ID},
-        frozenset(), remaining=0, item_limit_active=True,
+        NeighbourTypeScope(), remaining=0, item_limit_active=True,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -172,7 +173,7 @@ def test_collect_location_children_objects_returns_empty_when_no_child_locations
 
     result = collect_location_children_objects(
         {'public_id': TARGET_LOCATION_ID, 'parent': PARENT_LOCATION_ID},
-        frozenset(), remaining=10, item_limit_active=False,
+        NeighbourTypeScope(), remaining=10, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -192,7 +193,7 @@ def test_collect_location_children_objects_passes_object_ids_to_find() -> None:
 
     result = collect_location_children_objects(
         {'public_id': TARGET_LOCATION_ID, 'parent': PARENT_LOCATION_ID},
-        frozenset(), remaining=10, item_limit_active=False,
+        NeighbourTypeScope(), remaining=10, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -211,7 +212,7 @@ def test_collect_location_children_objects_adds_type_id_filter_to_mongo_query() 
 
     collect_location_children_objects(
         {'public_id': TARGET_LOCATION_ID, 'parent': PARENT_LOCATION_ID},
-        frozenset({TARGET_TYPE_ID}), remaining=10, item_limit_active=False,
+        NeighbourTypeScope(allowed=frozenset({TARGET_TYPE_ID})), remaining=10, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -232,7 +233,7 @@ def test_collect_location_children_objects_caps_at_remaining_when_item_limit_act
 
     result = collect_location_children_objects(
         {'public_id': TARGET_LOCATION_ID, 'parent': PARENT_LOCATION_ID},
-        frozenset(), remaining=2, item_limit_active=True,
+        NeighbourTypeScope(), remaining=2, item_limit_active=True,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -252,7 +253,7 @@ def test_collect_location_children_objects_skips_cap_when_item_limit_inactive() 
 
     result = collect_location_children_objects(
         {'public_id': TARGET_LOCATION_ID, 'parent': PARENT_LOCATION_ID},
-        frozenset(), remaining=0, item_limit_active=False,
+        NeighbourTypeScope(), remaining=0, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -274,7 +275,7 @@ def test_collect_location_children_objects_reads_in_public_id_order() -> None:
     locations_manager, objects_manager = _children_managers([3, 1, 2])
 
     collect_location_children_objects(
-        _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+        _target_location_with_parent(PARENT_LOCATION_ID), NeighbourTypeScope(), remaining=2, item_limit_active=True,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -286,7 +287,7 @@ def test_collect_location_children_objects_sorts_also_without_a_cap() -> None:
     locations_manager, objects_manager = _children_managers([3, 1])
 
     collect_location_children_objects(
-        _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=0, item_limit_active=False,
+        _target_location_with_parent(PARENT_LOCATION_ID), NeighbourTypeScope(), remaining=0, item_limit_active=False,
         locations_manager=locations_manager, objects_manager=objects_manager,
     )
 
@@ -299,7 +300,7 @@ def test_collect_location_children_objects_logs_a_truncation() -> None:
 
     with patch(f'{MODULE_PATH}.LOGGER') as mock_logger:
         collect_location_children_objects(
-            _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+            _target_location_with_parent(PARENT_LOCATION_ID), NeighbourTypeScope(), remaining=2, item_limit_active=True,
             locations_manager=locations_manager, objects_manager=objects_manager,
         )
 
@@ -312,8 +313,42 @@ def test_collect_location_children_objects_logs_nothing_when_all_fit() -> None:
 
     with patch(f'{MODULE_PATH}.LOGGER') as mock_logger:
         collect_location_children_objects(
-            _target_location_with_parent(PARENT_LOCATION_ID), frozenset(), remaining=2, item_limit_active=True,
+            _target_location_with_parent(PARENT_LOCATION_ID), NeighbourTypeScope(), remaining=2, item_limit_active=True,
             locations_manager=locations_manager, objects_manager=objects_manager,
         )
 
     mock_logger.warning.assert_not_called()
+
+
+def test_a_parent_object_of_a_type_the_caller_may_not_read_is_none() -> None:
+    """It spends no slot: the collector answers None, so the caller does not count it"""
+    locations_manager = MagicMock()
+    locations_manager.get_location.return_value = {'public_id': PARENT_LOCATION_ID, 'object_id': PARENT_OBJECT_ID}
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': PARENT_OBJECT_ID, 'type_id': 999}
+
+    result = collect_location_parent_object(
+        _target_location_with_parent(PARENT_LOCATION_ID),
+        NeighbourTypeScope(denied=frozenset({999})), remaining=1, item_limit_active=True,
+        locations_manager=locations_manager, objects_manager=objects_manager,
+    )
+
+    assert result is None
+
+
+def test_the_children_read_keeps_denied_types_out_before_the_cap() -> None:
+    """In the Mongo query - the slice to remaining then counts readable children only"""
+    locations_manager = MagicMock()
+    locations_manager.get_child_object_ids.return_value = [201, 202]
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = []
+
+    collect_location_children_objects(
+        {'public_id': TARGET_LOCATION_ID, 'parent': PARENT_LOCATION_ID},
+        NeighbourTypeScope(denied=frozenset({999})), remaining=1, item_limit_active=True,
+        locations_manager=locations_manager, objects_manager=objects_manager,
+    )
+
+    assert objects_manager.find.call_args.kwargs['criteria'] == {
+        'public_id': {'$in': [201, 202]}, 'type_id': {'$nin': [999]},
+    }

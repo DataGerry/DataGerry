@@ -27,6 +27,7 @@ from cmdb.framework.ci_explorer.ipam import (
     IpamEdgeCategory,
     collect_ipam_neighbours,
 )
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE: str = 'cmdb.framework.ci_explorer.ipam'
@@ -125,7 +126,7 @@ def test_returns_empty_when_both_directions_disabled() -> None:
     result = collect_ipam_neighbours(
         target_id=TARGET_SUPERNET, target_object=_make_supernet_target(),
         include_parents=False, include_children=False,
-        types_filter=frozenset(), remaining=0, item_limit_active=False,
+        type_scope=NeighbourTypeScope(), remaining=0, item_limit_active=False,
         objects_manager=objects_manager, types_manager=types_manager,
     )
 
@@ -141,7 +142,7 @@ def test_returns_empty_when_remaining_is_zero_under_item_limit() -> None:
     result = collect_ipam_neighbours(
         target_id=TARGET_SUPERNET, target_object=_make_supernet_target(),
         include_parents=True, include_children=True,
-        types_filter=frozenset(), remaining=0, item_limit_active=True,
+        type_scope=NeighbourTypeScope(), remaining=0, item_limit_active=True,
         objects_manager=objects_manager, types_manager=types_manager,
     )
 
@@ -162,7 +163,7 @@ def test_supernet_target_grafts_subnet_children() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_SUPERNET, target_object=_make_supernet_target(),
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -190,7 +191,7 @@ def test_subnet_target_grafts_supernet_parent_and_vlan_interface_children() -> N
         result = collect_ipam_neighbours(
             target_id=TARGET_SUBNET, target_object=_make_subnet_target(),
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -215,7 +216,7 @@ def test_vlan_target_grafts_only_parent_subnet() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_VLAN, target_object=_make_vlan_target(),
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -237,7 +238,7 @@ def test_interface_carrier_target_grafts_subnet_parents_from_mds_rows() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_SERVER, target_object=_make_interface_carrier([PARENT_SUBNET]),
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -260,7 +261,7 @@ def test_self_reference_in_dg_supernet_ref_is_skipped() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_SUBNET, target_object=target,
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -285,7 +286,7 @@ def test_non_interface_mds_sections_are_skipped() -> None:
             target_id=TARGET_SERVER,
             target_object=_make_interface_carrier_with_other_sections([PARENT_SUBNET]),
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -307,7 +308,7 @@ def test_interface_row_pointing_at_self_is_skipped() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_SERVER, target_object=target,
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -327,7 +328,7 @@ def test_include_children_false_filters_out_child_neighbours() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_SUPERNET, target_object=_make_supernet_target(),
             include_parents=True, include_children=False,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -351,7 +352,7 @@ def test_types_filter_is_applied_at_mongo_level() -> None:
         collect_ipam_neighbours(
             target_id=TARGET_SUPERNET, target_object=_make_supernet_target(),
             include_parents=True, include_children=True,
-            types_filter=frozenset({TYPE_SUBNET}), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(allowed=frozenset({TYPE_SUBNET})), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -380,7 +381,7 @@ def test_item_limit_caps_post_filter_count() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_SUBNET, target_object=_make_subnet_target(supernet_ref=None),
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=2, item_limit_active=True,
+            type_scope=NeighbourTypeScope(), remaining=2, item_limit_active=True,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
@@ -400,8 +401,28 @@ def test_plan_entries_whose_object_failed_to_load_are_dropped() -> None:
         result = collect_ipam_neighbours(
             target_id=TARGET_SUPERNET, target_object=_make_supernet_target(),
             include_parents=True, include_children=True,
-            types_filter=frozenset(), remaining=10, item_limit_active=False,
+            type_scope=NeighbourTypeScope(), remaining=10, item_limit_active=False,
             objects_manager=objects_manager, types_manager=MagicMock(),
         )
 
     assert result == []
+
+
+def test_denied_types_are_kept_out_of_the_bulk_fetch() -> None:
+    """In the Mongo query, before the slice to remaining"""
+    objects_manager = MagicMock()
+    objects_manager.find.return_value = []
+
+    with _patch_special_type_resolver(), \
+         patch(f'{MODULE}.find_subnets_referencing_supernet',
+               return_value=[{'public_id': SUBNET_CHILD, 'type_id': TYPE_SUBNET}]), \
+         patch(f'{MODULE}.find_vlans_referencing_subnet', return_value=[]), \
+         patch(f'{MODULE}.find_interfaces_referencing_subnet', return_value=[]):
+        collect_ipam_neighbours(
+            target_id=TARGET_SUPERNET, target_object=_make_supernet_target(),
+            include_parents=True, include_children=True,
+            type_scope=NeighbourTypeScope(denied=frozenset({TYPE_SUBNET})), remaining=1, item_limit_active=True,
+            objects_manager=objects_manager, types_manager=MagicMock(),
+        )
+
+    assert objects_manager.find.call_args.kwargs['criteria']['type_id'] == {'$nin': [TYPE_SUBNET]}

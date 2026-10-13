@@ -35,12 +35,15 @@ involved, so a degraded graph can be recognised as one instead of being read as 
 object's own type is the exception: without it there is no node to draw the neighbours around, so that
 is a ``CiExplorerGraphBuildError``.
 
-**Nothing the requesting user may not read is in the payload.** Every source is filtered against the
-object ACL - which lives on the CmdbType, so the check is a pure pass over the types the pipeline has
-already loaded (see ``access.py``). A denied neighbour is omitted silently, and a denied focal object
-raises the same ``CiExplorerTargetNotFoundError`` as a missing one, because a 403 or a placeholder node
-would confirm the existence of exactly what the ACL hides. Passing no user disables the filter, the
-convention every manager here follows.
+**Nothing the requesting user may not read is in the payload - nor counts against the cap.** The object ACL
+lives on the CmdbType, so the types the user may not read are resolved once, before any source reads
+(``access.load_denied_type_ids``): a denied focal object raises the same ``CiExplorerTargetNotFoundError`` as a
+missing one before anything else is loaded, and every source keeps denied neighbours out of its own Mongo read
+(``type_scope.NeighbourTypeScope``), so they spend none of the ``item_limit`` budget. A denied neighbour is
+omitted silently - no placeholder, and no capped graph emptier than an uncapped one - because either would
+confirm the existence of exactly what the ACL hides. The per-object pass over the loaded types still runs last,
+as a safety net that costs no query. Passing no user disables the filter, the convention every manager here
+follows.
 
 **The neighbour cap is deterministic.** The linked-object read is sorted by public_id before the limit
 is applied, so the same request returns the same subgraph twice; an unsorted ``limit`` returns natural
@@ -48,8 +51,10 @@ order, which MongoDB does not guarantee and which changes as documents are rewri
 logged, since the payload has no field that could report it.
 
 Pipeline:
-  1. Load the focal CmdbObject (always - see above)
-  2. Build the object-relation criteria, fetch matching object_relations, fetch the referenced
+  1. Load the focal CmdbObject (always - see above), resolve the types the user may not read, and refuse a
+     denied focal object before any source reads
+  2. Build the object-relation criteria (the type scope on the other side's stamped type), fetch matching
+     object_relations, fetch the referenced
      CmdbRelation documents, then bulk-fetch the linked CmdbObjects under the sorted cap
   3. Resolve each object_relation into a DirectionalEdge (which side the linked object is on, what
      colour / name / icon to display)
@@ -61,8 +66,8 @@ Pipeline:
   5a. When ``with_port_connections``, walk the physical chain out of every cabled port of the focal
      object and collect the CIs its cables reach, patch panels included (see ``connections.py``)
   6. Bulk-fetch the CmdbType documents for every object in scope (single $in)
-  6a. Resolve which of those types the user may not read, drop every object of one from all four
-     sources, and refuse the whole request when the focal object itself is denied
+  6a. Re-check those types against the user's ACL and drop any object of a denied one from all four sources -
+     the safety net behind the per-source exclusion of step 2-5a
   7. Run the batched enrichment once across the whole union: collect ref-field + dg_location ids, one
      $in lookup each, then flatten every object's fields
   8. Compose nodes (one builder for root, relation-linked, location-grafted and IPAM-grafted alike) and
@@ -86,7 +91,9 @@ from cmdb.framework.ci_explorer.access import (
     collect_denied_type_ids,
     filter_accessible_objects,
     is_denied,
+    load_denied_type_ids,
 )
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 from cmdb.framework.ci_explorer.context import CiExplorerGraphRequest, CiExplorerManagers
 from cmdb.framework.ci_explorer.connections import (
     ConnectionNeighbour,
@@ -229,7 +236,8 @@ def index_by_public_id(docs: list[dict[str, Any]]) -> dict[int, dict[str, Any]]:
 
 def load_relation_neighbourhood(
         request: CiExplorerGraphRequest,
-        managers: CiExplorerManagers) -> RelationNeighbourhood:
+        managers: CiExplorerManagers,
+        type_scope: NeighbourTypeScope) -> RelationNeighbourhood:
     """
     Loads the object-relation branch: the relations, the linked objects and the directional edges
 
@@ -241,13 +249,15 @@ def load_relation_neighbourhood(
     Args:
         request (CiExplorerGraphRequest): What the caller asked for
         managers (CiExplorerManagers): The managers to read through
+        type_scope (NeighbourTypeScope): The types a neighbour may be of - applied to the relations' stamped
+            types and to the linked-object read, both before the cap
 
     Returns:
         RelationNeighbourhood: The edges, the linked objects and the neighbours that count against
             the item_limit
     """
     criteria: dict[str, Any] = build_relation_criteria(
-        request.target_id, request.types_filter, request.relations_filter,
+        request.target_id, type_scope, request.relations_filter,
     )
     object_relations: list[dict[str, Any]] = load_object_relations(managers.object_relations, criteria)
 
@@ -264,7 +274,7 @@ def load_relation_neighbourhood(
 
     if linked_object_ids:
         linked_objects = index_by_public_id(list(managers.objects.find(
-            criteria={PUBLIC_ID_KEY: {'$in': sorted(linked_object_ids)}},
+            criteria={PUBLIC_ID_KEY: {'$in': sorted(linked_object_ids)}, **type_scope.object_criteria()},
             sort=[(PUBLIC_ID_KEY, 1)],
             limit=request.item_limit if request.item_limit_active else 0,
         )))
@@ -309,7 +319,8 @@ def load_relation_neighbourhood(
 def load_location_neighbourhood(
         request: CiExplorerGraphRequest,
         managers: CiExplorerManagers,
-        remaining: int) -> LocationNeighbourhood:
+        remaining: int,
+        type_scope: NeighbourTypeScope) -> LocationNeighbourhood:
     """
     Loads the dg_location branch: one hop up, one hop down, within the remaining budget
 
@@ -321,6 +332,7 @@ def load_location_neighbourhood(
         request (CiExplorerGraphRequest): What the caller asked for
         managers (CiExplorerManagers): The managers to read through
         remaining (int): Slots left after the relation branch
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
 
     Returns:
         LocationNeighbourhood: The grafted objects and the budget left for the IPAM branch
@@ -337,7 +349,7 @@ def load_location_neighbourhood(
 
     if request.include_children:
         neighbourhood.parent_object = collect_location_parent_object(
-            target_location, request.types_filter, neighbourhood.remaining, request.item_limit_active,
+            target_location, type_scope, neighbourhood.remaining, request.item_limit_active,
             managers.locations, managers.objects,
         )
 
@@ -346,7 +358,7 @@ def load_location_neighbourhood(
 
     if request.include_parents:
         neighbourhood.children_objects = collect_location_children_objects(
-            target_location, request.types_filter, neighbourhood.remaining, request.item_limit_active,
+            target_location, type_scope, neighbourhood.remaining, request.item_limit_active,
             managers.locations, managers.objects,
         )
 
@@ -438,7 +450,8 @@ def resolve_composable(
 def load_connection_neighbourhood(
         request: CiExplorerGraphRequest,
         managers: CiExplorerManagers,
-        remaining: int) -> ConnectionNeighbourhood:
+        remaining: int,
+        type_scope: NeighbourTypeScope) -> ConnectionNeighbourhood:
     """
     Loads the port-connectivity branch: the CIs the focal object is physically cabled to
 
@@ -454,6 +467,7 @@ def load_connection_neighbourhood(
         request (CiExplorerGraphRequest): What the caller asked for
         managers (CiExplorerManagers): The managers to read through
         remaining (int): Slots left after the relation, location and IPAM branches
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
 
     Returns:
         ConnectionNeighbourhood: The neighbours with their collapsed physical paths, and the
@@ -470,7 +484,7 @@ def load_connection_neighbourhood(
 
     neighbours, neighbour_objects = collect_connection_neighbours(
         target_id=request.target_id,
-        types_filter=request.types_filter,
+        type_scope=type_scope,
         remaining=remaining,
         item_limit_active=request.item_limit_active,
         managers=ConnectionSourceManagers(
@@ -532,21 +546,16 @@ def drop_denied_neighbours(
         ipam_neighbours: list[IpamNeighbour],
         denied_type_ids: set[int]) -> list[IpamNeighbour]:
     """
-    Removes every neighbour of an ACL-denied CmdbType from all three sources
+    Removes every neighbour of an ACL-denied CmdbType from all three sources - the safety net
 
-    Runs after the bulk type load, which is the earliest point at which the ACL is known, and before
-    the enrichment - so a denied neighbour costs no summary lookup and never reaches a composer. The
-    relation edges are dropped alongside their objects: an edge whose far end is not in the payload
-    would draw a line to nothing.
+    The sources already kept denied neighbours out of their reads (``type_scope.NeighbourTypeScope``), so on an
+    ordinary request this removes nothing. It re-checks the types actually loaded, before the enrichment, so an
+    ACL changed between the two reads still never puts a denied neighbour in the payload. The relation edges are
+    dropped alongside their objects: an edge whose far end is not in the payload would draw a line to nothing.
 
     The two neighbourhoods are dataclasses owned by this module and are filtered **in place**, while
     the IPAM neighbours arrive as a plain list and are returned filtered - hence the asymmetry in the
     signature.
-
-    **The item_limit budget is spent before this runs**, because the cap is applied inside each
-    source's Mongo read and the ACL is only knowable afterwards. A user denied most of a large
-    neighbourhood can therefore receive fewer nodes than ``item_limit`` - the cap protects the
-    database, and re-applying it after filtering would need a second round of reads
 
     Args:
         relation_neighbourhood (RelationNeighbourhood): The object-relation branch, filtered in place
@@ -768,6 +777,72 @@ def compose_root_node(
     return compose_node(enriched_root, root_type_doc, None)
 
 
+def remaining_budget(request: CiExplorerGraphRequest, available: int, spent: int) -> int:
+    """
+    The neighbour slots a source leaves to the next one
+
+    Args:
+        request (CiExplorerGraphRequest): What the caller asked for
+        available (int): The slots the source started with
+        spent (int): The readable neighbours it took
+
+    Returns:
+        int: What is left, never below 0; 0 when no cap applies (the sources then ignore it)
+    """
+    return max(0, available - spent) if request.item_limit_active else 0
+
+
+def assert_target_readable(
+        request: CiExplorerGraphRequest,
+        root_object: dict[str, Any],
+        denied_type_ids: set[int] | frozenset[int]) -> None:
+    """
+    Refuses a focal object of a type the user may not read - with the error a missing object raises
+
+    Args:
+        request (CiExplorerGraphRequest): What the caller asked for
+        root_object (dict[str, Any]): The focal CmdbObject
+        denied_type_ids (set[int] | frozenset[int]): The types the user may not read
+
+    Raises:
+        CiExplorerTargetNotFoundError: If the focal object is of a denied type - deliberately the same error a
+            missing object raises, since a 403 would confirm it exists
+    """
+    if is_denied(root_object, denied_type_ids):
+        raise CiExplorerTargetNotFoundError(
+            f"The ACL denies read access to the CmdbObject with ID:{request.target_id}!"
+        )
+
+
+def resolve_type_scope(
+        request: CiExplorerGraphRequest,
+        managers: CiExplorerManagers,
+        root_object: dict[str, Any],
+        user: CmdbUser | None) -> NeighbourTypeScope:
+    """
+    Resolves the types the user may not read, refuses a hidden focal object, and answers the sources' type scope
+
+    Runs before any source reads: a hidden target then costs one type query rather than every source's reads,
+    and the scope keeps denied neighbours out of every source's read, so they spend none of the item_limit budget
+
+    Args:
+        request (CiExplorerGraphRequest): What the caller asked for
+        managers (CiExplorerManagers): The managers to read through
+        root_object (dict[str, Any]): The focal CmdbObject
+        user (CmdbUser | None): The CmdbUser the graph is built for; None disables access control
+
+    Raises:
+        CiExplorerTargetNotFoundError: If the focal object is of a type the user may not read
+
+    Returns:
+        NeighbourTypeScope: The caller's types filter, and the types they may not read
+    """
+    denied_type_ids: frozenset[int] = load_denied_type_ids(managers.types, user)
+    assert_target_readable(request, root_object, denied_type_ids)
+
+    return NeighbourTypeScope(allowed=request.types_filter, denied=denied_type_ids)
+
+
 def build_ci_explorer_graph(
         request: CiExplorerGraphRequest,
         managers: CiExplorerManagers,
@@ -799,13 +874,15 @@ def build_ci_explorer_graph(
             f"No CmdbObject with ID:{request.target_id} to build a CI Explorer graph for!"
         )
 
-    relation_neighbourhood: RelationNeighbourhood = load_relation_neighbourhood(request, managers)
+    type_scope: NeighbourTypeScope = resolve_type_scope(request, managers, root_object, user)
 
-    remaining: int = (
-        max(0, request.item_limit - len(relation_neighbourhood.distinct_neighbour_ids))
-        if request.item_limit_active else 0
+    relation_neighbourhood: RelationNeighbourhood = load_relation_neighbourhood(request, managers, type_scope)
+
+    location_neighbourhood: LocationNeighbourhood = load_location_neighbourhood(
+        request, managers,
+        remaining_budget(request, request.item_limit, len(relation_neighbourhood.distinct_neighbour_ids)),
+        type_scope,
     )
-    location_neighbourhood: LocationNeighbourhood = load_location_neighbourhood(request, managers, remaining)
 
     ipam_neighbours: list[IpamNeighbour] = []
 
@@ -815,19 +892,16 @@ def build_ci_explorer_graph(
             target_object=root_object,
             include_parents=request.include_parents,
             include_children=request.include_children,
-            types_filter=request.types_filter,
+            type_scope=type_scope,
             remaining=location_neighbourhood.remaining,
             item_limit_active=request.item_limit_active,
             objects_manager=managers.objects,
             types_manager=managers.types,
         )
 
-    remaining = (
-        max(0, location_neighbourhood.remaining - len(ipam_neighbours))
-        if request.item_limit_active else 0
-    )
     connection_neighbourhood: ConnectionNeighbourhood = load_connection_neighbourhood(
-        request, managers, remaining,
+        request, managers, remaining_budget(request, location_neighbourhood.remaining, len(ipam_neighbours)),
+        type_scope,
     )
 
     in_scope_objects: list[dict[str, Any]] = [root_object]
@@ -842,24 +916,20 @@ def build_ci_explorer_graph(
 
     types_by_id: dict[int, dict[str, Any]] = load_types_in_scope(in_scope_objects, managers)
 
-    denied_type_ids: set[int] = collect_denied_type_ids(types_by_id, user)
+    # The safety net behind the per-source exclusion: the same rule over the types actually loaded, no query
+    loaded_denied_type_ids: set[int] = collect_denied_type_ids(types_by_id, user)
 
-    if denied_type_ids:
-        if is_denied(root_object, denied_type_ids):
-            # Deliberately the same error a missing object raises: a 403 would confirm it exists
-            raise CiExplorerTargetNotFoundError(
-                f"The ACL denies read access to the CmdbObject with ID:{request.target_id}!"
-            )
-
+    if loaded_denied_type_ids:
+        assert_target_readable(request, root_object, loaded_denied_type_ids)
         ipam_neighbours = drop_denied_neighbours(
-            relation_neighbourhood, location_neighbourhood, ipam_neighbours, denied_type_ids,
+            relation_neighbourhood, location_neighbourhood, ipam_neighbours, loaded_denied_type_ids,
         )
         connection_neighbourhood.objects = {
             neighbour_id: neighbour_object
             for neighbour_id, neighbour_object in connection_neighbourhood.objects.items()
-            if not is_denied(neighbour_object, denied_type_ids)
+            if not is_denied(neighbour_object, loaded_denied_type_ids)
         }
-        in_scope_objects = filter_accessible_objects(in_scope_objects, denied_type_ids)
+        in_scope_objects = filter_accessible_objects(in_scope_objects, loaded_denied_type_ids)
 
     enriched_by_id: dict[int, dict[str, Any]] = enrich_in_scope_objects(
         in_scope_objects, types_by_id, managers,

@@ -30,6 +30,7 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_helper import (
+    object_write_blocker,
     build_location_forest,
     extract_object_location_parent,
     validate_object_location_change,
@@ -1346,3 +1347,47 @@ class TestReadPlaceableObject:
         assert target == PlacementTarget(cmdb_object, object_type)
         read.assert_called_once_with(OBJECT_ID, objects_manager, REQUEST_USER)
         authorize.assert_called_once_with(cmdb_object, object_type, objects_manager, REQUEST_USER)
+
+
+class TestObjectWriteBlocker:
+    """The reason-answering core the placement 403 and the rack membership writes share."""
+
+    def test_allowed_is_none(self) -> None:
+        """READ and UPDATE granted, an active type"""
+        _cmdb_object, object_type = _placed()
+
+        with patch(f'{HELPER_PATH}.verify_access'):
+            assert object_write_blocker(OBJECT_ID, TYPE_ID, object_type, MagicMock(), REQUEST_USER) is None
+
+    def test_the_callers_messages_are_filled_in(self) -> None:
+        """A rack names itself with its own messages - the object id goes into whichever applies"""
+        _cmdb_object, object_type = _placed()
+        objects_manager = MagicMock()
+        objects_manager.guard_writable_type.side_effect = AccessDeniedError('no')
+
+        with patch(f'{HELPER_PATH}.verify_access'):
+            reason = object_write_blocker(OBJECT_ID, TYPE_ID, object_type, objects_manager, REQUEST_USER,
+                                          'read {object_id}', 'change {object_id}')
+
+        assert reason == f'change {OBJECT_ID}'
+
+    def test_no_read_is_the_read_reason_and_asks_no_further(self) -> None:
+        """The default message, and the update is not asked"""
+        _cmdb_object, object_type = _placed()
+        objects_manager = MagicMock()
+
+        with patch(f'{HELPER_PATH}.verify_access', side_effect=AccessDeniedError('no')):
+            reason = object_write_blocker(OBJECT_ID, TYPE_ID, object_type, objects_manager, REQUEST_USER)
+
+        assert reason == LINKED_OBJECT_DENIED_MSG.format(object_id=OBJECT_ID)
+        objects_manager.guard_writable_type.assert_not_called()
+
+    def test_a_deactivated_type_is_the_guards_own_reason(self) -> None:
+        """Not the update message - the type is the problem, and the guard says so"""
+        _cmdb_object, object_type = _placed(type_active=False)
+        objects_manager = MagicMock()
+        objects_manager.guard_writable_type.side_effect = AccessDeniedError('The type is deactivated!')
+
+        with patch(f'{HELPER_PATH}.verify_access'):
+            assert object_write_blocker(OBJECT_ID, TYPE_ID, object_type, objects_manager, REQUEST_USER) == \
+                'The type is deactivated!'
