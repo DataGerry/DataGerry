@@ -91,6 +91,15 @@ from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     CategoryBodyKey,
     CategoryMetaKey,
 )
+from cmdb.framework.configuration_transfer.configuration_transfer_constants import (
+    TransferFileKey,
+    TransferSectionKey,
+    TransferComponentName,
+)
+from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_route_constants import (
+    ResetRequestKey,
+    ResetResponseKey,
+)
 from cmdb.security.license.license_constants import (
     LicenseTier,
     LicenseFeature,
@@ -537,6 +546,21 @@ VALUE_CONTRACTS: list[tuple[type[Enum], dict[str, str]]] = [
         'FEATURES': 'features',
     }),
     (PlatformName, {'WINDOWS': 'Windows', 'LINUX': 'Linux', 'DARWIN': 'Darwin'}),
+    (TransferFileKey, {
+        'FORMAT_VERSION': 'format_version',
+        'DB_VERSION': 'db_version',
+        'EXPORTED_AT': 'exported_at',
+        'COMPONENTS': 'components',
+    }),
+    (TransferSectionKey, {'COUNTER': 'counter', 'ITEMS': 'items'}),
+    (TransferComponentName, {
+        'SECTION_TEMPLATES': 'section_templates',
+        'TYPES': 'types',
+        'CATEGORIES': 'categories',
+        'RELATIONS': 'relations',
+    }),
+    (ResetRequestKey, {'CONFIRM': 'confirm'}),
+    (ResetResponseKey, {'DELETED': 'deleted'}),
 ]
 
 

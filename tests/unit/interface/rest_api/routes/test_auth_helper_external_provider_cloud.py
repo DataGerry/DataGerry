@@ -17,8 +17,10 @@
 Unit tests for abort_if_external_provider_in_cloud (auth_helper)
 
 External providers are on-premise only. In cloud mode an auth-settings section that activates one is refused
-with a 400 naming it; an inactive one, and anything on premise, passes
+with a 400 naming it; an inactive one, and anything on premise, passes. The section it judges is left as it was:
+it is what the update stores next
 """
+from copy import deepcopy
 from http import HTTPStatus
 from typing import Any
 
@@ -96,3 +98,16 @@ def test_nothing_is_refused_on_premise(ldap_active: bool) -> None:
     """On premise LDAP is a supported provider"""
     with _app(cloud_mode=False).test_request_context():
         assert abort_if_external_provider_in_cloud(_section(ldap_active=ldap_active)) is None
+
+
+def test_the_judged_section_is_left_as_it_was() -> None:
+    """An entry the section lacks is not appended, an undeclared LDAP key not dropped - in the caller's dict"""
+    section = _section(ldap_active=False)
+    section[AuthSettingsKey.PROVIDERS.value][1][ProviderEntryKey.CONFIG.value]['retired_option'] = 1
+    del section[AuthSettingsKey.PROVIDERS.value][0]
+    before = deepcopy(section)
+
+    with _app(cloud_mode=True).test_request_context():
+        abort_if_external_provider_in_cloud(section)
+
+    assert section == before

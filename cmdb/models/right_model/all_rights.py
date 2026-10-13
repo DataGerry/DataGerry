@@ -102,7 +102,8 @@ SYSTEM_RIGHTS = (
     (
         SystemRight('view', description='View system configurations and settings'),
         SystemRight('edit', description='Edit system configurations and settings'),
-        SystemRight('reload', description='Reload system configurations')
+        SystemRight('reload', description='Reload system configurations'),
+        SystemRight('export', description='Export the configuration: types, categories, section templates, relations')
     )
 )
 

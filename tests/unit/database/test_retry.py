@@ -274,7 +274,7 @@ NO_IO_METHODS: frozenset[str] = frozenset({'target_database'})
 
 class TestEveryDatabaseOperationRetries:
     """
-    Every public I/O method of MongoDatabaseManager carries the decorator
+    Every public I/O method of MongoDatabaseManager carries the decorator - the ones its mixins contribute too
 
     A write is only retried when it never reached the server (a server-selection failure), so retrying a write cannot
     apply it twice - which is why the writes that used to go without it (insert_many, upsert_set, update_many_raw,
@@ -283,11 +283,12 @@ class TestEveryDatabaseOperationRetries:
 
     @staticmethod
     def _public_methods() -> list[str]:
-        """The class's own public methods"""
-        return sorted(
-            name for name, member in vars(MongoDatabaseManager).items()
+        """The public methods of the manager and of every part it inherits - its mixins included"""
+        return sorted({
+            name for part in MongoDatabaseManager.__mro__ if part is not object
+            for name, member in vars(part).items()
             if callable(member) and not name.startswith('_')
-        )
+        })
 
     def test_each_one_is_wrapped(self) -> None:
         """functools.wraps leaves __wrapped__ on every decorated method"""

@@ -58,3 +58,9 @@ class AuthenticationError(ProviderError):
     """
     Raised when user could not be authenticated via provider
     """
+
+
+class ProviderConfigError(ProviderError):
+    """
+    Raised when a provider configuration holds a value of the wrong type
+    """

@@ -26,14 +26,18 @@ Process layout: `ProcessManager` already spawns this service as its own
 nested `multiprocessing.Process` for gunicorn so the SIGTERM handler can terminate the HTTP
 server in isolation without taking the WebCmdbService process down through the same signal
 path. The nested process is kept on `self._webserver_proc` for `_shutdown` to reach
+
+Both forks happen while the forking process runs a single thread (`cmdb.process_management.fork_safety`): the
+database manager built here starts no keep-alive, and its connection is closed before gunicorn is forked
 """
-import multiprocessing
+from multiprocessing.process import BaseProcess
 from types import FrameType
 
 import cmdb
 
 from cmdb.database import MongoDatabaseManager
 
+from cmdb.process_management.fork_safety import FORK_CONTEXT, wait_until_single_threaded
 from cmdb.process_management.service import AbstractCmdbService
 from cmdb.interface.net_app import create_app
 from cmdb.interface.dispatcher_middleware import DispatcherMiddleware
@@ -71,7 +75,7 @@ class WebCmdbService(AbstractCmdbService):
         super().__init__()
         self._name = "webapp"
         self._threaded_service = False
-        self._webserver_proc: multiprocessing.Process | None = None
+        self._webserver_proc: BaseProcess | None = None
 
 
     def _run(self) -> None:
@@ -94,9 +98,11 @@ class WebCmdbService(AbstractCmdbService):
         scr = SystemConfigReader()
 
         mode = 'cloud' if cmdb.__CLOUD_MODE__ and not cmdb.__LOCAL_MODE__ else 'local'
+        # No keep-alive here: this process forks gunicorn below, and a thread must not run across a fork
         dbm = MongoDatabaseManager(
             **scr.get_all_values_from_section('Database'),
-            mode=mode
+            mode=mode,
+            start_keepalive=False,
         )
 
         app = DispatcherMiddleware(
@@ -110,7 +116,14 @@ class WebCmdbService(AbstractCmdbService):
         options = scr.get_all_values_from_section('WebServer')
 
         webserver = HTTPServer(app, options)
-        self._webserver_proc = multiprocessing.Process(target=webserver.run)
+
+        # The start-up work above connected to MongoDB, whose driver runs monitor threads. Closing the client stops
+        # them, so gunicorn - and every worker it forks - descends from a single-threaded process; each worker
+        # connects again after its fork (`gunicorn_config.post_fork`)
+        dbm.connector.disconnect()
+        wait_until_single_threaded()
+
+        self._webserver_proc = FORK_CONTEXT.Process(target=webserver.run)
         self._webserver_proc.start()
         self._webserver_proc.join()
 

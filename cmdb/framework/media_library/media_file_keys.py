@@ -38,6 +38,10 @@ __all__: list[str] = [
 # GridFS keeps a file's chunks in '<collection>.chunks' and its file documents in '<collection>.files'.
 # Only the latter is addressable as a normal collection, which is what an update has to target
 GRIDFS_FILES_SUFFIX: str = '.files'
+GRIDFS_CHUNKS_SUFFIX: str = '.chunks'
+
+# The key of a chunk document naming the `_id` of the file document it belongs to
+GRIDFS_CHUNK_FILE_KEY: str = 'files_id'
 
 
 class MediaFileKey(BaseStrEnum):
@@ -92,6 +96,12 @@ class MediaFileMetadataKey(BaseStrEnum):
 # with the routes' `metadata_field` helper because the unique index is declared in the model layer,
 # which may not import from the interface layer - and both ends have to spell the same path
 MEDIA_FILE_PARENT_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.PARENT.value}'
+
+# The dotted path of the reference kind inside the metadata sub-document
+MEDIA_FILE_REFERENCE_TYPE_PATH: str = f'{MediaFileKey.METADATA.value}.{MediaFileMetadataKey.REFERENCE_TYPE.value}'
+
+# The reference kind of a file attached to a CmdbObject - the value the object attachments upload stores
+OBJECT_REFERENCE_TYPE: str = 'object'
 
 # Name of the unique index over (filename, metadata.parent) - the pair a file's identity is, and the
 # same pair the upload/update routes check before falling back to a 'copy_(n)_' rename

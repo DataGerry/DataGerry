@@ -198,8 +198,9 @@ class CmdbAuthSettings:
         Checks the provider list
 
         Only the shape is enforced here - a list of objects. Whether an entry names an installed
-        provider and whether its config parses is `AuthModule`'s job, and it already falls back to a
-        provider's defaults rather than failing
+        provider and whether its config builds is `AuthModule`'s job: the auth-settings write refuses a
+        config its provider's class cannot build (`AuthModule.provider_config_problems`), the read falls
+        back to the provider's defaults rather than failing
 
         Args:
             value (Any): The `providers` list as it arrived, or None when the key was absent

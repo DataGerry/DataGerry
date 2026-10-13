@@ -128,7 +128,7 @@ port_bulk_blueprint = APIBlueprint('port_bulk', __name__)
 
 @port_bulk_blueprint.route('/object/<int:object_id>/bulk', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.ADD.value)
 @handle_route_errors("while creating the Ports")
 def bulk_create_ports(object_id: int, request_user: CmdbUser) -> Response:
@@ -245,7 +245,7 @@ def _abort_for_failed_batch(result: BulkCreateResult) -> None:
 
 @port_bulk_blueprint.route('/object/<int:object_id>/bulk', methods=['PATCH'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.EDIT.value)
 @handle_route_errors("while updating the selected Ports")
 def bulk_edit_ports(object_id: int, request_user: CmdbUser) -> Response:
@@ -318,7 +318,7 @@ def bulk_edit_ports(object_id: int, request_user: CmdbUser) -> Response:
 
 @port_bulk_blueprint.route('/object/<int:object_id>/bulk/delete_preview', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while previewing the deletion of the Ports")
 def preview_bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:
@@ -388,7 +388,7 @@ def preview_bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Respons
 
 @port_bulk_blueprint.route('/object/<int:object_id>/bulk', methods=['DELETE'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_bulk_blueprint.protect(auth=True, right=PortRight.DELETE.value)
 @handle_route_errors("while deleting the selected Ports")
 def bulk_delete_ports(object_id: int, request_user: CmdbUser) -> Response:

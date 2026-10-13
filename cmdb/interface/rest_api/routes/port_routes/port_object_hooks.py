@@ -62,7 +62,7 @@ from cmdb.framework.port.name_syntax_constants import MAX_BULK_PORT_COUNT
 from cmdb.framework.write_ledger import WriteLedger
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.license.license_constants import LicenseFeature
-from cmdb.interface.route_utils import request_authenticates_by_api_key, user_has_right
+from cmdb.interface.route_utils import user_has_right
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import abort_if_feature_locked
 from cmdb.interface.rest_api.routes.routes_helper import undone_on_failure
 from cmdb.interface.rest_api.routes.port_routes.port_route_constants import PortCloneError, PortRight
@@ -237,9 +237,9 @@ def plan_object_port_clone(
     Checks that a new object may clone the source object's ports, and reads what the clone will write
 
     Runs before the new object is written, so every refusal leaves nothing behind. The source must exist and be
-    readable by the caller. A source without ports clones nothing and needs nothing more; one with ports needs a
-    caller other than the cloud API key, the IPAM licence, the right to add ports, a Type of the new object that
-    uses ports, and at most as many ports as a bulk create may write
+    readable by the caller. A source without ports clones nothing and needs nothing more; one with ports needs the
+    IPAM licence, the right to add ports, a Type of the new object that uses ports, and at most as many ports as a
+    bulk create may write. The cloud API key may clone like any caller - the port routes are open to it too
 
     Args:
         request_user (CmdbUser): The CmdbUser creating the object
@@ -249,8 +249,8 @@ def plan_object_port_clone(
 
     Raises:
         HTTPException: 400 when the source has too many ports or the new object's Type does not use ports, 403
-            when the caller may not read the source, authenticates by the cloud API key, the IPAM licence is missing
-            or the caller lacks the right to add ports, 404 when the source does not exist
+            when the caller may not read the source, the IPAM licence is missing or the caller lacks the right to add
+            ports, 404 when the source does not exist
 
     Returns:
         PortClonePlan | None: The source's ports and INTERNAL pairs, or None when it has no port
@@ -272,10 +272,6 @@ def plan_object_port_clone(
 
     if not port_count:
         return None
-
-    # The port routes are closed to the cloud API key, so the ports may not be reached through the object create
-    if request_authenticates_by_api_key():
-        abort(403, PortCloneError.API_KEY_LOCKED.format(object_id=source_object_id))
 
     abort_if_feature_locked(LicenseFeature.IPAM, request_user)
 
