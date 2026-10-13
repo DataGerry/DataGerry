@@ -62,7 +62,7 @@ import { CoreModule } from 'src/app/core/core.module';
         GroupFormHelperComponent
     ],
     exports: [
-        GroupTableListComponent
+        GroupTableUserCellComponent
     ],
     imports: [
         CommonModule,

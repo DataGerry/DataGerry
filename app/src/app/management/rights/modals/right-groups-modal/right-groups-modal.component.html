@@ -5,7 +5,10 @@
     subtitle="Groups that hold this right"
     (dismiss)="activeModal.dismiss('Cross click')">
 
-    <cmdb-group-table-list [filter]="{rights: right.name}"></cmdb-group-table-list>
+    <cmdb-table [id]="'right-groups-table'" [columns]="columns" [items]="right.groups"
+                [totalItems]="right.groups_count" [searchEnabled]="false" [paginationEnabled]="false"
+                [pageSizeEnabled]="false" [stateEnabled]="false">
+    </cmdb-table>
 
     <app-button
         dgModalFooter
@@ -15,3 +18,7 @@
         (clicked)="activeModal.dismiss('Close click')">
     </app-button>
 </dg-modal>
+
+<ng-template #usersTemplate let-item="item">
+    <cmdb-group-table-user-cell [group]="item"></cmdb-group-table-user-cell>
+</ng-template>

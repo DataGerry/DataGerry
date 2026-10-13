@@ -16,9 +16,11 @@
 * along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
 
-import { Component, inject, Input } from '@angular/core';
+import { Component, inject, Input, OnInit, TemplateRef, ViewChild } from '@angular/core';
 import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
-import { Right } from '../../../models/right';
+
+import { RightOverview } from '../../../models/right';
+import { Column } from '../../../../layout/table/table.types';
 
 @Component({
     selector: 'cmdb-right-groups-modal',
@@ -26,10 +28,46 @@ import { Right } from '../../../models/right';
     styleUrls: ['./right-groups-modal.component.scss'],
     standalone: false
 })
-export class RightGroupsModalComponent {
+export class RightGroupsModalComponent implements OnInit {
 
-  @Input() public right: Right;
+  @Input() public right: RightOverview;
+
+  @ViewChild('usersTemplate', { static: true }) public usersTemplate: TemplateRef<unknown>;
+
+  public columns: Array<Column> = [];
 
   public readonly activeModal = inject(NgbActiveModal);
+
+  public ngOnInit(): void {
+    this.columns = [
+      {
+        display: 'Public ID',
+        name: 'public_id',
+        data: 'public_id',
+        sortable: false
+      },
+      {
+        display: 'Name',
+        name: 'name',
+        data: 'name',
+        sortable: false
+      },
+      {
+        display: 'Label',
+        name: 'label',
+        data: 'label',
+        sortable: false
+      },
+      {
+        display: 'Users',
+        name: 'users',
+        data: 'public_id',
+        sortable: false,
+        fixed: true,
+        template: this.usersTemplate,
+        cssClasses: ['text-center']
+      }
+    ] as Array<Column>;
+  }
 
 }

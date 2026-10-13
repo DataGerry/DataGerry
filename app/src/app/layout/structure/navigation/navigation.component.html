@@ -310,7 +310,8 @@
                     [routerLink]="['/management/users']">
                     <i class="fas fa-user-friends"></i> Users
                   </a>
-                  <a class="dropdown-item" [routerLink]="['/management/rights']">
+                  <a class="dropdown-item" *permissionLink="'base.user-management.group.view'"
+                    [routerLink]="['/management/rights']">
                     <i class="fas fa-low-vision"></i> Rights
                   </a>
 
