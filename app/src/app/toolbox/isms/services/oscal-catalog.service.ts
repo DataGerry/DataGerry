@@ -58,10 +58,13 @@ export class OscalCatalogService {
     /**
      * URL of the viewer page showing the given catalog. The viewer uses hash routing, so the
      * catalog location travels in the fragment and the static server only ever sees index.html.
+     * `embedded` is set for the iframe on the catalog page: the viewer then hides its own header
+     * so it blends into the DATAGERRY page; standalone (new tab) it shows a slim DATAGERRY header.
      */
-    public getViewerUrl(manifest: OscalCatalogManifest, catalog: OscalCatalog): string {
+    public getViewerUrl(manifest: OscalCatalogManifest, catalog: OscalCatalog, embedded = false): string {
         const catalogUrl = encodeURIComponent(this.toAbsoluteUrl(catalog.file));
+        const embeddedParam = embedded ? '&embedded=1' : '';
 
-        return `${this.toAbsoluteUrl(manifest.viewer.path)}#/catalog?url=${catalogUrl}`;
+        return `${this.toAbsoluteUrl(manifest.viewer.path)}#/catalog?url=${catalogUrl}${embeddedParam}`;
     }
 }
