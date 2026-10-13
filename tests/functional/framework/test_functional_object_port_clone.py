@@ -26,6 +26,7 @@ import base64
 from datetime import datetime, timezone
 from http import HTTPStatus
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -42,6 +43,7 @@ from cmdb.models.type_model import CmdbType, FieldType, SectionType
 from cmdb.models.user_model import CmdbUser
 from cmdb.errors.manager.port_connections_manager import PortConnectionsManagerInsertError
 from cmdb.errors.security import AccessDeniedError
+from cmdb.framework import config_item_sync
 from cmdb.interface import route_utils
 from cmdb.interface.route_utils import API_KEY_HEADER
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
@@ -353,6 +355,8 @@ def fixture_cloud(rest_api, monkeypatch: pytest.MonkeyPatch, database_manager: M
 
     enable_hosted_cloud_mode(rest_api, monkeypatch, database_manager)
     monkeypatch.setattr(route_utils, 'check_user_in_service_portal', lambda *_args, **_kwargs: portal)
+    # A cloud object create reports the tenant's item count to the portal - stubbed, there is no portal here
+    monkeypatch.setattr(config_item_sync, 'DgServicePortalManager', MagicMock())
 
     yield
 
@@ -361,16 +365,15 @@ def fixture_cloud(rest_api, monkeypatch: pytest.MonkeyPatch, database_manager: M
 
 @pytest.mark.usefixtures('cloud')
 class TestTheCloudApiKey:
-    """The port routes are closed to the cloud API key, and so is cloning ports through the object create"""
+    """The port routes are open to an ADMIN-level cloud API key, and so is cloning ports through the object create"""
 
-    def test_a_source_with_ports_is_403(self, rest_api, db) -> None:
-        """An ADMIN-level key reaches the object create, not the ports"""
+    def test_a_source_with_ports_is_cloned(self, rest_api, db) -> None:
+        """Every port copied, as for the frontend's token"""
         basic: str = base64.b64encode(f'{CLOUD_EMAIL}:{CLOUD_PASSWORD}'.encode('utf-8')).decode('utf-8')
         environ = {'HTTP_AUTHORIZATION': f'Basic {basic}', API_KEY_ENVIRON: 'subscription-key'}
 
         response = rest_api.post(f'{OBJECTS_URL}?clone_ports_from={SOURCE_ID}', json=_object_doc(NEW_ID),
                                  environ_overrides=environ)
 
-        assert response.status_code == HTTPStatus.FORBIDDEN
-        assert response.get_json()['message'] == PortCloneError.API_KEY_LOCKED.format(object_id=SOURCE_ID)
-        _assert_nothing_written(db)
+        assert response.status_code == HTTPStatus.OK, response.get_json()
+        assert sorted(port[PortKey.NAME.value] for port in _new_ports(db)) == sorted(name for _, _, name, _ in PANEL)

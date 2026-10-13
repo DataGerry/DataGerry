@@ -48,6 +48,10 @@ CLOUD_EXTERNAL_PROVIDER_MSG: str = "External authentication providers are not av
 #: with the shared unknown-reference message instead
 LDAP_GROUP_NOT_AN_ID_MSG: str = "The LDAP settings name groups by their ID - not one: {values}!"
 
+#: The 400 an auth-settings update gets when a provider's config cannot be built through its config class - a flag
+#: that is no boolean, a value of the wrong type; formatted with the reasons, each naming its provider
+PROVIDER_CONFIG_UNUSABLE_MSG: str = "The provider settings cannot be used: {problems}!"
+
 
 class AuthSettingsKey(BaseStrEnum):
     """

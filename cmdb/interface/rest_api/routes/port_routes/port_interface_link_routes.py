@@ -120,7 +120,7 @@ port_interface_link_blueprint = APIBlueprint('port_interface_links', __name__)
 
 @port_interface_link_blueprint.route('/<int:port_id>/interface_links/', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.EDIT.value)
 @handle_route_errors("while creating the Port interface link")
 def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response:
@@ -209,7 +209,7 @@ def insert_port_interface_link(port_id: int, request_user: CmdbUser) -> Response
 
 @port_interface_link_blueprint.route('/interface_links/dangling', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while retrieving the dangling Port interface links")
 def get_dangling_port_interface_links(request_user: CmdbUser) -> Response:
@@ -254,7 +254,7 @@ def get_dangling_port_interface_links(request_user: CmdbUser) -> Response:
 
 @port_interface_link_blueprint.route('/interface_links/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while retrieving the Port interface link ID: {public_id}")
 def get_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:
@@ -302,7 +302,7 @@ def get_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:
 
 @port_interface_link_blueprint.route('/<int:port_id>/interface_links/', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while retrieving the interface links of Port ID: {port_id}")
 def get_port_interface_links_of_port(port_id: int, request_user: CmdbUser) -> Response:
@@ -345,7 +345,7 @@ def get_port_interface_links_of_port(port_id: int, request_user: CmdbUser) -> Re
 
 @port_interface_link_blueprint.route('/<int:port_id>/assignable_interfaces/', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while listing the assignable interfaces of Port ID: {port_id}")
 def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
@@ -416,7 +416,7 @@ def get_assignable_interfaces(port_id: int, request_user: CmdbUser) -> Response:
 
 @port_interface_link_blueprint.route('/interface_links/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.EDIT.value)
 @handle_route_errors("while updating the Port interface link ID: {public_id}")
 def update_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:
@@ -477,7 +477,7 @@ def update_port_interface_link(public_id: int, request_user: CmdbUser) -> Respon
 
 @port_interface_link_blueprint.route('/interface_links/<int:public_id>', methods=['DELETE'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_interface_link_blueprint.protect(auth=True, right=PortRight.DELETE.value)
 @handle_route_errors("while deleting the Port interface link ID: {public_id}")
 def delete_port_interface_link(public_id: int, request_user: CmdbUser) -> Response:

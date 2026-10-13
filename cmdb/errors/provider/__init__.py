@@ -22,6 +22,7 @@ from .provider_errors import (
     AuthenticationProviderNotActivated,
     AuthenticationProviderNotFoundError,
     AuthenticationError,
+    ProviderConfigError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -31,4 +32,5 @@ __all__: list[str] = [
     'AuthenticationProviderNotActivated',
     'AuthenticationProviderNotFoundError',
     'AuthenticationError',
+    'ProviderConfigError',
 ]

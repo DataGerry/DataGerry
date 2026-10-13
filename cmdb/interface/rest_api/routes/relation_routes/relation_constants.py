@@ -127,6 +127,12 @@ OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE: str = "A field value is given more than
 # The 400 of a CmdbObjectRelation write when reading its endpoints failed
 OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE: str = "Failed to read the Objects of the ObjectRelation!"
 
+# The 400 of a CmdbObjectRelation write whose (relation, parent, child) another instance already holds - the same text
+# whether the pre-check or the unique index `relation_pair` refused it
+OBJECT_RELATION_PAIR_TAKEN_MESSAGE: str = (
+    "The Relation {relation_id} already links the Object {parent_id} to the Object {child_id}!"
+)
+
 
 class RelationRight(BaseStrEnum):
     """

@@ -102,6 +102,8 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE,
 )
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
+    abort_if_object_relation_pair_duplicate,
+    abort_if_object_relation_pair_taken,
     get_existing_relation_or_abort,
     guard_object_relation_field_values,
     is_object_relation_readable,
@@ -178,8 +180,10 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
     The referenced CmdbRelation must still exist, and the two endpoints must be different CmdbObjects that exist,
     that the caller may read, and whose types the relation allows on their side. Their type ids are stamped from
     the objects, and every field value must name a field the relation declares
-    (``stamp_object_relation_references``). `author_id` and `creation_time` are stamped from the request and
-    `last_edit_time` is cleared, so none of the three is ever taken from the body
+    (``stamp_object_relation_references``). The relation may link this parent to this child only once
+    (``abort_if_object_relation_pair_taken``, the unique index `relation_pair` behind it). `author_id` and
+    `creation_time` are stamped from the request and `last_edit_time` is cleared, so none of the three is ever taken
+    from the body
 
     Args:
         data (CmdbObjectRelation.SCHEMA): Data of the CmdbObjectRelation which should be inserted
@@ -188,7 +192,8 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
     Raises:
         HTTPException: 400 if the referenced CmdbRelation is gone, an endpoint is missing, the same object,
                        unknown or unreadable, of a type the relation does not allow, a field value names an
-                       undeclared or repeated field, reading the endpoints fails or the insert fails; 404 if
+                       undeclared or repeated field, the relation already links the pair, reading the endpoints
+                       fails or the insert fails; 404 if
                        the created CmdbObjectRelation cannot be read back; 500 on an unexpected error
 
     Returns:
@@ -206,6 +211,7 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
             relations_manager, data.get(ObjectRelationKey.RELATION_ID.value),
         )
         stamp_object_relation_references(data, relation, request_user)
+        abort_if_object_relation_pair_taken(object_relations_manager, data)
 
         # Stamp server-controlled fields: none of the three is ever trusted from the body. Clearing
         # last_edit_time is what keeps "never edited" a real state - a create is not an edit
@@ -227,6 +233,8 @@ def insert_cmdb_object_relation(data: dict[str, Any], request_user: CmdbUser) ->
         return InsertSingleResponse(created_object_relation, result_id).make_response()
     except ObjectRelationsManagerInsertError as err:
         abort_if_too_large(err)
+        # A concurrent create took the pair between the check and the write
+        abort_if_object_relation_pair_duplicate(err, data)
         LOGGER.error("[insert_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, "Could not insert the new ObjectRelation in the database!")
     except ObjectRelationsManagerGetError as err:
@@ -466,8 +474,9 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
 
     Raises:
         HTTPException: 404 if no such CmdbObjectRelation exists, 400 if the referenced CmdbRelation is
-                       gone, an endpoint or a field value does not fit it (as on create), reading the endpoints
-                       fails, the data is unusable or the write fails, 500 on an unexpected error
+                       gone, an endpoint or a field value does not fit it (as on create), another instance already
+                       holds the pair, reading the endpoints fails, the data is unusable or the write fails, 500 on
+                       an unexpected error
 
     Returns:
         UpdateSingleResponse: The stored data of the CmdbObjectRelation
@@ -490,6 +499,9 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
 
         if not to_update_object_relation:
             abort(404, f"The ObjectRelation with ID: {public_id} was not found!")
+
+        # Moving the instance onto a pair another instance holds is refused; keeping its own pair is not
+        abort_if_object_relation_pair_taken(object_relations_manager, data, exclude_id=public_id)
 
         # The creation time describes how this relation came to exist and is preserved; `author_id`
         # doubles as "who last touched this" (there is no separate editor field), so it becomes the
@@ -519,6 +531,8 @@ def update_cmdb_object_relation(public_id: int, data: dict[str, Any], request_us
         abort(400, f"Failed to retrieve the ObjectRelation with ID:{public_id} which should be updated!")
     except ObjectRelationsManagerUpdateError as err:
         abort_if_too_large(err)
+        # A concurrent write took the pair between the check and the write
+        abort_if_object_relation_pair_duplicate(err, data)
         LOGGER.error("[update_cmdb_object_relation] %s", err, exc_info=True)
         abort(400, f"Failed to update the ObjectRelation with ID:{public_id}!")
     except BaseManagerGetError as err:

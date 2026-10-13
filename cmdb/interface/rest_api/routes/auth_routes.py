@@ -42,6 +42,7 @@ from cmdb.interface.rest_api.routes.auth_constants import LOGIN_REQUEST_SCHEMA, 
 from cmdb.interface.rest_api.routes.auth_helper import (
     abort_if_external_provider_in_cloud,
     abort_if_ldap_groups_unusable,
+    abort_if_provider_config_unusable,
     cloud_login,
     local_login,
 )
@@ -210,15 +211,17 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
     Updates the authentication settings section (in cloud mode: the tenant's)
 
     Takes the WHOLE section (``require_complete``), puts back any credential the payload sends masked
-    (``restore_masked_secrets``), validates it as ``CmdbAuthSettings`` and stores it. In cloud mode a section
-    that activates an external provider (LDAP) is refused: external providers are on-premise only and a
-    cloud login never runs one. Everything else - the token lifetime among it - stays writable in cloud mode.
+    (``restore_masked_secrets``), validates it as ``CmdbAuthSettings``, builds every installed provider's config
+    through its config class (``abort_if_provider_config_unusable``) and stores it - in both modes as sent. In
+    cloud mode a section that activates an external provider (LDAP) is refused: external providers are on-premise
+    only and a cloud login never runs one. Everything else - the token lifetime among it - stays writable in cloud mode.
     The LDAP provider's default group and the group of every mapping row must name an existing CmdbUserGroup,
     whether the provider is active or not
 
     Status codes:
         200 OK: Stored; body is the stored section, credentials masked
-        400 BAD_REQUEST: No body, a section ``CmdbAuthSettings`` cannot be built from, in cloud mode an
+        400 BAD_REQUEST: No body, a section ``CmdbAuthSettings`` cannot be built from, a provider config its
+            class refuses (``PROVIDER_CONFIG_UNUSABLE_MSG`` - a flag that is no boolean among it), in cloud mode an
             active external provider (``CLOUD_EXTERNAL_PROVIDER_MSG``), an LDAP default group or group mapping
             that names no existing UserGroup (``abort_if_ldap_groups_unusable``), or the write was not acknowledged
         500: An unexpected error
@@ -255,6 +258,8 @@ def update_auth_settings(request_user: CmdbUser) -> Response:
         LOGGER.error("[update_auth_settings] Error: %s", err)
         abort(400, f"Could not initialise auth settings from the provided data: {err}")
 
+    # Every provider's config must build through its class: the read would fall back to the defaults otherwise
+    abort_if_provider_config_unusable(new_auth_settings_values)
     abort_if_external_provider_in_cloud(new_auth_settings_values)
 
     # The LDAP default group and every mapped group must exist - checked on what is about to be stored

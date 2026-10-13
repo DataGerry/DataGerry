@@ -35,6 +35,7 @@ EXPORT_KIND_OBJECTS: str = 'objects'
 EXPORT_KIND_TYPES: str = 'types'
 EXPORT_KIND_DOCUMENT: str = 'document'
 EXPORT_KIND_IPAM: str = 'ipam'
+EXPORT_KIND_CONFIGURATION: str = 'configuration'
 
 # Subject of a rendered DocapiTemplate: which template was rendered, and for which CmdbObject. Both are
 # needed - the same template renders for every object, and the same object renders through every template
@@ -44,6 +45,10 @@ EXPORT_SUBJECT_DOCUMENT_TEMPLATE: str = '{template}-{object_id}'
 # several types (CSV refuses a mixed selection), and a filter can match nothing at all
 EXPORT_SUBJECT_MANY_TYPES_TEMPLATE: str = '{count}-types'
 EXPORT_SUBJECT_NO_OBJECTS: str = 'no-objects'
+
+# Subject of a configuration export: the database version it was taken from - an import only accepts a file of
+# its own version, so the name tells which systems the file fits
+EXPORT_SUBJECT_DB_VERSION_TEMPLATE: str = 'db-{db_version}'
 
 # Appended to a presentation ("human readable") export. Such a file is NOT re-importable, so the name says
 # so - it is the cheapest guard against feeding one back into the importer later

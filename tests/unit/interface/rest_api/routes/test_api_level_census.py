@@ -41,7 +41,7 @@ SUPER_ADMIN: str = 'SUPER_ADMIN'
 LOCKED: str = 'LOCKED'
 
 # The routes there are - the count must not silently shrink; a route removed on purpose lowers it here
-MIN_ROUTES: int = 361
+MIN_ROUTES: int = 364
 
 # route file -> the level its routes require
 FILE_LEVELS: dict[str, str] = {
@@ -75,9 +75,18 @@ FILE_LEVELS: dict[str, str] = {
     'webhook_routes/webhook_routes.py': ADMIN,
     'cmdb_license/license_activation_routes.py': ADMIN,
     'cmdb_license/license_routes.py': ADMIN,
+    # Port Connectivity: the ports, their connections and interface links are CMDB data like the objects they belong
+    # to - an ADMIN-level API key manages them, the views (overview, cabling) and previews included
+    'port_connection_routes/port_connection_routes.py': ADMIN,
+    'port_routes/port_bulk_routes.py': ADMIN,
+    'port_routes/port_interface_link_routes.py': ADMIN,
+    'port_routes/port_preview_routes.py': ADMIN,
+    'port_routes/port_routes.py': ADMIN,
     # The tenant setup and the user writes: the account's own level
     'setup_routes/setup_routes.py': SUPER_ADMIN,
     'user_management_routes/users_routes.py': SUPER_ADMIN,
+    # Rebuilds or wipes the tenant's whole configuration
+    'configuration_transfer_routes/configuration_transfer_routes.py': SUPER_ADMIN,
     # The feature and presentation surfaces: never the cloud API key
     'ai_routes/chatgpt_routes.py': LOCKED,
     'auth_routes.py': LOCKED,
@@ -108,11 +117,6 @@ FILE_LEVELS: dict[str, str] = {
     'open_celium_routes/oc_license_routes.py': LOCKED,
     'open_celium_routes/oc_scheduler_routes.py': LOCKED,
     'open_celium_routes/oc_template_routes.py': LOCKED,
-    'port_connection_routes/port_connection_routes.py': LOCKED,
-    'port_routes/port_bulk_routes.py': LOCKED,
-    'port_routes/port_interface_link_routes.py': LOCKED,
-    'port_routes/port_preview_routes.py': LOCKED,
-    'port_routes/port_routes.py': LOCKED,
     'rack_routes/rack_assignable_routes.py': LOCKED,
     'rack_routes/rack_mount_routes.py': LOCKED,
     'relation_routes/object_relation_logs_routes.py': LOCKED,
@@ -127,6 +131,10 @@ FILE_LEVELS: dict[str, str] = {
 
 # route file -> {route function: its level, where it differs from the file's}
 ROUTE_EXCEPTIONS: dict[str, dict[str, str]] = {
+    # Reading the configuration is the schema's level; the reset stays the account's own (SUPER_ADMIN)
+    'configuration_transfer_routes/configuration_transfer_routes.py': {
+        'export_configuration_file': ADMIN,
+    },
     # The frontend's helper reads on objects follow the features they serve
     'framework_routes/cmdb_objects/objects_routes.py': {
         'group_cmdb_objects_by_type_id': LOCKED,

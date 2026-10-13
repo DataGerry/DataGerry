@@ -103,7 +103,7 @@ def _managers(port_count: int = PORT_COUNT) -> tuple[MagicMock, MagicMock]:
 
 
 def _plan(objects_manager: MagicMock, managers: tuple[MagicMock, MagicMock], target_type: MagicMock | None = None,
-          has_right: bool = True, locked: Exception | None = None, api_key: bool = False) -> PortClonePlan | None:
+          has_right: bool = True, locked: Exception | None = None) -> PortClonePlan | None:
     """Runs plan_object_port_clone with the managers, the right and the licence patched."""
     by_type = {ManagerType.PORTS: managers[0], ManagerType.PORT_CONNECTIONS: managers[1]}
 
@@ -112,7 +112,6 @@ def _plan(objects_manager: MagicMock, managers: tuple[MagicMock, MagicMock], tar
 
     with patch(f'{HOOK_PATH}.ManagerProvider.get_manager', side_effect=lambda kind, _user: by_type[kind]), \
             patch(f'{HOOK_PATH}.user_has_right', side_effect=_has_right), \
-            patch(f'{HOOK_PATH}.request_authenticates_by_api_key', return_value=api_key), \
             patch(f'{HOOK_PATH}.abort_if_feature_locked', side_effect=locked):
         return plan_object_port_clone(MagicMock(), SOURCE_ID, target_type or _target_type(), objects_manager)
 
@@ -172,17 +171,6 @@ class TestPlanObjectPortClone:
         refusal = _refusal(objects_manager, _managers())
 
         assert (refusal.code, refusal.description) == (404, PortCloneError.SOURCE_NOT_FOUND.format(object_id=SOURCE_ID))
-
-    def test_the_cloud_api_key_is_403_ahead_of_the_licence(self) -> None:
-        """The port routes are closed to it"""
-        refusal = _refusal(_readable_source(), _managers(), locked=HTTPException(), api_key=True)
-
-        assert (refusal.code, refusal.description) == (
-            403, PortCloneError.API_KEY_LOCKED.format(object_id=SOURCE_ID))
-
-    def test_the_cloud_api_key_clones_a_source_without_ports(self) -> None:
-        """Nothing of the port surface is reached"""
-        assert _plan(_readable_source(), _managers(0), api_key=True) is None
 
     def test_a_locked_licence_refuses_first(self) -> None:
         """Ahead of the right"""

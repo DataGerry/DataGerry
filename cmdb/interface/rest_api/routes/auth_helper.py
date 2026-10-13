@@ -40,7 +40,11 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.auth_module import AuthModule
-from cmdb.models.security_models.auth_settings_constants import CLOUD_EXTERNAL_PROVIDER_MSG, LDAP_GROUP_NOT_AN_ID_MSG
+from cmdb.models.security_models.auth_settings_constants import (
+    CLOUD_EXTERNAL_PROVIDER_MSG,
+    LDAP_GROUP_NOT_AN_ID_MSG,
+    PROVIDER_CONFIG_UNUSABLE_MSG,
+)
 from cmdb.security.auth.providers.ldap_group_references import as_group_id, ldap_group_references
 from cmdb.security.token.generator import TokenGenerator
 from cmdb.interface.route_utils import (
@@ -284,6 +288,25 @@ def local_login(request_user_name: str, request_password: str) -> Response:
     except Exception as err:  # pylint: disable=broad-exception-caught
         LOGGER.error("[local_login] Exception: %s, Type: %s", err, type(err))
         abort(500, "Could not login")
+
+
+def abort_if_provider_config_unusable(settings_values: dict[str, Any]) -> None:
+    """
+    Refuses an auth-settings section holding a provider config its provider's config class cannot build
+
+    The read falls back to a provider's defaults on such a config, so storing it would switch the provider off
+    behind a 200
+
+    Args:
+        settings_values (dict[str, Any]): The whole auth section the update is about to store
+
+    Raises:
+        HTTPException: 400 naming every refused provider and why
+    """
+    problems: list[str] = AuthModule.provider_config_problems(settings_values)
+
+    if problems:
+        abort(400, PROVIDER_CONFIG_UNUSABLE_MSG.format(problems='; '.join(problems)))
 
 
 def abort_if_external_provider_in_cloud(settings_values: dict[str, Any]) -> None:
