@@ -8,12 +8,11 @@
         @if (typeInstance) {
 <div class="col-sm-2 text-end">
             <div class="dg-button-row dg-button-row--end p-1">
-                <app-button
-                    label="Cancel"
-                    variant="outline"
-                    tone="neutral"
-                    routerLink="/framework/object/type/{{typeInstance?.public_id}}"
-                ></app-button>
+                <a
+                  class="dg-button dg-button--outline dg-button--neutral dg-button--md"
+                  routerLink="/framework/object/type/{{typeInstance?.public_id}}">
+                  <span class="dg-button__label">Cancel</span>
+                </a>
 
                 <app-button
                     label="Save"
@@ -94,12 +93,11 @@
                     Do you want to save the new object of <strong>{{typeInstance?.label}}</strong> you made before quitting?
                 </p>
                 <div class="dg-button-row">
-                    <app-button
-                        label="Cancel"
-                        variant="outline"
-                        tone="neutral"
-                        routerLink="/framework/object/type/{{typeInstance?.public_id}}"
-                    ></app-button>
+                    <a
+                      class="dg-button dg-button--outline dg-button--neutral dg-button--md"
+                      routerLink="/framework/object/type/{{typeInstance?.public_id}}">
+                      <span class="dg-button__label">Cancel</span>
+                    </a>
 
                     <app-button
                         label="Save"

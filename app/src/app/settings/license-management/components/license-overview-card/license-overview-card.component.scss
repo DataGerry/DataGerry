@@ -30,6 +30,7 @@ $brand: #e94d18;
 .dg-card {
   --bg: linear-gradient(135deg, #c2410c 0%, #d8430f 50%, #e94d18 100%);
   --ink: #ffffff;
+  --ink-rgb: 255, 255, 255;
   --ink-soft: rgba(255, 255, 255, 0.78);
   --tier-color: #ffffff;
   --border: transparent;
@@ -78,6 +79,7 @@ $brand: #e94d18;
   &--free {
     --bg: linear-gradient(180deg, #ffffff 0%, #f7f8fa 100%);
     --ink: #1f2937;
+    --ink-rgb: 31, 41, 55;
     --ink-soft: #6b7280;
     --tier-color: #111827;
     --border: #e3e6ea;
@@ -95,6 +97,7 @@ $brand: #e94d18;
   &--core {
     --bg: linear-gradient(135deg, #fff4ef 0%, #ffe7db 100%);
     --ink: #3a2114;
+    --ink-rgb: 58, 33, 20;
     --ink-soft: #8a6555;
     --tier-color: #c2410c;
     --border: rgba(233, 77, 24, 0.28);
@@ -114,6 +117,7 @@ $brand: #e94d18;
   &--corporate {
     --bg: linear-gradient(150deg, #2b2d33 0%, #1b1c20 55%, #111216 100%);
     --ink: #f4f5f7;
+    --ink-rgb: 244, 245, 247;
     --ink-soft: rgba(255, 255, 255, 0.6);
     --tier-color: #f4671f;
     --border: rgba(255, 255, 255, 0.09);
@@ -223,27 +227,11 @@ $brand: #e94d18;
   }
 
   &__reveal {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    width: 28px;
-    height: 28px;
-    padding: 0;
-    border: 0;
-    border-radius: 6px;
-    color: var(--ink);
-    background: var(--reveal-bg);
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-
-    &:hover {
-      background: var(--reveal-bg-hover);
-    }
-
-    &:focus-visible {
-      outline: 2px solid var(--ink);
-      outline-offset: 2px;
-    }
+    --dg-button-neutral-ink: var(--ink);
+    --dg-button-neutral-wash: var(--reveal-bg);
+    --dg-button-neutral-wash-hover: var(--reveal-bg-hover);
+    --dg-button-neutral-wash-line: transparent;
+    --dg-button-neutral-ring: var(--ink-rgb);
   }
 
   &__bottom {

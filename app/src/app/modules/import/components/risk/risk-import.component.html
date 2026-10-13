@@ -2,15 +2,14 @@
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Quick Risks Import</span>
         <!-- Add a button to navigate to the Risks Page -->
-        <a class="btn btn-secondary btn-sm" routerLink="/isms/risks">
-            Go to Risks Page
+        <a class="dg-button dg-button--outline dg-button--neutral dg-button--sm" routerLink="/isms/risks">
+            <span class="dg-button__label">Go to Risks Page</span>
         </a>
     </div>
     <div class="card-body">
 
-        <button class="btn btn-link" (click)="showInstructions = !showInstructions">
-            {{ showInstructions ? 'Hide Instructions' : 'Show Import Instructions' }}
-        </button>
+        <app-button variant="link" tone="brand" [label]="showInstructions ? 'Hide Instructions' : 'Show Import Instructions'"
+            (clicked)="showInstructions = !showInstructions"></app-button>
 
         @if (showInstructions) {
 
@@ -27,9 +26,8 @@
                 <input type="file" class="form-control" id="file" (change)="selectFile($event.target.files)"
                     accept=".csv" />
             </div>
-            <button type="button" class="btn btn-primary" [disabled]="fileForm.invalid" (click)="importRisk()">
-                Import Risks
-            </button>
+            <app-button variant="solid" tone="brand" label="Import Risks" [disabled]="fileForm.invalid"
+                (clicked)="importRisk()"></app-button>
         </form>
     </div>
 </div>

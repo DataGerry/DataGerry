@@ -26,10 +26,9 @@
         </ng-select>
 
         @if (!isViewMode) {
-        <button type="button" class="btn btn-outline-secondary btn-sm" style="padding: 7px;"
-          (click)="openCategoryManager()">
-          Manage Categories
-        </button>
+        <app-button variant="outline" tone="neutral" size="sm" label="Manage Categories"
+          (clicked)="openCategoryManager()">
+        </app-button>
         }
       </div>
     </div>

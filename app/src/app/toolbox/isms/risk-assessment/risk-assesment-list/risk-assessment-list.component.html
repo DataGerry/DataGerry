@@ -78,9 +78,8 @@
 <!-- Custom table buttons -->
 <ng-template #addButtonTemplate>
   @if (!fromReport && (objectId || riskId || groupId)) {
-  <button type="button" (click)="onAddAssessment()" class="btn btn-success btn-sm"><i class="fas fa-plus-circle"></i>
-    Add
-  </button>
+  <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus-circle" (clicked)="onAddAssessment()">
+  </app-button>
   }
 </ng-template>
 

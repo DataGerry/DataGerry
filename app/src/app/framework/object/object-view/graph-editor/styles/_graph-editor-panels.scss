@@ -267,29 +267,6 @@
       display: flex;
       gap: 8px;
     }
-
-    .action-btn {
-      width: 32px;
-      height: 32px;
-      border: none;
-      background: transparent;
-      border-radius: 8px;
-      cursor: pointer;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      transition: all 0.2s ease;
-      color: $gray-600;
-
-      &:hover {
-        background: rgba($gray-200, 0.5);
-        color: $gray-800;
-      }
-
-      .material-icons {
-        font-size: 20px;
-      }
-    }
   }
 
   .panel-body {

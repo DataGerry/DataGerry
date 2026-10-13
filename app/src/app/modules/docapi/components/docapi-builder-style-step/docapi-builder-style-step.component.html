@@ -3,10 +3,9 @@
         <div class="col">
             <form [formGroup]="styleForm" id="styleForm" class="needs-validation" novalidate autocomplete="off">
                 <div class="css-support mb-2">
-                    <button type="button" class="btn btn-outline-secondary btn-sm" (click)="toggleCssSupportDetails()"
-                        [attr.aria-expanded]="showCssSupportDetails" aria-controls="docCustomCssSupportDetails">
-                        Show CSS compatibility details
-                    </button>
+                    <app-button variant="outline" tone="neutral" size="sm" label="Show CSS compatibility details"
+                        [ariaExpanded]="showCssSupportDetails" ariaControls="docCustomCssSupportDetails"
+                        (clicked)="toggleCssSupportDetails()"></app-button>
 
                     @if (showCssSupportDetails) {
                     <div class="alert alert-info mt-2 mb-0" id="docCustomCssSupportDetails" role="note"

@@ -1,8 +1,14 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Object Groups</h2>
-  <button class="btn btn-sm btn-success" (click)="onAddNew()" *permissionLink="'base.framework.objectGroup.add'">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <app-button
+    *permissionLink="'base.framework.objectGroup.add'"
+    variant="solid"
+    tone="brand"
+    size="sm"
+    label="Add"
+    icon="fas fa-plus"
+    (clicked)="onAddNew()"
+  ></app-button>
 </div>
 <hr />
 <div *permissionLink="'base.framework.objectGroup.view'">

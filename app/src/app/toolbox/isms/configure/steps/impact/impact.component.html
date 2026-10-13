@@ -1,10 +1,9 @@
 <div *permissionLink="'base.isms.impact.view'">
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h1>Impacts</h1>
-        <button type="button" class="btn btn-sm btn-success" (click)="addImpact()"
-            *permissionLink="['base.isms.impact.add']" [disabled]="this.totalImpacts >= 10">
-            <i class="fas fa-plus"></i> Add
-        </button>
+        <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus"
+            (clicked)="addImpact()" *permissionLink="['base.isms.impact.add']" [disabled]="this.totalImpacts >= 10">
+        </app-button>
     </div>
 
     <hr />

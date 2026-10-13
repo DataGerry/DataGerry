@@ -21,12 +21,14 @@ import { CommonModule } from '@angular/common';
 import { ToastContainerComponent } from './toast-container/toast-container.component';
 import { NgbToastModule } from '@ng-bootstrap/ng-bootstrap';
 import { ToastComponentComponent } from './toast-component/toast-component.component';
+import { CoreModule } from '../../core/core.module';
 
 @NgModule({
   declarations: [ToastContainerComponent, ToastComponentComponent],
   imports: [
     CommonModule,
-    NgbToastModule
+    NgbToastModule,
+    CoreModule
   ],
   exports: [ToastContainerComponent]
 })

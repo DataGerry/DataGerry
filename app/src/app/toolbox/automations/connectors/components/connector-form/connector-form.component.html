@@ -109,22 +109,16 @@
                     <input [type]="showPassword ? 'text' : 'password'" class="form-control" id="masterPassword"
                       formControlName="masterPassword" placeholder="Enter master password"
                       [disabled]="verifyingPassword">
-                    <button class="btn btn-outline-secondary" type="button" (click)="togglePasswordVisibility()"
-                      [disabled]="verifyingPassword">
-                      <i class="fas" [ngClass]="{
-                        'fa-eye': !showPassword,
-                        'fa-eye-slash': showPassword
-                      }"></i>
-                    </button>
+                    <app-button variant="outline" tone="neutral" ariaLabel="Toggle password visibility"
+                      [icon]="showPassword ? 'fas fa-eye-slash' : 'fas fa-eye'" [disabled]="verifyingPassword"
+                      (clicked)="togglePasswordVisibility()">
+                    </app-button>
                   </div>
                 </div>
-                <button class="btn btn-primary w-100" (click)="verifyMasterPassword()"
-                  [disabled]="!form.get('masterPassword')?.value || verifyingPassword">
-                  @if (verifyingPassword) {
-                  <span class="spinner-border spinner-border-sm me-2" role="status"></span>
-                  }
-                  {{ verifyingPassword ? 'Verifying...' : 'Verify Password' }}
-                </button>
+                <app-button type="submit" variant="solid" tone="brand" label="Verify Password" loadingText="Verifying..."
+                  [block]="true" [loading]="verifyingPassword" [disabled]="!form.get('masterPassword')?.value"
+                  (clicked)="verifyMasterPassword()">
+                </app-button>
               </div>
             </div>
           </div>
@@ -162,12 +156,10 @@
               <div class="input-group">
                 <input class="form-control" [type]="showDataGerryPassword ? 'text' : 'password'"
                   [formControl]="getRequestControl(fieldName)" placeholder="Password" />
-                <button class="btn btn-outline-secondary" type="button" (click)="toggleDataGerryPasswordVisibility()">
-                  <i class="fas" [ngClass]="{
-                        'fa-eye': !showDataGerryPassword,
-                        'fa-eye-slash': showDataGerryPassword
-                      }"></i>
-                </button>
+                <app-button variant="outline" tone="neutral" ariaLabel="Toggle password visibility"
+                  [icon]="showDataGerryPassword ? 'fas fa-eye-slash' : 'fas fa-eye'"
+                  (clicked)="toggleDataGerryPasswordVisibility()">
+                </app-button>
               </div>
 
               } @else {

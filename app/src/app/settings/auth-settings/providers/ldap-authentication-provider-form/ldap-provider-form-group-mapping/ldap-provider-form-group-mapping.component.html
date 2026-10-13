@@ -59,9 +59,9 @@
           }
         </td>
         <td class="col-1 text-center">
-          <button type="button" class="btn btn-sm btn-success" (click)="addMapping()" [disabled]="form.invalid">
-            <i class="far fa-plus-square"></i>
-          </button>
+          <app-button variant="solid" tone="brand" size="sm" icon="far fa-plus-square" ariaLabel="Add mapping"
+            [disabled]="form.invalid" (clicked)="addMapping()">
+          </app-button>
         </td>
       </tr>
     </tbody>

@@ -9,6 +9,6 @@
       </app-object-selector>
       }
     </div>
-    <button class="btn btn-primary" [disabled]="!selectedId" (click)="open()">Open</button>
+    <app-button variant="solid" tone="brand" label="Open" [disabled]="!selectedId" (clicked)="open()"></app-button>
   </div>
 </div>

@@ -2,10 +2,10 @@
 
     <div class="d-flex justify-content-between align-items-center mb-2">
         <h1>Likelihoods</h1>
-        <button type="button" class="btn btn-sm btn-success" (click)="addLikelihood()"
-            [disabled]="this.totalLikelihoods >= 10" *permissionLink="'base.isms.likelihood.add'">
-            <i class="fas fa-plus"></i> Add
-        </button>
+        <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus"
+            (clicked)="addLikelihood()" [disabled]="this.totalLikelihoods >= 10"
+            *permissionLink="'base.isms.likelihood.add'">
+        </app-button>
     </div>
 
     <hr />

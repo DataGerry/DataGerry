@@ -20,7 +20,9 @@
             <app-button
               label="Add"
               icon="fas fa-plus"
-              bootstrapClass="btn-success btn-sm"
+              variant="solid"
+              tone="brand"
+              size="sm"
               title="Add ports to this object"
               (clicked)="onAddPorts()">
             </app-button>
@@ -30,8 +32,9 @@
             <app-button
               label="Bulk Change"
               icon="fas fa-tasks"
-              bootstrapClass="btn-secondary btn-sm"
-              badgeClass="bg-primary"
+              variant="outline"
+              tone="neutral"
+              size="sm"
               [badge]="selectedRows.length"
               [disabled]="!selectedRows.length"
               [title]="selectedRows.length
@@ -45,8 +48,9 @@
             <app-button
               label="Disconnect Selected"
               icon="fas fa-unlink"
-              bootstrapClass="btn-secondary btn-sm"
-              badgeClass="bg-primary"
+              variant="outline"
+              tone="neutral"
+              size="sm"
               [badge]="selectedConnectedRows.length"
               [disabled]="!selectedConnectedRows.length"
               [title]="selectedConnectedRows.length
@@ -60,8 +64,9 @@
             <app-button
               label="Delete Selected"
               icon="far fa-trash-alt"
-              bootstrapClass="btn-danger btn-sm"
-              badgeClass="bg-secondary"
+              variant="outline"
+              tone="danger"
+              size="sm"
               [badge]="selectedRows.length"
               [disabled]="!selectedRows.length"
               [title]="selectedRows.length
@@ -144,7 +149,6 @@
         (selectedRowsChange)="onSelectedRowsChange($event)">
       </cmdb-ports-table>
     }
-  }
   }
 </fieldset>
 

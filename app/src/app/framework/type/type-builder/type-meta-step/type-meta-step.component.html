@@ -104,7 +104,13 @@
 }
           </div>
 
-          <button [disabled]="!externalsForm.valid" type="submit" class="btn btn-primary">Add</button>
+          <app-button
+            type="submit"
+            variant="solid"
+            tone="brand"
+            label="Add"
+            [disabled]="!externalsForm.valid"
+          ></app-button>
         </form>
       </div>
     </div>

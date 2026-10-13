@@ -49,7 +49,7 @@ export class TableStateComponent {
     @Output() public stateReset: EventEmitter<void> = new EventEmitter<void>();
 
     // Toggle button element reference
-    @ViewChild('toggleButton') toggleButton: ElementRef;
+    @ViewChild('toggleButton', { read: ElementRef }) toggleButton: ElementRef<HTMLElement>;
 
     // Name form validation
     public form: UntypedFormGroup;
@@ -68,7 +68,7 @@ export class TableStateComponent {
     ngAfterViewInit(): void {
         this.renderer.listen('window', 'click',(e:Event)=>{
             // Only run when toggleButton is not clicked
-            if(e.target !== this.toggleButton.nativeElement){
+            if(!this.toggleButton.nativeElement.contains(e.target as Node)){
                 this.form.reset();
             }
         });

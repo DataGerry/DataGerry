@@ -120,46 +120,9 @@
     }
 }
 
-.ipam-bulk-unassign {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.4rem;
-    white-space: nowrap;
-
-    i {
-        font-size: 0.875rem;
-    }
-}
-
 .ipam-row-actions {
     display: inline-flex;
     justify-content: center;
-}
-
-.ipam-row-actions__trigger {
-    border: none;
-    background: transparent;
-    padding: 0.25rem 0.5rem;
-    color: #6b7280;
-    cursor: pointer;
-    border-radius: 0.25rem;
-    line-height: 1;
-    transition: background-color 0.15s ease-in-out, color 0.15s ease-in-out;
-
-    &:hover {
-        background-color: #f3f4f6;
-        color: #1f2937;
-    }
-
-    &:focus-visible {
-        outline: 2px solid #2563eb;
-        outline-offset: 2px;
-    }
-
-    &.show {
-        background-color: #f3f4f6;
-        color: #1f2937;
-    }
 }
 
 ::ng-deep .ipam-row-actions__menu.dropdown-menu {

@@ -7,10 +7,13 @@
                     [ngClass]="{ 'is-valid': isIdentifierValid && nameControl.valid && (nameControl.dirty || nameControl.touched),
                      'is-invalid': !isIdentifierValid || (nameControl.invalid && (nameControl.dirty || nameControl.touched))}">
                 <div class="input-group-append">
-                    <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()"
-                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
-                        <fa-icon [icon]="['far', 'copy']"></fa-icon>
-                    </button>
+                    <app-button
+                        icon="far fa-copy"
+                        ariaLabel="Copy identifier"
+                        [disabled]="!nameControl.value"
+                        [ngbTooltip]="'Copy identifier'"
+                        (clicked)="copyIdentifier()"
+                    ></app-button>
                 </div>
             </div>
             <cmdb-identifier-hint [control]="nameControl" hint="Use a unique identifier"></cmdb-identifier-hint>

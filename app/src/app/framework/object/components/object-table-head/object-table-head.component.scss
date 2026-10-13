@@ -1,5 +1,8 @@
 .disabled-look {
     opacity: 0.65;
+  }
+
+  .disabled-look ::ng-deep .dg-button {
     cursor: not-allowed;
   }
   

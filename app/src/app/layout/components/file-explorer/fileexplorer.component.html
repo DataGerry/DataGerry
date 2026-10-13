@@ -3,43 +3,44 @@
     <div class="col-12 bg-light p-2 border-bottom">
       <div class="container-fluid">
         <div class="row">
-          <div class="col-3 m-0 p-0">
+          <div class="col-3 m-0 p-0 dg-button-row">
             <!-- Folder Settings -->
-            <button type="button" class="btn btn-sm btn-success me-2" (click)="addFolder()">
-              <i class="fas fa-folder"></i> New Folder
-            </button>
-            <button type="button" class="btn btn-sm btn-secondary me-2" (click)="uploadFile()">
-              <i class="fas fa-upload"></i> Upload
-            </button>
+            <app-button variant="solid" tone="brand" size="sm" label="New Folder" icon="fas fa-folder"
+              (clicked)="addFolder()">
+            </app-button>
+            <app-button variant="outline" tone="neutral" size="sm" label="Upload" icon="fas fa-upload"
+              (clicked)="uploadFile()">
+            </app-button>
           </div>
-          <div class="col-6 m-0 p-0">
+          <div class="col-6 m-0 p-0 dg-button-row">
             <!-- File Settings -->
-            <button type="button" class="btn btn-sm btn-secondary me-2"
-              (click)="renameFile(selectedFileElements.files[0])" [disabled]="selectedFileElements.files.length != 1">
-              <i class="fa fa-edit me-1" title="move to"></i>
-              Rename ({{this.selectedFileElements.files.length}})
-            </button>
-            <button type="button" class="btn btn-sm btn-secondary me-2" (click)="moveFiles(selectedFileElements.files)"
-              [disabled]="selectedFileElements.files.length == 0">
-              <i class="fas fa-expand-arrows-alt me-1" title="move to"></i>
-              Move ({{this.selectedFileElements.files.length}})
-            </button>
-            <button type="button" class="btn btn-sm btn-danger" (click)="deleteFiles(selectedFileElements.files)"
-              [disabled]="selectedFileElements.files.length == 0">
-              <i class="far fa-trash-alt" title="delete"></i>
-              Delete ({{this.selectedFileElements.files.length}})
-            </button>
+            <app-button variant="outline" tone="neutral" size="sm" icon="fa fa-edit"
+              [label]="'Rename (' + selectedFileElements.files.length + ')'"
+              [disabled]="selectedFileElements.files.length != 1"
+              (clicked)="renameFile(selectedFileElements.files[0])">
+            </app-button>
+            <app-button variant="outline" tone="neutral" size="sm" icon="fas fa-expand-arrows-alt"
+              [label]="'Move (' + selectedFileElements.files.length + ')'"
+              [disabled]="selectedFileElements.files.length == 0"
+              (clicked)="moveFiles(selectedFileElements.files)">
+            </app-button>
+            <app-button variant="solid" tone="danger" size="sm" icon="far fa-trash-alt"
+              [label]="'Delete (' + selectedFileElements.files.length + ')'"
+              [disabled]="selectedFileElements.files.length == 0"
+              (clicked)="deleteFiles(selectedFileElements.files)">
+            </app-button>
           </div>
           <div class="col-3 text-end">
-            <div class="btn-group">
-              <button type="button" class="btn btn-sm btn-light me-2" (click)="listView = !listView">
-                <i [className]="listView ? 'fas fa-th-large' : 'fas fa-th-list'"></i>
-              </button>
-              <button type="button" class="btn btn-sm btn-light"
-                (click)="showMetadataInfo(selectedFileElements.files[0])"
-                [disabled]="selectedFileElements.files.length!=1">
-                <i class="fas fa-info-circle"></i>
-              </button>
+            <div class="dg-button-group" role="group" aria-label="View options">
+              <app-button variant="ghost" tone="neutral" size="sm"
+                [icon]="listView ? 'fas fa-th-large' : 'fas fa-th-list'"
+                [ariaLabel]="listView ? 'Show grid view' : 'Show list view'"
+                (clicked)="listView = !listView">
+              </app-button>
+              <app-button variant="ghost" tone="neutral" size="sm" icon="fas fa-info-circle"
+                ariaLabel="Show file details" [disabled]="selectedFileElements.files.length!=1"
+                (clicked)="showMetadataInfo(selectedFileElements.files[0])">
+              </app-button>
             </div>
           </div>
         </div>

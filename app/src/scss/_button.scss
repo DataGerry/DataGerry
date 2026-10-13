@@ -71,6 +71,21 @@ app-button {
         overflow: hidden;
         text-overflow: ellipsis;
     }
+
+    /* currentColor keeps the badge at the label's contrast on every variant and tone */
+    &__badge {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        flex: none;
+        min-width: 1.6em;
+        height: 1.6em;
+        padding: 0 0.45em;
+        border: 1px solid currentColor;
+        border-radius: 999px;
+        font-size: 0.8em;
+        font-variant-numeric: tabular-nums;
+    }
 }
 
 /* ------------------------------------------------------- size ------------------------------------------------------ */

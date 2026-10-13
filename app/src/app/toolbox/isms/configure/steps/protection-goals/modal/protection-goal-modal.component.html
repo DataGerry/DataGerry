@@ -42,31 +42,10 @@
 
       <!-- Show Save/Create/Copy button only if not in view mode -->
       @if (!isViewMode) {
-      <button type="submit" class="btn btn-success" [disabled]="isSubmitting || form.invalid">
-      @if (!isSubmitting) {
-      <span>
-        <!-- If editing -->
-        @if (isEditMode) {
-        <span>
-          @if (isCopyMode) {
-          <span>Copy Protection Goal</span>
-          }
-          @if (!isCopyMode) {
-          <span>Save Changes</span>
-          }
-        </span>
-        }
-        <!-- If adding -->
-        @if (!isEditMode) {
-        <span>Add Protection Goal</span>
-        }
-      </span>
-      }
-      <!-- Spinner while submitting -->
-      @if (isSubmitting) {
-      <span class="spinner-border spinner-border-sm"></span>
-      }
-      </button>
+      <app-button variant="solid" tone="brand" type="submit"
+        [label]="isEditMode ? (isCopyMode ? 'Copy Protection Goal' : 'Save Changes') : 'Add Protection Goal'"
+        [loading]="isSubmitting" [disabled]="isSubmitting || form.invalid">
+      </app-button>
       }
     </div>
   </dg-modal>

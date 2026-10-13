@@ -1,6 +1,12 @@
-<div class="btn-group">
-  <button class="btn btn-secondary btn-sm dropdown-toggle" type="button" data-bs-toggle="dropdown">
-    <i class="fas fa-table"></i> Columns
+<div class="dg-button-group dropdown" role="group" aria-label="Column visibility">
+  <button
+    type="button"
+    class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+    data-bs-toggle="dropdown"
+    aria-haspopup="menu"
+    aria-expanded="false">
+    <i class="fas fa-table" aria-hidden="true"></i>
+    <span class="dg-button__label">Columns</span>
   </button>
   @if (columns.length > 0) {
   <div class="dropdown-menu">
@@ -17,7 +23,7 @@
     </button>
     }
     <div class="dropdown-divider"></div>
-    <button type="button" class="dropdown-item btn text-center" (click)="columnsReset.emit()">
+    <button type="button" class="dropdown-item text-center" (click)="columnsReset.emit()">
       <i class="fas fa-redo"></i> Reset
     </button>
   </div>

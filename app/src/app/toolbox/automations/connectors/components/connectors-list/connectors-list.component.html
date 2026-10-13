@@ -1,14 +1,12 @@
 <div class="d-flex justify-content-between align-items-center">
   <h2>Connectors</h2>
-  <div>
-    <button type="button" class="btn btn-sm btn-internal-connectors  ms-2 text-white" (click)="configInternal()"
-      *permissionLink="'base.openCelium.connector.*'">
-      <i class="fa-solid fa-plug"></i> Edit build-in Connnector
-    </button>
-    <button type="button" class="btn btn-sm btn-add ms-2 text-white" (click)="add()"
-      *permissionLink="'base.openCelium.connector.add'">
-      <i class="fas fa-plus"></i> Add Connnector
-    </button>
+  <div class="dg-button-row">
+    <app-button variant="outline" tone="neutral" size="sm" icon="fa-solid fa-plug" label="Edit build-in Connnector"
+      *permissionLink="'base.openCelium.connector.*'" (clicked)="configInternal()">
+    </app-button>
+    <app-button variant="solid" tone="brand" size="sm" icon="fas fa-plus" label="Add Connnector"
+      *permissionLink="'base.openCelium.connector.add'" (clicked)="add()">
+    </app-button>
   </div>
 </div>
 

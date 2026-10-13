@@ -34,11 +34,8 @@
             </span>
             }
           </nav>
-          <button type="button" class="btn btn-outline-danger btn-sm" (click)="removeLastStep()"
-            [disabled]="steps.length <= 1">
-            <i class="fas fa-trash-alt"></i>
-            Remove last Step
-          </button>
+          <app-button variant="outline" tone="danger" size="sm" icon="fas fa-trash-alt" label="Remove last Step"
+            [disabled]="steps.length <= 1" (clicked)="removeLastStep()"></app-button>
         </div>
       </section>
 

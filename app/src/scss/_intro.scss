@@ -213,28 +213,6 @@ $asst-focus-ring:   0 0 0 0.2rem rgba($primary, 0.22);
     position: absolute;
     top: 1rem;
     right: 1rem;
-    display: grid;
-    place-items: center;
-    width: 2rem;
-    height: 2rem;
-    padding: 0;
-    border: none;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.6);
-    color: $asst-muted;
-    font-size: 0.95rem;
-    cursor: pointer;
-    transition: background 180ms ease, color 180ms ease;
-
-    &:hover {
-      background: rgba(15, 23, 42, 0.07);
-      color: $asst-label;
-    }
-
-    &:focus-visible {
-      outline: none;
-      box-shadow: $asst-focus-ring;
-    }
   }
 
   /* --------------------------- step progress ----------------------------- */

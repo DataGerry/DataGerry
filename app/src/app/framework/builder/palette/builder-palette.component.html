@@ -4,14 +4,14 @@
             @if (group.items.length > 0) {
                 <div class="card">
                     <div class="card-header">
-                        <a
-                            href="#"
-                            class="btn btn-link"
+                        <button
+                            type="button"
+                            class="palette-group-toggle"
                             data-bs-toggle="collapse"
                             [attr.data-bs-target]="'#' + group.id"
                         >
                             {{ group.label }}
-                        </a>
+                        </button>
                     </div>
                     <div
                         [id]="group.id"

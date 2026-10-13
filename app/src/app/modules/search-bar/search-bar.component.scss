@@ -53,18 +53,9 @@ $search-input-font-size: 0.8rem;
 
   .search-bar-append {
     display: flex;
-
-    button {
-      border: 0;
-      background: 0;
-      padding: 0;
-      color: $gray-500;
-      margin-left: .3rem;
-
-      &:hover {
-        color: $gray-700;
-      }
-    }
+    align-items: center;
+    gap: .3rem;
+    margin-left: .3rem;
   }
 
 }
@@ -149,6 +140,13 @@ ul#search-bar-accordion {
       font-weight: 700;
     }
   }
+}
+
+.search-bar-alert-close {
+  position: absolute;
+  top: 50%;
+  right: .5rem;
+  transform: translateY(-50%);
 }
 
 .search-input:focus ~ #search-bar-accordion {

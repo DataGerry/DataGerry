@@ -24,46 +24,42 @@
               </cmdb-object-type-label>
             </div>
           </div>
-<div class="col-xl-auto col-md-6 col-6 border-start pt-1 last-widget">
-  <div class="d-flex justify-content-center">
-    <div class="dg-button-group" role="group" aria-label="Object view mode">
-      <app-button
-        icon="fas fa-table"
-        variant="outline"
-        tone="neutral"
-        size="sm"
-        title="Table View"
-        ariaLabel="Table view"
-        [ariaPressed]="!isGraphView && !isCablingView"
-        (clicked)="toggleView(viewModes.TABLE)">
-      </app-button>
+          <div class="col-xl-auto col-md-6 col-6 border-start pt-1 last-widget">
+            <div class="d-flex justify-content-center">
+              <div class="dg-button-group" role="group" aria-label="Object view mode">
+                <app-button
+                  icon="fas fa-table"
+                  variant="outline"
+                  tone="neutral"
+                  size="sm"
+                  title="Table View"
+                  ariaLabel="Table view"
+                  [ariaPressed]="!isGraphView && !isCablingView"
+                  (clicked)="toggleView(viewModes.TABLE)">
+                </app-button>
 
-      @if (cablingAvailable) {
-        <app-button *permissionLink="[portViewRight]"
-          icon="fas fa-network-wired"
-          variant="outline"
-          tone="neutral"
-          size="sm"
-          title="Cabling View"
-          ariaLabel="Cabling view"
-          [ariaPressed]="isCablingView"
-          (clicked)="toggleView(viewModes.CABLING)">
-        </app-button>
-      }
+                @if (cablingAvailable) {
+                  <app-button *permissionLink="[portViewRight]"
+                    icon="fas fa-network-wired"
+                    variant="outline"
+                    tone="neutral"
+                    size="sm"
+                    title="Cabling View"
+                    ariaLabel="Cabling view"
+                    [ariaPressed]="isCablingView"
+                    (clicked)="toggleView(viewModes.CABLING)">
+                  </app-button>
+                }
 
-      <app-button *permissionLink="[ciExplorerViewRight]"
-        icon="fas fa-project-diagram"
-        variant="outline"
-        tone="neutral"
-        size="sm"
-        title="Graph View"
-        ariaLabel="Graph view"
-        [ariaPressed]="isGraphView"
-        (clicked)="toggleView(viewModes.GRAPH)">
-      </app-button>
-    </div>
-  </div>
-</div>
+                <app-button *permissionLink="[ciExplorerViewRight]"
+                  icon="fas fa-project-diagram"
+                  variant="outline"
+                  tone="neutral"
+                  size="sm"
+                  title="Graph View"
+                  ariaLabel="Graph view"
+                  [ariaPressed]="isGraphView"
+                  (clicked)="toggleView(viewModes.GRAPH)">
                 </app-button>
               </div>
             </div>

@@ -45,10 +45,13 @@
                  'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}"
             />
             <div class="input-group-append">
-                <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
-                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
-                    <fa-icon [icon]="['far', 'copy']"></fa-icon>
-                </button>
+                <app-button
+                    icon="far fa-copy"
+                    ariaLabel="Copy identifier"
+                    [disabled]="!nameControl.value"
+                    [ngbTooltip]="'Copy identifier'"
+                    (clicked)="copyIdentifier()"
+                ></app-button>
             </div>
             @if (isDuplicate$) {
 <div class="invalid-feedback">
@@ -150,24 +153,24 @@
                         >
                     </td>
                     <td>
-                        <button
-                            type="button"
-                            class="btn btn-outline-primary"
+                        <app-button
+                            variant="outline"
+                            tone="brand"
+                            icon="far fa-trash-alt"
+                            ariaLabel="Delete option"
                             [disabled]="options.length == 1 || isDuplicate$"
-                            (click)="delOption(data.options[i])"
-                        >
-                            <fa-icon [icon]="['far', 'trash-alt']"></fa-icon>
-                        </button>
+                            (clicked)="delOption(data.options[i])"
+                        ></app-button>
                     </td>
                 </tr>
 }
                 <tr>
                     <td colspan="4">
-                        <button type="button" class="btn btn-outline-secondary" (click)="addOption()"
-                        [disabled]="isDuplicate$"
-                        >
-                            + Add option
-                        </button>
+                        <app-button
+                            label="+ Add option"
+                            [disabled]="isDuplicate$"
+                            (clicked)="addOption()"
+                        ></app-button>
                     </td>
                 </tr>
             </tbody>

@@ -58,18 +58,13 @@
     </div>
 
     <div class="d-flex justify-content-between align-items-center form-actions-margin">
-      <div class="btn-group">
-        <button class="btn btn-secondary btn-sm btn-back" type="button" (click)="goBack()">
-          <i class="fas fa-arrow-left icon-spacing"></i> Go Back
-        </button>
-      </div>
+      <app-button variant="outline" tone="neutral" size="sm" label="Go Back" icon="fas fa-arrow-left"
+        (clicked)="goBack()">
+      </app-button>
 
-      <div class="btn-group">
-        <button type="submit" class="btn btn-success btn-sm submit-report d-flex align-items-center"
-          *permissionLink="saveRight" [disabled]="webhookForm.invalid">
-          <i class="fas fa-plus me-2 icon-spacing"></i> Save
-        </button>
-      </div>
+      <app-button type="submit" variant="solid" tone="brand" size="sm" label="Save" icon="fas fa-plus"
+        *permissionLink="saveRight" [disabled]="webhookForm.invalid">
+      </app-button>
     </div>
   </form>
 </div>

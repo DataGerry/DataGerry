@@ -2,17 +2,13 @@
   <h2>Vulnerabilities</h2>
   <div class="d-flex align-items-center gap-2">
     <!-- Delete selected button -->
-    <button class="btn btn-sm btn-danger" *permissionLink="'base.isms.vulnerability.delete'"
-      [disabled]="!selectedVulnerabilities.length" (click)="onDeleteSelected()" title="Delete selected vulnerabilities">
-      <i class="far fa-trash-alt"></i> Delete Selected
-      @if (selectedVulnerabilities.length) {
-        <span class="badge bg-light text-dark ms-1">{{ selectedVulnerabilities.length }}</span>
-      }
-    </button>
+    <app-button variant="solid" tone="danger" size="sm" icon="far fa-trash-alt" *permissionLink="'base.isms.vulnerability.delete'"
+      [label]="selectedVulnerabilities.length ? 'Delete Selected (' + selectedVulnerabilities.length + ')' : 'Delete Selected'"
+      [disabled]="!selectedVulnerabilities.length" (clicked)="onDeleteSelected()" title="Delete selected vulnerabilities">
+    </app-button>
     <!-- Add button -->
-    <button class="btn btn-sm btn-success" (click)="onAddNew()" *permissionLink="'base.isms.vulnerability.add'">
-      <i class="fas fa-plus"></i> Add
-    </button>
+    <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus" (clicked)="onAddNew()" *permissionLink="'base.isms.vulnerability.add'">
+    </app-button>
   </div>
 </div>
 <hr />

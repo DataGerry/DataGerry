@@ -77,7 +77,6 @@
     }
   </div>
 </ng-template>
-</ng-template>
 
 <ng-template #interfaceTemplate let-item="item">
   @if (item.interfaces.label) {
@@ -135,7 +134,7 @@
       <!-- Native trigger: the ngb toggle needs the focusable host for its ARIA and arrow-key handling. -->
       <button
         type="button"
-        class="ports-row-actions__trigger"
+        class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
         ngbDropdownToggle
         title="Port actions"
         attr.aria-label="Actions for port {{ item.name }}">

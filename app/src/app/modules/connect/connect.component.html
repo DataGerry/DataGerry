@@ -8,8 +8,8 @@
                 If you see this message, the frontend cannot find a connection to DATAGERRY.
                 Probably there is a problem with your backend instance. You can try to connect manually.
                 Otherwise notify your administrator.
-                <button type="button" class="btn-close" data-bs-dismiss="alert">
-                </button>
+                <app-button class="connect-alert-close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times"
+                    ariaLabel="Close" data-bs-dismiss="alert"></app-button>
             </div>
         </div>
     </div>
@@ -65,9 +65,8 @@
                             </div>
                         </div>
                         <div class="mb-3">
-                            <button name="connect" type="submit" class="btn btn-primary w-100">
-                                Try to connect
-                            </button>
+                            <app-button type="submit" variant="solid" tone="brand" [block]="true"
+                                label="Try to connect"></app-button>
                         </div>
                     </form>
                 </div>
@@ -108,10 +107,8 @@
                     </div>
                 </div>
                 <div class="card-footer">
-                    <button type="button" class="btn btn-sm w-100 btn-success" [disabled]="!connectionTest"
-                        (click)="useConnection()">
-                        Use connection
-                    </button>
+                    <app-button variant="solid" tone="brand" size="sm" [block]="true" label="Use connection"
+                        [disabled]="!connectionTest" (clicked)="useConnection()"></app-button>
                 </div>
             </div>
         </div>

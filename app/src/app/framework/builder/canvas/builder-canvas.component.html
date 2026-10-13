@@ -11,19 +11,22 @@
                 id="builder-controls-action"
                 role="group"
                 aria-label="Controls helper buttons"
-                class="btn-group btn-group-sm mt-2 d-flex justify-content-between align-items-center"
+                class="dg-button-group d-flex mt-2"
             >
-                <button id="builder-controls-action-preview" type="button" class="btn btn-secondary" (click)="openPreview()">
-                    Preview
-                </button>
-                <button
+                <app-button
+                    id="builder-controls-action-preview"
+                    label="Preview"
+                    size="sm"
+                    [block]="true"
+                    (clicked)="openPreview()"
+                ></app-button>
+                <app-button
                     id="builder-controls-action-diagnostic"
-                    type="button"
-                    class="btn btn-secondary"
-                    (click)="openDiagnostic()"
-                >
-                    Diagnostic
-                </button>
+                    label="Diagnostic"
+                    size="sm"
+                    [block]="true"
+                    (clicked)="openDiagnostic()"
+                ></app-button>
             </div>
         </dg-builder-palette>
     </div>

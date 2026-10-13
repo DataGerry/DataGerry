@@ -25,10 +25,13 @@
                     'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched)}"
             />
             <div class="input-group-append">
-                <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()" 
-                        [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
-                    <fa-icon [icon]="['far', 'copy']"></fa-icon>
-                </button>
+                <app-button
+                    icon="far fa-copy"
+                    ariaLabel="Copy identifier"
+                    [disabled]="!nameControl.value"
+                    [ngbTooltip]="'Copy identifier'"
+                    (clicked)="copyIdentifier()"
+                ></app-button>
             </div>
         </div>
         <cmdb-identifier-hint [control]="nameControl"></cmdb-identifier-hint>
@@ -172,22 +175,20 @@
                         ></ng-select>
                     </td>
                     <td>
-                        <button
-                            type="button"
-                            class="btn btn-outline-primary"
+                        <app-button
+                            variant="outline"
+                            tone="brand"
+                            icon="far fa-trash-alt"
+                            ariaLabel="Delete summary"
                             [disabled]="summary.length == 1"
-                            (click)="delSummary(summary)"
-                        >
-                            <fa-icon [icon]="['far', 'trash-alt']"></fa-icon>
-                        </button>
+                            (clicked)="delSummary(summary)"
+                        ></app-button>
                     </td>
                 </tr>
                 }
                 <tr>
                     <td colspan="6">
-                        <button type="button" class="btn btn-outline-secondary" (click)="addSummary()">
-                            + Add option
-                        </button>
+                        <app-button label="+ Add option" (clicked)="addSummary()"></app-button>
                     </td>
                 </tr>
             </tbody>

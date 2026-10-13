@@ -46,11 +46,11 @@
             <div>
               <label class="filter-label">&nbsp;</label>
               <div class="filter-action-row">
-                <app-button [bootstrapClass]="'btn-success'" label="Apply" type="button"
+                <app-button variant="solid" tone="brand" label="Apply" type="button"
                   (clicked)="applyFilters.emit()"></app-button>
-                <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary ms-2'"
+                <app-button *permissionLink="[ciExplorerEditRight]" variant="outline" tone="neutral"
                   label="Save as Profile" type="button" (clicked)="saveAsProfile.emit()"></app-button>
-                <app-button [bootstrapClass]="'btn-outline-danger ms-2'" label="Clear" type="button"
+                <app-button variant="outline" tone="danger" label="Clear" type="button"
                   (clicked)="clearFilters.emit()"></app-button>
               </div>
             </div>
@@ -77,13 +77,13 @@
               placeholder="Choose a filter profile" class="filter-select profile-select"></app-form-select>
 
             <div class="profile-actions">
-              <app-button [bootstrapClass]="'btn-success'" label="Apply Profile" type="button"
+              <app-button variant="solid" tone="brand" label="Apply Profile" type="button"
                 (clicked)="applyProfile.emit()" [disabled]="!selectedProfileId()"></app-button>
 
-              <app-button *permissionLink="[ciExplorerEditRight]" [bootstrapClass]="'btn-secondary'"
+              <app-button *permissionLink="[ciExplorerEditRight]" variant="outline" tone="neutral"
                 label="Manage Profiles" type="button" (clicked)="manageProfiles.emit()"></app-button>
 
-              <app-button [bootstrapClass]="'btn-outline-danger'" label="Clear" type="button"
+              <app-button variant="outline" tone="danger" label="Clear" type="button"
                 (clicked)="clearFilters.emit()"></app-button>
             </div>
           </div>

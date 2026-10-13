@@ -6,9 +6,13 @@
       <cmdb-object-bulk-change-editor [changeForm]="changeForm" (activeChange)="activeState = $event"
                                       [type]="type" [renderForm]="renderForm"></cmdb-object-bulk-change-editor>
       <div class="dg-button-row dg-button-row--between">
-        <app-button awPreviousStep variant="outline" tone="neutral" [label]="'Back to ' + type.label"
-                    icon="fas fa-angle-double-left"
-                    [routerLink]="['/framework/object/type', type.public_id]"></app-button>
+        <a
+          class="dg-button dg-button--outline dg-button--neutral dg-button--md"
+          awPreviousStep
+          [routerLink]="['/framework/object/type', type.public_id]">
+          <i class="fas fa-angle-double-left" aria-hidden="true"></i>
+          <span class="dg-button__label">{{ 'Back to ' + type.label }}</span>
+        </a>
         <span class="bulk-step-actions">
           <app-button awNextStep variant="outline" tone="brand" label="Next Step"
                       icon="fas fa-angle-double-right" iconPosition="end" [disabled]="!hasChanges"></app-button>
@@ -36,8 +40,11 @@
       <div class="dg-button-row dg-button-row--between">
         <app-button awPreviousStep variant="outline" tone="neutral" label="Go to previous step"
                     icon="fas fa-angle-double-left"></app-button>
-        <app-button variant="solid" tone="brand" label="Done"
-                    [routerLink]="['/framework/object/type', type.public_id]"></app-button>
+        <a
+          class="dg-button dg-button--solid dg-button--brand dg-button--md"
+          [routerLink]="['/framework/object/type', type.public_id]">
+          <span class="dg-button__label">Done</span>
+        </a>
       </div>
     </aw-wizard-step>
   </aw-wizard>

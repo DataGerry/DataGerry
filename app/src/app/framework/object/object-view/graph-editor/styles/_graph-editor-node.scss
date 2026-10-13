@@ -227,62 +227,6 @@
     opacity: 0;
     transform: translateY(8px);
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-
-    .action-btn {
-      width: 32px;
-      height: 32px;
-      border: none;
-      background: $light;
-      border-radius: 50%;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      cursor: pointer;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-      transition: all 0.2s ease;
-      position: relative;
-      overflow: hidden;
-
-      &::after {
-        content: '';
-        position: absolute;
-        inset: 0;
-        background: radial-gradient(circle at center, transparent 0%, rgba($primary, 0.1) 100%);
-        opacity: 0;
-        transition: opacity 0.3s ease;
-      }
-
-      &:hover {
-        transform: scale(1.15) translateY(-2px);
-        box-shadow: 0 6px 20px rgba(0, 0, 0, 0.2);
-
-        &::after {
-          opacity: 1;
-        }
-      }
-
-      &:active {
-        transform: scale(1.05) translateY(0);
-      }
-
-      .material-icons {
-        font-size: 18px;
-        color: $gray-700;
-        transition: color 0.2s ease;
-      }
-
-      &.expand-btn:hover .material-icons {
-        color: $primary;
-      }
-
-      &.add-btn:hover .material-icons {
-        color: $success;
-      }
-
-      &.focus-btn:hover .material-icons {
-        color: $info;
-      }
-    }
   }
 
   .loading-overlay {

@@ -18,15 +18,15 @@
       <div class="rack-cluster">
         <span class="rack-cluster__label" id="rack-view-label">View</span>
 
-        <div class="rack-switch" role="group" aria-labelledby="rack-view-label">
-          <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'split'"
-            [attr.aria-pressed]="viewMode() === 'split'" (click)="onViewChange('split')">Split</button>
+        <div class="dg-button-group" role="group" aria-labelledby="rack-view-label">
+          <app-button label="Split" variant="outline" tone="neutral" size="sm" [ariaPressed]="viewMode() === 'split'"
+            (clicked)="onViewChange('split')"></app-button>
 
-          <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'front'"
-            [attr.aria-pressed]="viewMode() === 'front'" (click)="onViewChange('front')">Front</button>
+          <app-button label="Front" variant="outline" tone="neutral" size="sm" [ariaPressed]="viewMode() === 'front'"
+            (clicked)="onViewChange('front')"></app-button>
 
-          <button type="button" class="rack-switch__option" [class.rack-switch__option--active]="viewMode() === 'rear'"
-            [attr.aria-pressed]="viewMode() === 'rear'" (click)="onViewChange('rear')">Rear</button>
+          <app-button label="Rear" variant="outline" tone="neutral" size="sm" [ariaPressed]="viewMode() === 'rear'"
+            (clicked)="onViewChange('rear')"></app-button>
         </div>
       </div>
 
@@ -34,27 +34,26 @@
 
       <div class="rack-cluster">
         <!-- Scales the elevation only. The read-out doubles as the reset back to 100%. -->
-        <div class="rack-zoom" role="group" aria-label="Zoom the elevation">
-          <button type="button" class="rack-zoom__step" title="Zoom out" aria-label="Zoom out"
-            [disabled]="!canZoomOut()" (click)="onZoomOut()">
-            <i class="fas fa-minus" aria-hidden="true"></i>
-          </button>
+        <div class="dg-button-group" role="group" aria-label="Zoom the elevation">
+          <app-button icon="fas fa-minus" variant="outline" tone="neutral" size="sm" title="Zoom out"
+            ariaLabel="Zoom out" [disabled]="!canZoomOut()" (clicked)="onZoomOut()">
+          </app-button>
 
-          <button type="button" class="rack-zoom__level" title="Reset zoom" aria-label="Reset the zoom to 100%"
-            [disabled]="isDefaultZoom()" (click)="onResetZoom()">{{ zoomLabel() }}</button>
+          <app-button [label]="zoomLabel()" variant="outline" tone="neutral" size="sm" title="Reset zoom"
+            ariaLabel="Reset the zoom to 100%" [disabled]="isDefaultZoom()" (clicked)="onResetZoom()">
+          </app-button>
 
-          <button type="button" class="rack-zoom__step" title="Zoom in" aria-label="Zoom in" [disabled]="!canZoomIn()"
-            (click)="onZoomIn()">
-            <i class="fas fa-plus" aria-hidden="true"></i>
-          </button>
+          <app-button icon="fas fa-plus" variant="outline" tone="neutral" size="sm" title="Zoom in"
+            ariaLabel="Zoom in" [disabled]="!canZoomIn()" (clicked)="onZoomIn()">
+          </app-button>
         </div>
 
-        <button type="button" class="rack-tool" [class.rack-tool--on]="isFullscreen()"
-          [attr.aria-pressed]="isFullscreen()" [title]="isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'"
-          [attr.aria-label]="isFullscreen() ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
-          (click)="fullscreen.toggle()">
-          <i [class]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'" aria-hidden="true"></i>
-        </button>
+        <app-button [icon]="isFullscreen() ? 'fas fa-compress' : 'fas fa-expand'"
+          [variant]="isFullscreen() ? 'solid' : 'ghost'" [tone]="isFullscreen() ? 'brand' : 'neutral'" size="sm"
+          [ariaPressed]="isFullscreen()" [title]="isFullscreen() ? 'Exit fullscreen' : 'Fullscreen'"
+          [ariaLabel]="isFullscreen() ? 'Exit the fullscreen rack view' : 'Show the rack fullscreen'"
+          (clicked)="fullscreen.toggle()">
+        </app-button>
       </div>
 
       <span class="rack-header__spacer"></span>
@@ -65,24 +64,19 @@
         The count stays in view either way, which is what has to be noticed.
       -->
       @if (hasExpired()) {
-      <button type="button" id="rack-alerts-toggle" class="rack-disclosure rack-disclosure--alert"
-        [class.rack-disclosure--open]="isAlertsExpanded()" [attr.aria-expanded]="isAlertsExpanded()"
-        aria-controls="rack-alerts-panel" (click)="onTogglePanel('alerts')">
-        <i class="fas fa-calendar-times" aria-hidden="true"></i>
-        <span>Expired</span>
-        <span class="rack-disclosure__count">{{ expiredCount() }}</span>
-        <i class="fas fa-chevron-down rack-disclosure__caret" aria-hidden="true"></i>
-      </button>
+      <app-button id="rack-alerts-toggle" [label]="'Expired (' + expiredCount() + ')'"
+        [icon]="isAlertsExpanded() ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" iconPosition="end"
+        variant="soft" tone="danger" size="sm" [ariaExpanded]="isAlertsExpanded()" ariaControls="rack-alerts-panel"
+        (clicked)="onTogglePanel('alerts')">
+      </app-button>
       }
 
       @if (hasLegend()) {
-      <button type="button" id="rack-legend-toggle" class="rack-disclosure"
-        [class.rack-disclosure--open]="isLegendExpanded()" [attr.aria-expanded]="isLegendExpanded()"
-        aria-controls="rack-legend-panel" (click)="onTogglePanel('legend')">
-        <span>Legend</span>
-        <span class="rack-disclosure__count">{{ legendCount() }}</span>
-        <i class="fas fa-chevron-down rack-disclosure__caret" aria-hidden="true"></i>
-      </button>
+      <app-button id="rack-legend-toggle" [label]="'Legend (' + legendCount() + ')'"
+        [icon]="isLegendExpanded() ? 'fas fa-chevron-up' : 'fas fa-chevron-down'" iconPosition="end"
+        variant="outline" tone="neutral" size="sm" [ariaExpanded]="isLegendExpanded()" ariaControls="rack-legend-panel"
+        (clicked)="onTogglePanel('legend')">
+      </app-button>
       }
 
       <app-button *permissionLink="['base.framework.rack.edit']" label="Add to rack" icon="fas fa-plus"
@@ -113,8 +107,9 @@
             </span>
           </span>
 
-          <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-alerts__action"
-            [attr.aria-label]="'Release ' + mount.label" (click)="actions.confirmRemove(mount)">Release</button>
+          <app-button *permissionLink="['base.framework.rack.edit']" label="Release" variant="outline" tone="danger"
+            size="xs" [ariaLabel]="'Release ' + mount.label" (clicked)="actions.confirmRemove(mount)">
+          </app-button>
         </li>
         }
       </ul>
@@ -184,8 +179,9 @@
         @for (mount of outOfRange; track mount.mountId) {
         <li>
           <b>{{ mount.label }}</b> &mdash; anchored at U{{ mount.startSlot }}, {{ mount.height }}U
-          <button *permissionLink="['base.framework.rack.edit']" type="button" class="rack-callout__action"
-            [attr.aria-label]="'Re-place ' + mount.label" (click)="actions.edit(mount)">Re-place</button>
+          <app-button *permissionLink="['base.framework.rack.edit']" class="ms-1" label="Re-place" variant="link"
+            tone="brand" size="xs" [ariaLabel]="'Re-place ' + mount.label" (clicked)="actions.edit(mount)">
+          </app-button>
         </li>
         }
       </ul>

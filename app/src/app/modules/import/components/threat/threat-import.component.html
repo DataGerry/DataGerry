@@ -1,14 +1,13 @@
 <div class="card">
     <div class="card-header d-flex justify-content-between align-items-center">
         <span>Quick Threats Import</span>
-        <a class="btn btn-secondary btn-sm" routerLink="/isms/threats">
-            Go to Threats Page
+        <a class="dg-button dg-button--outline dg-button--neutral dg-button--sm" routerLink="/isms/threats">
+            <span class="dg-button__label">Go to Threats Page</span>
         </a>
     </div>
     <div class="card-body">
-        <button class="btn btn-link" (click)="showInstructions = !showInstructions">
-            {{ showInstructions ? 'Hide Instructions' : 'Show Import Instructions' }}
-        </button>
+        <app-button variant="link" tone="brand" [label]="showInstructions ? 'Hide Instructions' : 'Show Import Instructions'"
+            (clicked)="showInstructions = !showInstructions"></app-button>
 
         @if (showInstructions) {
 
@@ -32,9 +31,8 @@
                 <input type="file" class="form-control" id="file" (change)="selectFile($event.target.files)"
                     accept=".csv" />
             </div>
-            <button type="button" class="btn btn-primary mt-3" [disabled]="fileForm.invalid" (click)="importThreat()">
-                Import Threats
-            </button>
+            <app-button class="mt-3" variant="solid" tone="brand" label="Import Threats" [disabled]="fileForm.invalid"
+                (clicked)="importThreat()"></app-button>
         </form>
     </div>
 </div>

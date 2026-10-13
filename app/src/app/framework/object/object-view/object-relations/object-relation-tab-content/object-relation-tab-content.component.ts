@@ -50,7 +50,6 @@ const DEFAULT_PAGE_SIZE = 10;
 @Component({
   selector: 'cmdb-object-relation-tab-content',
   templateUrl: './object-relation-tab-content.component.html',
-  styleUrls: ['./object-relation-tab-content.component.scss'],
   changeDetection: ChangeDetectionStrategy.OnPush,
   standalone: false
 })

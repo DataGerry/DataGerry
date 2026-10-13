@@ -1,11 +1,17 @@
 <div class="d-flex justify-content-between align-items-center">
   <h2>Automations</h2>
-  <div>
+  <div class="dg-button-row">
     @if (automations?.length) {
-    <div class="btn-group ms-2">
-      <button type="button" id="autoRefreshButton" class="btn btn-sm btn-refresh dropdown-toggle text-white"
-        data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-        <i class="fas fa-sync-alt"></i> Auto Refresh: {{ getRefreshLabel() }}
+    <div class="dropdown">
+      <button
+        type="button"
+        class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+        id="autoRefreshButton"
+        data-bs-toggle="dropdown"
+        aria-haspopup="menu"
+        aria-expanded="false">
+        <i class="fas fa-sync-alt" aria-hidden="true"></i>
+        <span class="dg-button__label">{{ 'Auto Refresh: ' + getRefreshLabel() }}</span>
       </button>
       <ul class="dropdown-menu dropdown-menu-end" aria-labelledby="autoRefreshButton">
         <li>
@@ -26,19 +32,28 @@
       </ul>
     </div>
     }
-    <button type="button" class="btn btn-sm btn-connectors ms-2 text-white" [routerLink]="['/automations/connectors']"
+    <a
+      class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+      [routerLink]="['/automations/connectors']"
       *permissionLink="'base.openCelium.connector.view'">
-      <i class="fa-solid fa-plug"></i> Manage Connectors
-    </button>
+      <i class="fa-solid fa-plug" aria-hidden="true"></i>
+      <span class="dg-button__label">Manage Connectors</span>
+    </a>
     @if (!isCloudMode) {
-    <button type="button" class="btn btn-sm btn-licenses ms-2 text-white" [routerLink]="['/automations/licenses']">
-      <i class="fa-solid fa-key"></i> View Licenses
-    </button>
+    <a
+      class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+      [routerLink]="['/automations/licenses']">
+      <i class="fa-solid fa-key" aria-hidden="true"></i>
+      <span class="dg-button__label">View Licenses</span>
+    </a>
     }
-    <button type="button" class="btn btn-sm btn-add ms-2 text-white" [routerLink]="['/automations/add']"
+    <a
+      class="dg-button dg-button--solid dg-button--brand dg-button--sm"
+      [routerLink]="['/automations/add']"
       *permissionLink="'base.openCelium.connection.add'">
-      <i class="fas fa-plus"></i> Add Automation
-    </button>
+      <i class="fas fa-plus" aria-hidden="true"></i>
+      <span class="dg-button__label">Add Automation</span>
+    </a>
   </div>
 </div>
 <hr />
@@ -132,7 +147,7 @@
       [title]="isSchedulerRunning(item.schedulerId) ? 'Execution in progress' : 'Execute Scheduler'"
       [class.is-disabled]="isSchedulerRunning(item.schedulerId)" (click)="executeScheduler(item.schedulerId)">
     </i>
-    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-clock icon-margin btn-cron"
+    <i *permissionLink="'base.openCelium.connection.edit'" class="fas fa-clock icon-margin icon-cron"
       (click)="setCron(item)" title="Set Cron Job"></i>
     <i *permissionLink="'base.openCelium.connection.edit'" class="far fa-edit icon-margin icon-edit"
       style="margin-left: 5px;" (click)="editAutomation(item)" title="Edit Automation"></i>

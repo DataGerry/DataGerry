@@ -2,9 +2,7 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h3>Assigned Controls</h3>
   @if (createMode) {
-  <button class="btn btn-sm btn-success" (click)="openModal()">
-    <i class="fas fa-plus"></i> Add
-  </button>
+  <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus" (clicked)="openModal()"></app-button>
   }
 </div>
 

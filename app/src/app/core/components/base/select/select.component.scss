@@ -73,30 +73,4 @@
     align-self: stretch;
     background-color: #dee2e6;
   }
-
-  .select-all-btn {
-    padding: 0;
-    text-decoration: none;
-    font-weight: 600;
-    color: #e94d18;
-    display: inline-flex;
-    align-items: center;
-    gap: .4rem;
-
-    &:hover:not(:disabled),
-    &:focus:not(:disabled) {
-      text-decoration: underline;
-      color: #c43c10;
-    }
-
-    &:disabled {
-      color: #adb5bd;
-      cursor: not-allowed;
-      opacity: 1;
-    }
-
-    i {
-      font-size: 1rem;
-    }
-  }
 }

@@ -1,12 +1,8 @@
-<div class="btn-group">
-    <button type="button" class="btn btn-primary btn-sm search-bar-tag-icon dropdown-toggle-split disabled"
-            data-bs-toggle="dropdown">
+<div class="dg-button-group" role="group" aria-label="Search term">
+    <span class="search-bar-tag-label">
         <cmdb-search-bar-tag-icon [tag]="tag"></cmdb-search-bar-tag-icon>
-    </button>
-    <button type="button" class="btn btn-primary btn-sm" data-bs-toggle="dropdown" #dropdownTrigger
-            data-reference="parent">
         <ng-content></ng-content>
-    </button>
-    <button (click)="emitDelete()" type="button" class="btn btn-primary btn-sm dropdown-toggle dropdown-toggle-split">
-    </button>
+    </span>
+    <app-button variant="soft" tone="brand" size="xs" icon="fas fa-times" ariaLabel="Remove search term"
+        (clicked)="emitDelete()"></app-button>
 </div>

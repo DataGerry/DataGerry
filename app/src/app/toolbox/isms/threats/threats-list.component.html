@@ -2,17 +2,13 @@
   <h2>Threats</h2>
   <div class="d-flex align-items-center gap-2">
     <!-- Delete selected button -->
-    <button class="btn btn-sm btn-danger" *permissionLink="['base.isms.threat.delete']"
-      [disabled]="!selectedThreats.length" (click)="onDeleteSelected()" title="Delete selected threats">
-      <i class="far fa-trash-alt"></i> Delete Selected
-      @if (selectedThreats.length) {
-        <span class="badge bg-light text-dark ms-1">{{ selectedThreats.length }}</span>
-      }
-    </button>
+    <app-button variant="solid" tone="danger" size="sm" icon="far fa-trash-alt" *permissionLink="['base.isms.threat.delete']"
+      [label]="selectedThreats.length ? 'Delete Selected (' + selectedThreats.length + ')' : 'Delete Selected'"
+      [disabled]="!selectedThreats.length" (clicked)="onDeleteSelected()" title="Delete selected threats">
+    </app-button>
     <!-- Add button -->
-    <button class="btn btn-sm btn-success" *permissionLink="['base.isms.threat.add']" (click)="onAddNew()">
-      <i class="fas fa-plus"></i> Add
-    </button>
+    <app-button variant="solid" tone="brand" size="sm" label="Add" icon="fas fa-plus" *permissionLink="['base.isms.threat.add']" (clicked)="onAddNew()">
+    </app-button>
   </div>
 </div>
 <hr />

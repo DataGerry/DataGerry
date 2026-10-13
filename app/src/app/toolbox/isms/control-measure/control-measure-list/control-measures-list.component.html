@@ -1,25 +1,26 @@
 <div class="d-flex justify-content-between align-items-center mb-3">
   <h2>Controls</h2>
   <div class="d-flex align-items-center gap-2">
-    <button
-      class="btn btn-sm btn-danger"
+    <app-button
+      variant="solid"
+      tone="danger"
+      size="sm"
+      icon="far fa-trash-alt"
+      [label]="selectedControls.length ? 'Delete Selected (' + selectedControls.length + ')' : 'Delete Selected'"
       *permissionLink="['base.isms.controlMeasure.delete']"
       [disabled]="!selectedControls.length"
-      (click)="onDeleteSelected()"
+      (clicked)="onDeleteSelected()"
       title="Delete selected controls"
-    >
-      <i class="far fa-trash-alt"></i> Delete Selected
-      @if (selectedControls.length) {
-        <span class="badge bg-light text-dark ms-1">{{ selectedControls.length }}</span>
-      }
-    </button>
-    <button
-      class="btn btn-sm btn-success"
+    ></app-button>
+    <app-button
+      variant="solid"
+      tone="brand"
+      size="sm"
+      label="Add"
+      icon="fas fa-plus"
       *permissionLink="['base.isms.controlMeasure.add']"
-      (click)="onAddNew()"
-    >
-      <i class="fas fa-plus"></i> Add
-    </button>
+      (clicked)="onAddNew()"
+    ></app-button>
   </div>
 </div>
 <hr />

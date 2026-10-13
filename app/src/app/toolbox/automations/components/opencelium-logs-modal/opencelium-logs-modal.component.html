@@ -5,11 +5,11 @@
   [scrollBody]="false"
   (dismiss)="activeModal.dismiss()">
 
-  <button dgModalHeaderAction type="button" class="btn-action"
-    [attr.aria-label]="isFullscreen ? 'Restore' : 'Maximize'" [attr.title]="isFullscreen ? 'Restore' : 'Maximize'"
-    (click)="toggleFullscreen()">
-    <i class="fas" [ngClass]="isFullscreen ? 'fa-compress' : 'fa-expand'"></i>
-  </button>
+  <app-button dgModalHeaderAction variant="ghost" tone="neutral" size="sm"
+    [icon]="isFullscreen ? 'fas fa-compress' : 'fas fa-expand'"
+    [ariaLabel]="isFullscreen ? 'Restore' : 'Maximize'" [title]="isFullscreen ? 'Restore' : 'Maximize'"
+    (clicked)="toggleFullscreen()">
+  </app-button>
 
   <div class="oc-logs-body">
     @if (executionId) {

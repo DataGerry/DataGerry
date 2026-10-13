@@ -5,9 +5,9 @@
     <h1>Risk Matrix</h1>
 
     <!-- Export PDF button aligned to the right -->
-    <button class="btn btn-secondary btn-sm" [disabled]="loading" (click)="exportPdf()">
-      <i class="fas fa-file-pdf"></i> Export PDF
-    </button>
+    <app-button variant="outline" tone="neutral" size="sm" label="Export PDF" icon="fas fa-file-pdf"
+      [disabled]="loading" (clicked)="exportPdf()">
+    </app-button>
   </div>
 
   <!-- everything inside this wrapper will be rendered to the canvas -->

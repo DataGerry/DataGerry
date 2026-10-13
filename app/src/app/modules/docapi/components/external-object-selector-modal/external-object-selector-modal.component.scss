@@ -234,19 +234,6 @@ $dg-primary-color: #e94d18;
         flex-wrap: wrap;
       }
 
-      .breadcrumb-item {
-        background: transparent;
-        border: none;
-        color: #6c757d;
-        padding: 0;
-        cursor: pointer;
-        font-weight: 500;
-
-        &:hover {
-          color: $dg-primary-color;
-        }
-      }
-
       .breadcrumb-sep {
         display: inline-flex;
         align-items: center;
@@ -271,7 +258,7 @@ $dg-primary-color: #e94d18;
         width: 100%;
       }
 
-      .field-menu-item-btn {
+      .field-menu-item-action {
         width: 100%;
         background: transparent;
         border: none;

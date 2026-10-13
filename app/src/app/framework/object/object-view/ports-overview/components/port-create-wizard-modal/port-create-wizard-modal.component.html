@@ -316,7 +316,7 @@
       dgModalFooter
       label="Back"
       icon="fas fa-arrow-left"
-      bootstrapClass="btn-secondary"
+      variant="outline" tone="neutral"
       title="Back to the previous step"
       (clicked)="onBack()">
     </app-button>
@@ -325,7 +325,7 @@
   <app-button
     dgModalFooter
     label="Cancel"
-    bootstrapClass="btn-secondary"
+    variant="outline" tone="neutral"
     (clicked)="activeModal.dismiss()">
   </app-button>
 
@@ -333,7 +333,7 @@
     dgModalFooter
     [label]="primaryLabel"
     [icon]="primaryIcon"
-    bootstrapClass="btn-success"
+    variant="solid" tone="brand"
     [disabled]="primaryDisabled"
     (clicked)="onPrimary()">
   </app-button>

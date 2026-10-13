@@ -1,9 +1,5 @@
 @import 'src/scss/variables';
 
-.disabled {
-  pointer-events: none;
-}
-
 #error_message {
   padding-top: 10px;
   color: $dg-error-message-color;

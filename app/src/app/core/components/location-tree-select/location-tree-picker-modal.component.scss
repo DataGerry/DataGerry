@@ -61,25 +61,6 @@
     right: 0.6rem;
     top: 50%;
     transform: translateY(-50%);
-    display: grid;
-    place-items: center;
-    width: 1.5rem;
-    height: 1.5rem;
-    padding: 0;
-    border: 0;
-    background: transparent;
-    color: var(--dg-faint);
-    border-radius: 0.4rem;
-
-    &:hover {
-        color: var(--dg-muted);
-        background: var(--dg-hairline);
-    }
-
-    &:focus-visible {
-        outline: none;
-        box-shadow: var(--dg-focus-ring);
-    }
 }
 
 /* ----------------------------------------------------- TREE -------------------------------------------------------- */

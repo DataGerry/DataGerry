@@ -65,6 +65,7 @@ import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
     AppUsageBarComponent,
     CoreConfirmationModalComponent,
     PremiumFeatureModalComponent,
+    PremiumLockedComponent,
     CompactNumberPipe
   ],
   imports: [
@@ -78,7 +79,6 @@ import { NgbDropdownModule } from '@ng-bootstrap/ng-bootstrap';
     PremiumFeatureDirective,
     PremiumGateDirective,
     WizardStepperDirective,
-    PremiumLockedComponent,
     DgModalComponent,
     NgbDropdownModule
   ],

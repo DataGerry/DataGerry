@@ -1,7 +1,7 @@
 <div class="premium-modal">
-  <button type="button" class="premium-modal__close" aria-label="Close upgrade dialog" (click)="onDismiss()">
-    <i class="fas fa-times" aria-hidden="true"></i>
-  </button>
+  <app-button class="premium-modal__close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times" [pill]="true"
+              ariaLabel="Close upgrade dialog" (clicked)="onDismiss()">
+  </app-button>
 
   <div class="premium-modal__hero">
     <span class="premium-modal__badge">
@@ -34,13 +34,12 @@
   </div>
 
   <div class="premium-modal__footer">
-    <button type="button" class="btn premium-modal__action premium-modal__action--ghost" (click)="onDismiss()">
-      {{ secondaryActionLabel }}
-    </button>
+    <app-button variant="outline" tone="neutral" size="lg" [pill]="true" [label]="secondaryActionLabel"
+                (clicked)="onDismiss()">
+    </app-button>
 
-    <button type="button" class="btn premium-modal__action premium-modal__action--primary" (click)="onUpgrade()">
-      <span>{{ primaryActionLabel }}</span>
-      <i class="fas fa-arrow-right" aria-hidden="true"></i>
-    </button>
+    <app-button variant="solid" tone="brand" size="lg" [pill]="true" [block]="true" [label]="primaryActionLabel"
+                icon="fas fa-arrow-right" iconPosition="end" (clicked)="onUpgrade()">
+    </app-button>
   </div>
 </div>

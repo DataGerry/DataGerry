@@ -60,24 +60,4 @@
       font-weight: 600;
     }
   }
-
-  &__action {
-    margin-left: 0.35rem;
-    padding: 0;
-    border: 0;
-    background: none;
-    color: $primary;
-    font-size: 0.8rem;
-    font-weight: 600;
-
-    &:hover {
-      text-decoration: underline;
-    }
-
-    &:focus-visible {
-      outline: 0;
-      border-radius: 0.2rem;
-      box-shadow: 0 0 0 0.2rem rgba($primary, 0.35);
-    }
-  }
 }

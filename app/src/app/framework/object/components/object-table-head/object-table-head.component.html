@@ -3,38 +3,50 @@
     <div class="col-auto me-auto ps-0">
       @if (type?.active) {
 
-        <button type="button"
-                *permissionLink="['base.framework.object.add'];acl:type.acl;requirements:'CREATE'"
-                class="btn btn-success btn-sm me-1"
-                [ngClass]="getButtonClass()"
-                [ngbTooltip]="getButtonTooltip()"
-                (click)="onAdd()">
-          <i class="fas fa-plus"></i> Add
-        </button>
-        <button type="button"
-                *permissionLink="['base.framework.object.edit'];acl:type.acl;requirements:'UPDATE'"
-                [disabled]="selectedObjects.length<=0"
-                [ngbTooltip]="getBulkChangeTooltip()"
-                class="btn btn-secondary btn-sm me-1" (click)="onBulkChange()">
-          <i class="fas fa-tasks"></i> Bulk Change <span
-          class="badge bg-primary bg-pill">{{selectedObjects.length}}</span>
-        </button>
-        <button type="button" *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'"
-                (click)="onDeleteSelected()"
-                [ngbTooltip]="getDeleteSelectedTooltip()"
-                [disabled]="selectedObjects.length<=0" 
-                class="btn btn-danger btn-sm me-1">
-          <i class="far fa-trash-alt"></i> Delete Selected
-          <span class="badge bg-secondary bg-pill">{{selectedObjects.length}}</span>
-        </button>
+        <div class="dg-button-row">
+          <app-button
+                  *permissionLink="['base.framework.object.add'];acl:type.acl;requirements:'CREATE'"
+                  label="Add"
+                  icon="fas fa-plus"
+                  size="sm"
+                  [variant]="isObjectLimitReached() ? 'outline' : 'solid'"
+                  [tone]="isObjectLimitReached() ? 'neutral' : 'brand'"
+                  [class.disabled-look]="isObjectLimitReached()"
+                  [ngbTooltip]="getButtonTooltip()"
+                  (clicked)="onAdd()"></app-button>
+          <app-button
+                  *permissionLink="['base.framework.object.edit'];acl:type.acl;requirements:'UPDATE'"
+                  [label]="'Bulk Change (' + selectedObjects.length + ')'"
+                  icon="fas fa-tasks"
+                  size="sm"
+                  [disabled]="selectedObjects.length<=0"
+                  [ngbTooltip]="getBulkChangeTooltip()"
+                  (clicked)="onBulkChange()"></app-button>
+          <app-button
+                  *permissionLink="['base.framework.object.delete'];acl:type.acl;requirements:'DELETE'"
+                  [label]="'Delete Selected (' + selectedObjects.length + ')'"
+                  icon="far fa-trash-alt"
+                  variant="solid"
+                  tone="danger"
+                  size="sm"
+                  [disabled]="selectedObjects.length<=0"
+                  [ngbTooltip]="getDeleteSelectedTooltip()"
+                  (clicked)="onDeleteSelected()"></app-button>
+        </div>
       
 }
     </div>
     <div class="col-auto pe-0">
       <div class="dropdown" *permissionLink="'base.export.object.*'">
-        <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle" data-bs-toggle="dropdown">
-          <fa-icon icon="file-export"></fa-icon>
-          Export
+        <button
+          type="button"
+          class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+          id="exportButton"
+          data-bs-toggle="dropdown"
+          aria-haspopup="menu"
+          aria-expanded="false">
+          <i class="fas fa-file-export" aria-hidden="true"></i>
+          <span class="dg-button__label">Export</span>
         </button>
         <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-left">
           @for (item of formatList; track item) {

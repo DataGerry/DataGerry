@@ -26,24 +26,3 @@
     min-height: 0;
     overflow-y: auto;
 }
-
-.in-use-link {
-    padding: 0;
-    border: none;
-    background: none;
-    color: var(--dg-brand);
-    font-size: 0.9rem;
-    font-weight: 500;
-    cursor: pointer;
-
-    &:hover {
-        color: var(--dg-brand-strong);
-        text-decoration: underline;
-    }
-
-    &:focus-visible {
-        outline: none;
-        border-radius: var(--dg-radius-sm);
-        box-shadow: var(--dg-focus-ring);
-    }
-}

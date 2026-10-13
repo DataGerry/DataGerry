@@ -32,6 +32,8 @@ import {
  * Emphasis and meaning are separate inputs: `variant` decides how filled the button is,
  * `tone` decides what it means. Layout is never the button's job — spacing comes from a
  * flex `gap` on the surrounding toolbar or footer.
+ *
+ * Tabs, menu items, tiles and tree toggles are not buttons in this sense and keep native markup.
  */
 @Component({
     selector: 'app-button',
@@ -41,9 +43,6 @@ import {
     changeDetection: ChangeDetectionStrategy.OnPush,
     host: {
         '[attr.data-block]': 'block() ? "true" : null'
-    }
-})
-export class ButtonComponent implements OnInit {
     }
 })
 export class ButtonComponent {
@@ -98,6 +97,9 @@ export class ButtonComponent {
 
     /** Popup kind this button opens, e.g. 'menu' or 'dialog'. */
     readonly ariaHasPopup = input<string>('');
+
+    /** Counter shown after the label, e.g. the number of selected rows. Leave null for none. */
+    readonly badge = input<string | number | null>(null);
 
     /** Emitted on activation, unless the button is disabled or loading. */
     readonly clicked = output<void>();

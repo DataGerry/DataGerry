@@ -1,9 +1,9 @@
 <div id="sidebar" [class.is-collapsed]="isSidebarCollapsed">
 
-  <button class="sb-toggle" [class.sb-toggle--hidden]="!!flyout" (click)="toggleSidebar()" type="button"
-    [attr.aria-label]="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'">
-    <fa-icon [icon]="isSidebarCollapsed ? 'chevron-right' : 'chevron-left'"></fa-icon>
-  </button>
+  <app-button class="sb-toggle" [class.sb-toggle--hidden]="!!flyout" variant="outline" tone="neutral" size="xs"
+    [pill]="true" [icon]="isSidebarCollapsed ? 'fas fa-chevron-right' : 'fas fa-chevron-left'"
+    [ariaLabel]="isSidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'" (clicked)="toggleSidebar()">
+  </app-button>
 
   <div class="sb-body">
     <ul class="sb-nav">
@@ -77,9 +77,9 @@
         <div class="sb-filter">
           <input type="text" placeholder="Filter.." [formControl]="filterTerm" />
           @if (filterTerm.value) {
-          <button class="sb-filter__clear" (click)="filterTerm.reset('')" type="button" aria-label="Clear filter">
-            <fa-icon icon="times"></fa-icon>
-          </button>
+          <app-button variant="ghost" tone="neutral" size="xs" icon="fas fa-times" ariaLabel="Clear filter"
+            (clicked)="filterTerm.reset('')">
+          </app-button>
           }
         </div>
 
@@ -223,7 +223,9 @@
       <fa-icon icon="lock" class="sb-locked__icon"></fa-icon>
       <p class="sb-locked__title">Networks is a Pro feature</p>
       <p class="sb-locked__text">Plan and track your IP space with IPAM in the Self-Hosted Edition.</p>
-      <button type="button" class="sb-locked__btn" (click)="promptIpamUpgrade()">Upgrade to unlock</button>
+      <app-button class="sb-locked__action" variant="solid" tone="brand" size="sm" label="Upgrade to unlock"
+        (clicked)="promptIpamUpgrade()">
+      </app-button>
     </div>
   </div>
 </ng-template>

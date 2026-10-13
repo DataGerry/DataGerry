@@ -24,8 +24,8 @@
   @if (!loading() && icon() && iconPosition() === 'end') {
     <i [class]="icon()" aria-hidden="true"></i>
   }
-  {{ label }}
-  @if (badge !== null) {
-    <span class="badge bg-pill" [ngClass]="badgeClass">{{ badge }}</span>
+
+  @if (badge() !== null) {
+    <span class="dg-button__badge">{{ badge() }}</span>
   }
 </button>

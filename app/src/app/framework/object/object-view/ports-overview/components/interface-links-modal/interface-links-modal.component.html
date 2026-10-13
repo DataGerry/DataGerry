@@ -150,7 +150,7 @@
                         <app-button
                           label=""
                           icon="fas fa-check"
-                          bootstrapClass="interface-links__icon interface-links__icon--confirm"
+                          variant="ghost" tone="success" size="xs"
                           title="Save relation type"
                           ariaLabel="Save relation type"
                           (clicked)="onSaveRelationType(row)">
@@ -159,7 +159,7 @@
                         <app-button
                           label=""
                           icon="fas fa-times"
-                          bootstrapClass="interface-links__icon"
+                          variant="ghost" tone="neutral" size="xs"
                           title="Cancel"
                           ariaLabel="Cancel"
                           (clicked)="onCancelEdit(row)">
@@ -169,7 +169,7 @@
                           <app-button
                             label=""
                             icon="fas fa-pen"
-                            bootstrapClass="interface-links__icon"
+                            variant="ghost" tone="neutral" size="xs"
                             title="Change relation type"
                             [ariaLabel]="'Change relation type of ' + row.view.interface.label"
                             (clicked)="onStartEdit(row)">
@@ -180,7 +180,7 @@
                           <app-button
                             label=""
                             icon="fas fa-unlink"
-                            bootstrapClass="interface-links__icon interface-links__icon--danger"
+                            variant="ghost" tone="danger" size="xs"
                             title="Unlink interface"
                             ariaLabel="Unlink interface"
                             (clicked)="onUnlink(row)">
@@ -205,7 +205,7 @@
   <app-button
     dgModalFooter
     label="Close"
-    bootstrapClass="btn-secondary"
+    variant="outline" tone="neutral"
     (clicked)="onClose()">
   </app-button>
 
@@ -214,7 +214,7 @@
       dgModalFooter
       label="Link interface"
       icon="fas fa-link"
-      bootstrapClass="btn-success"
+      variant="solid" tone="brand"
       [disabled]="!selectedRow || isWriting"
       (clicked)="onLink()">
     </app-button>

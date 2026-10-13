@@ -43,9 +43,10 @@
     <div class="empty-state text-center">
       <div class="empty-state-icon display-4">!</div>
       <h4>No Relations Found</h4>
-      <button type="button" class="btn btn-primary" routerLink="/framework/relation" (click)="onCancel()">
-        Create a new relation
-      </button>
+      <a class="dg-button dg-button--solid dg-button--brand dg-button--md" routerLink="/framework/relation"
+        (click)="onCancel()">
+        <span class="dg-button__label">Create a new relation</span>
+      </a>
     </div>
   }
 

@@ -32,10 +32,13 @@
                 [ngClass]="{'is-valid': nameControl.valid && (nameControl.dirty || nameControl.touched ),
                             'is-invalid': nameControl.invalid && (nameControl.dirty || nameControl.touched) || isDuplicate$}" />
             <div class="input-group-append">
-                <button class="btn btn-outline-secondary" type="button" (click)="copyIdentifier()"
-                    [disabled]="!nameControl.value" [ngbTooltip]="'Copy identifier'">
-                    <fa-icon [icon]="['far', 'copy']"></fa-icon>
-                </button>
+                <app-button
+                    icon="far fa-copy"
+                    ariaLabel="Copy identifier"
+                    [disabled]="!nameControl.value"
+                    [ngbTooltip]="'Copy identifier'"
+                    (clicked)="copyIdentifier()"
+                ></app-button>
             </div>
             @if (isDuplicate$) {
             <div class="invalid-feedback">

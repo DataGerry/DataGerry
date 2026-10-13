@@ -96,12 +96,11 @@
                         Do you want to save the changes of <strong>{{renderResult?.type_information?.type_label}} #{{renderResult?.object_information?.object_id}}</strong> you made before quitting?
                     </p>
                     <div class="dg-button-row flex-nowrap p-3">
-                        <app-button
-                            label="Cancel"
-                            variant="outline"
-                            tone="neutral"
-                            routerLink="/framework/object/view/{{renderResult?.object_information?.object_id}}"
-                        ></app-button>
+                        <a
+                          class="dg-button dg-button--outline dg-button--neutral dg-button--md"
+                          routerLink="/framework/object/view/{{renderResult?.object_information?.object_id}}">
+                          <span class="dg-button__label">Cancel</span>
+                        </a>
 
                         <app-button
                             label="Save"

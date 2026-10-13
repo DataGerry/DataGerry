@@ -13,7 +13,6 @@
  *   rack-ruler ................. the U numbering
  *   rack-bay ................... a free slot and its mount affordance
  *   rack-unit .................. a mounted faceplate, and the cross-face link marker
- *   rack-buttons ............... the icon controls the rail cards expose
  *   rack-density-elevation ..... the plate detail dropped at compact row height
  *   rack-dnd-elevation ......... grab affordances, the per-face hit area, the drop preview band
  *   rack-responsive-elevation .. breakpoint overrides. Must stay last; it wins on source order.
@@ -27,7 +26,6 @@
 @import "../../styles/rack-ruler";
 @import "../../styles/rack-bay";
 @import "../../styles/rack-unit";
-@import "../../styles/rack-buttons";
 @import "../../styles/rack-density-elevation";
 @import "../../styles/rack-dnd-elevation";
 @import "../../styles/rack-responsive-elevation";

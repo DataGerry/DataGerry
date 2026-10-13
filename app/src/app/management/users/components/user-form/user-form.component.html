@@ -142,19 +142,6 @@
       <div id="picture-upload" class="text-center">
         <cmdb-user-image [image]="preview"></cmdb-user-image>
         <div class="custom-file mt-2">
-          <!-- <div class="container">
-            <div class="row">
-              <div class="col-11 me-0 pe-0">
-                <input type="file" (change)="previewImage($event)"
-                       class="custom-file-input" [ngClass]="{ 'is-valid': imageControl.valid && (imageControl.dirty || imageControl.touched),
-                 'is-invalid': imageControl.invalid && (imageControl.dirty || imageControl.touched)}">
-                <label class="custom-file-label">Choose image </label>
-              </div>
-              <div class="col-1 ms-0 ps-0">
-                <button type=button class="btn font-size-unset btn-outline-danger" (click)="removeImage()">x</button>
-              </div>
-            </div>
-          </div> -->
           <div class="container">
             <div class="row">
               <div class="col-11 me-0 pe-0">
@@ -164,8 +151,8 @@
                        }" aria-label="Choose image">
               </div>
               <div class="col-1 ms-0 ps-0">
-                <button type="button" class="btn font-size-unset btn-outline-danger"
-                  style="height: calc(2.25rem + 2px);" (click)="removeImage()">x</button>
+                <app-button variant="outline" tone="danger" icon="fas fa-times" ariaLabel="Remove image"
+                  (clicked)="removeImage()"></app-button>
               </div>
             </div>
           </div>
@@ -175,12 +162,14 @@
   </div>
   <hr />
   <div class="d-flex flex-row-reverse">
-    <button type="button" class="btn btn-outline-success ms-2" [disabled]="form.invalid" (click)="onSubmit()">Save
-    </button>
+    <app-button class="ms-2" variant="solid" tone="brand" label="Save" [disabled]="form.invalid"
+      (clicked)="onSubmit()"></app-button>
     @if (cancel) {
-    <button [routerLink]="['/', 'management', 'users']" type="button" class="btn btn-outline-danger">
-      Cancel
-    </button>
+    <a
+      class="dg-button dg-button--outline dg-button--neutral dg-button--md"
+      [routerLink]="['/', 'management', 'users']">
+      <span class="dg-button__label">Cancel</span>
+    </a>
     }
   </div>
 </form>

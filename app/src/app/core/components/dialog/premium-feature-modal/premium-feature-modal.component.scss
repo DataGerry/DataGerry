@@ -34,27 +34,6 @@ $pf-radius: 18px;
     top: 14px;
     right: 14px;
     z-index: 2;
-    width: 32px;
-    height: 32px;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    border: none;
-    border-radius: 50%;
-    background: rgba(255, 255, 255, 0.85);
-    color: $pf-ink;
-    font-size: 0.95rem;
-    cursor: pointer;
-    transition: background-color 0.15s ease;
-
-    &:hover {
-      background: #ffffff;
-    }
-
-    &:focus-visible {
-      outline: 2px solid $pf-brand;
-      outline-offset: 2px;
-    }
   }
 
   /* ---- Hero ---- */
@@ -185,47 +164,6 @@ $pf-radius: 18px;
     gap: 12px;
     padding: 22px 32px 30px;
   }
-
-  &__action {
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    border-radius: 999px;
-    font-size: 0.9rem;
-    font-weight: 600;
-    padding: 11px 22px;
-    transition: background-color 0.15s ease, box-shadow 0.15s ease, color 0.15s ease;
-
-    &:focus-visible {
-      outline: 2px solid $pf-brand;
-      outline-offset: 2px;
-    }
-
-    &--ghost {
-      color: $pf-muted;
-      background: transparent;
-      border: 1px solid #e3e4e8;
-
-      &:hover {
-        color: $pf-ink;
-        background: #f6f6f8;
-      }
-    }
-
-    &--primary {
-      flex: 1;
-      color: #ffffff;
-      border: none;
-      background: linear-gradient(135deg, $pf-brand 0%, #d8430f 100%);
-      box-shadow: 0 8px 20px rgba(233, 77, 24, 0.32);
-
-      &:hover {
-        color: #ffffff;
-        box-shadow: 0 10px 24px rgba(233, 77, 24, 0.4);
-      }
-    }
-  }
 }
 
 @keyframes premium-modal-in {
@@ -243,10 +181,5 @@ $pf-radius: 18px;
 @media (prefers-reduced-motion: reduce) {
   .premium-modal {
     animation: none;
-  }
-
-  .premium-modal__action,
-  .premium-modal__close {
-    transition: none;
   }
 }

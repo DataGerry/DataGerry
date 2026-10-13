@@ -37,7 +37,7 @@ import { CoreModule } from 'src/app/core/core.module';
 
 import { RelationAddComponent } from './relation-add/relation-add.component';
 import { RelationComponent } from './relation.component';
-import { RelationDeleteConfirmModalComponent } from './relation-delete/relation-delete.component';
+import { RelationDeleteComponent, RelationDeleteConfirmModalComponent } from './relation-delete/relation-delete.component';
 import { RelationBuilderComponent } from './relation-builder/relation-builder.component';
 import { RelationBasicStepComponent } from './relation-builder/relation-basic-step/relation-basic-step.component';
 
@@ -55,7 +55,7 @@ import { RelationTableActionsComponent } from './components/relation-table-actio
         RelationBasicStepComponent,
         RelationBuilderComponent,
         RelationEditComponent,
-        RelationDeleteConfirmModalComponent,
+        RelationDeleteComponent,
         RelationDeleteConfirmModalComponent,
         RelationComponent,
         RelationTableActionsComponent,

@@ -30,19 +30,15 @@ import { LoaderService } from 'src/app/core/services/loader.service';
     template: `
       <div class="modal-header">
           <h4 class="modal-title" id="modal-basic-title">Delete Log</h4>
-          <button
-            type="button"
-            class="btn-close btn-close-white"
-            aria-label="Close"
-            (click)="handleModalDismiss()">
-            </button>
+          <app-button variant="ghost" tone="neutral" size="sm" icon="fas fa-times" ariaLabel="Close"
+            (clicked)="handleModalDismiss()"></app-button>
       </div>
       <div class="modal-body">
          Do you want to delete the log with the ID <b>{{publicID}}</b>?
       </div>
       <div class="modal-footer">
-          <button type="button" class="btn btn-warning" (click)="handleModalDismiss()">Close</button>
-          <button type="button" class="btn btn-danger" (click)="activeModal.close(this.publicID)">Delete</button>
+          <app-button variant="outline" tone="neutral" label="Close" (clicked)="handleModalDismiss()"></app-button>
+          <app-button variant="solid" tone="danger" label="Delete" (clicked)="activeModal.close(this.publicID)"></app-button>
       </div>
   `,
     standalone: false

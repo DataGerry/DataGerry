@@ -43,11 +43,16 @@
 
 <!-- Custom table buttons -->
 <ng-template #exportButtonTemplate>
-  <div class="btn-group" *permissionLink="'base.export.object.*'">
-    <button type="button" id="exportButton" class="btn btn-warning btn-sm dropdown-toggle"
-            data-bs-toggle="dropdown" aria-haspopup="true" aria-expanded="false">
-      <fa-icon icon="file-export"></fa-icon>
-      Export
+  <div class="dropdown" *permissionLink="'base.export.object.*'">
+    <button
+      type="button"
+      class="dg-button dg-button--outline dg-button--neutral dg-button--sm"
+      id="exportButton"
+      data-bs-toggle="dropdown"
+      aria-haspopup="menu"
+      aria-expanded="false">
+      <i class="fas fa-file-export" aria-hidden="true"></i>
+      <span class="dg-button__label">Export</span>
     </button>
     <ul class="dropdown-menu dropdown-menu-end dropdown-menu-lg-left" aria-labelledby="exportButton">
       @for (item of formatList; track item) {

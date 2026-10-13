@@ -3,36 +3,32 @@
   <div class="name">
     <strong class="text-uppercase">{{renderResult?.type_information?.type_label}}</strong>
     <div class="dg-button-row align-items-start">
-      <app-button
-          icon="fas fa-list"
-          variant="ghost"
-          tone="neutral"
-          size="sm"
-          title="object list"
-          ariaLabel="Open object list"
-          routerLink="/framework/object/type/{{renderResult?.type_information?.type_id}}">
-      </app-button>
+      <a
+        class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+        routerLink="/framework/object/type/{{renderResult?.type_information?.type_id}}"
+        title="object list"
+        aria-label="Open object list">
+        <i class="fas fa-list" aria-hidden="true"></i>
+      </a>
 
       @if (renderResult?.type_information?.active) {
-        <app-button *permissionLink="'base.framework.object.edit';requirements:'UPDATE';acl:acl"
-            icon="fas fa-edit"
-            variant="ghost"
-            tone="neutral"
-            size="sm"
-            title="edit"
-            ariaLabel="Edit object"
-            routerLink="/framework/object/edit/{{renderResult?.object_information?.object_id}}">
-        </app-button>
+        <a
+          class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+          *permissionLink="'base.framework.object.edit';requirements:'UPDATE';acl:acl"
+          routerLink="/framework/object/edit/{{renderResult?.object_information?.object_id}}"
+          title="edit"
+          aria-label="Edit object">
+          <i class="fas fa-edit" aria-hidden="true"></i>
+        </a>
 
-        <app-button *permissionLink="['base.framework.object.view', 'base.framework.object.add'];requirements:['CREATE', 'READ'];acl:acl"
-            icon="fas fa-clone"
-            variant="ghost"
-            tone="neutral"
-            size="sm"
-            title="copy"
-            ariaLabel="Copy object"
-            routerLink="/framework/object/copy/{{renderResult?.object_information?.object_id}}">
-        </app-button>
+        <a
+          class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+          *permissionLink="['base.framework.object.view', 'base.framework.object.add'];requirements:['CREATE', 'READ'];acl:acl"
+          routerLink="/framework/object/copy/{{renderResult?.object_information?.object_id}}"
+          title="copy"
+          aria-label="Copy object">
+          <i class="fas fa-clone" aria-hidden="true"></i>
+        </a>
 
         <app-button *permissionLink="'base.framework.object.delete';requirements:'DELETE';acl:acl"
             icon="fas fa-trash-alt"
@@ -44,15 +40,14 @@
             (clicked)="handleDelete(renderResult?.object_information?.object_id)">
         </app-button>
 
-        <app-button *permissionLink="'base.framework.object.add';requirements:'CREATE';acl:acl"
-            icon="fas fa-file"
-            variant="ghost"
-            tone="neutral"
-            size="sm"
-            title="add new object"
-            ariaLabel="Add new object"
-            routerLink="/framework/object/add/{{renderResult?.type_information?.type_id}}">
-        </app-button>
+        <a
+          class="dg-button dg-button--ghost dg-button--neutral dg-button--sm dg-button--icon-only"
+          *permissionLink="'base.framework.object.add';requirements:'CREATE';acl:acl"
+          routerLink="/framework/object/add/{{renderResult?.type_information?.type_id}}"
+          title="add new object"
+          aria-label="Add new object">
+          <i class="fas fa-file" aria-hidden="true"></i>
+        </a>
       }
     </div>
   </div>

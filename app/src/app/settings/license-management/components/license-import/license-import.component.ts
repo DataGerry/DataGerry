@@ -50,12 +50,6 @@ export class LicenseImportComponent {
     trigger.click();
   }
 
-  public onBrowse(event: Event, trigger: HTMLInputElement): void {
-    // Stop the click bubbling to the drop zone so the dialog only opens once.
-    event.stopPropagation();
-    trigger.click();
-  }
-
   public onKeydown(event: KeyboardEvent, trigger: HTMLInputElement): void {
     event.preventDefault();
     trigger.click();

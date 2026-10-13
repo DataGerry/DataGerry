@@ -111,9 +111,7 @@ export class LocationTreeSelectComponent implements ControlValueAccessor {
         }
     }
 
-    public clear(event: MouseEvent): void {
-        event.stopPropagation();
-
+    public clear(): void {
         if (!this.clearable || this.disabled) {
             return;
         }

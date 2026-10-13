@@ -14,9 +14,9 @@
     </span>
   </span>
 
-  <button type="button" class="rack-icon-btn" aria-label="Clear selection" (click)="store.select(null)">
-    <i class="fas fa-times" aria-hidden="true"></i>
-  </button>
+  <app-button class="rack-inspector__close" icon="fas fa-times" variant="ghost" tone="neutral" size="xs"
+    ariaLabel="Clear selection" (clicked)="store.select(null)">
+  </app-button>
 </div>
 
 <div class="rack-inspector__body">

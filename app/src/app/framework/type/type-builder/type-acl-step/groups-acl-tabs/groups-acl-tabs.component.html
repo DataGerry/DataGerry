@@ -23,9 +23,15 @@
       <small>Select ACL permissions.</small>
     </td>
     <td class="col-sm">
-      <button [disabled]="!selectedGroup || selectedPermissions?.length <= 0" (click)="onAddControl()" type="button" class="btn btn-sm btn-success">
-        <i class="far fa-plus-square"></i>
-      </button>
+      <app-button
+        variant="solid"
+        tone="brand"
+        size="sm"
+        icon="far fa-plus-square"
+        ariaLabel="Add group permissions"
+        [disabled]="!selectedGroup || selectedPermissions?.length <= 0"
+        (clicked)="onAddControl()"
+      ></app-button>
     </td>
   </tr>
   @for (control of controls | keyvalue; track control) {
@@ -43,9 +49,14 @@
       </span>
     </td>
     <td class="col-sm">
-      <button type="button" class="btn btn-sm btn-danger" (click)="removeControl(control.key)">
-        <i class="far fa-trash-alt"></i>
-      </button>
+      <app-button
+        variant="solid"
+        tone="danger"
+        size="sm"
+        icon="far fa-trash-alt"
+        ariaLabel="Remove group permissions"
+        (clicked)="removeControl(control.key)"
+      ></app-button>
     </td>
   </tr>
 }

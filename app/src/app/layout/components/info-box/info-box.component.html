@@ -1,11 +1,7 @@
 <div id="infobox" class="alert alert-info shadow border" role="alert">
-  <button 
-    (click)="hideAlert()" 
-    type="button" 
-    class="btn-close" 
-    aria-label="Close"
-    style="position: absolute; top: 0.75rem; right: 0.75rem;">
-  </button>
+  <app-button class="infobox-close" variant="ghost" tone="neutral" size="sm" icon="fas fa-times"
+    ariaLabel="Close" (clicked)="hideAlert()">
+  </app-button>
   <div class="icon icon-background" role="alert"><i></i></div>
   <div class="text-area">
     <h2 class="alert-heading">Getting Started</h2>
