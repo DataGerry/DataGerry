@@ -24,6 +24,7 @@ the generated document are what the reader gets. For the admin group, and for th
 not read HIDDEN
 """
 import re
+from collections import Counter
 from http import HTTPStatus
 from io import BytesIO
 from typing import Any
@@ -33,6 +34,8 @@ from pypdf import PdfReader
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.manager import ObjectsManager
 from cmdb.manager.license_manager.license_service import LicenseService
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.docapi_model.template_engine import TemplateEngine
@@ -210,3 +213,74 @@ class TestAFrontendShapedDocument:
     def test_the_document_has_more_than_one_page(self, rest_api) -> None:
         """The cover page and the page break are still applied"""
         assert len(PdfReader(BytesIO(_render(rest_api, self.TEMPLATE_ID).data)).pages) > 1
+
+
+TEMPLATES: list[Any] = [
+    pytest.param(seed.DEFAULT_TEMPLATE_ID, id='default-template'),
+    pytest.param(seed.OBJECT_TEMPLATE_ID, id='object-template'),
+]
+
+
+class TestEachObjectIsReadAndRenderedOnce:
+    """
+    The cost of a document's references
+
+    The render route reads the root once - its 403 check - and the document's resolver renders every object the
+    references, the reference section and `object(<id>)` reach exactly once, a level at a time. Before, each
+    reference was read on its own and rendered again: 4 reads and 4 renders for the OBJECT template, 6 and 7 for
+    the DEFAULT one, which also rendered MID again for `object(<MID>)`
+    """
+
+    @pytest.fixture(name='renders')
+    def fixture_renders(self, monkeypatch: pytest.MonkeyPatch) -> list[list[int]]:
+        """Records the ids every CmdbMultiRender is built for"""
+        built: list[list[int]] = []
+        original = CmdbMultiRender.__init__
+
+        def _recording(render_self, to_render_objects, *args, **kwargs) -> None:
+            built.append([obj.public_id for obj in to_render_objects])
+            original(render_self, to_render_objects, *args, **kwargs)
+
+        monkeypatch.setattr(CmdbMultiRender, '__init__', _recording)
+
+        return built
+
+    @pytest.fixture(name='single_reads')
+    def fixture_single_reads(self, monkeypatch: pytest.MonkeyPatch) -> list[int]:
+        """Records every one-object read"""
+        reads: list[int] = []
+        original = ObjectsManager.get_object
+
+        def _recording(manager_self, public_id, *args, **kwargs) -> Any:
+            reads.append(public_id)
+            return original(manager_self, public_id, *args, **kwargs)
+
+        monkeypatch.setattr(ObjectsManager, 'get_object', _recording)
+
+        return reads
+
+    @pytest.mark.parametrize('template_id', TEMPLATES)
+    def test_only_the_root_is_read_on_its_own(self, rest_api, single_reads: list[int], template_id: int) -> None:
+        """The route's 403 check - no reference is read one by one"""
+        assert _render(rest_api, template_id).status_code == HTTPStatus.OK
+        assert single_reads == [seed.ROOT_ID]
+
+    @pytest.mark.parametrize('template_id', TEMPLATES)
+    def test_no_object_is_rendered_twice(self, rest_api, renders: list[list[int]], template_id: int) -> None:
+        """object(<MID>) reuses MID's render - and nothing the references reached is rendered again"""
+        assert _render(rest_api, template_id).status_code == HTTPStatus.OK
+
+        assert set(Counter(public_id for batch in renders for public_id in batch).values()) == {1}
+
+    @pytest.mark.parametrize('template_id,expected', [
+        pytest.param(seed.OBJECT_TEMPLATE_ID, [[seed.ROOT_ID], [seed.MID_ID, seed.HIDDEN_ID], [seed.LEAF_ID]],
+                     id='object-template'),
+        pytest.param(seed.DEFAULT_TEMPLATE_ID, [[seed.ROOT_ID], [seed.MID_ID, seed.LEAF_ID, seed.HIDDEN_ID]],
+                     id='default-template'),
+    ])
+    def test_one_render_per_level(
+            self, rest_api, renders: list[list[int]], template_id: int, expected: list[list[int]]) -> None:
+        """A DEFAULT template reaches LEAF on the first level already - through MID's reference section"""
+        assert _render(rest_api, template_id).status_code == HTTPStatus.OK
+
+        assert [sorted(batch) for batch in renders] == [sorted(level) for level in expected]

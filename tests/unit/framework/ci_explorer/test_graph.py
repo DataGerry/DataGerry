@@ -52,11 +52,16 @@ from cmdb.framework.ci_explorer.graph import (
     drop_denied_neighbours,
     index_by_public_id,
     load_relation_neighbourhood,
+    remaining_budget,
     resolve_composable,
+    resolve_type_scope,
 )
 from cmdb.framework.ci_explorer.ipam import IpamEdgeCategory, IpamNeighbour
 from cmdb.models.ci_explorer_model import NodeType
 from cmdb.errors.ci_explorer import CiExplorerGraphBuildError, CiExplorerTargetNotFoundError
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
+from cmdb.security.acl.helpers import has_type_document_access
+from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.framework.ci_explorer.graph'
@@ -111,6 +116,26 @@ def _object_relation(child_id: int = NEIGHBOUR_ID) -> dict[str, Any]:
     }
 
 
+def _types_find(types: list[dict[str, Any]]):
+    """
+    Answers framework.types reads from the given documents, the up-front denied-types query included
+
+    That query is the one read with a projection: it is answered by the real ACL rule applied to the documents, for
+    the group its criteria names - so a test states its types once and both ACL passes see the same truth
+    """
+    def _find(criteria: dict[str, Any] | None = None, projection: dict[str, Any] | None = None, **_kwargs: Any):
+        if projection is None:
+            return types
+
+        group_key: str = next(iter(criteria['$and'][1]['$nor'][0]))
+        group = SimpleNamespace(group_id=int(group_key.rsplit('.', 1)[-1]), public_id=1)
+
+        return [{'public_id': document['public_id']} for document in types
+                if not has_type_document_access(document, group, AccessControlPermission.READ)]
+
+    return _find
+
+
 def _managers(
     root: dict[str, Any] | None = None,
     object_relations: list[dict[str, Any]] | None = None,
@@ -140,7 +165,7 @@ def _managers(
     objects_manager.find.return_value = linked_objects if linked_objects is not None else []
     object_relations_manager.find.return_value = object_relations or []
     relations_manager.find.return_value = relations or []
-    types_manager.find.return_value = types if types is not None else [_type_doc()]
+    types_manager.find.side_effect = _types_find(types if types is not None else [_type_doc()])
     locations_manager.get_location_for_object.return_value = location
     locations_manager.find.return_value = []
 
@@ -338,7 +363,7 @@ class TestNothingIsDroppedSilently:
         )
 
         with patch(f'{MODULE_PATH}.LOGGER') as mock_logger:
-            neighbourhood = load_relation_neighbourhood(_request(), managers)
+            neighbourhood = load_relation_neighbourhood(_request(), managers, NeighbourTypeScope())
 
         assert neighbourhood.directional_edges == []
         assert mock_logger.warning.called
@@ -1054,3 +1079,81 @@ class TestThePortConnectionSource:
         in_scope_ids = [obj['public_id'] for obj in mock_enrich.call_args.args[0]]
 
         assert CONNECTED_CI_ID in in_scope_ids
+
+
+
+class TestTheCapCountsReadableNeighboursOnly:
+    """
+    The types the user may not read are known before any source reads
+
+    So a hidden focal object costs one type query, and every source keeps unreadable neighbours out of its own
+    read - they spend none of the item_limit budget, and a capped graph is never emptier than an uncapped one
+    """
+
+    def test_a_hidden_target_is_refused_before_any_source_reads(self) -> None:
+        """The same 404 a missing object gets - and no relation, object or location read was made"""
+        managers = _managers(root=_object(TARGET_ID, type_id=DENIED_TYPE_ID),
+                             types=[_type_doc(), _locked_type_doc()])
+
+        with pytest.raises(CiExplorerTargetNotFoundError):
+            build_ci_explorer_graph(_request(item_limit=5, with_locations=True), managers, _user())
+
+        managers.object_relations.find.assert_not_called()
+        managers.objects.find.assert_not_called()
+        managers.locations.get_location_for_object.assert_not_called()
+
+    def test_the_relation_reads_exclude_the_denied_types(self) -> None:
+        """The relations by the other side's stamped type, the linked objects by their own - both before the cap"""
+        managers = _managers(
+            object_relations=[_object_relation()], relations=[_relation_doc()],
+            linked_objects=[_object(NEIGHBOUR_ID)], types=[_type_doc(), _locked_type_doc()],
+        )
+
+        build_ci_explorer_graph(_request(item_limit=1), managers, _user())
+
+        relation_criteria = managers.object_relations.find.call_args.kwargs['criteria']
+        neighbour_side = [branch.get('relation_child_type_id') for branch in relation_criteria['$or']]
+        assert {'$nin': [DENIED_TYPE_ID]} in neighbour_side
+        assert managers.objects.find.call_args.kwargs['criteria']['type_id'] == {'$nin': [DENIED_TYPE_ID]}
+
+    def test_without_a_user_nothing_is_excluded_and_nothing_extra_is_read(self) -> None:
+        """An internal caller: no denied-types query, no exclusion"""
+        managers = _managers(object_relations=[_object_relation()], relations=[_relation_doc()],
+                             linked_objects=[_object(NEIGHBOUR_ID)])
+
+        build_ci_explorer_graph(_request(item_limit=1), managers)
+
+        assert 'type_id' not in managers.objects.find.call_args.kwargs['criteria']
+        assert all(call.kwargs.get('projection') is None for call in managers.types.find.call_args_list)
+
+
+class TestResolveTypeScope:
+    """The scope every source reads with."""
+
+    def test_the_callers_filter_and_the_denied_types(self) -> None:
+        """Allowed from the request, denied from the user's ACL"""
+        managers = _managers(types=[_type_doc(), _locked_type_doc()])
+
+        scope = resolve_type_scope(_request(types_filter=frozenset({TYPE_ID})), managers, _object(TARGET_ID), _user())
+
+        assert scope == NeighbourTypeScope(allowed=frozenset({TYPE_ID}), denied=frozenset({DENIED_TYPE_ID}))
+
+    def test_a_hidden_target_raises(self) -> None:
+        """Before anything else"""
+        managers = _managers(types=[_locked_type_doc()])
+
+        with pytest.raises(CiExplorerTargetNotFoundError):
+            resolve_type_scope(_request(), managers, _object(TARGET_ID, type_id=DENIED_TYPE_ID), _user())
+
+
+class TestRemainingBudget:
+    """The slots one source leaves to the next."""
+
+    @pytest.mark.parametrize('available,spent,expected', [(5, 2, 3), (2, 2, 0), (1, 4, 0)])
+    def test_never_below_zero(self, available: int, spent: int, expected: int) -> None:
+        """Under a cap"""
+        assert remaining_budget(_request(item_limit=5), available, spent) == expected
+
+    def test_without_a_cap_it_is_zero(self) -> None:
+        """The sources ignore it then"""
+        assert remaining_budget(_request(item_limit=0), 5, 2) == 0

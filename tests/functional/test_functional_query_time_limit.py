@@ -16,9 +16,10 @@
 """
 What the REST API answers for a query that runs past its server-side time budget
 
-Two kinds of test. A REAL burn - a ``?filter=`` the client filter guard accepts that costs server CPU per document -
-on the object list and the object export, with the budget lowered so the test stays short: the server stops the
-aggregation and the route answers 503 naming the budget. And the WIRING of every other surface, with the timeout
+Two kinds of test. A REAL burn - a ``?filter=`` the client filter guard accepts that costs server CPU per document, in
+proportion to the document's size (the guard permits nothing more) - on the object list and the object export, with
+the budget lowered so the test stays short: the server stops the aggregation and the route answers 503 naming the
+budget. And the WIRING of every other surface, with the timeout
 raised where the read happens: the search and its quick count, the ISMS reports, list routes with a hand-written
 iteration arm and a list route on an error table all answer the same 503, and the reports run under the long budget
 """
@@ -51,8 +52,10 @@ TYPE_ID: int = 92101
 FIRST_OBJECT_ID: int = 92110
 # Many cheap documents: the server checks the budget between documents
 OBJECT_COUNT: int = 1000
-# About 3 ms of server CPU per document - 3 s for them all, against a budget of 1 s
-BURN_LENGTH: int = 30000
+# Entries in each object's fields array, and how often the burn doubles it: about 3 ms of server CPU per document -
+# 3 s for them all, against a budget of 1 s - with no more than the client filter guard permits
+BURN_FIELD_COUNT: int = 600
+BURN_DOUBLINGS: int = 5
 TEST_BUDGET_MS: int = 1000
 NAME_FIELD: str = 'dg-name'
 
@@ -73,14 +76,20 @@ def _message(time_limit_ms: int) -> str:
 
 
 def _burning_filter(object_ids: list[int]) -> str:
-    """A list-shaped ?filter= the guard lets through: the seeded objects, each costing server CPU"""
+    """
+    A list-shaped ?filter= the guard lets through: the seeded objects, each costing server CPU
+
+    The guard keeps the work per document in proportion to the document, so the burn comes from the documents'
+    own size: their fields array doubled `BURN_DOUBLINGS` times, then mapped once
+    """
+    doublings: list[dict[str, Any]] = [
+        {'$addFields': {'fields': {'$concatArrays': ['$fields', '$fields']}}} for _ in range(BURN_DOUBLINGS)
+    ]
+
     return json.dumps([
         {'$match': {'public_id': {'$in': object_ids}}},
-        {'$addFields': {'burn': {'$reduce': {
-            'input': {'$range': [0, {'$add': [BURN_LENGTH, '$public_id']}]},
-            'initialValue': 0,
-            'in': {'$add': ['$$value', '$$this']},
-        }}}},
+        *doublings,
+        {'$addFields': {'burn': {'$map': {'input': '$fields', 'in': {'$toString': '$$this.value'}}}}},
     ])
 
 
@@ -108,11 +117,11 @@ def _type_doc() -> dict[str, Any]:
 
 
 def _object_doc(public_id: int) -> dict[str, Any]:
-    """An object of the seeded type."""
+    """An object of the seeded type, its one field's value repeated `BURN_FIELD_COUNT` times for the burn."""
     return {
         'public_id': public_id, 'type_id': TYPE_ID, 'active': True, 'author_id': 1, 'version': '1.0.0',
         'creation_time': datetime.now(timezone.utc),
-        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': f'host-{public_id}'}],
+        'fields': [{'type': 'text', 'name': NAME_FIELD, 'value': f'host-{public_id}'}] * BURN_FIELD_COUNT,
     }
 
 

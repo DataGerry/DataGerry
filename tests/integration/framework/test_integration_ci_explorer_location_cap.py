@@ -31,6 +31,7 @@ from cmdb.framework.ci_explorer.locations import collect_location_children_objec
 from cmdb.manager import LocationsManager, ObjectsManager
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.object_model import CmdbObject
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PARENT_NODE_ID: int = 89701
@@ -80,7 +81,7 @@ def _children(managers: tuple[LocationsManager, ObjectsManager], remaining: int,
     """The ids the collector returns for the parent node"""
     locations_manager, objects_manager = managers
     found = collect_location_children_objects(
-        {'public_id': PARENT_NODE_ID, 'parent': 1, 'object_id': PARENT_OBJECT_ID}, frozenset(), remaining, capped,
+        {'public_id': PARENT_NODE_ID, 'parent': 1, 'object_id': PARENT_OBJECT_ID}, NeighbourTypeScope(), remaining, capped,
         locations_manager, objects_manager,
     )
 

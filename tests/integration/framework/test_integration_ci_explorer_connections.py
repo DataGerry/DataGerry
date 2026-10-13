@@ -57,6 +57,7 @@ from cmdb.models.port_connection_model import (
     PortConnectionKey,
 )
 from cmdb.models.port_model import CmdbPort, PortKey, PortSide
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Objects: two devices patched through one panel
@@ -184,7 +185,7 @@ def _collect(managers: ConnectionSourceManagers, target_id: int):
     """Runs the source with no filter and no cap."""
     return collect_connection_neighbours(
         target_id=target_id,
-        types_filter=frozenset(),
+        type_scope=NeighbourTypeScope(),
         remaining=0,
         item_limit_active=False,
         managers=managers,

@@ -126,7 +126,7 @@ class CsvExportFormat(BaseExporterFormat):
         """
         # The MDS layout is derived from the (single, shared) type's rendered sections
         mds_layout = self.extract_mds_layout(data[0].sections) if data else []
-        mds_columns: list[str] = [name for _, field_names in mds_layout for name in field_names]
+        mds_columns: list[str] = self.mds_field_names(mds_layout)
 
         view, metadata = BaseExporterFormat.resolve_export_view(args)
         header, regular_columns = BaseExporterFormat.resolve_metadata_selection(metadata, DEFAULT_HEADER)
@@ -140,10 +140,8 @@ class CsvExportFormat(BaseExporterFormat):
         owned: list[str] = [field[FieldKey.NAME.value] for field in data[0].fields] if data else []
         regular_columns = self.select_owned_columns(regular_columns, owned)
 
-        # MDS fields also appear (default-valued) in the flat field list; keep them out of the regular
-        # columns so each one is emitted exactly once, as its row-expanded MDS column
-        mds_column_set: set[str] = set(mds_columns)
-        regular_columns = [name for name in regular_columns if name not in mds_column_set]
+        # Each MDS field is emitted once, as its row-expanded MDS column
+        regular_columns = self.without_mds_fields(regular_columns, mds_layout)
 
         return header, regular_columns, mds_layout, mds_columns, view
 

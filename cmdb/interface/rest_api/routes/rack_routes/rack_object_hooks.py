@@ -348,7 +348,7 @@ def reconcile_object_rack_membership(
     if target_rack_id is None:
         return
 
-    if member_object_blocker(objects_manager, types_manager, target_rack_id, object_id)[1]:
+    if member_object_blocker(objects_manager, types_manager, target_rack_id, object_id).reason:
         # The rack view would refuse this object as a member, so no membership is invented for it. The
         # location stands: this is the one case where the tree says more than the rack does
         return

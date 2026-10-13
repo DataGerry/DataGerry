@@ -25,9 +25,10 @@ class RackRight(BaseStrEnum):
 
     Every membership and placement write is guarded by EDIT: the requirement lists "add or remove an
     object" separately from "edit the values of the Rack", but both are the same right - there is no
-    dedicated mount right. These guard the RACK. What a read shows of the MOUNTED objects follows the
-    caller's object READ ACL as well: the picker offers only readable candidates, and the overview draws an
-    unreadable member's slot blank. The membership writes check no object right
+    dedicated mount right. These guard the RACK ROUTES. The object ACL is applied on top, to both objects a route
+    touches (``rack_access_helper``): every read asks READ on the Rack's type, every membership write READ and
+    UPDATE on the Rack's type AND on the member's (a membership write moves the member's location), and the
+    picker and the overview show only what the caller may read of the members
     """
     ADD = 'base.framework.rack.add'
     VIEW = 'base.framework.rack.view'
@@ -113,3 +114,15 @@ class RackMountRouteError(BaseStrEnum):
     UNKNOWN_AREA_FILTER = "'{area}' is not a valid Rack area to filter by. Allowed: {allowed}"
     MISSING_HEIGHT = "A 'height' to check against is required!"
     INVALID_HEIGHT = "'{value}' is not a valid Rack height to check against!"
+
+
+class RackAccessError(BaseStrEnum):
+    """
+    Messages of the object-ACL refusals on the Rack itself (HTTP 403)
+
+    The member's refusals are the location writes' (``location_constants.LINKED_OBJECT_*``) - a membership write
+    is a placement write. ``{object_id}`` is filled in
+    """
+    RACK_READ_DENIED = 'No permission to read the Rack with ID:{object_id}!'
+    RACK_UPDATE_DENIED = 'No permission to change the Rack with ID:{object_id}!'
+    OBJECT_READ_DENIED = 'No permission to read the Object with ID:{object_id}!'

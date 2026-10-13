@@ -30,6 +30,7 @@ from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.manager import ObjectsManager
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.docapi_model.docapi_renderer import DocApiRenderer
+from cmdb.models.docapi_model.document_reference_resolver import DocumentReferenceResolver
 from cmdb.models.docapi_model.reference_result import ReferenceResult
 from cmdb.models.docapi_model.template_engine import TemplateEngine
 from cmdb.models.object_model import CmdbObject
@@ -169,3 +170,36 @@ class TestTheObjectTemplate:
 
         assert template_input[-1][FIELDS][seed.HIDDEN_REF] is None
         assert seed.HIDDEN_VALUE not in repr(template_input[-1])
+
+
+class TestTheResolversOwnReadsAreScoped:
+    """
+    The resolver loads what no prefetch held in one query per level - through the caller's READ ACL
+
+    Asked directly, so the load path is the one tested: the default user's group may not read HIDDEN's type
+    """
+
+    def _resolver(self) -> DocumentReferenceResolver:
+        """A fresh resolver for the default user - nothing prefetched, so every id goes through the load"""
+        user: CmdbUser = seed.default_user()
+
+        return DocumentReferenceResolver(user, ManagerProvider.get_manager(ManagerType.OBJECTS, user))
+
+    def test_an_unreadable_object_is_not_loaded_or_rendered(self) -> None:
+        """None, remembered as unresolvable - its values cannot reach a document"""
+        resolver = self._resolver()
+
+        assert resolver.render_for(seed.HIDDEN_ID) is None
+        assert seed.HIDDEN_ID in resolver.unresolvable
+        assert seed.HIDDEN_ID not in resolver.objects
+
+    def test_a_readable_object_is_loaded_and_rendered(self) -> None:
+        """The same path, a type the group may read"""
+        render = self._resolver().render_for(seed.LEAF_ID)
+
+        assert render is not None
+        assert render.object_information['object_id'] == seed.LEAF_ID
+
+    def test_a_missing_object_is_none(self) -> None:
+        """An id nothing has - like an unreadable one"""
+        assert self._resolver().render_for(max(seed.ALL_OBJECT_IDS) + 1000) is None

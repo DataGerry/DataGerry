@@ -29,8 +29,9 @@ Two bug fixes against the original route (audited in Phase 2):
   - B1: item_limit consumed by the parent collector is bounded to at most 1 slot, so
     the children collector still has the remaining budget available. The original
     `remaining -= remaining` zeroed it out
-  - B2: types_filter is applied at the Mongo query level on the children collector so
-    item_limit caps the *post-filter* visible count, matching the relation side
+  - B2: the type scope (the caller's types filter and the types they may not read) is applied at the Mongo
+    query level on the children collector, so item_limit caps the *readable, post-filter* visible count,
+    matching every other source
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -39,6 +40,7 @@ from cmdb.manager import LocationsManager, ObjectsManager
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.location_model.location_constants import RootLocationDefault
+from cmdb.framework.ci_explorer.type_scope import NeighbourTypeScope
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -55,7 +57,7 @@ LOCATION_CHILDREN_SORT: list[tuple[str, int]] = [(CmdbDAO.PUBLIC_ID_KEY, CmdbDAO
 
 def collect_location_parent_object(
     target_location: dict[str, Any],
-    types_filter: frozenset[int],
+    type_scope: NeighbourTypeScope,
     remaining: int,
     item_limit_active: bool,
     locations_manager: LocationsManager,
@@ -69,14 +71,14 @@ def collect_location_parent_object(
       - ``item_limit_active`` is True and ``remaining <= 0``
       - the parent location row cannot be loaded
       - the parent location's owning object cannot be loaded
-      - ``types_filter`` is active and the parent object's type_id is not in the filter
+      - the parent object's type is outside the type scope (the caller's filter, or a type they may not read)
 
     No node composition happens here - the caller enriches the returned object alongside
     every other in-scope object before composing the final node + edge
 
     Args:
         target_location (dict[str, Any]): The CmdbLocation document of the target
-        types_filter (frozenset[int]): Allowed type_ids; empty set disables the filter
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
         remaining (int): Slot budget still available; only honored when
             ``item_limit_active`` is True
         item_limit_active (bool): Whether the route is operating under an item_limit cap
@@ -103,7 +105,7 @@ def collect_location_parent_object(
     if not parent_object:
         return None
 
-    if types_filter and parent_object['type_id'] not in types_filter:
+    if not type_scope.admits(parent_object['type_id']):
         return None
 
     return parent_object
@@ -111,7 +113,7 @@ def collect_location_parent_object(
 
 def collect_location_children_objects(
     target_location: dict[str, Any],
-    types_filter: frozenset[int],
+    type_scope: NeighbourTypeScope,
     remaining: int,
     item_limit_active: bool,
     locations_manager: LocationsManager,
@@ -120,17 +122,16 @@ def collect_location_children_objects(
     """
     Returns the list of CmdbObjects owning locations one hop *down* from the target
 
-    ``types_filter`` is applied at the Mongo query level (B2 fix) so the visible cap
-    behaves the same as on the relation side: the final slice to ``remaining`` happens
-    after the type filter, so ``item_limit`` always bounds the visible node count rather
-    than the pre-filter count. The children are read in ``public_id`` order, so the cap keeps the
-    same children on every request - a rack's members among them - and a truncation is logged, the
-    payload having no field to report it. Returns an empty list when the target has no location-
-    children or when ``item_limit_active`` is True and ``remaining <= 0``
+    The type scope - the caller's filter and the types they may not read - is applied at the Mongo query level so
+    the visible cap behaves the same as on the relation side: the final slice to ``remaining`` happens after it, so
+    ``item_limit`` bounds the readable, visible node count rather than the pre-filter count. The children are
+    read in ``public_id`` order, so the cap keeps the same children on every request - a rack's members among
+    them - and a truncation is logged, the payload having no field to report it. Returns an empty list when the
+    target has no location-children or when ``item_limit_active`` is True and ``remaining <= 0``
 
     Args:
         target_location (dict[str, Any]): The CmdbLocation document of the target
-        types_filter (frozenset[int]): Allowed type_ids; empty set disables the filter
+        type_scope (NeighbourTypeScope): The types a neighbour may be of
         remaining (int): Slot budget still available; only honored when
             ``item_limit_active`` is True
         item_limit_active (bool): Whether the route is operating under an item_limit cap
@@ -148,10 +149,7 @@ def collect_location_children_objects(
     if not object_ids:
         return []
 
-    criteria: dict[str, Any] = {'public_id': {'$in': object_ids}}
-
-    if types_filter:
-        criteria['type_id'] = {'$in': list(types_filter)}
+    criteria: dict[str, Any] = {'public_id': {'$in': object_ids}, **type_scope.object_criteria()}
 
     child_objects: list[dict[str, Any]] = list(objects_manager.find(criteria=criteria, sort=LOCATION_CHILDREN_SORT))
 

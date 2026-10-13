@@ -16,26 +16,22 @@
 """
 Unit tests for cmdb.models.docapi_model.object_template_data.ObjectTemplateData
 
-Covers location/reference/ref-section resolution (legacy and modern), reference lookup with its
-ObjectsManagerGetError fallback, multi-data-section flattening, and the top-level extraction. The
-manager-heavy __init__ is exercised once with ManagerProvider patched; the resolution helpers are
-tested on instances built without __init__ side effects.
+Covers location/reference/ref-section resolution (legacy and modern), reference resolution through the document's
+resolver with its memo, multi-data-section flattening, and the top-level extraction. Reading, rendering and the
+location names are the resolver's (`test_document_reference_resolver.py`); here it is a Mock. The resolution helpers
+are tested on instances built without __init__ side effects.
 """
 from types import SimpleNamespace
 from unittest.mock import Mock, patch
 
 import pytest
 
-from cmdb.models.docapi_model.object_template_data import ObjectTemplateData, DG_LOCATION_FIELD_NAME
+from cmdb.models.docapi_model.object_template_data import ObjectTemplateData
+from cmdb.models.docapi_model.docapi_reference_constants import DEFAULT_REFERENCE_DEPTH
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.docapi_model.reference_result import ReferenceResult
 from cmdb.models.type_model.field_type_enum import FieldType
-
-from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
-from cmdb.errors.security import AccessDeniedError
-from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.models.docapi_model import object_template_data as otd_module
-from cmdb.errors.manager.locations_manager import LocationsManagerGetError
+from cmdb.models.type_model.type_constants import DG_LOCATION_FIELD_NAME
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE: str = 'cmdb.models.docapi_model.object_template_data'
@@ -46,12 +42,13 @@ REF_SECTION: str = FieldType.REF_SECTION.value
 TEXT: str = FieldType.TEXT.value
 
 
-def _make(modern: bool = False, objects_manager=None, locations_manager=None) -> ObjectTemplateData:
-    """Builds an ObjectTemplateData without running __init__ (no manager provider / extraction)."""
+def _make(modern: bool = False, location_name: str = "Berlin") -> ObjectTemplateData:
+    """Builds an ObjectTemplateData without running __init__, on a Mock resolver with an empty memo."""
     instance = ObjectTemplateData.__new__(ObjectTemplateData)
-    instance.objects_manager = objects_manager or Mock()
+    instance.objects_manager = Mock()
     instance.request_user = Mock()
-    instance.locations_manager = locations_manager or Mock()
+    instance.reference_resolver = Mock(extracted={})
+    instance.reference_resolver.location_name.return_value = location_name
     instance.modern_templates = modern
     instance.template_type = DocapiTemplateType.DEFAULT if modern else DocapiTemplateType.OBJECT
     return instance
@@ -67,66 +64,31 @@ def _render(fields=None, mds=None, object_id: int = 5, type_id: int = 2) -> Simp
     )
 
 
-class TestResolveLocation:
-    """_resolve_location returns the location name or an empty string."""
-
-    def test_empty_value(self) -> None:
-        """A falsy location value resolves to an empty string."""
-        assert _make()._resolve_location(0) == ""
-
-    def test_present(self) -> None:
-        """A resolvable location returns its name."""
-        lm = Mock()
-        lm.get_location.return_value = {"name": "Berlin"}
-
-        assert _make(locations_manager=lm)._resolve_location(10) == "Berlin"
-
-    def test_not_found_returns_empty(self) -> None:
-        """A None location (not found, no error) resolves to an empty string."""
-        lm = Mock()
-        lm.get_location.return_value = None
-
-        assert _make(locations_manager=lm)._resolve_location(10) == ""
-
-    def test_error_returns_empty(self) -> None:
-        """A LocationsManagerGetError resolves to an empty string (not a crash)."""
-        lm = Mock()
-        lm.get_location.side_effect = LocationsManagerGetError("boom")
-
-        assert _make(locations_manager=lm)._resolve_location(10) == ""
-
-
 class TestResolveFieldDispatch:
     """_resolve_field dispatches by name (location) and template mode."""
 
     def test_location_name_dispatches_to_location(self) -> None:
-        """A field named dg_location resolves through the location path."""
-        lm = Mock()
-        lm.get_location.return_value = {"name": "Berlin"}
+        """A field named dg_location resolves through the document's location names."""
+        instance = _make()
 
-        result = _make(locations_manager=lm)._resolve_field(DG_LOCATION_FIELD_NAME, LOCATION, 10, None, 3)
-
-        assert result == "Berlin"
+        assert instance._resolve_field(DG_LOCATION_FIELD_NAME, LOCATION, 10, None, 3) == "Berlin"
+        instance.reference_resolver.location_name.assert_called_once_with(10)
 
     @pytest.mark.parametrize('modern', [True, False], ids=['default', 'object'])
     def test_any_location_typed_field_dispatches_to_location(self, modern: bool) -> None:
         """Whatever its name: a location field is its location's name, in both template types"""
-        lm = Mock()
-        lm.get_location.return_value = {"name": "Berlin"}
-        instance = _make(modern=modern, locations_manager=lm)
+        instance = _make(modern=modern)
         instance._resolve_reference = Mock()
 
         assert instance._resolve_field('placement', LOCATION, 10, None, 3) == "Berlin"
-        lm.get_location.assert_called_once_with(10)
+        instance.reference_resolver.location_name.assert_called_once_with(10)
         instance._resolve_reference.assert_not_called()
 
     def test_a_location_inside_a_reference_section_is_its_name(self) -> None:
         """The section's sub-fields dispatch through the same rule"""
-        lm = Mock()
-        lm.get_location.return_value = {"name": "Berlin"}
         references = {"fields": [{"name": "placement", "type": LOCATION, "value": 10}]}
 
-        result = _make(modern=True, locations_manager=lm)._resolve_modern_field(REF_SECTION, None, references, 3)
+        result = _make(modern=True)._resolve_modern_field(REF_SECTION, None, references, 3)
 
         assert result == {"fields": {"placement": "Berlin"}}
 
@@ -214,31 +176,6 @@ class TestResolveModernField:
         assert _make(modern=True)._resolve_modern_field(TEXT, "hello", None, 3) == "hello"
 
 
-class TestResolveReference:
-    """_resolve_reference resolves an object or falls back to None."""
-
-    @patch(f'{MODULE}.CmdbMultiRender')
-    def test_success(self, mock_render: Mock) -> None:
-        """A resolvable reference returns the referenced object's extracted data."""
-        objects_manager = Mock()
-        objects_manager.get_object.return_value = Mock()
-        mock_render.return_value.result.return_value = _render(
-            fields=[{"name": "h", "type": TEXT, "value": "v"}], object_id=9, type_id=3
-        )
-
-        result = _make(objects_manager=objects_manager)._resolve_reference(9, 3)
-
-        assert result["public_id"] == 9
-        assert result["fields"]["h"] == "v"
-
-    def test_missing_object_returns_none(self) -> None:
-        """A ObjectsManagerGetError resolves to None (reference target gone)."""
-        objects_manager = Mock()
-        objects_manager.get_object.side_effect = ObjectsManagerGetError("boom")
-
-        assert _make(objects_manager=objects_manager)._resolve_reference(9, 3) is None
-
-
 class TestExtractMds:
     """_extract_mds flattens multi-data-sections into comma-joined per-field strings."""
 
@@ -308,18 +245,31 @@ class TestExtractObjectData:
 
 
 class TestInit:
-    """__init__ wires the location manager and seeds the extracted template data."""
+    """__init__ prepares the render's references through the resolver, then extracts."""
 
-    @patch(f'{MODULE}.ManagerProvider')
-    def test_init_sets_modern_flag_and_extracts(self, mock_provider: Mock) -> None:
-        """A DEFAULT template sets modern_templates and get_template_data returns the extraction."""
-        mock_provider.get_manager.return_value = Mock()
+    def test_init_sets_modern_flag_prepares_and_extracts(self) -> None:
+        """A DEFAULT template: the levels are prepared from this render before the data is extracted"""
+        resolver = Mock(extracted={})
         render = _render(fields=[{"name": "h", "type": TEXT, "value": "v"}])
 
-        instance = ObjectTemplateData(render, Mock(), Mock(), DocapiTemplateType.DEFAULT)
+        instance = ObjectTemplateData(render, Mock(), Mock(), DocapiTemplateType.DEFAULT, resolver)
 
         assert instance.modern_templates is True
+        assert instance.reference_resolver is resolver
+        resolver.prepare.assert_called_once_with([render], DEFAULT_REFERENCE_DEPTH, True)
         assert instance.get_template_data()["fields"]["h"] == "v"
+
+    @patch(f'{MODULE}.DocumentReferenceResolver')
+    def test_without_a_resolver_one_is_started_for_this_object(self, resolver_class: Mock) -> None:
+        """For the user and the objects manager given - an OBJECT template prepares in legacy mode"""
+        objects_manager, user = Mock(), Mock()
+        render = _render()
+
+        instance = ObjectTemplateData(render, objects_manager, user, DocapiTemplateType.OBJECT)
+
+        resolver_class.assert_called_once_with(user, objects_manager)
+        assert instance.reference_resolver is resolver_class.return_value
+        resolver_class.return_value.prepare.assert_called_once_with([render], DEFAULT_REFERENCE_DEPTH, False)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -329,50 +279,49 @@ REFERENCED_ID: int = 55
 
 
 class TestResolveReference:
-    """A referenced object is read for the requesting user, and only what they may read is resolved."""
+    """A referenced object's render comes from the document's resolver; what is extracted is kept per document."""
 
-    def test_the_object_is_read_through_the_users_read_acl(self) -> None:
-        """The user and READ reach get_object - an unfiltered read put hidden objects into documents"""
+    def test_an_unresolvable_object_resolves_to_none(self) -> None:
+        """Unreadable or missing - the resolver answers None, and nothing is extracted or remembered"""
         instance = _make()
-        instance.objects_manager.get_object.side_effect = AccessDeniedError('denied')
-
-        instance._resolve_reference(REFERENCED_ID, 2)
-
-        instance.objects_manager.get_object.assert_called_once_with(
-            REFERENCED_ID, instance.request_user, AccessControlPermission.READ, as_dict=False,
-        )
-
-    def test_a_denied_object_resolves_to_none(self) -> None:
-        """Rendered blank, exactly like a missing object - none of its values reach the document"""
-        instance = _make()
-        instance.objects_manager.get_object.side_effect = AccessDeniedError('denied')
+        instance.reference_resolver.render_for.return_value = None
+        instance.extract_object_data = Mock()
 
         assert instance._resolve_reference(REFERENCED_ID, 2) is None
+        instance.reference_resolver.render_for.assert_called_once_with(REFERENCED_ID)
+        instance.extract_object_data.assert_not_called()
+        assert instance.reference_resolver.extracted == {}
 
-    def test_a_missing_object_resolves_to_none(self) -> None:
-        """get_object answers None for an id that does not exist - it is not rendered"""
+    def test_a_readable_object_is_extracted_one_level_shallower(self) -> None:
+        """The render of the referenced object, extracted with one hop less"""
         instance = _make()
-        instance.objects_manager.get_object.return_value = None
-
-        assert instance._resolve_reference(REFERENCED_ID, 2) is None
-
-    def test_a_failed_read_resolves_to_none(self) -> None:
-        """An outage on one reference costs that reference, not the document"""
-        instance = _make()
-        instance.objects_manager.get_object.side_effect = ObjectsManagerGetError('boom')
-
-        assert instance._resolve_reference(REFERENCED_ID, 2) is None
-
-    def test_a_readable_object_is_rendered_for_the_user_and_extracted(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The referenced object is rendered for the same user and extracted one level shallower"""
-        instance = _make()
-        referenced = Mock(name='referenced_object')
-        instance.objects_manager.get_object.return_value = referenced
         render = Mock(name='render')
-        renderer = Mock(return_value=Mock(result=Mock(return_value=render)))
-        monkeypatch.setattr(otd_module, 'CmdbMultiRender', renderer)
+        instance.reference_resolver.render_for.return_value = render
         instance.extract_object_data = Mock(return_value={'public_id': REFERENCED_ID})
 
         assert instance._resolve_reference(REFERENCED_ID, 2) == {'public_id': REFERENCED_ID}
-        renderer.assert_called_once_with([referenced], instance.request_user, ref_render=True)
         instance.extract_object_data.assert_called_once_with(render, 1)
+
+    def test_the_extraction_is_remembered_per_object_depth_and_mode(self) -> None:
+        """Stored under (id, depth, mode) - a second reference to it at that depth costs nothing"""
+        instance = _make(modern=True)
+        instance.reference_resolver.render_for.return_value = Mock(name='render')
+        instance.extract_object_data = Mock(return_value={'public_id': REFERENCED_ID})
+
+        first = instance._resolve_reference(REFERENCED_ID, 2)
+        second = instance._resolve_reference(REFERENCED_ID, 2)
+
+        assert first is second
+        assert instance.reference_resolver.extracted == {(REFERENCED_ID, 2, True): first}
+        instance.reference_resolver.render_for.assert_called_once_with(REFERENCED_ID)
+        instance.extract_object_data.assert_called_once()
+
+    @pytest.mark.parametrize('stored_key', [(REFERENCED_ID, 3, False), (REFERENCED_ID, 2, True), (56, 2, False)])
+    def test_another_depth_mode_or_object_is_extracted_anew(self, stored_key: tuple[int, int, bool]) -> None:
+        """A remembered extraction answers only its own key"""
+        instance = _make(modern=False)
+        instance.reference_resolver.extracted[stored_key] = {'stale': True}
+        instance.reference_resolver.render_for.return_value = Mock(name='render')
+        instance.extract_object_data = Mock(return_value={'public_id': REFERENCED_ID})
+
+        assert instance._resolve_reference(REFERENCED_ID, 2) == {'public_id': REFERENCED_ID}

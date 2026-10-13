@@ -100,6 +100,23 @@ class TestJsonExport:
             'values': [{'multi_data_id': 1, 'data': [{'name': 'f', 'value': 'v'}]}],
         }]
 
+    def test_an_mds_fields_flat_entry_is_kept_next_to_its_rows(self) -> None:
+        """
+        Deliberate: the JSON import stores `fields` as written and never backfills a flat MDS entry, so the
+        round trip keeps the stored object's flat entry only because the export writes it
+        """
+        obj = _obj(10, mds=[{'section_id': 's1', 'highest_id': 1, 'values': [
+            {'multi_data_id': 1, 'data': [{'name': 'port', 'value': 'p1'}]},
+        ]}])
+        obj.fields = [{'name': 'dg-name', 'type': 'text', 'value': 'host-1'},
+                      {'name': 'port', 'type': 'text', 'value': 'DEFAULT'}]
+        obj.sections = [{'type': 'multi-data-section', 'name': 's1', 'fields': ['port']}]
+
+        out = _export([obj])
+
+        assert out[0]['fields'] == [{'name': 'dg-name', 'value': 'host-1'}, {'name': 'port', 'value': 'DEFAULT'}]
+        assert out[0]['multi_data_sections'][0]['values'][0]['data'] == [{'name': 'port', 'value': 'p1'}]
+
     def test_declares_json_mime_type(self) -> None:
         """JSON declares the standard application/json mime type."""
         assert JsonExportFormat.MIME_TYPE == 'application/json'

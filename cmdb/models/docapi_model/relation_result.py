@@ -28,7 +28,8 @@ from cmdb.models.docapi_model.aggregated_fields import AggregatedFields
 from cmdb.models.docapi_model.docapi_cache_helper import cache_objects_and_types
 from cmdb.models.docapi_model.docapi_template_type_enum import DocapiTemplateType
 from cmdb.models.docapi_model.relation_side_enum import RelationSide
-from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
+from cmdb.models.docapi_model.docapi_reference_constants import DEFAULT_REFERENCE_DEPTH
+from cmdb.models.docapi_model.document_reference_resolver import DocumentReferenceResolver
 from cmdb.framework.rendering.render_result import RenderResult
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -52,20 +53,44 @@ class RelationResult:
         type_cache: dict[int, dict[str, Any]],
         object_relations: list[dict[str, Any]],        # scoped (for relation_fields)
         all_object_relations: list[dict[str, Any]],    # global (for traversal)
-        request_user: CmdbUser,
-        objects_manager: ObjectsManager,
         types_manager: TypesManager,
         template_type: DocapiTemplateType,
+        reference_resolver: DocumentReferenceResolver,
     ) -> None:
+        """
+        Initialises one relation hop
+
+        Args:
+            object_ids (list[int]): The objects this hop reached
+            object_cache (dict[int, dict[str, Any]]): The document's readable objects, shared by every hop
+            type_cache (dict[int, dict[str, Any]]): Their types, shared by every hop
+            object_relations (list[dict[str, Any]]): The edges that led to this hop
+            all_object_relations (list[dict[str, Any]]): Every edge, for further traversal
+            types_manager (TypesManager): The manager handling CmdbType
+            template_type (DocapiTemplateType): The document's template type
+            reference_resolver (DocumentReferenceResolver): The document's resolver, shared by every hop - it
+                also carries the user the document is rendered for and the objects manager
+        """
         self.object_ids = object_ids
         self.object_cache = object_cache
         self.type_cache = type_cache
         self.object_relations = object_relations              # scoped edges
         self.all_object_relations = all_object_relations      # global edges
-        self.request_user = request_user
-        self.objects_manager: ObjectsManager = objects_manager
         self.types_manager: TypesManager = types_manager
         self.template_type = template_type
+        self.reference_resolver: DocumentReferenceResolver = reference_resolver
+
+
+    @property
+    def request_user(self) -> CmdbUser | None:
+        """The user the document is rendered for"""
+        return self.reference_resolver.request_user
+
+
+    @property
+    def objects_manager(self) -> ObjectsManager:
+        """The manager handling CmdbObject"""
+        return self.reference_resolver.objects_manager
 
 
     def type(self, type_id: int) -> "RelationResult":
@@ -92,10 +117,9 @@ class RelationResult:
             self.type_cache,
             self.object_relations,      # keep scoped edges intact
             self.all_object_relations,  # global edges unchanged
-            self.request_user,
-            self.objects_manager,
             self.types_manager,
             self.template_type,
+            self.reference_resolver,
         )
 
 
@@ -144,10 +168,9 @@ class RelationResult:
             self.type_cache,
             next_scoped_relations,      # scoped for relation_fields
             self.all_object_relations,  # global for further traversal
-            self.request_user,
-            self.objects_manager,
             self.types_manager,
             self.template_type,
+            self.reference_resolver,
         )
 
     # Terminals
@@ -168,7 +191,8 @@ class RelationResult:
         Renders the current objects and aggregates their template fields
 
         Objects whose type is not available in the cache are skipped. All renderable objects are
-        rendered in a single CmdbMultiRender pass (one bulk lookup) rather than one render per object.
+        rendered in a single pass by the document's resolver - not again when the document already rendered
+        them - and what they reference is rendered level by level before any of them is extracted
 
         Returns:
             AggregatedFields: The per-object field dicts, aggregated for template access
@@ -190,7 +214,10 @@ class RelationResult:
             return AggregatedFields([])
 
         # References resolved through the caller's READ ACL, as for the root object
-        renders: list[RenderResult] = CmdbMultiRender(cmdb_objects, self.request_user, ref_render=True).result()
+        renders: list[RenderResult] = self.reference_resolver.render_objects(cmdb_objects)
+        self.reference_resolver.prepare(
+            renders, DEFAULT_REFERENCE_DEPTH, self.template_type == DocapiTemplateType.DEFAULT,
+        )
 
         result = [
             ObjectTemplateData(
@@ -198,6 +225,7 @@ class RelationResult:
                 self.objects_manager,
                 self.request_user,
                 self.template_type,
+                self.reference_resolver,
             ).get_template_data()["fields"]
             for render in renders
         ]

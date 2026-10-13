@@ -21,17 +21,22 @@ itself - not only to the one a caller enters through. Without that, a user who c
 Explorer learns the label, type and neighbourhood of objects they are not allowed to read anywhere
 else in the product.
 
-Two properties make the fix cheap. An ACL lives on the **CmdbType**, not on the CmdbObject, so the
-question is per type rather than per object; and the graph already bulk-loads every in-scope type in
-one ``$in`` before it composes anything. So the filter is a pure pass over documents the pipeline is
-holding anyway - **no extra query** - and it is applied once, at the single point where the whole
-union of objects is known, instead of being repeated in each source.
+An ACL lives on the **CmdbType**, not on the CmdbObject, so the question is per type rather than per object.
+It is asked twice, from the same rule:
+
+* **once before any source reads** - ``load_denied_type_ids``, one projected query on ``framework.types``. The
+  focal object is refused on it straight away, and every source keeps denied neighbours out of its own Mongo
+  read (``type_scope.NeighbourTypeScope``), so they spend none of the ``item_limit`` budget. Were they read and
+  dropped afterwards, a capped graph would come back emptier than an uncapped one - fewer nodes than the cap
+  while readable neighbours exist, and, by trying caps, a count of what the caller may not see
+* **once over the types actually loaded** - ``collect_denied_type_ids``, a pure pass with no query, as the
+  safety net that keeps a type whose ACL changed between the two reads out of the payload
 
 Two rules govern what comes out:
 
-**A denied neighbour is omitted silently.** No placeholder node, no count, nothing in the payload that
-distinguishes "there is a neighbour you may not see" from "there is no neighbour". A placeholder would
-leak exactly what the ACL hides: that the object exists.
+**A denied neighbour is omitted silently.** No placeholder node, no count, no slot of the cap - nothing in the
+payload that distinguishes "there is a neighbour you may not see" from "there is no neighbour". A placeholder,
+or a cap spent on it, would leak exactly what the ACL hides: that the object exists.
 
 **A denied focal object is a 404, identical to a missing one.** Same reasoning - a 403 would confirm
 the object exists. ``build_ci_explorer_graph`` raises ``CiExplorerTargetNotFoundError`` for both, so
@@ -45,7 +50,10 @@ an object is dropped a step later anyway, by ``resolve_composable``, because it 
 from logging import Logger, getLogger
 from typing import Any
 
+from cmdb.manager import TypesManager
 from cmdb.models.user_model import CmdbUser
+from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
+from cmdb.security.acl.builder import DENIED_TYPES_PROJECTION, build_denied_types_criteria
 from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -56,6 +64,41 @@ LOGGER: Logger = getLogger(__name__)
 CI_EXPLORER_PERMISSION: AccessControlPermission = AccessControlPermission.READ
 
 TYPE_ID_KEY: str = 'type_id'
+
+
+def load_denied_type_ids(
+        types_manager: TypesManager,
+        user: CmdbUser | None,
+        permission: AccessControlPermission = CI_EXPLORER_PERMISSION) -> frozenset[int]:
+    """
+    Reads, once per request, the CmdbTypes the requesting user may NOT read
+
+    One projected query on ``framework.types`` - the same rule ``collect_denied_type_ids`` applies to the documents
+    it is handed (``build_denied_types_criteria`` and ``has_type_document_access`` read an ACL alike). Known before
+    any source reads, it lets each source keep unreadable neighbours out of its own read, so they spend none of the
+    ``item_limit`` budget, and a hidden focal object is refused before anything else is read
+
+    Args:
+        types_manager (TypesManager): db interface for CmdbTypes
+        user (CmdbUser | None): The CmdbUser the request was made for, or None to skip the check
+        permission (AccessControlPermission): The permission the user's group must hold. Defaults to READ
+
+    Returns:
+        frozenset[int]: public_ids of the CmdbTypes the user may not read; empty without a user
+    """
+    if user is None:
+        return frozenset()
+
+    denied_types = types_manager.find(
+        criteria=build_denied_types_criteria(int(user.group_id), permission),
+        projection=DENIED_TYPES_PROJECTION,
+    )
+
+    return frozenset(
+        denied_type[TypeSchemaKey.PUBLIC_ID.value]
+        for denied_type in denied_types
+        if denied_type.get(TypeSchemaKey.PUBLIC_ID.value) is not None
+    )
 
 
 def collect_denied_type_ids(
@@ -97,13 +140,14 @@ def collect_denied_type_ids(
     return denied_type_ids
 
 
-def is_denied(document: dict[str, Any], denied_type_ids: set[int]) -> bool:
+def is_denied(document: dict[str, Any], denied_type_ids: set[int] | frozenset[int]) -> bool:
     """
     Whether one object document belongs to a CmdbType the requesting user may not read
 
     Args:
         document (dict[str, Any]): A CmdbObject document
-        denied_type_ids (set[int]): The denied CmdbType public_ids from ``collect_denied_type_ids``
+        denied_type_ids (set[int] | frozenset[int]): The denied CmdbType public_ids - from
+            ``load_denied_type_ids`` or ``collect_denied_type_ids``
 
     Returns:
         bool: True when the object must not appear in the response

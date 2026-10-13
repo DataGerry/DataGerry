@@ -41,7 +41,23 @@ __all__: list[str] = [
     'ALLOWED_LOOKUP_COLLECTIONS',
     'WRITE_PIPELINE_STAGES',
     'DENIED_EXPRESSION_OPERATORS',
+    'ALLOWED_FILTER_OPERATORS',
+    'ITERATING_EXPRESSION_OPERATORS',
+    'ARRAY_COMBINING_OPERATORS',
+    'ARRAY_BUILDING_OPERATORS',
+    'MAX_ARRAY_OPERANDS',
+    'MAX_ARRAY_BUILDING_OPERATORS',
+    'MAX_FILTER_STAGES',
+    'MAX_REDUCE_VALUE_READS',
+    'REDUCE_OPERATOR',
+    'REDUCE_VALUE_VARIABLE',
+    'REDUCE_VARIABLES',
+    'DEFAULT_MAP_VARIABLE',
+    'OPERATOR_PREFIX',
+    'VARIABLE_PREFIX',
+    'FIELD_PATH_SEPARATOR',
     'LookupKey',
+    'IterationKey',
 ]
 
 
@@ -55,6 +71,19 @@ class LookupKey(BaseStrEnum):
     FROM = 'from'
     PIPELINE = 'pipeline'
     LET = 'let'
+
+
+class IterationKey(BaseStrEnum):
+    """
+    Keys of a ``$map`` / ``$reduce`` body that the client-pipeline guard has to read
+
+    IN is the expression evaluated once per array element - the only part whose cost multiplies, so the
+    only part held to the loop rules. AS names a ``$map``'s own variable
+    """
+    INPUT = 'input'
+    AS = 'as'
+    IN = 'in'
+    INITIAL_VALUE = 'initialValue'
 
 
 class ParameterKey(BaseStrEnum):
@@ -171,3 +200,81 @@ DENIED_EXPRESSION_OPERATORS: frozenset[str] = frozenset({
     '$accumulator',
     '$where',
 })
+
+#: Every operator a client filter may name below its stages, at any depth - anything else is refused
+#:
+#: The JavaScript operators above are refused by a rule of their own; this list bounds the rest. A
+#: deny-list could not: MongoDB evaluates an expression inside one document without looking at the
+#: query's time budget (``maxTimeMS`` is checked between documents), so ANY operator that can be made
+#: to do unbounded work per document is a way past the budget - nested ``$map`` ran 104 s under the
+#: 10 s budget on three documents. Two groups:
+#:
+#: * the query operators, each a constant amount of work per stored value - the frontend's searches
+#:   use most of them and an API caller's ordinary filters the rest
+#: * the expression operators the Angular frontend builds into its object searches, counted across
+#:   ``app/src``: ``$cond``, ``$toString``, ``$dateToString``, the array builders and ``$first`` (the
+#:   ``$group`` accumulator)
+#:
+#: Widening it is a decision, not a convenience - the same rule as the stage list
+ALLOWED_FILTER_OPERATORS: frozenset[str] = frozenset({
+    # query operators
+    '$and', '$or', '$nor', '$not',
+    '$eq', '$ne', '$gt', '$gte', '$lt', '$lte', '$in', '$nin',
+    '$exists', '$type', '$size', '$all', '$elemMatch',
+    '$regex', '$options',
+    '$expr',
+    # expression operators the frontend builds
+    '$cond', '$toString', '$dateToString',
+    '$map', '$reduce', '$setUnion', '$concatArrays',
+    # the $group accumulator the frontend builds
+    '$first',
+})
+
+#: Operators that evaluate their ``in`` once per element of an array
+#:
+#: Nested, they multiply: four ``$map`` deep over a 50-entry ``fields`` array is 50**4 evaluations per
+#: document. So one may not sit inside another's ``in``, and an ``in`` may read only the loop's own
+#: variables - a field path there (``in: '$fields'``) turns a linear pass into a quadratic one
+ITERATING_EXPRESSION_OPERATORS: frozenset[str] = frozenset({'$map', '$reduce'})
+
+#: Operators that join arrays; each may double what it is given, so each takes at most two operands
+ARRAY_COMBINING_OPERATORS: frozenset[str] = frozenset({'$concatArrays', '$setUnion'})
+
+#: Operators that produce an array from arrays, counted across the whole filter
+ARRAY_BUILDING_OPERATORS: frozenset[str] = ITERATING_EXPRESSION_OPERATORS | ARRAY_COMBINING_OPERATORS
+
+#: Operands an array-combining operator may take - the frontend joins exactly two arrays
+MAX_ARRAY_OPERANDS: int = 2
+
+#: Array-building operators one filter may hold, nested ``$lookup`` pipelines included
+#:
+#: With at most two operands each, a filter can grow a stored array by at most ``2 ** this`` - and
+#: without the cap, twenty stages each doubling the last one's array is 50 * 2**20 elements per
+#: document. The frontend's object searches use four
+MAX_ARRAY_BUILDING_OPERATORS: int = 6
+
+#: Stages one filter may hold, nested ``$lookup`` pipelines included - the frontend's longest is about 20
+MAX_FILTER_STAGES: int = 32
+
+#: How often a ``$reduce``'s ``in`` may read the running value
+#:
+#: Read twice (``$concatArrays: ['$$value', '$$value']``) the value doubles per element: 2**n for an
+#: n-entry input
+MAX_REDUCE_VALUE_READS: int = 1
+
+#: The iterating operator with a running value
+REDUCE_OPERATOR: str = '$reduce'
+
+#: A ``$reduce``'s running value, and every variable its ``in`` reads (the value and the current element)
+REDUCE_VALUE_VARIABLE: str = 'value'
+REDUCE_VARIABLES: frozenset[str] = frozenset({REDUCE_VALUE_VARIABLE, 'this'})
+
+#: The variable a ``$map`` binds when its body names none under ``as``
+DEFAULT_MAP_VARIABLE: str = 'this'
+
+#: What starts an operator key, a field path (one) or a variable reference (two)
+OPERATOR_PREFIX: str = '$'
+VARIABLE_PREFIX: str = '$$'
+
+#: Separates a variable from the path read below it (``$$this.value``)
+FIELD_PATH_SEPARATOR: str = '.'

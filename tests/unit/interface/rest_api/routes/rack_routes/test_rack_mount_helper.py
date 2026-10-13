@@ -23,7 +23,7 @@ PATCH is merged onto the stored mount, and that unplacing frees the slots while 
 from datetime import datetime
 from types import SimpleNamespace
 from typing import Any
-from unittest.mock import MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 from werkzeug.exceptions import HTTPException
@@ -55,6 +55,7 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     same_rack_membership_blocker,
     shape_assignable_page,
     normalize_geometry_value,
+    member_object_blocker,
     validate_member_object_or_abort,
     validate_placement_or_abort,
     validate_shape_or_abort,
@@ -155,7 +156,7 @@ def test_get_rack_returns_the_rack_object() -> None:
     objects_manager = MagicMock()
     objects_manager.get_object.return_value = _rack_object()
 
-    assert get_rack_or_abort(objects_manager, _types_manager(), RACK_ID)['public_id'] == RACK_ID
+    assert get_rack_or_abort(objects_manager, _types_manager(), RACK_ID, None)['public_id'] == RACK_ID
 
 
 def test_get_rack_aborts_404_when_nothing_carries_the_id() -> None:
@@ -164,7 +165,7 @@ def test_get_rack_aborts_404_when_nothing_carries_the_id() -> None:
     objects_manager.get_object.return_value = None
 
     with pytest.raises(HTTPException) as err:
-        get_rack_or_abort(objects_manager, _types_manager(), RACK_ID)
+        get_rack_or_abort(objects_manager, _types_manager(), RACK_ID, None)
 
     assert err.value.code == 404
 
@@ -179,7 +180,7 @@ def test_get_rack_aborts_400_when_the_object_is_not_a_rack() -> None:
     objects_manager.get_object.return_value = {'public_id': RACK_ID, 'type_id': PLAIN_TYPE_ID}
 
     with pytest.raises(HTTPException) as err:
-        get_rack_or_abort(objects_manager, _types_manager(), RACK_ID)
+        get_rack_or_abort(objects_manager, _types_manager(), RACK_ID, None)
 
     assert err.value.code == 400
 
@@ -212,7 +213,9 @@ def test_a_plain_object_may_be_mounted() -> None:
     objects_manager = MagicMock()
     objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}
 
-    assert validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID) == OBJECT_ID
+    assert validate_member_object_or_abort(
+        objects_manager, _types_manager(), RACK_ID, OBJECT_ID, None,
+    ) == OBJECT_ID
 
 
 def test_a_string_object_id_is_accepted_and_coerced() -> None:
@@ -220,13 +223,15 @@ def test_a_string_object_id_is_accepted_and_coerced() -> None:
     objects_manager = MagicMock()
     objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}
 
-    assert validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, str(OBJECT_ID)) == OBJECT_ID
+    assert validate_member_object_or_abort(
+        objects_manager, _types_manager(), RACK_ID, str(OBJECT_ID), None,
+    ) == OBJECT_ID
 
 
 def test_a_missing_object_id_is_refused() -> None:
     """There is nothing to mount without an object"""
     with pytest.raises(HTTPException) as err:
-        validate_member_object_or_abort(MagicMock(), _types_manager(), RACK_ID, None)
+        validate_member_object_or_abort(MagicMock(), _types_manager(), RACK_ID, None, None)
 
     assert err.value.code == 400
 
@@ -235,7 +240,7 @@ def test_a_missing_object_id_is_refused() -> None:
 def test_an_unusable_object_id_is_refused(object_id: Any) -> None:
     """A public_id is a positive whole number"""
     with pytest.raises(HTTPException) as err:
-        validate_member_object_or_abort(MagicMock(), _types_manager(), RACK_ID, object_id)
+        validate_member_object_or_abort(MagicMock(), _types_manager(), RACK_ID, object_id, None)
 
     assert err.value.code == 400
 
@@ -245,7 +250,7 @@ def test_mounting_the_rack_into_itself_is_refused() -> None:
     objects_manager = MagicMock()
 
     with pytest.raises(HTTPException) as err:
-        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, RACK_ID)
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, RACK_ID, None)
 
     assert err.value.code == 400
     objects_manager.get_object.assert_not_called()
@@ -257,7 +262,7 @@ def test_mounting_a_nonexistent_object_is_refused() -> None:
     objects_manager.get_object.return_value = None
 
     with pytest.raises(HTTPException) as err:
-        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID)
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID, None)
 
     assert err.value.code == 400
 
@@ -268,7 +273,7 @@ def test_mounting_another_rack_is_refused() -> None:
     objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': RACK_TYPE_ID}
 
     with pytest.raises(HTTPException) as err:
-        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID)
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID, None)
 
     assert err.value.code == 400
     assert 'another Rack' in err.value.description
@@ -285,7 +290,7 @@ def test_mounting_an_object_whose_type_has_no_location_field_is_refused() -> Non
     objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': NO_LOCATION_TYPE_ID}
 
     with pytest.raises(HTTPException) as err:
-        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID)
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID, None)
 
     assert err.value.code == 400
     assert 'location field' in err.value.description
@@ -297,7 +302,7 @@ def test_mounting_an_object_whose_type_vanished_is_refused() -> None:
     objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': 4242}
 
     with pytest.raises(HTTPException) as err:
-        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID)
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID, None)
 
     assert err.value.code == 400
 
@@ -1146,3 +1151,76 @@ def test_echoing_the_stored_kind_back_is_allowed() -> None:
     """A client that PATCHes the whole row must not be refused for sending what is already there"""
     refuse_kind_change(_stored_mount(kind=RackMountKind.RESERVATION.value),
                        {'kind': RackMountKind.RESERVATION.value})
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                          the object ACL on rack and member                                          #
+# -------------------------------------------------------------------------------------------------------------------- #
+HELPER_MODULE: str = 'cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper'
+CALLER: MagicMock = MagicMock(name='caller')
+
+
+def _forbidden(*_args: Any, **_kwargs: Any) -> None:
+    """What authorize_rack_or_abort does for a rack the caller may not use"""
+    raise HTTPException(response=MagicMock(status_code=403))
+
+
+def test_get_rack_judges_the_acl_before_the_type() -> None:
+    """A hidden id that is no Rack is a 403, not the 400 that would say what kind of object it is"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': RACK_ID, 'type_id': PLAIN_TYPE_ID}
+    types_manager = _types_manager()
+
+    with patch(f'{HELPER_MODULE}.authorize_rack_or_abort', side_effect=_forbidden), \
+         pytest.raises(HTTPException):
+        get_rack_or_abort(objects_manager, types_manager, RACK_ID, CALLER)
+
+    types_manager.get_type.assert_not_called()
+
+
+@pytest.mark.parametrize('write', [False, True])
+def test_get_rack_hands_the_caller_and_the_kind_of_route_on(write: bool) -> None:
+    """READ for a read, READ and UPDATE for a membership write"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = _rack_object()
+
+    with patch(f'{HELPER_MODULE}.authorize_rack_or_abort') as rack_check:
+        get_rack_or_abort(objects_manager, _types_manager(), RACK_ID, CALLER, write=write)
+
+    rack_check.assert_called_once_with(_rack_object(), objects_manager, CALLER, write)
+
+
+def test_a_member_the_caller_may_not_move_is_a_403() -> None:
+    """The ACL's reason, as a 403 rather than a mount rule's 400"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}
+
+    with patch(f'{HELPER_MODULE}.member_access_blocker', return_value='may not move it'), \
+         pytest.raises(HTTPException) as err:
+        validate_member_object_or_abort(objects_manager, _types_manager(), RACK_ID, OBJECT_ID, CALLER)
+
+    assert err.value.code == 403
+    assert 'may not move it' in err.value.description
+
+
+def test_the_member_acl_is_judged_before_the_mount_rules() -> None:
+    """A hidden Rack offered as a member: the ACL answers, not "is a Rack" - its kind stays unsaid"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': RACK_TYPE_ID}
+
+    with patch(f'{HELPER_MODULE}.member_access_blocker', return_value='hidden'):
+        check = member_object_blocker(objects_manager, _types_manager(), RACK_ID, OBJECT_ID, CALLER)
+
+    assert check == (OBJECT_ID, 'hidden', True)
+
+
+def test_without_a_caller_no_member_acl_is_asked() -> None:
+    """The location tree's own reconcile: its write was judged already"""
+    objects_manager = MagicMock()
+    objects_manager.get_object.return_value = {'public_id': OBJECT_ID, 'type_id': PLAIN_TYPE_ID}
+
+    with patch(f'{HELPER_MODULE}.member_access_blocker') as access:
+        check = member_object_blocker(objects_manager, _types_manager(), RACK_ID, OBJECT_ID)
+
+    access.assert_not_called()
+    assert check == (OBJECT_ID, None, False)

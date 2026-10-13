@@ -112,7 +112,8 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 400 when the object is not a Rack or a read fails, 404 when the Rack does not
+        HTTPException: 403 when the caller may not read the Rack (the object ACL on its type),
+                       400 when the object is not a Rack or a read fails, 404 when the Rack does not
                        exist, 500 on an unexpected error
 
     Returns:
@@ -124,7 +125,7 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
         rack_mounts_manager: RackMountsManager = ManagerProvider.get_manager(
             ManagerType.RACK_MOUNTS, request_user)
 
-        get_rack_or_abort(objects_manager, types_manager, rack_id)
+        get_rack_or_abort(objects_manager, types_manager, rack_id, request_user)
 
         # Every mounted object when the caller asked for free ones only, otherwise just this rack's own
         # members - the objects in another rack stay in the list and are offered as a move

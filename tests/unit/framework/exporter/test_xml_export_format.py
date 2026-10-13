@@ -22,7 +22,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from cmdb.framework.exporter.format.xml_export_format import XmlExportFormat
+from cmdb.framework.exporter.format.xml_export_format import XmlExportFormat, keep_whitespace_references
 from cmdb.errors.exporter import ExporterCharacterError, ExporterMetadataError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -52,11 +52,13 @@ ABSENT_HEAD: str = 'author_id'
 EMPTY_DOCUMENT: str = '<?xml version="1.0" ?>\n<objects/>\n'
 
 
-def _obj(object_id: int, type_id: int = 5, type_label: str = 'Server', fields=None, mds=None) -> SimpleNamespace:
-    """A stand-in RenderResult with the given fields (defaulting to one text field) and optional MDS."""
+def _obj(object_id: int, type_id: int = 5, type_label: str = 'Server', fields=None, mds=None,
+         sections=None) -> SimpleNamespace:
+    """A stand-in RenderResult with the given fields (defaulting to one text field), optional MDS and sections."""
     return SimpleNamespace(
         fields=fields if fields is not None else [{'name': 'dg-name', 'type': 'text', 'value': 'host-1'}],
         multi_data_sections=mds or [],
+        sections=sections or [],
         object_information={'object_id': object_id, 'active': True},
         type_information={'type_id': type_id, 'type_label': type_label},
     )
@@ -206,12 +208,55 @@ class TestXmlExport:
         with pytest.raises(ExporterCharacterError):
             XmlExportFormat().export([obj])
 
-    @pytest.mark.parametrize('value', ['line1\nline2', 'tab\there', 'q"<&>\'', 'ü€😀'])
-    def test_value_xml_can_carry_is_exported(self, value: str) -> None:
-        """Tab, line feed, markup characters and non-ASCII text are exported, not refused."""
+    @pytest.mark.parametrize('value', [
+        'line1\nline2', 'tab\there', 'crlf\r\nnext', 'cr\ronly', ' lead and trail ', 'q"<&>\'', 'ü€😀',
+    ])
+    def test_value_xml_can_carry_reads_back_as_exported(self, value: str) -> None:
+        """Whitespace, markup characters and non-ASCII text are exported - and an XML reader gets them back"""
         root = _export([_obj(10, fields=[_field(SHARED_FIELD, value)])])
 
-        assert root.find('object/fields/field').attrib['name'] == SHARED_FIELD
+        assert root.find('object/fields/field').attrib['value'] == value
+
+    def test_a_line_break_is_a_character_reference_in_the_file(self) -> None:
+        """The bytes: `&#10;` / `&#13;` / `&#9;` inside the attribute, never the raw character"""
+        document = XmlExportFormat().export([_obj(10, fields=[_field(SHARED_FIELD, 'a\r\nb\tc')])])
+
+        assert 'value="a&#13;&#10;b&#9;c"' in document
+
+    def test_an_mds_row_value_reads_back_as_exported(self) -> None:
+        """Row values are attributes too"""
+        mds = [{'section_id': 's1', 'highest_id': 1, 'values': [
+            {'multi_data_id': 1, 'data': [{'name': 'note', 'value': 'r1\nr2\tr3'}]},
+        ]}]
+
+        field = _export([_obj(10, mds=mds)]).find('object/multi_data_sections/section/row/field')
+
+        assert field.attrib['value'] == 'r1\nr2\tr3'
+
+    def test_a_carriage_return_in_meta_text_reads_back(self) -> None:
+        """Element text keeps a line feed and a tab anyway; a carriage return only as a reference"""
+        root = _export([_obj(10, type_label='a\r\nb\tc')])
+
+        assert root.find('object/meta/type').text == 'a\r\nb\tc'
+
+    def test_a_refusal_names_the_object_and_the_field(self) -> None:
+        """In an export of thousands of objects the reader has to find the value"""
+        with pytest.raises(ExporterCharacterError, match=r"Object 10, field 'name'.*U\+0007"):
+            XmlExportFormat().export([_obj(10, fields=[_field(SHARED_FIELD, 'bell\x07')])])
+
+    def test_a_refusal_in_an_mds_row_names_its_section(self) -> None:
+        """Field and multi-data section"""
+        mds = [{'section_id': 'ports', 'highest_id': 1, 'values': [
+            {'multi_data_id': 1, 'data': [{'name': 'port', 'value': 'eth\x00'}]},
+        ]}]
+
+        with pytest.raises(ExporterCharacterError, match=r"Object 12, field 'port' of multi-data section 'ports'"):
+            XmlExportFormat().export([_obj(12, mds=mds)])
+
+    def test_a_refusal_in_the_meta_block_names_the_entry(self) -> None:
+        """The header entry the text was written for"""
+        with pytest.raises(ExporterCharacterError, match=r"Object 10, field 'type_label'"):
+            XmlExportFormat().export([_obj(10, type_label='bad\x07label')])
 
     def test_single_type_document_bytes(self) -> None:
         """The exact document text of a single-type export: declaration, tab indentation, self-closing fields."""
@@ -257,6 +302,84 @@ class TestXmlExport:
         assert rows[0].find('field').attrib == {'name': 'f', 'value': 'v'}
         assert rows[1].find('field').attrib == {'name': 'f', 'value': 'w'}
 
+    # ---------------------------------------- an MDS field is written once ---------------------------------------- #
+
+    MDS_SECTIONS: list[dict] = [
+        {'type': 'section', 'name': 'main', 'fields': ['dg-name']},
+        {'type': 'multi-data-section', 'name': 's1', 'fields': ['port', 'speed']},
+    ]
+    MDS_ROWS: list[dict] = [{'section_id': 's1', 'highest_id': 2, 'values': [
+        {'multi_data_id': 1, 'data': [{'name': 'port', 'value': 'p1'}, {'name': 'speed', 'value': '1G'}]},
+        {'multi_data_id': 2, 'data': [{'name': 'port', 'value': 'p2'}, {'name': 'speed', 'value': '10G'}]},
+    ]}]
+
+    def _mds_object(self, object_id: int = 10, type_id: int = 5) -> SimpleNamespace:
+        """An object whose flat list carries its MDS fields with values no row holds - as the renderer gives it"""
+        return _obj(object_id, type_id=type_id, mds=self.MDS_ROWS, sections=self.MDS_SECTIONS, fields=[
+            _field('dg-name', 'host-1'), _field('port', 'DEFAULT'), _field('speed', 'flat-speed'),
+        ])
+
+    def test_an_mds_field_is_not_repeated_under_fields(self) -> None:
+        """<fields> holds the regular fields; the flat value no row holds is nowhere in the document"""
+        document_root = _export([self._mds_object()])
+        obj = document_root.find('object')
+
+        assert _field_pairs(obj) == [('dg-name', 'host-1')]
+        assert 'DEFAULT' not in ET.tostring(document_root, encoding='unicode')
+        assert 'flat-speed' not in ET.tostring(document_root, encoding='unicode')
+
+    def test_each_mds_field_is_written_once_per_row(self) -> None:
+        """Under <multi_data_sections>, with the row's own values"""
+        obj = _export([self._mds_object()]).find('object')
+
+        names = [field.attrib['name'] for field in obj.iter('field')]
+        assert names.count('port') == 2 and names.count('speed') == 2
+        rows = obj.findall('multi_data_sections/section/row')
+        assert [(f.attrib['name'], f.attrib['value']) for f in rows[1].findall('field')] == [
+            ('port', 'p2'), ('speed', '10G'),
+        ]
+
+    def test_a_selected_mds_field_is_still_written_in_its_rows_only(self) -> None:
+        """A render-view selection naming an MDS field does not bring the flat copy back"""
+        metadata = {'header': ['public_id'], 'columns': ['port', 'dg-name']}
+
+        obj = _export([self._mds_object()], {'view': 'render', 'metadata': metadata}).find('object')
+
+        assert _field_pairs(obj) == [('dg-name', 'host-1')]
+
+    def test_a_multitype_export_reads_each_objects_own_layout(self) -> None:
+        """An object of a type without that MDS section keeps a field of the same name under <fields>"""
+        plain = _obj(11, type_id=6, fields=[_field('dg-name', 'host-2'), _field('port', 'kept')])
+
+        objects = _export([self._mds_object(), plain]).findall('object')
+
+        assert _field_pairs(objects[0]) == [('dg-name', 'host-1')]
+        assert _field_pairs(objects[1]) == [('dg-name', 'host-2'), ('port', 'kept')]
+
     def test_declares_xml_mime_type(self) -> None:
         """XML declares the text/xml mime type (matching the previous writer text/<ext> fallback)."""
         assert XmlExportFormat.MIME_TYPE == 'text/xml'
+
+
+class TestKeepWhitespaceReferences:
+    """keep_whitespace_references - the pass over the serialized document."""
+
+    def test_attribute_whitespace_becomes_references(self) -> None:
+        """Line feed, carriage return and tab, inside an attribute value"""
+        assert keep_whitespace_references('<f v="a\nb\rc\td"/>') == '<f v="a&#10;b&#13;c&#9;d"/>'
+
+    def test_the_indentation_between_elements_is_left_alone(self) -> None:
+        """Pretty-printing's line feeds and tabs are outside every attribute"""
+        document = '<a>\n\t<f v="x"/>\n</a>\n'
+
+        assert keep_whitespace_references(document) == document
+
+    def test_a_carriage_return_in_text_becomes_a_reference(self) -> None:
+        """Text keeps its line feed and tab - they read back as they are"""
+        assert keep_whitespace_references('<t>a\r\nb\tc</t>') == '<t>a&#13;\nb\tc</t>'
+
+    def test_an_already_escaped_document_is_unchanged(self) -> None:
+        """A minidom that writes the references itself leaves nothing raw - the output is the same"""
+        document = '<?xml version="1.0" ?>\n<f v="a&#10;b&#9;c&#13;"/>\n'
+
+        assert keep_whitespace_references(document) == document
