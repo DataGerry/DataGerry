@@ -16,8 +16,9 @@
 """
 HTTP routes for the CmdbUserGroup resource
 
-Five endpoints: POST / (create), GET|HEAD / (list), GET|HEAD /<id> (single), PUT|PATCH /<id>
-(update), DELETE /<id> (delete with optional user-redistribution). Every endpoint requires an
+Six endpoints: POST / (create), GET|HEAD / (list), GET|HEAD /<id> (single), GET /<id>/usage (where the group is
+still used - the delete's pre-check), PUT|PATCH /<id> (update), DELETE /<id> (delete with optional
+user-redistribution). Every endpoint requires an
 authenticated user with API level ADMIN; per-route ``protect`` decorators check the matching
 ``base.user-management.group.*`` right. Both writes accept only right names the right tree knows
 and store them in one form, as name strings in tree order (``GroupsManager.canonical_right_names`` on
@@ -36,6 +37,8 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import (
     GroupsManager,
+    SettingsManager,
+    TypesManager,
     UserSettingsManager,
     UsersManager,
 )
@@ -84,10 +87,17 @@ from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_co
     GROUP_DELETE_RIGHT,
     GROUPS_COLLECTION_ROUTE,
     GROUP_ITEM_ROUTE,
+    GROUP_USAGE_ROUTE,
     GROUP_ADMIN_MEMBER_MSG,
     GROUP_CREATED_NOT_READABLE_MSG,
     GROUP_DELETE_UNDO_INCOMPLETE_MSG,
     GROUP_NAME_TAKEN_MSG,
+)
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.group_usage_helper import (
+    GroupUsage,
+    abort_if_group_in_use,
+    read_group_usage,
+    remove_group_from_type_acls,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_helper import (
     resolve_move_target,
@@ -268,6 +278,66 @@ def get_cmdb_user_group(public_id: int, request_user: CmdbUser) -> Response:
         LOGGER.error("[get_cmdb_user_group] %s", err, exc_info=True)
         abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
 
+@groups_blueprint.route(GROUP_USAGE_ROUTE, methods=['GET'])
+@insert_request_user
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
+@groups_blueprint.protect(auth=True, right=GROUP_VIEW_RIGHT)
+@handle_route_errors("while reading where the UserGroup with ID:{public_id} is used")
+def get_cmdb_user_group_usage(public_id: int, request_user: CmdbUser) -> Response:
+    """
+    HTTP ``GET`` route answering where a CmdbUserGroup is still used - the pre-check of its delete
+
+    The same census the delete runs (``read_group_usage``): the members, whether the LDAP provider's default group
+    or a mapping row names the group, the types whose activated ACL grants no other existing group, and every type
+    whose ACL names it. ``blocks_delete`` is True exactly when the delete would be refused for a holder other than
+    the members, which the delete's ``action`` handles
+
+    Status codes:
+        200 OK: ``GetSingleResponse`` carrying the census (``GroupUsageKey``)
+        404 NOT_FOUND: No group with the given public_id exists
+        400 BAD_REQUEST: The group could not be read at the manager layer
+        500: Unexpected error
+
+    Args:
+        public_id (int): public_id of the CmdbUserGroup
+        request_user (CmdbUser): User making the request (injected by ``@insert_request_user``)
+
+    Returns:
+        Response: ``GetSingleResponse`` carrying the census
+    """
+    try:
+        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+
+        if not groups_manager.group_exists(public_id):
+            abort(404, f"The UserGroup with ID:{public_id} was not found!")
+
+        usage: GroupUsage = read_group_usage(public_id, _usage_managers(request_user, groups_manager))
+
+        return GetSingleResponse(usage.to_json()).make_response()
+    except GroupsManagerGetError as err:
+        LOGGER.error("[get_cmdb_user_group_usage] %s", err, exc_info=True)
+        abort(400, f"Failed to retrieve the UserGroup with ID:{public_id}!")
+
+
+def _usage_managers(
+        request_user: CmdbUser,
+        groups_manager: GroupsManager) -> tuple[UsersManager, SettingsManager, TypesManager, GroupsManager]:
+    """
+    The managers the group usage census reads through, for the request's tenant
+
+    Args:
+        request_user (CmdbUser): User making the request
+        groups_manager (GroupsManager): The request's groups manager, already built
+
+    Returns:
+        tuple[UsersManager, SettingsManager, TypesManager, GroupsManager]: In ``read_group_usage``'s order
+    """
+    users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
+    settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+    types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+
+    return users_manager, settings_manager, types_manager, groups_manager
+
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
 @groups_blueprint.route(GROUP_ITEM_ROUTE, methods=['PUT', 'PATCH'])
@@ -369,6 +439,11 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
       * ``None`` — allowed only for a group with no members; with members it is refused (400), since
         they would be left pointing at a group that no longer exists
 
+    Whatever the action, the delete is refused (400) while the LDAP settings name the group (its default group or a
+    mapping row) or a type's activated ACL grants no other existing group - that type would be locked for everyone.
+    ``GET /groups/<id>/usage`` answers the same census beforehand. A type ACL naming the group next to other granted
+    groups loses the group's entry, inside the same ledger
+
     Every refusal runs before anything is written. The writes - the redistribution
     (``redistribute_members``), then the group delete - are recorded in a WriteLedger first, so a failure
     part-way is undone: moved members moved back, deleted members and their settings re-inserted, the
@@ -378,7 +453,8 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
     Status codes:
         202 ACCEPTED: Deleted; body is the serialized deleted group
         400 BAD_REQUEST: Protected group, ``action`` is not a ``GroupDeleteMode`` member (refused by
-            the parameter parsing, before any side effect), no ``action`` for a group with members,
+            the parameter parsing, before any side effect), no ``action`` for a group with members, the group
+            still named by the LDAP settings or the only grantee of a type ACL,
             ``MOVE`` requested without a target ``group_id`` or into the group being deleted, the admin
             user is a member on ``DELETE``, or a read failed at the manager layer
         404 NOT_FOUND: Source group not found, or ``MOVE`` target group not found
@@ -415,6 +491,14 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
         abort_if_members_would_be_stranded(users_manager, public_id, params.action)
         abort_if_admin_would_be_deleted(users_manager, public_id, params.action)
 
+        # The LDAP settings naming the group, or a type ACL granting only it, keep it - members are the action's
+        types_manager: TypesManager = ManagerProvider.get_manager(ManagerType.TYPES, request_user)
+        auth_settings_manager: SettingsManager = ManagerProvider.get_manager(ManagerType.SETTINGS, request_user)
+        usage: GroupUsage = read_group_usage(
+            public_id, (users_manager, auth_settings_manager, types_manager, groups_manager),
+        )
+        abort_if_group_in_use(usage, public_id)
+
         # The stored document, for the undo to re-insert: the model above resolves the rights, the store keeps names
         group_snapshot: dict[str, Any] | None = groups_manager.get_item(public_id, as_dict=True)
 
@@ -426,6 +510,9 @@ def delete_cmdb_user_group(public_id: int, params: GroupDeletionParameters, requ
                 redistribute_members(
                     ledger, (users_manager, settings_manager), public_id, params.action, params.group_id
                 )
+
+            # A type ACL naming the group next to other granted groups only loses the group's entry
+            remove_group_from_type_acls(ledger, types_manager, public_id, usage)
 
             ledger.deleted(groups_manager, public_id, group_snapshot)
             groups_manager.delete_group(public_id)

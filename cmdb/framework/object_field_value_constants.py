@@ -88,3 +88,31 @@ class PatternVerdict(BaseStrEnum):
     MATCH = 'match'
     MISMATCH = 'mismatch'
     TIMED_OUT = 'timed-out'
+
+
+class FieldPatternError(BaseStrEnum):
+    """
+    Why a field's declared ``regex`` is refused on the CmdbType, section-template and type-import writes
+
+    A field pattern is enforced twice: by the object form in the browser (JavaScript ``RegExp``, no flags) and by the
+    object write on the server (Python ``regex``). A pattern the two read differently, or one only one of them can
+    read, would make them disagree about the same value - so it is refused when it is written
+    """
+    NOT_A_STRING = "The pattern of field '{field}' must be text, not {kind}"
+    NOT_COMPILABLE = "The pattern of field '{field}' cannot be compiled by the server: {detail}"
+    DIALECT = (
+        "The pattern of field '{field}' uses '{construct}', which the browser and the server read differently "
+        "(or only one of them accepts) - write it without that construct"
+    )
+
+
+# The constructs the scanner reports, spelled as the refusal names them
+DIALECT_ESCAPES: frozenset[str] = frozenset('pPAZzck')
+DIALECT_CODE_POINT_ESCAPE: str = '\\u{'
+DIALECT_POSIX_CLASS: str = '[:'
+DIALECT_EMPTY_CLASS: str = '[]'
+DIALECT_EMPTY_NEGATED_CLASS: str = '[^]'
+DIALECT_OPEN_LOWER_BOUND: str = '{,n}'
+DIALECT_POSSESSIVE_SUFFIX: str = '+'
+# The group openers after '(?' both dialects read the same: non-capturing, lookahead, lookbehind, named group
+PORTABLE_GROUP_OPENERS: tuple[str, ...] = (':', '=', '!', '<=', '<!')

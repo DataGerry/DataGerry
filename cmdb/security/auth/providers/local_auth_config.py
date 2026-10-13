@@ -16,9 +16,7 @@
 """
 Implementation of LocalAuthenticationProviderConfig
 """
-from typing import Any
-
-from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, PROVIDER_ACTIVE_KEY
+from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class LocalAuthenticationProviderConfig(BaseAuthProviderConfig):
@@ -29,24 +27,9 @@ class LocalAuthenticationProviderConfig(BaseAuthProviderConfig):
     flag says - local login is the way back into an instance - so the flag is the stored setting the
     settings page shows, not a switch that can lock anyone out
 
+    A missing flag (None) reads as the class default, active - the base class resolves it. A stored config
+    written without the key would otherwise carry None, which is falsy, and be shown and re-saved as inactive.
+    A flag that is no boolean is refused (`ProviderConfigError`), like every provider's
+
     Extends: BaseAuthProviderConfig
     """
-
-    def __init__(self, active: bool | None = None, **kwargs: Any) -> None:
-        """
-        Initializes the configuration for the LocalAuthenticationProvider
-
-        A missing flag (None) reads as the class default, active. A stored config written without the
-        key would otherwise carry None, which is falsy, and be shown and re-saved as inactive
-
-        Args:
-            active (bool | None): Whether the provider is configured active; None means the default, True
-            **kwargs (Any): Any additional keyword arguments passed to the base class initialization
-
-        Inherited Attributes:
-            active (bool): The resolved flag - the given value, or True when none was given
-        """
-        if active is None:
-            active = self.DEFAULT_CONFIG_VALUES[PROVIDER_ACTIVE_KEY]
-
-        super().__init__(active, **kwargs)

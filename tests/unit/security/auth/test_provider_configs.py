@@ -24,19 +24,43 @@ Both halves matter to `AuthModule.__init_settings`, which parses a stored config
 provider's config class and falls back to that provider's defaults when the parse raises - so what
 these classes accept decides whether an administrator's saved LDAP settings survive an upgrade.
 """
+from copy import deepcopy
+from typing import Any
+
 import pytest
 
-from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, PROVIDER_ACTIVE_KEY
+from cmdb.security.auth.base_provider_config import (
+    FLAG_NOT_BOOLEAN_MSG,
+    PROVIDER_ACTIVE_KEY,
+    BaseAuthProviderConfig,
+    validated_flag,
+)
 from cmdb.security.auth.providers.local_auth_config import LocalAuthenticationProviderConfig
-from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
+from cmdb.security.auth.providers.ldap_auth_config import (
+    GROUPS_ACTIVE_FLAG,
+    GROUPS_NOT_AN_OBJECT_MSG,
+    LdapAuthenticationProviderConfig,
+)
+from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
+from cmdb.security.auth.providers.ldap_constants import LdapGroupsKey
 
-from cmdb.errors.provider import GroupMappingError
+from cmdb.errors.provider import GroupMappingError, ProviderConfigError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 GROUP_DN: str = 'cn=cmdb-admins,ou=groups,dc=example,dc=com'
 OTHER_GROUP_DN: str = 'cn=cmdb-users,ou=groups,dc=example,dc=com'
 GROUP_ID: int = 7
 OTHER_GROUP_ID: int = 8
+FLAG_KEY: str = 'some_flag'
+LDAP_HOST: str = 'ldap.example.com'
+
+# Values a flag may arrive as that are no boolean - the strings among them truthy, whatever they spell
+NOT_BOOLEANS: list[Any] = ['false', 'true', '0', '', 'no', 0, 1, [], {}, 0.0]
+
+
+def _not_boolean_message(key: str, value: Any) -> str:
+    """The refusal of a flag that is no boolean"""
+    return FLAG_NOT_BOOLEAN_MSG.format(key=key, kind=type(value).__name__)
 
 
 def _ldap_config(mapping: list[dict] | None = None) -> LdapAuthenticationProviderConfig:
@@ -45,6 +69,28 @@ def _ldap_config(mapping: list[dict] | None = None) -> LdapAuthenticationProvide
     values['groups'] = {**values['groups'], 'mapping': mapping if mapping is not None else []}
 
     return LdapAuthenticationProviderConfig(**values)
+
+
+class TestValidatedFlag:
+    """validated_flag: only a real boolean is a flag"""
+
+    @pytest.mark.parametrize('default', [True, False])
+    def test_an_absent_flag_is_the_default(self, default: bool) -> None:
+        """None is how an absent key arrives"""
+        assert validated_flag(None, default, FLAG_KEY) is default
+
+    @pytest.mark.parametrize('value', [True, False])
+    def test_a_boolean_is_kept(self, value: bool) -> None:
+        """Whatever the default"""
+        assert validated_flag(value, not value, FLAG_KEY) is value
+
+    @pytest.mark.parametrize('value', NOT_BOOLEANS)
+    def test_anything_else_is_refused_naming_the_flag_and_type(self, value: Any) -> None:
+        """A falsy non-boolean too: 0 and '' are no more a flag than 'false' is"""
+        with pytest.raises(ProviderConfigError) as exc_info:
+            validated_flag(value, False, FLAG_KEY)
+
+        assert str(exc_info.value) == _not_boolean_message(FLAG_KEY, value)
 
 
 class TestBaseAuthProviderConfig:
@@ -76,6 +122,19 @@ class TestBaseAuthProviderConfig:
         """A provider with no configuration beyond the flag must still construct."""
         assert BaseAuthProviderConfig(active=False).is_active() is False
 
+    def test_an_absent_flag_is_the_class_default(self) -> None:
+        """The base class's default is active"""
+        assert BaseAuthProviderConfig().is_active() is BaseAuthProviderConfig.DEFAULT_CONFIG_VALUES[
+            PROVIDER_ACTIVE_KEY]
+
+    @pytest.mark.parametrize('value', NOT_BOOLEANS)
+    def test_a_flag_that_is_no_boolean_is_refused(self, value: Any) -> None:
+        """is_active() can only ever answer a boolean"""
+        with pytest.raises(ProviderConfigError) as exc_info:
+            BaseAuthProviderConfig(active=value)
+
+        assert str(exc_info.value) == _not_boolean_message(PROVIDER_ACTIVE_KEY, value)
+
     def test_an_extra_key_does_not_displace_the_flag(self) -> None:
         """A stored document carrying a stray key must not shadow the one field that is declared."""
         config = BaseAuthProviderConfig(active=True, unexpected='value')
@@ -106,6 +165,12 @@ class TestLocalConstruction:
 
         assert LocalAuthenticationProviderConfig().is_active() is default
 
+    @pytest.mark.parametrize('value', ['false', 0, 'true'])
+    def test_a_flag_that_is_no_boolean_is_refused(self, value: Any) -> None:
+        """The local flag is only shown, never read by a login - it is still a boolean or nothing"""
+        with pytest.raises(ProviderConfigError):
+            LocalAuthenticationProviderConfig(active=value)
+
     def test_building_a_config_leaves_the_class_defaults_alone(self) -> None:
         """The defaults dict is shared by every section that lacks an entry, so it must not change."""
         before = dict(LocalAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES)
@@ -129,6 +194,80 @@ class TestLdapConstruction:
         """Nothing absorbs a stray positional value any more, so a mis-ordered call fails loudly."""
         with pytest.raises(TypeError):
             LdapAuthenticationProviderConfig(True, 2, {}, {}, {}, {}, 'stray')  # pylint: disable=too-many-function-args
+
+
+class TestLdapFlags:
+    """The provider flag and the group-mapping flag are booleans or absent"""
+
+    @pytest.mark.parametrize('value', NOT_BOOLEANS)
+    def test_an_active_flag_that_is_no_boolean_is_refused(self, value: Any) -> None:
+        """'false' among them - read by its truthiness it switched the provider on"""
+        with pytest.raises(ProviderConfigError) as exc_info:
+            LdapAuthenticationProviderConfig(active=value)
+
+        assert str(exc_info.value) == _not_boolean_message(PROVIDER_ACTIVE_KEY, value)
+
+    @pytest.mark.parametrize('value', [True, False])
+    def test_a_boolean_active_flag_decides(self, value: bool) -> None:
+        """What the login sweep asks"""
+        config = LdapAuthenticationProviderConfig(active=value)
+
+        assert LdapAuthenticationProvider.is_active_for(config) is value
+
+    def test_an_absent_active_flag_is_off(self) -> None:
+        """LDAP's default"""
+        assert LdapAuthenticationProviderConfig().is_active() is False
+
+    @pytest.mark.parametrize('value', NOT_BOOLEANS)
+    def test_a_group_mapping_flag_that_is_no_boolean_is_refused(self, value: Any) -> None:
+        """'false' switched the group mapping on, moving users between groups"""
+        with pytest.raises(ProviderConfigError) as exc_info:
+            LdapAuthenticationProviderConfig(groups={LdapGroupsKey.ACTIVE.value: value, 'mapping': []})
+
+        assert str(exc_info.value) == _not_boolean_message(GROUPS_ACTIVE_FLAG, value)
+
+    @pytest.mark.parametrize('groups', [{'mapping': []}, {LdapGroupsKey.ACTIVE.value: None},
+                                        {LdapGroupsKey.ACTIVE.value: True}])
+    def test_a_group_mapping_flag_that_is_absent_or_boolean_is_kept(self, groups: dict[str, Any]) -> None:
+        """The settings are kept as given"""
+        assert LdapAuthenticationProviderConfig(groups=groups).groups is groups
+
+    @pytest.mark.parametrize('groups', ['active', [{'active': True}], 5])
+    def test_groups_that_are_no_object_are_refused(self, groups: Any) -> None:
+        """Their flag cannot be read at all"""
+        with pytest.raises(ProviderConfigError) as exc_info:
+            LdapAuthenticationProviderConfig(groups=groups)
+
+        assert str(exc_info.value) == GROUPS_NOT_AN_OBJECT_MSG.format(kind=type(groups).__name__)
+
+    @pytest.mark.parametrize('groups', [None, {}, []])
+    def test_empty_groups_read_as_the_default(self, groups: Any) -> None:
+        """As before: an empty value is no setting"""
+        assert LdapAuthenticationProviderConfig(groups=groups).groups == \
+            LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES['groups']
+
+
+class TestLdapDefaultsAreCopies:
+    """A config built without a section hands out copies of the class defaults, never the dicts themselves"""
+
+    @pytest.mark.parametrize('key', ['server_config', 'connection_config', 'search', 'groups'])
+    def test_each_default_is_an_equal_copy(self, key: str) -> None:
+        """Equal, not the same object"""
+        config = LdapAuthenticationProviderConfig()
+        default = LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES[key]
+
+        assert getattr(config, key) == default
+        assert getattr(config, key) is not default
+
+    def test_changing_a_config_leaves_the_class_defaults_alone(self) -> None:
+        """A nested change included"""
+        before = deepcopy(LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES)
+        config = LdapAuthenticationProviderConfig()
+
+        config.server_config['host'] = LDAP_HOST
+        config.groups['mapping'].append({'group_dn': GROUP_DN, 'group_id': GROUP_ID})
+
+        assert LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES == before
 
 
 class TestLdapGroupMapping:

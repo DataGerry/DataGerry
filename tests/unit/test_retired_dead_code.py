@@ -37,6 +37,7 @@ import pytest
 
 from cmdb.framework.datagerry_assistant.profile_base import ProfileBase
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
+from cmdb.framework.media_library import BaseMediaFile, MediaFile
 from cmdb.interface.rest_api.routes.ai_routes.chatgpt_client import ChatGptClient
 from cmdb.models.category_model.category_meta import CategoryMeta
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
@@ -54,6 +55,11 @@ RETIRED: list[tuple[type, str]] = [
     (TypeMultiDataSection, 'get_hidden_fields'),
     (TypeSummary, 'set_fields'),
     (BaseAuthenticationProvider, 'is_password_able'),
+    # Only CmdbDAO reads REQUIRED_INIT_KEYS, and a media file is no CmdbDAO; the index direction is CmdbDAO's
+    (MediaFile, 'REQUIRED_INIT_KEYS'),
+    (BaseMediaFile, 'REQUIRED_INIT_KEYS'),
+    (BaseMediaFile, 'DESCENDING'),
+    (BaseMediaFile, 'ASCENDING'),
 ]
 
 

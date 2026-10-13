@@ -28,10 +28,7 @@ import pytest
 
 from cmdb.models.type_model import TypeSchemaKey, DG_LOCATION_FIELD_NAME
 from cmdb.models.special_type_model.special_type_enum import SpecialType
-from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
-    STRUCTURE_ERROR_SEPARATOR,
-    TypeImportError,
-)
+from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import TypeImportError
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     special_type_license_error,
     uses_ports_license_error,
@@ -45,7 +42,12 @@ from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
     acl_shape_error,
     new_identifiers_error,
 )
-from cmdb.models.type_model.type_constants import IdentifierKind, TypeIdentifierError
+from cmdb.models.type_model.type_constants import (
+    STRUCTURE_ERROR_SEPARATOR,
+    IdentifierKind,
+    TypeIdentifierError,
+    TypeStructureError,
+)
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_helper import (
     create_type_from_entry,
     update_type_from_entry,
@@ -84,7 +86,7 @@ class TestValidateTypeStructure:
             [{'type': 'section', 'name': 'main', 'fields': ['host']}],
         )
 
-        assert validate_type_structure(entry) == TypeImportError.DUPLICATE_FIELD_NAMES.format(names=['host'])
+        assert validate_type_structure(entry) == TypeStructureError.DUPLICATE_FIELD_NAMES.format(names=['host'])
 
     def test_duplicate_section_names_are_reported(self) -> None:
         """Section names must be unique within the type."""
@@ -97,7 +99,7 @@ class TestValidateTypeStructure:
         )
 
         assert validate_type_structure(entry) == \
-            TypeImportError.DUPLICATE_SECTION_NAMES.format(names=['main'])
+            TypeStructureError.DUPLICATE_SECTION_NAMES.format(names=['main'])
 
     def test_field_in_two_sections_is_reported(self) -> None:
         """A field belongs to exactly one section."""
@@ -110,15 +112,14 @@ class TestValidateTypeStructure:
         )
 
         assert validate_type_structure(entry) == \
-            TypeImportError.FIELD_IN_MULTIPLE_SECTIONS.format(names=['host'])
+            TypeStructureError.FIELD_IN_MULTIPLE_SECTIONS.format(names=['host'])
 
-    def test_field_without_a_section_is_reported(self) -> None:
-        """An orphaned field belongs to no section and is rejected."""
+    def test_a_field_without_a_section_is_allowed(self) -> None:
+        """An orphaned field renders nowhere, which breaks nothing - the routes allow it, so the import does"""
         entry = type_structure([type_field('host'), type_field('orphan')],
                            [{'type': 'section', 'name': 'main', 'fields': ['host']}])
 
-        assert validate_type_structure(entry) == \
-            TypeImportError.FIELD_WITHOUT_SECTION.format(names=['orphan'])
+        assert validate_type_structure(entry) is None
 
     def test_every_problem_is_reported_together(self) -> None:
         """One round trip surfaces all structural findings, joined into the entry's message."""
@@ -135,7 +136,7 @@ class TestValidateTypeStructure:
         assert 'Duplicate field name(s)' in result
         assert 'Duplicate section name(s)' in result
         assert 'more than one section' in result
-        assert 'not assigned to any section' in result
+        assert 'not assigned to any section' not in result
 
     def test_mds_hidden_fields_count_as_assigned(self) -> None:
         """A multi-data-section's hidden_fields are an assignment, not an orphan."""
@@ -185,18 +186,14 @@ class TestValidateTypeStructure:
 
         assert validate_type_structure(entry) is None
 
-    def test_ref_section_without_a_name_claims_nothing(self) -> None:
-        """A nameless ref-section cannot own an implicit field, so the real field stays orphaned."""
+    def test_a_ref_section_without_a_name_is_reported_alone(self) -> None:
+        """The nameless section is the finding; the field it cannot own is merely orphaned, which is allowed"""
         entry = type_structure(
             [type_field('refsec-field', 'ref')],
             [{'type': 'ref-section', 'name': '', 'fields': []}],
         )
 
-        # typed 'ref' rather than 'ref-section-field', so it is NOT exempt and stays orphaned
-        assert validate_type_structure(entry) == STRUCTURE_ERROR_SEPARATOR.join([
-            TypeImportError.MISSING_SECTION_NAMES.format(positions=[0]),
-            TypeImportError.FIELD_WITHOUT_SECTION.format(names=['refsec-field']),
-        ])
+        assert validate_type_structure(entry) == TypeStructureError.MISSING_SECTION_NAMES.format(positions=[0])
 
 
 class TestFieldTypeRule:
@@ -244,7 +241,7 @@ class TestSectionFieldMustExistRule:
         )
 
         assert validate_type_structure(entry) == \
-            TypeImportError.SECTION_FIELD_NOT_DEFINED.format(names=['ghost'])
+            TypeStructureError.SECTION_FIELD_NOT_DEFINED.format(names=['ghost'])
 
     def test_mds_hidden_field_must_exist_too(self) -> None:
         """A hidden_fields entry is also a reference and must resolve."""
@@ -277,7 +274,7 @@ class TestSectionTypeRule:
             [{'type': 'mutli-data-section', 'name': 'main', 'fields': ['host']}],
         )
 
-        assert validate_type_structure(entry) == TypeImportError.INVALID_SECTION_TYPES.format(
+        assert validate_type_structure(entry) == TypeStructureError.INVALID_SECTION_TYPES.format(
             sections=['main (mutli-data-section)'],
             allowed='section, multi-data-section, ref-section',
         )
@@ -300,7 +297,7 @@ class TestNameCompletenessRules:
             [{'type': 'section', 'name': 'main', 'fields': ['host']}],
         )
 
-        assert TypeImportError.MISSING_FIELD_NAMES.format(positions=[1]) in validate_type_structure(entry)
+        assert TypeStructureError.MISSING_FIELD_NAMES.format(positions=[1]) in validate_type_structure(entry)
 
     def test_section_without_a_usable_name_is_reported(self) -> None:
         """The offending section is pointed at by its position in the uploaded section list."""
@@ -309,7 +306,7 @@ class TestNameCompletenessRules:
             [{'type': 'section', 'name': None, 'fields': ['host']}],
         )
 
-        assert TypeImportError.MISSING_SECTION_NAMES.format(positions=[0]) in validate_type_structure(entry)
+        assert TypeStructureError.MISSING_SECTION_NAMES.format(positions=[0]) in validate_type_structure(entry)
 
     def test_named_fields_and_sections_pass(self) -> None:
         """Nothing is reported when every field and section carries a name."""
@@ -322,10 +319,10 @@ class TestNameCompletenessRules:
 
 
 class TestEmptySectionRule:
-    """A section must hold at least one field."""
+    """A section holding no field is allowed - an empty box breaks nothing, and the routes allow it too."""
 
-    def test_section_without_fields_is_reported(self) -> None:
-        """An empty plain section renders as an empty box, so it is refused."""
+    def test_section_without_fields_is_allowed(self) -> None:
+        """An empty plain section renders as an empty box"""
         entry = type_structure(
             [type_field('host')],
             [
@@ -334,10 +331,10 @@ class TestEmptySectionRule:
             ],
         )
 
-        assert validate_type_structure(entry) == TypeImportError.EMPTY_SECTION.format(names=['empty'])
+        assert validate_type_structure(entry) is None
 
-    def test_section_with_a_missing_fields_key_is_reported(self) -> None:
-        """A section that brings no fields list at all holds nothing either."""
+    def test_section_with_a_missing_fields_key_is_allowed(self) -> None:
+        """A section that brings no fields list at all holds nothing either"""
         entry = type_structure(
             [type_field('host')],
             [
@@ -346,7 +343,7 @@ class TestEmptySectionRule:
             ],
         )
 
-        assert TypeImportError.EMPTY_SECTION.format(names=['empty']) in validate_type_structure(entry)
+        assert validate_type_structure(entry) is None
 
     def test_mds_hidden_fields_count_as_content(self) -> None:
         """An MDS section whose only field is hidden is not empty."""
@@ -369,14 +366,14 @@ class TestEmptySectionRule:
 
         assert validate_type_structure(entry) is None
 
-    def test_nameless_empty_section_is_only_reported_once(self) -> None:
-        """An empty section without a name is covered by the missing-name rule alone."""
+    def test_a_nameless_empty_section_is_reported_for_its_name(self) -> None:
+        """The missing name is the finding, not the emptiness"""
         entry = type_structure([type_field('host')], [
             {'type': 'section', 'name': 'main', 'fields': ['host']},
             {'type': 'section', 'name': '', 'fields': []},
         ])
 
-        assert validate_type_structure(entry) == TypeImportError.MISSING_SECTION_NAMES.format(positions=[1])
+        assert validate_type_structure(entry) == TypeStructureError.MISSING_SECTION_NAMES.format(positions=[1])
 
 
 class TestSummaryAndExternalFieldRules:
@@ -405,7 +402,7 @@ class TestSummaryAndExternalFieldRules:
         """A summary field the type does not define would render as a blank."""
         entry = self._with_render_meta(summary={'fields': ['host', 'ghost']})
 
-        assert validate_type_structure(entry) == TypeImportError.SUMMARY_FIELD_NOT_DEFINED.format(names=['ghost'])
+        assert validate_type_structure(entry) == TypeStructureError.SUMMARY_FIELD_NOT_DEFINED.format(names=['ghost'])
 
     def test_malformed_summary_is_skipped(self) -> None:
         """A summary that is not a dictionary is left to the build step."""
@@ -417,7 +414,7 @@ class TestSummaryAndExternalFieldRules:
             {'name': 'wiki', 'href': 'http://example.org/{}', 'fields': ['ghost']},
         ])
 
-        assert validate_type_structure(entry) == TypeImportError.EXTERNAL_FIELD_NOT_DEFINED.format(names=['ghost'])
+        assert validate_type_structure(entry) == TypeStructureError.EXTERNAL_FIELD_NOT_DEFINED.format(names=['ghost'])
 
     def test_external_of_defined_fields_passes(self) -> None:
         """An external link naming a defined field is sound."""
@@ -433,7 +430,7 @@ class TestSummaryAndExternalFieldRules:
             {'name': 'wiki', 'href': 'http://example.org/{}', 'fields': ['ghost']},
         ])
 
-        assert validate_type_structure(entry) == TypeImportError.EXTERNAL_FIELD_NOT_DEFINED.format(names=['ghost'])
+        assert validate_type_structure(entry) == TypeStructureError.EXTERNAL_FIELD_NOT_DEFINED.format(names=['ghost'])
 
 
 class TestTypeNameConflictError:
@@ -853,7 +850,7 @@ class TestFieldLabelRule:
             [{'type': 'section', 'name': 'main', 'fields': ['host']}],
         )
 
-        assert TypeImportError.MISSING_FIELD_LABELS.format(names=['host']) in validate_type_structure(entry)
+        assert TypeStructureError.MISSING_FIELD_LABELS.format(names=['host']) in validate_type_structure(entry)
 
     def test_a_missing_label_key_is_reported(self) -> None:
         """A field bringing no label key at all is as unusable as a blank one."""
@@ -862,7 +859,7 @@ class TestFieldLabelRule:
             [{'type': 'section', 'name': 'main', 'fields': ['host']}],
         )
 
-        assert TypeImportError.MISSING_FIELD_LABELS.format(names=['host']) in validate_type_structure(entry)
+        assert TypeStructureError.MISSING_FIELD_LABELS.format(names=['host']) in validate_type_structure(entry)
 
 
 class TestSectionLabelRule:
@@ -884,11 +881,11 @@ class TestSectionLabelRule:
             'render_meta': {'sections': [{'type': 'section', 'name': 'main', 'fields': ['host']}]},
         }
 
-        assert TypeImportError.MISSING_SECTION_LABELS.format(names=['main']) in validate_type_structure(entry)
+        assert TypeStructureError.MISSING_SECTION_LABELS.format(names=['main']) in validate_type_structure(entry)
 
 
-class TestChoiceFieldOptionsRule:
-    """A select / radio field is defined by its options - without one it can never hold a value."""
+class TestChoiceFieldOptions:
+    """A select / radio field may offer no option yet - it holds no value until one is added, which breaks nothing."""
 
     @staticmethod
     def _choice_entry(field_type: str, options: Any) -> dict[str, Any]:
@@ -913,12 +910,11 @@ class TestChoiceFieldOptionsRule:
         [None, [], 'nonsense', [{'name': 'a'}], [{'label': 'A'}], [{'name': '', 'label': ''}], ['a']],
         ids=['absent', 'empty', 'not-a-list', 'no-label', 'no-name', 'blank', 'not-a-dict'],
     )
-    def test_unusable_options_are_reported(self, field_type: str, options: Any) -> None:
-        """Anything a user could not pick from is refused."""
+    def test_a_choice_field_without_usable_options_is_allowed(self, field_type: str, options: Any) -> None:
+        """It holds no value until options are added - the Cable blueprint creates one when no cable type exists"""
         entry = self._choice_entry(field_type, options)
 
-        assert validate_type_structure(entry) == \
-            TypeImportError.MISSING_FIELD_OPTIONS.format(names=['choice'])
+        assert validate_type_structure(entry) is None
 
     def test_one_usable_option_among_broken_ones_passes(self) -> None:
         """The rule asks for a usable option, not for every option to be usable."""
@@ -961,21 +957,21 @@ class TestLocationFieldRule:
         ])
         message = validate_type_structure(entry)
 
-        assert TypeImportError.MULTIPLE_LOCATION_FIELDS.format(
+        assert TypeStructureError.MULTIPLE_LOCATION_FIELDS.format(
             names=sorted([DG_LOCATION_FIELD_NAME, 'where'])) in message
 
     def test_a_differently_named_location_field_is_reported(self) -> None:
         """The value is resolved by the reserved name, so another name would never be read."""
         entry = self._entry([type_field('where', 'location')])
 
-        assert TypeImportError.RESERVED_LOCATION_FIELD_NAME.format(
+        assert TypeStructureError.RESERVED_LOCATION_FIELD_NAME.format(
             reserved=DG_LOCATION_FIELD_NAME, names=['where']) in validate_type_structure(entry)
 
     def test_a_non_location_field_may_not_squat_on_the_reserved_name(self) -> None:
         """A text field called dg_location would be mistaken for the location field."""
         entry = self._entry([type_field(DG_LOCATION_FIELD_NAME)])
 
-        assert TypeImportError.RESERVED_LOCATION_FIELD_NAME.format(
+        assert TypeStructureError.RESERVED_LOCATION_FIELD_NAME.format(
             reserved=DG_LOCATION_FIELD_NAME, names=[DG_LOCATION_FIELD_NAME]) in validate_type_structure(entry)
 
 

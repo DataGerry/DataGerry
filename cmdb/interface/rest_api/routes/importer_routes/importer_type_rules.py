@@ -20,7 +20,8 @@ Every rule is a function that RETURNS a message instead of raising, so a single 
 reported in the partial report without touching the rest of the batch. Three groups live here:
 
     * the upload-only rules, gathered per verb by `validate_create_entry` / `validate_update_entry` (a create's
-      identifiers all pass the identifier rule there, `new_identifiers_error`)
+      identifiers all pass the identifier rule there, `new_identifiers_error`, and its field patterns the pattern
+      rule, `field_patterns_error`)
     * the structural rules, run together by `validate_type_structure` - one function per rule,
       registered in _STRUCTURE_RULES, all of them reported at once
     * `stored_type_update_blocker`, the rules an update can only answer against the STORED type
@@ -28,32 +29,28 @@ reported in the partial report without touching the rest of the batch. Three gro
 The repairs that quietly fix an upload instead of refusing it are the counterpart of this module and
 live in `importer_type_repairs`
 """
-from typing import Any, Callable, NamedTuple
+from typing import Any
 from logging import Logger, getLogger
 
 from cerberus import Validator
 
+from cmdb.framework.field_pattern_rule import find_field_pattern_errors
+from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR
 from cmdb.manager import TypesManager
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.models.type_model import (
-    CmdbType,
-    TypeSchemaKey,
-    FieldKey,
-    FieldType,
-    SectionKey,
-    SectionType,
-    DG_LOCATION_FIELD_NAME,
-)
+from cmdb.models.type_model import CmdbType, TypeSchemaKey
 from cmdb.models.type_model.type_identifier_rules import (
     identifier_error,
     payload_identifier_names,
     stored_identifier_names,
 )
 from cmdb.models.special_type_model.special_type_enum import SpecialType
+from cmdb.models.type_model.type_constants import STRUCTURE_ERROR_SEPARATOR
+from cmdb.models.type_model.type_structure_rules import validate_type_structure
 from cmdb.class_schema.type_model.cmdb_type_schema import get_type_acl_schema
 from cmdb.interface.blueprints.schema_error_format import ERRORS_SEPARATOR, flatten_schema_errors
-from cmdb.utils import coerce_whole_number, duplicate_names, parse_import_bool, is_non_blank_string
+from cmdb.utils import coerce_whole_number, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
     field_identifier_change_blocker,
     location_field_removal_blocker,
@@ -68,16 +65,12 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_
 )
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     IMPORT_BOOLEAN_TYPE_FIELD_DEFAULTS,
-    STRUCTURE_ERROR_SEPARATOR,
-    LEGACY_EXTERNALS_KEY,
     TypeImportError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
 
-# The field types whose whole purpose is a list of options to pick from
-_CHOICE_FIELD_TYPES: frozenset[str] = frozenset({FieldType.SELECT.value, FieldType.RADIO.value})
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -195,581 +188,6 @@ def validate_create_special_type(
         return TypeImportError.SPECIAL_TYPE_EXISTS.format(special_type=special_type)
 
     return None
-
-
-class TypeStructure(NamedTuple):
-    """
-    The parts of an uploaded type the structural rules inspect, resolved once
-
-    Malformed entries (a field or section that is not a dictionary) are dropped while reading, so the
-    rules never have to guard against them. Fields and sections keep their position in the upload so a
-    nameless one can still be pointed at in the report
-    """
-    fields: list[tuple[int, dict[str, Any]]]
-    sections: list[tuple[int, dict[str, Any]]]
-    field_names: list[Any]
-    known_fields: set[str]
-    claimed: list[str]
-    render_meta: dict[str, Any]
-
-
-def read_type_structure(type_entry: dict[str, Any]) -> TypeStructure:
-    """
-    Reads the field / section structure of an uploaded type into the shape the rules work on
-
-    Args:
-        type_entry (dict[str, Any]): A single uploaded type entry
-
-    Returns:
-        TypeStructure: The resolved fields, sections and the names derived from them
-    """
-    fields = [
-        (position, field)
-        for position, field in enumerate(type_entry.get(TypeSchemaKey.FIELDS.value) or [])
-        if isinstance(field, dict)
-    ]
-    raw_render_meta = type_entry.get(TypeSchemaKey.RENDER_META.value)
-    render_meta: dict[str, Any] = raw_render_meta if isinstance(raw_render_meta, dict) else {}
-    sections = [
-        (position, section)
-        for position, section in enumerate(render_meta.get(TypeSchemaKey.SECTIONS.value) or [])
-        if isinstance(section, dict)
-    ]
-    field_names = [field.get(FieldKey.NAME.value) for _, field in fields]
-
-    return TypeStructure(
-        fields=fields,
-        sections=sections,
-        field_names=field_names,
-        known_fields={name for name in field_names if isinstance(name, str)},
-        claimed=_section_assigned_field_names(sections),
-        render_meta=render_meta,
-    )
-
-
-def _section_assigned_field_names(sections: list[tuple[int, dict[str, Any]]]) -> list[str]:
-    """
-    Collects every field name the sections claim, one entry per claim so duplicates stay visible
-
-    A field is claimed by a section through its `fields` list, or through an MDS section's extra
-    `hidden_fields` list. A ref-section's own field is claimed by neither - it is exempted from the
-    assignment rule by its field type instead (see `validate_type_structure`)
-
-    Args:
-        sections (list[tuple[int, dict[str, Any]]]): The type's sections with their upload position
-
-    Returns:
-        list[str]: The claimed field names, including repeats when several sections claim the same one
-    """
-    claimed: list[str] = []
-
-    for _, section in sections:
-        for key in (SectionKey.FIELDS.value, SectionKey.HIDDEN_FIELDS.value):
-            claimed.extend(name for name in section.get(key) or [] if isinstance(name, str))
-
-    return claimed
-
-
-def _referenced_field_names(entries: list[Any]) -> list[Any]:
-    """
-    Collects the field names a list of `fields` lists refers to, e.g. the summary or external links
-
-    Args:
-        entries (list[Any]): The `fields` lists to flatten, each expected to be a list of names
-
-    Returns:
-        list[Any]: Every referenced name, duplicates included
-    """
-    referenced: list[Any] = []
-
-    for entry in entries:
-        if isinstance(entry, list):
-            referenced.extend(entry)
-
-    return referenced
-
-
-def _duplicate_field_names_error(structure: TypeStructure) -> str | None:
-    """
-    Reports field names used more than once - a field name is its immutable identifier
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every field name is unique
-    """
-    duplicates = duplicate_names(structure.field_names)
-
-    if not duplicates:
-        return None
-
-    return TypeImportError.DUPLICATE_FIELD_NAMES.format(names=sorted(duplicates))
-
-
-def _missing_field_names_error(structure: TypeStructure) -> str | None:
-    """
-    Reports fields with no usable name, pointing at their position in the uploaded `fields` list
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every field is named
-    """
-    positions = [
-        position for position, field in structure.fields
-        if not is_non_blank_string(field.get(FieldKey.NAME.value))
-    ]
-
-    if not positions:
-        return None
-
-    return TypeImportError.MISSING_FIELD_NAMES.format(positions=positions)
-
-
-def _invalid_field_types_error(structure: TypeStructure) -> str | None:
-    """
-    Reports fields whose `type` is not a known FieldType, labelled `name (type)`
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every field type is known
-    """
-    invalid = sorted(
-        f'{field.get(FieldKey.NAME.value)} ({field.get(FieldKey.TYPE.value)})'
-        for _, field in structure.fields
-        if not FieldType.is_valid(field.get(FieldKey.TYPE.value))
-    )
-
-    if not invalid:
-        return None
-
-    return TypeImportError.INVALID_FIELD_TYPES.format(
-        fields=invalid,
-        allowed=', '.join(member.value for member in FieldType),
-    )
-
-
-def _duplicate_section_names_error(structure: TypeStructure) -> str | None:
-    """
-    Reports section names used more than once
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every section name is unique
-    """
-    duplicates = duplicate_names(section.get(SectionKey.NAME.value) for _, section in structure.sections)
-
-    if not duplicates:
-        return None
-
-    return TypeImportError.DUPLICATE_SECTION_NAMES.format(names=sorted(duplicates))
-
-
-def _missing_section_names_error(structure: TypeStructure) -> str | None:
-    """
-    Reports sections with no usable name, pointing at their position in the uploaded section list
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every section is named
-    """
-    positions = [
-        position for position, section in structure.sections
-        if not is_non_blank_string(section.get(SectionKey.NAME.value))
-    ]
-
-    if not positions:
-        return None
-
-    return TypeImportError.MISSING_SECTION_NAMES.format(positions=positions)
-
-
-def _invalid_section_types_error(structure: TypeStructure) -> str | None:
-    """
-    Reports sections whose `type` is not a known SectionType, labelled `name (type)`
-
-    An unknown value is not harmless: TypeRenderMeta falls back to a plain field section for it, so an
-    MDS or ref-section with a mistyped marker would be silently imported as something else
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every section type is known
-    """
-    invalid = sorted(
-        f'{section.get(SectionKey.NAME.value)} ({section.get(SectionKey.TYPE.value)})'
-        for _, section in structure.sections
-        if not SectionType.is_valid(section.get(SectionKey.TYPE.value))
-    )
-
-    if not invalid:
-        return None
-
-    return TypeImportError.INVALID_SECTION_TYPES.format(
-        sections=invalid,
-        allowed=', '.join(member.value for member in SectionType),
-    )
-
-
-def _undefined_section_fields_error(structure: TypeStructure) -> str | None:
-    """
-    Reports field names a section claims although the type does not define them
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every claimed field exists
-    """
-    undefined = sorted(set(structure.claimed) - structure.known_fields)
-
-    if not undefined:
-        return None
-
-    return TypeImportError.SECTION_FIELD_NOT_DEFINED.format(names=undefined)
-
-
-def _multi_assigned_fields_error(structure: TypeStructure) -> str | None:
-    """
-    Reports fields claimed by more than one section
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when no field is claimed twice
-    """
-    multi_assigned = sorted(
-        name for name in duplicate_names(structure.claimed) if name in structure.known_fields
-    )
-
-    if not multi_assigned:
-        return None
-
-    return TypeImportError.FIELD_IN_MULTIPLE_SECTIONS.format(names=multi_assigned)
-
-
-def _unassigned_fields_error(structure: TypeStructure) -> str | None:
-    """
-    Reports fields no section claims
-
-    A ref-section's own field belongs to its section by its type (`FieldType.REF_SECTION`) rather than
-    by being listed in the section's `fields`, so it is never treated as orphaned
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every field has a section
-    """
-    exempt = {
-        field.get(FieldKey.NAME.value)
-        for _, field in structure.fields
-        if field.get(FieldKey.TYPE.value) == FieldType.REF_SECTION.value
-    }
-    unassigned = sorted(structure.known_fields - set(structure.claimed) - exempt)
-
-    if not unassigned:
-        return None
-
-    return TypeImportError.FIELD_WITHOUT_SECTION.format(names=unassigned)
-
-
-def _empty_sections_error(structure: TypeStructure) -> str | None:
-    """
-    Reports sections that hold no field at all
-
-    An MDS section's `hidden_fields` count as content. A ref-section is exempt: it owns no field list
-    of its own, its content is the section of the referenced type. Nameless sections are skipped -
-    `_missing_section_names_error` already reports those
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every section holds at least one field
-    """
-    empty: list[str] = []
-
-    for _, section in structure.sections:
-        section_name = section.get(SectionKey.NAME.value)
-
-        if section.get(SectionKey.TYPE.value) == SectionType.REF_SECTION.value:
-            continue
-
-        if not is_non_blank_string(section_name):
-            continue
-
-        held = [
-            name
-            for key in (SectionKey.FIELDS.value, SectionKey.HIDDEN_FIELDS.value)
-            for name in section.get(key) or []
-        ]
-
-        if not held:
-            empty.append(section_name)
-
-    if not empty:
-        return None
-
-    return TypeImportError.EMPTY_SECTION.format(names=sorted(empty))
-
-
-def _summary_fields_error(structure: TypeStructure) -> str | None:
-    """
-    Reports summary fields the type does not define - the summary line would render them as blanks
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when the summary only names defined fields
-    """
-    summary = structure.render_meta.get(TypeSchemaKey.SUMMARY.value)
-
-    if not isinstance(summary, dict):
-        return None
-
-    referenced = _referenced_field_names([summary.get(TypeSchemaKey.FIELDS.value)])
-    undefined = sorted({str(name) for name in referenced} - structure.known_fields)
-
-    if not undefined:
-        return None
-
-    return TypeImportError.SUMMARY_FIELD_NOT_DEFINED.format(names=undefined)
-
-
-def _external_fields_error(structure: TypeStructure) -> str | None:
-    """
-    Reports external-link fields the type does not define - their href could not be filled in
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every external link only names defined fields
-    """
-    externals = (
-        structure.render_meta.get(TypeSchemaKey.EXTERNALS.value)
-        or structure.render_meta.get(LEGACY_EXTERNALS_KEY)
-        or []
-    )
-
-    if not isinstance(externals, list):
-        return None
-
-    referenced = _referenced_field_names([
-        external.get(TypeSchemaKey.FIELDS.value) for external in externals if isinstance(external, dict)
-    ])
-    undefined = sorted({str(name) for name in referenced} - structure.known_fields)
-
-    if not undefined:
-        return None
-
-    return TypeImportError.EXTERNAL_FIELD_NOT_DEFINED.format(names=undefined)
-
-
-def _missing_field_labels_error(structure: TypeStructure) -> str | None:
-    """
-    Reports fields with no usable label - the label is what the user sees on every form and table
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every field is labelled
-    """
-    unlabelled = sorted(
-        str(field.get(FieldKey.NAME.value))
-        for _, field in structure.fields
-        if not is_non_blank_string(field.get(FieldKey.LABEL.value))
-    )
-
-    if not unlabelled:
-        return None
-
-    return TypeImportError.MISSING_FIELD_LABELS.format(names=unlabelled)
-
-
-def _missing_section_labels_error(structure: TypeStructure) -> str | None:
-    """
-    Reports sections with no usable label - the label is the heading the section is rendered under
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every section is labelled
-    """
-    unlabelled = sorted(
-        str(section.get(SectionKey.NAME.value))
-        for _, section in structure.sections
-        if not is_non_blank_string(section.get(SectionKey.LABEL.value))
-    )
-
-    if not unlabelled:
-        return None
-
-    return TypeImportError.MISSING_SECTION_LABELS.format(names=unlabelled)
-
-
-def _missing_field_options_error(structure: TypeStructure) -> str | None:
-    """
-    Reports select / radio fields that offer nothing to pick
-
-    A choice field is defined by its `options`, each of them a `{name, label}` pair: without at least
-    one usable entry the field can never hold a value (and a radio renders as an empty group)
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The error message, or None when every choice field offers a usable option
-    """
-    without_options = sorted(
-        str(field.get(FieldKey.NAME.value))
-        for _, field in structure.fields
-        if field.get(FieldKey.TYPE.value) in _CHOICE_FIELD_TYPES and not _has_usable_options(field)
-    )
-
-    if not without_options:
-        return None
-
-    return TypeImportError.MISSING_FIELD_OPTIONS.format(names=without_options)
-
-
-def _has_usable_options(field: dict[str, Any]) -> bool:
-    """
-    Reports whether a choice field carries at least one option a user could pick
-
-    Args:
-        field (dict[str, Any]): A field definition of the uploaded type
-
-    Returns:
-        bool: True when at least one option is a dict with a usable name and label
-    """
-    options = field.get(FieldKey.OPTIONS.value)
-
-    if not isinstance(options, list):
-        return False
-
-    return any(
-        isinstance(option, dict)
-        and is_non_blank_string(option.get(FieldKey.NAME.value))
-        and is_non_blank_string(option.get(FieldKey.LABEL.value))
-        for option in options
-    )
-
-
-def _location_field_errors(structure: TypeStructure) -> str | None:
-    """
-    Reports the two ways an uploaded type can get its location field wrong
-
-    A CmdbType has **at most one** location field and it always carries the reserved name
-    `dg_location` - the renderer, the CI Explorer, DocAPI and the object import all resolve the
-    location value by that name, so a second location field or a differently-named one would simply
-    never be read. A non-location field squatting on the reserved name is refused for the same reason
-
-    Args:
-        structure (TypeStructure): The resolved structure of the uploaded type
-
-    Returns:
-        str | None: The joined findings, or None when the location field is sound
-    """
-    location_fields = [
-        field for _, field in structure.fields
-        if field.get(FieldKey.TYPE.value) == FieldType.LOCATION.value
-    ]
-    errors: list[str] = []
-
-    if len(location_fields) > 1:
-        errors.append(TypeImportError.MULTIPLE_LOCATION_FIELDS.format(
-            names=sorted(str(field.get(FieldKey.NAME.value)) for field in location_fields),
-        ))
-
-    # The reserved name and the location type imply each other: either both hold or neither does
-    misnamed = sorted(
-        str(field.get(FieldKey.NAME.value))
-        for _, field in structure.fields
-        if (field.get(FieldKey.NAME.value) == DG_LOCATION_FIELD_NAME)
-        != (field.get(FieldKey.TYPE.value) == FieldType.LOCATION.value)
-    )
-
-    if misnamed:
-        errors.append(TypeImportError.RESERVED_LOCATION_FIELD_NAME.format(
-            reserved=DG_LOCATION_FIELD_NAME, names=misnamed,
-        ))
-
-    return STRUCTURE_ERROR_SEPARATOR.join(errors) if errors else None
-
-
-_STRUCTURE_RULES: tuple[Callable[[TypeStructure], str | None], ...] = (
-    _duplicate_field_names_error,
-    _missing_field_names_error,
-    _missing_field_labels_error,
-    _invalid_field_types_error,
-    _missing_field_options_error,
-    _location_field_errors,
-    _duplicate_section_names_error,
-    _missing_section_names_error,
-    _missing_section_labels_error,
-    _invalid_section_types_error,
-    _undefined_section_fields_error,
-    _multi_assigned_fields_error,
-    _unassigned_fields_error,
-    _empty_sections_error,
-    _summary_fields_error,
-    _external_fields_error,
-)
-
-
-def validate_type_structure(type_entry: Any) -> str | None:
-    """
-    Validates the field / section structure of an uploaded CmdbType
-
-    Every rule in _STRUCTURE_RULES runs and all findings are reported together, so one upload round
-    trip surfaces every structural problem:
-
-    1. every field name in `fields` is unique - the name is a field's immutable identifier
-    2. every field carries a non-blank name and a non-blank label
-    3. every field declares a known `FieldType`
-    4. a select / radio field offers at least one usable `{name, label}` option
-    5. the location field is singular and named `dg_location` - and only a location field is
-    6. every section name in `render_meta.sections` is unique
-    7. every section carries a non-blank name and a non-blank label
-    8. every section declares a known `SectionType`
-    9. every field name a section references is actually defined in `fields`
-    10. every field is assigned to exactly one section - neither orphaned nor claimed twice
-    11. every section holds at least one field
-    12. `render_meta.summary` and the external links only reference defined fields
-
-    An MDS section's `hidden_fields` count as an assignment and as content. A ref-section is exempt
-    from the "at least one field" rule and its own field from the assignment rule: that field is
-    identified by its type (`FieldType.REF_SECTION`) because it is deliberately not listed in the
-    section's `fields` list
-
-    Args:
-        type_entry (Any): A single entry of the uploaded payload
-
-    Returns:
-        str | None: The joined structural errors, or None when the structure is sound
-    """
-    if not isinstance(type_entry, dict):
-        return None
-
-    structure = read_type_structure(type_entry)
-    errors = [error for error in (rule(structure) for rule in _STRUCTURE_RULES) if error]
-
-    return STRUCTURE_ERROR_SEPARATOR.join(errors) if errors else None
 
 
 def missing_type_name_error(type_entry: Any) -> str | None:
@@ -950,6 +368,25 @@ def new_identifiers_error(type_entry: Any) -> str | None:
     return identifier_error(*payload_identifier_names(type_entry))
 
 
+def field_patterns_error(fields: Any, stored_fields: Any = None) -> str | None:
+    """
+    Reports the field patterns of an entry that the browser and the server would read differently
+
+    The rule and the wording the type routes refuse with (``field_pattern_rule``). A CREATE entry has every pattern
+    judged; an UPDATE entry only the ones it adds or changes against the stored type, as on the update route
+
+    Args:
+        fields (Any): The entry's field definitions
+        stored_fields (Any): The stored type's field definitions on an update; None on a create
+
+    Returns:
+        str | None: Every refused pattern's message, joined; None when all pass
+    """
+    errors: list[str] = find_field_pattern_errors(fields, stored_fields)
+
+    return FIELD_DEFAULT_ERROR_SEPARATOR.join(errors) if errors else None
+
+
 def validate_create_entry(type_entry: Any, types_manager: TypesManager, ipam_locked: bool) -> str | None:
     """
     Runs every rule a CREATE entry can be judged by from the upload alone, first finding wins
@@ -973,6 +410,7 @@ def validate_create_entry(type_entry: Any, types_manager: TypesManager, ipam_loc
         validate_create_special_type(type_entry, types_manager, ipam_locked)
         or validate_type_structure(type_entry)
         or new_identifiers_error(type_entry)
+        or field_patterns_error(type_entry.get(TypeSchemaKey.FIELDS.value) if isinstance(type_entry, dict) else None)
         or acl_shape_error(type_entry)
         or normalize_boolean_flags(type_entry)
         # After normalisation, so the lenient spellings are already real booleans
@@ -1031,7 +469,8 @@ def stored_type_update_blocker(
        different one is refused rather than silently ignored)
     2a. a field identifier, or a multi-data-section identifier, may not be renamed while the type has
        Objects - the name IS the key every Object stores its values and rows under; and an identifier the
-       update ADDS must pass the identifier rule (``type_identifier_rules``), as on the update route
+       update ADDS must pass the identifier rule (``type_identifier_rules``), as on the update route; so must
+       a field pattern the update adds or changes (``field_pattern_rule``)
     3. the location field may not be removed while CmdbObjects still hold a location value
     4. `selectable_as_parent` may not be turned off while CmdbObjects of the type are placed
     5. a section may not be removed (or renamed) while another CmdbType pulls its fields through a
@@ -1067,6 +506,7 @@ def stored_type_update_blocker(
 
     return (
         identifier_error(new_fields, new_sections, stored_fields, stored_sections)
+        or field_patterns_error(new_type.get_fields(), old_type.get_fields())
         or field_identifier_change_blocker(request_user, old_type, new_type)
         or mds_section_identifier_change_blocker(request_user, old_type, new_type)
         or location_field_removal_blocker(request_user, old_type, new_type)

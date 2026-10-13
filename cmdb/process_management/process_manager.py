@@ -36,11 +36,12 @@ Related modules:
   child process and calls back into ProcessManager.stop_app on crash
 """
 from logging import Logger, getLogger
-import multiprocessing
 import threading
+from multiprocessing.process import BaseProcess
 from time import sleep
 
 from cmdb.utils import load_class
+from cmdb.process_management.fork_safety import FORK_CONTEXT
 from cmdb.process_management.cmdb_process import CmdbProcess
 from cmdb.process_management.process_controller import ProcessController
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -78,7 +79,7 @@ class ProcessManager:
         a graceful shutdown (flag set) from a child-crash exit (flag unset)
         """
         self.__service_defs: list[CmdbProcess] = self._initialize_service_definitions()
-        self.__process_list: list[multiprocessing.Process] = []
+        self.__process_list: list[BaseProcess] = []
         self.__process_controllers: list[ProcessController] = []
         self.__flag_shutdown: threading.Event = threading.Event()
 
@@ -102,7 +103,7 @@ class ProcessManager:
 
     def start_app(self) -> bool:
         """
-        Spawns one multiprocessing.Process per registered service definition
+        Forks one process per registered service definition (`fork_safety.FORK_CONTEXT`)
 
         For each CmdbProcess entry, dynamically loads the configured class via
         load_class, instantiates it with no arguments, starts a Process whose
@@ -121,6 +122,10 @@ class ProcessManager:
             LOGGER.error("No service definitions found. Nothing to start.")
             return False
 
+        started: list[BaseProcess] = []
+
+        # Every service is forked first, the controller threads started after: a fork must not run while another
+        # thread of this process does (cmdb.process_management.fork_safety)
         for service_def in self.__service_defs:
             service_name: str = service_def.name
 
@@ -128,22 +133,31 @@ class ProcessManager:
                 service_class = load_class(service_def.class_path)
                 service_instance = service_class()
 
-                process: multiprocessing.Process = multiprocessing.Process(
-                    target=service_instance.start, name=service_name,
-                )
+                process = FORK_CONTEXT.Process(target=service_instance.start, name=service_name)
                 process.start()
                 self.__process_list.append(process)
-                # start process controller
-                proc_controller: ProcessController = ProcessController(
-                    process, self.__flag_shutdown, self.stop_app,
-                )
-                proc_controller.start()
-                self.__process_controllers.append(proc_controller)
+                started.append(process)
             except Exception as err:
                 LOGGER.error("Failed to start service '%s': %s", service_name, err)
+                self.__start_controllers(started)
                 return False
 
+        self.__start_controllers(started)
+
         return True
+
+
+    def __start_controllers(self, processes: list[BaseProcess]) -> None:
+        """
+        Attaches one ProcessController thread to each started service process
+
+        Args:
+            processes (list[BaseProcess]): The processes started, in start order
+        """
+        for process in processes:
+            proc_controller: ProcessController = ProcessController(process, self.__flag_shutdown, self.stop_app)
+            proc_controller.start()
+            self.__process_controllers.append(proc_controller)
 
 
     def stop_app(self) -> None:

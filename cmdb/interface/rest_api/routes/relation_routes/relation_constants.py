@@ -47,6 +47,8 @@ __all__: list[str] = [
     'TabInstancesKey',
     'BulkDeleteKey',
     'MAX_BULK_DELETE_OBJECT_RELATIONS',
+    'RELATION_NAME_TAKEN_MESSAGE',
+    'RELATION_NAME_SHAPE_MESSAGE',
 ]
 
 # Page size used when the relation-tab instances route is called without an explicit 'limit'
@@ -125,6 +127,12 @@ OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE: str = "A field value is given more than
 # The 400 of a CmdbObjectRelation write when reading its endpoints failed
 OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE: str = "Failed to read the Objects of the ObjectRelation!"
 
+# The 400 of a CmdbObjectRelation write whose (relation, parent, child) another instance already holds - the same text
+# whether the pre-check or the unique index `relation_pair` refused it
+OBJECT_RELATION_PAIR_TAKEN_MESSAGE: str = (
+    "The Relation {relation_id} already links the Object {parent_id} to the Object {child_id}!"
+)
+
 
 class RelationRight(BaseStrEnum):
     """
@@ -197,3 +205,9 @@ OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE: str = (
 class BulkDeleteKey(BaseStrEnum):
     """Keys of a bulk-delete request body"""
     TARGET_IDS = 'target_ids'
+
+# Refusals of a relation's technical name: another relation holds it, or it holds a character the rule refuses
+RELATION_NAME_TAKEN_MESSAGE: str = "A Relation named '{name}' already exists!"
+RELATION_NAME_SHAPE_MESSAGE: str = (
+    "The Relation name '{name}' may only hold letters, digits, '_' and '-'!"
+)

@@ -76,6 +76,8 @@ ROOT_PUBLIC_ID: int = 1
 LOCATION_FIELD_TYPE: str = FieldType.LOCATION.value
 TEXT_FIELD_TYPE: str = FieldType.TEXT.value
 OWN_LOCATION_ID: int = 50
+# A Type the reader may not READ, for the has-children denial
+DENIED_TYPE_ID: int = 77
 DESCENDANT_LOCATION_ID: int = 51
 NEW_PARENT_ID: int = 60
 RESOLVED_NAME: str = 'Resolved Location Name'
@@ -882,7 +884,17 @@ class TestBuildLocationLevel:
 
         assert level[0]['has_children'] is True
         assert level[1]['has_children'] is False
-        manager.get_parents_with_children.assert_called_once_with([OWN_LOCATION_ID, NEW_PARENT_ID])
+        manager.get_parents_with_children.assert_called_once_with([OWN_LOCATION_ID, NEW_PARENT_ID], ())
+
+    def test_the_readers_denial_reaches_the_grouping(self) -> None:
+        """A hidden child does not make a node expandable"""
+        manager = MagicMock(name='locations_manager')
+        manager.get_parents_with_children.return_value = set()
+        denied: list[int] = [DENIED_TYPE_ID]
+
+        build_location_level([{'public_id': OWN_LOCATION_ID, 'name': 'a'}], manager, denied)
+
+        manager.get_parents_with_children.assert_called_once_with([OWN_LOCATION_ID], denied)
 
     def test_empty_level_returns_empty_list(self) -> None:
         """An empty level yields an empty result and no node flags."""
