@@ -83,3 +83,69 @@ def test_a_thread_outliving_the_wait_is_named_and_warned_about(held_thread: thre
 
     assert held_thread.name in remaining
     assert THREAD_NAME in caplog.text
+
+
+# -------------------------------------- restart_with_objc_fork_safety_disabled -------------------------------------- #
+
+OTHER_PLATFORM: str = 'linux'
+FAKE_EXECUTABLE: str = '/venv/bin/python'
+FAKE_ORIG_ARGV: list[str] = [FAKE_EXECUTABLE, '-m', 'cmdb', '-s', '-c', './etc/cmdb.conf']
+
+
+@pytest.fixture(name='exec_calls')
+def fixture_exec_calls(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, list[str], str | None]]:
+    """Records every os.execv call, with the variable's value at that moment, instead of replacing the process"""
+    calls: list[tuple[str, list[str], str | None]] = []
+
+    def fake_execv(path: str, argv: list[str]) -> None:
+        calls.append((path, argv, fork_safety.os.environ.get(fork_safety.OBJC_FORK_SAFETY_VARIABLE)))
+
+    monkeypatch.setattr(fork_safety.os, 'execv', fake_execv)
+    monkeypatch.setattr(fork_safety.sys, 'executable', FAKE_EXECUTABLE)
+    monkeypatch.setattr(fork_safety.sys, 'orig_argv', FAKE_ORIG_ARGV)
+    monkeypatch.delenv(fork_safety.OBJC_FORK_SAFETY_VARIABLE, raising=False)
+
+    return calls
+
+
+def test_other_platforms_are_not_restarted(monkeypatch: pytest.MonkeyPatch,
+                                           exec_calls: list[tuple[str, list[str], str | None]]) -> None:
+    """Only macOS has the Objective-C check - nothing is set, nothing restarts"""
+    monkeypatch.setattr(fork_safety.sys, 'platform', OTHER_PLATFORM)
+
+    fork_safety.restart_with_objc_fork_safety_disabled()
+
+    assert not exec_calls
+    assert fork_safety.OBJC_FORK_SAFETY_VARIABLE not in fork_safety.os.environ
+
+
+def test_macos_restarts_once_with_the_check_off(monkeypatch: pytest.MonkeyPatch,
+                                                exec_calls: list[tuple[str, list[str], str | None]]) -> None:
+    """The same interpreter and command line again, with the variable already in the environment it inherits"""
+    monkeypatch.setattr(fork_safety.sys, 'platform', fork_safety.OBJC_FORK_PLATFORM)
+
+    fork_safety.restart_with_objc_fork_safety_disabled()
+
+    assert exec_calls == [(FAKE_EXECUTABLE, FAKE_ORIG_ARGV, fork_safety.OBJC_FORK_SAFETY_DISABLED)]
+
+
+def test_the_restarted_process_goes_on(monkeypatch: pytest.MonkeyPatch,
+                                       exec_calls: list[tuple[str, list[str], str | None]]) -> None:
+    """The variable already set is the restarted process - it must not restart again"""
+    monkeypatch.setattr(fork_safety.sys, 'platform', fork_safety.OBJC_FORK_PLATFORM)
+    monkeypatch.setenv(fork_safety.OBJC_FORK_SAFETY_VARIABLE, fork_safety.OBJC_FORK_SAFETY_DISABLED)
+
+    fork_safety.restart_with_objc_fork_safety_disabled()
+
+    assert not exec_calls
+
+
+def test_another_value_is_overridden(monkeypatch: pytest.MonkeyPatch,
+                                     exec_calls: list[tuple[str, list[str], str | None]]) -> None:
+    """Only 'YES' switches the check off - any other value still restarts with 'YES'"""
+    monkeypatch.setattr(fork_safety.sys, 'platform', fork_safety.OBJC_FORK_PLATFORM)
+    monkeypatch.setenv(fork_safety.OBJC_FORK_SAFETY_VARIABLE, 'NO')
+
+    fork_safety.restart_with_objc_fork_safety_disabled()
+
+    assert exec_calls == [(FAKE_EXECUTABLE, FAKE_ORIG_ARGV, fork_safety.OBJC_FORK_SAFETY_DISABLED)]

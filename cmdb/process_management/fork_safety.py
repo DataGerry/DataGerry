@@ -30,8 +30,16 @@ the Objective-C runtime crashes a child forked from a multithreaded parent the f
 DNS lookup is enough (`+[NSMutableString initialize] may have been in progress in another thread when fork() was
 called`). So the web service closes its database connection, whose driver runs monitor threads, before it forks
 gunicorn, and every worker connects again after its own fork
+
+**On macOS that is not enough, so DataGerry starts there with the Objective-C check switched off**
+(`restart_with_objc_fork_safety_disabled`). The runtime asks whether the forking process *has ever* run a second
+thread, not whether one runs now, and the web service has run the database driver's threads before it forks. The
+switch is an environment variable the runtime reads once, when the interpreter loads, so the process starts itself
+again with it set
 """
 import multiprocessing
+import os
+import sys
 import threading
 import time
 from logging import Logger, getLogger
@@ -45,6 +53,13 @@ FORK_START_METHOD: str = 'fork'
 
 #: The context every service process is started from - see the module docstring
 FORK_CONTEXT: BaseContext = multiprocessing.get_context(FORK_START_METHOD)
+
+#: The platform whose Objective-C runtime crashes a child forked from a once-multithreaded parent
+OBJC_FORK_PLATFORM: str = 'darwin'
+
+#: The environment variable that switches the Objective-C fork check off, and the value that does it
+OBJC_FORK_SAFETY_VARIABLE: str = 'OBJC_DISABLE_INITIALIZE_FORK_SAFETY'
+OBJC_FORK_SAFETY_DISABLED: str = 'YES'
 
 #: How long a process waits for its other threads to end before it forks anyway, in seconds
 FORK_THREAD_WAIT_SECONDS: float = 5.0
@@ -89,3 +104,18 @@ def wait_until_single_threaded(timeout: float = FORK_THREAD_WAIT_SECONDS) -> lis
                        "or deadlock", len(remaining), ', '.join(remaining))
 
     return remaining
+
+
+def restart_with_objc_fork_safety_disabled() -> None:
+    """
+    Starts this process again with the Objective-C fork check switched off, on macOS only
+
+    Must run first thing in the main process, before anything has started a thread. Does nothing on any other
+    platform, or when the variable is already set - which is also how the restarted process stops here. The restart
+    keeps the original command line (`sys.orig_argv`), so `python -m cmdb ...` comes back as the same module run
+    """
+    if sys.platform != OBJC_FORK_PLATFORM or os.environ.get(OBJC_FORK_SAFETY_VARIABLE) == OBJC_FORK_SAFETY_DISABLED:
+        return
+
+    os.environ[OBJC_FORK_SAFETY_VARIABLE] = OBJC_FORK_SAFETY_DISABLED
+    os.execv(sys.executable, sys.orig_argv)

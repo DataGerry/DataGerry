@@ -31,6 +31,7 @@ from cmdb import __title__
 from cmdb.utils.logger import get_logging_conf
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 from cmdb.process_management.process_manager import ProcessManager
+from cmdb.process_management.fork_safety import restart_with_objc_fork_safety_disabled
 # -------------------------------------------------------------------------------------------------------------------- #
 
 # Setup logging
@@ -271,6 +272,8 @@ if __name__ == "__main__":
         Copyright (C) 2026 becon GmbH
         licensed under the terms of the GNU Affero General Public License version 3\n
     """
+
+    restart_with_objc_fork_safety_disabled()
 
     try:
         options: Namespace = build_arg_parser()
