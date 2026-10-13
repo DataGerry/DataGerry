@@ -38,7 +38,9 @@ from pymongo.errors import (
 from pymongo.database import Database
 
 import cmdb.database.mongo_database_manager as mdm
-from cmdb.database.mongo_database_manager import MongoDatabaseManager, is_public_id_conflict
+import cmdb.database.mongo_error_helper as meh
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
+from cmdb.database.mongo_error_helper import is_public_id_conflict
 from cmdb.manager.base_manager import BaseManager
 from cmdb.database.database_constants import (
     MAX_DUPLICATE_KEY_RETRIES,
@@ -53,7 +55,6 @@ from cmdb.errors.database import (
     DatabaseConnectionError,
     DatabaseAlreadyExistsError,
     DatabaseNotFoundError,
-    DeleteCollectionError,
     DocumentDeleteError,
     DocumentDuplicateKeyError,
     DocumentInsertDuplicateKeyError,
@@ -282,13 +283,6 @@ class TestDatabaseOperations:
 
         with pytest.raises(GetCollectionError):
             mgr.get_collection(COLL, DB)
-
-    def test_delete_collection_error(self, mgr: MongoDatabaseManager) -> None:
-        """A failure dropping a collection surfaces as DeleteCollectionError."""
-        mgr.connector.get_database.return_value.drop_collection.side_effect = RuntimeError('boom')
-
-        with pytest.raises(DeleteCollectionError):
-            mgr.delete_collection(COLL, DB)
 
     def test_create_indexes_error(self, mgr: MongoDatabaseManager) -> None:
         """A failure creating indexes surfaces as CreateIndexesError."""
@@ -675,6 +669,42 @@ class TestPublicIdCounters:
         with pytest.raises(DocumentGetError):
             mgr.reserve_public_ids(COLL, DB, 2)
 
+    def test_reset_counter_sets_the_highest_stored_id_downwards_too(self, mgr: MongoDatabaseManager) -> None:
+        """The counter is $set (not raised) to the highest public_id read from the collection, upserted"""
+        collection = _stub_collection(mgr)
+        mgr.get_highest_id = MagicMock(return_value=3)
+
+        assert mgr.reset_public_id_counter(COLL, DB, 'counter-id') == 3
+
+        mgr.get_highest_id.assert_called_once_with(COLL, DB)
+        collection.update_one.assert_called_once_with({'_id': 'counter-id'}, {'$set': {'counter': 3}}, upsert=True)
+
+    def test_reset_counter_error(self, mgr: MongoDatabaseManager) -> None:
+        """A failed read or write surfaces as DocumentUpdateError carrying the cause"""
+        _stub_collection(mgr)
+        cause = RuntimeError('boom')
+        mgr.get_highest_id = MagicMock(side_effect=cause)
+
+        with pytest.raises(DocumentUpdateError) as exc_info:
+            mgr.reset_public_id_counter(COLL, DB, 'counter-id')
+
+        assert exc_info.value.__cause__ is cause
+
+    def test_set_counter_writes_exactly_the_value(self, mgr: MongoDatabaseManager) -> None:
+        """$set (not raised), upserted - a counter can come down"""
+        collection = _stub_collection(mgr)
+
+        mgr.set_public_id_counter('counter-id', DB, 4)
+
+        collection.update_one.assert_called_once_with({'_id': 'counter-id'}, {'$set': {'counter': 4}}, upsert=True)
+
+    def test_set_counter_error(self, mgr: MongoDatabaseManager) -> None:
+        """A failed write surfaces as DocumentUpdateError"""
+        _stub_collection(mgr).update_one.side_effect = RuntimeError('boom')
+
+        with pytest.raises(DocumentUpdateError):
+            mgr.set_public_id_counter('counter-id', DB, 4)
+
     def test_update_counter_increment_existing(self, mgr: MongoDatabaseManager) -> None:
         """Incrementing an existing counter issues a single $inc."""
         collection = _stub_collection(mgr)
@@ -752,6 +782,29 @@ class TestReadHelpers:
 
         with pytest.raises(DocumentGetError):
             mgr.find_all(COLL, DB)
+
+    def test_find_all_passes_finds_own_error_on_unwrapped(self, mgr: MongoDatabaseManager) -> None:
+        """find already raised the typed error - find_all does not wrap it a second time"""
+        error = DocumentGetError('find failed')
+        mgr.find = MagicMock(side_effect=error)
+
+        with pytest.raises(DocumentGetError) as exc_info:
+            mgr.find_all(COLL, DB)
+
+        assert exc_info.value is error
+
+    def test_find_all_wraps_a_cursor_failure_once(self, mgr: MongoDatabaseManager) -> None:
+        """Reading the cursor fails: one DocumentGetError, carrying the cause"""
+        cause = NetworkTimeout('read timed out')
+        cursor = MagicMock()
+        cursor.__iter__.side_effect = cause
+        mgr.find = MagicMock(return_value=cursor)
+
+        with pytest.raises(DocumentGetError) as exc_info:
+            mgr.find_all(COLL, DB)
+
+        assert exc_info.value.__cause__ is cause
+        assert str(exc_info.value).count(COLL) == 1
 
     def test_find_error(self, mgr: MongoDatabaseManager) -> None:
         """A find failure surfaces as DocumentGetError."""
@@ -1154,6 +1207,30 @@ class TestInitAndReset:
 
         assert manager.client_options['ssl'] is True
 
+    @pytest.mark.parametrize('kwargs, started', [({}, True), ({'start_keepalive': True}, True),
+                                                 ({'start_keepalive': False}, False)],
+                             ids=['default', 'on', 'off'])
+    def test_the_keepalive_starts_unless_told_not_to(self, monkeypatch, kwargs: dict, started: bool) -> None:
+        """A manager built before a fork starts no thread - the forked child starts it"""
+        monkeypatch.setattr(mdm, 'MongoConnector', MagicMock())
+        starts: list[MongoDatabaseManager] = []
+        monkeypatch.setattr(MongoDatabaseManager, '_start_keepalive', lambda self: starts.append(self))
+
+        manager = MongoDatabaseManager('h', 27017, DB, **kwargs)
+
+        assert starts == ([manager] if started else [])
+
+    def test_a_manager_without_keepalive_starts_it_on_reset(self, monkeypatch) -> None:
+        """reset_connection - what each forked worker runs - starts it"""
+        monkeypatch.setattr(mdm, 'MongoConnector', MagicMock())
+        starts: list[MongoDatabaseManager] = []
+        monkeypatch.setattr(MongoDatabaseManager, '_start_keepalive', lambda self: starts.append(self))
+        manager = MongoDatabaseManager('h', 27017, DB, start_keepalive=False)
+
+        manager.reset_connection()
+
+        assert starts == [manager]
+
     def test_reset_connection_rebuilds_connector(self, mgr: MongoDatabaseManager, monkeypatch) -> None:
         """reset_connection disconnects the old connector and builds a fresh one."""
         old_connector = mgr.connector
@@ -1207,7 +1284,7 @@ class TestDuplicateKeyDetails:
         """insert_one / update_one"""
         err = DuplicateKeyError('dup', details={'keyPattern': {'name': 1}, 'keyValue': {'name': 'a'}})
 
-        assert mdm.duplicate_key_details(err) == ({'name': 1}, {'name': 'a'})
+        assert meh.duplicate_key_details(err) == ({'name': 1}, {'name': 'a'})
 
     def test_a_bulk_write_reports_the_first_duplicate_entry(self) -> None:
         """An entry of another code is skipped rather than read as the violated index"""
@@ -1216,13 +1293,13 @@ class TestDuplicateKeyDetails:
             {'code': MONGO_DUPLICATE_KEY_ERROR_CODE, 'keyPattern': {'name': 1}, 'keyValue': {'name': 'b'}},
         )
 
-        assert mdm.duplicate_key_details(err) == ({'name': 1}, {'name': 'b'})
+        assert meh.duplicate_key_details(err) == ({'name': 1}, {'name': 'b'})
 
     @pytest.mark.parametrize('details', [None, {}, {'keyPattern': 'not-a-dict', 'keyValue': ['x']}],
                              ids=['no-details', 'empty', 'unusable-shapes'])
     def test_what_the_server_did_not_report_is_empty(self, details) -> None:
         """A synthesised or pre-4.2 error: the refusal still carries dicts, just empty ones"""
-        assert mdm.duplicate_key_details(DuplicateKeyError('dup', details=details)) == ({}, {})
+        assert meh.duplicate_key_details(DuplicateKeyError('dup', details=details)) == ({}, {})
 
     @pytest.mark.parametrize('write_errors, expected', [
         ([{'code': MONGO_DUPLICATE_KEY_ERROR_CODE}, {'code': MONGO_DUPLICATE_KEY_ERROR_CODE}], True),
@@ -1231,11 +1308,11 @@ class TestDuplicateKeyDetails:
     ], ids=['all-duplicates', 'mixed', 'none'])
     def test_a_bulk_error_is_a_duplicate_only_when_every_refusal_is(self, write_errors, expected) -> None:
         """A batch that hit anything else is not reported as a duplicate"""
-        assert mdm.is_duplicate_key_bulk_error(_bulk_write_error(*write_errors)) is expected
+        assert meh.is_duplicate_key_bulk_error(_bulk_write_error(*write_errors)) is expected
 
     def test_the_message_names_the_collection_the_value_and_the_index(self) -> None:
         """What the log and the trace read; the route answers its own text"""
-        message = mdm.duplicate_key_message(COLL, {'side': 1, 'name': 1}, {'name': 'a'})
+        message = meh.duplicate_key_message(COLL, {'side': 1, 'name': 1}, {'name': 'a'})
 
         assert COLL in message
         assert "{'name': 'a'}" in message

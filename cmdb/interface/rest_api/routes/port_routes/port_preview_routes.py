@@ -68,7 +68,7 @@ port_preview_blueprint = APIBlueprint('port_previews', __name__)
 
 @port_preview_blueprint.route('/object/<int:object_id>/name_preview', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_preview_blueprint.protect(auth=True, right=PortRight.ADD.value)
 @handle_route_errors("while previewing the Port names")
 def preview_port_names(object_id: int, request_user: CmdbUser) -> Response:

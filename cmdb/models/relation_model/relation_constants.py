@@ -30,9 +30,14 @@ from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
+    'RELATION_NAME_PATTERN',
     'RelationKey',
     'RelationDiffKey',
 ]
+
+# What a relation's technical name may hold - letters (any script), digits, '_' and '-', as the relation builder's
+# own form validator allows. Matched in full with the `regex` engine, which reads the Unicode classes
+RELATION_NAME_PATTERN: str = r'[\p{L}\p{N}_-]+'
 
 
 class RelationKey(BaseStrEnum):

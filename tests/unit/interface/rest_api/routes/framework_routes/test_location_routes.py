@@ -54,6 +54,9 @@ from cmdb.errors.manager.locations_manager import (
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# What read_denied_type_ids answers in these tests: the managers are stubs, so no Type is denied
+NO_DENIAL: list[int] = []
+
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes'
 
 LOCATION_PUBLIC_ID: int = 7
@@ -421,7 +424,8 @@ class TestGetCmdbChildren:
             response_ctor.return_value.make_response.return_value = sentinel_response
             result = self._call(flask_app, OBJECT_ID)
 
-        managers[ManagerType.LOCATIONS].get_child_location_documents.assert_called_once_with(LOCATION_PUBLIC_ID)
+        managers[ManagerType.LOCATIONS].get_child_location_documents.assert_called_once_with(
+            LOCATION_PUBLIC_ID, NO_DENIAL)
         response_ctor.assert_called_once_with(['child1', 'child2'])
         assert result is sentinel_response
 
@@ -489,9 +493,9 @@ class TestGetCmdbLocationTreeRoots:
             result = self._call(flask_app)
 
         managers[ManagerType.LOCATIONS].get_child_location_documents.assert_called_once_with(
-            RootLocationDefault.PUBLIC_ID
+            RootLocationDefault.PUBLIC_ID, NO_DENIAL
         )
-        build_level.assert_called_once_with(['loc1', 'loc2'], managers[ManagerType.LOCATIONS])
+        build_level.assert_called_once_with(['loc1', 'loc2'], managers[ManagerType.LOCATIONS], NO_DENIAL)
         response_ctor.assert_called_once_with(['node1', 'node2'])
         assert result is sentinel_response
 
@@ -545,8 +549,9 @@ class TestGetCmdbLocationTreeChildren:
             response_ctor.return_value.make_response.return_value = sentinel_response
             result = self._call(flask_app, LOCATION_PUBLIC_ID)
 
-        managers[ManagerType.LOCATIONS].get_child_location_documents.assert_called_once_with(LOCATION_PUBLIC_ID)
-        build_level.assert_called_once_with(['loc1'], managers[ManagerType.LOCATIONS])
+        managers[ManagerType.LOCATIONS].get_child_location_documents.assert_called_once_with(
+            LOCATION_PUBLIC_ID, NO_DENIAL)
+        build_level.assert_called_once_with(['loc1'], managers[ManagerType.LOCATIONS], NO_DENIAL)
         response_ctor.assert_called_once_with(['node1'])
         assert result is sentinel_response
 
@@ -600,9 +605,9 @@ class TestSearchCmdbLocationTree:
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, 'rack')
 
-        managers[ManagerType.LOCATIONS].search_locations_with_ancestors.assert_called_once_with('rack')
+        managers[ManagerType.LOCATIONS].search_locations_with_ancestors.assert_called_once_with('rack', NO_DENIAL)
         # the node ids of the search result drive the has-children lookup
-        managers[ManagerType.LOCATIONS].get_parents_with_children.assert_called_once_with([5])
+        managers[ManagerType.LOCATIONS].get_parents_with_children.assert_called_once_with([5], NO_DENIAL)
         # the forest is built from the matches AND the has-children set
         forest.assert_called_once_with(matches, {5})
         response_cls.assert_called_once_with([{'public_id': 5}])
@@ -647,9 +652,10 @@ class TestGetCmdbLocationTreePath:
              patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, LOCATION_PUBLIC_ID)
 
-        managers[ManagerType.LOCATIONS].get_locations_on_path_to.assert_called_once_with(LOCATION_PUBLIC_ID)
+        managers[ManagerType.LOCATIONS].get_locations_on_path_to.assert_called_once_with(LOCATION_PUBLIC_ID, NO_DENIAL)
         # the node ids of the path rows drive the has-children lookup
-        managers[ManagerType.LOCATIONS].get_parents_with_children.assert_called_once_with([5, LOCATION_PUBLIC_ID])
+        managers[ManagerType.LOCATIONS].get_parents_with_children.assert_called_once_with(
+            [5, LOCATION_PUBLIC_ID], NO_DENIAL)
         forest.assert_called_once_with(path_rows, {5})
         response_cls.assert_called_once_with(forest_result)
 

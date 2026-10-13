@@ -34,6 +34,7 @@ update refuses to activate one (``active_external_provider_names``).
 Provider settings live in the section as ``{'class_name': ..., 'config': {...}}`` entries; a provider
 that the stored section does not list is topped up with its own defaults.
 """
+from copy import deepcopy
 from logging import Logger, getLogger
 from typing import Any
 
@@ -46,7 +47,8 @@ from cmdb.manager import (
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
-from cmdb.security.auth.login_name import login_lookup_queries
+from cmdb.security.auth.auth_constants import BLANK_LOGIN_MESSAGE
+from cmdb.security.auth.login_name import login_lookup_queries, strip_login
 from cmdb.models.security_models.auth_settings import CmdbAuthSettings
 from cmdb.models.security_models.auth_settings_constants import (
     AUTH_SETTINGS_ID,
@@ -62,6 +64,7 @@ from cmdb.errors.provider import (
     AuthenticationProviderNotActivated,
     AuthenticationProviderNotFoundError,
     AuthenticationError,
+    ProviderConfigError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -73,6 +76,10 @@ LOGGER: Logger = getLogger(__name__)
 PROVIDER_CLASS_NAME_KEY: str = ProviderEntryKey.CLASS_NAME.value
 PROVIDER_CONFIG_KEY: str = ProviderEntryKey.CONFIG.value
 PROVIDERS_KEY: str = AuthSettingsKey.PROVIDERS.value
+
+# Why a provider entry's config is refused on a write - `provider` is its class name
+PROVIDER_CONFIG_NOT_AN_OBJECT_MSG: str = "{provider}: 'config' must be an object"
+PROVIDER_CONFIG_PROBLEM_MSG: str = "{provider}: {reason}"
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  AuthModule - CLASS                                                  #
@@ -122,19 +129,24 @@ class AuthModule:
         For every installed provider: an entry the section does not list yet is appended with the
         provider's default configuration, and an entry it does list has its config parsed through the
         provider's config class - so a stored config that no longer matches the class (renamed or
-        removed keys) falls back to the defaults with the error logged instead of breaking the login
+        removed keys, a flag that is no boolean) falls back to the defaults with the error logged instead of
+        breaking the login
+
+        The section is copied first: a caller's dict - a write about to be stored, or a class-level default - is
+        never changed by building a module from it, and every default handed out is a copy of its own
 
         Args:
-            auth_settings_values (dict[str, Any]): The stored 'auth' settings section (mutated in place)
+            auth_settings_values (dict[str, Any]): The stored 'auth' settings section
 
         Returns:
             CmdbAuthSettings: The normalised settings
         """
+        auth_settings_values = deepcopy(auth_settings_values)
         provider_config_list: list[dict[str, Any]] = auth_settings_values.setdefault(PROVIDERS_KEY, [])
 
         for provider in AuthModule.get_installed_providers():
             provider_name: str = provider.get_name()
-            default_config_values: dict[str, Any] = provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES
+            default_config_values: dict[str, Any] = deepcopy(provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES)
             provider_index: int = next(
                 (
                     index for index, entry in enumerate(provider_config_list)
@@ -164,6 +176,42 @@ class AuthModule:
                 provider_config_list[provider_index][PROVIDER_CONFIG_KEY] = default_config_values
 
         return CmdbAuthSettings.from_data(auth_settings_values)
+
+
+    @classmethod
+    def provider_config_problems(cls, auth_settings_values: dict[str, Any]) -> list[str]:
+        """
+        Answers why the provider configs of an 'auth' section about to be stored cannot be built
+
+        The write is strict where the read is tolerant: a stored config its class refuses would be read as the
+        provider's defaults - an LDAP provider saved with a 200 would come back switched off. Every installed
+        provider's entry is built through its config class; an entry naming no installed provider is not judged
+
+        Args:
+            auth_settings_values (dict[str, Any]): The section, its shape already validated
+
+        Returns:
+            list[str]: One reason per refused entry, naming its provider; empty when every config builds
+        """
+        problems: list[str] = []
+        entries: list[dict[str, Any]] = auth_settings_values.get(PROVIDERS_KEY) or []
+
+        for provider in cls.get_installed_providers():
+            name: str = provider.get_name()
+
+            for entry in (entry for entry in entries if entry.get(PROVIDER_CLASS_NAME_KEY) == name):
+                config: Any = entry.get(PROVIDER_CONFIG_KEY)
+
+                if not isinstance(config, dict):
+                    problems.append(PROVIDER_CONFIG_NOT_AN_OBJECT_MSG.format(provider=name))
+                    continue
+
+                try:
+                    provider.PROVIDER_CONFIG_CLASS(**deepcopy(config))
+                except (ProviderConfigError, TypeError, ValueError) as err:
+                    problems.append(PROVIDER_CONFIG_PROBLEM_MSG.format(provider=name, reason=err))
+
+        return problems
 
 
     @classmethod
@@ -338,8 +386,8 @@ class AuthModule:
             provider (type[BaseAuthenticationProvider]): The provider whose configuration is read
 
         Returns:
-            dict[str, Any]: The stored config values, or the provider's DEFAULT_CONFIG_VALUES when the settings
-                section carries no entry for it
+            dict[str, Any]: The stored config values, or a copy of the provider's DEFAULT_CONFIG_VALUES when the
+                settings section carries no entry for it
         """
         stored_config: dict[str, Any] | None = self.settings.get_provider_settings(provider.get_name())
 
@@ -349,7 +397,7 @@ class AuthModule:
                 provider.get_name(),
             )
 
-            return provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES
+            return deepcopy(provider.PROVIDER_CONFIG_CLASS.DEFAULT_CONFIG_VALUES)
 
         return stored_config
 
@@ -486,17 +534,28 @@ class AuthModule:
         provider. So whatever the primary attempt ran into, a failed login ends in one
         `AuthenticationError`: it never says which provider was off or missing
 
+        The login is stripped once, before either attempt, so every provider - the LDAP one provisions a
+        CmdbUser under the name it is handed - sees the spelling HTTP Basic and the local lookup see. A login
+        that is blank once stripped is refused before any provider runs
+
         Args:
-            user_name (str): Name (or, in cloud mode, email) of the user
+            user_name (str): Name (or, in cloud mode, email) of the user, as submitted
             password (str): The password to verify
 
         Raises:
-            AuthenticationError: When no provider accepted the credentials; the primary failure is
-                chained as the cause
+            AuthenticationError: When the login is blank once stripped, or when no provider accepted the
+                credentials; the primary failure is chained as the cause
 
         Returns:
             CmdbUser: The authenticated user
         """
+        # Once, for every provider: the local and the LDAP provider see the spelling HTTP Basic sees
+        user_name = strip_login(user_name)
+
+        if not user_name:
+            # Never handed to a provider: a blank login would reach a user stored with a blank name
+            raise AuthenticationError(BLANK_LOGIN_MESSAGE)
+
         try:
             user: CmdbUser | None = self.resolve_user(user_name)
 

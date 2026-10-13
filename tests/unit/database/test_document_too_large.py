@@ -28,8 +28,9 @@ from unittest.mock import MagicMock
 import pytest
 from pymongo.errors import BulkWriteError, DocumentTooLarge, OperationFailure, WriteError
 
-import cmdb.database.mongo_database_manager as mdm
-from cmdb.database.mongo_database_manager import MongoDatabaseManager, is_document_too_large
+import cmdb.database.mongo_error_helper as mongo_error_helper
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
+from cmdb.database.mongo_error_helper import is_document_too_large
 from cmdb.database.database_constants import DOCUMENT_TOO_LARGE_MESSAGE, MONGO_DOCUMENT_TOO_LARGE_ERROR_CODES
 from cmdb.errors.database import (
     DocumentInsertError,
@@ -199,4 +200,4 @@ class TestEveryWriteAnswersTheTypedError:
 
 def test_the_module_reads_the_drivers_class() -> None:
     """The one shape that is not a PyMongoError is imported where it is read"""
-    assert mdm.DocumentTooLarge is DocumentTooLarge
+    assert mongo_error_helper.DocumentTooLarge is DocumentTooLarge

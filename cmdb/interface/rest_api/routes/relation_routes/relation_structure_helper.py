@@ -28,22 +28,30 @@ strings, a field's ``type`` is a known ``FieldType``. What a Cerberus schema can
 that spans two keys, which is what this module holds: that a referenced name is declared, and that no
 identifier is used twice.
 
+The relation's technical name has a rule of its own here too (``relation_name_blocker``): it is the relation's
+identifier, unique like a CmdbType's name, and holds letters, digits, '_' and '-' only. A stored name the shape
+rule refuses stays saveable as long as an update keeps it.
+
 The rules live here rather than in ``relations_helper`` because they are one self-contained theme;
 that module owns the diff, the type-id validation and the update orchestration.
 """
 from typing import Any
 
+import regex as regex_engine
 from flask import abort
 
-from cmdb.models.relation_model.relation_constants import RelationKey
+from cmdb.models.relation_model.relation_constants import RELATION_NAME_PATTERN, RelationKey
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.section_key_enum import SectionKey
 
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     RELATION_DUPLICATE_FIELD_IDENTIFIER_MESSAGE,
     RELATION_DUPLICATE_SECTION_IDENTIFIER_MESSAGE,
+    RELATION_NAME_SHAPE_MESSAGE,
+    RELATION_NAME_TAKEN_MESSAGE,
     RELATION_SECTION_FIELD_UNKNOWN_MESSAGE,
 )
+from cmdb.interface.rest_api.routes.routes_helper import abort_if_taken
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def duplicated_names(names: list[str]) -> list[str]:
@@ -146,3 +154,56 @@ def guard_relation_structure(data: dict[str, Any]) -> None:
 
     if blocker:
         abort(400, blocker)
+
+
+def relation_name_blocker(name: Any, stored_name: Any = None) -> str | None:
+    """
+    Reports why a relation's technical name is refused by the shape rule, if it is
+
+    Letters of any script, digits, '_' and '-' only (``RELATION_NAME_PATTERN``). An update keeping the stored name
+    is not judged: a relation stored before the rule stays saveable until its name is changed
+
+    Args:
+        name (Any): The name the write would store
+        stored_name (Any): The stored relation's name on an update; None on a create
+
+    Returns:
+        str | None: The refusal, or None when the name may be stored
+    """
+    if stored_name is not None and name == stored_name:
+        return None
+
+    if isinstance(name, str) and regex_engine.fullmatch(RELATION_NAME_PATTERN, name):
+        return None
+
+    return RELATION_NAME_SHAPE_MESSAGE.format(name=name)
+
+
+def guard_relation_name(data: dict[str, Any], relations_manager: Any, stored: dict[str, Any] | None = None) -> None:
+    """
+    Aborts 400 when a relation payload's technical name breaks the shape rule or another relation holds it
+
+    The taken check is the readable half; the unique index decides a race, answered by the write's own
+    ``abort_if_duplicate``. A relation may keep its own name on an update
+
+    Args:
+        data (dict[str, Any]): The relation payload a create or an update would store
+        relations_manager (Any): The RelationsManager, for the taken check
+        stored (dict[str, Any] | None): The stored relation on an update; None on a create
+
+    Raises:
+        HTTPException: 400 naming the refused name
+    """
+    name: Any = data.get(RelationKey.RELATION_NAME.value)
+    stored_name: Any = stored.get(RelationKey.RELATION_NAME.value) if stored else None
+    shape_error: str | None = relation_name_blocker(name, stored_name)
+
+    if shape_error:
+        abort(400, shape_error)
+
+    abort_if_taken(
+        relations_manager,
+        {RelationKey.RELATION_NAME.value: name},
+        RELATION_NAME_TAKEN_MESSAGE.format(name=name),
+        exclude_id=stored.get(RelationKey.PUBLIC_ID.value) if stored else None,
+    )

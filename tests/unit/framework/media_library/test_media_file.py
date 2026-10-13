@@ -21,18 +21,15 @@ One GridFS file document of the media library. Instances are built straight from
 them to the snake_case attributes the routes read; `to_json` turns one back into the body the read
 routes answer with.
 
-**The index contract.** A bare `INDEX_KEYS` declaring a
-unique index over `name`, a key no GridFS document carries, and nothing ever built it: `MediaFile` is
-absent from `framework/constants.__COLLECTIONS__` and cannot be added to it, because that loop indexes
-a class's COLLECTION verbatim while `MediaFile.COLLECTION` is the GridFS *bucket* name. The tests
-below now pin the corrected declaration - unique over `(filename, metadata.parent)`, the pair the
-upload and update routes already treat as a file's identity - and the reconciliation lives in
-`CollectionValidator.init_media_library_indexes`, with `updater_20260916` de-duplicating what existing
-databases hold.
+**The index contract.** A file's identity is the pair `(filename, metadata.parent)` - unique, the pair the upload
+and update routes treat as a file's identity - next to the unique top-level `public_id`. `MediaFile` is not in
+`framework/constants.__COLLECTIONS__` (that loop indexes a class's COLLECTION verbatim, and `MediaFile.COLLECTION` is
+the GridFS *bucket* name); `CollectionValidator.init_media_library_indexes` reconciles these indexes onto the file
+collection instead.
 
-One finding is still open and still recorded rather than asserted: `REQUIRED_INIT_KEYS` also names
-`name`. It is dead - `MediaFile` is not a `CmdbDAO`, so nothing reads it - and it was left alone
-rather than folded into the index fix.
+**Not a CmdbDAO.** A media file is built straight from its stored document, so it carries no `REQUIRED_INIT_KEYS`:
+only `CmdbDAO` reads that attribute. What a written file must carry is the write contract's business
+(`media_file_schema`: `filename` required).
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -205,6 +202,12 @@ class TestGetIndexKeys:
     def test_it_answers_index_models(self) -> None:
         """`create_indexes` takes pymongo IndexModels, not the raw dicts."""
         assert all(isinstance(index, IndexModel) for index in MediaFile.get_index_keys())
+
+    def test_the_public_id_index_is_unique_over_the_top_level_key(self) -> None:
+        """The index every stored file is reconciled with - unchanged by the shared key and direction spellings"""
+        assert BaseMediaFile.get_index_keys()[0].document == {
+            'key': {MediaFileKey.PUBLIC_ID.value: 1}, 'name': MediaFileKey.PUBLIC_ID.value, 'unique': True,
+        }
 
     def test_the_base_alone_answers_only_the_public_id_index(self) -> None:
         """`BaseMediaFile.INDEX_KEYS` is empty, so a subclass that declares none still gets that one."""

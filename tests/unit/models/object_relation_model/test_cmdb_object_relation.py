@@ -40,6 +40,7 @@ from cerberus import Validator
 
 from cmdb.framework.constants import __COLLECTIONS__ as FRAMEWORK_COLLECTIONS
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.object_relation_model.object_relation_constants import OBJECT_RELATION_PAIR_INDEX
 from cmdb.models.object_relation_model import (
     CmdbObjectRelation,
     OBJECT_RELATION_DATE_KEYS,
@@ -337,6 +338,27 @@ class TestCollectionAndIndexes:
             side_key,
             ObjectRelationKey.PUBLIC_ID.value,
         ]
+
+    def test_one_relation_links_one_ordered_pair_once(self) -> None:
+        """The unique pair index: relation, parent, child - in that order, so the reverse pair is another key"""
+        index = next(
+            index for index in CmdbObjectRelation.get_index_keys()
+            if index.document['name'] == OBJECT_RELATION_PAIR_INDEX
+        )
+
+        assert index.document['unique'] is True
+        assert [key for key, _direction in index.document['key'].items()] == [
+            ObjectRelationKey.RELATION_ID.value,
+            ObjectRelationKey.RELATION_PARENT_ID.value,
+            ObjectRelationKey.RELATION_CHILD_ID.value,
+        ]
+
+    def test_no_other_declared_index_is_unique(self) -> None:
+        """The tab and lookup indexes stay non-unique - only the pair and the inherited public_id are"""
+        unique_names: set[str] = {index.document['name'] for index in CmdbObjectRelation.get_index_keys()
+                                  if index.document.get('unique')}
+
+        assert unique_names == {OBJECT_RELATION_PAIR_INDEX, CmdbDAO.PUBLIC_ID_KEY}
 
     def test_keeps_the_inherited_unique_public_id_index(self) -> None:
         """The identity index every CmdbDAO gets; declaring INDEX_KEYS must not displace it."""

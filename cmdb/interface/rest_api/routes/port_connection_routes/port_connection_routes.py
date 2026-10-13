@@ -162,7 +162,7 @@ port_connection_blueprint = APIBlueprint('port_connections', __name__)
 
 @port_connection_blueprint.route('/', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.ADD.value)
 @port_connection_blueprint.validate(get_cmdb_port_connection_write_schema())
 @handle_route_errors("while creating the Port connection")
@@ -241,7 +241,7 @@ def insert_cmdb_port_connection(data: dict[str, Any], request_user: CmdbUser) ->
 
 @port_connection_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
 @handle_route_errors("while retrieving the Port connection ID: {public_id}")
 def get_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Response:
@@ -274,7 +274,7 @@ def get_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Response
 
 @port_connection_blueprint.route('/port/<int:port_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
 @handle_route_errors("while retrieving the connections of Port ID: {port_id}")
 def get_cmdb_port_connections_of_port(port_id: int, request_user: CmdbUser) -> Response:
@@ -312,7 +312,7 @@ def get_cmdb_port_connections_of_port(port_id: int, request_user: CmdbUser) -> R
 
 @port_connection_blueprint.route('/object/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
 @handle_route_errors("while retrieving the connections of CmdbObject ID: {object_id}")
 def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) -> Response:
@@ -380,7 +380,7 @@ def get_cmdb_port_connections_of_object(object_id: int, request_user: CmdbUser) 
 
 @port_connection_blueprint.route('/cable_usage/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
 @handle_route_errors("while determining the Port connection usage of the Cable with ID: {object_id}")
 def get_cable_usage_of_object(object_id: int, request_user: CmdbUser) -> Response:
@@ -431,7 +431,7 @@ def get_cable_usage_of_object(object_id: int, request_user: CmdbUser) -> Respons
 
 @port_connection_blueprint.route('/cables/unassigned/', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.VIEW.value)
 @port_connection_blueprint.parse_collection_parameters()
 @handle_route_errors("while listing the assignable Cables")
@@ -526,7 +526,7 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
 
 @port_connection_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.EDIT.value)
 @port_connection_blueprint.validate(get_cmdb_port_connection_write_schema())
 @handle_route_errors("while updating the Port connection ID: {public_id}")
@@ -610,7 +610,7 @@ def update_cmdb_port_connection(public_id: int, data: dict[str, Any], request_us
 
 @port_connection_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.DELETE.value)
 @handle_route_errors("while deleting the Port connection ID: {public_id}")
 def delete_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Response:
@@ -648,7 +648,7 @@ def delete_cmdb_port_connection(public_id: int, request_user: CmdbUser) -> Respo
 
 @port_connection_blueprint.route('/object/<int:object_id>/bulk', methods=['DELETE'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_connection_blueprint.protect(auth=True, right=ConnectionRight.DELETE.value)
 @handle_route_errors("while resolving the selected Port connections")
 def bulk_resolve_port_connections(object_id: int, request_user: CmdbUser) -> Response:

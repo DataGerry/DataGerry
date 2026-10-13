@@ -28,6 +28,8 @@ from cmdb.utils import BaseStrEnum
 __all__: list[str] = [
     'USERNAME_PLACEHOLDER',
     'GROUP_DN_CN_PATTERN',
+    'LDAP_PROVIDER_CLASS_NAME',
+    'LdapConfigKey',
     'LdapSearchKey',
     'LdapGroupsKey',
     'LdapGroupMappingKey',
@@ -43,6 +45,16 @@ USERNAME_PLACEHOLDER: str = '%username%'
 # Reads the first RDN value out of a group DN ('cn=admins,ou=groups,dc=example,dc=com' -> 'admins'), used
 # as the fallback when a group mapping is configured with the bare CN instead of the full DN
 GROUP_DN_CN_PATTERN: re.Pattern = re.compile(r'.*?=(.*?),.*')
+
+
+# The provider's class name - how the stored auth settings' provider entries name it (``class_name``)
+LDAP_PROVIDER_CLASS_NAME: str = 'LdapAuthenticationProvider'
+
+
+class LdapConfigKey(BaseStrEnum):
+    """Top-level keys of the provider's stored ``config`` that name a CmdbUserGroup or hold the ones that do"""
+    DEFAULT_GROUP = 'default_group'
+    GROUPS = 'groups'
 
 
 class LdapSearchKey(BaseStrEnum):
@@ -96,3 +108,6 @@ class LdapAuthMessage(BaseStrEnum):
     GROUP_UPDATE_FAILED = 'Could not apply the mapped group to the CmdbUser: {detail}'
     USER_CREATION_FAILED = 'Could not create a CmdbUser for the authenticated LDAP user: {detail}'
     CREATED_USER_UNREADABLE = 'The CmdbUser created for the authenticated LDAP user could not be read!'
+    GROUP_READ_FAILED = 'Could not read the CmdbUserGroups the LDAP settings name: {detail}'
+    NO_USABLE_GROUP = ('No CmdbUserGroup to provision the LDAP user into: the configured default group {group_id} '
+                       'does not exist!')

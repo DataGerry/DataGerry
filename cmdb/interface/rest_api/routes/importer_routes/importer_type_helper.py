@@ -68,6 +68,7 @@ from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeSchemaKey
+from cmdb.models.type_model.type_structure_repairs import drop_unresolvable_references
 from cmdb.framework.importer.importer_constants import ImportNoun
 from cmdb.framework.importer.responses.import_report_response import (
     ImportReportResponse,
@@ -370,6 +371,9 @@ def prepare_create_entry(
     Returns:
         str | None: The first finding, or None when the entry is ready to be inserted
     """
+    # Before the rules: a stale name in an export is no fault of the upload
+    drop_unresolvable_references(type_entry)
+
     return (
         validate_create_entry(type_entry, types_manager, ipam_locked)
         or _repair_entry(type_entry, types_manager, section_templates_manager)
@@ -398,6 +402,9 @@ def prepare_update_entry(
     Returns:
         str | None: The first finding, or None when the entry is ready to be written
     """
+    # Before the rules: a stale name in an export is no fault of the upload
+    drop_unresolvable_references(type_entry)
+
     return (
         validate_update_entry(type_entry, types_manager, ipam_locked)
         or _repair_entry(type_entry, types_manager, section_templates_manager)

@@ -30,6 +30,7 @@ TARGET_ID: int = 100
 LINKED_ID: int = 200
 TARGET_TYPE_ID: int = 10
 LINKED_TYPE_ID: int = 11
+OBJECT_RELATION_ID: int = 900
 
 
 def _relation_doc(public_id: int = 500) -> dict[str, Any]:
@@ -131,6 +132,7 @@ def test_collect_linked_object_ids_collects_distinct_ids_across_multiple_relatio
 def test_split_direction_returns_child_edge_when_target_is_parent() -> None:
     """Target as parent → linked_is_child=True, edge points target→linked, uses parent-side labels"""
     obj_rel = {
+        'public_id': OBJECT_RELATION_ID,
         'relation_parent_id': TARGET_ID,
         'relation_parent_type_id': TARGET_TYPE_ID,
         'relation_child_id': LINKED_ID,
@@ -148,11 +150,13 @@ def test_split_direction_returns_child_edge_when_target_is_parent() -> None:
     assert result.relation_color == '#33aa33'
     assert result.edge_relation_name == 'hosts'
     assert result.edge_relation_icon == 'fa-arrow-right'
+    assert result.object_relation_id == OBJECT_RELATION_ID
 
 
 def test_split_direction_returns_parent_edge_when_target_is_child() -> None:
     """Target as child → linked_is_child=False, edge points linked→target, uses child-side labels"""
     obj_rel = {
+        'public_id': OBJECT_RELATION_ID,
         'relation_parent_id': LINKED_ID,
         'relation_parent_type_id': LINKED_TYPE_ID,
         'relation_child_id': TARGET_ID,
@@ -169,6 +173,7 @@ def test_split_direction_returns_parent_edge_when_target_is_child() -> None:
     assert result.relation_color == '#aa3333'
     assert result.edge_relation_name == 'hosted_by'
     assert result.edge_relation_icon == 'fa-arrow-left'
+    assert result.object_relation_id == OBJECT_RELATION_ID
 
 
 def test_split_direction_returns_none_when_target_on_neither_side() -> None:

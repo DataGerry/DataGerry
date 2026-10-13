@@ -76,14 +76,15 @@ def compose_relation_edge(
             object_relation; carries the ``public_id`` and the top-level ``relation_name``
 
     Returns:
-        dict[str, Any]: ``{from, to, metadata: {relation_id, relation_name, relation_label,
-            relation_icon, relation_color}}``
+        dict[str, Any]: ``{from, to, metadata: {relation_id, object_relation_id, relation_name, relation_label,
+            relation_icon, relation_color}}`` - ``object_relation_id`` is the instance the edge draws
     """
     return {
         'from': directional_edge.edge_from,
         'to': directional_edge.edge_to,
         'metadata': {
             'relation_id': relation_doc.get('public_id'),
+            'object_relation_id': directional_edge.object_relation_id,
             'relation_name': relation_doc.get('relation_name'),
             'relation_label': directional_edge.edge_relation_name,
             'relation_icon': directional_edge.edge_relation_icon,

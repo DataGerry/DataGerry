@@ -52,10 +52,7 @@ from cmdb.framework.section_templates.global_template_reconcile import (
 from cmdb.framework.object_field_value_rules import find_default_value_errors
 from cmdb.security.acl.acl_constants import AclKey
 from cmdb.security.acl.access_control_list import AccessControlList
-from cmdb.interface.rest_api.routes.importer_routes.importer_type_rules import (
-    TypeStructure,
-    read_type_structure,
-)
+from cmdb.models.type_model.type_structure_rules import TypeStructure, read_type_structure
 from cmdb.interface.rest_api.routes.importer_routes.importer_type_constants import (
     DEFAULT_TYPE_ICON,
     TypeImportError,

@@ -144,6 +144,18 @@ def _object_relation_logs(database_manager: MongoDatabaseManager, database_name:
     return [log['action'] for log in logs]
 
 
+@pytest.fixture(autouse=True)
+def _no_leftover_instances(database_manager: MongoDatabaseManager, database_name: str):
+    """
+    Every test starts without an instance of the module's relation
+
+    A relation links one pair once, and most tests write the same pair - an instance another test created through
+    the route (its public_id drawn, so not in ALL_OR_IDS) would refuse the next create of that pair
+    """
+    database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name).delete_many(
+        {'relation_id': RELATION_ID})
+
+
 @pytest.fixture(scope='module', autouse=True)
 def _seed_relation_and_cleanup(database_manager: MongoDatabaseManager, database_name: str):
     """Seeds the referenced CmdbRelation for the module and cleans up all test docs afterwards."""
@@ -164,7 +176,7 @@ def _seed_relation_and_cleanup(database_manager: MongoDatabaseManager, database_
     database_manager.get_collection(CmdbRelation.COLLECTION, database_name)\
         .delete_one({'public_id': RELATION_ID})
     database_manager.get_collection(CmdbObjectRelation.COLLECTION, database_name)\
-        .delete_many({'public_id': {'$in': ALL_OR_IDS}})
+        .delete_many({'relation_id': RELATION_ID})
     database_manager.get_collection(CmdbObjectRelationLog.COLLECTION, database_name)\
         .delete_many({'object_relation_id': {'$in': ALL_OR_IDS}})
 
