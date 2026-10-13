@@ -415,13 +415,15 @@ def update_section_template(params: dict[str, Any], request_user: CmdbUser) -> R
         params[SectionTemplateKey.PREDEFINED] = coerce_bool(params[SectionTemplateKey.PREDEFINED])
         params[SectionTemplateKey.IS_GLOBAL] = coerce_bool(params[SectionTemplateKey.IS_GLOBAL])
         params[SectionTemplateKey.FIELDS] = parse_json_fields(params[SectionTemplateKey.FIELDS])
-        guard_template_fields(params[SectionTemplateKey.FIELDS])
 
         public_id = params[SectionTemplateKey.PUBLIC_ID]
         current_template: CmdbSectionTemplate = section_templates_manager.get_section_template(public_id)
 
         if not current_template:
             abort(404, "Target section template not found!")
+
+        # Judged against the stored fields: a pattern the update keeps unchanged passes
+        guard_template_fields(params[SectionTemplateKey.FIELDS], current_template.fields)
 
         guard_section_template_update(current_template, params)
 

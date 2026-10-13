@@ -71,8 +71,9 @@ from cmdb.interface.rest_api.responses import (
     UpdateSingleResponse,
     DeleteSingleResponse,
 )
-from cmdb.interface.rest_api.routes.relation_routes.relation_constants import RelationRight
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import RELATION_NAME_TAKEN_MESSAGE, RelationRight
 from cmdb.interface.rest_api.routes.relation_routes.relation_structure_helper import (
+    guard_relation_name,
     guard_relation_structure,
 )
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
@@ -95,7 +96,11 @@ from cmdb.errors.manager.relations_manager import (
     RelationsManagerDeleteError,
 )
 from cmdb.errors.manager.types_manager import TypesManagerGetError
-from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_if_duplicate,
+    build_searchable_builder_params,
+    request_wants_body,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -158,11 +163,17 @@ def insert_cmdb_relation(data: dict[str, Any], request_user: CmdbUser) -> Respon
         # those names straight onto every dependent CmdbObjectRelation - so a payload that breaks the
         # pairing is not merely unrenderable, it propagates
         guard_relation_structure(data)
+        guard_relation_name(data, relations_manager)
 
         # The identity is server-owned: never let the payload choose the new public_id
         data.pop(RelationKey.PUBLIC_ID.value, None)
 
-        result_id: int = relations_manager.insert_relation(data)
+        try:
+            result_id: int = relations_manager.insert_relation(data)
+        except RelationsManagerInsertError as err:
+            # A concurrent create took the name between the check and the write
+            abort_if_too_large(err)
+            abort_if_duplicate(err, RELATION_NAME_TAKEN_MESSAGE.format(name=data[RelationKey.RELATION_NAME.value]))
 
         created_relation: dict[str, Any] | None = relations_manager.get_relation(result_id)
 
@@ -322,8 +333,14 @@ def update_cmdb_relation(public_id: int, data: dict[str, Any], request_user: Cmd
         # An update writes the whole document, so it can introduce the same inconsistency a create
         # can - and here the diff it feeds is what reaches the dependent CmdbObjectRelations
         guard_relation_structure(data)
+        guard_relation_name(data, relations_manager, to_update_relation)
 
-        relation, changed_fields = apply_relation_update(public_id, data, to_update_relation, relations_manager)
+        try:
+            relation, changed_fields = apply_relation_update(public_id, data, to_update_relation, relations_manager)
+        except RelationsManagerUpdateError as err:
+            # A concurrent write took the name between the check and the write
+            abort_if_too_large(err)
+            abort_if_duplicate(err, RELATION_NAME_TAKEN_MESSAGE.format(name=data[RelationKey.RELATION_NAME.value]))
 
         cascade_relation_update(public_id, to_update_relation, data, changed_fields, object_relations_manager)
 

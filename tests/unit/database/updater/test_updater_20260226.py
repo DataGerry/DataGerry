@@ -30,6 +30,7 @@ from typing import Any
 from unittest.mock import MagicMock, call
 
 import pytest
+from pymongo import ASCENDING
 
 from cmdb.errors.updater import UpdaterException
 from cmdb.database.updater.versions.updater_20260226 import (
@@ -432,6 +433,17 @@ class TestResolveMapperRelation:
         assert relation_id == MAPPER_RELATION_ID
         assert migrated_pairs == {(OBJECT_A_ID, OBJECT_B_ID)}
         updater.dbm.insert.assert_not_called()
+
+    def test_the_oldest_relation_of_the_name_is_adopted(self) -> None:
+        """Where the name is not unique yet, the read orders by public_id and the first is taken"""
+        updater = _new_updater(relation_exists=True)
+
+        updater.resolve_mapper_relation()
+
+        (relation_read,) = [
+            kwargs for args, kwargs in updater.dbm.find.call_args_list if args and args[0] == RELATION_COLLECTION
+        ]
+        assert relation_read['sort'] == [(PUBLIC_ID_FIELD, ASCENDING)]
 
     def test_the_existence_check_is_a_single_read(self) -> None:
         """One read answers 'does it exist' and 'what is its id' (no separate count)."""

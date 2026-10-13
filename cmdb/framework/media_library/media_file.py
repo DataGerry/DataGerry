@@ -47,7 +47,6 @@ class MediaFile(BaseMediaFile):
     """
 
     COLLECTION = 'media.libary'
-    REQUIRED_INIT_KEYS: list[str] = ['name']
 
     # A file's identity is (filename, metadata.parent): the library is a tree, so the same name in two
     # different folders is legal and only a clash INSIDE one folder is not - which is exactly what the

@@ -315,7 +315,17 @@ def test_count_from_other_collection_delegates_to_other_collection() -> None:
     result = BaseManager.count_from_other_collection(mgr, 'framework.reports', criteria)
 
     assert result == 3
-    mgr.dbm.count.assert_called_once_with('framework.reports', DB_NAME, criteria)
+    mgr.dbm.count.assert_called_once_with('framework.reports', DB_NAME, criteria, None)
+
+
+def test_count_from_other_collection_passes_the_limit_through() -> None:
+    """A limit caps the count - limit=1 is the existence check"""
+    mgr = _mock_manager()
+    mgr.dbm.count.return_value = 1
+    criteria = {'report_category_id': 6}
+
+    assert BaseManager.count_from_other_collection(mgr, 'framework.objects', criteria, limit=1) == 1
+    mgr.dbm.count.assert_called_once_with('framework.objects', DB_NAME, criteria, 1)
 
 
 def test_count_from_other_collection_wraps_failure() -> None:
@@ -1074,3 +1084,40 @@ def test_replace_addresses_the_document_by_its_public_id() -> None:
     BaseManager.replace(mgr, 7, {'public_id': 7, 'name': 'x'})
 
     mgr.dbm.replace.assert_called_once_with(COLLECTION, DB_NAME, {'public_id': 7}, {'public_id': 7, 'name': 'x'})
+
+
+def test_reset_public_id_counter_of_delegates_with_the_managers_database() -> None:
+    """The other collection, the manager's database and the counter id reach the database layer"""
+    mgr = _mock_manager()
+    mgr.dbm.reset_public_id_counter.return_value = 4
+
+    assert BaseManager.reset_public_id_counter_of(mgr, 'framework.objects', 'objects-counter') == 4
+    mgr.dbm.reset_public_id_counter.assert_called_once_with('framework.objects', DB_NAME, 'objects-counter')
+
+
+def test_reset_public_id_counter_of_wraps_failure() -> None:
+    """A DocumentUpdateError is wrapped in BaseManagerUpdateError"""
+    mgr = _mock_manager()
+    mgr.dbm.reset_public_id_counter.side_effect = DocumentUpdateError('boom')
+
+    with pytest.raises(BaseManagerUpdateError):
+        BaseManager.reset_public_id_counter_of(mgr, 'framework.objects', 'objects-counter')
+
+
+def test_set_public_id_counter_of_delegates_with_the_managers_database() -> None:
+    """The counter id, the manager's database and the value reach the database layer"""
+    mgr = _mock_manager()
+
+    BaseManager.set_public_id_counter_of(mgr, 'objects-counter', 12)
+
+    mgr.dbm.set_public_id_counter.assert_called_once_with('objects-counter', DB_NAME, 12)
+
+
+def test_set_public_id_counter_of_wraps_failure() -> None:
+    """A DocumentUpdateError is wrapped in BaseManagerUpdateError"""
+    mgr = _mock_manager()
+    mgr.dbm.set_public_id_counter.side_effect = DocumentUpdateError('boom')
+
+    with pytest.raises(BaseManagerUpdateError):
+        BaseManager.set_public_id_counter_of(mgr, 'objects-counter', 12)
+

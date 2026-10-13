@@ -336,7 +336,11 @@ class BaseManager:
             raise BaseManagerGetError(err) from err
 
 
-    def count_from_other_collection(self, collection: str, criteria: dict[str, Any] | None = None) -> int:
+    def count_from_other_collection(
+            self,
+            collection: str,
+            criteria: dict[str, Any] | None = None,
+            limit: int | None = None) -> int:
         """
         Counts the documents in another collection that match the given criteria
 
@@ -346,6 +350,8 @@ class BaseManager:
         Args:
             collection (str): The name of the collection to count in
             criteria (dict[str, Any] | None): Filter selecting which documents to count. Defaults to None
+            limit (int | None): Stop counting after this many matches; ``limit=1`` turns the count
+                into an existence check the server can short-circuit. Defaults to None (count all)
 
         Raises:
             BaseManagerGetError: When the count operation fails
@@ -354,7 +360,7 @@ class BaseManager:
             int: The number of documents in the other collection matching the criteria
         """
         try:
-            return self.dbm.count(collection, self.db_name, criteria)
+            return self.dbm.count(collection, self.db_name, criteria, limit)
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
@@ -625,6 +631,43 @@ class BaseManager:
             return self.dbm.get_next_public_id(self.collection, self.db_name, inc_id)
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
+
+
+    def reset_public_id_counter_of(self, collection: str, counter_id: str) -> int:
+        """
+        Sets another collection's public_id counter to the highest public_id still stored there - downwards too
+
+        Args:
+            collection (str): The collection whose highest public_id the counter is set to
+            counter_id (str): The `_id` of the counter document
+
+        Raises:
+            BaseManagerUpdateError: If the counter could not be reset
+
+        Returns:
+            int: The value the counter was set to
+        """
+        try:
+            return self.dbm.reset_public_id_counter(collection, self.db_name, counter_id)
+        except DocumentUpdateError as err:
+            raise BaseManagerUpdateError(err) from err
+
+
+    def set_public_id_counter_of(self, counter_id: str, value: int) -> None:
+        """
+        Sets a public_id counter to exactly the given value - downwards too
+
+        Args:
+            counter_id (str): The `_id` of the counter document
+            value (int): The counter's new value
+
+        Raises:
+            BaseManagerUpdateError: If the counter could not be written
+        """
+        try:
+            self.dbm.set_public_id_counter(counter_id, self.db_name, value)
+        except DocumentUpdateError as err:
+            raise BaseManagerUpdateError(err) from err
 
 
     def reserve_public_ids(self, amount: int) -> list[int]:

@@ -71,7 +71,9 @@ from cmdb.errors.manager.users_manager import (
     UsersManagerUpdateError,
     UsersManagerDeleteError,
 )
+from cmdb.interface.rest_api.routes.user_management_routes.cmdb_groups.groups_constants import USER_GROUP_LABEL
 from cmdb.interface.rest_api.routes.routes_helper import (
+    abort_on_unknown_references,
     abort_if_duplicate,
     abort_if_taken,
     build_searchable_builder_params,
@@ -107,7 +109,8 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
         data (CmdbUser.SCHEMA): Data of a new CmdbUser
 
     Raises:
-        HTTPException: 400 when the body fails the schema or the user_name is taken; 500 when the insert
+        HTTPException: 400 when the body fails the schema, the group_id names no UserGroup or the user_name is
+            taken; 500 when the insert
             fails for any other reason (an outage is never reported as a taken name), when the created
             user cannot be read back, or on an unexpected error
 
@@ -117,6 +120,10 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
     try:
         users_manager: UsersManager = ManagerProvider.get_manager(ManagerType.USERS, request_user)
         security_manager: SecurityManager = ManagerProvider.get_manager(ManagerType.SECURITY, request_user)
+        groups_manager: GroupsManager = ManagerProvider.get_manager(ManagerType.GROUPS, request_user)
+
+        # A user in a group that does not exist authenticates and is refused every right, without a word why
+        abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)
 
         user_password = data['password']
         data['password'] = security_manager.generate_hmac(data['password'])
@@ -250,6 +257,8 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
     Raises:
         HTTPException: 400 when the body changes a field the caller may not change, carries a password,
+            names a group_id no UserGroup carries (the stored one included - a user left in a deleted group
+            is refused on every save until an administrator picks an existing group),
             or renames the user onto a user_name another user holds (by the pre-check or, under a
             concurrent write, by the unique index); 403 when the caller neither holds the right nor edits
             themselves; 404 when the user does not exist; 500 when the update fails for any other reason,
@@ -273,6 +282,9 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
     )
     pin_public_id(data, public_id)
     apply_registration_time(data)
+
+    # The group the user is written into must exist - a self-edit keeps the stored one, which is checked too
+    abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)
 
     # After the guard: a self-edit has had its user_name pinned to the stored one, which excludes itself
     user_name: str = data[CmdbUserKey.USER_NAME.value]

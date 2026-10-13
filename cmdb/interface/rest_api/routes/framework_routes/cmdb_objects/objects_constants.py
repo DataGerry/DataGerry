@@ -122,12 +122,16 @@ class ObjectQueryParam(BaseStrEnum):
     from an array of params) while the MDS-references route reads ONE comma-joined value
     (`objectIDs=1,2`, what `HttpParams.set` produces). Unifying them is a frontend-visible change.
 
+    ``CLONE_PORTS_FROM`` is read by the create route only: the public_id of the object whose ports the new
+    object gets copies of.
+
     ``VIEW`` is read off the request by the SINGLE object route only. The list and reference routes
     receive the same parameter through ``parse_collection_parameters``, which puts it into
     ``params.optional`` instead - so those two read it from there, not here
     """
     OBJECT_IDS = 'objectIDs'
     VIEW = 'view'
+    CLONE_PORTS_FROM = 'clone_ports_from'
 
 
 class ObjectGroupKey(BaseStrEnum):

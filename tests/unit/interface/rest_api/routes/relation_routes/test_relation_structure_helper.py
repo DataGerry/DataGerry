@@ -25,11 +25,16 @@ The stakes differ from the CmdbType version of the same rules: a relation's sect
 a section naming a field the relation does not declare is propagated rather than merely unrendered.
 """
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.relation_model.relation_constants import RelationKey
+from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
+    RELATION_NAME_SHAPE_MESSAGE,
+    RELATION_NAME_TAKEN_MESSAGE,
+)
 from cmdb.models.type_model.field_key_enum import FieldKey
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_key_enum import SectionKey
@@ -38,6 +43,8 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_structure_helper im
     duplicated_names,
     guard_relation_structure,
     relation_structure_blocker,
+    guard_relation_name,
+    relation_name_blocker,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -185,3 +192,79 @@ def test_the_guard_aborts_400_with_the_reason() -> None:
 def test_the_guard_passes_a_consistent_payload() -> None:
     """Nothing is raised for a relation that can render itself"""
     guard_relation_structure(_payload([_field(FIELD_A)], [_section(SECTION_A, [FIELD_A])]))
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                                 the relation name                                                    #
+# -------------------------------------------------------------------------------------------------------------------- #
+RELATION_ID: int = 41
+OTHER_RELATION_ID: int = 42
+NAME: str = 'runs-on'
+
+
+class TestRelationNameBlocker:
+    """relation_name_blocker - letters, digits, '_' and '-'"""
+
+    @pytest.mark.parametrize('name', ['runs-on', 'runs_on', 'RunsOn2', 'Gerät', 'связь', '42'],
+                             ids=['kebab', 'snake', 'mixed-digits', 'umlaut', 'cyrillic', 'digits'])
+    def test_a_usable_name_passes(self, name: str) -> None:
+        """Any script's letters"""
+        assert relation_name_blocker(name) is None
+
+    @pytest.mark.parametrize('name', ['runs on', ' runs-on', 'runs.on', 'runs/on', '', 5, None],
+                             ids=['space', 'padded', 'dot', 'slash', 'empty', 'number', 'none'])
+    def test_anything_else_is_refused_by_name(self, name: Any) -> None:
+        """The message names the value"""
+        assert relation_name_blocker(name) == RELATION_NAME_SHAPE_MESSAGE.format(name=name)
+
+    def test_an_update_keeping_a_stored_name_passes(self) -> None:
+        """Stored before the rule"""
+        assert relation_name_blocker('runs on', 'runs on') is None
+
+    def test_an_update_changing_the_name_is_judged(self) -> None:
+        """The new name is new"""
+        assert relation_name_blocker('runs on!', 'runs on') is not None
+
+
+def _manager(holder: dict[str, Any] | None) -> MagicMock:
+    """A RelationsManager whose name lookup answers `holder`."""
+    manager = MagicMock()
+    manager.get_one_by.return_value = holder
+
+    return manager
+
+
+class TestGuardRelationName:
+    """guard_relation_name"""
+
+    def test_a_free_name_passes(self) -> None:
+        """Looked up exactly as sent"""
+        manager = _manager(None)
+
+        guard_relation_name({RelationKey.RELATION_NAME.value: NAME}, manager)
+
+        manager.get_one_by.assert_called_once_with({RelationKey.RELATION_NAME.value: NAME})
+
+    def test_a_name_another_relation_holds_is_400(self) -> None:
+        """On a create"""
+        with pytest.raises(HTTPException) as caught:
+            guard_relation_name({RelationKey.RELATION_NAME.value: NAME},
+                                _manager({RelationKey.PUBLIC_ID.value: OTHER_RELATION_ID}))
+
+        assert (caught.value.code, caught.value.description) == (400, RELATION_NAME_TAKEN_MESSAGE.format(name=NAME))
+
+    def test_an_update_may_keep_its_own_name(self) -> None:
+        """The holder is the relation itself"""
+        stored = {RelationKey.PUBLIC_ID.value: RELATION_ID, RelationKey.RELATION_NAME.value: NAME}
+
+        guard_relation_name({RelationKey.RELATION_NAME.value: NAME}, _manager(stored), stored)
+
+    def test_a_refused_shape_is_400_before_the_lookup(self) -> None:
+        """No read for a name that cannot be stored"""
+        manager = _manager(None)
+
+        with pytest.raises(HTTPException) as caught:
+            guard_relation_name({RelationKey.RELATION_NAME.value: 'runs on'}, manager)
+
+        assert caught.value.code == 400
+        manager.get_one_by.assert_not_called()

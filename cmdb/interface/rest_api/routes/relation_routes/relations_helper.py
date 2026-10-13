@@ -70,7 +70,8 @@ from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKe
 from cmdb.framework.rendering.cmdb_multi_render import CmdbMultiRender
 from cmdb.security.acl.builder import resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.interface.rest_api.routes.routes_helper import normalize_public_id_list, pin_public_id
+from cmdb.utils import find_cause
+from cmdb.interface.rest_api.routes.routes_helper import abort_if_taken, normalize_public_id_list, pin_public_id
 from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     MAX_BULK_DELETE_OBJECT_RELATIONS,
     BulkDeleteKey,
@@ -80,6 +81,7 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_ENDPOINT_UNKNOWN_MESSAGE,
     OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE,
     OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE,
+    OBJECT_RELATION_PAIR_TAKEN_MESSAGE,
     OBJECT_RELATION_TYPE_NOT_ALLOWED_MESSAGE,
     OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE,
     OBJECT_RELATION_TABS_ACCESS_DENIED_MESSAGE,
@@ -88,6 +90,8 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_access_helper import read_object_or_abort
 from cmdb.interface.rest_api.routes.relation_routes.relation_structure_helper import duplicated_names
+
+from cmdb.errors.database import DocumentDuplicateKeyError
 
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerInitError
 from cmdb.errors.manager.objects_manager import ObjectsManagerGetError
@@ -557,6 +561,81 @@ def guard_object_relation_field_values(relation: dict[str, Any], field_values: l
 
     if blocker:
         abort(HTTPStatus.BAD_REQUEST, blocker)
+
+
+def object_relation_pair(data: dict[str, Any]) -> dict[str, Any]:
+    """
+    The (relation, parent, child) a CmdbObjectRelation write would store - the key of the unique index `relation_pair`
+
+    Args:
+        data (dict[str, Any]): The validated write payload
+
+    Returns:
+        dict[str, Any]: The three keys and their values, usable as query criteria
+    """
+    return {
+        ObjectRelationKey.RELATION_ID.value: data.get(ObjectRelationKey.RELATION_ID.value),
+        ObjectRelationKey.RELATION_PARENT_ID.value: data.get(ObjectRelationKey.RELATION_PARENT_ID.value),
+        ObjectRelationKey.RELATION_CHILD_ID.value: data.get(ObjectRelationKey.RELATION_CHILD_ID.value),
+    }
+
+
+def object_relation_pair_taken_message(data: dict[str, Any]) -> str:
+    """
+    The 400 of a write whose pair another CmdbObjectRelation already holds
+
+    Args:
+        data (dict[str, Any]): The validated write payload
+
+    Returns:
+        str: ``OBJECT_RELATION_PAIR_TAKEN_MESSAGE`` naming the relation and both objects
+    """
+    return OBJECT_RELATION_PAIR_TAKEN_MESSAGE.format(
+        relation_id=data.get(ObjectRelationKey.RELATION_ID.value),
+        parent_id=data.get(ObjectRelationKey.RELATION_PARENT_ID.value),
+        child_id=data.get(ObjectRelationKey.RELATION_CHILD_ID.value),
+    )
+
+
+def abort_if_object_relation_pair_taken(
+        object_relations_manager: ObjectRelationsManager,
+        data: dict[str, Any],
+        exclude_id: int | None = None) -> None:
+    """
+    Refuses a CmdbObjectRelation write whose (relation, parent, child) another instance already holds
+
+    One relation links one ordered pair of objects once: the reverse pair (the child as parent) is another pair. An
+    update may keep its own pair. The unique index `relation_pair` decides a race this read cannot see
+    (``abort_if_object_relation_pair_duplicate``)
+
+    Args:
+        object_relations_manager (ObjectRelationsManager): Reads the instances
+        data (dict[str, Any]): The validated write payload
+        exclude_id (int | None): public_id of the instance being updated. Defaults to None (a create)
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 ``OBJECT_RELATION_PAIR_TAKEN_MESSAGE``
+    """
+    abort_if_taken(object_relations_manager, object_relation_pair(data), object_relation_pair_taken_message(data),
+                   exclude_id=exclude_id)
+
+
+def abort_if_object_relation_pair_duplicate(err: Exception, data: dict[str, Any]) -> None:
+    """
+    Answers a CmdbObjectRelation write the unique index `relation_pair` refused with the pre-check's 400
+
+    A concurrent write took the pair between the pre-check and this write. Any other failure is left to the caller
+
+    Args:
+        err (Exception): The manager error the write raised
+        data (dict[str, Any]): The validated write payload
+
+    Raises:
+        werkzeug.exceptions.BadRequest: Aborts with 400 ``OBJECT_RELATION_PAIR_TAKEN_MESSAGE`` when the index refused
+            the write
+    """
+    if find_cause(err, DocumentDuplicateKeyError) is not None:
+        abort(HTTPStatus.BAD_REQUEST, object_relation_pair_taken_message(data))
 
 
 def get_deleted_type_ids(old_ids: list[int], new_ids: list[int]) -> list[int]:

@@ -122,7 +122,10 @@ def compile_field_regex(field_name: Any, regex: Any) -> regex_engine.Pattern | N
     Compiles a field's declared regex into the pattern its values are tested against
 
     Compiled with the ``regex`` engine rather than ``re``: only it can be given a timeout (see
-    ``match_field_pattern``). Its default mode reads a pattern as ``re`` does
+    ``match_field_pattern``). Its default mode reads a pattern as ``re`` does - so ``\\d``, ``\\w`` and ``\\b`` are
+    Unicode here and ASCII in the browser's form: the server is the more lenient side by design, never
+    refusing a value the form allowed. A pattern the two dialects read differently in any other way is refused when
+    it is written (``field_pattern_rule``); a stored pattern the server cannot compile is skipped here
 
     Args:
         field_name (Any): The field's name, for the warning a pattern that cannot be compiled logs

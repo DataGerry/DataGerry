@@ -22,7 +22,10 @@ what is pinned here is the pairing on both sides, the two identifier-uniqueness 
 that are deliberately NOT refused. Schema dict keys come from the model key enums per the
 no-magic-values rule
 """
+import copy
+import logging
 from typing import Any
+from unittest.mock import MagicMock, patch
 
 import pytest
 from werkzeug.exceptions import HTTPException
@@ -32,10 +35,11 @@ from cmdb.models.type_model.section_key_enum import SectionKey
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.object_field_value_constants import FIELD_DEFAULT_ERROR_SEPARATOR, FieldDefaultError
 from cmdb.models.type_model.cmdb_type import CmdbType
-from cmdb.models.type_model.type_constants import IdentifierKind, TypeIdentifierError
+from cmdb.models.type_model.type_constants import IdentifierKind, TypeIdentifierError, TypeReferencePlace
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper import (
     guard_new_identifiers,
     guard_field_defaults,
+    drop_stale_type_references,
     duplicated,
     guard_type_structure,
     summary_blocker,
@@ -426,3 +430,51 @@ def test_an_update_adding_a_refused_identifier_aborts_400() -> None:
 
     assert exc_info.value.description == TypeIdentifierError.FORBIDDEN_CHARACTER.format(
         kind=IdentifierKind.FIELD.value, name='new-[x]')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                              drop_stale_type_references                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_structure_helper'
+STORED_TYPE_ID: int = 31
+
+
+def _drop(payload: dict[str, Any], stored: dict[str, Any]) -> list[Any]:
+    """Runs drop_stale_type_references with the stored Type serialised as `stored`."""
+    old_type = MagicMock(public_id=STORED_TYPE_ID)
+
+    with patch(f'{HELPER_PATH}.CmdbType.to_json', return_value=stored) as to_json:
+        dropped = drop_stale_type_references(payload, old_type)
+
+    to_json.assert_called_once_with(old_type)
+
+    return dropped
+
+
+class TestDropStaleTypeReferences:
+    """drop_stale_type_references - the update route's repair"""
+
+    def test_a_name_the_stored_type_carried_is_dropped_and_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Then the structure guard passes"""
+        stored = _payload([_field(FIELD_A)], [_section(SECTION_A, [FIELD_A, FIELD_B])], summary=[FIELD_B])
+        payload = copy.deepcopy(stored)
+
+        with caplog.at_level(logging.INFO, logger=HELPER_PATH):
+            dropped = _drop(payload, stored)
+
+        assert [(ref.place, ref.name) for ref in dropped] == [
+            (TypeReferencePlace.SECTION, FIELD_B), (TypeReferencePlace.SUMMARY, FIELD_B)]
+        assert f'Type ID:{STORED_TYPE_ID}' in caplog.text
+        guard_type_structure(payload)
+
+    def test_a_newly_written_name_is_kept_and_nothing_is_logged(self, caplog: pytest.LogCaptureFixture) -> None:
+        """Refused by the guard"""
+        stored = _payload([_field(FIELD_A)], [_section(SECTION_A, [FIELD_A])])
+        payload = _payload([_field(FIELD_A)], [_section(SECTION_A, [FIELD_A, FIELD_B])])
+
+        with caplog.at_level(logging.INFO, logger=HELPER_PATH):
+            assert not _drop(payload, stored)
+
+        assert not caplog.text
+        with pytest.raises(HTTPException):
+            guard_type_structure(payload)

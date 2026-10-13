@@ -18,7 +18,7 @@ Represents a CmdbObjectRelation in DataGerry
 
 A CmdbObjectRelation is one *instance* of a CmdbRelation (collection ``framework.objectRelations``):
 the CmdbRelation defines that, say, a server may run an application, and each CmdbObjectRelation
-records one concrete pair plus the field values that relation definition declares. Four properties are
+records one concrete pair plus the field values that relation definition declares. Five properties are
 worth knowing before changing it:
 
 **The document carries both endpoints AND both endpoint types.** ``relation_parent_type_id`` /
@@ -37,6 +37,10 @@ wrapper - the shape the frontend sends - is converted to a datetime before the d
 whichever path writes it. A wrapper stored as-is would be a **sub-document**, which MongoDB cannot sort
 or range-filter; ``updater_20260910`` converts any stored that way into real dates.
 
+**One relation links one ordered pair once.** The unique index ``relation_pair`` on (relation_id,
+relation_parent_id, relation_child_id) refuses a second instance of the same pair; the reverse pair - the child as
+parent - is another pair. ``updater_20261016`` removed the duplicates stored before.
+
 **``field_values`` are name/value pairs, not the name/value/type triples a CmdbObject carries** - the
 type comes from the relation definition's field, so it is not repeated per instance.
 ``ObjectRelationKey`` names every persisted key and drives the shared ``from_data`` / ``to_json``
@@ -50,6 +54,7 @@ from cmdb.class_schema.object_relation_model.cmdb_object_relation_schema import 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.object_relation_model.object_relation_constants import (
     OBJECT_RELATION_DATE_KEYS,
+    OBJECT_RELATION_PAIR_INDEX,
     ObjectRelationKey,
 )
 
@@ -115,6 +120,17 @@ class CmdbObjectRelation(CmdbDAO):
             ],
             'name': 'relation_child_tab',
             'unique': False
+        },
+        # One relation links one ordered pair of objects once - the reverse pair is another pair. The routes check it
+        # first to name the clash; this index decides a race and serves that check as one lookup
+        {
+            'keys': [
+                (ObjectRelationKey.RELATION_ID.value, CmdbDAO.DAO_ASCENDING),
+                (ObjectRelationKey.RELATION_PARENT_ID.value, CmdbDAO.DAO_ASCENDING),
+                (ObjectRelationKey.RELATION_CHILD_ID.value, CmdbDAO.DAO_ASCENDING),
+            ],
+            'name': OBJECT_RELATION_PAIR_INDEX,
+            'unique': True
         }
     ]
 
