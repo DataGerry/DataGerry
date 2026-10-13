@@ -26,12 +26,12 @@
           </div>
           <div class="col-xl-auto col-md-6 col-6 border-start pt-1 last-widget">
             <div class="d-flex justify-content-center">
-              <div class="dg-button-group" role="group" aria-label="Object view mode">
+              <div class="dg-button-group object-view-toggle" role="group" aria-label="Object view mode">
                 <app-button
                   icon="fas fa-table"
                   variant="outline"
                   tone="neutral"
-                  size="sm"
+                  size="md"
                   title="Table View"
                   ariaLabel="Table view"
                   [ariaPressed]="!isGraphView && !isCablingView"
@@ -43,7 +43,7 @@
                     icon="fas fa-network-wired"
                     variant="outline"
                     tone="neutral"
-                    size="sm"
+                    size="md"
                     title="Cabling View"
                     ariaLabel="Cabling view"
                     [ariaPressed]="isCablingView"
@@ -55,7 +55,7 @@
                   icon="fas fa-project-diagram"
                   variant="outline"
                   tone="neutral"
-                  size="sm"
+                  size="md"
                   title="Graph View"
                   ariaLabel="Graph view"
                   [ariaPressed]="isGraphView"
