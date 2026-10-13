@@ -2,9 +2,10 @@
 <hr/>
 <div class="row">
   <div class="col-sm-6 col-md-9">
-    <cmdb-table [id]="'user-right-table'" [columns]="columns" [items]="rights" [totalItems]="rights.length"
-                [searchEnabled]="false" [emptyMessage]="'Rights could not be loaded'" [paginationEnabled]="false"
-                [stateEnabled]="false" [pageSizeEnabled]="false"
+    <cmdb-table [id]="'user-right-table'" [columns]="columns" [items]="rights()" [totalItems]="totalRights()"
+                [page]="params().page" [pageSize]="params().limit"
+                [searchEnabled]="false" [emptyMessage]="'Rights could not be loaded'" [stateEnabled]="false"
+                (pageChange)="onPageChange($event)" (pageSizeChange)="onPageSizeChange($event)"
                 (sortChange)="onSortChange($event)">
     </cmdb-table>
   </div>

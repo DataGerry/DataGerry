@@ -59,8 +59,10 @@ const routes: Routes = [
     },
     {
         path: 'rights',
+        canActivateChild: [PermissionGuard],
         data: {
             breadcrumb: 'Rights',
+            right: 'base.user-management.group.view'
         },
         loadChildren: () => import('./rights/rights.module').then(m => m.RightsModule)
     }
