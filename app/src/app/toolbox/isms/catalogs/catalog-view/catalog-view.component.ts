@@ -62,7 +62,9 @@ export class CatalogViewComponent implements OnInit {
             // The URL is built only from the bundled manifest (same-origin asset paths), never from user input,
             // so trusting it as a resource URL is safe.
             this.viewerUrl = this.catalogService.getViewerUrl(manifest, this.catalog);
-            this.safeViewerUrl = this.sanitizer.bypassSecurityTrustResourceUrl(this.viewerUrl);
+            this.safeViewerUrl = this.sanitizer.bypassSecurityTrustResourceUrl(
+              this.catalogService.getViewerUrl(manifest, this.catalog, true)
+            );
           } else {
             this.viewerUrl = '';
             this.safeViewerUrl = null;

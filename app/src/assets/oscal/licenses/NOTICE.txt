@@ -6,7 +6,11 @@ Third-party content bundled under assets/oscal/
    Changes: built as a static bundle with relative base path and hash routing;
             Google Analytics, cookie banner and Google Fonts import removed;
             document load timeout raised from 10 s to 120 s; documents may only
-            be loaded from the hosting origin (cross-origin fetches are rejected).
+            be loaded from the hosting origin (cross-origin fetches are rejected);
+            reduced to a read-only catalog viewer (other OSCAL models, upload,
+            oscal.io registry/token UI removed) and restyled for DATAGERRY (colours,
+            Raleway font, DATAGERRY logo and favicon, embedded mode). Upstream commit
+            and the full patch: contrib/oscal-viewer/ in the DATAGERRY sources.
 
 2. BSI Stand-der-Technik-Bibliothek catalogs (assets/oscal/catalogs/bsi-*.json)
    Source:  https://github.com/BSI-Bund/Stand-der-Technik-Bibliothek
