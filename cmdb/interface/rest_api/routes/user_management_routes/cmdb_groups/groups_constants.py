@@ -21,6 +21,9 @@ registers, so the route module carries no magic strings (matching the per-sectio
 used by cmdb_categories / cmdb_section_templates / cmdb_license). The right values must match the
 ``base.user-management.group.*`` rights registered in the right tree
 """
+from cmdb.utils import BaseStrEnum
+# -------------------------------------------------------------------------------------------------------------------- #
+
 # Base prefix of the CmdbUserGroup ACL rights (as registered in the right tree)
 GROUP_RIGHT_PREFIX: str = 'base.user-management.group'
 
@@ -66,3 +69,36 @@ GROUP_ADMIN_MEMBER_MSG: str = "This UserGroup cannot be deleted because the admi
 GROUP_DELETE_UNDO_INCOMPLETE_MSG: str = (
     "The UserGroup delete failed and could not be fully undone - still in effect: {residue}"
 )
+
+# What a CmdbUserGroup id is called when a write names one that does not exist
+# (routes_helper.abort_on_unknown_references)
+USER_GROUP_LABEL: str = 'UserGroup'
+
+# The pre-check sibling of the delete: where the group is still used, and whether that blocks the delete
+GROUP_USAGE_ROUTE: str = '/<int:public_id>/usage'
+
+# Refusal (HTTP 400) of a group delete while something that is not a member still names the group; {holders} joins
+# the GROUP_USE_* parts that apply. Members are the delete's own ``action`` business, not a holder here
+GROUP_IN_USE_MSG: str = "The UserGroup with ID:{public_id} is still in use - {holders}!"
+GROUP_USE_LDAP_DEFAULT: str = "it is the default group of the LDAP provider"
+GROUP_USE_LDAP_MAPPING: str = "the LDAP group mapping(s) {group_dns} name it"
+GROUP_USE_SOLE_GRANTEE: str = (
+    "it is the only group the access control list of Type(s) {type_ids} grants - deleting it would lock those "
+    "Types and their objects for everyone"
+)
+GROUP_USE_SEPARATOR: str = '; '
+
+# What the delete's removal of the group's access-control entries is called in an undo residue
+GROUP_ACL_ENTRIES_REMOVAL: str = "the UserGroup's access control entries removed from Type(s) {type_ids}"
+
+
+class GroupUsageKey(BaseStrEnum):
+    """
+    Keys of the ``GET /groups/<id>/usage`` answer - where a CmdbUserGroup is still used
+    """
+    MEMBERS = 'members'
+    LDAP_DEFAULT_GROUP = 'ldap_default_group'
+    LDAP_GROUP_MAPPINGS = 'ldap_group_mappings'
+    SOLE_GRANTEE_TYPE_IDS = 'sole_grantee_type_ids'
+    ACL_TYPE_IDS = 'acl_type_ids'
+    BLOCKS_DELETE = 'blocks_delete'

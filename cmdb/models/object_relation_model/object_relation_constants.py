@@ -28,10 +28,14 @@ from cmdb.utils import BaseStrEnum
 __all__: list[str] = [
     'ObjectRelationKey',
     'OBJECT_RELATION_DATE_KEYS',
+    'OBJECT_RELATION_PAIR_INDEX',
     'ObjectRelationFieldValueKey',
     'ObjectRelationRole',
     'RelationTabKey',
 ]
+
+# The unique index on (relation_id, relation_parent_id, relation_child_id): one relation links one ordered pair once
+OBJECT_RELATION_PAIR_INDEX: str = 'relation_pair'
 
 
 class ObjectRelationKey(BaseStrEnum):

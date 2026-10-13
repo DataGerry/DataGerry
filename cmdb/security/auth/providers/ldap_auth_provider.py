@@ -54,6 +54,7 @@ from cmdb.manager import (
     SecurityManager,
 )
 
+from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.user_model import CmdbUser
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
 from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
@@ -67,6 +68,7 @@ from cmdb.security.auth.providers.ldap_constants import (
     LdapAuthMessage,
 )
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.provider import GroupMappingError, AuthenticationError
 from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
@@ -300,30 +302,59 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
                     LOGGER.debug("[_verify_credentials] Could not unbind the user connection: %s", err)
 
 
-    def _resolve_group_id(self, user_name: str) -> int:
+    def _resolve_group_id(self, user_name: str) -> int | None:
         """
         Determines which DataGerry group the user belongs to
 
         With group mapping switched off, or when the group search finds nothing, the configured default
-        group is used - a login is never refused because of group mapping
+        group is used - a login is never refused because of group mapping. A group that does not exist is never
+        answered (``_usable_group_id``): a user provisioned or moved into it would hold no right
 
         Args:
             user_name (str): The submitted login name
 
         Returns:
-            int: The group_id to apply to the CmdbUser
+            int | None: The group_id to apply to the CmdbUser; None when not even the default group exists
         """
         if not self.config.groups.get(LdapGroupsKey.ACTIVE.value, False):
-            return self.config.default_group
+            return self._usable_group_id(self.config.default_group)
 
         search_filter = self._build_filter(self.config.groups[LdapGroupsKey.SEARCH_FILTER.value], user_name)
         found = self.__ldap_connection.search(self.config.search[LdapSearchKey.BASE_DN.value], search_filter)
         entries = self.__ldap_connection.entries or []
 
         if not found or len(entries) == 0:
-            return self.config.default_group
+            return self._usable_group_id(self.config.default_group)
 
         return self._map_group([entry.entry_dn for entry in entries])
+
+
+    def _usable_group_id(self, group_id: int) -> int | None:
+        """
+        Answers a group_id when the CmdbUserGroup exists, logging the one that does not
+
+        Args:
+            group_id (int): A group the settings name
+
+        Raises:
+            AuthenticationError: If the groups could not be read
+
+        Returns:
+            int | None: The group_id; None when no CmdbUserGroup carries it
+        """
+        try:
+            exists: bool = self.users_manager.count_from_other_collection(
+                CmdbUserGroup.COLLECTION, {CmdbUserGroup.PUBLIC_ID_KEY: group_id},
+            ) > 0
+        except BaseManagerGetError as err:
+            raise AuthenticationError(LdapAuthMessage.GROUP_READ_FAILED.format(detail=err)) from err
+
+        if exists:
+            return group_id
+
+        LOGGER.warning("[_usable_group_id] The LDAP settings name the CmdbUserGroup %s, which does not exist", group_id)
+
+        return None
 
 
     def _map_group(self, group_dns: list[str]) -> int:
@@ -333,18 +364,20 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         A configured mapping matches a group either by its FULL DN - what the settings UI asks for - or by
         the bare CN of its first RDN, which is the weaker thing to compare against. Both are
         accepted so an installation configured either way keeps working. A mapping entry that cannot be
-        resolved to a usable group_id is skipped rather than failing the login
+        resolved to a usable group_id - or names a group that does not exist - is skipped rather than failing
+        the login
 
         Args:
             group_dns (list[str]): The distinguished names of the groups the user belongs to
 
         Returns:
-            int: The mapped group_id, or the configured default group when nothing matched
+            int | None: The mapped group_id, or the configured default group when nothing usable matched; None
+                when not even the default group exists
         """
         mappings = self.config.groups.get(LdapGroupsKey.MAPPING.value) or []
 
         if not mappings or not group_dns:
-            return self.config.default_group
+            return self._usable_group_id(self.config.default_group)
 
         candidates = {dn.lower() for dn in group_dns}
         candidates.update(self._extract_group_cns(group_dns))
@@ -356,14 +389,18 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
                 continue
 
             try:
-                return self.config.mapping(configured_dn)
+                mapped_group_id: int | None = self._usable_group_id(self.config.mapping(configured_dn))
             except (GroupMappingError, TypeError, ValueError) as err:
                 # An entry without a resolvable group_id (unmapped, or one that is not a number) is a
                 # configuration mistake - it must not decide whether the user may log in
                 LOGGER.warning("[_map_group] Skipping unusable group mapping '%s': %s", configured_dn, err)
                 continue
 
-        return self.config.default_group
+            # A mapping to a group that no longer exists is skipped like an unusable one
+            if mapped_group_id is not None:
+                return mapped_group_id
+
+        return self._usable_group_id(self.config.default_group)
 
 
     @staticmethod
@@ -409,16 +446,22 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         return configured_filter.replace(USERNAME_PLACEHOLDER, escape_filter_chars(user_name))
 
 
-    def _sync_local_user(self, user_name: str, user_group_id: int) -> CmdbUser:
+    def _sync_local_user(self, user_name: str, user_group_id: int | None) -> CmdbUser:
         """
         Returns the local CmdbUser of the authenticated directory user, creating it when it is new
 
+        A new user is never provisioned without an existing group - it would authenticate and hold no right; the
+        login is refused instead, with the reason logged. A stored user whose mapped group does not exist keeps the
+        group it has
+
         Args:
             user_name (str): The authenticated login name
-            user_group_id (int): The group the directory says the user belongs to
+            user_group_id (int | None): The group the directory says the user belongs to; None when no group the
+                settings name exists
 
         Raises:
-            AuthenticationError: If the CmdbUser could not be read, written or created
+            AuthenticationError: If the CmdbUser could not be read, written or created, or a new user has no
+                existing group to be provisioned into
 
         Returns:
             CmdbUser: The stored CmdbUser
@@ -432,9 +475,15 @@ class LdapAuthenticationProvider(BaseAuthenticationProvider):
         if not stored_user:
             LOGGER.debug('[authenticate] CmdbUser %s exists on LDAP but not in the database', user_name)
 
+            if user_group_id is None:
+                message: str = LdapAuthMessage.NO_USABLE_GROUP.format(group_id=self.config.default_group)
+                LOGGER.error("[_sync_local_user] %s", message)
+                raise AuthenticationError(message)
+
             return self._provision_user(user_name, user_group_id)
 
-        if self.config.groups.get(LdapGroupsKey.ACTIVE.value, False) and stored_user.group_id != user_group_id:
+        if (self.config.groups.get(LdapGroupsKey.ACTIVE.value, False) and user_group_id is not None
+                and stored_user.group_id != user_group_id):
             return self._apply_mapped_group(stored_user, user_group_id)
 
         return stored_user

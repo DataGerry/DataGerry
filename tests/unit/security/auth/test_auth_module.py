@@ -29,6 +29,7 @@ attempt plus the fallback sweep with all of its skip and continue rules.
 The registry is process-wide class state, so an autouse fixture snapshots and restores it; without that
 a test installing a stand-in provider would leak into every later test in the session.
 """
+from copy import deepcopy
 from typing import Any
 from unittest.mock import MagicMock, patch
 
@@ -40,14 +41,17 @@ from cmdb.models.security_models import DEFAULT_TOKEN_LIFETIME
 from cmdb.security.auth.auth_module import (
     PROVIDER_CLASS_NAME_KEY,
     PROVIDER_CONFIG_KEY,
+    PROVIDER_CONFIG_NOT_AN_OBJECT_MSG,
+    PROVIDER_CONFIG_PROBLEM_MSG,
     PROVIDERS_KEY,
     AuthModule,
 )
+from cmdb.security.auth.auth_constants import BLANK_LOGIN_MESSAGE
 from cmdb.security.auth.base_authentication_provider import BaseAuthenticationProvider
-from cmdb.security.auth.base_provider_config import BaseAuthProviderConfig, PROVIDER_ACTIVE_KEY
+from cmdb.security.auth.base_provider_config import FLAG_NOT_BOOLEAN_MSG, PROVIDER_ACTIVE_KEY, BaseAuthProviderConfig
 from cmdb.security.auth.providers.local_auth_provider import LocalAuthenticationProvider
 from cmdb.security.auth.providers.ldap_auth_provider import LdapAuthenticationProvider
-from cmdb.security.auth.providers.ldap_auth_config import LdapAuthenticationProviderConfig
+from cmdb.security.auth.providers.ldap_auth_config import GROUPS_ACTIVE_FLAG, LdapAuthenticationProviderConfig
 from cmdb.errors.provider import AuthenticationError
 from cmdb.errors.manager import BaseManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -504,6 +508,39 @@ class TestLogin:
 
         assert module.users_manager.get_user_by.call_args.args[0] == {CmdbUserKey.USER_NAME.value: USER_NAME}
 
+    def test_the_primary_provider_is_handed_the_stripped_login(self, cmdb_app) -> None:
+        """The LDAP provider provisions under the name it is handed - so it must be the stripped one"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+        module.users_manager.get_user_by.return_value = self._user('_StubProvider')
+
+        module.login(f' {USER_NAME}\t', PASSWORD)
+
+        assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
+
+    def test_the_sweep_is_handed_the_stripped_login(self, cmdb_app) -> None:
+        """No stored user: the providers of the sweep see the stripped spelling too"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+        module.users_manager.get_user_by.return_value = None
+
+        module.login(f'  {USER_NAME} ', PASSWORD)
+
+        assert _StubProvider.calls == [(USER_NAME, PASSWORD)]
+
+    @pytest.mark.parametrize('login', [' ', '   ', '\t \n'], ids=['space', 'spaces', 'mixed'])
+    def test_a_login_blank_once_stripped_reaches_no_provider(self, cmdb_app, login: str) -> None:
+        """Refused before any lookup: it would reach a user stored with a blank name"""
+        module = self._module_with_stub()
+        _reset_stub(_StubProvider, result=self._user('_StubProvider'))
+
+        with pytest.raises(AuthenticationError) as exc_info:
+            module.login(login, PASSWORD)
+
+        assert str(exc_info.value) == BLANK_LOGIN_MESSAGE
+        module.users_manager.get_user_by.assert_not_called()
+        assert not _StubProvider.calls
+
     def test_cloud_mode_resolves_the_user_by_email(self, cmdb_app) -> None:
         """In cloud mode the login is looked up as an email."""
         cmdb_app.cloud_mode = True
@@ -817,3 +854,169 @@ class TestIsActiveFor:
         )
 
         assert LdapAuthenticationProvider.is_active_for(config) is active
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            PROVIDER CONFIGS ON A WRITE                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+def _ldap_entry(**config: Any) -> dict[str, Any]:
+    """An LDAP entry: its defaults with the given keys replaced"""
+    return {PROVIDER_CLASS_NAME_KEY: LDAP_PROVIDER_NAME,
+            PROVIDER_CONFIG_KEY: {**deepcopy(LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES), **config}}
+
+
+def _flag_problem(provider: str, key: str, value: Any) -> str:
+    """The problem a flag that is no boolean is answered with"""
+    return PROVIDER_CONFIG_PROBLEM_MSG.format(
+        provider=provider, reason=FLAG_NOT_BOOLEAN_MSG.format(key=key, kind=type(value).__name__),
+    )
+
+
+class TestProviderConfigProblems:
+    """AuthModule.provider_config_problems: every installed provider's config must build through its class"""
+
+    def test_a_section_of_booleans_has_none(self) -> None:
+        """The defaults, LDAP switched on"""
+        assert not AuthModule.provider_config_problems(_settings([_stub_entry(LOCAL_PROVIDER_NAME),
+                                                                  _ldap_entry(active=True)]))
+
+    @pytest.mark.parametrize('value', ['false', 'true', 1, 0])
+    def test_an_ldap_flag_that_is_no_boolean_is_named(self, value: Any) -> None:
+        """Provider and flag named"""
+        problems = AuthModule.provider_config_problems(_settings([_ldap_entry(active=value)]))
+
+        assert problems == [_flag_problem(LDAP_PROVIDER_NAME, PROVIDER_ACTIVE_KEY, value)]
+
+    def test_a_group_mapping_flag_that_is_no_boolean_is_named(self) -> None:
+        """The flag inside 'groups'"""
+        entry = _ldap_entry()
+        entry[PROVIDER_CONFIG_KEY]['groups']['active'] = 'false'
+
+        assert AuthModule.provider_config_problems(_settings([entry])) == [
+            _flag_problem(LDAP_PROVIDER_NAME, GROUPS_ACTIVE_FLAG, 'false'),
+        ]
+
+    def test_a_value_the_class_cannot_convert_is_named(self) -> None:
+        """A default group that is no number - the read falls back to the defaults on it"""
+        problems = AuthModule.provider_config_problems(_settings([_ldap_entry(default_group='abc')]))
+
+        assert len(problems) == 1 and problems[0].startswith(f'{LDAP_PROVIDER_NAME}: ')
+
+    def test_a_config_that_is_no_object_is_named(self) -> None:
+        """Nothing to build from"""
+        entry = {PROVIDER_CLASS_NAME_KEY: LDAP_PROVIDER_NAME, PROVIDER_CONFIG_KEY: 'off'}
+
+        assert AuthModule.provider_config_problems(_settings([entry])) == [
+            PROVIDER_CONFIG_NOT_AN_OBJECT_MSG.format(provider=LDAP_PROVIDER_NAME),
+        ]
+
+    def test_an_entry_without_a_config_is_named(self) -> None:
+        """The key absent"""
+        entry = {PROVIDER_CLASS_NAME_KEY: LDAP_PROVIDER_NAME}
+
+        assert AuthModule.provider_config_problems(_settings([entry])) == [
+            PROVIDER_CONFIG_NOT_AN_OBJECT_MSG.format(provider=LDAP_PROVIDER_NAME),
+        ]
+
+    def test_every_refused_entry_is_named_in_installation_order(self) -> None:
+        """The local flag is judged as well - it is shown on the settings page"""
+        problems = AuthModule.provider_config_problems(_settings([_ldap_entry(active='false'),
+                                                                  _stub_entry(LOCAL_PROVIDER_NAME, 'no')]))
+
+        assert problems == [_flag_problem(LOCAL_PROVIDER_NAME, PROVIDER_ACTIVE_KEY, 'no'),
+                            _flag_problem(LDAP_PROVIDER_NAME, PROVIDER_ACTIVE_KEY, 'false')]
+
+    def test_an_entry_naming_no_installed_provider_is_not_judged(self) -> None:
+        """The module ignores it on a read as well"""
+        entry = {PROVIDER_CLASS_NAME_KEY: 'RetiredProvider', PROVIDER_CONFIG_KEY: {'active': 'false'}}
+
+        assert not AuthModule.provider_config_problems(_settings([entry]))
+
+    def test_a_section_without_providers_has_none(self) -> None:
+        """Nothing stored for any provider: each reads its defaults"""
+        assert not AuthModule.provider_config_problems({PROVIDERS_KEY: None})
+
+    def test_the_section_is_left_as_it_was(self) -> None:
+        """Judged, never changed"""
+        section = _settings([_ldap_entry(active=True, retired_option=1)])
+        before = deepcopy(section)
+
+        AuthModule.provider_config_problems(section)
+
+        assert section == before
+
+
+class TestSettingsAreCopied:
+    """Building a module changes neither the caller's section nor a class default"""
+
+    def test_the_callers_section_is_left_as_it_was(self) -> None:
+        """No entry appended, no stored key dropped - the auth-settings write stores what it validated"""
+        section = _settings([_stub_entry(LOCAL_PROVIDER_NAME), _ldap_entry(retired_option=1)])
+        before = deepcopy(section)
+
+        AuthModule(section)
+
+        assert section == before
+
+    def test_the_module_still_normalises_its_own_copy(self) -> None:
+        """The undeclared LDAP key is dropped there, the missing provider would be appended there"""
+        module = AuthModule(_settings([_stub_entry(LOCAL_PROVIDER_NAME), _ldap_entry(retired_option=1)]))
+
+        assert 'retired_option' not in module.settings.get_provider_settings(LDAP_PROVIDER_NAME)
+
+    def test_the_default_section_is_left_as_it_was(self) -> None:
+        """The routes pass __DEFAULT_SETTINGS__ itself when no section is stored"""
+        before = deepcopy(AuthModule.__DEFAULT_SETTINGS__)
+
+        module = AuthModule(AuthModule.__DEFAULT_SETTINGS__)
+        module.settings.get_provider_settings(LDAP_PROVIDER_NAME)['server_config']['host'] = LDAP_HOST
+
+        assert AuthModule.__DEFAULT_SETTINGS__ == before
+
+    def test_a_fallback_default_is_a_copy(self, caplog: pytest.LogCaptureFixture) -> None:
+        """A stored config that does not build is read as an equal copy of the defaults"""
+        with caplog.at_level('ERROR'):
+            module = _module([_stub_entry(LOCAL_PROVIDER_NAME), _ldap_entry(active='false')])
+
+        stored = module.settings.get_provider_settings(LDAP_PROVIDER_NAME)
+        assert stored == LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES
+        assert stored is not LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES
+
+    def test_an_appended_default_is_a_copy(self) -> None:
+        """A provider the section does not list"""
+        module = _module([_stub_entry(LOCAL_PROVIDER_NAME)])
+
+        assert module.settings.get_provider_settings(LDAP_PROVIDER_NAME) is not \
+            LdapAuthenticationProviderConfig.DEFAULT_CONFIG_VALUES
+
+    def test_the_values_of_an_unlisted_provider_are_a_copy(self) -> None:
+        """Registered after the section was normalised"""
+        module = _module([_stub_entry(LOCAL_PROVIDER_NAME), _stub_entry(LDAP_PROVIDER_NAME)])
+        AuthModule.register_provider(_StubProvider)
+
+        values = module.get_provider_config_values(_StubProvider)
+
+        assert values == _StubConfig.DEFAULT_CONFIG_VALUES and values is not _StubConfig.DEFAULT_CONFIG_VALUES
+
+
+class TestAStoredStringFlagNeverActivates:
+    """A stored 'false' - which the write refuses - reads as the provider's defaults"""
+
+    @pytest.mark.parametrize('value', ['false', 'true', 1])
+    def test_ldap_reads_as_switched_off(self, value: Any) -> None:
+        """The defaults switch LDAP off; the module builds no active LDAP config from the string"""
+        module = _module([_stub_entry(LOCAL_PROVIDER_NAME), _ldap_entry(active=value)])
+
+        config = module.build_provider_config(LdapAuthenticationProvider)
+
+        assert LdapAuthenticationProvider.is_active_for(config) is False
+
+    def test_a_string_group_mapping_flag_reads_as_switched_off(self) -> None:
+        """The whole LDAP config falls back, the group mapping with it"""
+        entry = _ldap_entry(active=True)
+        entry[PROVIDER_CONFIG_KEY]['groups']['active'] = 'false'
+        module = _module([_stub_entry(LOCAL_PROVIDER_NAME), entry])
+
+        config = module.build_provider_config(LdapAuthenticationProvider)
+
+        assert config.groups['active'] is False and config.is_active() is False

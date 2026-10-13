@@ -43,7 +43,8 @@ from pymongo.errors import (
     WriteError,
 )
 
-from cmdb.database.mongo_database_manager import MongoDatabaseManager, typed_insert_failure
+from cmdb.database.mongo_database_manager import MongoDatabaseManager
+from cmdb.database.mongo_error_helper import typed_insert_failure
 from cmdb.errors.database import (
     DocumentDuplicateKeyError,
     DocumentGetError,

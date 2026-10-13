@@ -370,7 +370,7 @@ def _register_user_management(app: BaseCmdbApp) -> None:
 
 def _register_import_export(app: BaseCmdbApp) -> None:
     """
-    Mounts the object and type exporters and importers
+    Mounts the object and type exporters and importers, and the configuration transfer
 
     The prefixes do not mirror each other (``/exporter`` + ``/export/type`` against ``/import/type`` +
     ``/import/object``); they are the frontend's contract and stay as they are
@@ -383,11 +383,15 @@ def _register_import_export(app: BaseCmdbApp) -> None:
     from cmdb.interface.rest_api.routes.exporter_routes.exporter_type_routes import exporter_type_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_type_routes import importer_type_blueprint
     from cmdb.interface.rest_api.routes.importer_routes.importer_object_routes import importer_object_blueprint
+    from cmdb.interface.rest_api.routes.configuration_transfer_routes.configuration_transfer_routes import (
+        configuration_transfer_blueprint,
+    )
 
     app.register_blueprint(exporter_blueprint, url_prefix='/exporter')
     app.register_blueprint(exporter_type_blueprint, url_prefix='/export/type')
     app.register_blueprint(importer_type_blueprint, url_prefix='/import/type')
     app.register_blueprint(importer_object_blueprint, url_prefix='/import/object')
+    app.register_blueprint(configuration_transfer_blueprint, url_prefix='/configuration_transfer')
 
 
 def _register_reports_and_webhooks(app: BaseCmdbApp) -> None:

@@ -37,7 +37,7 @@ from cmdb.framework.ci_explorer.relations import DirectionalEdge
 
 
 def test_compose_relation_edge_emits_full_envelope_with_metadata() -> None:
-    """Pins the from/to keys and the five-field metadata block on a composed relation edge"""
+    """Pins the from/to keys and the six-field metadata block on a composed relation edge"""
     directional = DirectionalEdge(
         linked_is_child=True,
         linked_id=200,
@@ -47,6 +47,7 @@ def test_compose_relation_edge_emits_full_envelope_with_metadata() -> None:
         relation_color='#33aa33',
         edge_relation_name='hosts',
         edge_relation_icon='fa-arrow-right',
+        object_relation_id=900,
     )
     relation_doc = {
         'public_id': 500,
@@ -60,6 +61,7 @@ def test_compose_relation_edge_emits_full_envelope_with_metadata() -> None:
         'to': 200,
         'metadata': {
             'relation_id': 500,
+            'object_relation_id': 900,
             'relation_name': 'connected',
             'relation_label': 'hosts',
             'relation_icon': 'fa-arrow-right',

@@ -138,7 +138,7 @@ port_blueprint = APIBlueprint('ports', __name__)
 
 @port_blueprint.route('/', methods=['POST'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.ADD.value)
 @port_blueprint.validate(get_cmdb_port_write_schema())
 @handle_route_errors("while creating the Port")
@@ -223,7 +223,7 @@ def insert_cmdb_port(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
 @port_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while retrieving the Port with ID: {public_id}")
 def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
@@ -281,7 +281,7 @@ def get_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:
 
 @port_blueprint.route('/object/<int:object_id>', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while retrieving the Ports of CmdbObject ID: {object_id}")
 def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response:
@@ -339,7 +339,7 @@ def get_cmdb_ports_of_object(object_id: int, request_user: CmdbUser) -> Response
 
 @port_blueprint.route('/object/<int:object_id>/overview', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while retrieving " + PORT_OVERVIEW_SUBJECT + " of CmdbObject ID: {object_id}")
 def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
@@ -431,7 +431,7 @@ def get_cmdb_ports_overview(object_id: int, request_user: CmdbUser) -> Response:
 
 @port_blueprint.route('/object/<int:object_id>/cabling', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while retrieving " + PORT_CABLING_SUBJECT + " of CmdbObject ID: {object_id}")
 def get_cmdb_object_cabling(object_id: int, request_user: CmdbUser) -> Response:
@@ -494,7 +494,7 @@ def get_cmdb_object_cabling(object_id: int, request_user: CmdbUser) -> Response:
 
 @port_blueprint.route('/<int:public_id>/cabling', methods=['GET', 'HEAD'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.VIEW.value)
 @handle_route_errors("while following the cabling of the Port with ID: {public_id}")
 def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
@@ -588,7 +588,7 @@ def get_cmdb_port_cabling(public_id: int, request_user: CmdbUser) -> Response:
 
 @port_blueprint.route('/<int:public_id>', methods=['PUT', 'PATCH'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.EDIT.value)
 @port_blueprint.validate(get_cmdb_port_write_schema())
 @handle_route_errors("while updating the Port with ID: {public_id}")
@@ -665,7 +665,7 @@ def update_cmdb_port(public_id: int, data: dict[str, Any], request_user: CmdbUse
 
 @port_blueprint.route('/<int:public_id>', methods=['DELETE'])
 @insert_request_user
-@verify_api_access(required_api_level=ApiLevel.LOCKED)
+@verify_api_access(required_api_level=ApiLevel.ADMIN)
 @port_blueprint.protect(auth=True, right=PortRight.DELETE.value)
 @handle_route_errors("while deleting the Port with ID: {public_id}")
 def delete_cmdb_port(public_id: int, request_user: CmdbUser) -> Response:

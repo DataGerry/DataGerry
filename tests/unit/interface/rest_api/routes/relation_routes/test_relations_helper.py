@@ -30,6 +30,10 @@ from cmdb.models.log_model import LogInteraction
 from cmdb.models.relation_model import RelationDiffKey, RelationKey
 from cmdb.errors.manager.object_relation_logs_manager import ObjectRelationLogsManagerBuildError
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
+    abort_if_object_relation_pair_duplicate,
+    abort_if_object_relation_pair_taken,
+    object_relation_pair,
+    object_relation_pair_taken_message,
     resolve_counterpart_summaries,
     get_deleted_type_ids,
     handle_deleted_type_ids,
@@ -50,9 +54,12 @@ from cmdb.interface.rest_api.routes.relation_routes.relation_constants import (
     OBJECT_RELATION_BULK_BODY_NOT_AN_OBJECT_MESSAGE,
     OBJECT_RELATION_BULK_NO_IDS_MESSAGE,
     OBJECT_RELATION_BULK_TOO_MANY_MESSAGE,
+    OBJECT_RELATION_PAIR_TAKEN_MESSAGE,
     BulkDeleteKey,
 )
 from cmdb.errors.manager import BaseManagerDeleteError
+from cmdb.errors.database import DocumentInsertDuplicateKeyError, DocumentInsertError
+from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerInsertError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 RELATION_PUBLIC_ID: int = 5
@@ -553,3 +560,102 @@ class TestDeleteObjectRelations:
 
         assert deleted == [{'public_id': 1}]
         assert sorted(stored) == [2, 3]
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         ONE RELATION LINKS ONE PAIR ONCE                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+PAIR_RELATION_ID: int = 31
+PAIR_PARENT_ID: int = 41
+PAIR_CHILD_ID: int = 42
+OTHER_INSTANCE_ID: int = 51
+OWN_INSTANCE_ID: int = 52
+
+
+def _pair_write(**extra: Any) -> dict[str, Any]:
+    """A validated object relation write"""
+    return {'relation_id': PAIR_RELATION_ID, 'relation_parent_id': PAIR_PARENT_ID,
+            'relation_child_id': PAIR_CHILD_ID, 'field_values': [], **extra}
+
+
+def _pair_message() -> str:
+    """The 400 naming the pair"""
+    return OBJECT_RELATION_PAIR_TAKEN_MESSAGE.format(relation_id=PAIR_RELATION_ID, parent_id=PAIR_PARENT_ID,
+                                                     child_id=PAIR_CHILD_ID)
+
+
+class TestObjectRelationPair:
+    """object_relation_pair / object_relation_pair_taken_message"""
+
+    def test_the_pair_is_the_three_keys_of_the_index(self) -> None:
+        """Nothing else of the write"""
+        assert object_relation_pair(_pair_write(relation_parent_type_id=7)) == {
+            'relation_id': PAIR_RELATION_ID, 'relation_parent_id': PAIR_PARENT_ID, 'relation_child_id': PAIR_CHILD_ID,
+        }
+
+    def test_the_message_names_relation_and_both_objects(self) -> None:
+        """In parent -> child order"""
+        assert object_relation_pair_taken_message(_pair_write()) == _pair_message()
+
+
+class TestAbortIfObjectRelationPairTaken:
+    """abort_if_object_relation_pair_taken"""
+
+    def test_a_free_pair_passes(self) -> None:
+        """One lookup by the pair"""
+        manager = MagicMock()
+        manager.get_one_by.return_value = None
+
+        abort_if_object_relation_pair_taken(manager, _pair_write())
+
+        manager.get_one_by.assert_called_once_with(object_relation_pair(_pair_write()))
+
+    def test_a_held_pair_is_refused(self) -> None:
+        """400 naming the pair"""
+        manager = MagicMock()
+        manager.get_one_by.return_value = {'public_id': OTHER_INSTANCE_ID}
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_if_object_relation_pair_taken(manager, _pair_write())
+
+        assert (exc_info.value.code, exc_info.value.description) == (HTTPStatus.BAD_REQUEST, _pair_message())
+
+    def test_an_update_keeps_its_own_pair(self) -> None:
+        """The holder is the instance being updated"""
+        manager = MagicMock()
+        manager.get_one_by.return_value = {'public_id': OWN_INSTANCE_ID}
+
+        abort_if_object_relation_pair_taken(manager, _pair_write(), exclude_id=OWN_INSTANCE_ID)
+
+    def test_an_update_onto_another_instances_pair_is_refused(self) -> None:
+        """The holder is someone else"""
+        manager = MagicMock()
+        manager.get_one_by.return_value = {'public_id': OTHER_INSTANCE_ID}
+
+        with pytest.raises(HTTPException):
+            abort_if_object_relation_pair_taken(manager, _pair_write(), exclude_id=OWN_INSTANCE_ID)
+
+
+class TestAbortIfObjectRelationPairDuplicate:
+    """abort_if_object_relation_pair_duplicate - the index refusal of a lost race"""
+
+    def test_a_duplicate_key_in_the_chain_is_the_same_400(self) -> None:
+        """Wrapped by the manager"""
+        try:
+            raise DocumentInsertDuplicateKeyError('dup')
+        except DocumentInsertDuplicateKeyError as cause:
+            err = ObjectRelationsManagerInsertError(cause)
+            err.__cause__ = cause
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_if_object_relation_pair_duplicate(err, _pair_write())
+
+        assert (exc_info.value.code, exc_info.value.description) == (HTTPStatus.BAD_REQUEST, _pair_message())
+
+    def test_any_other_failure_is_left_to_the_caller(self) -> None:
+        """No abort - the route answers it as before"""
+        cause = DocumentInsertError('down')
+        err = ObjectRelationsManagerInsertError(cause)
+        err.__cause__ = cause
+
+        assert abort_if_object_relation_pair_duplicate(err, _pair_write()) is None

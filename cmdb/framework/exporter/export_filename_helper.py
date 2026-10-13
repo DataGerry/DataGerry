@@ -30,6 +30,7 @@ The layout is `<timestamp>_<kind>_<subject>[_readable].<extension>`:
     2026_07_21-13_05_00_types_47.json                 47 CmdbTypes
     2026_07_21-13_05_00_document_invoice-42.pdf       a DocapiTemplate rendered for CmdbObject 42
     2026_07_21-13_05_00_ipam_subnet-7-ips.csv         the IP overview of subnet 7
+    2026_07_21-13_05_00_configuration_db-20261014.json  a configuration export of database version 20261014
 
 The timestamp leads so a downloads folder sorts chronologically by name; the kind and subject follow so
 a file can be identified without opening it - before this, every export of every kind was named by its
@@ -52,10 +53,12 @@ from cmdb.framework.exporter.exporter_constants import (
     EXPORT_FILENAME_MAX_LENGTH,
     EXPORT_FILENAME_READABLE_MARKER,
     EXPORT_FILENAME_TEMPLATE_MARKER,
+    EXPORT_KIND_CONFIGURATION,
     EXPORT_KIND_DOCUMENT,
     EXPORT_KIND_IPAM,
     EXPORT_KIND_OBJECTS,
     EXPORT_KIND_TYPES,
+    EXPORT_SUBJECT_DB_VERSION_TEMPLATE,
     EXPORT_SUBJECT_DOCUMENT_TEMPLATE,
     EXPORT_SUBJECT_MANY_TYPES_TEMPLATE,
     EXPORT_SUBJECT_NO_OBJECTS,
@@ -262,3 +265,24 @@ def build_type_export_filename(type_count: int, file_extension: str) -> str:
         str: e.g. `2026_07_21-13_05_00_types_47.json`
     """
     return build_export_filename(EXPORT_KIND_TYPES, str(type_count), file_extension)
+
+
+def build_configuration_export_filename(db_version: int, file_extension: str) -> str:
+    """
+    Builds the download filename of a configuration export
+
+    The subject is the database version the export was taken from: an import accepts only a file of its own
+    version, so the name says which systems the file fits without opening it
+
+    Args:
+        db_version (int): The updater version of the exporting database
+        file_extension (str): The format's file extension, without the leading dot
+
+    Returns:
+        str: e.g. `2026_10_12-09_30_00_configuration_db-20261014.json`
+    """
+    return build_export_filename(
+        EXPORT_KIND_CONFIGURATION,
+        EXPORT_SUBJECT_DB_VERSION_TEMPLATE.format(db_version=db_version),
+        file_extension,
+    )

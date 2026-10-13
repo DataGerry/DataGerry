@@ -52,6 +52,8 @@ class DirectionalEdge:
             (relation_color_parent when linked_is_child, _child otherwise)
         edge_relation_name: per-direction display name from the CmdbRelation
         edge_relation_icon: per-direction icon from the CmdbRelation
+        object_relation_id: public_id of the CmdbObjectRelation the edge draws - what tells two edges of one
+            pair under different relations apart
     """
     linked_is_child: bool
     linked_id: int
@@ -61,6 +63,7 @@ class DirectionalEdge:
     relation_color: str | None
     edge_relation_name: str | None
     edge_relation_icon: str | None
+    object_relation_id: int | None = None
 
 
 def build_relation_criteria(
@@ -214,6 +217,7 @@ def split_object_relation_direction(
             relation_color=relation_doc.get('relation_color_parent'),
             edge_relation_name=relation_doc.get('relation_name_parent'),
             edge_relation_icon=relation_doc.get('relation_icon_parent'),
+            object_relation_id=object_relation.get('public_id'),
         )
 
     if object_relation['relation_child_id'] == target_id:
@@ -226,6 +230,7 @@ def split_object_relation_direction(
             relation_color=relation_doc.get('relation_color_child'),
             edge_relation_name=relation_doc.get('relation_name_child'),
             edge_relation_icon=relation_doc.get('relation_icon_child'),
+            object_relation_id=object_relation.get('public_id'),
         )
 
     return None

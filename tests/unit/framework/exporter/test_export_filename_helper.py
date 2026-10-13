@@ -34,6 +34,7 @@ from cmdb.framework.exporter.exporter_constants import (
 )
 from cmdb.models.special_type_model.ipam_constants import IpamExport, IpamSubnetIpsExport
 from cmdb.framework.exporter.export_filename_helper import (
+    build_configuration_export_filename,
     build_document_export_filename,
     build_ipam_export_filename,
     build_export_filename_timestamp,
@@ -278,6 +279,19 @@ class TestBuildIpamExportFilename:
 
         assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_subnet-7-ips\\.csv', subnet)
         assert re.fullmatch(f'{TIMESTAMP_PREFIX}_ipam_supernet-42-subnets\\.csv', supernet)
+
+
+class TestConfigurationExportFilename:
+    """A configuration export is named by the database version it fits."""
+
+    def test_names_the_kind_and_the_database_version(self) -> None:
+        """`<timestamp>_configuration_db-<version>.<ext>`"""
+        assert re.fullmatch(f'{TIMESTAMP_PREFIX}_configuration_db-20261014\\.json',
+                            build_configuration_export_filename(20261014, 'json'))
+
+    def test_another_version_is_another_name(self) -> None:
+        """The version is the subject, not a constant"""
+        assert build_configuration_export_filename(20261013, 'json').endswith('_configuration_db-20261013.json')
 
 
 class TestBuildExportFilename:

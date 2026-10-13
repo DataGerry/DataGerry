@@ -23,7 +23,7 @@ which is wired by ProcessManager to its own stop_app so the whole application
 tears down when any registered service dies unexpectedly
 """
 from logging import Logger, getLogger
-from multiprocessing import Process
+from multiprocessing.process import BaseProcess
 from threading import Thread, Event
 from typing import Callable
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -43,7 +43,7 @@ class ProcessController(Thread):
     unexpected exit
     """
 
-    def __init__(self, process: Process, flag_shutdown: Event, cb_shutdown: Callable[[], None]) -> None:
+    def __init__(self, process: BaseProcess, flag_shutdown: Event, cb_shutdown: Callable[[], None]) -> None:
         """
         Initializes a ProcessController bound to a single child process
 
@@ -52,7 +52,7 @@ class ProcessController(Thread):
         starts when start() is called by ProcessManager
 
         Args:
-            process (Process): The multiprocessing.Process to supervise; the
+            process (BaseProcess): The service process to supervise; the
                 controller will block on its join() in run()
             flag_shutdown (Event): Shared Event set by ProcessManager.stop_app;
                 when set at the time the child exits, the exit is treated as
@@ -62,7 +62,7 @@ class ProcessController(Thread):
                 Typically ProcessManager.stop_app
         """
         super().__init__()
-        self.__process: Process = process
+        self.__process: BaseProcess = process
         self.__flag_shutdown: Event = flag_shutdown
         self.__cb_shutdown: Callable[[], None] = cb_shutdown
 
