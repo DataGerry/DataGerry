@@ -6,7 +6,7 @@
     "license": "MIT",
     "licenseFile": "assets/oscal/licenses/oscal-viewer-MIT.txt",
     "source": "https://github.com/EasyDynamics/oscal-viewer",
-    "notes": "Static build with hash routing; analytics, cookie banner and web fonts removed for offline use; only same-origin documents can be loaded."
+    "notes": "Static build with hash routing, reduced to a read-only catalog viewer in the DATAGERRY look; analytics, cookie banner, web fonts and oscal.io services removed for offline use; only same-origin documents can be loaded."
   },
   "catalogs": [
     {

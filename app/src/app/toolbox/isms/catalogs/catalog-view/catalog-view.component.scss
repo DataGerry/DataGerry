@@ -4,12 +4,21 @@
   text-overflow: ellipsis;
 }
 
+.catalog-meta {
+  margin-bottom: 0.75rem;
+}
+
+/*
+ * The viewer runs in embedded mode (no own header) and draws its own 1px #dee2e6 frame,
+ * so the iframe itself has no border/radius and fills the rest of the viewport
+ * (navbar + breadcrumb + heading + meta line ≈ 290px above it).
+ */
 .catalog-frame {
   display: block;
   width: 100%;
-  height: calc(100vh - 260px);
+  height: calc(100vh - 290px);
   min-height: 500px;
-  border: 1px solid #dee2e6;
-  border-radius: 4px;
+  border: 0;
+  border-radius: 0;
   background: #fff;
 }
