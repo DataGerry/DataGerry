@@ -79,10 +79,11 @@
     @if (layout().footer; as footer) {
       <div class="cabling-node__footer" [style.height.px]="geometry.footerHeight">
         <app-button
+          class="cabling-node__fold"
           [label]="footerLabel()"
           [icon]="footer.expanded ? 'fas fa-minus' : 'fas fa-plus'"
-          bootstrapClass="btn-link btn-sm cabling-node__fold"
-          padding="0 0.25rem"
+          variant="link"
+          size="sm"
           [ariaExpanded]="footer.expanded"
           (clicked)="toggleRows.emit()">
         </app-button>
@@ -116,7 +117,7 @@
         [class.is-expanding]="isExpanding(port)"
         label="Show far end"
         [icon]="isExpanding(port) ? 'fas fa-spinner fa-spin' : 'fas fa-route'"
-        bootstrapClass="cabling-port__expand-btn"
+        variant="ghost"
         [ariaLabel]="port.expandLabel"
         [title]="port.expandLabel"
         [disabled]="isExpanding(port)"

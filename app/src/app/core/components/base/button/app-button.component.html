@@ -3,7 +3,7 @@
   [class]="buttonClass()"
   [disabled]="isInactive()"
   [attr.title]="title() || null"
-  [attr.aria-label]="accessibleName()"
+  [attr.aria-label]="ariaLabel() || null"
   [attr.aria-pressed]="ariaPressed()"
   [attr.aria-expanded]="ariaExpanded()"
   [attr.aria-controls]="ariaControls() || null"

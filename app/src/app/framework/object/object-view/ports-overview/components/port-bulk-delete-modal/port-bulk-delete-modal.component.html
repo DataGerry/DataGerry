@@ -47,7 +47,8 @@
   <app-button
     dgModalFooter
     label="Cancel"
-    bootstrapClass="btn-secondary"
+    variant="outline"
+    tone="neutral"
     (clicked)="activeModal.dismiss()">
   </app-button>
 
@@ -55,7 +56,8 @@
     dgModalFooter
     label="Delete ports"
     icon="fas fa-trash-can"
-    bootstrapClass="btn-danger"
+    variant="solid"
+    tone="danger"
     [disabled]="!previewLoaded"
     (clicked)="onConfirm()">
   </app-button>
