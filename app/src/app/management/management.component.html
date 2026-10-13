@@ -20,7 +20,7 @@
 </div>
 <div class="card-deck">
   <div class="card">
-    <a [routerLink]="['/management/rights']">
+    <a *permissionLink="'base.user-management.group.view'" [routerLink]="['/management/rights']">
       <div class="dash-card primary">
         <i class="fas fa-eye-slash"></i>
         <span class="count-numbers">Rights</span>
