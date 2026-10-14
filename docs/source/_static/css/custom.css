@@ -1,29 +1,118 @@
-.wy-side-nav-search{
-    background-color: #FFFFFF;
-	border-right: 1px solid #e1e4e5;
+/*
+ * DataGerry documentation styles.
+ *
+ * Same structure as the OpenCelium documentation (white search header,
+ * caption-only sidebar), in DataGerry orange.
+ */
+
+:root {
+    --dg-orange: #ed7147;
+    --dg-orange-dark: #bb5e3a;
+    --dg-cloud: #2f7fd1;
+    --dg-selfhosted: #4a5a6a;
 }
 
-.wy-side-nav-search > div.version {
-	color: black !important;
+/* -- Sidebar --------------------------------------------------------------- */
+
+.wy-side-nav-search {
+    background-color: #ffffff !important;
+    border-right: 1px solid #e1e4e5;
 }
 
-.wy-side-nav-search > a, .wy-side-nav-search .wy-dropdown > a {
-	color: black !important;
+.wy-side-nav-search > a,
+.wy-side-nav-search .wy-dropdown > a,
+.wy-side-nav-search > div.version {
+    color: #000000 !important;
 }
 
 .wy-menu-vertical a {
     font-size: 15px;
 }
 
-a {
-    color: #ed7147;
-}
-
-a:visited {
-    color: #bb5e3a;
-}
-
 .wy-menu-vertical p.caption {
-    font-size: 16px;
-    color: #ed7147;
+    font-size: 15px;
+    color: var(--dg-orange);
+}
+
+/* -- Links ----------------------------------------------------------------- */
+
+.rst-content a,
+.rst-content a:hover {
+    color: var(--dg-orange);
+}
+
+.rst-content a:visited {
+    color: var(--dg-orange-dark);
+}
+
+/* -- Edition badges (|cloud|, |selfhosted|, |licensed|) -------------------- */
+
+.badge {
+    display: inline-block;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 75%;
+    font-weight: 600;
+    line-height: 1.6;
+    vertical-align: middle;
+    white-space: nowrap;
+    color: #ffffff;
+}
+
+.badge-cloud {
+    background-color: var(--dg-cloud);
+}
+
+.badge-selfhosted {
+    background-color: var(--dg-selfhosted);
+}
+
+.badge-licensed {
+    background-color: var(--dg-orange);
+}
+
+/* -- "Cloud vs. self-hosted" callout ---------------------------------------- */
+
+.rst-content .admonition.edition {
+    background: #eef5fc;
+}
+
+.rst-content .admonition.edition > .admonition-title {
+    background: var(--dg-cloud);
+}
+
+.rst-content .admonition.edition > .admonition-title::before {
+    content: "\f0c2";  /* cloud */
+}
+
+/* -- Tables ----------------------------------------------------------------- */
+
+/* The theme keeps table cells on one line; our tables hold sentences. */
+.rst-content table.docutils td,
+.rst-content table.docutils th {
+    white-space: normal;
+    vertical-align: top;
+}
+
+.rst-content table.docutils td p,
+.rst-content table.docutils th p {
+    font-size: inherit;
+    line-height: 1.5;
+}
+
+/* -- Misc ------------------------------------------------------------------ */
+
+.align-middle {
+    display: block;
+    margin-left: auto;
+    margin-right: auto;
+}
+
+.rst-content img {
+    border: 1px solid #e1e4e5;
+}
+
+.rst-content .logo img,
+.rst-content img.no-border {
+    border: none;
 }
