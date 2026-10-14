@@ -26,6 +26,7 @@ Only the command in flight. A ``getMore`` the driver gives up on is not stopped 
 (measured on 7.0.34) - so the socket test makes the first reply carry the whole burn, and the burn last far longer
 than the test waits: an operation that merely FINISHED inside the wait would otherwise pass for a stopped one
 """
+import math
 import time
 from typing import Any
 
@@ -58,8 +59,13 @@ BURN_LENGTH: int = 30000
 # below the burn's ~3 s, so an operation the budget did not stop would still be seen
 MAX_TIME_STOP_WAIT_S: float = 1.0
 SOCKET_TIMEOUT_MS: int = 500
-# The socket test's burn: about 25 ms per document, 25 s for them all - so long that only a stop ends it in the wait
+# The socket test's burn at its shortest: about 25 ms per document, 25 s for them all on the machine it was sized on.
+# A faster server burns it quicker, so each run measures it and lengthens it to at least DISCONNECT_BURN_MARGIN times
+# what the wait needs (``_disconnect_burn_length``) - a fixed length failed the precondition on a faster CI runner
 DISCONNECT_BURN_LENGTH: int = 250000
+# How far above BURN_TO_WAIT_FACTOR x the wait the measured burn is sized, so the re-measured cost clears it despite
+# the noise of a small sample
+DISCONNECT_BURN_MARGIN: float = 1.5
 # How long the server may take to notice the closed socket and stop the command (it takes well under a second)
 DISCONNECT_STOP_WAIT_S: float = 5.0
 # The burn must outlast the wait by this factor, or finishing would look like being stopped
@@ -145,6 +151,29 @@ def _burn_cost_s(database_manager: MongoDatabaseManager, database_name: str, scr
     list(collection.aggregate([{'$limit': sample_size}, *_burn(length)]))
 
     return (time.monotonic() - started) * DOCUMENT_COUNT / sample_size
+
+
+def _disconnect_burn_length(database_manager: MongoDatabaseManager, database_name: str, scratch: str) -> int:
+    """
+    The socket test's burn length on this machine: long enough that only a stop ends it inside the wait
+
+    Measures DISCONNECT_BURN_LENGTH once and scales it - the cost of the ``$reduce`` grows linearly with the length - to
+    cost DISCONNECT_BURN_MARGIN times what BURN_TO_WAIT_FACTOR x DISCONNECT_STOP_WAIT_S needs. Never shorter than
+    DISCONNECT_BURN_LENGTH, so a slower machine runs the burn it always ran
+
+    Args:
+        database_manager (MongoDatabaseManager): The connection the sample runs through
+        database_name (str): The database owning the scratch collection
+        scratch (str): The scratch collection
+
+    Returns:
+        int: The burn length to use
+    """
+    needed_s: float = DISCONNECT_BURN_MARGIN * BURN_TO_WAIT_FACTOR * DISCONNECT_STOP_WAIT_S
+    cost_s: float = _burn_cost_s(database_manager, database_name, scratch, DISCONNECT_BURN_LENGTH,
+                                 LONG_BURN_SAMPLE_SIZE)
+
+    return max(DISCONNECT_BURN_LENGTH, math.ceil(DISCONNECT_BURN_LENGTH * needed_s / cost_s))
 
 
 def _stopped_ceiling_s(database_manager: MongoDatabaseManager, database_name: str, scratch: str) -> float:
@@ -259,9 +288,11 @@ class TestTheSocketTimeout:
         """
         The oracle's precondition: a burn that could finish inside the wait would pass without being stopped
 
-        A faster server shortens the burn; this fails before the socket test turns vacuous
+        The burn is sized for this machine (``_disconnect_burn_length``) and measured again here, so this fails if
+        the sizing does not hold - before the socket test turns vacuous
         """
-        cost_s = _burn_cost_s(database_manager, database_name, scratch, DISCONNECT_BURN_LENGTH, LONG_BURN_SAMPLE_SIZE)
+        length: int = _disconnect_burn_length(database_manager, database_name, scratch)
+        cost_s = _burn_cost_s(database_manager, database_name, scratch, length, LONG_BURN_SAMPLE_SIZE)
 
         assert cost_s > BURN_TO_WAIT_FACTOR * DISCONNECT_STOP_WAIT_S, f'the burn costs only {cost_s:.1f} s'
 
@@ -274,12 +305,13 @@ class TestTheSocketTimeout:
         on the ``aggregate`` command itself - never on a ``getMore``, which the server would finish instead
         """
         host, port, database_name = mongodb_parameters
+        length: int = _disconnect_burn_length(database_manager, database_name, scratch)
         client = pymongo.MongoClient(host, int(port), socketTimeoutMS=SOCKET_TIMEOUT_MS)
 
         try:
             with pytest.raises(NetworkTimeout):
                 list(client[database_name][scratch].aggregate(
-                    _burn(DISCONNECT_BURN_LENGTH), comment=COMMENT, batchSize=DOCUMENT_COUNT,
+                    _burn(length), comment=COMMENT, batchSize=DOCUMENT_COUNT,
                 ))
         finally:
             client.close()
