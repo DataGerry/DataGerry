@@ -84,6 +84,19 @@ export class FileService {
     }
 
 
+    public callExportDataModelRoute() {
+        const options = { ...httpFileOptions, params: new HttpParams() };
+
+        return this.api.callGet<Blob>('configuration_transfer/export', options);
+    }
+
+
+    /** Admin account (public_id 1) only; `confirm` must be the typed `RESET`. */
+    public resetConfiguration(confirm: string) {
+        return this.api.callPost<void>('configuration_transfer/reset', { confirm });
+    }
+
+
     public getTypeFile() {
         return this.api.callPost<any>('export/type/', null, httpFileOptions);
     }
