@@ -33,6 +33,8 @@ export class DgModalComponent {
     /** Small uppercase label above the title. */
     public readonly eyebrow = input<string>();
     public readonly title = input('');
+    /** Lets the opener point `ariaLabelledBy` at the title. */
+    public readonly titleId = input<string>();
     public readonly subtitle = input<string>();
     /** When false the body is a flex column that clips overflow, letting a child own the scroll. */
     public readonly scrollBody = input(true);

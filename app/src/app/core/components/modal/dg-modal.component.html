@@ -6,7 +6,7 @@
         @if (eyebrow(); as eyebrowText) {
         <span class="dg-modal__eyebrow">{{ eyebrowText }}</span>
         }
-        <h2 class="dg-modal__title">{{ title() }}</h2>
+        <h2 class="dg-modal__title" [attr.id]="titleId() ?? null">{{ title() }}</h2>
         @if (subtitle(); as subtitleText) {
         <p class="dg-modal__subtitle">{{ subtitleText }}</p>
         }
