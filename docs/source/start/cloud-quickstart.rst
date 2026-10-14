@@ -60,6 +60,16 @@ Sign in to DataGerry
    subscription**. Each subscription is a separate CMDB with its own data; pick the one you want
    to work in and click **Proceed**.
 
+.. figure:: ../img/cloud/cloud_sign_in.png
+   :width: 300
+
+   The DataGerry sign-in page.
+
+.. figure:: ../img/cloud/cloud_select_subscription.png
+   :width: 300
+
+   Choosing the subscription after signing in.
+
 Forgot your password? The **Forgot Password?** link on the sign-in page resets it in the Service
 Portal — the password is the same for both applications.
 

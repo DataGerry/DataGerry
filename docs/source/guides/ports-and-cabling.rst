@@ -102,6 +102,11 @@ steps.
    click **Create ports**. The preview flags names that would be generated twice
    or already exist on the object.
 
+.. figure:: ../img/ports/ports_add_wizard.png
+   :width: 600
+
+   Step 1 of the Add ports assistant.
+
 At most 5000 ports (per side) can be created in one batch. On a patch panel each
 front port is paired with the rear port of the same position.
 
@@ -137,6 +142,16 @@ A standard device shows a table with **Port Name**, **Port No.**, **Port Type**,
 **Speed**, **Status**, **Connection**, **Interfaces** and **Actions**. A patch
 panel shows **No.**, **Front Port**, **Front Connection**, **Pairing**, **Rear
 Port**, **Rear Connection** and **Actions**.
+
+.. figure:: ../img/ports/ports_table.png
+   :width: 800
+
+   The port table of a switch.
+
+.. figure:: ../img/ports/ports_patch_panel_table.png
+   :width: 800
+
+   The port table of a patch panel.
 
 **Connection** shows *Free* or the cable, marked **Metadata** (described on the
 connection) or **CI #**\ *id* (a cable object), and the far end.
@@ -231,6 +246,11 @@ the URL.
 The view draws the object (marked with a crown) and the objects cabled to it as
 cards, with cables in their real colour. Hover a cable for its name, type, ends
 and description.
+
+.. figure:: ../img/ports/cabling_view.png
+   :width: 800
+
+   The Cabling View of a core switch, shown full screen.
 
 * **Show free ports** — off by default, so only connected ports are shown.
 * Each card shows a few ports; **more ports** unfolds the rest.
