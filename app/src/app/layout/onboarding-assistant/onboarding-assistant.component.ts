@@ -18,18 +18,26 @@
 
 import { AsyncPipe } from '@angular/common';
 import { ChangeDetectionStrategy, Component, DestroyRef, OnInit, computed, inject, signal } from '@angular/core';
+import { Router } from '@angular/router';
 import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { finalize } from 'rxjs/operators';
 
-import { NgbActiveModal } from '@ng-bootstrap/ng-bootstrap';
+import { NgbActiveModal, NgbModal } from '@ng-bootstrap/ng-bootstrap';
 
 import { environment } from 'src/environments/environment';
 import { CoreModule } from '../../core/core.module';
 import { LoaderService } from '../../core/services/loader.service';
+import { CoreConfirmationModalComponent } from '../../core/components/dialog/confirmation/core-confirmation-modal.component';
 import { ConnectionService } from '../../modules/connect/services/connection.service';
+import { FileService } from '../../export/export.service';
+import { ToastService } from '../toast/toast.service';
+import { SidebarService } from '../services/sidebar.service';
+import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 type Edition = 'community' | 'subscription';
+
+const RESET_CONFIRMATION = 'RESET';
 
 interface EditionOption {
     id: Edition;
@@ -56,6 +64,12 @@ interface OnboardingStep {
 export class OnboardingAssistantComponent implements OnInit {
     private readonly connectionService = inject(ConnectionService);
     private readonly loaderService = inject(LoaderService);
+    private readonly fileService = inject(FileService);
+    private readonly toastService = inject(ToastService);
+    private readonly sidebarService = inject(SidebarService);
+    private readonly userSettingsDBService = inject(UserSettingsDBService);
+    private readonly router = inject(Router);
+    private readonly modalService = inject(NgbModal);
     private readonly destroyRef = inject(DestroyRef);
 
     public readonly activeModal = inject(NgbActiveModal);
@@ -63,6 +77,11 @@ export class OnboardingAssistantComponent implements OnInit {
 
     /** Set to false by the opener when the data model already exists. */
     public readonly isUsable = signal(true);
+
+    /** Set by the opener; the reset route accepts the administrator account only. */
+    public readonly canReset = signal(false);
+
+    public readonly isResetting = signal(false);
 
     public readonly isCloud = environment.cloudMode;
     public readonly version = signal('');
@@ -150,6 +169,33 @@ export class OnboardingAssistantComponent implements OnInit {
         this.activeModal.dismiss(false);
     }
 
+
+    public onStartReset(): void {
+        const confirmation = this.modalService.open(CoreConfirmationModalComponent, {
+            centered: true,
+            backdrop: 'static',
+            windowClass: 'dg-modal-window',
+            backdropClass: 'dg-modal-window-backdrop',
+            ariaLabelledBy: 'confirmation-title',
+            ariaDescribedBy: 'confirmation-message'
+        });
+
+        confirmation.componentInstance.title = 'Reset workspace';
+        confirmation.componentInstance.message =
+            'All types, categories, objects, relations and the data that depends on them are deleted. '
+            + 'Users and groups are kept.';
+        confirmation.componentInstance.warningMessage = 'This cannot be undone.';
+        confirmation.componentInstance.confirmationText = RESET_CONFIRMATION;
+        confirmation.componentInstance.confirmButtonText = 'Reset workspace';
+        confirmation.componentInstance.confirmButtonClass = 'btn-danger';
+
+        confirmation.result.then((result: unknown) => {
+            if (result === 'confirmed') {
+                this.resetWorkspace();
+            }
+        }, () => { });
+    }
+
     /* ------------------------------------------------ PRIVATE FUNCTIONS ----------------------------------------------- */
 
     private loadVersion(): void {
@@ -162,5 +208,32 @@ export class OnboardingAssistantComponent implements OnInit {
             next: info => this.version.set(info?.version ?? ''),
             error: () => this.version.set('')
         });
+    }
+
+
+    private resetWorkspace(): void {
+        this.isResetting.set(true);
+        this.loaderService.show();
+
+        this.fileService.resetConfiguration(RESET_CONFIRMATION).pipe(
+            takeUntilDestroyed(this.destroyRef),
+            finalize(() => {
+                this.isResetting.set(false);
+                this.loaderService.hide();
+            })
+        ).subscribe({
+            next: () => this.completeReset(),
+            error: () => this.toastService.error('The workspace could not be reset.')
+        });
+    }
+
+
+    /** The reset also cleared every user's settings, so the cached copies are synced away. */
+    private completeReset(): void {
+        this.userSettingsDBService.syncSettings();
+        this.sidebarService.loadCategoryTree();
+        this.toastService.success('The workspace was reset.');
+
+        this.router.navigate(['/']).finally(() => this.activeModal.close('reset'));
     }
 }

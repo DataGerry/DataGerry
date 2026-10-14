@@ -41,7 +41,7 @@
   </aside>
 
   <section class="onboarding__main">
-    <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass="btn-light btn-sm"
+    <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
       (clicked)="onSetUpLater()"></app-button>
 
     <div class="onboarding__content">
@@ -167,9 +167,28 @@
     </div>
   </section>
 </div>
+} @else if (canReset()) {
+<div class="onboarding-status">
+  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
+    [disabled]="isResetting()" (clicked)="activeModal.close(false)"></app-button>
+
+  <span class="onboarding-status__icon onboarding-status__icon--warning" aria-hidden="true">
+    <i class="fas fa-database"></i>
+  </span>
+  <h2 id="onboarding-title" class="onboarding__title">Your workspace already has a data model</h2>
+  <p class="onboarding__lead">
+    The onboarding assistant needs an empty workspace. Reset the workspace to start over with a starter data model.
+  </p>
+  <div class="onboarding-status__actions">
+    <app-button label="Keep my data" bootstrapClass="btn-light" [disabled]="isResetting()"
+      (clicked)="activeModal.close(false)"></app-button>
+    <app-button label="Reset workspace" bootstrapClass="btn-danger" [disabled]="isResetting()"
+      (clicked)="onStartReset()"></app-button>
+  </div>
+</div>
 } @else {
 <div class="onboarding-status">
-  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass="btn-light btn-sm"
+  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass=""
     (clicked)="activeModal.close(false)"></app-button>
 
   <span class="onboarding-status__icon" aria-hidden="true"><i class="fas fa-check"></i></span>

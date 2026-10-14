@@ -233,8 +233,20 @@ export class AuthService<T = any> implements ApiServicePrefix {
                     });
             } else {
                 //display assistant not usable
-                this.startIntroModal = this.introService.open(OnboardingAssistantComponent, { ...this.getModalOptions(), ariaLabelledBy: 'onboarding-title' });
-                this.startIntroModal.componentInstance.isUsable.set(false);
+                const statusModal = this.introService.open(OnboardingAssistantComponent, {
+                    ...this.getModalOptions(),
+                    ariaLabelledBy: 'onboarding-title',
+                    beforeDismiss: () => !statusModal.componentInstance.isResetting()
+                });
+                this.startIntroModal = statusModal;
+                statusModal.componentInstance.isUsable.set(false);
+                statusModal.componentInstance.canReset.set(this.currentUserValue?.public_id === 1);
+
+                statusModal.result.then((result: unknown) => {
+                    if (result === 'reset') {
+                        this.showIntro(true);
+                    }
+                }, () => { });
             }
         });
     }

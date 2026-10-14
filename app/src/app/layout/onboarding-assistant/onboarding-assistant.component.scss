@@ -7,6 +7,7 @@ $brand-ring: 0 0 0 4px rgba($brand, 0.12), 0 2px 8px rgba($brand, 0.22);
 $focus-ring: 0 0 0 0.2rem rgba($brand, 0.35);
 
 $done: #198754;
+$warning-ink: #b45309;
 $line-idle: #e5e7eb;
 $line-done: #7cc9a8;
 $card-border: #e9ecef;
@@ -597,6 +598,19 @@ $rail-width: 16.5rem;
   color: $done;
   font-size: 1.25rem;
   box-shadow: 0 0 0 6px rgba($done, 0.08);
+
+  &--warning {
+    background: #fff8eb;
+    color: $warning-ink;
+    box-shadow: 0 0 0 6px rgba($warning-ink, 0.08);
+  }
+}
+
+.onboarding-status__actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
 }
 
 @keyframes onboarding-enter {
