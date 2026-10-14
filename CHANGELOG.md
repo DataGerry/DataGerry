@@ -2,6 +2,270 @@
 Changelogs
 **********
 
+Version 3.3.0
+=============
+
+|
+
+New Features
+------------
+
+|
+
+**Rack View**
+
+- New special type **Rack** with a dedicated rack overview in the object view (first tab of the object view footer)
+- Mount objects into a rack with object selection, area, start slot and height
+- Front and rear view toggle; full-depth mounts are shown in both views
+- Slot grid rendered top-down with slot 1 at the bottom of the rack
+- Left, right and unassigned areas shown as position-ordered lists
+- Drag and drop to move mounted objects
+- Edit, move, resize and reorder existing mounts
+- "Mount here" directly from a free slot, with the clicked slot pre-filled
+- Unplace a mount (frees its slots while the object stays assigned to the rack)
+- Remove objects from a rack with a delete confirmation
+- Suggestions for free rack slots
+- Every placement is pre-validated by the backend, errors are shown inline
+- Reservations and blockers as rack occupants; expired reservations are flagged in red and listed in the header
+- Mounts that no longer fit the rack height are listed instead of being dropped
+- Type legend, notes card and card for unassignable entries
+- Assigning and unassigning objects to racks keeps the Location Tree in sync
+- New rack rights (``base.framework.rack.view`` / ``base.framework.rack.edit``)
+- Start Assistant profile for the Rack View
+- Available with the IPAM license feature
+
+|
+
+**Port Connectivity**
+
+- Objects can now have **Ports** or a **Patch Panel**, managed through a virtual section template for ports
+- Ports section is shown in the Attributes section of the object view and at its configured position among the type's sections
+- Add, edit and delete ports; "Add Ports" is now part of the object edit page
+- Bulk port creation assistant with device kind, naming scheme and server-side preview
+- Name generator for ports
+- Bulk actions for ports (buttons are enabled once a port is selected)
+- Port overviews for standard ports and patch panels
+- Ports tables with configurable columns; column views are saved per user
+- Link ports to interfaces of the current object (interface link manager, linked interfaces as a table column)
+- New special type **Cable**
+- Cable connection wizard to connect, edit and disconnect cables
+- Cable dropdown only offers unassigned cables
+- Cable CIs that are still used by a port connection cannot be deleted
+- Port options (Status, Port Type, Speed) can be managed from the Type builder
+- Option to also copy the ports when copying an object
+- Available with the IPAM license feature
+
+|
+
+**Cabling View**
+
+- New **Cabling View** in the object view; switch between **Table**, **Cabling** and **Graph**
+- Only shown for objects that can have one; the chosen view is kept in the URL
+- Cables drawn in their real colour, with labels and tooltips
+- Shows the root object's cables by default; further connections are expanded on demand
+- Toggle to show only connected ports
+- Canvas with pan, zoom and fit, movable cards, legend and toolbar
+- Spotlight to highlight a connection path
+- Fullscreen mode
+
+|
+
+:ref:`Section Templates <section-templates-anchor>` **and Type Builder**
+
+- Type, relation and section template builders now share one common builder
+- Virtual (non-stored) section templates, offered in the Type builder global template palette and listed in the Section Templates overview
+- Virtual global section templates can be cloned
+- Types can be saved with the Ports section as their only content; empty types can be created
+- Locked fields show their configuration read-only in the Type builder
+- Assigned special type shown as a disabled field when editing a type
+- Special type badge column in the type list, coloured with the type's CI Explorer colour
+
+|
+
+**Import / Export**
+
+- Import and export of Multi Data Sections (CSV, XLSX and XML)
+- New "Human readable" flag for object CSV/XLSX export
+- CSV object template export to prepare imports
+- Redesigned import wizards for objects and types with a reusable stepper
+- Improved validation and error messages for object and type imports
+- Improved CSV parser for object imports
+- Improved naming of exported files
+- Import and export are gated by their specific rights
+
+|
+
+=======================================================================================================================
+
+|
+
+Improvements
+------------
+
+|
+
+:ref:`Locations <locations-anchor>`
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Lazy-loading location tree in the sidebar
+- Search in the sidebar location tree
+- Drag and drop re-parenting in the location tree (single and batch)
+- Location field uses a hierarchical tree selector instead of a flat dropdown
+- Locations are handled directly in the object create, update and copy requests
+- Improved location deletion follow-up
+- New rights for location routes
+
+|
+
+:ref:`ISMS <isms-anchor>`
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+- Pagination for the SOA, Risk Assessments and Risk Treatment Plan reports
+- Risk Assessments report: filtering moved to the backend, redesigned filter area and dedicated search
+- Bulk delete for Risks, Threats and Controls (with in-use handling)
+- Risk Assessments: saving is blocked on missing required fields and the user is guided to collapsed sections
+
+|
+
+CI Explorer
+~~~~~~~~~~~
+
+- Port connections as a filter scope, drawn as undirected edges without arrow heads
+- Set a type's node label field directly from the graph context menu
+- Graph editor refactored to a store-based architecture
+- Faster loading of the graph editor and the object view
+- General UI improvements
+
+|
+
+Permissions
+~~~~~~~~~~~
+
+- Routes, menus and actions are now consistently gated by rights for Reports, Webhooks, CI Explorer, Document Generator, Object Groups, ISMS, ISMS Import, Logs, Locations and Search
+- Webhooks show their owner and how ownership affects deliveries
+- Faster Rights Overview using a new paginated route
+- Server-side ACL filtering for type requests
+- The admin base right is locked
+
+|
+
+User Interface
+~~~~~~~~~~~~~~
+
+- New reusable modal shell (``dg-modal``); legacy modals migrated
+- New button design system
+- Redesigned Object Delete and Object Preview modals
+- Redesigned Categories Add/Edit page and metadata modal
+- Improved object relation modal; relation tab tables can show relation fields as columns
+- Own colour picker (the native dialog stayed open in Firefox)
+- Modernized hover flyout of the collapsed sidebar; sidebar collapse state is saved
+- Type builder: stepper colours reflect the validation state of each step
+- "New feature" tag for new categories in the Start Assistant
+- Font Awesome 6 icons
+- Server-side search in table searches and in the reusable select component
+- AI Assistant: improved modal, warns if it is not configured and shows backend errors
+- License tiers are displayed as Small, Medium and Large
+
+|
+
+Performance
+~~~~~~~~~~~
+
+- Type Builder content page performance improvements
+- Object view loads footer tabs and graph data lazily
+- Optimized object GET routes
+- Extendable option selects are resolved in a single batched request
+- Rack View performance improvements
+
+|
+
+Technical Improvements
+----------------------
+
+- Migrated frontend Excel library from ``xlsx`` to ``exceljs``
+- Updated backend packages
+- Clean/unclean status moved into the backend; type list endpoint renamed to ``/overview``
+- Object edit form uses the new PATCH route with partial payloads
+- Required fields are validated on object create and update in the backend
+- New license entitlements route for premium feature gating
+- Improved route security, backend guards and error handling
+- Improved forking of processes
+- macOS improvements
+- Removed the separate docs server
+- Replaced deprecated CDK ``NestedTreeControl`` in all location and IPAM trees
+
+|
+
+=======================================================================================================================
+
+|
+
+Bugfixes
+--------
+
+-   [**DAT-3149**] Fixed object view showing only the first section after a field was removed from its type
+-   [**DAT-3147**] Fixed cloned types losing their summary fields and CI Explorer label selection
+-   [**DAT-3142**] AI Assistant now shows the backend error message when document generation fails
+-   [**DAT-3133**] Adopted backend export filenames and the new global section template count payload
+-   [**DAT-3115**] Removed the sub-location confirmation dialog from object list delete actions
+-   [**DAT-3112**] Fixed wrong and truncated hint in the connect port wizard
+-   [**DAT-3108**] Fixed multi data section in section template edit falsely reporting "Identifier must be unique"
+-   [**DAT-3100**] Fixed fields after the first rendering without label or actions in section template edit
+-   [**DAT-3070**] Fixed section template losing its section type when transformed to global
+-   [**DAT-3069**] Fixed cloning a section template always creating a standard section
+-   [**DAT-3058**] Fixed screen freeze when adding section templates
+-   [**DAT-3050**] Fixed long category names overlapping the expand chevron in the sidebar
+-   [**DAT-3048**] Implemented CI Explorer rights in the frontend
+-   [**DAT-3046**] Webhooks UI is now gated by webhook rights
+-   [**DAT-3045**] Report UI is now gated by report rights
+-   [**DAT-3044**] Fixed sidebar Networks tree not refreshing after IPAM object changes
+-   [**DAT-3042**] Fixed sidebar location tree not refreshing after object or rack mount changes
+-   [**DAT-3035**] Fixed location field default-value icon wrapping to a new line
+-   [**DAT-3033**] Fixed unreadable type dropdown labels and stale field selection in reference field summaries
+-   [**DAT-3029**] Fixed builder losing or corrupting fields on section removal, hide-as-column and focused-section edits
+-   [**DAT-3028**] Fixed section cards in the Content step ignoring the section type for their icon
+-   [**DAT-3026**] Fixed IP issue when editing an existing interface
+-   [**DAT-3013**] Fixed Cover Page and Table of Contents toggles in Document Options not being switchable
+-   [**DAT-3007**] Fixed drag and drop in the Rack View
+-   [**DAT-3006**] Fixed opening objects in a new tab
+-   [**DAT-2990**] Fixed misaligned sticky save bar when the sidebar is collapsed
+-   [**DAT-2989**] Fixed duplicated special type objects losing their special type marker
+-   [**DAT-2983**] ISMS Import wizard routes and overview tiles are now gated by permission
+-   [**DAT-2982**] Fixed Reports breadcrumb navigation leading to a blank page
+-   [**DAT-2981**] Log settings routes and cleanup actions are now gated by log permissions
+-   [**DAT-2980**] CI Explorer routes now enforce the view permission
+-   [**DAT-2979**] Webhook routes, save action and menu are now gated by permission
+-   [**DAT-2978**] Added permission handling for Reporting
+-   [**DAT-2977**] Document Generator routes are now gated by permission
+-   [**DAT-2976**] Added permission handling for Object Groups in the frontend
+-   [**DAT-2975**] ISMS overview cards are hidden without permission
+-   [**DAT-2974**] Route permissions are enforced on all ISMS routes
+-   [**DAT-2872**] Risk Assessment: save is blocked on missing required fields and the user is guided to collapsed sections
+-   [**DAT-2869**] Fixed user caching
+-   [**DAT-2863**] Fixed Organize Locations tree not refreshing after drag and drop
+-   [**DAT-2862**] All open dialogs are closed when the authentication is no longer valid
+-   [**DAT-2861**] Integrated Font Awesome 6 icons
+-   [**DAT-2860**] Fixed type list keeping a stale page number when changing page size or searching
+-   [**DAT-2857**] Fixed toast message hidden behind the loader blur on object delete
+-   [**DAT-2855**] Fixed pagination and total count after bulk delete of objects
+-   [**DAT-2854**] Added permission for locations
+-   [**DAT-2853**] Fixed UI freeze on Risk Matrix report PDF export
+-   [**DAT-2851**] Fixed XLSX "Workbook is not a constructor" crash and hardened CSV/PDF/XLSX error handling of ISMS report exports
+-   [**DAT-2826**] Fixed MDS row id collision
+-   [**DAT-790**] Object exports (CSV etc.) now use the field label instead of the field name
+-   [**DAT-355**] Imported types no longer keep the user_id listed in the import file
+
+|
+
+=======================================================================================================================
+
+|
+
+=======================================================================================================================
+
+|
+
+
 
 Version 3.2.0
 =============
