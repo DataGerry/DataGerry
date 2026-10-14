@@ -50,7 +50,7 @@ COUNTER_METHODS: frozenset[str] = frozenset({
 DOCUMENT_METHODS: frozenset[str] = frozenset({
     'reset_connection', 'status', 'insert', 'insert_many', 'bulk_write', 'update', 'replace', 'upsert_set', 'upsert',
     'update_many', 'update_many_raw', 'get_distinct', 'find_all', 'find', 'find_one_by', 'find_one', 'count',
-    'aggregate', 'aggregate_within_time_limit', 'delete', 'find_one_and_delete', 'delete_many_raw',
+    'aggregate', 'aggregate_all', 'aggregate_within_time_limit', 'delete', 'find_one_and_delete', 'delete_many_raw',
 })
 
 

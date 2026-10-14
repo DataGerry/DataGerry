@@ -42,11 +42,11 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.utils import CONTENT_DISPOSITION_HEADER
 from cmdb.manager import MediaFilesManager
 from cmdb.framework.media_library import MediaFile, MediaFileMetadataKey
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.media_files_manager import (
     MediaFileManagerGetError,
     MediaFileManagerInsertError,
     MediaFileManagerUpdateError,
-    MediaFileManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -377,9 +377,11 @@ class TestDelete:
         assert response.status_code in (HTTPStatus.OK, HTTPStatus.ACCEPTED)
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch) -> None:
-        """A MediaFileManagerDeleteError while deleting surfaces as 400."""
+        """A failed batch delete of the subtree surfaces as 400."""
         public_id = _upload(rest_api, 'dg-func-delete-err.txt')
-        monkeypatch.setattr(MediaFilesManager, 'delete_file', _raiser(MediaFileManagerDeleteError('boom')))
+        monkeypatch.setattr(
+            MediaFilesManager, 'delete_many_from_other_collection', _raiser(BaseManagerDeleteError('boom')),
+        )
 
         assert rest_api.delete(f'{BASE_URL}/{public_id}').status_code == HTTPStatus.BAD_REQUEST
 
@@ -648,9 +650,9 @@ class TestRouteErrorMapping:
         assert response.status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
     def test_delete_unexpected_error_returns_500(self, rest_api, monkeypatch) -> None:
-        """A failure while collecting the subtree is a 500."""
+        """A bug while collecting the subtree is a 500 - a failed read is the route's 400"""
         public_id = _upload(rest_api, 'dg-func-del-boom.txt')
-        monkeypatch.setattr(MediaFilesManager, 'get_many_media_files', _raiser(RuntimeError('boom')))
+        monkeypatch.setattr(MediaFilesManager, 'collect_subtree', _raiser(RuntimeError('boom')))
 
         assert rest_api.delete(f'{BASE_URL}/{public_id}').status_code == HTTPStatus.INTERNAL_SERVER_ERROR
 
@@ -661,3 +663,81 @@ class TestRouteErrorMapping:
         response = rest_api.get(f'{BASE_URL}/?metadata={AUTHOR_METADATA}')
 
         assert response.status_code == HTTPStatus.NOT_FOUND
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               deleting a folder (T325)                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+CHUNKS_COLLECTION: str = f'{MediaFile.COLLECTION}.chunks'
+
+
+def _upload_into(rest_api, filename: str, **metadata) -> int:
+    """Uploads an entry with extra metadata (folder flag, parent) and returns its public_id"""
+    form = {'file': (BytesIO(b'content'), filename), 'metadata': json.dumps({'author_id': AUTHOR_ID, **metadata})}
+    response = rest_api.post(f'{BASE_URL}/', data=form, content_type='multipart/form-data')
+
+    assert response.status_code in (HTTPStatus.OK, HTTPStatus.CREATED)
+    return response.get_json()['result_id']
+
+
+class TestDeleteAFolder:
+    """DELETE /media_file/<folder> removes the folder and everything beneath it, documents and chunks"""
+
+    @staticmethod
+    def _stored(database_manager: MongoDatabaseManager, database_name: str, public_ids: list[int]) -> list[dict]:
+        """The stored documents of the given entries"""
+        return list(database_manager.get_collection(FILES_COLLECTION, database_name).find(
+            {'public_id': {'$in': public_ids}},
+        ))
+
+    def test_a_nested_subtree_is_removed_with_its_chunks(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """root -> (sub -> file, file): four entries, none left, and no chunk of theirs either"""
+        root = _upload_into(rest_api, 'dg-del-root', folder=True)
+        sub = _upload_into(rest_api, 'dg-del-sub', folder=True, parent=root)
+        deep_file = _upload_into(rest_api, 'dg-del-deep.txt', parent=sub)
+        flat_file = _upload_into(rest_api, 'dg-del-flat.txt', parent=root)
+        entries = [root, sub, deep_file, flat_file]
+        file_ids = [doc['_id'] for doc in self._stored(database_manager, database_name, entries)]
+
+        response = rest_api.delete(f'{BASE_URL}/{root}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert not self._stored(database_manager, database_name, entries)
+        assert not database_manager.get_collection(CHUNKS_COLLECTION, database_name).count_documents(
+            {'files_id': {'$in': file_ids}},
+        )
+
+    def test_a_sibling_outside_the_subtree_stays(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """Only the addressed folder's subtree goes"""
+        root = _upload_into(rest_api, 'dg-del-root-2', folder=True)
+        _upload_into(rest_api, 'dg-del-child-2.txt', parent=root)
+        sibling = _upload_into(rest_api, 'dg-del-sibling.txt')
+
+        rest_api.delete(f'{BASE_URL}/{root}')
+
+        assert self._stored(database_manager, database_name, [sibling])
+
+    def test_a_folder_stored_inside_its_own_subtree_is_deleted(
+            self, rest_api, database_manager: MongoDatabaseManager, database_name: str) -> None:
+        """A loop stored before the write contract refused it ends the walk - it used to recurse into a 500"""
+        outer = _upload_into(rest_api, 'dg-loop-outer', folder=True)
+        inner = _upload_into(rest_api, 'dg-loop-inner', folder=True, parent=outer)
+        database_manager.get_collection(FILES_COLLECTION, database_name).update_one(
+            {'public_id': outer}, {'$set': {'metadata.parent': inner}},
+        )
+
+        response = rest_api.delete(f'{BASE_URL}/{outer}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert not self._stored(database_manager, database_name, [outer, inner])
+
+    def test_a_failed_subtree_read_is_a_400(self, rest_api, monkeypatch) -> None:
+        """The walk's read failing is the route's 400 - it used to be the generic 500"""
+        root = _upload_into(rest_api, 'dg-del-read-fail', folder=True)
+        monkeypatch.setattr(
+            MediaFilesManager, 'get_many_from_other_collection', _raiser(BaseManagerGetError('boom')),
+        )
+
+        assert rest_api.delete(f'{BASE_URL}/{root}').status_code == HTTPStatus.BAD_REQUEST

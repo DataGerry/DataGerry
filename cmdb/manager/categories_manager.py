@@ -499,7 +499,7 @@ class CategoriesManager(GenericManager):
         ]
 
         try:
-            result: list[dict[str, Any]] = list(self.aggregate(pipeline))
+            result: list[dict[str, Any]] = self.aggregate_all(pipeline)
         except BaseManagerIterationError as err:
             raise CategoriesManagerGetError(err) from err
 

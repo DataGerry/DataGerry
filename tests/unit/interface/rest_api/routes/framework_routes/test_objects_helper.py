@@ -1118,6 +1118,23 @@ class TestHelperErrorArms:
         # no count is forwarded - the sync derives the total from its own aggregation
         sync.assert_called_once_with(sync.call_args.args[0])
 
+    def test_the_delete_cascade_detaches_the_object_from_its_attachments(self, flask_app: Flask) -> None:
+        """With the object's id alone; the files are the media library's"""
+        flask_app.cloud_mode = False
+        deleted = _make_object([])
+        request_user = MagicMock()
+
+        with flask_app.test_request_context('/'):
+            with patch(f'{HELPER_PATH}.handle_delete_from_object_groups'), \
+                 patch(f'{HELPER_PATH}.handle_delete_invalid_object_relations'), \
+                 patch(f'{HELPER_PATH}.handle_notify_webhooks'), \
+                 patch(f'{HELPER_PATH}.handle_create_object_log'), \
+                 patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=MagicMock()), \
+                 patch(f'{HELPER_PATH}.handle_delete_object_attachments') as detach:
+                delete_one_cascade(request_user, deleted, MagicMock(), LogAction.DELETE)
+
+        detach.assert_called_once_with(request_user, [deleted.get_public_id()])
+
     def test_a_field_without_a_name_aborts_400(self) -> None:
         """A field entry carrying no 'name' cannot be matched against the type schema."""
         objects_manager = MagicMock()

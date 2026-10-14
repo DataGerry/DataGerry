@@ -91,6 +91,10 @@ class CmdbType(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.types"
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbTypeInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbTypeToJsonError
     DATE_FIELDS: tuple[str, ...] = (TypeSchemaKey.CREATION_TIME.value,
                                     TypeSchemaKey.LAST_EDIT_TIME.value)
     DEFAULT_VERSION = '1.0.0'

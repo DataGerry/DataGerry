@@ -17,7 +17,7 @@
 Unit tests for cmdb.manager.isms_manager.control_measure_manager.ControlMeasureManager
 
 Pure tests: no Mongo. The manager is driven against a ``MagicMock(spec=ControlMeasureManager)`` with
-its cross-collection database collaborator (aggregate_from_other_collection) stubbed, so only the
+its cross-collection database collaborator (aggregate_all) stubbed, so only the
 manager's own behavior is exercised - the grouped ``$in`` pipeline shape, the empty-input short
 circuit, and the error-wrapping into the ControlMeasureManager error hierarchy. The aggregation
 itself is exercised against real MongoDB by the integration tier.
@@ -49,7 +49,7 @@ class TestGetUsedControlMeasureIds:
     def test_returns_the_referenced_subset(self) -> None:
         """Only the control ids the grouped aggregation returns are reported as used."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.return_value = [{'_id': CONTROL_ID_A}, {'_id': CONTROL_ID_C}]
+        mgr.aggregate_all.return_value = [{'_id': CONTROL_ID_A}, {'_id': CONTROL_ID_C}]
 
         result = ControlMeasureManager.get_used_control_measure_ids(mgr, [CONTROL_ID_A, CONTROL_ID_B, CONTROL_ID_C])
 
@@ -58,11 +58,11 @@ class TestGetUsedControlMeasureIds:
     def test_pipeline_matches_candidates_and_groups_by_control_measure_id(self) -> None:
         """The aggregation runs on the assignment collection, matching the candidates and grouping them."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.return_value = []
+        mgr.aggregate_all.return_value = []
 
         ControlMeasureManager.get_used_control_measure_ids(mgr, [CONTROL_ID_A, CONTROL_ID_B])
 
-        collection, pipeline = mgr.aggregate_from_other_collection.call_args.args
+        pipeline, collection = mgr.aggregate_all.call_args.args
         assert collection == IsmsControlMeasureAssignment.COLLECTION
         assert pipeline[0]['$match'] == {'control_measure_id': {'$in': [CONTROL_ID_A, CONTROL_ID_B]}}
         assert pipeline[1]['$group'] == {'_id': '$control_measure_id'}
@@ -72,12 +72,12 @@ class TestGetUsedControlMeasureIds:
         mgr = _mock_manager()
 
         assert ControlMeasureManager.get_used_control_measure_ids(mgr, []) == set()
-        mgr.aggregate_from_other_collection.assert_not_called()
+        mgr.aggregate_all.assert_not_called()
 
     def test_iteration_error_wraps_as_control_measure_get_error(self) -> None:
         """A ``BaseManagerIterationError`` from the aggregation becomes ``ControlMeasureManagerGetError``."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.side_effect = BaseManagerIterationError('bad pipeline')
+        mgr.aggregate_all.side_effect = BaseManagerIterationError('bad pipeline')
 
         with pytest.raises(ControlMeasureManagerGetError):
             ControlMeasureManager.get_used_control_measure_ids(mgr, [CONTROL_ID_A])
@@ -85,7 +85,7 @@ class TestGetUsedControlMeasureIds:
     def test_unexpected_error_wraps_as_control_measure_get_error(self) -> None:
         """A generic exception is also wrapped as ``ControlMeasureManagerGetError``."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.side_effect = RuntimeError('boom')
+        mgr.aggregate_all.side_effect = RuntimeError('boom')
 
         with pytest.raises(ControlMeasureManagerGetError):
             ControlMeasureManager.get_used_control_measure_ids(mgr, [CONTROL_ID_A])

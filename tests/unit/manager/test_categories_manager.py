@@ -355,7 +355,7 @@ class TestGetAncestorIdsFailure:
         every other failure of that validation answers.
         """
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = BaseManagerIterationError('pipeline failed')
+        mgr.aggregate_all.side_effect = BaseManagerIterationError('pipeline failed')
 
         with pytest.raises(CategoriesManagerGetError):
             CategoriesManager._get_ancestor_ids(mgr, PARENT_CATEGORY_PUBLIC_ID)

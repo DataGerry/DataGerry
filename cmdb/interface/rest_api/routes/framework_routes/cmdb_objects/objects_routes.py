@@ -107,6 +107,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     emit_object_state_change_events,
     handle_delete_from_object_groups,
     handle_delete_invalid_object_relations,
+    handle_delete_object_attachments,
     handle_delete_object_location,
 )
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
@@ -1071,8 +1072,9 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
     (their grandparent), keeping the location tree connected. Every guard is evaluated atomically up front, for
     every target: if any one target's type is missing, its type is deactivated or its ACL denies DELETE, or it would
     orphan IPAM references, no delete happens - not even the risk-assessment cascade, which runs for the whole
-    selection before the per-object loop. After deleting, removes references to the deleted objects, drops them from
-    static object groups, emits a webhook + log per object, and syncs the cloud-mode item count. The steps live in
+    selection before the per-object loop. After deleting, removes references to the deleted objects, detaches them from
+    their media files (the files stay), drops them from static object groups, emits a webhook + log per object, and
+    syncs the cloud-mode item count. The steps live in
     ``objects_bulk_delete_helper``; the managers are resolved once for the whole selection
 
     Args:
@@ -1118,6 +1120,9 @@ def delete_many_cmdb_objects(public_ids: str, request_user: CmdbUser) -> Respons
 
         # Remove the relations of every object actually deleted, at once: one read, one delete and one log batch
         handle_delete_invalid_object_relations(request_user, ack)
+
+        # Take the deleted objects' ids out of their attachments, in one update; the files stay in the media library
+        handle_delete_object_attachments(request_user, ack)
 
         # Remove the deleted objects from all static object groups
         handle_delete_from_object_groups(request_user, to_delete_object_ids)

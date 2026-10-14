@@ -203,7 +203,7 @@ def test_leaving_the_rack_deletes_the_node() -> None:
 
     detach_member_location(MEMBER_ID, MagicMock(), locations_manager)
 
-    locations_manager.delete_location.assert_called_once_with(MEMBER_NODE_ID)
+    assert locations_manager.delete_location.call_args.args[0] == MEMBER_NODE_ID
 
 
 def test_leaving_the_rack_clears_the_objects_location_field() -> None:

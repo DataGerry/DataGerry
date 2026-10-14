@@ -39,13 +39,20 @@ from typing import Any
 
 import pytest
 from bson import json_util
+from bson.errors import InvalidId
 from bson.objectid import ObjectId
 from bson.dbref import DBRef
 from bson.min_key import MinKey
 from bson.max_key import MaxKey
 from bson.timestamp import Timestamp
 
-from cmdb.database.json_codec import MongoJsonKey, default, object_hook
+from cmdb.database.json_codec import (
+    EXTENDED_JSON_DECODE_ERRORS,
+    MongoJsonKey,
+    bson_round_trip,
+    default,
+    object_hook,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                    object_hook                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -181,8 +188,8 @@ class TestTheBsonRoundTrip:
     """
     What the object and type managers actually run: json_util encodes, object_hook decodes
 
-    ``objects_manager.update_object`` and ``types_manager._as_stored_type_dict`` normalise a raw dict
-    with ``json.loads(json.dumps(doc, default=json_util.default), object_hook=object_hook)``. So the
+    ``objects_manager.update_object`` and ``types_manager._as_stored_type_dict`` normalise a raw dict with
+    ``bson_round_trip``: ``json.loads(json.dumps(doc, default=json_util.default), object_hook=object_hook)``. So the
     input to `object_hook` is pymongo's extended JSON, whose datetime spelling depends on the value:
     an ISO string inside the relaxed range, a nested ``{'$numberLong': …}`` outside it.
     """
@@ -190,7 +197,15 @@ class TestTheBsonRoundTrip:
     @staticmethod
     def _round_trip(document: dict[str, Any]) -> dict[str, Any]:
         """Runs a document through the production round trip."""
-        return json.loads(json.dumps(document, default=json_util.default), object_hook=object_hook)
+        return bson_round_trip(document)
+
+    def test_the_helper_is_the_two_hooks_composed(self) -> None:
+        """bson_round_trip is exactly json_util's encoder followed by object_hook"""
+        document = {'when': datetime.datetime(2026, 9, 9, tzinfo=datetime.timezone.utc), 'id': ObjectId()}
+
+        assert bson_round_trip(document) == json.loads(
+            json.dumps(document, default=json_util.default), object_hook=object_hook,
+        )
 
     @pytest.mark.parametrize('timezone_name', ['UTC', 'Europe/Berlin', 'America/Los_Angeles'])
     def test_an_aware_datetime_survives_any_host_timezone(self, monkeypatch, timezone_name: str) -> None:
@@ -389,3 +404,39 @@ class TestTheEncoderFallbacks:
             raise AssertionError(f'default() was called for {value!r}')
 
         assert json.dumps({'a': _DictLike(x=1)}, default=_fail) == '{"a": {"x": 1}}'
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         undecodable wrapper values: the caller's error                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestUndecodableValuesRaiseTheNamedErrors:
+    """
+    A wrapper value object_hook cannot decode raises one of EXTENDED_JSON_DECODE_ERRORS
+
+    The managers name exactly that tuple around the round trip, so the value is the write's 400 - every way a
+    value can be wrong has to land in it, never as a TypeError or AttributeError that reads as a bug
+    """
+
+    @pytest.mark.parametrize('document, error', [
+        ({'$oid': 'not-an-object-id'}, InvalidId),
+        ({'$uuid': 'not-a-uuid'}, ValueError),
+        ({'$uuid': 12345}, ValueError),
+        ({'$regex': '('}, re.error),
+        ({'$regex': 12345}, ValueError),
+    ], ids=['bad-oid', 'bad-uuid', 'non-string-uuid', 'bad-regex', 'non-string-regex'])
+    def test_each_bad_value_raises_a_named_error(self, document: dict[str, Any], error: type[Exception]) -> None:
+        """The error is in the tuple the managers catch"""
+        with pytest.raises(error) as caught:
+            object_hook(document)
+
+        assert isinstance(caught.value, EXTENDED_JSON_DECODE_ERRORS)
+
+    def test_the_round_trip_raises_it_for_a_nested_value(self) -> None:
+        """A wrapper anywhere in the document - here inside a field row"""
+        with pytest.raises(EXTENDED_JSON_DECODE_ERRORS):
+            bson_round_trip({'fields': [{'name': 'ref', 'value': {'$oid': 'nope'}}]})
+
+    def test_the_non_string_message_names_the_key(self) -> None:
+        """The 400 the caller gets says which wrapper was wrong"""
+        with pytest.raises(ValueError, match=re.escape("'$uuid' must be a string, not int")):
+            object_hook({'$uuid': 1})

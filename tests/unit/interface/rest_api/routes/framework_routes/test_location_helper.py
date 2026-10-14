@@ -654,7 +654,8 @@ class TestDeleteLocationWithReparenting:
         """The child nodes are promoted by delete_location; the owning objects' fields are re-pointed."""
         locations_manager = MagicMock(name='locations_manager')
         objects_manager = MagicMock(name='objects_manager')
-        locations_manager.get_child_object_ids.return_value = [101, 102]
+        children = [{'public_id': 91, 'object_id': 101}, {'public_id': 92, 'object_id': 102}]
+        locations_manager.find.return_value = children
         locations_manager.delete_location.return_value = True
 
         result = delete_location_with_reparenting(
@@ -662,9 +663,13 @@ class TestDeleteLocationWithReparenting:
         )
 
         assert result is True
-        # children snapshotted by parent, then the node deleted (which promotes the child nodes)
-        locations_manager.get_child_object_ids.assert_called_once_with(OWN_LOCATION_ID)
-        locations_manager.delete_location.assert_called_once_with(OWN_LOCATION_ID)
+        # children read once by parent - their object ids come from that read - then the node deleted (which
+        # promotes the child nodes) with the node and children handed on, so neither is read again
+        locations_manager.find.assert_called_once_with(criteria={'parent': OWN_LOCATION_ID})
+        locations_manager.get_child_object_ids.assert_not_called()
+        locations_manager.delete_location.assert_called_once_with(
+            OWN_LOCATION_ID, locations_manager.get_one_by.return_value, children,
+        )
         # the owning objects' location fields are re-pointed at the grandparent
         objects_manager.set_location_field_for_objects.assert_called_once_with([101, 102], NEW_PARENT_ID)
 
@@ -672,7 +677,6 @@ class TestDeleteLocationWithReparenting:
         """With no children the node is still deleted, and there is no object field to re-point."""
         locations_manager = MagicMock(name='locations_manager')
         objects_manager = MagicMock(name='objects_manager')
-        locations_manager.get_child_object_ids.return_value = []
         locations_manager.find.return_value = []
         locations_manager.delete_location.return_value = True
 
@@ -680,7 +684,9 @@ class TestDeleteLocationWithReparenting:
             {'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}, locations_manager, objects_manager,
         )
 
-        locations_manager.delete_location.assert_called_once_with(OWN_LOCATION_ID)
+        locations_manager.delete_location.assert_called_once_with(
+            OWN_LOCATION_ID, locations_manager.get_one_by.return_value, [],
+        )
         objects_manager.set_location_field_for_objects.assert_not_called()
 
     def test_a_node_already_gone_is_not_recorded_for_re_insertion(self) -> None:
@@ -691,7 +697,6 @@ class TestDeleteLocationWithReparenting:
         locations_manager = MagicMock(name='locations_manager')
         locations_manager.get_one_by.return_value = None
         locations_manager.find.return_value = []
-        locations_manager.get_child_object_ids.return_value = []
         locations_manager.delete_location.side_effect = RuntimeError('delete failed')
 
         with pytest.raises(RuntimeError):
@@ -707,14 +712,13 @@ class TestDeleteLocationWithReparenting:
         and restores each child's parent - then the original error surfaces
         """
         node = {'public_id': OWN_LOCATION_ID, 'parent': NEW_PARENT_ID}
-        child = {'public_id': 91, 'parent': OWN_LOCATION_ID}
+        child = {'public_id': 91, 'parent': OWN_LOCATION_ID, 'object_id': 101}
         store: dict[int, dict[str, Any]] = {}
         locations_manager = MagicMock(name='locations_manager')
         locations_manager.get_one_by.side_effect = lambda criteria: store.get(
             criteria['public_id'], node if criteria['public_id'] == OWN_LOCATION_ID else child,
         )
         locations_manager.find.return_value = [child]
-        locations_manager.get_child_object_ids.return_value = [101]
         locations_manager.delete_location.return_value = True
         objects_manager = MagicMock(name='objects_manager')
         failure = RuntimeError('field write failed')

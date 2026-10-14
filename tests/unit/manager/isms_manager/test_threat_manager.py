@@ -17,7 +17,7 @@
 Unit tests for cmdb.manager.isms_manager.threat_manager.ThreatManager
 
 Pure tests: no Mongo. The manager is driven against a ``MagicMock(spec=ThreatManager)`` with its
-cross-collection database collaborator (aggregate_from_other_collection) stubbed, so only the
+cross-collection database collaborator (aggregate_all) stubbed, so only the
 manager's own behavior is exercised - the array-membership ``$in``/``$unwind``/``$group`` pipeline
 shape, the empty-input short circuit, and the error-wrapping into the ThreatManager error hierarchy.
 The aggregation itself is exercised against real MongoDB by the integration tier.
@@ -49,7 +49,7 @@ class TestGetUsedThreatIds:
     def test_returns_the_referenced_subset(self) -> None:
         """Only the threat ids the grouped aggregation returns are reported as used."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.return_value = [{'_id': THREAT_ID_A}, {'_id': THREAT_ID_C}]
+        mgr.aggregate_all.return_value = [{'_id': THREAT_ID_A}, {'_id': THREAT_ID_C}]
 
         result = ThreatManager.get_used_threat_ids(mgr, [THREAT_ID_A, THREAT_ID_B, THREAT_ID_C])
 
@@ -58,12 +58,12 @@ class TestGetUsedThreatIds:
     def test_pipeline_matches_unwinds_and_groups_the_array_field(self) -> None:
         """The aggregation runs on the Risk collection, filtering + unwinding the threats array."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.return_value = []
+        mgr.aggregate_all.return_value = []
         candidates = [THREAT_ID_A, THREAT_ID_B]
 
         ThreatManager.get_used_threat_ids(mgr, candidates)
 
-        collection, pipeline = mgr.aggregate_from_other_collection.call_args.args
+        pipeline, collection = mgr.aggregate_all.call_args.args
         assert collection == IsmsRisk.COLLECTION
         assert pipeline[0]['$match'] == {'threats': {'$in': candidates}}
         assert pipeline[1]['$unwind'] == '$threats'
@@ -75,12 +75,12 @@ class TestGetUsedThreatIds:
         mgr = _mock_manager()
 
         assert ThreatManager.get_used_threat_ids(mgr, []) == set()
-        mgr.aggregate_from_other_collection.assert_not_called()
+        mgr.aggregate_all.assert_not_called()
 
     def test_iteration_error_wraps_as_threat_get_error(self) -> None:
         """A ``BaseManagerIterationError`` from the aggregation becomes ``ThreatManagerGetError``."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.side_effect = BaseManagerIterationError('bad pipeline')
+        mgr.aggregate_all.side_effect = BaseManagerIterationError('bad pipeline')
 
         with pytest.raises(ThreatManagerGetError):
             ThreatManager.get_used_threat_ids(mgr, [THREAT_ID_A])
@@ -88,7 +88,7 @@ class TestGetUsedThreatIds:
     def test_unexpected_error_wraps_as_threat_get_error(self) -> None:
         """A generic exception is also wrapped as ``ThreatManagerGetError``."""
         mgr = _mock_manager()
-        mgr.aggregate_from_other_collection.side_effect = RuntimeError('boom')
+        mgr.aggregate_all.side_effect = RuntimeError('boom')
 
         with pytest.raises(ThreatManagerGetError):
             ThreatManager.get_used_threat_ids(mgr, [THREAT_ID_A])

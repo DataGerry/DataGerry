@@ -47,7 +47,7 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
-from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportQueryKey
+from cmdb.models.reports_model.report_constants import ReportKey, ReportConditionKey, ReportQueryKey
 from cmdb.models.reports_model.report_query import read_stored_report_query
 
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
@@ -65,7 +65,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     REPORT_REQUIRED_PARAMS,
     REPORT_TYPE_MISSING_MSG,
     REPORT_WRITE_KEYS,
-    ReportKey,
 )
 from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #

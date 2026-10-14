@@ -35,7 +35,11 @@ import pytest
 
 from cmdb.manager.base_manager import BaseManager
 from cmdb.manager.users_manager import UsersManager
-from cmdb.manager.users_manager_constants import MINIMAL_USER_PROJECTION, USER_ID_PROJECTION
+from cmdb.manager.users_manager_constants import (
+    MINIMAL_USER_PROJECTION,
+    USER_ID_PROJECTION,
+    WITHOUT_PASSWORD_PROJECTION,
+)
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.settings_model import CmdbUserSetting, UserSettingKey
 from cmdb.models.user_model import CmdbUser
@@ -50,14 +54,16 @@ from cmdb.errors.database import (
 from cmdb.errors.manager import (
     BaseManagerDeleteError,
     BaseManagerGetError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
     BaseManagerUpdateError,
 )
+from cmdb.errors.models.cmdb_user import CmdbUserInitFromDataError, CmdbUserToJsonError
 from cmdb.errors.manager.users_manager import (
     UsersManagerActionError,
     UsersManagerAdminMemberError,
     UsersManagerDeleteError,
     UsersManagerGetError,
-    UsersManagerInitError,
     UsersManagerInsertError,
     UsersManagerIterationError,
     UsersManagerUpdateError,
@@ -99,10 +105,10 @@ class TestInit:
 
         assert manager.collection == CmdbUser.COLLECTION
 
-    def test_a_failed_wiring_becomes_an_init_error(self) -> None:
-        """The route builds managers through ManagerProvider, which expects a typed failure."""
+    def test_the_constructor_catches_nothing(self) -> None:
+        """Building the manager touches no database: a failure in it is a programming error and propagates"""
         with patch.object(BaseManager, '__init__', side_effect=RuntimeError('no connection')):
-            with pytest.raises(UsersManagerInitError):
+            with pytest.raises(RuntimeError, match='no connection'):
                 UsersManager(MagicMock())
 
 
@@ -169,7 +175,7 @@ class TestInsertUser:
     def test_wraps_an_insert_failure(self) -> None:
         """A failed insert surfaces as this manager's insert error, carrying the failure itself."""
         mgr = _mock_manager()
-        failure = RuntimeError('insert failed')
+        failure = BaseManagerInsertError('insert failed')
         mgr.insert.side_effect = failure
 
         with pytest.raises(UsersManagerInsertError) as caught:
@@ -181,7 +187,10 @@ class TestInsertUser:
         """The route's abort_if_duplicate looks for exactly this: the typed refusal in the cause chain."""
         mgr = _mock_manager()
         refusal = DocumentInsertDuplicateKeyError('duplicate', key_pattern={'user_name': 1})
-        mgr.insert.side_effect = refusal
+        # What BaseManager.insert raises for it: the refusal wrapped once, chained
+        wrapped = BaseManagerInsertError(refusal)
+        wrapped.__cause__ = refusal
+        mgr.insert.side_effect = wrapped
 
         with pytest.raises(UsersManagerInsertError) as caught:
             UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))
@@ -265,38 +274,8 @@ class TestGetUserBy:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                              get_many_users / get_user_lookup                                        #
+#                                                   get_user_lookup                                                    #
 # -------------------------------------------------------------------------------------------------------------------- #
-class TestGetManyUsers:
-    """Reading a user set by query."""
-
-    def test_no_query_means_all_users(self) -> None:
-        """None must become {}, not be passed through as a filter."""
-        mgr = _mock_manager()
-        mgr.get.return_value = []
-
-        UsersManager.get_many_users(mgr, None)
-
-        mgr.get.assert_called_once_with(filter={})
-
-    def test_deserialises_every_document(self) -> None:
-        """The caller iterates CmdbUsers, so every row has to be converted."""
-        mgr = _mock_manager()
-        mgr.get.return_value = [dict(SAMPLE_USER_DICT), {**SAMPLE_USER_DICT, 'public_id': OTHER_USER_ID}]
-
-        result = UsersManager.get_many_users(mgr, {'group_id': SRC_GROUP_ID})
-
-        assert [user.public_id for user in result] == [USER_ID, OTHER_USER_ID]
-
-    def test_wraps_a_read_failure(self) -> None:
-        """Covers both a failed query and a document that will not deserialise."""
-        mgr = _mock_manager()
-        mgr.get.side_effect = BaseManagerGetError('boom')
-
-        with pytest.raises(UsersManagerGetError):
-            UsersManager.get_many_users(mgr, {})
-
-
 class TestGetUserLookup:
     """The bulk author/editor lookup behind the type overview and the object render."""
 
@@ -317,7 +296,32 @@ class TestGetUserLookup:
 
         UsersManager.get_user_lookup(mgr, [USER_ID, OTHER_USER_ID])
 
-        mgr.find.assert_called_once_with(criteria={'public_id': {'$in': [USER_ID, OTHER_USER_ID]}})
+        mgr.find.assert_called_once_with(
+            criteria={'public_id': {'$in': [USER_ID, OTHER_USER_ID]}}, projection=WITHOUT_PASSWORD_PROJECTION,
+        )
+
+    def test_the_password_digest_stays_in_the_database(self) -> None:
+        """A lookup only shows and judges users - the digest is projected out"""
+        assert WITHOUT_PASSWORD_PROJECTION == {'password': 0, '_id': 0}
+
+    def test_takes_any_iterable_of_ids(self) -> None:
+        """The type overview hands a set"""
+        mgr = _mock_manager()
+        mgr.find.return_value = []
+
+        UsersManager.get_user_lookup(mgr, {USER_ID})
+
+        assert mgr.find.call_args.kwargs['criteria'] == {'public_id': {'$in': [USER_ID]}}
+
+    def test_a_document_without_a_public_id_is_an_unreadable_user(self) -> None:
+        """Keyed by the built user, so it fails as the lookup's error, not as a raw KeyError"""
+        mgr = _mock_manager()
+        mgr.find.return_value = [{key: value for key, value in SAMPLE_USER_DICT.items() if key != 'public_id'}]
+
+        with pytest.raises(UsersManagerGetError) as caught:
+            UsersManager.get_user_lookup(mgr, [USER_ID])
+
+        assert isinstance(caught.value.args[0], CmdbUserInitFromDataError)
 
     def test_wraps_a_read_failure(self) -> None:
         """Its callers' error maps know UsersManagerGetError; a BaseManager error becomes a 500."""
@@ -347,7 +351,7 @@ class TestIterate:
     def test_wraps_an_iteration_failure(self) -> None:
         """A bad filter has to surface as this manager's iteration error."""
         mgr = _mock_manager()
-        mgr.iterate_query.side_effect = RuntimeError('bad pipeline')
+        mgr.iterate_query.side_effect = BaseManagerIterationError('bad pipeline')
 
         with pytest.raises(UsersManagerIterationError):
             UsersManager.iterate(mgr, MagicMock())
@@ -678,3 +682,93 @@ class TestDeleteUsers:
 
         mgr.delete_many.assert_called_once_with({'public_id': {'$in': [USER_ID, OTHER_USER_ID]}})
         mgr._delete_user_settings.assert_called_once_with([USER_ID, OTHER_USER_ID])
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         narrowed arms: a bug is not a failure                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+BUG: str = 'a programming error'
+
+
+@pytest.mark.parametrize('delegate, call', [
+    ('find', lambda mgr: UsersManager.get_minimal_users_by_ids(mgr, [USER_ID])),
+    ('insert', lambda mgr: UsersManager.insert_user(mgr, dict(SAMPLE_USER_DICT))),
+    ('get_one', lambda mgr: UsersManager.get_user(mgr, USER_ID)),
+    ('get_one_by', lambda mgr: UsersManager.get_user_by(mgr, {'user_name': 'tester'})),
+    ('iterate_query', lambda mgr: UsersManager.iterate(mgr, MagicMock())),
+    ('find', lambda mgr: UsersManager.get_user_lookup(mgr, [USER_ID])),
+    ('update', lambda mgr: UsersManager.update_user(mgr, USER_ID, dict(SAMPLE_USER_DICT))),
+    ('delete', lambda mgr: UsersManager.delete_user(mgr, USER_ID)),
+], ids=['get_minimal_users_by_ids', 'insert_user', 'get_user', 'get_user_by', 'iterate', 'get_user_lookup',
+        'update_user', 'delete_user'])
+def test_a_programming_error_propagates_as_itself(delegate: str, call: Any) -> None:
+    """Only what the call raises is wrapped - a bug reaches the route as itself, so it answers 500, not 400"""
+    mgr = _mock_manager()
+    getattr(mgr, delegate).side_effect = TypeError(BUG)
+
+    with pytest.raises(TypeError, match=BUG):
+        call(mgr)
+
+
+@pytest.mark.parametrize('read, error', [
+    (lambda mgr: UsersManager.get_user(mgr, USER_ID), UsersManagerGetError),
+    (lambda mgr: UsersManager.get_user_by(mgr, {'user_name': 'tester'}), UsersManagerGetError),
+    (lambda mgr: UsersManager.get_user_lookup(mgr, [USER_ID]), UsersManagerGetError),
+    (lambda mgr: UsersManager.iterate(mgr, MagicMock()), UsersManagerIterationError),
+], ids=['get_user', 'get_user_by', 'get_user_lookup', 'iterate'])
+def test_an_unreadable_stored_user_is_the_reads_failure(read: Any, error: type[Exception]) -> None:
+    """
+    from_data's declared error is the stored document's fault, wrapped like a failed read
+
+    The login depends on it: LocalAuthProvider refuses an unreadable user on UsersManagerGetError, like an
+    unknown one - a raw model error would answer the login 500
+    """
+    mgr = _mock_manager()
+    unreadable = CmdbUserInitFromDataError('unreadable')
+    mgr.get_one.return_value = dict(SAMPLE_USER_DICT)
+    mgr.get_one_by.return_value = dict(SAMPLE_USER_DICT)
+    mgr.find.return_value = [dict(SAMPLE_USER_DICT)]
+    mgr.iterate_query.return_value = ([dict(SAMPLE_USER_DICT)], 1)
+
+    with patch.object(CmdbUser, 'from_data', side_effect=unreadable), pytest.raises(error) as caught:
+        read(mgr)
+
+    assert caught.value.args[0] is unreadable
+
+
+@pytest.mark.parametrize('write, error', [
+    (lambda mgr: UsersManager.insert_user(mgr, _user()), UsersManagerInsertError),
+    (lambda mgr: UsersManager.update_user(mgr, USER_ID, _user()), UsersManagerUpdateError),
+], ids=['insert_user', 'update_user'])
+def test_a_user_that_cannot_be_written_out_is_the_writes_failure(write: Any, error: type[Exception]) -> None:
+    """to_json's declared error is the write's failure, carrying the cause"""
+    mgr = _mock_manager()
+    unwritable = CmdbUserToJsonError('unwritable')
+
+    with patch.object(CmdbUser, 'to_json', side_effect=unwritable), pytest.raises(error) as caught:
+        write(mgr)
+
+    assert caught.value.args[0] is unwritable
+
+
+def test_the_admin_refusal_is_raised_once_not_wrapped_in_itself() -> None:
+    """The refusal sits outside the database arm, so its argument is the message, not another DeleteError"""
+    mgr = _mock_manager()
+
+    with pytest.raises(UsersManagerDeleteError) as caught:
+        UsersManager.delete_user(mgr, CmdbUser.ADMIN_PUBLIC_ID)
+
+    assert isinstance(caught.value.args[0], str)
+    assert caught.value.__cause__ is None
+
+
+def test_a_failed_delete_carries_the_failure_itself() -> None:
+    """The wrapper's argument is the database failure"""
+    mgr = _mock_manager()
+    failure = BaseManagerDeleteError('db')
+    mgr.delete.side_effect = failure
+
+    with pytest.raises(UsersManagerDeleteError) as caught:
+        UsersManager.delete_user(mgr, USER_ID)
+
+    assert caught.value.args[0] is failure

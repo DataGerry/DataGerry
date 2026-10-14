@@ -14,7 +14,10 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Shared constants describing a CmdbReport's condition rule tree and query DSL
+Shared constants describing a CmdbReport document, its condition rule tree and its query DSL
+
+``ReportKey`` names the stored document's keys, and ``ReportCategoryKey`` those of a CmdbReportCategory - each
+model, its validation schema, the managers and the routes all spell them through them.
 
 A report stores its filter as a nested condition tree. Each node is either a group (combining its
 child rules with a logical operator, see ReportConditionLogic) or a leaf rule (pairing a field name
@@ -26,6 +29,38 @@ compare and serialize as their string values.
 """
 from cmdb.utils import BaseStrEnum
 # -------------------------------------------------------------------------------------------------------------------- #
+
+
+class ReportKey(BaseStrEnum):
+    """
+    Keys of a stored CmdbReport document
+
+    The model reads and writes them, the validation schema declares them, the managers query by them, and a report
+    request body uses the same keys. Use these members instead of bare string literals so a typo becomes an
+    AttributeError instead of a silently missing key
+    """
+    PUBLIC_ID = 'public_id'
+    REPORT_CATEGORY_ID = 'report_category_id'
+    NAME = 'name'
+    TYPE_ID = 'type_id'
+    SELECTED_FIELDS = 'selected_fields'
+    CONDITIONS = 'conditions'
+    REPORT_QUERY = 'report_query'
+    PREDEFINED = 'predefined'
+    MDS_MODE = 'mds_mode'
+
+
+class ReportCategoryKey(BaseStrEnum):
+    """
+    Keys of a stored CmdbReportCategory document
+
+    The model reads and writes them (as its ``KEYS``, so the shared CmdbDAO from_data / to_json serve it), the
+    validation schema declares them, the database bootstrap seeds the predefined 'General' category with them and the
+    configuration reset selects by them. A category request body uses the same keys
+    """
+    PUBLIC_ID = 'public_id'
+    NAME = 'name'
+    PREDEFINED = 'predefined'
 
 
 class ReportQueryKey(BaseStrEnum):

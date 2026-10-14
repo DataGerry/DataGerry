@@ -86,11 +86,11 @@ class TestTheTabPipeline:
     def test_get_relation_tabs_passes_the_denied_types_on(self) -> None:
         """The manager aggregates the narrowed pipeline"""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = iter([])
+        mgr.aggregate_all.return_value = []
 
         ObjectRelationsManager.get_relation_tabs(mgr, OBJECT_ID, DENIED_TYPE_IDS)
 
-        assert mgr.aggregate.call_args.args[0] == build_relation_tabs_pipeline(OBJECT_ID, DENIED_TYPE_IDS)
+        assert mgr.aggregate_all.call_args.args[0] == build_relation_tabs_pipeline(OBJECT_ID, DENIED_TYPE_IDS)
 
 
 class TestTheTabInstances:

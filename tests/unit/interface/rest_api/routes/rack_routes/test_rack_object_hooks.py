@@ -32,7 +32,10 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.rack_model.rack_mount_constants import RackArea
+from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
+    abort_if_rack_unchangeable,
+    resolve_rack_location_target,
     guard_rack_location_change,
     handle_object_deleted,
     handle_rack_object_updated,
@@ -489,3 +492,194 @@ def _request_user() -> MagicMock:
     request_user.get_public_id.return_value = 1
 
     return request_user
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                               the Rack ACL of a location write (join, leave, cache, target)                         #
+# -------------------------------------------------------------------------------------------------------------------- #
+JOIN_DENIED: str = 'may not change the joined Rack'
+LEAVE_DENIED: str = 'may not change the left Rack'
+
+
+def _target(rack_id: int | None = RACK_ID, parent: int | None = RACK_NODE_ID) -> RackLocationTarget:
+    """A resolved target standing for the given Rack"""
+    return RackLocationTarget(parent, {'public_id': rack_id, 'type_id': RACK_TYPE_ID} if rack_id is not None else None)
+
+
+class TestRackLocationTarget:
+    """The resolved parent"""
+
+    def test_the_rack_id_is_read_from_the_rack(self) -> None:
+        """None without a Rack"""
+        assert _target().rack_id == RACK_ID
+        assert _target(None).rack_id is None
+
+    def test_resolving_reads_the_rack_document_once(self) -> None:
+        """Through the node's owner"""
+        locations_manager = _locations_manager(node_owner_id=RACK_ID)
+
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None, RACK_TYPE_ID)) as provider:
+            target = resolve_rack_location_target(MagicMock(), OTHER_NODE_ID, locations_manager)
+
+        assert target.requested_parent == OTHER_NODE_ID
+        assert target.rack == provider.objects_manager.get_object.return_value
+
+
+class TestAbortIfRackUnchangeable:
+    """READ + UPDATE on the Rack, judged once per Rack and write"""
+
+    def test_a_blocker_is_a_403_with_its_message(self) -> None:
+        """The /racks message"""
+        with app.test_request_context(), \
+             patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=JOIN_DENIED) as blocker:
+            with pytest.raises(HTTPException) as caught:
+                abort_if_rack_unchangeable(_target(), RACK_ID, MagicMock(), MagicMock())
+
+        assert caught.value.code == 403
+        assert caught.value.description == JOIN_DENIED
+        assert blocker.call_args.kwargs == {'write': True}
+
+    def test_the_targets_rack_is_judged_from_the_target_without_a_read(self) -> None:
+        """The document is already there"""
+        objects_manager = MagicMock()
+        target = _target()
+
+        with patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=None) as blocker:
+            abort_if_rack_unchangeable(target, RACK_ID, objects_manager, MagicMock())
+
+        objects_manager.get_object.assert_not_called()
+        assert blocker.call_args.args[0] is target.rack
+
+    def test_another_rack_is_read_and_judged(self) -> None:
+        """The Rack an object leaves"""
+        objects_manager = MagicMock()
+
+        with patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=None) as blocker:
+            abort_if_rack_unchangeable(_target(), OTHER_RACK_ID, objects_manager, MagicMock())
+
+        objects_manager.get_object.assert_called_once_with(OTHER_RACK_ID)
+        assert blocker.call_args.args[0] is objects_manager.get_object.return_value
+
+    def test_each_rack_is_judged_once_per_target(self) -> None:
+        """A batch asks every Rack once"""
+        target = _target()
+
+        with patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=None) as blocker:
+            for _ in range(3):
+                abort_if_rack_unchangeable(target, RACK_ID, MagicMock(), MagicMock())
+
+        blocker.assert_called_once()
+        assert target.write_blockers == {RACK_ID: None}
+
+    def test_a_rack_no_longer_stored_is_not_refused(self) -> None:
+        """Nothing to judge"""
+        objects_manager = MagicMock()
+        objects_manager.get_object.return_value = None
+
+        with patch(f'{HOOKS_PATH}.rack_access_blocker') as blocker:
+            abort_if_rack_unchangeable(_target(), OTHER_RACK_ID, objects_manager, MagicMock())
+
+        blocker.assert_not_called()
+
+
+class TestGuardRackAcl:
+    """guard_rack_location_change asks the Rack an object joins or leaves, before anything else"""
+
+    def test_joining_asks_the_rack_before_the_licence(self) -> None:
+        """A 403 for the Rack; the licence is not reached"""
+        with app.test_request_context(), \
+             patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None)), \
+             patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=JOIN_DENIED), \
+             patch(f'{HOOKS_PATH}.abort_if_feature_locked') as licence:
+            with pytest.raises(HTTPException) as caught:
+                guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
+                                           target=_target())
+
+        assert caught.value.description == JOIN_DENIED
+        licence.assert_not_called()
+
+    def test_leaving_asks_the_rack_left(self) -> None:
+        """An unassigned member moved to an ordinary node"""
+        with app.test_request_context(), \
+             patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount())), \
+             patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=LEAVE_DENIED):
+            with pytest.raises(HTTPException) as caught:
+                guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, _locations_manager(),
+                                           target=_target(None, OTHER_NODE_ID))
+
+        assert caught.value.code == 403
+        assert caught.value.description == LEAVE_DENIED
+
+    def test_the_acl_comes_before_the_placed_member_rule(self) -> None:
+        """A caller that may not change the Rack learns nothing about its layout"""
+        with app.test_request_context(), \
+             patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))), \
+             patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=LEAVE_DENIED):
+            with pytest.raises(HTTPException) as caught:
+                guard_rack_location_change(MagicMock(), MEMBER_ID, None, _locations_manager(),
+                                           target=_target(None, None))
+
+        assert caught.value.code == 403
+
+    def test_moving_between_racks_asks_both_the_joined_first(self) -> None:
+        """The target, then the source"""
+        provider = _managers(_mount(rack_id=OTHER_RACK_ID))
+        rack_ids: list[Any] = []
+
+        def _record(rack: dict[str, Any], *_args: Any, **_kwargs: Any) -> None:
+            rack_ids.append(rack.get('public_id'))
+
+        provider.objects_manager.get_object.side_effect = lambda object_id: (
+            {'public_id': object_id, 'type_id': PLAIN_TYPE_ID})
+
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', provider), \
+             patch(f'{HOOKS_PATH}.rack_access_blocker', side_effect=_record), \
+             patch(f'{HOOKS_PATH}.abort_if_feature_locked'):
+            guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(OTHER_NODE_ID),
+                                       target=_target())
+
+        assert rack_ids == [RACK_ID, OTHER_RACK_ID]
+
+    def test_staying_in_the_rack_asks_nothing(self) -> None:
+        """An ordinary edit of a member"""
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(_mount(RackArea.FRONT.value))), \
+             patch(f'{HOOKS_PATH}.rack_access_blocker') as blocker:
+            guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
+                                       target=_target())
+
+        blocker.assert_not_called()
+
+    def test_a_given_target_is_used_and_returned(self) -> None:
+        """Nothing about the parent is read again"""
+        target = _target(None, OTHER_NODE_ID)
+
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None)), \
+             patch(f'{HOOKS_PATH}.find_rack_of_location_node') as find:
+            assert guard_rack_location_change(MagicMock(), MEMBER_ID, OTHER_NODE_ID, _locations_manager(),
+                                              target=target) is target
+
+        find.assert_not_called()
+
+    def test_the_licence_is_checked_once_per_target(self) -> None:
+        """A batch joining one Rack"""
+        target = _target()
+
+        with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None)), \
+             patch(f'{HOOKS_PATH}.rack_access_blocker', return_value=None), \
+             patch(f'{HOOKS_PATH}.abort_if_feature_locked') as licence:
+            for _ in range(3):
+                guard_rack_location_change(MagicMock(), MEMBER_ID, RACK_NODE_ID, _locations_manager(),
+                                           target=target)
+
+        licence.assert_called_once()
+        assert target.licence_checked
+
+
+def test_the_reconcile_reuses_the_guards_target() -> None:
+    """The parent is not resolved a second time"""
+    with patch(f'{HOOKS_PATH}.ManagerProvider.get_manager', _managers(None)), \
+         patch(f'{HOOKS_PATH}.resolve_rack_of_location_node') as resolve:
+        reconcile_object_rack_membership(MagicMock(), MEMBER_ID, OTHER_NODE_ID, MagicMock(), MagicMock(),
+                                         _locations_manager(), target=_target(None, OTHER_NODE_ID))
+
+    resolve.assert_not_called()

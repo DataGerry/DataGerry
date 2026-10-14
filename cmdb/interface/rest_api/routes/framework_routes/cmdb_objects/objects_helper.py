@@ -113,6 +113,7 @@ from cmdb.interface.rest_api.routes.port_routes.port_object_hooks import (
     insert_object_with_cloned_ports,
     plan_object_port_clone,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     guard_rack_location_change,
     reconcile_object_rack_membership,
@@ -128,6 +129,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_e
     handle_create_object_log,
     handle_delete_from_object_groups,
     handle_delete_invalid_object_relations,
+    handle_delete_object_attachments,
     handle_notify_webhooks,
 )
 from cmdb.framework.config_item_sync import handle_sync_config_item_count
@@ -417,9 +419,10 @@ def delete_one_cascade(
     """
     Runs the follow-up cleanup after a single CmdbObject was deleted
 
-    Removes the object from static object groups, deletes its now-invalid CmdbObjectRelations,
-    emits a delete webhook event, writes a deletion log and (in cloud mode) syncs the ConfigItem
-    count. Each step is best-effort and isolated, so a failure in one does not block the others
+    Removes the object from static object groups, deletes its now-invalid CmdbObjectRelations, detaches it from
+    its media files (they stay in the library), emits a delete webhook event, writes a deletion log and (in cloud
+    mode) syncs the ConfigItem count. Each step is best-effort and isolated, so a failure in one does not block the
+    others
 
     Args:
         request_user (CmdbUser): The CmdbUser that performed the deletion
@@ -432,6 +435,9 @@ def delete_one_cascade(
 
     # Remove invalid CmdbObjectRelations since the object no longer exists
     handle_delete_invalid_object_relations(request_user, [deleted_object.get_public_id()])
+
+    # Take the object's id out of its attachments; the files stay in the media library
+    handle_delete_object_attachments(request_user, [deleted_object.get_public_id()])
 
     # Remove the Rack state the object leaves behind: a deleted Rack takes its whole layout and its
     # members' place in the tree with it, a deleted member loses just its own membership
@@ -978,21 +984,12 @@ def apply_object_insert(
         object_type,
     )
 
-    # Validate the location placement (parent exists) before the object is written
-    has_location_field, location_parent = extract_object_location_parent(
-        new_object_data.get(CmdbObjectKey.FIELDS.value, [])
+    # The placement is validated before the object is written, as on an update. A location on a Rack's node makes
+    # the new object a member of that Rack, so it needs READ + UPDATE on the Rack and the licence; a new object is
+    # nobody's member yet, so it has no Rack to leave
+    location_change: LocationChange | None = _prepare_location_change(
+        new_object_data.get(CmdbObjectKey.PUBLIC_ID.value), new_object_data, request_user,
     )
-    locations_manager: LocationsManager | None = None
-
-    if has_location_field:
-        locations_manager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
-        validate_object_location_change(
-            new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
-        )
-        # A new object is nobody's rack member yet, so only the Racks-do-not-nest half can bite here
-        guard_rack_location_change(
-            request_user, new_object_data[CmdbObjectKey.PUBLIC_ID.value], location_parent, locations_manager,
-        )
 
     clone_plan = None if port_clone_source is None else plan_object_port_clone(
         request_user, port_clone_source, object_type, objects_manager,
@@ -1001,19 +998,20 @@ def apply_object_insert(
     new_object_id: int = insert_object_with_cloned_ports(objects_manager, new_object_data, request_user, clone_plan)
 
     # Mirror the placement into the CmdbLocation tree (best-effort, after the object is saved)
-    if has_location_field:
+    if location_change:
         sync_object_location(
             new_object_id,
-            location_parent,
+            location_change.parent,
             location_name,
             object_type,
             request_user,
             objects_manager,
-            locations_manager,
+            location_change.locations_manager,
         )
         # A location pointing at a Rack's node means membership of it, so the new object joins that Rack
         reconcile_object_rack_membership(
-            request_user, new_object_id, location_parent, objects_manager, types_manager, locations_manager,
+            request_user, new_object_id, location_change.parent, objects_manager, types_manager,
+            location_change.locations_manager, target=location_change.rack_target,
         )
 
     created_object: dict[str, Any] | None = objects_manager.get_object(new_object_id)
@@ -1221,12 +1219,13 @@ def _validate_update_candidate(
 
 def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user: CmdbUser) -> LocationChange | None:
     """
-    Validates where an update places the object in the location tree, before the write
+    Validates where a write - an update or a create - places the object in the location tree, before the write
 
-    Only a candidate with a location field moves anything. Its placement must be a valid one, and a Rack owns
-    where its PLACED members sit, so such a member may not be pointed elsewhere from the object form - it is
-    unplaced in the Rack view first. An unassigned member may leave (its membership follows after the write),
-    and a Rack may not be pointed into another Rack at all
+    Only a candidate with a location field moves anything. Its placement must be a valid one. Joining a Rack (its
+    node as the parent) or leaving one needs READ and UPDATE on that Rack, as on /racks. A Rack owns where its
+    PLACED members sit, so such a member may not be pointed elsewhere from the object form - it is unplaced in the
+    Rack view first. An unassigned member may leave (its membership follows after the write), and a Rack may not be
+    pointed into another Rack at all
 
     Args:
         obj_id (int): public_id of the CmdbObject being updated
@@ -1234,10 +1233,12 @@ def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user
         request_user (CmdbUser): The CmdbUser making the request
 
     Raises:
-        HTTPException: 400 when the placement is refused
+        HTTPException: 403 when the caller may not change a Rack the object joins or leaves, or the licence does
+            not allow joining one; 400 when the placement is refused
 
     Returns:
-        LocationChange | None: The parent and the locations manager, None without a location field
+        LocationChange | None: The parent, the locations manager and the resolved Rack target, None without a
+            location field
     """
     has_location_field, location_parent = extract_object_location_parent(new_data.get(CmdbObjectKey.FIELDS.value, []))
 
@@ -1246,9 +1247,11 @@ def _prepare_location_change(obj_id: int, new_data: dict[str, Any], request_user
 
     locations_manager: LocationsManager = ManagerProvider.get_manager(ManagerType.LOCATIONS, request_user)
     validate_object_location_change(obj_id, location_parent, locations_manager)
-    guard_rack_location_change(request_user, obj_id, location_parent, locations_manager)
+    rack_target: RackLocationTarget = guard_rack_location_change(
+        request_user, obj_id, location_parent, locations_manager,
+    )
 
-    return LocationChange(location_parent, locations_manager)
+    return LocationChange(location_parent, locations_manager, rack_target)
 
 
 def _run_update_consequences(
@@ -1292,7 +1295,7 @@ def _run_update_consequences(
     if location_change:
         reconcile_object_rack_membership(
             context.request_user, obj_id, location_change.parent, context.objects_manager, context.types_manager,
-            locations_manager,
+            locations_manager, target=location_change.rack_target,
         )
 
 

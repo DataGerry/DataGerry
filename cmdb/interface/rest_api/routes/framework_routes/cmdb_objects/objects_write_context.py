@@ -23,6 +23,7 @@ limit; these frozen values carry them instead. They hold handles, never request 
 from dataclasses import dataclass, field
 
 from cmdb.manager import LocationsManager, LogsManager, ObjectsManager, TypesManager
+from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
@@ -78,6 +79,9 @@ class LocationChange:
         parent (int | None): public_id of the parent CmdbObject in the location tree, None when cleared
         locations_manager (LocationsManager): Manager resolved once for the checks before the write and the
             mirror after it
+        rack_target (RackLocationTarget | None): The Rack the parent stands for, as the Rack check before the write
+            resolved it - the membership reconcile after the write reuses it instead of reading it again
     """
     parent: int | None
     locations_manager: LocationsManager
+    rack_target: RackLocationTarget | None = None

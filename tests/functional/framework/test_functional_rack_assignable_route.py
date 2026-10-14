@@ -36,7 +36,7 @@ from unittest.mock import patch
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.models.object_model import CmdbObject
@@ -45,6 +45,8 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 from cmdb.models.special_type_model.rack_constants import RackField, RackSection
 from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import RackAssignableError
+from cmdb.security.acl import builder as acl_builder
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -476,11 +478,11 @@ class TestCollectionParameters:
 
         assert sorted(listed) == sorted([OTHER_OBJECT_ID, THIRD_OBJECT_ID])
 
-    def test_an_unrecognised_flag_value_is_the_default_listing(self, rest_api) -> None:
-        """Off unless explicitly asked for - a stale frontend gets the full list, never a 400"""
+    def test_an_absent_flag_is_the_full_listing(self, rest_api) -> None:
+        """Off unless asked for: the objects of other racks are offered (as a move)"""
         _mount(rest_api, OBJECT_ID, rack_id=OTHER_RACK_ID)
 
-        assert OBJECT_ID in _ids(_get(rest_api, f'?filter={_own_ids_filter()}&only_unmounted=nonsense'))
+        assert OBJECT_ID in _ids(_get(rest_api, f'?filter={_own_ids_filter()}'))
 
     def test_an_unparsable_filter_is_a_400(self, rest_api) -> None:
         """The parameter parsing refuses garbage before any read happens"""
@@ -501,6 +503,14 @@ class TestCollectionParameters:
 # -------------------------------------------------------------------------------------------------------------------- #
 class TestRefusals:
     """The rack id in the URL is validated even though it does not narrow the answer"""
+
+    @pytest.mark.parametrize('value', ['1', 'yes', 'undefined'])
+    def test_an_unrecognised_only_unmounted_is_refused(self, rest_api, value: str) -> None:
+        """true or false, nothing else - an unrecognised value used to list the objects of other racks silently"""
+        response = _get(rest_api, f'?only_unmounted={value}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'only_unmounted' in response.get_json()['message']
 
     def test_a_missing_rack_is_a_404(self, rest_api) -> None:
         """A typo'd id must not silently list every free object"""
@@ -535,12 +545,72 @@ class TestRefusals:
             assert _get(rest_api).status_code == HTTPStatus.BAD_REQUEST
 
     def test_a_failed_candidate_read_is_a_400(self, rest_api) -> None:
-        """The aggregation is the listing - a failure there has no partial answer worth returning"""
+        """
+        The aggregation is the listing - a failure there has no partial answer worth returning
+
+        Injected as what iterate_query really raises: the route used to catch a class it never raises, so a
+        failed candidate read was the generic 500
+        """
         with patch(
             'cmdb.manager.objects_manager.ObjectsManager.iterate_query',
-            side_effect=ObjectsManagerIterationError('boom'),
+            side_effect=BaseManagerIterationError('boom'),
         ):
-            assert _get(rest_api).status_code == HTTPStatus.BAD_REQUEST
+            response = _get(rest_api)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == RackAssignableError.CANDIDATES_FAILED.value
+
+    def test_a_real_failed_candidate_read_is_a_400(self, rest_api) -> None:
+        """No patch: MongoDB itself refuses the candidate query (a pattern that does not compile)"""
+        response = _get(rest_api, f'?filter={dumps({"public_id": {"$in": ALL_OBJECT_IDS}, "x": {"$regex": "("}})}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == RackAssignableError.CANDIDATES_FAILED.value
+
+    def test_a_failed_rack_read_is_a_400(self, rest_api) -> None:
+        """The Rack itself is read first; its failed read is the picker's details refusal, not a 500"""
+        with patch(
+            'cmdb.manager.objects_manager.ObjectsManager.get_one',
+            side_effect=BaseManagerGetError('boom'),
+        ):
+            response = _get(rest_api)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == RackAssignableError.DETAILS_FAILED.value
+
+    def test_a_failed_summary_type_read_is_a_400(self, rest_api) -> None:
+        """The candidates' summary lines read their types - that read failing used to escape as a raw 500"""
+        with patch(
+            'cmdb.manager.objects_manager.ObjectsManager.get_many_from_other_collection',
+            side_effect=BaseManagerGetError('boom'),
+        ):
+            response = _get(rest_api, f'?filter={_own_ids_filter()}')
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == RackAssignableError.DETAILS_FAILED.value
+
+    def test_a_failed_denied_types_read_is_a_400(self, rest_api) -> None:
+        """The caller's type denial narrows the candidates; without it the listing could show too much"""
+        with patch(
+            'cmdb.manager.types_manager.resolve_denied_type_ids',
+            side_effect=BaseManagerGetError('boom'),
+        ):
+            response = _get(rest_api)
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert response.get_json()['message'] == RackAssignableError.TYPES_FAILED.value
+
+    def test_the_denied_types_are_read_once(self, rest_api) -> None:
+        """One read serves both the candidate narrowing and the holding-rack masking"""
+        real = acl_builder.resolve_denied_type_ids
+
+        with patch('cmdb.manager.types_manager.resolve_denied_type_ids', side_effect=real) as reads, \
+             patch('cmdb.manager.base_manager.resolve_denied_type_ids', side_effect=real) as query_reads:
+            response = _get(rest_api, f'?filter={_own_ids_filter()}')
+
+        assert response.status_code == HTTPStatus.OK
+        assert reads.call_count == 1
+        assert query_reads.call_count == 0
 
     def test_a_failed_rack_type_read_is_a_400(self, rest_api) -> None:
         """Without the rack type ids the listing could offer a Rack, so it is refused instead"""

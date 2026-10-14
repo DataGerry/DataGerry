@@ -25,6 +25,7 @@ from cmdb.framework.media_library.media_file_keys import (
     MediaFileKey,
     MEDIA_FILE_PARENT_PATH,
     MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
+    MEDIA_FILE_PARENT_INDEX_NAME,
 )
 from cmdb.models.cmdb_dao import CmdbDAO
 
@@ -59,7 +60,14 @@ class MediaFile(BaseMediaFile):
             ],
             'name': MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
             'unique': True
-        }
+        },
+        # "What is in this folder" asks by parent alone, which the index above cannot serve (it leads with
+        # filename) - without this every such read scans the collection, once per folder on a subtree walk
+        {
+            'keys': [(MEDIA_FILE_PARENT_PATH, CmdbDAO.DAO_ASCENDING)],
+            'name': MEDIA_FILE_PARENT_INDEX_NAME,
+            'unique': False,
+        },
     ]
 
     def __init__(self,

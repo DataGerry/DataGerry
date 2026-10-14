@@ -28,7 +28,8 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from cmdb.manager.reports_manager import ReportsManager
-from cmdb.models.reports_model.report_constants import ReportQueryKey
+from cmdb.models.reports_model.cmdb_report import CmdbReport
+from cmdb.models.reports_model.report_constants import ReportKey, ReportQueryKey
 from cmdb.errors.manager.reports_manager import ReportsManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -192,3 +193,29 @@ def test_broken_report_document_raises_the_manager_error() -> None:
 
     with pytest.raises(ReportsManagerUpdateError):
         _strip(mock_self, [{'public_id': REPORT_ID}], {GONE_FIELD})
+
+
+def test_the_write_is_the_stored_form_of_the_report() -> None:
+    """Exactly the document keys, through CmdbReport.to_json - not whatever attributes the instance carries"""
+    mock_self = MagicMock()
+
+    _strip(mock_self, [_report_doc()], {GONE_FIELD})
+
+    assert set(_written_report(mock_self)) == {key.value for key in ReportKey}
+
+
+def test_an_attribute_that_is_no_stored_key_is_not_written() -> None:
+    """The instance's __dict__ used to be the $set: a non-key attribute would have reached every report"""
+    mock_self = MagicMock()
+    real_from_data = CmdbReport.from_data
+
+    def _with_a_runtime_attribute(document: dict[str, Any]) -> CmdbReport:
+        report = real_from_data(document)
+        report.transient_marker = True  # pylint: disable=attribute-defined-outside-init
+
+        return report
+
+    with patch.object(CmdbReport, 'from_data', side_effect=_with_a_runtime_attribute):
+        _strip(mock_self, [_report_doc()], {GONE_FIELD})
+
+    assert 'transient_marker' not in _written_report(mock_self)

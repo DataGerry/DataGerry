@@ -24,7 +24,8 @@ MongoDB form of that tree is stored alongside it as ``report_query`` and is what
 executes; the REST layer owns building it, so the two are only consistent as long as every writer
 rebuilds the query after touching the conditions.
 
-Besides the usual serialization this module provides the condition-tree surgery that runs when a
+The serialization is the shared CmdbDAO one (``KEYS = ReportKey``). Besides it, this module provides the condition-tree
+surgery that runs when a
 CmdbType loses a field: ``clear_rules_of_field`` strips every rule referencing that field and
 ``CmdbReport.remove_field_occurrences`` applies it to a report together with its selected fields.
 """
@@ -32,7 +33,7 @@ from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
-from cmdb.models.reports_model.report_constants import ReportConditionKey
+from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportKey
 
 from cmdb.class_schema.reports_model.cmdb_report_schema import get_cmdb_report_schema
 
@@ -119,13 +120,19 @@ class CmdbReport(CmdbDAO):
     Implementation of a CmdbReport in DataGerry
 
     Holds the report's identity, its CmdbType, the selected output fields, the condition tree, the
-    compiled report query and the MDS render mode, plus the (de)serialization between that state and
-    the stored document
+    compiled report query and the MDS render mode. Its keys are ``ReportKey``, declared as its ``KEYS``, so the shared
+    CmdbDAO from_data / to_json read and write exactly them; ``normalize_document`` keeps the lenient reads a stored
+    report has always had
 
     Extends: CmdbDAO
     """
 
     COLLECTION = 'framework.reports'
+    KEYS = ReportKey
+    # What the shared from_data / to_json raise for this model - declared so a manager can tell a document that no
+    # longer fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbReportInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbReportToJsonError
     DEFAULT_VERSION: str = '1.0.0'
 
     # Both keys back an existence / count check that must not scan the collection: 'report_category_id'
@@ -134,26 +141,26 @@ class CmdbReport(CmdbDAO):
     # CmdbType, which the type-delete flow asks for
     INDEX_KEYS: list[dict[str, Any]] = [
         {
-            'keys': [('report_category_id', CmdbDAO.DAO_ASCENDING)],
-            'name': 'report_category_id',
+            'keys': [(ReportKey.REPORT_CATEGORY_ID.value, CmdbDAO.DAO_ASCENDING)],
+            'name': ReportKey.REPORT_CATEGORY_ID.value,
             'unique': False,
         },
         {
-            'keys': [('type_id', CmdbDAO.DAO_ASCENDING)],
-            'name': 'type_id',
+            'keys': [(ReportKey.TYPE_ID.value, CmdbDAO.DAO_ASCENDING)],
+            'name': ReportKey.TYPE_ID.value,
             'unique': False,
         },
     ]
 
     REQUIRED_INIT_KEYS: list[str] = [
-        'report_category_id',
-        'name',
-        'type_id',
-        'selected_fields',
-        'conditions',
-        'report_query',
-        'predefined',
-        'mds_mode',
+        ReportKey.REPORT_CATEGORY_ID.value,
+        ReportKey.NAME.value,
+        ReportKey.TYPE_ID.value,
+        ReportKey.SELECTED_FIELDS.value,
+        ReportKey.CONDITIONS.value,
+        ReportKey.REPORT_QUERY.value,
+        ReportKey.PREDEFINED.value,
+        ReportKey.MDS_MODE.value,
     ]
 
     SCHEMA: dict[str, Any] = get_cmdb_report_schema()
@@ -235,65 +242,22 @@ class CmdbReport(CmdbDAO):
 # --------------------------------------------------- CLASS METHODS -------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict[str, Any]) -> "CmdbReport":
+    def normalize_document(cls, data: dict[str, Any]) -> None:
         """
-        Creates a CmdbReport instance from a stored document
+        Gives the four optional keys of a stored report their defaults, before the shared from_data reads it
 
-        The four keys the validation schema marks as required are read strictly - a document without
-        them is broken and should surface as an error. 'mds_mode' and 'predefined' are optional in the
-        schema and default in the constructor, so they are read leniently: a report written before the
-        MDS mode existed carries neither, and a strict read would fail the whole report list (every
-        row of an iteration is hydrated through this method) instead of that single document
+        The four keys the validation schema marks as required stay strict: a document without one is broken and is
+        refused by ``REQUIRED_INIT_KEYS``. ``conditions`` and ``report_query`` (no filter yet), ``mds_mode`` (it
+        postdates the reporting feature) and ``predefined`` are optional in the schema, so a report written before
+        them carries none of them - and since every row of a report list is read through here, a strict read would
+        fail the whole list instead of that one document. Only an ABSENT key is filled: a stored explicit null stays
+        null. **Edits the caller's dict**, as the shared from_data does: the defaults are what ``to_json`` writes
+        for that document anyway
 
         Args:
-            data (dict[str, Any]): A dictionary representing report data
-
-        Raises:
-            CmdbReportInitFromDataError: If the instance could not be created from the given data
-
-        Returns:
-            CmdbReport: An instance of CmdbReport initialized with the provided data
+            data (dict[str, Any]): The document, edited in place
         """
-        try:
-            return cls(
-                public_id = data.get('public_id'),
-                report_category_id = data['report_category_id'],
-                name = data['name'],
-                type_id = data['type_id'],
-                selected_fields = data['selected_fields'],
-                conditions = data.get('conditions'),
-                report_query = data.get('report_query'),
-                mds_mode = data.get('mds_mode', MdsMode.ROWS),
-                predefined = data.get('predefined', False),
-            )
-        except Exception as err:
-            raise CmdbReportInitFromDataError(err) from err
-
-    @classmethod
-    def to_json(cls, instance: "CmdbReport") -> dict[str, Any]:
-        """
-        Converts a CmdbReport instance into a dictionary suitable for JSON serialization
-
-        Args:
-            instance (CmdbReport): The report instance to serialize
-
-        Raises:
-            CmdbReportToJsonError: If the CmdbReport could not be converted to a json compatible dict
-
-        Returns:
-            dict[str, Any]: A dictionary representation of the CmdbReport instance
-        """
-        try:
-            return {
-                'public_id': instance.get_public_id(),
-                'report_category_id': instance.report_category_id,
-                'name': instance.name,
-                'type_id': instance.type_id,
-                'selected_fields': instance.selected_fields,
-                'conditions': instance.conditions,
-                'report_query': instance.report_query,
-                'predefined': instance.predefined,
-                'mds_mode': instance.mds_mode,
-            }
-        except Exception as err:
-            raise CmdbReportToJsonError(err) from err
+        data.setdefault(ReportKey.CONDITIONS.value, None)
+        data.setdefault(ReportKey.REPORT_QUERY.value, None)
+        data.setdefault(ReportKey.MDS_MODE.value, MdsMode.ROWS)
+        data.setdefault(ReportKey.PREDEFINED.value, False)

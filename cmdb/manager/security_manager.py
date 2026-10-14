@@ -116,7 +116,9 @@ class SecurityManager:
 
     def get_symmetric_aes_key(self) -> bytes:
         """
-        Retrieves the symmetric AES key used for HMAC and AES operations
+        Retrieves the symmetric key that keys the password HMAC (``generate_hmac``)
+
+        Named "AES" for its size (AES-256's 32 bytes); no AES cipher uses it - the HMAC is its only use.
 
         Resolution order:
             - cloud + local mode: the dev key carried on the app (``current_app.symmetric_key``)
@@ -124,10 +126,11 @@ class SecurityManager:
             - on-premise: the key stored in the 'security' settings section, generated on first use
 
         Returns:
-            bytes: The symmetric AES key
+            bytes: The symmetric key
 
         Raises:
-            ValueError: In cloud (non-local) mode when ``DG_SYMMETRIC_KEY`` is not set
+            ValueError: In cloud (non-local) mode when ``DG_SYMMETRIC_KEY`` is unset, empty or not valid Base64
+            DocumentGetError: When the on-premise settings read fails
         """
         return resolve_secret(
             dev_value=lambda: current_app.symmetric_key,

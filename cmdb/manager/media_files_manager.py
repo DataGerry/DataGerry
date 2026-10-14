@@ -30,6 +30,13 @@ three consequences follow from that:
 
 Reads answer `None` only for a file that is genuinely absent; every other failure is raised as a
 `MediaFileManager*Error` so a storage problem cannot be mistaken for "not found"
+
+A folder is deleted with its whole subtree in two steps: `collect_subtree` reads it one level per query, and
+`delete_subtree` removes it level by level, deepest first, a batch per level through the shared
+``gridfs_helper.delete_gridfs_files`` - GridFS itself only deletes one file at a time
+
+A deleted CmdbObject is detached from its attachments by `detach_objects`: its id leaves every file's
+`metadata.reference`, and the files stay in the library - what the attachment dialog's own "remove" does
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -38,16 +45,25 @@ from gridfs.grid_file import GridOut, GridOutCursor
 from gridfs.errors import NoFile
 
 from cmdb.database import DatabaseGridFS, MongoDatabaseManager
+from cmdb.database.database_constants import MONGO_ID_FIELD
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.gridfs_helper import delete_gridfs_files
+from cmdb.utils import Builder
 
 from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library import build_media_file_metadata
 from cmdb.framework.media_library.media_file_keys import (
     GRIDFS_FILES_SUFFIX,
+    MEDIA_FILE_PARENT_PATH,
+    MEDIA_FILE_REFERENCE_PATH,
+    MEDIA_FILE_REFERENCE_TYPE_PATH,
+    OBJECT_REFERENCE_TYPE,
     MediaFileKey,
 )
 
+from cmdb.errors.database import DocumentUpdateError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.media_files_manager import (
     MediaFileManagerGetError,
     MediaFileManagerInsertError,
@@ -57,6 +73,63 @@ from cmdb.errors.manager.media_files_manager import (
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# The GridFS collection of the media library's file documents; their chunks are deleted through
+# ``gridfs_helper.delete_gridfs_files``, which names the chunk collection itself
+MEDIA_FILES_COLLECTION: str = f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
+
+# What a subtree walk reads of each entry: its GridFS _id (what the delete removes) and its public_id (what its
+# children name as their parent)
+SUBTREE_PROJECTION: dict[str, int] = {MONGO_ID_FIELD: 1, MediaFileKey.PUBLIC_ID.value: 1}
+
+# The name each entry of a file's reference list goes by inside the detach update's $filter
+REFERENCE_ENTRY_VARIABLE: str = 'reference'
+
+
+def build_detach_objects_criteria(object_ids: list[int]) -> dict[str, Any]:
+    """
+    Builds the filter of the files attached to any of the given CmdbObjects
+
+    ``$in`` on `metadata.reference` matches a reference stored as one id and one stored as a list alike
+
+    Args:
+        object_ids (list[int]): public_ids of the CmdbObjects
+
+    Returns:
+        dict[str, Any]: The filter
+    """
+    return {
+        MEDIA_FILE_REFERENCE_TYPE_PATH: OBJECT_REFERENCE_TYPE,
+        MEDIA_FILE_REFERENCE_PATH: {'$in': object_ids},
+    }
+
+
+def build_detach_objects_update(object_ids: list[int]) -> list[dict[str, Any]]:
+    """
+    Builds the update pipeline taking the given CmdbObjects' ids out of a file's `metadata.reference`
+
+    A reference is stored as one id (an upload) or a list of ids (a library file attached to several objects), and
+    ``$pull`` refuses a value that is no array - so the pipeline reads the reference as a list either way and keeps
+    every entry that is not one of the ids. A file referencing nothing else is left with an empty list, the state the
+    attachment dialog's own "remove" leaves
+
+    Args:
+        object_ids (list[int]): public_ids of the CmdbObjects to detach
+
+    Returns:
+        list[dict[str, Any]]: The update pipeline
+    """
+    reference: str = f'${MEDIA_FILE_REFERENCE_PATH}'
+
+    return [Builder.set_({
+        MEDIA_FILE_REFERENCE_PATH: {
+            '$filter': {
+                'input': {'$cond': [{'$isArray': reference}, reference, [reference]]},
+                'as': REFERENCE_ENTRY_VARIABLE,
+                'cond': {'$not': [{'$in': [f'$${REFERENCE_ENTRY_VARIABLE}', object_ids]}]},
+            },
+        },
+    })]
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                               MediaFilesManager - CLASS                                              #
@@ -188,8 +261,8 @@ class MediaFilesManager(BaseManager):
         Retrieves the media files matching the given metadata, one page of them when asked
 
         Paging and sorting are applied in the GridFS query itself, so only the page is read. ``limit`` 0
-        means every match - what the recursive folder delete and the unpaged list callers rely on - and
-        in that case ``total`` is simply the number read; a cut page is counted separately, with the
+        means every match - what the unpaged list callers rely on - and in that case ``total`` is simply the
+        number read; a cut page is counted separately, with the
         same filter, so ``total`` is always the number of matching files
 
         Args:
@@ -300,11 +373,127 @@ class MediaFilesManager(BaseManager):
             return False
         except Exception as err:
             # reference public_id (always bound) - file_id is unset when get_last_version failed
-            raise MediaFileManagerDeleteError(f'Could not delete file with ID: {public_id}') from err
+            raise MediaFileManagerDeleteError(f'Could not delete file with ID: {public_id}: {err}') from err
 
         try:
             self.fs.delete(file_id)
 
             return True
         except Exception as err:
-            raise MediaFileManagerDeleteError(f'Could not delete file with ID: {public_id}') from err
+            raise MediaFileManagerDeleteError(f'Could not delete file with ID: {public_id}: {err}') from err
+
+
+    def collect_subtree(self, root: dict[str, Any]) -> list[list[dict[str, Any]]]:
+        """
+        Reads a MediaFile and everything beneath it, one level per query
+
+        Each level is ONE read - every entry whose parent is any entry of the level above (``$in``, served by the
+        parent index) - so the cost follows the depth of the tree, not the number of entries in it. The children of
+        every entry are asked for, not only of the folders: an entry stored under a non-folder before the write
+        contract refused it would otherwise outlive its parent. An entry already collected is never collected again,
+        so a folder stored inside its own subtree ends the walk instead of looping
+
+        Args:
+            root (dict[str, Any]): The stored document of the entry to start from (carries its ``_id`` and public_id)
+
+        Raises:
+            MediaFileManagerGetError: If a level could not be read
+
+        Returns:
+            list[list[dict[str, Any]]]: The levels, the root's first; each entry is its ``_id`` and public_id
+        """
+        public_id_key: str = MediaFileKey.PUBLIC_ID.value
+        root_entry: dict[str, Any] = {MONGO_ID_FIELD: root[MONGO_ID_FIELD], public_id_key: root[public_id_key]}
+        levels: list[list[dict[str, Any]]] = [[root_entry]]
+        collected: set[int] = {root_entry[public_id_key]}
+
+        while True:
+            parent_ids: list[int] = [entry[public_id_key] for entry in levels[-1]]
+
+            try:
+                children: list[dict[str, Any]] = self.get_many_from_other_collection(
+                    MEDIA_FILES_COLLECTION,
+                    projection=SUBTREE_PROJECTION,
+                    criteria={MEDIA_FILE_PARENT_PATH: {'$in': parent_ids}},
+                )
+            except BaseManagerGetError as err:
+                LOGGER.error("[collect_subtree] BaseManagerGetError: %s", err)
+                raise MediaFileManagerGetError(err) from err
+
+            level: list[dict[str, Any]] = [
+                child for child in children if child.get(public_id_key) not in collected
+            ]
+
+            if not level:
+                return levels
+
+            collected.update(child[public_id_key] for child in level)
+            levels.append(level)
+
+
+    def delete_subtree(self, levels: list[list[dict[str, Any]]]) -> int:
+        """
+        Deletes a collected subtree level by level, deepest first, a batch per level
+
+        Per level: one batch through ``gridfs_helper.delete_gridfs_files`` - the chunks, then the file documents, by
+        ``_id`` - instead of a lookup and two deletes per file. The order of the levels makes a failure part-way
+        leave a CONNECTED tree: the levels already removed are the deepest, so every entry still stored hangs from a
+        folder that is still there, and the request can be repeated. Within a level the chunks go first, so a
+        failure between the two leaves file documents without content, which the repeated delete finds and
+        removes - never chunks nothing would find again
+
+        Args:
+            levels (list[list[dict[str, Any]]]): The subtree as ``collect_subtree`` answered it
+
+        Raises:
+            MediaFileManagerDeleteError: If a level could not be deleted - the levels below it are gone, it and the
+                levels above it are not
+
+        Returns:
+            int: How many file documents were deleted
+        """
+        deleted: int = 0
+
+        for level in reversed(levels):
+            try:
+                deleted += delete_gridfs_files(
+                    self, MediaFile.COLLECTION, [entry[MONGO_ID_FIELD] for entry in level],
+                )
+            except BaseManagerDeleteError as err:
+                LOGGER.error("[delete_subtree] BaseManagerDeleteError: %s", err)
+                raise MediaFileManagerDeleteError(err) from err
+
+        return deleted
+
+
+    def detach_objects(self, object_ids: list[int]) -> int:
+        """
+        Takes deleted CmdbObjects' ids out of every file attached to them, keeping the files
+
+        One update of every file whose `metadata.reference` names any of the ids (``build_detach_objects_criteria``,
+        ``build_detach_objects_update``). The files stay in the library: a file can be attached to several objects and
+        filed in a folder, and the library cannot tell an upload from a library file attached later. Written to the
+        `.files` collection by name - this manager's own collection is the GridFS bucket, which holds no document
+
+        Args:
+            object_ids (list[int]): public_ids of the deleted CmdbObjects
+
+        Raises:
+            MediaFileManagerUpdateError: If the update failed
+
+        Returns:
+            int: How many files were changed
+        """
+        if not object_ids:
+            return 0
+
+        try:
+            return self.dbm.update_many_raw(
+                MEDIA_FILES_COLLECTION,
+                self.db_name,
+                build_detach_objects_criteria(object_ids),
+                build_detach_objects_update(object_ids),
+            ).modified_count
+        except DocumentUpdateError as err:
+            LOGGER.error("[detach_objects] DocumentUpdateError: %s", err)
+            raise MediaFileManagerUpdateError(err) from err

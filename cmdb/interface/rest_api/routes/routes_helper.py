@@ -61,6 +61,9 @@ PUBLIC_ID_LIST_NOT_A_LIST_MSG: str = "The public_ids have to be sent as a list, 
 # Refusal (HTTP 400) of a boolean query parameter spelled anything but true / false
 BOOLEAN_PARAM_INVALID_MSG: str = "The '{param}' parameter must be 'true' or 'false'!"
 
+# The query flag asking a list to leave inactive objects out - the frontend sends its 'only active objects' toggle
+ONLY_ACTIVE_OBJECTS_PARAM: str = 'onlyActiveObjCookie'
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_file_in_request(file_name: str) -> FileStorage:
@@ -127,25 +130,51 @@ def read_boolean_query_param(name: str, default: bool) -> bool:
     Returns:
         bool: The flag
     """
-    raw_value: str | None = request.args.get(name)
+    return read_boolean_value(name, request.args.get(name), default)
 
-    if raw_value is None:
+
+def read_boolean_value(name: str, value: Any, default: bool) -> bool:
+    """
+    Reads one boolean flag by the API's one rule, whatever carried it
+
+    The rule of ``read_boolean_query_param`` for a flag that does not come from the query string itself - a key of a
+    JSON-encoded parameter or of a body: absent (None) is ``default``; ``true`` / ``false`` in any casing, or a JSON
+    boolean, is the flag; anything else is refused
+
+    Args:
+        name (str): The flag's name, for the refusal
+        value (Any): The raw value; None when the flag was not sent
+        default (bool): The value when the flag was not sent
+
+    Raises:
+        HTTPException: 400 naming the flag and the two accepted spellings
+
+    Returns:
+        bool: The flag
+    """
+    if value is None:
         return default
 
     try:
-        return str_to_bool(raw_value)
+        return str_to_bool(value)
     except ValueError:
         abort(400, BOOLEAN_PARAM_INVALID_MSG.format(param=name))
 
 
 def fetch_only_active_objects() -> bool:
     """
-    Checking if request have cookie parameter for object active state
+    Reads whether a list should leave inactive objects out (``?onlyActiveObjCookie=``)
+
+    By the API's one rule for flags (``read_boolean_query_param``): absent means False, ``true`` / ``false`` in any
+    casing, anything else a 400. The frontend sends its toggle's cookie, which only ever holds ``true`` or ``false``
+
+    Raises:
+        HTTPException: 400 when the flag is neither true nor false
 
     Returns:
-        bool: True if cookie value is true or True else False
+        bool: True when only active objects are asked for
     """
-    return request.args.get('onlyActiveObjCookie') in ['True', 'true']
+    return read_boolean_query_param(ONLY_ACTIVE_OBJECTS_PARAM, default=False)
 
 
 def request_wants_body(current_request: Request | None = None) -> bool:

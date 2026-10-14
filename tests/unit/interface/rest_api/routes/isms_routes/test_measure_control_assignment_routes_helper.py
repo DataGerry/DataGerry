@@ -108,6 +108,22 @@ def test_object_without_known_type_renders_empty_type_label() -> None:
     assert result == f"#{RA_ID} - MyRisk @ Obj summary ()"
 
 
+def test_object_outside_the_readable_map_is_blank() -> None:
+    """
+    An object the caller may not READ is not in ``object_map``: neither its line nor its type label is shown
+
+    Even when a summary line for it reached the helper - the blank depends on the readable map alone
+    """
+    risk_assessment = {
+        'public_id': RA_ID, 'risk_id': RISK_ID,
+        'object_id_ref_type': ObjectReferenceType.OBJECT, 'object_id': OBJECT_ID,
+    }
+
+    result = build_cma_summary(risk_assessment, RISKS, {}, OBJECT_SUMMARIES, TYPES_MAP, OBJECT_GROUPS)
+
+    assert result == f"#{RA_ID} - MyRisk @ "
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MEASURE_ID: int = 31

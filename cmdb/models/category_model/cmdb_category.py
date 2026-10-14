@@ -59,6 +59,10 @@ class CmdbCategory(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.categories'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbCategoryInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbCategoryToJsonError
     SCHEMA: dict[str, Any] = get_cmdb_category_schema()
 
     INDEX_KEYS: list[dict[str, Any]] = [

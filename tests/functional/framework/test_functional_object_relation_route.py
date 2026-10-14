@@ -46,7 +46,6 @@ from cmdb.errors.manager.object_relations_manager import (
     ObjectRelationsManagerIterationError,
     ObjectRelationsManagerGetError,
     ObjectRelationsManagerUpdateError,
-    ObjectRelationsManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -799,10 +798,10 @@ class TestErrorMapping:
 
     def test_delete_error_returns_400(self, rest_api, monkeypatch,
                                       database_manager: MongoDatabaseManager, database_name: str) -> None:
-        """An ObjectRelationsManagerDeleteError on the single delete surfaces as 400."""
+        """A BaseManagerDeleteError of the atomic read-and-delete surfaces as 400."""
         _insert_object_relation_doc(database_manager, database_name, OR_ID_FOR_DELETE)
         monkeypatch.setattr(
-            ObjectRelationsManager, 'delete_object_relation', _raise(ObjectRelationsManagerDeleteError('boom')),
+            ObjectRelationsManager, 'find_one_and_delete', _raise(BaseManagerDeleteError('boom')),
         )
         try:
             assert rest_api.delete(f'{ROUTE_URL}/{OR_ID_FOR_DELETE}').status_code == HTTPStatus.BAD_REQUEST

@@ -14,12 +14,17 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module contains the implementation of CmdbReportCategory, which is representing
-a category of a CmdbReport in DataGarry
+Implementation of CmdbReportCategory, the group a CmdbReport belongs to
+
+A category is three keys - ``ReportCategoryKey``: its public_id, its name and whether DataGerry provides it
+(``predefined``, the seeded 'General' category). It declares them as its ``KEYS``, so the shared CmdbDAO from_data /
+to_json read and write exactly those; ``normalize_document`` keeps the one lenient read the model always had - a
+stored category without ``predefined`` is a user-created one
 """
 from typing import Any
 
 from cmdb.models.cmdb_dao import CmdbDAO
+from cmdb.models.reports_model.report_constants import ReportCategoryKey
 
 from cmdb.class_schema.reports_model.cmdb_report_category_schema import get_cmdb_report_category_schema
 
@@ -40,8 +45,13 @@ class CmdbReportCategory(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = 'framework.reportCategories'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbReportCategoryInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbReportCategoryToJsonError
     DEFAULT_VERSION: str = '1.0.0'
-    REQUIRED_INIT_KEYS = ['name', 'predefined']
+    REQUIRED_INIT_KEYS: list[str] = [ReportCategoryKey.NAME.value, ReportCategoryKey.PREDEFINED.value]
+    KEYS = ReportCategoryKey
 
     SCHEMA: dict[str, Any] = get_cmdb_report_category_schema()
 
@@ -69,48 +79,11 @@ class CmdbReportCategory(CmdbDAO):
 # -------------------------------------------------- CLASS FUNCTIONS ------------------------------------------------- #
 
     @classmethod
-    def from_data(cls, data: dict[str, Any]) -> "CmdbReportCategory":
+    def normalize_document(cls, data: dict[str, Any]) -> None:
         """
-        Initialises a CmdbReportCategory from a dict
+        Reads a stored category without ``predefined`` as a user-created one, before the shared from_data
 
         Args:
-            data (dict[str, Any]): Data with which the CmdbReportCategory should be initialised
-
-        Raises:
-            CmdbReportCategoryInitFromDataError: If the initialisation with the given data fails
-
-        Returns:
-            CmdbReportCategory: CmdbReportCategory with the given data
+            data (dict[str, Any]): The document, edited in place
         """
-        try:
-            return cls(
-                public_id = data.get('public_id'),
-                name = data.get('name'),
-                predefined = data.get('predefined', False),
-            )
-        except Exception as err:
-            raise CmdbReportCategoryInitFromDataError(err) from err
-
-
-    @classmethod
-    def to_json(cls, instance: "CmdbReportCategory") -> dict[str, Any]:
-        """
-        Converts a CmdbReportCategory into a json compatible dict
-
-        Args:
-            instance (CmdbReportCategory): The CmdbReportCategory which should be converted
-
-        Raises:
-            CmdbReportCategoryToJsonError: If the CmdbReportCategory could not be converted to a json compatible dict
-
-        Returns:
-            dict[str, Any]: Json compatible dict of the CmdbReportCategory values
-        """
-        try:
-            return {
-                'public_id': instance.get_public_id(),
-                'name': instance.name,
-                'predefined': instance.predefined,
-            }
-        except Exception as err:
-            raise CmdbReportCategoryToJsonError(err) from err
+        data.setdefault(ReportCategoryKey.PREDEFINED.value, False)

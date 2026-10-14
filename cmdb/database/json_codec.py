@@ -23,8 +23,9 @@ Two functions, used in opposite directions:
   the webhook payloads. It turns the BSON values a document carries into the extended-JSON shapes the
   frontend models declare - most importantly a datetime into ``{'$date': <epoch millis>}``
 * ``object_hook`` is the ``json.loads`` hook of the BSON round-trip the object and type managers run
-  before a write (``json.dumps(doc, default=json_util.default)`` ->
-  ``json.loads(..., object_hook=object_hook)``). Its input is therefore **pymongo's** extended JSON,
+  before a write (``bson_round_trip``: ``json.dumps(doc, default=json_util.default)`` ->
+  ``json.loads(..., object_hook=object_hook)``). A value it cannot decode raises one of
+  ``EXTENDED_JSON_DECODE_ERRORS``, the caller's error. Its input is therefore **pymongo's** extended JSON,
   not a client payload - which is why it has to cope with both the relaxed spelling
   (``{'$date': '2026-09-09T10:00:00Z'}``) and the canonical one
   (``{'$date': {'$numberLong': '-315619200000'}}``, used for dates outside the relaxed range)
@@ -43,12 +44,15 @@ classmethod taking the instance, so it is deliberately NOT called here - only an
 import calendar
 import datetime
 import inspect
+import json
 import re
 import uuid
 from logging import Logger, getLogger
 from typing import Any, Callable
 
+from bson import json_util
 from bson.dbref import DBRef
+from bson.errors import InvalidId
 from bson.max_key import MaxKey
 from bson.min_key import MinKey
 from bson.objectid import ObjectId
@@ -59,6 +63,8 @@ from cmdb.utils import BaseStrEnum, MONGO_DATE_KEY, coerce_mongo_datetime
 
 __all__: list[str] = [
     'MongoJsonKey',
+    'EXTENDED_JSON_DECODE_ERRORS',
+    'bson_round_trip',
     'default',
     'object_hook',
 ]
@@ -97,6 +103,11 @@ REGEX_FLAG_BY_OPTION: dict[str, int] = {
 }
 
 _MILLISECONDS_PER_SECOND: int = 1000
+
+# What object_hook raises for a value it cannot decode: an ``$oid`` that is no ObjectId, a ``$uuid`` that is no
+# UUID string, a ``$regex`` that is no compilable pattern string. The value came with the document, so a write
+# path names these as the caller's error - and only around the round trip, never around its own logic
+EXTENDED_JSON_DECODE_ERRORS: tuple[type[Exception], ...] = (InvalidId, ValueError, re.error)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     json -> bson                                                     #
@@ -167,6 +178,31 @@ def _decode_regex_flags(options: Any) -> int:
     return flags
 
 
+def _require_string(dct: dict[str, Any], key: MongoJsonKey) -> str:
+    """
+    The wrapper's value, refused when it is not a string
+
+    ``uuid.UUID`` and ``re.compile`` fail on a number with a TypeError or an AttributeError - the spelling of a
+    programming error - so the value is checked first and refused as the ValueError of a bad value
+
+    Args:
+        dct (dict[str, Any]): One decoded JSON object carrying the key
+        key (MongoJsonKey): The extended-JSON key whose value is read
+
+    Raises:
+        ValueError: When the value is not a string
+
+    Returns:
+        str: The value
+    """
+    value: Any = dct[key.value]
+
+    if not isinstance(value, str):
+        raise ValueError(f"'{key.value}' must be a string, not {type(value).__name__}")
+
+    return value
+
+
 def object_hook(dct: dict[str, Any]) -> Any:
     """
     Converts one extended-JSON document into its BSON / Python value
@@ -180,7 +216,7 @@ def object_hook(dct: dict[str, Any]) -> Any:
 
     Raises:
         bson.errors.InvalidId: When a ``$oid`` value is not a valid ObjectId
-        ValueError: When a ``$uuid`` value is not a valid UUID
+        ValueError: When a ``$uuid`` value is not a valid UUID string, or a ``$regex`` pattern is not a string
         re.error: When a ``$regex`` pattern does not compile
 
     Returns:
@@ -213,7 +249,7 @@ def object_hook(dct: dict[str, Any]) -> Any:
         return decoded
 
     if MongoJsonKey.REGEX.value in dct:
-        return re.compile(dct[MongoJsonKey.REGEX.value],
+        return re.compile(_require_string(dct, MongoJsonKey.REGEX),
                           _decode_regex_flags(dct.get(MongoJsonKey.OPTIONS.value)))
 
     if MongoJsonKey.MIN_KEY.value in dct:
@@ -223,9 +259,27 @@ def object_hook(dct: dict[str, Any]) -> Any:
         return MaxKey()
 
     if MongoJsonKey.UUID.value in dct:
-        return uuid.UUID(dct[MongoJsonKey.UUID.value])
+        return uuid.UUID(_require_string(dct, MongoJsonKey.UUID))
 
     return dct
+
+def bson_round_trip(document: Any) -> Any:
+    """
+    Runs a document through pymongo's extended JSON and back through ``object_hook``
+
+    What the object and type managers do to a raw dict before writing it, so BSON and datetime values arrive
+    in their stored form
+
+    Args:
+        document (Any): The document to normalise
+
+    Raises:
+        EXTENDED_JSON_DECODE_ERRORS: When a wrapper in the document carries a value that cannot be decoded
+
+    Returns:
+        Any: The normalised document
+    """
+    return json.loads(json.dumps(document, default=json_util.default), object_hook=object_hook)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     bson -> json                                                     #

@@ -26,9 +26,11 @@ from typing import Any
 
 import pytest
 
+from cmdb.models.cmdb_dao import CmdbDAO
 from cmdb.models.reports_model.cmdb_report import CmdbReport, clear_rules_of_field, collect_rule_fields
+from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
-from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportConditionLogic
+from cmdb.models.reports_model.report_constants import ReportConditionKey, ReportConditionLogic, ReportKey
 from cmdb.errors.cmdb_object import RequiredInitKeyNotFoundError
 from cmdb.errors.models.cmdb_report import (
     CmdbReportInitFromDataError,
@@ -316,7 +318,7 @@ def test_init_applies_its_defaults_when_the_keys_are_passed_explicitly() -> None
 def test_init_demands_every_required_init_key_as_a_kwarg(omitted_key: str) -> None:
     """REQUIRED_INIT_KEYS is enforced by CmdbDAO.__new__, so the signature defaults of 'predefined'
     and 'mds_mode' are unreachable through a direct construction - and the failure happens BEFORE
-    __init__, so it is not wrapped as CmdbReportInitError. from_data always passes all of them."""
+    __init__, so it is not wrapped as CmdbReportInitError. The shared from_data passes every key."""
     kwargs: dict[str, Any] = {
         'public_id': REPORT_ID,
         'report_category_id': CATEGORY_ID,
@@ -337,8 +339,37 @@ def test_init_demands_every_required_init_key_as_a_kwarg(omitted_key: str) -> No
 def test_index_declarations_and_schema_are_exposed() -> None:
     """The model exposes its collection, its index declarations and the shared validation schema."""
     assert CmdbReport.COLLECTION == 'framework.reports'
-    assert {entry['name'] for entry in CmdbReport.INDEX_KEYS} == {'report_category_id', 'type_id'}
-    assert CmdbReport.SCHEMA['name']['required'] is True
+    assert {entry['name'] for entry in CmdbReport.INDEX_KEYS} == {
+        ReportKey.REPORT_CATEGORY_ID.value, ReportKey.TYPE_ID.value,
+    }
+    assert CmdbReport.SCHEMA[ReportKey.NAME.value]['required'] is True
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                               one key set, one spelling                                              #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_the_schema_declares_exactly_the_documents_keys() -> None:
+    """The validation schema and ReportKey describe one document, so neither may grow alone"""
+    assert set(CmdbReport.SCHEMA) == {key.value for key in ReportKey}
+
+
+def test_to_json_writes_exactly_the_documents_keys() -> None:
+    """The stored form carries every ReportKey and nothing else - what the managers write back"""
+    assert set(CmdbReport.to_json(CmdbReport.from_data(_report_document()))) == {key.value for key in ReportKey}
+
+
+def test_every_required_init_key_is_a_report_key() -> None:
+    """The constructor's required keys are document keys - all but the server-numbered public_id"""
+    assert set(CmdbReport.REQUIRED_INIT_KEYS) == {key.value for key in ReportKey} - {ReportKey.PUBLIC_ID.value}
+
+
+def test_report_key_lives_with_the_model() -> None:
+    """Below the routes, so the model, the schema and the managers can import it; the routes do not redefine it"""
+    # pylint: disable=import-outside-toplevel
+    from cmdb.interface.rest_api.routes.report_routes import report_constants as route_constants
+
+    assert ReportKey.__module__ == 'cmdb.models.reports_model.report_constants'
+    assert route_constants.ReportKey is ReportKey
 
 
 # ------------------------------------------------- referenced_field_names ------------------------------------------- #
@@ -361,3 +392,68 @@ def test_a_report_references_its_columns_and_its_rule_fields() -> None:
     report = CmdbReport.from_data(_report_document(selected_fields=['a', 'c'], conditions=_group(_leaf('b'))))
 
     assert report.referenced_field_names() == {'a', 'b', 'c'}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         the shared from_data / to_json                                               #
+# -------------------------------------------------------------------------------------------------------------------- #
+OPTIONAL_DEFAULTS: dict[str, Any] = {
+    ReportKey.CONDITIONS.value: None,
+    ReportKey.REPORT_QUERY.value: None,
+    ReportKey.MDS_MODE.value: MdsMode.ROWS,
+    ReportKey.PREDEFINED.value: False,
+}
+
+
+def test_the_model_uses_the_shared_from_data_and_to_json() -> None:
+    """Its KEYS are ReportKey, and it implements neither method itself"""
+    assert CmdbReport.KEYS is ReportKey
+    assert CmdbReport.from_data.__func__ is CmdbDAO.from_data.__func__
+    assert CmdbReport.to_json.__func__ is CmdbDAO.to_json.__func__
+
+
+def test_normalize_document_fills_exactly_the_four_optional_keys() -> None:
+    """A document with only the strict keys gets the four defaults, nothing more"""
+    document: dict[str, Any] = {key: _report_document()[key] for key in (
+        ReportKey.PUBLIC_ID.value, ReportKey.REPORT_CATEGORY_ID.value, ReportKey.NAME.value, ReportKey.TYPE_ID.value,
+        ReportKey.SELECTED_FIELDS.value,
+    )}
+    strict: dict[str, Any] = dict(document)
+
+    CmdbReport.normalize_document(document)
+
+    assert document == {**strict, **OPTIONAL_DEFAULTS}
+
+
+@pytest.mark.parametrize('key', list(OPTIONAL_DEFAULTS))
+def test_normalize_document_keeps_a_stored_value(key: str) -> None:
+    """Only an absent key is filled; a stored value - an explicit null included - stays"""
+    document: dict[str, Any] = _report_document()
+    document[key] = None
+
+    CmdbReport.normalize_document(document)
+
+    assert document[key] is None
+
+
+def test_from_data_fills_the_callers_document() -> None:
+    """The shared from_data normalises the dict it is given - the defaults to_json would write anyway"""
+    document: dict[str, Any] = _report_document()
+    del document[ReportKey.MDS_MODE.value]
+
+    CmdbReport.from_data(document)
+
+    assert document[ReportKey.MDS_MODE.value] == MdsMode.ROWS
+
+
+def test_to_json_refuses_another_model() -> None:
+    """The shared method type-checks the instance"""
+    category = object.__new__(CmdbReportCategory)
+
+    with pytest.raises(CmdbReportToJsonError):
+        CmdbReport.to_json(category)
+
+
+def test_to_json_writes_the_keys_in_the_enums_order() -> None:
+    """The order the hand-written to_json used, which the frontend sees"""
+    assert list(CmdbReport.to_json(_report())) == [key.value for key in ReportKey]

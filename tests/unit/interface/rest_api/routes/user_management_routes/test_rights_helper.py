@@ -43,7 +43,7 @@ USER_GROUP: dict[str, Any] = {'public_id': 2, 'name': 'user', 'label': 'User'}
 def _manager(aggregation_result: list[dict[str, Any]]) -> MagicMock:
     """A GroupsManager stand-in whose aggregate() answers the given documents."""
     manager = MagicMock()
-    manager.aggregate.return_value = aggregation_result
+    manager.aggregate_all.return_value = aggregation_result
 
     return manager
 
@@ -67,7 +67,7 @@ def test_one_aggregation_serves_the_whole_page() -> None:
 
     resolve_right_holders(manager, [RIGHT_A, RIGHT_B, UNHELD_RIGHT])
 
-    manager.aggregate.assert_called_once()
+    manager.aggregate_all.assert_called_once()
 
 
 def test_the_pipeline_asks_only_for_the_pages_rights() -> None:
@@ -77,7 +77,7 @@ def test_the_pipeline_asks_only_for_the_pages_rights() -> None:
 
     resolve_right_holders(manager, page)
 
-    pipeline = manager.aggregate.call_args.args[0]
+    pipeline = manager.aggregate_all.call_args.args[0]
     matches = [stage['$match'][GroupKey.RIGHTS.value]['$in'] for stage in pipeline if '$match' in stage]
 
     assert matches == [page, page]
@@ -89,7 +89,7 @@ def test_no_right_names_means_no_query_at_all() -> None:
     manager = _manager([])
 
     assert resolve_right_holders(manager, []) == {}
-    manager.aggregate.assert_not_called()
+    manager.aggregate_all.assert_not_called()
 
 
 def test_a_right_no_group_holds_is_absent_from_the_mapping() -> None:

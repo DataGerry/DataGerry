@@ -40,6 +40,8 @@ import re
 from logging import Logger, getLogger
 from typing import Any, Collection
 
+from pymongo.results import UpdateResult
+
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.utils import Builder
@@ -62,11 +64,11 @@ from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager import (
     BaseManagerGetError,
     BaseManagerDeleteError,
+    BaseManagerInsertError,
     BaseManagerIterationError,
     BaseManagerUpdateError,
 )
 from cmdb.errors.manager.locations_manager import (
-    LocationsManagerInitError,
     LocationsManagerInsertError,
     LocationsManagerGetError,
     LocationsManagerUpdateError,
@@ -135,11 +137,37 @@ def descendants_lookup_stage() -> dict[str, Any]:
         LocationLookupField.DESCENDANTS.value,
     )
 
+
+def usable_object_ids(documents: list[dict[str, Any]]) -> list[int]:
+    """
+    The object_ids of the given CmdbLocation documents, in read order
+
+    A node without a usable object_id is left out - the root's 0 sentinel is such a value, and no object answers
+    to it; a bool is no id either, though it is an int to Python
+
+    Args:
+        documents (list[dict[str, Any]]): CmdbLocation documents carrying (at least) their object_id
+
+    Returns:
+        list[int]: The usable object_ids
+    """
+    return [
+        document[LocationKey.OBJECT_ID.value] for document in documents
+        if isinstance(document.get(LocationKey.OBJECT_ID.value), int)
+        and not isinstance(document.get(LocationKey.OBJECT_ID.value), bool)
+    ]
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 class LocationsManager(BaseManager):
     """
     The LocationsManager manages the interaction between CmdbLocations and the database
+
+    Error policy: a public method catches what its calls raise - the call's BaseManager* error and, on the delete
+    path, the typed errors of its own helpers - and converts it into the matching LocationsManager* error. The
+    model is never built here (every read answers documents), so no model error is caught. Anything else - a
+    programming error - propagates as itself, so a route answers it 500 instead of the 400 a database failure
+    gets. The two transient database errors are never caught here either
 
     Extends: BaseManager
     """
@@ -152,14 +180,8 @@ class LocationsManager(BaseManager):
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect.
                                    Only used in CLOUD_MODE
-
-        Raises:
-            LocationsManagerInitError: If the LocationsManager could not be initialised
         """
-        try:
-            super().__init__(CmdbLocation.COLLECTION, dbm, database)
-        except Exception as err:
-            raise LocationsManagerInitError(err) from err
+        super().__init__(CmdbLocation.COLLECTION, dbm, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -182,19 +204,17 @@ class LocationsManager(BaseManager):
         """
         try:
             created_id: int | None = self.insert(location)
-
-            # BaseManager.insert only answers with None when it is told to skip the public_id
-            # generation, which this path never does - so a None here is a broken write, not a
-            # CmdbLocation the caller could work with
-            if created_id is None:
-                raise LocationsManagerInsertError('The inserted CmdbLocation carries no public_id!')
-
-            return created_id
-        except LocationsManagerInsertError:
-            raise
-        except Exception as err:
-            LOGGER.error("[insert_location] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerInsertError as err:
+            LOGGER.error("[insert_location] BaseManagerInsertError: %s", err)
             raise LocationsManagerInsertError(err) from err
+
+        # BaseManager.insert only answers with None when it is told to skip the public_id
+        # generation, which this path never does - so a None here is a broken write, not a
+        # CmdbLocation the caller could work with
+        if created_id is None:
+            raise LocationsManagerInsertError('The inserted CmdbLocation carries no public_id!')
+
+        return created_id
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -212,7 +232,7 @@ class LocationsManager(BaseManager):
         straight back would be two objects per location for a response that is a document either way
 
         Given a user and a permission, a node whose object's Type the user's group may not access is left out of
-        the rows and the total alike (``apply_acl_to_builder_params``) - by its own Type only: the flat list
+        the rows and the total alike (``iterate_query`` narrows both) - by its own Type only: the flat list
         carries no ancestors, so a readable node below a hidden one stays listed
 
         Args:
@@ -228,15 +248,12 @@ class LocationsManager(BaseManager):
                 number of matches (counted independently of the page)
         """
         try:
-            self.apply_acl_to_builder_params(builder_params, user, permission)
-            aggregation_result, total = self.iterate_query(builder_params)
-
-            return [to_location_document(document) for document in aggregation_result], total
+            aggregation_result, total = self.iterate_query(builder_params, user, permission)
         except BaseManagerIterationError as err:
+            LOGGER.error("[iterate_location_documents] BaseManagerIterationError: %s", err)
             raise LocationsManagerIterationError(err) from err
-        except Exception as err:
-            LOGGER.error("[iterate_location_documents] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerIterationError(err) from err
+
+        return [to_location_document(document) for document in aggregation_result], total
 
 
     def get_location(self, public_id: int) -> dict[str, Any] | None:
@@ -258,9 +275,7 @@ class LocationsManager(BaseManager):
         try:
             return self.get_one(public_id)
         except BaseManagerGetError as err:
-            raise LocationsManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_location] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_location] BaseManagerGetError: %s", err)
             raise LocationsManagerGetError(err) from err
 
 
@@ -284,9 +299,7 @@ class LocationsManager(BaseManager):
         try:
             return self.get_one_by({LocationKey.OBJECT_ID.value: object_id})
         except BaseManagerGetError as err:
-            raise LocationsManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_location_for_object] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_location_for_object] BaseManagerGetError: %s", err)
             raise LocationsManagerGetError(err) from err
 
 
@@ -324,16 +337,16 @@ class LocationsManager(BaseManager):
                     LocationKey.NAME.value: 1,
                 },
             )
-
-            return {
-                document[LocationKey.PUBLIC_ID.value]: document[LocationKey.NAME.value]
-                for document in documents
-                if document.get(LocationKey.PUBLIC_ID.value) is not None
-                and isinstance(document.get(LocationKey.NAME.value), str)
-            }
-        except Exception as err:
-            LOGGER.error("[get_location_names] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_location_names] BaseManagerGetError: %s", err)
             raise LocationsManagerGetError(err) from err
+
+        return {
+            document[LocationKey.PUBLIC_ID.value]: document[LocationKey.NAME.value]
+            for document in documents
+            if document.get(LocationKey.PUBLIC_ID.value) is not None
+            and isinstance(document.get(LocationKey.NAME.value), str)
+        }
 
 
     def get_child_object_ids(self, parent_id: int) -> list[int]:
@@ -352,23 +365,18 @@ class LocationsManager(BaseManager):
 
         Returns:
             list[int]: The object_ids of the direct children, in read order. A child without a
-                usable object_id is left out - the root's 0 sentinel is such a value, and no object
-                answers to it
+                usable object_id is left out (``usable_object_ids``)
         """
         try:
             documents: list[dict[str, Any]] = self.find(
                 criteria={LocationKey.PARENT.value: parent_id},
                 projection={LocationKey.OBJECT_ID.value: 1},
             )
-
-            return [
-                document[LocationKey.OBJECT_ID.value] for document in documents
-                if isinstance(document.get(LocationKey.OBJECT_ID.value), int)
-                and not isinstance(document.get(LocationKey.OBJECT_ID.value), bool)
-            ]
-        except Exception as err:
-            LOGGER.error("[get_child_object_ids] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_child_object_ids] BaseManagerGetError: %s", err)
             raise LocationsManagerGetError(err) from err
+
+        return usable_object_ids(documents)
 
 
     def get_child_location_documents(
@@ -400,9 +408,7 @@ class LocationsManager(BaseManager):
                 criteria=visible_criteria({LocationKey.PARENT.value: parent_id}, denied_type_ids),
             )
         except BaseManagerGetError as err:
-            raise LocationsManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_child_location_documents] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_child_location_documents] BaseManagerGetError: %s", err)
             raise LocationsManagerGetError(err) from err
 
         return sort_locations_by_name([to_location_document(document) for document in documents])
@@ -431,29 +437,27 @@ class LocationsManager(BaseManager):
             list[dict[str, Any]]: One ``{'public_id': int}`` document per descendant CmdbLocation
                                   (the location itself is excluded)
         """
+        descendants_field: str = LocationLookupField.DESCENDANTS.value
+
+        pipeline: list[dict[str, Any]] = [
+            Builder.match_({LocationKey.PUBLIC_ID.value: public_id}),
+            descendants_lookup_stage(),
+            Builder.project_({
+                MONGO_ID_KEY: 0,
+                f"{descendants_field}.{LocationKey.PUBLIC_ID.value}": 1,
+            }),
+        ]
+
         try:
-            descendants_field: str = LocationLookupField.DESCENDANTS.value
-
-            pipeline: list[dict[str, Any]] = [
-                Builder.match_({LocationKey.PUBLIC_ID.value: public_id}),
-                descendants_lookup_stage(),
-                Builder.project_({
-                    MONGO_ID_KEY: 0,
-                    f"{descendants_field}.{LocationKey.PUBLIC_ID.value}": 1,
-                }),
-            ]
-
-            result: list[dict[str, Any]] = list(self.aggregate(pipeline))
-
-            if not result:
-                return []
-
-            return result[0].get(descendants_field, [])
+            result: list[dict[str, Any]] = self.aggregate_all(pipeline)
         except BaseManagerIterationError as err:
+            LOGGER.error("[get_all_descendant_locations] BaseManagerIterationError: %s", err)
             raise LocationsManagerChildrenError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_all_descendant_locations] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerChildrenError(err) from err
+
+        if not result:
+            return []
+
+        return result[0].get(descendants_field, [])
 
 
     def get_parents_with_children(self, parent_ids: list[int], denied_type_ids: Collection[int] = ()) -> set[int]:
@@ -485,9 +489,9 @@ class LocationsManager(BaseManager):
         ]
 
         try:
-            return {document[MONGO_ID_KEY] for document in self.aggregate(pipeline)}
-        except Exception as err:
-            LOGGER.error("[get_parents_with_children] Exception: %s. Type: %s", err, type(err))
+            return {document[MONGO_ID_KEY] for document in self.aggregate_all(pipeline)}
+        except BaseManagerIterationError as err:
+            LOGGER.error("[get_parents_with_children] BaseManagerIterationError: %s", err)
             raise LocationsManagerGetError(err) from err
 
 
@@ -544,11 +548,9 @@ class LocationsManager(BaseManager):
         ]
 
         try:
-            matches: list[dict[str, Any]] = list(self.aggregate(pipeline))
+            matches: list[dict[str, Any]] = self.aggregate_all(pipeline)
         except BaseManagerIterationError as err:
-            raise LocationsManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[search_locations_with_ancestors] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[search_locations_with_ancestors] BaseManagerIterationError: %s", err)
             raise LocationsManagerGetError(err) from err
 
         # collapse every match + its ancestors into a de-duplicated set, dropping the synthetic root
@@ -619,7 +621,7 @@ class LocationsManager(BaseManager):
         ]
 
         try:
-            matches: list[dict[str, Any]] = list(self.aggregate(ancestor_pipeline))
+            matches: list[dict[str, Any]] = self.aggregate_all(ancestor_pipeline)
 
             # Target does not exist -> nothing to expand to
             if not matches:
@@ -643,8 +645,6 @@ class LocationsManager(BaseManager):
 
             return sort_locations_by_name([to_location_document(document) for document in documents])
         except (BaseManagerGetError, BaseManagerIterationError) as err:
-            raise LocationsManagerGetError(err) from err
-        except Exception as err:
             LOGGER.error("[get_locations_on_path_to] Exception: %s. Type: %s", err, type(err))
             raise LocationsManagerGetError(err) from err
 
@@ -679,11 +679,9 @@ class LocationsManager(BaseManager):
         ]
 
         try:
-            matches: list[dict[str, Any]] = list(self.aggregate(pipeline))
+            matches: list[dict[str, Any]] = self.aggregate_all(pipeline)
         except BaseManagerIterationError as err:
-            raise LocationsManagerGetError(err) from err
-        except Exception as err:
-            LOGGER.error("[get_location_chain] Exception: %s. Type: %s", err, type(err))
+            LOGGER.error("[get_location_chain] BaseManagerIterationError: %s", err)
             raise LocationsManagerGetError(err) from err
 
         if not matches:
@@ -709,13 +707,17 @@ class LocationsManager(BaseManager):
             data (dict[str, Any]): The CmdbLocation keys to write
 
         Raises:
-            LocationsManagerUpdateError: When the update operation fails
+            LocationsManagerUpdateError: When the update operation fails, or the CmdbObject owns no CmdbLocation -
+                an update that matched nothing changed nothing, which the caller must not take for success
         """
         try:
-            self.update({LocationKey.OBJECT_ID.value: object_id}, data)
-        except Exception as err:
-            LOGGER.error("[update_location] Exception: %s. Type: %s", err, type(err))
+            result: UpdateResult = self.update({LocationKey.OBJECT_ID.value: object_id}, data)
+        except BaseManagerUpdateError as err:
+            LOGGER.error("[update_location] BaseManagerUpdateError: %s", err)
             raise LocationsManagerUpdateError(err) from err
+
+        if result.matched_count == 0:
+            raise LocationsManagerUpdateError(f"No Location belongs to the Object with ID:{object_id}!")
 
 
     def update_locations_by_type(self, type_id: int, data: dict[str, Any]) -> bool:
@@ -736,23 +738,25 @@ class LocationsManager(BaseManager):
         Returns:
             bool: True when an update was executed, False when there was no data to apply
         """
+        if not data:
+            LOGGER.debug("No data provided to [update_locations_by_type] therefore no update executed!")
+            return False
+
         try:
-            if not data:
-                LOGGER.debug("No data provided to [update_locations_by_type] therefore no update executed!")
-                return False
-
             self.update_many(criteria={LocationKey.TYPE_ID.value: type_id}, update=data)
-
-            return True
         except BaseManagerUpdateError as err:
+            LOGGER.error("[update_locations_by_type] BaseManagerUpdateError: %s", err)
             raise LocationsManagerUpdateError(err) from err
-        except Exception as err:
-            LOGGER.error("[update_locations_by_type] Exception: %s. Type: %s", err, type(err))
-            raise LocationsManagerUpdateError(err) from err
+
+        return True
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
-    def _reparent_children_to_grandparent(self, public_id: int) -> None:
+    def _reparent_children_to_grandparent(
+            self,
+            public_id: int,
+            stored_node: dict[str, Any] | None = None,
+            children: list[dict[str, Any]] | None = None) -> None:
         """
         Re-parents the direct children of a CmdbLocation onto that location's own parent
 
@@ -768,8 +772,13 @@ class LocationsManager(BaseManager):
         silently disappear from the tree - and the deletion is refused instead. A node without a
         usable parent that has no children at all is still deletable: there is nothing to promote
 
+        A caller that has already read the node and its children passes them, and neither is read again
+
         Args:
             public_id (int): public_id of the CmdbLocation whose children should be promoted
+            stored_node (dict[str, Any] | None): The node as the caller read it; read here when None
+            children (list[dict[str, Any]] | None): Its direct children as the caller read them; asked of the
+                database here when None, and only when the node has no usable parent
 
         Raises:
             LocationsManagerGetError: If the children lookup of a parentless location fails
@@ -777,7 +786,7 @@ class LocationsManager(BaseManager):
             BaseManagerGetError: If the location lookup fails
             BaseManagerUpdateError: If the re-parenting update fails
         """
-        location: dict[str, Any] | None = self.get_one_by({LocationKey.PUBLIC_ID.value: public_id})
+        location: dict[str, Any] | None = stored_node or self.get_one_by({LocationKey.PUBLIC_ID.value: public_id})
 
         if not location:
             return
@@ -787,7 +796,11 @@ class LocationsManager(BaseManager):
         # bool is a subclass of int, so it has to be ruled out explicitly - a 'parent': True would
         # otherwise be written onto every child exactly like a None would
         if not isinstance(grandparent_id, int) or isinstance(grandparent_id, bool):
-            if public_id in self.get_parents_with_children([public_id]):
+            has_children: bool = (
+                bool(children) if children is not None else public_id in self.get_parents_with_children([public_id])
+            )
+
+            if has_children:
                 raise LocationsManagerUpdateError(
                     f"The Location with ID:{public_id} has no parent to promote its children to!"
                 )
@@ -800,7 +813,11 @@ class LocationsManager(BaseManager):
         )
 
 
-    def delete_location(self, public_id: int) -> bool:
+    def delete_location(
+            self,
+            public_id: int,
+            stored_node: dict[str, Any] | None = None,
+            children: list[dict[str, Any]] | None = None) -> bool:
         """
         Deletes a CmdbLocation from the database, promoting its direct children
 
@@ -817,10 +834,12 @@ class LocationsManager(BaseManager):
 
         Args:
             public_id (int): public_id of the CmdbLocation which should be deleted
+            stored_node (dict[str, Any] | None): The node as the caller already read it, so it is not read again
+            children (list[dict[str, Any]] | None): Its direct children as the caller already read them
 
         Raises:
-            LocationsManagerDeleteError: When the CmdbLocation is the synthetic root, or when the
-                                         delete operation fails
+            LocationsManagerDeleteError: When the CmdbLocation is the synthetic root, when it has children but no
+                                         parent to promote them onto, or when the delete operation fails
 
         Returns:
             bool: True if deletion was successful
@@ -829,11 +848,14 @@ class LocationsManager(BaseManager):
             raise LocationsManagerDeleteError('The root Location can not be deleted!')
 
         try:
-            self._reparent_children_to_grandparent(public_id)
+            self._reparent_children_to_grandparent(public_id, stored_node, children)
 
             return self.delete({LocationKey.PUBLIC_ID.value: public_id})
         except (BaseManagerGetError, BaseManagerUpdateError, BaseManagerDeleteError) as err:
-            raise LocationsManagerDeleteError(err) from err
-        except Exception as err:
             LOGGER.error("[delete_location] Exception: %s. Type: %s", err, type(err))
+            raise LocationsManagerDeleteError(err) from err
+        except (LocationsManagerGetError, LocationsManagerUpdateError) as err:
+            # The promotion's own refusal (no parent to promote the children onto) and its children lookup: the
+            # delete's error, so a caller handles one
+            LOGGER.error("[delete_location] Refused: %s. Type: %s", err, type(err))
             raise LocationsManagerDeleteError(err) from err

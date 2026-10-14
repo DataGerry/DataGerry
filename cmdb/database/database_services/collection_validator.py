@@ -16,12 +16,12 @@
 """
 First-boot bootstrap for a DataGerry tenant database
 
-CollectionValidator is invoked once per database (once per process start in local mode, once
-per tenant in cloud mode) to guarantee that every required collection exists, has its expected
+CollectionValidator is invoked once per database (once per process start on premise, once
+per tenant in the cloud product) to guarantee that every required collection exists, has its expected
 indexes, and is seeded with the predefined data the application relies on: the root location,
 the default ISMS protection goals, the default risk matrix, the predefined ISMS extendable
 options, the predefined section templates, the General report category, the fixed user groups,
-and in local mode the admin/admin user plus the AES/RSA keypair. Existing collections are
+and on premise the admin/admin user plus the AES/RSA keypair. Existing collections are
 never re-seeded; only their indexes are reconciled against the current model definitions. The
 shared cache database (DG_CACHE_DB) is created on the same pass when it is missing
 """
@@ -57,6 +57,7 @@ from cmdb.models.group_model import CmdbUserGroup
 from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.reports_model.report_constants import ReportCategoryKey
 from cmdb.models.cached_user_model.cmdb_cached_user import CmdbCachedUser
 
 from cmdb.models.extendable_option_model import CmdbExtendableOption, ExtendableOptionKey
@@ -97,23 +98,25 @@ class CollectionValidator:
     On a fresh database, creates every framework and user-management collection with its
     expected indexes and seeds the predefined data each collection needs. On an existing
     database, leaves stored data untouched and only reconciles indexes against the current
-    model definitions. The shared cache database (DG_CACHE_DB) is created on first run, and in
-    local mode the admin/admin user and the AES/RSA keypair are generated as well
+    model definitions. The shared cache database (DG_CACHE_DB) is created on first run, and
+    on premise the admin/admin user and the AES/RSA keypair are generated as well
     """
 
-    def __init__(self, db_name: str, dbm: MongoDatabaseManager, local_mode: bool = False) -> None:
+    def __init__(self, db_name: str, dbm: MongoDatabaseManager, on_premise: bool = False) -> None:
         """
         Initialises the CollectionValidator with the target database and DB manager
 
         Args:
             db_name (str): Name of the tenant database whose collections should be validated
             dbm (MongoDatabaseManager): The database operations manager for MongoDB
-            local_mode (bool): True when DataGerry runs in local (non-cloud) mode; gates the
-                generation of encryption keys and the default admin user
+            on_premise (bool): True for the on-premise boot (no ``--cloud``); gates the generation of the keys and
+                the default admin user. The cloud product - hosted or ``--cloud --local`` - takes its keys from the
+                environment or the app and its first user from the service portal, so it passes nothing.
+                Not the app's ``local_mode``, which marks ``--cloud --local``
         """
         self.db_name: str = db_name
         self.dbm: MongoDatabaseManager = dbm
-        self.local_mode: bool = local_mode
+        self.on_premise: bool = on_premise
 
 
     def validate_collections(self) -> None:
@@ -121,7 +124,7 @@ class CollectionValidator:
         Runs the full bootstrap pass for the configured tenant database
 
         Executes the five init steps in order: ensure the tenant database itself exists (and
-        seed encryption keys in local mode), create / reconcile framework collections, create
+        seed encryption keys on premise), create / reconcile framework collections, create
         / reconcile user-management collections, reconcile the media library's GridFS indexes,
         and ensure the shared cache database. Any failure raised by an init step is wrapped in
         CollectionValidationError so callers see a single error type for boot-time validation
@@ -149,11 +152,11 @@ class CollectionValidator:
 
     def init_database(self) -> None:
         """
-        Creates the tenant database if it does not yet exist and seeds keys in local mode
+        Creates the tenant database if it does not yet exist and seeds keys on premise
 
         Skips entirely when the database already exists; the call is therefore idempotent and
         safe to invoke on every boot. Key generation is delegated to init_keys and only runs
-        the first time the database is created (and only in local mode)
+        the first time the database is created (and only on premise)
         """
         if not self.dbm.check_database_exists(self.db_name):
             self.dbm.create_database(self.db_name)
@@ -222,13 +225,13 @@ class CollectionValidator:
 
     def init_keys(self) -> None:
         """
-        Generates the RSA keypair and the symmetric AES key for a fresh local-mode database
+        Generates the RSA keypair and the symmetric AES key for a fresh on-premise database
 
-        No-op in cloud mode: cloud-mode keys are provisioned outside the CollectionValidator
+        No-op for the cloud product: its keys are provisioned outside the CollectionValidator
         flow. Invoked exactly once, from init_database, right after the tenant database has
         been created
         """
-        if self.local_mode:
+        if self.on_premise:
             kg = KeyGenerator(self.dbm)
             kg.generate_rsa_keypair()
             kg.generate_symmetric_aes_key()
@@ -415,8 +418,8 @@ class CollectionValidator:
           - If its collection does not yet exist, the collection is created with its expected
             indexes. The CmdbUserGroup collection is then seeded with the fixed user groups
             (admin, user, etc.) defined in __FIXED_GROUPS__. The CmdbUser collection is seeded
-            with the default admin/admin user only in local mode; in cloud mode the initial
-            user is provisioned elsewhere.
+            with the default admin/admin user only on premise; in the cloud product the initial
+            user is provisioned through the service portal.
           - If the collection already exists, its indexes are reconciled against the current
             model definition (additively), matching init_framework_collections.
 
@@ -441,7 +444,7 @@ class CollectionValidator:
                 if management_class == CmdbUserGroup:
                     self._seed_fixed_groups()
 
-                if management_class == CmdbUser and self.local_mode:
+                if management_class == CmdbUser and self.on_premise:
                     self._seed_default_admin_user()
         except Exception as err:
             LOGGER.error("[init_management_collections] Exception: %s. Type: %s.", err, type(err), exc_info=True)
@@ -474,7 +477,7 @@ class CollectionValidator:
         while a database that ended up with no users - a first boot that failed after creating the
         collection - is one nobody can log into, and that is worth healing.
 
-        Local mode only; a cloud tenant's first user is provisioned through the service portal
+        On premise only; a cloud tenant's first user is provisioned through the service portal
         """
         users_manager: UsersManager = UsersManager(self.dbm, self.db_name)
 
@@ -651,7 +654,7 @@ class CollectionValidator:
             self._ensure_public_id_counter(collection, db_name)
 
             result: dict[str, Any] | None = self.dbm.get_collection(collection, db_name).find_one(
-                {BootstrapDocumentKey.NAME: GENERAL_REPORT_CATEGORY_NAME}
+                {ReportCategoryKey.NAME.value: GENERAL_REPORT_CATEGORY_NAME}
             )
 
             if not result:
@@ -659,8 +662,8 @@ class CollectionValidator:
                 LOGGER.info("Creating 'General' Report Category")
 
                 general_category: dict[str, Any] = {
-                    BootstrapDocumentKey.NAME: GENERAL_REPORT_CATEGORY_NAME,
-                    BootstrapDocumentKey.PREDEFINED: True,
+                    ReportCategoryKey.NAME.value: GENERAL_REPORT_CATEGORY_NAME,
+                    ReportCategoryKey.PREDEFINED.value: True,
                 }
 
                 self.dbm.insert(collection, db_name, general_category)

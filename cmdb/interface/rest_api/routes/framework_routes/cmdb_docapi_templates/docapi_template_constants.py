@@ -83,3 +83,6 @@ class DocapiTemplateRight(BaseStrEnum):
     VIEW = 'base.docapi.template.view'
     EDIT = 'base.docapi.template.edit'
     DELETE = 'base.docapi.template.delete'
+
+# The query flag asking the template list for the minimal form of each template (default false)
+MINIMAL_PARAM: str = 'minimal'

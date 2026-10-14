@@ -43,12 +43,12 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 
-from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.errors.manager.objects_manager import ObjectsManagerGetError, ObjectsManagerIterationError
 from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.rack_mounts_manager import RackMountsManagerGetError
 
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.utils import Builder, is_truthy_query_arg
+from cmdb.utils import Builder
 
 from cmdb.interface.route_utils import (
     abort_if_query_too_slow,
@@ -62,18 +62,22 @@ from cmdb.interface.rest_api.responses.response_parameters import CollectionPara
 from cmdb.interface.rest_api.routes.routes_helper import (
     append_criteria_to_filter,
     fetch_only_active_objects,
+    read_boolean_query_param,
     request_wants_body,
 )
 
 from cmdb.framework.rack.assignable_objects import build_assignable_criteria
 
-from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import RackMountParam, RackRight
+from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import (
+    RackAssignableError,
+    RackMountParam,
+    RackRight,
+)
 from cmdb.interface.rest_api.routes.rack_routes.rack_mount_helper import (
     get_rack_or_abort,
     shape_assignable_page,
 )
 from cmdb.security.acl.permission import AccessControlPermission
-from cmdb.security.acl.builder import resolve_denied_type_ids
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -113,8 +117,10 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
 
     Raises:
         HTTPException: 403 when the caller may not read the Rack (the object ACL on its type),
-                       400 when the object is not a Rack or a read fails, 404 when the Rack does not
-                       exist, 500 on an unexpected error
+                       400 when the object is not a Rack or one of the picker's reads fails (the Rack, the
+                       candidates, their details, the mounts, the types - each names its own), 404 when the
+                       Rack does not exist, 503 when the candidate read runs past its time budget, 500 on an
+                       unexpected error
 
     Returns:
         GetMultiResponse: One picker row per assignable CmdbObject of the requested page
@@ -129,7 +135,7 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
 
         # Every mounted object when the caller asked for free ones only, otherwise just this rack's own
         # members - the objects in another rack stay in the list and are offered as a move
-        only_unmounted: bool = is_truthy_query_arg(request.args.get(RackMountParam.ONLY_UNMOUNTED.value))
+        only_unmounted: bool = read_boolean_query_param(RackMountParam.ONLY_UNMOUNTED.value, default=False)
 
         excluded_object_ids: list[int] = (
             rack_mounts_manager.get_mounted_object_ids() if only_unmounted
@@ -149,16 +155,16 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
 
         builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
+        # Read once: it narrows the candidates (rows and total alike) and masks the holding racks' names
+        denied_type_ids: list[int] = types_manager.get_denied_type_ids(request_user, AccessControlPermission.READ)
+
         # The raw aggregation documents, not hydrated CmdbObjects: a picker row is six keys, so building
         # a model instance per candidate only to project it away would be wasted work
-        object_docs, total = objects_manager.iterate_query(
-            builder_params, request_user, AccessControlPermission.READ,
-        )
+        object_docs, total = objects_manager.iterate_documents(builder_params, denied_type_ids)
 
         return GetMultiResponse(
             shape_assignable_page(
-                objects_manager, types_manager, rack_mounts_manager, object_docs,
-                resolve_denied_type_ids(request_user, AccessControlPermission.READ),
+                objects_manager, types_manager, rack_mounts_manager, object_docs, denied_type_ids,
             ),
             total=total,
             params=params,
@@ -166,12 +172,17 @@ def get_assignable_objects(params: CollectionParameters, rack_id: int, request_u
             body=request_wants_body(),
         ).make_response()
     except ObjectsManagerIterationError as err:
+        # The candidate read; a run past its time budget is the shared 503
         abort_if_query_too_slow(err)
         LOGGER.error("[get_assignable_objects] %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the objects assignable to the Rack!")
+        abort(400, RackAssignableError.CANDIDATES_FAILED.value)
+    except ObjectsManagerGetError as err:
+        # The Rack itself, the candidates' summary lines and the holding racks' names
+        LOGGER.error("[get_assignable_objects] %s", err, exc_info=True)
+        abort(400, RackAssignableError.DETAILS_FAILED.value)
     except RackMountsManagerGetError as err:
         LOGGER.error("[get_assignable_objects] %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the objects already mounted in a Rack!")
+        abort(400, RackAssignableError.MOUNTS_FAILED.value)
     except TypesManagerGetError as err:
         LOGGER.error("[get_assignable_objects] %s", err, exc_info=True)
-        abort(400, "Failed to retrieve the Rack types!")
+        abort(400, RackAssignableError.TYPES_FAILED.value)

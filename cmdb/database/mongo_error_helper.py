@@ -14,7 +14,8 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-Reads what a failed MongoDB write means - the size limit, a duplicate key, and the typed error an insert raises
+Reads what a failed MongoDB operation means - the size limit, a duplicate key, the typed error an insert raises,
+and whether the database server itself is gone
 
 Pure functions over the driver's errors: no database access, so each is testable on a constructed error. The
 database manager and its counter half sort every write failure through them
@@ -35,7 +36,10 @@ from cmdb.database.database_constants import (
     PUBLIC_ID_FIELD,
 )
 
+from cmdb.utils.error_chain import find_cause
+
 from cmdb.errors.database import (
+    DatabaseConnectionError,
     DocumentInsertDuplicateKeyError,
     DocumentInsertError,
     DocumentInsertTooLargeError,
@@ -43,6 +47,28 @@ from cmdb.errors.database import (
     DocumentNetworkError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
+
+#: A failure that is the database server's, not one operation's: the driver lost the server, or a layer above it
+#: said so. Found anywhere in the cause chain (``is_database_outage``)
+DATABASE_OUTAGE_ERRORS: tuple[type[Exception], ...] = (
+    ConnectionFailure,
+    DatabaseConnectionError,
+    DocumentNetworkError,
+)
+
+
+def is_database_outage(err: BaseException) -> bool:
+    """
+    Tells whether an error means the database server, rather than one operation, failed
+
+    Args:
+        err (BaseException): The error that was caught
+
+    Returns:
+        bool: True when a ``DATABASE_OUTAGE_ERRORS`` class is anywhere in its cause chain
+    """
+    return any(find_cause(err, error_class) for error_class in DATABASE_OUTAGE_ERRORS)
+
 
 def is_document_too_large(err: BaseException) -> bool:
     """

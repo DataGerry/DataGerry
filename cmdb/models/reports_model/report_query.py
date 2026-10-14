@@ -31,7 +31,7 @@ lives in exactly one function
 from datetime import datetime
 from typing import Any
 
-from cmdb.models.reports_model.report_constants import ReportQueryKey
+from cmdb.models.reports_model.report_constants import ReportKey, ReportQueryKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__ = [
@@ -46,9 +46,6 @@ STORED_DATETIME_CALL: str = 'datetime.datetime'
 # Only 'datetime' is in scope and builtins are removed - see the module docstring for what that does
 # and does not protect against
 _EVAL_GLOBALS: dict[str, Any] = {'datetime': datetime, '__builtins__': {}}
-
-# The CmdbReport key the stored query lives under
-_REPORT_QUERY_KEY: str = 'report_query'
 
 
 def eval_stored_report_query(query_str: str) -> dict[str, Any]:
@@ -85,7 +82,7 @@ def read_stored_report_query(report: dict[str, Any]) -> dict[str, Any]:
     Returns:
         dict[str, Any]: The reconstructed Mongo query, empty when the report stores none
     """
-    stored_query: Any = report.get(_REPORT_QUERY_KEY)
+    stored_query: Any = report.get(ReportKey.REPORT_QUERY.value)
     query_str: Any = stored_query.get(ReportQueryKey.DATA) if isinstance(stored_query, dict) else None
 
     if not isinstance(query_str, str) or not query_str.strip():

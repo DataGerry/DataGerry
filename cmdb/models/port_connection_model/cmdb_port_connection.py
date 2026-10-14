@@ -70,6 +70,10 @@ class CmdbPortConnection(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.portConnections'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbPortConnectionInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbPortConnectionToJsonError
     REQUIRED_INIT_KEYS: list[str] = [
         PortConnectionKey.ENDPOINTS.value,
         PortConnectionKey.CONNECTION_TYPE.value,

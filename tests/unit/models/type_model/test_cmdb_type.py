@@ -640,3 +640,11 @@ def test_the_marker_is_in_the_schema_with_a_false_default() -> None:
 
     assert rules['type'] == 'boolean'
     assert rules['default'] is False
+
+
+# ---------------------------------------------------- declared errors ---------------------------------------------- #
+
+def test_the_typed_errors_are_declared() -> None:
+    """A manager names what from_data / to_json raise through the declaration, not a catch-all"""
+    assert CmdbType.INIT_FROM_DATA_ERROR is CmdbTypeInitFromDataError
+    assert CmdbType.TO_JSON_ERROR is CmdbTypeToJsonError

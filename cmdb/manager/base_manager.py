@@ -21,7 +21,6 @@ from typing import Any
 
 from pymongo.results import DeleteResult, UpdateResult
 from pymongo.cursor import Cursor
-from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BaseQueryBuilder, BuilderParameters
@@ -455,6 +454,10 @@ class BaseManager:
             criteria (dict[str, Any] | None): The filter criteria for the find query. Defaults to None
             **kwargs: Additional keyword arguments for the 'find' operation (projection, sort, limit)
 
+        Read through ``find_all``, which reads the cursor inside the database layer: MongoDB refuses a query (an
+        unknown operator, say) only when the cursor is first read, so a cursor read here, outside it, let the driver's
+        raw OperationFailure past this method
+
         Raises:
             BaseManagerGetError: If an error occurs while retrieving documents from the collection
 
@@ -465,12 +468,12 @@ class BaseManager:
             if criteria is None:
                 criteria = {}
 
-            return list(self.dbm.find(
+            return self.dbm.find_all(
                 self.collection,
                 self.db_name,
                 filter=criteria,
                 **kwargs
-            ))
+            )
         except DocumentGetError as err:
             raise BaseManagerGetError(err) from err
 
@@ -541,22 +544,30 @@ class BaseManager:
             raise BaseManagerGetError(err) from err
 
 
-    def aggregate(self, *args: Any, **kwargs: Any) -> CommandCursor:
+    def aggregate_all(
+            self,
+            pipeline: list[dict[str, Any]],
+            collection: str | None = None,
+            **kwargs: Any) -> list[dict[str, Any]]:
         """
-        Performs a MongoDB aggregation operation on the collection
+        Runs an aggregation and reads every result inside the database layer
+
+        Unlike ``aggregate``, no cursor is handed back: a failure on a later batch is a BaseManagerIterationError
+        like one on the first, not a raw driver error escaping from the caller's loop
 
         Args:
-            *args: Positional arguments for the aggregation pipeline
-            **kwargs: Keyword arguments for additional aggregation options
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            collection (str | None): The collection to aggregate; this manager's own when None
+            **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
 
         Raises:
-            BaseManagerIterationError: If an error occurs during the aggregation operation
+            BaseManagerIterationError: If the aggregation failed
 
         Returns:
-            CommandCursor: A cursor that can be iterated over to access the aggregation results
+            list[dict[str, Any]]: Every result of the aggregation
         """
         try:
-            return self.dbm.aggregate(self.collection, self.db_name, *args, **kwargs)
+            return self.dbm.aggregate_all(collection or self.collection, self.db_name, pipeline, **kwargs)
         except DocumentAggregationError as err:
             raise BaseManagerIterationError(err) from err
 
@@ -588,27 +599,6 @@ class BaseManager:
             return self.dbm.aggregate_within_time_limit(
                 self.collection, self.db_name, pipeline, time_limit_ms, **kwargs,
             )
-        except DocumentAggregationError as err:
-            raise BaseManagerIterationError(err) from err
-
-
-    def aggregate_from_other_collection(self, collection: str, *args: Any, **kwargs: Any) -> CommandCursor:
-        """
-        Performs a MongoDB aggregation operation on the specified collection
-
-        Args:
-            collection (str): The name of the collection to perform the aggregation on
-            *args: Positional arguments for the aggregation pipeline
-            **kwargs: Keyword arguments for additional aggregation options
-
-        Raises:
-            BaseManagerIterationError: If an error occurs during the aggregation operation
-
-        Returns:
-            CommandCursor: A cursor that can be iterated over to access the aggregation results
-        """
-        try:
-            return self.dbm.aggregate(collection, self.db_name, *args, **kwargs)
         except DocumentAggregationError as err:
             raise BaseManagerIterationError(err) from err
 

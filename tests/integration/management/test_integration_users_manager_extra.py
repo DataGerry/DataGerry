@@ -17,11 +17,12 @@
 Integration tests for the query + group-membership surface of UsersManager
 
 Complements test_integration_users_crud.py by pinning the read helpers (``get_user_by``,
-``get_many_users``, ``get_user_lookup``) and the group-delete redistribution
+``get_user_lookup``) and the group-delete redistribution
 (``handle_users_on_group_delete``: MOVE reassigns members, a MOVE with no target raises an update
 error, DELETE removes members, an admin member refuses deletion, an empty group is a no-op) against a
-real MongoDB. Also covers the manager's error-wrapping (every CRUD path maps an underlying failure to
-its typed UsersManager error) by patching the BaseManager primitives to raise.
+real MongoDB. Also covers the manager's error-wrapping (every CRUD path maps an underlying BaseManager failure to
+its typed UsersManager error, and lets a programming error through as itself) by patching the BaseManager
+primitives to raise.
 """
 from datetime import datetime, timezone
 from typing import Any
@@ -33,7 +34,13 @@ from cmdb.manager.users_manager import UsersManager
 from cmdb.models.group_model import GroupDeleteMode
 from cmdb.models.user_model import CmdbUser
 
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager import (
+    BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
+    BaseManagerUpdateError,
+)
 from cmdb.errors.manager.users_manager import (
     UsersManagerGetError,
     UsersManagerInsertError,
@@ -103,7 +110,7 @@ def _raiser(exc: Exception):
 
 
 class TestReadHelpers:
-    """get_user_by / get_many_users / get_user_lookup resolve the seeded users."""
+    """get_user_by / get_user_lookup resolve the seeded users."""
 
     def test_get_user_by_returns_match(self, users_manager: UsersManager) -> None:
         """get_user_by resolves a user through a non-id query field."""
@@ -117,16 +124,6 @@ class TestReadHelpers:
     def test_get_user_by_returns_none_when_absent(self, users_manager: UsersManager) -> None:
         """get_user_by returns None when nothing matches."""
         assert users_manager.get_user_by({'email': 'nobody@example.com'}) is None
-
-    def test_get_many_users_filters_by_group(self, users_manager: UsersManager) -> None:
-        """get_many_users returns every user matching the query."""
-        _seed(users_manager, USER_A, SRC_GROUP_ID)
-        _seed(users_manager, USER_B, SRC_GROUP_ID)
-        _seed(users_manager, USER_C, DST_GROUP_ID)
-
-        result = users_manager.get_many_users({'group_id': SRC_GROUP_ID})
-
-        assert {user.public_id for user in result} == {USER_A, USER_B}
 
     def test_get_user_lookup_maps_id_to_user(self, users_manager: UsersManager) -> None:
         """get_user_lookup returns a public_id -> CmdbUser mapping for the requested ids."""
@@ -208,53 +205,71 @@ class TestErrorWrapping:
 
     def test_insert_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
         """insert_user wraps a failure as UsersManagerInsertError."""
-        monkeypatch.setattr(users_manager, 'insert', _raiser(RuntimeError('x')))
+        monkeypatch.setattr(users_manager, 'insert', _raiser(BaseManagerInsertError('x')))
 
         with pytest.raises(UsersManagerInsertError):
             users_manager.insert_user(_user_data(USER_A, SRC_GROUP_ID))
 
     def test_get_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
         """get_user wraps a failure as UsersManagerGetError."""
-        monkeypatch.setattr(users_manager, 'get_one', _raiser(RuntimeError('x')))
+        monkeypatch.setattr(users_manager, 'get_one', _raiser(BaseManagerGetError('x')))
 
         with pytest.raises(UsersManagerGetError):
             users_manager.get_user(USER_A)
 
     def test_get_by_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
         """get_user_by wraps a failure as UsersManagerGetError."""
-        monkeypatch.setattr(users_manager, 'get_one_by', _raiser(RuntimeError('x')))
+        monkeypatch.setattr(users_manager, 'get_one_by', _raiser(BaseManagerGetError('x')))
 
         with pytest.raises(UsersManagerGetError):
             users_manager.get_user_by({'email': USER_A_EMAIL})
 
-    def test_get_many_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
-        """get_many_users wraps a failure as UsersManagerGetError."""
-        monkeypatch.setattr(users_manager, 'get', _raiser(RuntimeError('x')))
-
-        with pytest.raises(UsersManagerGetError):
-            users_manager.get_many_users({'group_id': SRC_GROUP_ID})
-
     def test_iterate_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
         """iterate wraps a failure as UsersManagerIterationError."""
         monkeypatch.setattr(users_manager, 'iterate_query',
-                            _raiser(RuntimeError('x')))
+                            _raiser(BaseManagerIterationError('x')))
 
         with pytest.raises(UsersManagerIterationError):
             users_manager.iterate(None)
 
     def test_update_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
         """update_user wraps a failure as UsersManagerUpdateError."""
-        monkeypatch.setattr(users_manager, 'update', _raiser(RuntimeError('x')))
+        monkeypatch.setattr(users_manager, 'update', _raiser(BaseManagerUpdateError('x')))
 
         with pytest.raises(UsersManagerUpdateError):
             users_manager.update_user(USER_A, _user_data(USER_A, SRC_GROUP_ID))
 
     def test_delete_wraps(self, users_manager: UsersManager, monkeypatch) -> None:
         """delete_user wraps a failure as UsersManagerDeleteError."""
-        monkeypatch.setattr(users_manager, 'delete', _raiser(RuntimeError('x')))
+        monkeypatch.setattr(users_manager, 'delete', _raiser(BaseManagerDeleteError('x')))
 
         with pytest.raises(UsersManagerDeleteError):
             users_manager.delete_user(USER_A)
+
+    @pytest.mark.parametrize('primitive, call', [
+        ('insert', lambda manager: manager.insert_user(_user_data(USER_A, SRC_GROUP_ID))),
+        ('get_one', lambda manager: manager.get_user(USER_A)),
+        ('get_one_by', lambda manager: manager.get_user_by({'email': USER_A_EMAIL})),
+        ('update', lambda manager: manager.update_user(USER_A, _user_data(USER_A, SRC_GROUP_ID))),
+        ('delete', lambda manager: manager.delete_user(USER_A)),
+    ], ids=['insert_user', 'get_user', 'get_user_by', 'update_user', 'delete_user'])
+    def test_a_programming_error_propagates(self, users_manager: UsersManager, monkeypatch,
+                                            primitive: str, call: Any) -> None:
+        """Not a failure of the call: it reaches the route as itself, which answers 500 instead of 400"""
+        monkeypatch.setattr(users_manager, primitive, _raiser(TypeError('bug')))
+
+        with pytest.raises(TypeError, match='bug'):
+            call(users_manager)
+
+    def test_an_unreadable_stored_user_is_a_get_error(self, users_manager: UsersManager) -> None:
+        """A stored document the model refuses (no user_name) is the read's error, refused at login like no user"""
+        # Written past the collection's validator, the way a drifted document got there
+        users_manager.dbm.get_collection(CmdbUser.COLLECTION, users_manager.db_name).insert_one(
+            {'public_id': USER_C, 'active': True}, bypass_document_validation=True,
+        )
+
+        with pytest.raises(UsersManagerGetError):
+            users_manager.get_user(USER_C)
 
 
 class TestGetMinimalUsersByIds:

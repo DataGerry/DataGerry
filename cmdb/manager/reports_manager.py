@@ -24,9 +24,8 @@ from pymongo import UpdateOne
 from cmdb.database import MongoDatabaseManager, MongoDBQueryBuilder
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
-from cmdb.models.reports_model.report_constants import ReportQueryKey
+from cmdb.models.reports_model.report_constants import ReportKey, ReportQueryKey
 from cmdb.models.type_model import CmdbType
 
 from cmdb.errors.manager.reports_manager import REPORTS_MANAGER_ERRORS, ReportsManagerUpdateError
@@ -106,9 +105,12 @@ class ReportsManager(GenericManager):
                 tmp_report.report_query = {
                     ReportQueryKey.DATA: str(MongoDBQueryBuilder(tmp_report.conditions, type_instance).build())
                 }
-                report_ops.append(
-                    UpdateOne({CmdbObjectKey.PUBLIC_ID.value: tmp_report.public_id}, {'$set': tmp_report.__dict__})
-                )
+                # The stored form, not the instance's attributes: an attribute that is no stored key never reaches
+                # the document
+                report_ops.append(UpdateOne(
+                    {ReportKey.PUBLIC_ID.value: tmp_report.public_id},
+                    {'$set': CmdbReport.to_json(tmp_report)},
+                ))
 
             # No emptiness guard needed: the early return above rules out an empty report list, and
             # every report yields exactly one operation

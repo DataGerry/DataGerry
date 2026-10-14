@@ -208,3 +208,6 @@ ASSIGNMENT_CONTROL_MEASURE_DUPLICATE_MSG: str = (
 ASSIGNMENT_ALREADY_ASSIGNED_MSG: str = (
     "ControlMeasure ID:{control_measure_id} is already assigned to RiskAssessment ID:{risk_assessment_id}!"
 )
+
+# The query flag of a duplicate asking for the source's ControlMeasure assignments to be copied too (default true)
+COPY_CMA_PARAM: str = 'copy_cma'

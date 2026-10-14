@@ -360,39 +360,6 @@ def create_attachment_name(
         raise MediaFileManagerGetError(err) from err
 
 
-def recursive_delete_filter(
-    public_id: int,
-    media_files_manager: MediaFilesManager,
-    _ids: list[int] | None = None,
-) -> list[int]:
-    """
-    Recursively collects and returns the list of public IDs for files to be deleted,
-    including their child files in a parent-child file structure
-
-    Args:
-        public_id (int): The public ID of the root file
-        media_files_manager (MediaFilesManager): Media file manager to fetch and manage files
-        _ids (list[int] | None): List of already collected IDs, used for recursion
-
-    Returns:
-        list[int]: A list of public IDs of the files to delete
-    """
-    if _ids is None:
-        _ids = []
-
-    # public_id is already known - only the children need to be queried (one query per node, not two)
-    _ids.append(public_id)
-
-    children = media_files_manager.get_many_media_files(
-        metadata={metadata_field(MediaFileMetadataKey.PARENT): public_id},
-    ).results
-
-    for item in children:
-        recursive_delete_filter(item['public_id'], media_files_manager, _ids)
-
-    return _ids
-
-
 def get_stored_file_or_abort(media_files_manager: MediaFilesManager, public_id: int) -> dict[str, Any]:
     """
     Loads a stored MediaFile by public_id, or answers 404

@@ -43,6 +43,7 @@ from flask import Blueprint
 from pymongo.errors import ServerSelectionTimeoutError
 
 import cmdb
+from cmdb.database import mongo_error_helper
 from cmdb.errors.database import (
     DatabaseConnectionError,
     DocumentInsertError,
@@ -772,7 +773,7 @@ def test_start_datagerry_setup_validates_then_updates() -> None:
         start_datagerry_setup(dbm)
 
     mock_reader.return_value.get_value.assert_called_once_with('database_name', 'Database')
-    mock_validator.assert_called_once_with(DB_NAME, dbm, local_mode=True)
+    mock_validator.assert_called_once_with(DB_NAME, dbm, on_premise=True)
     mock_validator.return_value.validate_collections.assert_called_once_with()
     mock_updater.assert_called_once_with(dbm, DB_NAME)
     mock_updater.return_value.run_updates.assert_called_once_with()
@@ -866,15 +867,15 @@ def test_existence_is_read_before_the_collections_are_validated() -> None:
     assert order == ['check', 'validate']
 
 
-def test_the_local_mode_flag_reaches_the_validator() -> None:
+def test_the_on_premise_flag_reaches_the_validator() -> None:
     """It gates the key generation and the default admin user, so it must not be dropped."""
     dbm = MagicMock()
 
     with patch(f'{MODULE_PATH}.CollectionValidator') as mock_validator, \
          patch(f'{MODULE_PATH}.DatabaseUpdater'):
-        bring_database_up_to_date(dbm, DB_NAME, local_mode=True)
+        bring_database_up_to_date(dbm, DB_NAME, on_premise=True)
 
-    mock_validator.assert_called_once_with(DB_NAME, dbm, local_mode=True)
+    mock_validator.assert_called_once_with(DB_NAME, dbm, on_premise=True)
 
 
 def test_both_boot_paths_share_one_rule() -> None:
@@ -905,7 +906,7 @@ def test_execute_update_checks_walks_every_tenant_database() -> None:
         execute_update_checks(dbm)
 
     mock_names.assert_called_once_with(False)
-    assert mock_validator.call_args_list == [call(name, dbm, local_mode=False) for name in TENANT_DBS]
+    assert mock_validator.call_args_list == [call(name, dbm, on_premise=False) for name in TENANT_DBS]
     assert mock_updater.call_args_list == [call(dbm, name) for name in TENANT_DBS]
     assert mock_updater.return_value.run_updates.call_count == len(TENANT_DBS)
 
@@ -1042,6 +1043,11 @@ def _wrapped(inner: Exception) -> Exception:
     outer.__cause__ = inner
 
     return outer
+
+
+def test_is_database_outage_is_the_database_layers_one_definition() -> None:
+    """The startup loop and the key read (load_key_holder) answer "is the server gone?" with the same function"""
+    assert is_database_outage is mongo_error_helper.is_database_outage
 
 
 @pytest.mark.parametrize('err', [

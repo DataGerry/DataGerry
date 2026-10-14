@@ -20,9 +20,8 @@ Provides:
     * `load_class` — dynamic class loader used by the process manager (service classes),
       the database updater (per-version `updater_<date>` modules) and the exporter
       framework (per-format classes under `cmdb.framework.exporter.format.*`)
-    * `str_to_bool` — lenient string/bool coercer used to normalise REST query params
-    * `is_truthy_query_arg` — the never-raising wrapper around `str_to_bool` the routes apply to an
-      optional query flag, falling back to a default instead of rejecting the request
+    * `str_to_bool` — the strict `true` / `false` (any casing) or bool coercer: the API's one rule for a boolean
+      flag (`routes_helper.read_boolean_query_param` / `read_boolean_value`), raising on anything else
     * `parse_import_bool` — the more permissive boolean parser the object- and type-imports apply to
       an uploaded flag, reporting an unusable value instead of raising
     * `coerce_whole_number` — the "this is a count / an index / a slot" coercer, shared by the
@@ -117,7 +116,7 @@ def load_class(classname: str) -> type:
 
 def str_to_bool(s: Any) -> bool:
     """
-    Coerces a permissive string / bool value into a strict `bool`
+    Coerces a `true` / `false` string (any casing) or a bool into a `bool`, refusing anything else
 
     Accepts the literal strings `"true"` / `"false"` (case-insensitive, surrounding
     whitespace stripped) and passes through native `bool` values unchanged. Any other
@@ -145,28 +144,6 @@ def str_to_bool(s: Any) -> bool:
         return s
 
     raise ValueError("Invalid value for conversion to boolean")
-
-
-def is_truthy_query_arg(value: Any, default: bool = False) -> bool:
-    """
-    Leniently interprets a query-string boolean flag, never raising
-
-    Wraps `str_to_bool` for the REST query-parameter case where an absent or unrecognised value should
-    fall back to a default rather than raise: `"true"` / `"True"` (and native `True`) become `True`,
-    `"false"` / `False` become `False`, and anything else (missing param, `None`, `"1"`, `"yes"`, ...)
-    returns `default`. Replaces the ad-hoc `value in ['True', 'true']` checks scattered across the routes.
-
-    Args:
-        value (Any): The raw query-parameter value (typically `request.args.get(...)`)
-        default (bool): Value returned when `value` is missing or unrecognised. Defaults to False
-
-    Returns:
-        bool: The interpreted boolean flag
-    """
-    try:
-        return str_to_bool(value)
-    except ValueError:
-        return default
 
 
 def process_bar(name: str, total: int, progress: int) -> None:

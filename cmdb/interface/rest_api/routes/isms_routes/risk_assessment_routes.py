@@ -34,6 +34,7 @@ from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_risk_assessment_constants import CONTROL_MEASURE_ASSIGNMENTS_KEY, RiskAssessmentKey
 from cmdb.models.object_group_model.object_reference_type_enum import ObjectReferenceType
@@ -62,6 +63,7 @@ from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import (
     require_created_item,
 )
 from cmdb.interface.rest_api.routes.isms_routes.isms_routes_constants import (
+    COPY_CMA_PARAM,
     RISK_ASSESSMENT_LABEL,
     RISK_ASSESSMENT_UNDO_INCOMPLETE_MSG,
     IsmsManagerErrorMessage,
@@ -98,6 +100,7 @@ from cmdb.errors.manager.risk_assessment_manager import (
     RiskAssessmentManagerIterationError,
 )
 from cmdb.interface.rest_api.routes.routes_helper import (
+    read_boolean_query_param,
     request_wants_body,
     pin_public_id,
     update_item_from_payload,
@@ -355,7 +358,7 @@ def duplicate_isms_risk_assessment(
     if duplicate_mode not in duplicate_modes:
         abort(400, f"Invalid duplication target: {duplicate_mode}. Allowed: {', '.join(duplicate_modes)}!")
 
-    copy_cma = request.args.get('copy_cma', 'true').lower() == 'true'
+    copy_cma: bool = read_boolean_query_param(COPY_CMA_PARAM, default=True)
 
     # The source payload becomes every duplicate, so it has to satisfy the same required fields
     guard_required_risk_assessment_fields(data)
@@ -580,8 +583,11 @@ def get_isms_risk_assessments(params: CollectionParameters, request_user: CmdbUs
             person_groups_manager.find_all(criteria={'public_id': {'$in': list(responsible_person_group_ids)}})
         }
 
-    # Resolve the referenced objects' summary lines in a single batch instead of one per assessment
-    object_summaries = objects_manager.get_summary_lines_lookup(list(object_ids)) if object_ids else {}
+    # Resolve the referenced objects' summary lines in a single batch instead of one per assessment. Read as
+    # the caller: an object of a type their group may not READ gets no line, so its naming stays None
+    object_summaries = objects_manager.get_summary_lines_lookup(
+        list(object_ids), user=request_user, permission=AccessControlPermission.READ,
+    ) if object_ids else {}
 
     # Add naming info
     risk_assessments_list = []

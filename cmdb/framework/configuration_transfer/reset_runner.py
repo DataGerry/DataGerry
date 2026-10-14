@@ -21,16 +21,17 @@ deleted by its criteria and its counter derived from what is still stored, so ru
 failure midway deletes what is left and reaches the same end state. The list's order (definitions last) makes sure
 a failed run leaves a system that still has its types.
 
-A GridFS target is deleted in rounds of `RESET_DELETE_BATCH_SIZE` files: the chunks of a round first, then its file
-documents. A run that stops between the two leaves file documents without chunks, which the next run deletes - never
-chunks without a file document, which nothing would find again
+A GridFS target is deleted in rounds of `RESET_DELETE_BATCH_SIZE` files, each through the shared
+``gridfs_helper.delete_gridfs_files``: the chunks of a round first, then its file documents. A run that stops between
+the two leaves file documents without chunks, which the next run deletes - never chunks without a file document,
+which nothing would find again
 """
 from typing import Any
 
 from cmdb.manager.base_manager import BaseManager
+from cmdb.manager.gridfs_helper import delete_gridfs_files
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import RESET_DELETE_BATCH_SIZE
 from cmdb.framework.configuration_transfer.reset_scope import RESET_TARGETS, ResetTarget
-from cmdb.framework.media_library.media_file_keys import GRIDFS_CHUNKS_SUFFIX, GRIDFS_CHUNK_FILE_KEY
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MONGO_ID_KEY: str = '_id'
@@ -52,7 +53,6 @@ def delete_gridfs_target(manager: BaseManager, target: ResetTarget, batch_size: 
     Returns:
         int: The number of file documents deleted
     """
-    chunks_collection: str = f'{target.gridfs_bucket}{GRIDFS_CHUNKS_SUFFIX}'
     deleted: int = 0
 
     while True:
@@ -64,11 +64,7 @@ def delete_gridfs_target(manager: BaseManager, target: ResetTarget, batch_size: 
         if not files:
             return deleted
 
-        file_ids: list[Any] = [file[MONGO_ID_KEY] for file in files]
-        manager.delete_many_from_other_collection(chunks_collection, {GRIDFS_CHUNK_FILE_KEY: {'$in': file_ids}})
-        deleted += manager.delete_many_from_other_collection(
-            target.collection, {MONGO_ID_KEY: {'$in': file_ids}}
-        ).deleted_count
+        deleted += delete_gridfs_files(manager, target.gridfs_bucket, [file[MONGO_ID_KEY] for file in files])
 
 
 def clear_target(manager: BaseManager, target: ResetTarget) -> int:

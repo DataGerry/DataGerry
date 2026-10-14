@@ -16,7 +16,7 @@
 """
 Unit tests for the CmdbObjectRelation write checks of relations_helper and object_relation_routes
 
-Pure tests: the objects manager is a stub and the caller's denied types are patched. Pinned:
+Pure tests: the objects manager is a stub and the caller's denied types are handed in. Pinned:
 
   - ``resolve_object_relation_endpoints`` answers the endpoints' REAL type ids, reads both objects in one projected
     query, and refuses a missing, unreadable or wrong-typed endpoint per side - the parent judged by
@@ -33,7 +33,6 @@ import pytest
 from werkzeug.exceptions import HTTPException
 
 from cmdb.models.relation_model import RelationKey
-from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.routes.relation_routes import object_relation_routes, relations_helper
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     ENDPOINT_PROJECTION,
@@ -61,15 +60,6 @@ RELATION: dict[str, Any] = {
 }
 
 
-@pytest.fixture(name='denied')
-def fixture_denied(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    """The caller's denied types, patched; none by default"""
-    denied = MagicMock(return_value=[])
-    monkeypatch.setattr(relations_helper, 'resolve_denied_type_ids', denied)
-
-    return denied
-
-
 def _objects(stored: dict[int, int]) -> MagicMock:
     """An objects manager whose find answers the given object -> type pairs"""
     manager = MagicMock()
@@ -78,24 +68,33 @@ def _objects(stored: dict[int, int]) -> MagicMock:
     return manager
 
 
-def _resolve(stored: dict[int, int], parent_id: Any = PARENT_ID, child_id: Any = CHILD_ID) -> tuple[int, int]:
-    """Runs the resolver against the given stored objects"""
-    return resolve_object_relation_endpoints(RELATION, parent_id, child_id, _objects(stored), REQUEST_USER)
+def _resolve(stored: dict[int, int], parent_id: Any = PARENT_ID, child_id: Any = CHILD_ID,
+             denied: list[int] | None = None) -> tuple[int, int]:
+    """Runs the resolver against the given stored objects, with nothing denied unless given"""
+    return resolve_object_relation_endpoints(RELATION, parent_id, child_id, _objects(stored), denied or [])
 
 
 class TestResolveObjectRelationEndpoints:
     """Both endpoints read, judged per side, and their real types answered"""
 
-    def test_answers_the_endpoints_real_types(self, denied: MagicMock) -> None:
+    def test_answers_the_endpoints_real_types(self) -> None:
         """The types the route stores come from the objects"""
         assert _resolve({PARENT_ID: PARENT_TYPE, CHILD_ID: CHILD_TYPE}) == (PARENT_TYPE, CHILD_TYPE)
-        denied.assert_called_once_with(REQUEST_USER, AccessControlPermission.READ)
 
-    def test_both_objects_are_read_in_one_projected_query(self, denied: MagicMock) -> None:
+    def test_the_denied_types_are_not_read_again(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The route resolves them once and hands them in, so an update reads them once for both of its checks"""
+        resolver = MagicMock()
+        monkeypatch.setattr(relations_helper, 'resolve_denied_type_ids', resolver)
+
+        _resolve({PARENT_ID: PARENT_TYPE, CHILD_ID: CHILD_TYPE})
+
+        resolver.assert_not_called()
+
+    def test_both_objects_are_read_in_one_projected_query(self) -> None:
         """Existence and type, nothing more"""
         manager = _objects({PARENT_ID: PARENT_TYPE, CHILD_ID: CHILD_TYPE})
 
-        resolve_object_relation_endpoints(RELATION, PARENT_ID, CHILD_ID, manager, REQUEST_USER)
+        resolve_object_relation_endpoints(RELATION, PARENT_ID, CHILD_ID, manager, [])
 
         manager.find.assert_called_once_with(
             criteria={'public_id': {'$in': [PARENT_ID, CHILD_ID]}}, projection=ENDPOINT_PROJECTION,
@@ -105,7 +104,7 @@ class TestResolveObjectRelationEndpoints:
         ({CHILD_ID: CHILD_TYPE}, PARENT_ID, 'parent'),
         ({PARENT_ID: PARENT_TYPE}, CHILD_ID, 'child'),
     ])
-    def test_a_missing_endpoint_is_refused_and_named(self, denied: MagicMock, stored: dict[int, int],
+    def test_a_missing_endpoint_is_refused_and_named(self, stored: dict[int, int],
                                                       missing: int, role: str) -> None:
         """The message names the side and the id"""
         with pytest.raises(HTTPException) as caught:
@@ -115,13 +114,10 @@ class TestResolveObjectRelationEndpoints:
         assert role in caught.value.description
         assert str(missing) in caught.value.description
 
-    def test_an_unreadable_endpoint_is_answered_like_a_missing_one(self, denied: MagicMock) -> None:
+    def test_an_unreadable_endpoint_is_answered_like_a_missing_one(self) -> None:
         """Nothing in the answer tells the caller the object exists"""
-        denied.return_value = [CHILD_TYPE]
-
         with pytest.raises(HTTPException) as unreadable:
-            _resolve({PARENT_ID: PARENT_TYPE, CHILD_ID: CHILD_TYPE})
-        denied.return_value = []
+            _resolve({PARENT_ID: PARENT_TYPE, CHILD_ID: CHILD_TYPE}, denied=[CHILD_TYPE])
         with pytest.raises(HTTPException) as missing:
             _resolve({PARENT_ID: PARENT_TYPE})
 
@@ -132,7 +128,7 @@ class TestResolveObjectRelationEndpoints:
         ({PARENT_ID: PARENT_TYPE, CHILD_ID: OTHER_TYPE}, OTHER_TYPE, 'child'),
         ({PARENT_ID: CHILD_TYPE, CHILD_ID: PARENT_TYPE}, CHILD_TYPE, 'parent'),
     ], ids=['parent-not-allowed', 'child-not-allowed', 'sides-swapped'])
-    def test_a_type_the_side_does_not_allow_is_refused(self, denied: MagicMock, stored: dict[int, int],
+    def test_a_type_the_side_does_not_allow_is_refused(self, stored: dict[int, int],
                                                         type_id: int, role: str) -> None:
         """Per side: a parent type is not allowed as a child, and the other way round"""
         with pytest.raises(HTTPException) as caught:
@@ -143,12 +139,12 @@ class TestResolveObjectRelationEndpoints:
         assert role in caught.value.description
 
     @pytest.mark.parametrize('parent_id, child_id', [(None, CHILD_ID), (PARENT_ID, PARENT_ID)])
-    def test_the_shape_rules_come_first(self, denied: MagicMock, parent_id: Any, child_id: Any) -> None:
+    def test_the_shape_rules_come_first(self, parent_id: Any, child_id: Any) -> None:
         """A missing id or the same object on both sides is refused before anything is read"""
         manager = _objects({})
 
         with pytest.raises(HTTPException):
-            resolve_object_relation_endpoints(RELATION, parent_id, child_id, manager, REQUEST_USER)
+            resolve_object_relation_endpoints(RELATION, parent_id, child_id, manager, [])
 
         manager.find.assert_not_called()
 
@@ -188,7 +184,7 @@ class TestFieldValues:
         assert caught.value.code == HTTPStatus.BAD_REQUEST
 
 
-def test_the_route_stamps_the_real_types_over_the_body(monkeypatch: pytest.MonkeyPatch, denied: MagicMock) -> None:
+def test_the_route_stamps_the_real_types_over_the_body(monkeypatch: pytest.MonkeyPatch) -> None:
     """A forged type id in the body never reaches the document"""
     monkeypatch.setattr(object_relation_routes.ManagerProvider, 'get_manager',
                         lambda *_args: _objects({PARENT_ID: PARENT_TYPE, CHILD_ID: CHILD_TYPE}))
@@ -198,7 +194,7 @@ def test_the_route_stamps_the_real_types_over_the_body(monkeypatch: pytest.Monke
         'field_values': [{'name': 'cable', 'value': 'x'}],
     }
 
-    stamp_object_relation_references(data, RELATION, REQUEST_USER)
+    stamp_object_relation_references(data, RELATION, REQUEST_USER, [])
 
     assert data['relation_parent_type_id'] == PARENT_TYPE
     assert data['relation_child_type_id'] == CHILD_TYPE

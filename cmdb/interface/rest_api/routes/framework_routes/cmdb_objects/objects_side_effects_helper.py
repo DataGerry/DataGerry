@@ -33,6 +33,9 @@ on it. Every entry stores the object **as rendered**, which is what the log view
 again until none are left, so a relation created while it runs is neither left on a deleted object nor
 removed unlogged.
 
+`handle_delete_object_attachments` detaches deleted objects from their media files: the ids leave every file's
+reference and the files stay in the library, where they may be filed in a folder or attached to other objects.
+
 Kept apart from `objects_helper.py` so that module stays under pylint's 1,500-line cap. The group is
 closed: nothing here calls back into the write pipelines, so the import runs one way
 """
@@ -53,6 +56,7 @@ from cmdb.manager import (
     ObjectGroupsManager,
     ObjectRelationsManager,
     ObjectRelationLogsManager,
+    MediaFilesManager,
 )
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.models.object_model.cmdb_object import CmdbObject
@@ -78,6 +82,8 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     RELATION_CASCADE_MAX_ROUNDS,
     ObjectLogComment,
 )
+
+from cmdb.errors.manager.media_files_manager import MediaFileManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -368,6 +374,29 @@ def handle_delete_from_object_groups(request_user: CmdbUser, public_ids: int | l
     object_groups_manager: ObjectGroupsManager = ManagerProvider.get_manager(ManagerType.OBJECT_GROUP, request_user)
 
     object_groups_manager.remove_ids_from_groups(public_ids, ObjectGroupMode.STATIC)
+
+
+def handle_delete_object_attachments(request_user: CmdbUser, public_ids: list[int]) -> None:
+    """
+    Detaches deleted CmdbObjects from the media files attached to them
+
+    Their ids leave every file's reference (``MediaFilesManager.detach_objects``); the files stay in the library.
+    Best-effort: the objects are already gone, so a failed update is logged and the delete still succeeds - the
+    files then keep a reference to an id that resolves to nothing, as every file did before this cascade existed
+
+    Args:
+        request_user (CmdbUser): The CmdbUser making the request
+        public_ids (list[int]): public_ids of the deleted CmdbObjects
+    """
+    media_files_manager: MediaFilesManager = ManagerProvider.get_manager(ManagerType.MEDIA_FILES, request_user)
+
+    try:
+        media_files_manager.detach_objects(public_ids)
+    except MediaFileManagerUpdateError as err:
+        LOGGER.error(
+            "[handle_delete_object_attachments] The attachments of the deleted Objects %s keep their reference: %s",
+            public_ids, err, exc_info=True,
+        )
 
 
 def handle_delete_invalid_object_relations(request_user: CmdbUser, public_ids: list[int]) -> None:

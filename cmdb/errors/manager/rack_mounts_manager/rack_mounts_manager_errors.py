@@ -34,7 +34,7 @@ class RackMountsManagerError(Exception):
         """
         super().__init__(err)
 
-# -------------------------------------------- RackMountsManager - ERRORS --------------------------------------------- #
+# -------------------------------------------- RackMountsManager - ERRORS -------------------------------------------- #
 
 class RackMountsManagerInitError(RackMountsManagerError):
     """

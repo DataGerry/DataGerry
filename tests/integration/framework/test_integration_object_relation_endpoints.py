@@ -35,6 +35,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.interface.rest_api.routes.relation_routes.relations_helper import (
     handle_deleted_type_ids,
     resolve_object_relation_endpoints,
+    resolve_unreadable_type_ids_or_abort,
 )
 from tests.utils.ipam_doc_builders import make_object_doc, make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -100,9 +101,10 @@ def fixture_collections(database_manager: MongoDatabaseManager, database_name: s
 
 
 def _resolve(database_manager: MongoDatabaseManager, child_id: int) -> tuple[int, int]:
-    """The real check, with the real managers"""
+    """The real check, with the real managers and the caller's denied types from the real ACL builder"""
     return resolve_object_relation_endpoints(
-        RELATION, PARENT_ID, child_id, ObjectsManager(database_manager), REQUEST_USER,
+        RELATION, PARENT_ID, child_id, ObjectsManager(database_manager),
+        resolve_unreadable_type_ids_or_abort(REQUEST_USER),
     )
 
 

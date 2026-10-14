@@ -53,6 +53,7 @@ from cmdb.errors.database import (
     DatabaseConnectionError,
     SetDatabaseError,
     DocumentLockTimeoutError,
+    DocumentNetworkError,
 )
 from cmdb.errors.security import (
     TokenValidationError,
@@ -636,6 +637,14 @@ class TestInsertRequestUser:
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+
+    def test_a_database_outage_is_left_to_the_app_handler(self) -> None:
+        """Not a 401: the app's handler answers a DocumentNetworkError 503, so the user is not logged out"""
+        with patch(f'{MODULE_PATH}.UsersManager'), \
+             patch(f'{MODULE_PATH}.parse_authorization_header', side_effect=DocumentNetworkError('lost')):
+            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+                with pytest.raises(DocumentNetworkError):
+                    ru.insert_request_user(lambda **_: None)()
 
     def test_generic_token_error_aborts_401(self) -> None:
         """Any non-token-specific error during decode aborts with 401."""
@@ -1303,6 +1312,21 @@ class TestAuthenticateBasic:
             TokenGenerator=MagicMock(return_value=token_gen),
         )
 
+    @pytest.mark.parametrize('failure', [TokenKeyMaterialError('no key'), DocumentNetworkError('lost')],
+                             ids=['key-material', 'outage'])
+    def test_a_signing_failure_is_not_a_failed_login(self, failure: Exception) -> None:
+        """
+        The credentials were fine and the server could not sign for them: raised, not None
+
+        None would make the request a 401 that logs the user out over the server's fault
+        """
+        user = MagicMock()
+        user.get_public_id.return_value = 5
+        with self._patches(login_result=user), patch(f'{MODULE_PATH}.TokenGenerator', side_effect=failure):
+            with _app(cloud_mode=False).test_request_context():
+                with pytest.raises(type(failure)):
+                    ru._authenticate_basic(BASIC_CREDENTIALS)
+
     def test_non_cloud_success_returns_token(self) -> None:
         """Outside cloud mode a successful login returns a freshly generated token."""
         user = MagicMock()
@@ -1427,6 +1451,15 @@ class TestValidateBearer:
             tv_cls.return_value.decode_token.side_effect = TokenKeyMaterialError('no key')
             with _app().test_request_context():
                 with pytest.raises(TokenKeyMaterialError):
+                    ru._validate_bearer('sometoken')
+
+    @pytest.mark.parametrize('failure', [TokenKeyMaterialError('no key'), DocumentNetworkError('lost')],
+                             ids=['key-material', 'outage'])
+    def test_a_validator_that_cannot_be_built_is_not_a_bad_token(self, failure: Exception) -> None:
+        """The key is read when the validator is BUILT - that failure propagates too, never None"""
+        with patch(f'{MODULE_PATH}.TokenValidator', side_effect=failure):
+            with _app().test_request_context():
+                with pytest.raises(type(failure)):
                     ru._validate_bearer('sometoken')
 
 

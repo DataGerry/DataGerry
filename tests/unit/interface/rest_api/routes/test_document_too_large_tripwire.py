@@ -49,6 +49,8 @@ EXEMPT_ARMS: dict[tuple[str, str], str] = {
         'a failed change-log entry is logged and swallowed after the write it records succeeded',
     ('importer_routes/importer_isms_routes.py', 'insert_or_reuse_extendable_option'):
         'resolves a lost duplicate race by re-reading; an option value is held to its schema',
+    ('framework_routes/cmdb_objects/objects_side_effects_helper.py', 'handle_delete_object_attachments'):
+        'only shortens a reference list, and is logged and swallowed after the object delete succeeded',
 }
 
 

@@ -51,7 +51,7 @@ from cmdb.models.log_model.object_log_constants import OBJECT_LOG_TYPE
 from cmdb.security.acl.helpers import has_type_document_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.interface.rest_api.responses import GetMultiResponse
-from cmdb.interface.rest_api.routes.routes_helper import request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import read_boolean_value, request_wants_body
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_logs.logs_constants import (
     LogKey,
@@ -103,8 +103,21 @@ def build_object_log_existence_query(object_exists: bool = True) -> list[dict[st
 
 
 def _include_users_requested(request: Request) -> bool:
-    """Returns True when the request opted into embedded users via ``?include_users=true``."""
-    return request.args.get(INCLUDE_USERS_PARAM, 'false').lower() == 'true'
+    """
+    Whether the request opted into embedded users (``?include_users=true``)
+
+    By the API's one rule for flags (``read_boolean_value``), read off the request the response is built for
+
+    Args:
+        request (Request): The request being answered
+
+    Raises:
+        HTTPException: 400 when the flag is neither true nor false
+
+    Returns:
+        bool: The flag; False when absent
+    """
+    return read_boolean_value(INCLUDE_USERS_PARAM, request.args.get(INCLUDE_USERS_PARAM), default=False)
 
 
 def resolve_log_users(users_manager: UsersManager, logs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
@@ -153,7 +166,7 @@ def build_object_logs_response(logs_manager: LogsManager,
         logs_manager (LogsManager): Manager used to iterate the logs collection
         query (dict[str, Any] | list[dict[str, Any]]): Match filter or aggregation pipeline
         params (CollectionParameters): Pagination/sort parameters from the request
-        request (Request): Active request, used for the response URL and the include_users detection
+        request (Request): Active request, used for the response URL and the include_users flag
         request_user (CmdbUser): User making the request - its READ ACL filters the logs, and it resolves the
             UsersManager
 

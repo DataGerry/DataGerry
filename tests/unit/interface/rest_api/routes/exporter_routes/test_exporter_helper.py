@@ -19,6 +19,7 @@ Unit tests for cmdb.interface.rest_api.routes.exporter_routes.exporter_helper
 import json
 from datetime import datetime, timezone
 from http import HTTPStatus
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -83,10 +84,29 @@ class TestResolveExportFormat:
             resolve_export_format({'zip': 'true', 'classname': ZIP_EXPORT_FORMAT})
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
 
-    @pytest.mark.parametrize('zip_value', ['false', 'False', '', 'nonsense'])
-    def test_non_truthy_zip_falls_back_to_classname(self, zip_value: str) -> None:
-        """A non-truthy / unrecognised zip flag does not force ZIP; the classname (or default) wins."""
+    @pytest.mark.parametrize('zip_value', ['false', 'False', False, None])
+    def test_a_false_or_absent_zip_falls_back_to_classname(self, zip_value: Any) -> None:
+        """zip false - spelled or a JSON boolean - or absent does not force ZIP; the classname (or default) wins"""
         assert resolve_export_format({'zip': zip_value}) == DEFAULT_EXPORT_FORMAT
+
+    @pytest.mark.parametrize('zip_value', ['', 'nonsense', '0', '1', 'yes'])
+    def test_an_unrecognised_zip_flag_is_refused(self, zip_value: str) -> None:
+        """
+        The flag is true or false, nothing else - an unrecognised value used to export without ZIP silently
+
+        The frontend sends JSON booleans; a refusal names the flag
+        """
+        with pytest.raises(HTTPException) as exc_info:
+            resolve_export_format({'zip': zip_value})
+
+        assert exc_info.value.code == HTTPStatus.BAD_REQUEST
+        assert 'zip' in exc_info.value.description
+
+    def test_a_json_true_zip_forces_the_wrapper(self) -> None:
+        """What the frontend sends: a native boolean"""
+        inner_format: str = sorted(SupportedExporterExtension().get_extensions())[0]
+
+        assert resolve_export_format({'zip': True, 'classname': inner_format}) == ZIP_EXPORT_FORMAT
 
     def test_unsupported_classname_aborts_400(self) -> None:
         """An unknown classname aborts 400 (whitelist guard against arbitrary load_class)."""
@@ -100,7 +120,7 @@ class TestResolveExportFormat:
         assert DEFAULT_EXPORT_FORMAT in SUPPORTED_EXPORT_FORMATS
         assert ZIP_EXPORT_FORMAT not in SUPPORTED_EXPORT_FORMATS
 
-    @pytest.mark.parametrize('zip_value', [None, 'false', '0'])
+    @pytest.mark.parametrize('zip_value', [None, 'false', False])
     def test_zip_named_as_the_format_without_the_flag_is_refused(self, zip_value: str | None) -> None:
         """Named as a format it would pack no inner format and fail - refused with its own message"""
         optional = {'classname': ZIP_EXPORT_FORMAT}

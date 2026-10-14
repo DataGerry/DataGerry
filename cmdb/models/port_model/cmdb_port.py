@@ -58,6 +58,10 @@ class CmdbPort(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.ports'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbPortInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbPortToJsonError
     DATE_FIELDS: tuple[str, ...] = (PortKey.CREATION_TIME.value, PortKey.LAST_EDIT_TIME.value)
     REQUIRED_INIT_KEYS: list[str] = [PortKey.OBJECT_ID.value, PortKey.NAME.value]
 

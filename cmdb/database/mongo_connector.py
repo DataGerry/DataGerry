@@ -30,19 +30,23 @@ Two behaviours of this module are surprising and are left as they are rather tha
   connects without TLS, and a `mongodb://…?tls=true` connection string has its TLS overridden to off
   by the injected keyword. It also mutates the caller's options dict in place.
 * **Each lifecycle method says what its own name promises.** `connect()` raises, because the retry
-  policy reads the raised error's cause; `is_connected()` reports a boolean, catching that raise so
-  the caller asking a yes/no question gets one; and `disconnect()` raises on a failed close instead
+  policy reads the raised error's cause; `is_connected()` reports a boolean from ONE bounded probe of its
+  own (`MONGO_PROBE_TIMEOUT_S`, never retried), so the caller asking a yes/no question gets one quickly;
+  and `disconnect()` raises on a failed close instead
   of returning the same disconnected status a successful one returns - and clears its client
   reference either way, so a failed close cannot strand a broken client.
 * **The `@retry_operation` decorators retry from the typed error's cause.** `cmdb.database.retry`
   decides there, so a failed `connect()` is repeated (a connection attempt has no side effect)
-  within a sub-second budget.
+  within the retry time budget - while the database is unreachable, one attempt already costs the
+  driver's server selection timeout, so it is not repeated.
 """
 import os
 from logging import Logger, getLogger
 from typing import Any
+import pymongo
 from pymongo import MongoClient
 from pymongo.database import Database
+from pymongo.errors import PyMongoError
 
 from cmdb.database.connection_status import ConnectionStatus
 from cmdb.database.retry import retry_operation
@@ -51,6 +55,7 @@ from cmdb.database.database_constants import (
     MONGO_COMMAND_OK_VALUE,
     MONGO_CONNECTION_STRING_ENV,
     MONGO_HELLO_COMMAND,
+    MONGO_PROBE_TIMEOUT_S,
     MONGO_SRV_SCHEME_PREFIX,
     MONGO_SSL_OPTION,
     MONGO_TLS_OPTION,
@@ -210,8 +215,9 @@ class MongoConnector:
         that reported a failure instead of raising one would never be retried. The `retry_operation`
         wrapper does repeat the probe when the cause was a connection failure - reaching the database
         is by definition side-effect free - within its wall-clock budget.
-        **A caller wanting a boolean calls `is_connected()`**, which catches this for exactly that
-        reason
+        **A caller wanting a quick boolean calls `is_connected()`**, which probes on its own with a bounded,
+        unretried `hello` instead of calling this - with the database unreachable this waits the driver's server
+        selection timeout
 
         Raises:
             DatabaseConnectionError: If the database connection check fails, if the server does not
@@ -274,26 +280,33 @@ class MongoConnector:
     @retry_operation
     def is_connected(self) -> bool:
         """
-        Checks the current connection status to the database
+        Checks whether the database answers right now, within the probe budget
 
-        Answers the question it is named for: **True or False, never an exception**. `connect()` keeps
-        raising, because the retry policy decides from the raised error and its cause - a `connect()`
-        that reported instead of raising would be a `connect()` that is never retried. This is the one
-        place that turns that raise into the boolean every caller actually wants.
+        Answers the question it is named for: **True or False, never an exception, and quickly**. One `hello`, bounded
+        as a whole - server selection included - by `MONGO_PROBE_TIMEOUT_S` (`pymongo.timeout`), and **not retried**.
+        `connect()` is the wrong tool here: with the database unreachable it waits the driver's server selection
+        timeout (10 s) per attempt, and a shorter timeout under its `@retry_operation` would only be repeated. The one
+        caller is `GET /rest/` (via `MongoDatabaseManager.status`) - unauthenticated, asked by the frontend on every
+        layout render - where each probe holds a worker for as long as it waits, during an outage most of all.
 
-        Nothing is retried here that has not been retried already: `connect()` carries
-        `@retry_operation`, and reaching the database is side-effect free, so a transient failure has
-        been repeated within its budget before it arrives as a `DatabaseConnectionError`. A False from
-        here means the database did not answer *and the retries are spent*. `GET /rest/` - the probe
-        whose entire job is to report connectivity - depends on that: a raise here would reach it as
-        a **500** where it means to answer `connected: false`.
+        A transient blip therefore reads as False rather than being retried; the probe is simply asked again. A raise
+        here would reach that route as a **500** where it means to answer `connected: false`, so every failure of the
+        probe - a timeout, a refused connection, a client that cannot be built, an unacknowledged answer - is False
 
         Returns:
-            bool: True when the database answered the probe, False when it did not
+            bool: True when the database acknowledged the probe within its budget, False otherwise
         """
         try:
-            return self.connect().get_status()
-        except DatabaseConnectionError as err:
+            with pymongo.timeout(MONGO_PROBE_TIMEOUT_S):
+                response: dict[str, Any] = self.client.admin.command(MONGO_HELLO_COMMAND)
+        except (PyMongoError, DatabaseConnectionError) as err:
             LOGGER.warning("[is_connected] The database did not answer the connection probe: %s", err)
 
             return False
+
+        acknowledged: bool = response.get(MONGO_COMMAND_OK_KEY) == MONGO_COMMAND_OK_VALUE
+
+        if not acknowledged:
+            LOGGER.warning("[is_connected] Unexpected response to the connection probe: %s", response)
+
+        return acknowledged

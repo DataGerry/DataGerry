@@ -35,6 +35,7 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_consta
     RELATION_CASCADE_MAX_ROUNDS,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper import (
+    handle_delete_object_attachments,
     build_object_log_data,
     build_object_write_emitter,
     log_object_change,
@@ -54,6 +55,8 @@ from cmdb.models.webhook_model.webhook_event_type_enum import WebhookEventType
 from cmdb.models.log_model.log_action_enum import LogAction
 from cmdb.framework.rendering.render_result import RenderResult
 from cmdb.framework.object_edit import ObjectWrite
+from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.errors.manager.media_files_manager import MediaFileManagerUpdateError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 HELPER_PATH: str = 'cmdb.interface.rest_api.routes.framework_routes.cmdb_objects.objects_side_effects_helper'
@@ -783,3 +786,35 @@ class TestBuildObjectWriteEmitter:
         assert kwargs['action'] == LogAction.EDIT
         assert kwargs['version'] == '1.0.1'
         assert kwargs['comment'] == EMITTER_COMMENT
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         handle_delete_object_attachments                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+DELETED_OBJECT_IDS: list[int] = [61, 62]
+
+
+class TestHandleDeleteObjectAttachments:
+    """Deleted objects leave their attachments' references; the step never fails the delete"""
+
+    def test_the_ids_are_detached_through_the_media_files_manager(self) -> None:
+        """One call with every id"""
+        media_files_manager = MagicMock()
+        request_user = MagicMock()
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=media_files_manager) as get_manager:
+            handle_delete_object_attachments(request_user, DELETED_OBJECT_IDS)
+
+        get_manager.assert_called_once_with(ManagerType.MEDIA_FILES, request_user)
+        media_files_manager.detach_objects.assert_called_once_with(DELETED_OBJECT_IDS)
+
+    def test_a_failed_detach_is_logged_not_raised(self, caplog: pytest.LogCaptureFixture) -> None:
+        """The objects are already gone"""
+        media_files_manager = MagicMock()
+        media_files_manager.detach_objects.side_effect = MediaFileManagerUpdateError('db')
+
+        with patch(f'{HELPER_PATH}.ManagerProvider.get_manager', return_value=media_files_manager):
+            handle_delete_object_attachments(MagicMock(), DELETED_OBJECT_IDS)
+
+        assert any(str(DELETED_OBJECT_IDS) in record.getMessage() for record in caplog.records)
+

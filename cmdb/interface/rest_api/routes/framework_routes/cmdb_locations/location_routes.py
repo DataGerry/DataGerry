@@ -92,9 +92,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_hel
     move_object_location,
     PlacementTarget,
 )
+from cmdb.interface.rest_api.routes.rack_routes.rack_location_target import RackLocationTarget
 from cmdb.interface.rest_api.routes.rack_routes.rack_object_hooks import (
     guard_rack_location_change,
     reconcile_object_rack_membership,
+    resolve_rack_location_target,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_constants import (
     BULK_MOVE_OBJECT_IDS_KEY,
@@ -566,7 +568,8 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
     remove the placement). The caller's ACL has to grant READ and UPDATE on the object's type, and the type
     has to be active - checked first. The move is validated (parent exists, is selectable-as-parent, no cycle)
     and mirrored to both the object's location field and its CmdbLocation node; an invalid drop is
-    rejected 400 so the frontend can revert it
+    rejected 400 so the frontend can revert it. A drop onto a Rack's node joins that Rack and a drag off it
+    leaves it, so the caller also needs READ and UPDATE on the Rack (``guard_rack_location_change``)
 
     Requires the ``base.framework.location.edit`` right
 
@@ -575,9 +578,9 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
         request_user (CmdbUser): The user making the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject, or its Type
-            is deactivated; 404 when the CmdbObject does not exist; 400 when the drop target is invalid, a
-            Rack rule refuses the move or the write fails;
+        HTTPException: 403 when the user lacks the right, may not read or change the CmdbObject or a Rack it
+            joins or leaves, or its Type is deactivated; 404 when the CmdbObject does not exist; 400 when the drop
+            target is invalid, a Rack rule refuses the move or the write fails;
             500 on an unexpected error
 
     Returns:
@@ -596,16 +599,19 @@ def move_cmdb_location_for_object(object_id: int, request_user: CmdbUser) -> Res
             object_id, parent, objects_manager, locations_manager, request_user,
         )
 
-        # A Rack owns where its PLACED members sit, so one may not be dragged out of its rack from here,
+        # A drop onto a Rack's node joins that Rack and a drag off it leaves it - both need READ + UPDATE on the
+        # Rack. A Rack owns where its PLACED members sit, so one may not be dragged out of its rack from here,
         # and a Rack may not be dropped into another Rack
-        guard_rack_location_change(request_user, object_id, parent, locations_manager)
+        rack_target: RackLocationTarget = guard_rack_location_change(
+            request_user, object_id, parent, locations_manager,
+        )
 
         move_object_location(object_id, parent, request_user, objects_manager, locations_manager, target)
 
         # Dropping an object onto a Rack's node makes it a member of that Rack, and dragging it off ends
         # the membership - the tree and the rack say the same thing either way
         reconcile_object_rack_membership(
-            request_user, object_id, parent, objects_manager, types_manager, locations_manager,
+            request_user, object_id, parent, objects_manager, types_manager, locations_manager, target=rack_target,
         )
 
         return DefaultResponse(
@@ -648,10 +654,10 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
         request_user (CmdbUser): The user making the request
 
     Raises:
-        HTTPException: 403 when the user lacks the right, may not read or change a listed CmdbObject, or its
-            Type is deactivated; 404 when a listed CmdbObject does not exist; 400 when ``object_ids`` is not a
-            non-empty list of integers, a target is invalid, a Rack
-            rule refuses a move or a write fails; 500 on an unexpected error
+        HTTPException: 403 when the user lacks the right, may not read or change a listed CmdbObject or a Rack
+            one of them joins or leaves, or its Type is deactivated; 404 when a listed CmdbObject does not exist;
+            400 when ``object_ids`` is not a non-empty list of integers, a target is invalid, a Rack rule refuses
+            a move or a write fails; 500 on an unexpected error
 
     Returns:
         Response: Echo of the applied moves ({object_ids, parent}) (DefaultResponse)
@@ -682,9 +688,12 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
             object_ids, parent, objects_manager, locations_manager, request_user,
         )
 
-        # A Rack member is refused here too
+        # The Rack rules for every object before anything moves. The shared parent's Rack is resolved once, and
+        # each Rack the batch joins or leaves is judged once
+        rack_target: RackLocationTarget = resolve_rack_location_target(request_user, parent, locations_manager)
+
         for object_id in object_ids:
-            guard_rack_location_change(request_user, object_id, parent, locations_manager)
+            guard_rack_location_change(request_user, object_id, parent, locations_manager, target=rack_target)
 
         for object_id in object_ids:
             move_object_location(
@@ -692,6 +701,7 @@ def move_cmdb_locations(request_user: CmdbUser) -> Response:
             )
             reconcile_object_rack_membership(
                 request_user, object_id, parent, objects_manager, types_manager, locations_manager,
+                target=rack_target,
             )
 
         return DefaultResponse(

@@ -116,6 +116,18 @@ class RackMountRouteError(BaseStrEnum):
     INVALID_HEIGHT = "'{value}' is not a valid Rack height to check against!"
 
 
+class RackAssignableError(BaseStrEnum):
+    """
+    Messages of the assignable-objects picker when one of its reads fails (HTTP 400)
+
+    One per read, so the answer says which part of the picker could not be built
+    """
+    CANDIDATES_FAILED = 'Failed to retrieve the objects assignable to the Rack!'
+    DETAILS_FAILED = 'Failed to retrieve the Rack or the details of the objects assignable to it!'
+    MOUNTS_FAILED = 'Failed to retrieve the objects already mounted in a Rack!'
+    TYPES_FAILED = 'Failed to retrieve the Rack types!'
+
+
 class RackAccessError(BaseStrEnum):
     """
     Messages of the object-ACL refusals on the Rack itself (HTTP 403)

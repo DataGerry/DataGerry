@@ -89,7 +89,7 @@ def resolve_right_holders(
 
     return {
         entry[AGGREGATION_ID_KEY]: entry.get(RightHolderKey.GROUPS.value, [])
-        for entry in groups_manager.aggregate(pipeline)
+        for entry in groups_manager.aggregate_all(pipeline)
     }
 
 
