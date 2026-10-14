@@ -54,6 +54,11 @@ The category appears in the sidebar under **Categories**. It is empty until a ty
         - Date
         -
 
+   .. figure:: ../img/types/first_cmdb_content_step.png
+      :width: 800
+
+      The section *General* with its five fields in the Content step.
+
 4. **Meta** — under *Summary*, select **Hostname** and **IP address**. Summary fields are what lists
    and references show for an object.
 5. Skip **ACL** for now and click **Save** in the panel on the right.

@@ -84,7 +84,7 @@ Click the location field to open the tree selector **Select a location**
 .. figure:: ../img/locations/locations_dropdown_selection.png
    :width: 700
 
-   Choosing the parent location (screenshot from an earlier version).
+   Choosing the parent location.
 
 Save the object. It now appears in the location tree, and the location is stored
 with the object in the same create, update or copy request *(3.3)*.

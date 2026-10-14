@@ -105,11 +105,21 @@ To the right are three cards:
   **Save** or ``Ctrl + Enter``. Editing notes needs the right to edit objects,
   not a rack right.
 
+.. figure:: ../img/racks/rack_view.png
+   :width: 800
+
+   The Rack View of a 42U rack in the split view, with a reservation and blockers.
+
 Add an entry
 ============
 
 Click **Add to rack**, click a free unit (it shows **+ U**\ *n* on hover; the slot
 is pre-filled), or use **Add to side** on a rail. The dialog has three parts.
+
+.. figure:: ../img/racks/rack_add_entry.png
+   :width: 600
+
+   The dialog for a new rack entry.
 
 **Entry**
 

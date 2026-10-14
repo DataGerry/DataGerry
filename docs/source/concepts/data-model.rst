@@ -47,6 +47,12 @@ A type is a schema; objects are the records that follow it. When you open a type
 you see a table of its objects; when you open an object you see its fields, laid out in the type's
 sections.
 
+.. figure:: ../img/objects/object_view.png
+   :width: 800
+
+   An object of the type *Switch*: its fields in the sections *Information* and *Model
+   specifications*, and the multi data section *Interfaces*.
+
 Because objects follow their type, changing the type changes the objects. In 3.3 this happens when
 you save the type *(3.3)*: a field you add appears on every object of the type, and a field you
 remove disappears from every object — together with its stored values. Earlier versions marked

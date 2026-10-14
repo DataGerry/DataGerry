@@ -65,7 +65,7 @@ the term is read as a regular expression, so ``^sw-`` finds values that start wi
 .. figure:: ../img/objects/object_table_search_result.png
    :width: 700
 
-   Result of a search for "B".
+   Result of a search for "hh".
 
 Filter
 ------
@@ -75,7 +75,7 @@ Filter
 .. figure:: ../img/objects/object_table_filter_result.png
    :width: 700
 
-   Result of filtering one column for "B".
+   Result of filtering the Name column for "nb-".
 
 Filters combine like this:
 
