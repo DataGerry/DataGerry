@@ -1,0 +1,654 @@
+@import "src/scss/variables";
+
+$brand: $primary;
+$brand-soft: rgba($brand, 0.1);
+$brand-ink: darken($brand, 12%);
+$brand-ring: 0 0 0 4px rgba($brand, 0.12), 0 2px 8px rgba($brand, 0.22);
+$focus-ring: 0 0 0 0.2rem rgba($brand, 0.35);
+
+$done: #198754;
+$line-idle: #e5e7eb;
+$line-done: #7cc9a8;
+$card-border: #e9ecef;
+$hairline: #eef0f3;
+$surface: #f8fafc;
+
+$ink: #1f2937;
+$label: #374151;
+$muted: #6b7280;
+$faint: #9ca3af;
+
+$radius-chip: 0.6rem;
+$radius-card: 1rem;
+$card-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
+$transition: 180ms ease;
+
+$marker-size: 2.125rem;
+$chip-size: 2.25rem;
+$rail-width: 16.5rem;
+
+:host {
+  display: block;
+  color: $ink;
+}
+
+.onboarding {
+  display: grid;
+  grid-template-columns: $rail-width minmax(0, 1fr);
+  min-height: 40rem;
+}
+
+/* --------------------------------- rail --------------------------------- */
+.onboarding__rail {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  padding: 1.75rem 1.5rem;
+  border-right: 1px solid $hairline;
+  background:
+    radial-gradient(120% 60% at 0% 0%, rgba($brand, 0.08), transparent 60%),
+    linear-gradient(180deg, #fbfcfd, #f5f7f9);
+}
+
+.onboarding__brand {
+  height: 1.75rem;
+  width: auto;
+  align-self: flex-start;
+}
+
+.onboarding__eyebrow {
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: $brand-ink;
+}
+
+.onboarding__progress {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.onboarding__progress-text {
+  font-size: 0.8rem;
+  font-variant-numeric: lining-nums;
+  color: $muted;
+}
+
+.onboarding__progress-track {
+  height: 4px;
+  border-radius: 999px;
+  background: $line-idle;
+  overflow: hidden;
+}
+
+.onboarding__progress-bar {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, lighten($brand, 8%), $brand);
+  transition: width 300ms ease;
+}
+
+.onboarding__steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.onboarding__step {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  padding-bottom: 1.5rem;
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+
+  // Connector to the next marker.
+  &:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: calc(#{$marker-size} / 2 - 1px);
+    top: calc(#{$marker-size} + 0.3rem);
+    bottom: 0.3rem;
+    width: 2px;
+    border-radius: 2px;
+    background: $line-idle;
+    transition: background-color $transition;
+  }
+}
+
+.onboarding__step-marker {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: center;
+  width: $marker-size;
+  height: $marker-size;
+  border: 2px solid $line-idle;
+  border-radius: 50%;
+  background: #fff;
+  color: $muted;
+  font-size: 0.85rem;
+  font-weight: 700;
+  font-variant-numeric: lining-nums;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06);
+  transition: border-color $transition, background-color $transition, color $transition, box-shadow $transition;
+
+  i {
+    margin: 0;
+    font-size: 0.75rem;
+  }
+}
+
+.onboarding__step-text {
+  display: grid;
+  padding-top: 0.2rem;
+  min-width: 0;
+}
+
+.onboarding__step-title {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $muted;
+  transition: color $transition;
+}
+
+.onboarding__step-desc {
+  font-size: 0.8rem;
+  color: $muted;
+}
+
+.onboarding__step--current {
+  .onboarding__step-marker {
+    border-color: $brand;
+    color: $brand-ink;
+    box-shadow: $brand-ring;
+  }
+
+  .onboarding__step-title {
+    color: $ink;
+  }
+
+}
+
+.onboarding__step--done {
+  &::after {
+    background: $line-done;
+  }
+
+  .onboarding__step-marker {
+    border-color: $done;
+    background: $done;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba($done, 0.28);
+  }
+
+  .onboarding__step-title {
+    color: $label;
+  }
+}
+
+.onboarding__rail-foot {
+  display: flex;
+  gap: 0.5rem;
+  margin: auto 0 0;
+  font-size: 0.8rem;
+  color: $muted;
+
+  i {
+    margin-top: 0.15rem;
+    color: $faint;
+  }
+}
+
+/* --------------------------------- main --------------------------------- */
+.onboarding__main {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  background: #fff;
+}
+
+.onboarding__close {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  z-index: 2;
+}
+
+.onboarding__content {
+  flex: 1;
+  padding: 2.25rem 2.5rem 2rem;
+}
+
+.onboarding__panel {
+  display: grid;
+  gap: 1.5rem;
+  max-width: 50rem;
+  animation: onboarding-enter 220ms ease both;
+}
+
+.onboarding__heading {
+  display: grid;
+  gap: 0.5rem;
+  padding-right: 2.5rem;
+}
+
+.onboarding__title {
+  margin: 0;
+  font-size: 1.6rem;
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  color: $ink;
+}
+
+.onboarding__lead {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: $muted;
+}
+
+.onboarding__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  justify-self: start;
+  padding: 0.3rem 0.75rem 0.3rem 0.6rem;
+  border: 1px solid rgba($done, 0.2);
+  border-radius: 999px;
+  background: #f4fbf7;
+  color: darken($done, 4%);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+
+.onboarding__badge-dot {
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 50%;
+  background: $done;
+  box-shadow: 0 0 0 3px rgba($done, 0.18);
+}
+
+.onboarding__chip {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: $chip-size;
+  height: $chip-size;
+  border-radius: $radius-chip;
+  background: $brand-soft;
+  color: $brand;
+  font-size: 0.95rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+/* ------------------------------- detection ------------------------------ */
+.onboarding__detect {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13rem, 1fr));
+  gap: 0.85rem;
+  margin: 0;
+}
+
+.onboarding__tile {
+  position: relative;
+  min-height: 4.25rem;
+  padding: 0.85rem 1rem 0.85rem calc(#{$chip-size} + 1.75rem);
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  box-shadow: $card-shadow;
+
+  .onboarding__chip {
+    position: absolute;
+    top: 50%;
+    left: 1rem;
+    transform: translateY(-50%);
+  }
+
+  dt {
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: $muted;
+  }
+
+  dd {
+    margin: 0.1rem 0 0;
+    font-variant-numeric: lining-nums;
+    font-size: 1rem;
+    font-weight: 600;
+    color: $ink;
+  }
+}
+
+/* -------------------------------- callout ------------------------------- */
+.onboarding__note {
+  display: flex;
+  gap: 0.75rem;
+  padding: 0.9rem 1rem;
+  border: 1px solid #eef1f4;
+  border-radius: $radius-chip;
+  background: $surface;
+  font-size: 0.85rem;
+  line-height: 1.55;
+  color: $muted;
+
+  > i {
+    margin-top: 0.2rem;
+    color: $brand;
+  }
+
+  strong {
+    font-weight: 600;
+    color: $label;
+  }
+
+  strong:first-child {
+    display: block;
+  }
+}
+
+.onboarding__hint {
+  display: flex;
+  align-items: baseline;
+  gap: 0.5rem;
+  margin: 0;
+  font-size: 0.85rem;
+  color: $muted;
+
+  i {
+    color: $faint;
+  }
+}
+
+/* -------------------------------- choices ------------------------------- */
+.onboarding__choices {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr));
+  gap: 1rem;
+}
+
+// Tier look is driven by tokens; the --pro modifier only swaps them.
+.onboarding__choice {
+  --band-bg: linear-gradient(135deg, #f8fafc 0%, #eef2f6 100%);
+  --band-pattern: rgba(15, 23, 42, 0.04);
+  --icon-bg: #fff;
+  --icon-ink: #{$label};
+  --check-border: #{$muted};
+
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  cursor: pointer;
+  transition: border-color $transition, box-shadow $transition, transform $transition;
+
+  &:hover {
+    border-color: darken($card-border, 10%);
+    box-shadow: $card-shadow;
+    transform: translateY(-2px);
+  }
+
+  &:has(input:focus-visible) {
+    outline: 2px solid $brand-ink;
+    outline-offset: 3px;
+  }
+}
+
+.onboarding__choice--pro {
+  --band-bg: linear-gradient(135deg, #1f2937 0%, #374151 100%);
+  --band-pattern: rgba(255, 255, 255, 0.05);
+  --icon-bg: #{$brand};
+  --icon-ink: #fff;
+  --check-border: rgba(255, 255, 255, 0.45);
+}
+
+.onboarding__choice--selected {
+  border-color: $brand;
+  box-shadow: 0 0 0 1px $brand, $card-shadow;
+
+  &:hover {
+    border-color: $brand;
+    box-shadow: 0 0 0 1px $brand, $card-shadow;
+  }
+
+  .onboarding__choice-check {
+    border-color: $brand;
+    background: $brand;
+    color: #fff;
+    transform: scale(1);
+
+    i {
+      opacity: 1;
+    }
+  }
+}
+
+.onboarding__choice-band {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  height: 4.5rem;
+  padding: 0 1.25rem;
+  background:
+    repeating-linear-gradient(135deg, var(--band-pattern) 0 1px, transparent 1px 10px),
+    var(--band-bg);
+}
+
+.onboarding__choice-icon {
+  display: grid;
+  place-items: center;
+  width: $chip-size;
+  height: $chip-size;
+  border-radius: $radius-chip;
+  background: var(--icon-bg);
+  color: var(--icon-ink);
+  font-size: 0.95rem;
+  box-shadow: 0 4px 10px -4px rgba(15, 23, 42, 0.3);
+
+  i {
+    margin: 0;
+  }
+}
+
+.onboarding__choice-check {
+  display: grid;
+  place-items: center;
+  width: 1.5rem;
+  height: 1.5rem;
+  border: 2px solid var(--check-border);
+  border-radius: 50%;
+  color: transparent;
+  font-size: 0.7rem;
+  transition: border-color $transition, background-color $transition, color $transition;
+
+  i {
+    margin: 0;
+    opacity: 0;
+    transition: opacity $transition;
+  }
+}
+
+.onboarding__choice-body {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 1.1rem 1.25rem 1.25rem;
+}
+
+.onboarding__choice-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.4rem 0.6rem;
+}
+
+.onboarding__choice-title {
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: $ink;
+}
+
+.onboarding__choice-text {
+  font-size: 0.85rem;
+  color: $muted;
+}
+
+.onboarding__features {
+  display: grid;
+  flex: 1;
+  align-content: start;
+  gap: 0.5rem;
+  margin: 0.75rem 0 0;
+  padding: 0.85rem 0.95rem;
+  border-radius: $radius-chip;
+  background: $surface;
+  list-style: none;
+  font-size: 0.85rem;
+  color: $label;
+
+  li {
+    display: flex;
+    align-items: center;
+    gap: 0.6rem;
+  }
+}
+
+.onboarding__feature-tick {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  border-radius: 50%;
+  background: rgba($done, 0.12);
+  color: $done;
+  font-size: 0.55rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+.onboarding__tag {
+  padding: 0.15rem 0.55rem;
+  border: 1px solid $card-border;
+  border-radius: 999px;
+  background: $surface;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: $muted;
+}
+
+/* -------------------------------- footer -------------------------------- */
+.onboarding__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 2.5rem;
+  border-top: 1px solid $hairline;
+  background: $surface;
+}
+
+/* -------------------------------- status -------------------------------- */
+.onboarding-status {
+  position: relative;
+  display: grid;
+  justify-items: center;
+  gap: 1rem;
+  padding: 3rem 2.5rem 2.25rem;
+  text-align: center;
+
+  .onboarding__lead {
+    max-width: 44ch;
+  }
+}
+
+.onboarding-status__icon {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border-radius: 50%;
+  background: #f4fbf7;
+  color: $done;
+  font-size: 1.25rem;
+  box-shadow: 0 0 0 6px rgba($done, 0.08);
+}
+
+@keyframes onboarding-enter {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .onboarding__panel {
+    animation: none;
+  }
+
+  .onboarding__choice,
+  .onboarding__choice-check,
+  .onboarding__progress-bar {
+    transition: none;
+  }
+}
+
+@media (max-width: 991.98px) {
+  .onboarding {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  .onboarding__rail {
+    gap: 1rem;
+    padding: 1.25rem;
+    border-right: 0;
+    border-bottom: 1px solid $hairline;
+  }
+
+  .onboarding__steps,
+  .onboarding__rail-foot {
+    display: none;
+  }
+
+  .onboarding__content {
+    padding: 1.5rem 1.25rem;
+  }
+
+  .onboarding__footer {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    padding: 0.85rem 1.25rem;
+  }
+}

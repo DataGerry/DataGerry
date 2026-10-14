@@ -54,7 +54,7 @@ $asst-focus-ring:   0 0 0 0.2rem rgba($primary, 0.22);
 
 .intro-tour {
   // Custom-element hosts must be block so the panel fills the modal width.
-  cmdb-intro,
+  cmdb-onboarding-assistant,
   cmdb-branch-info-modal,
   cmdb-profile-info-modal {
     display: block;
@@ -63,7 +63,8 @@ $asst-focus-ring:   0 0 0 0.2rem rgba($primary, 0.22);
   .modal-content {
     border: none;
     border-radius: $asst-radius-card;
-    overflow: hidden;
+    // clip keeps the rounded corners without breaking sticky footers.
+    overflow: clip;
     background: #fff;
     box-shadow: $asst-shadow;
   }

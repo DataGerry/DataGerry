@@ -1,0 +1,188 @@
+@if (isUsable()) {
+<div class="onboarding">
+  <aside class="onboarding__rail">
+    <img class="onboarding__brand" src="/assets/img/datagerry_logo.svg" alt="DATAGERRY" width="140" height="28" />
+
+    <div class="onboarding__progress">
+      <span class="onboarding__eyebrow">Setup assistant</span>
+      <span class="onboarding__progress-text">Step {{ currentStepIndex() + 1 }} of {{ steps().length }}</span>
+      <span class="onboarding__progress-track" aria-hidden="true">
+        <span class="onboarding__progress-bar" [style.width.%]="progressPercent()"></span>
+      </span>
+    </div>
+
+    <ol class="onboarding__steps" aria-label="Setup steps">
+      @for (step of steps(); track step.id; let index = $index) {
+      <li
+        class="onboarding__step"
+        [class.onboarding__step--current]="index === currentStepIndex()"
+        [class.onboarding__step--done]="index < currentStepIndex()"
+        [attr.aria-current]="index === currentStepIndex() ? 'step' : null"
+      >
+        <span class="onboarding__step-marker" aria-hidden="true">
+          @if (index < currentStepIndex()) {
+            <i class="fas fa-check"></i>
+          } @else {
+            {{ index + 1 }}
+          }
+        </span>
+        <span class="onboarding__step-text">
+          <span class="onboarding__step-title">{{ step.title }}</span>
+          <span class="onboarding__step-desc">{{ step.description }}</span>
+        </span>
+      </li>
+      }
+    </ol>
+
+    <p class="onboarding__rail-foot">
+      <i class="fas fa-clock" aria-hidden="true"></i>
+      <span>You can leave the assistant at any time and continue later.</span>
+    </p>
+  </aside>
+
+  <section class="onboarding__main">
+    <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass="btn-light btn-sm"
+      (clicked)="onSetUpLater()"></app-button>
+
+    <div class="onboarding__content">
+      @switch (currentStep().id) {
+      @case ('welcome') {
+      <div class="onboarding__panel">
+        <span class="onboarding__badge">
+          <span class="onboarding__badge-dot" aria-hidden="true"></span>
+          {{ isCloud ? 'Cloud detected' : 'Self-hosted detected' }}
+        </span>
+
+        <div class="onboarding__heading">
+          <h2 id="onboarding-title" class="onboarding__title">{{ isCloud ? 'Welcome to your DATAGERRY Cloud' : 'Welcome to DATAGERRY' }}</h2>
+          <p class="onboarding__lead">
+            @if (isCloud) {
+              Your cloud instance is ready. Next, we set up your data model and show you the most important areas.
+            } @else {
+              Your instance runs on your own server. In a few steps we set up edition, license and data model.
+              This takes about five minutes.
+            }
+          </p>
+        </div>
+
+        <dl class="onboarding__detect">
+          <div class="onboarding__tile">
+            <span class="onboarding__chip" aria-hidden="true">
+              <i [class]="isCloud ? 'fas fa-cloud' : 'fas fa-server'"></i>
+            </span>
+            <dt>Deployment</dt>
+            <dd>{{ isCloud ? 'DATAGERRY Cloud' : 'Self-hosted' }}</dd>
+          </div>
+          <div class="onboarding__tile">
+            <span class="onboarding__chip" aria-hidden="true"><i class="fas fa-code-branch"></i></span>
+            <dt>Version</dt>
+            <dd>{{ version() || '–' }}</dd>
+          </div>
+        </dl>
+
+        <div class="onboarding__note">
+          <i class="fas fa-info-circle" aria-hidden="true"></i>
+          <div>
+            <strong>Detected automatically</strong>
+            @if (isCloud) {
+              No license activation is needed in the cloud.
+            } @else {
+              The deployment type comes from the server configuration.
+            }
+            You can restart the assistant later via <strong>Toolbox → Assistant</strong>.
+          </div>
+        </div>
+      </div>
+      }
+      @case ('edition') {
+      <div class="onboarding__panel">
+        <div class="onboarding__heading">
+          <h2 id="onboarding-title" class="onboarding__title">Which edition do you use?</h2>
+          <p class="onboarding__lead">
+            This decides whether we activate your license next and which preconfiguration the best practice models include.
+          </p>
+        </div>
+
+        <div class="onboarding__choices" role="radiogroup" aria-label="Edition">
+          @for (option of editionOptions; track option.id) {
+          <label
+            class="onboarding__choice"
+            [class.onboarding__choice--pro]="option.id === 'subscription'"
+            [class.onboarding__choice--selected]="selectedEdition() === option.id"
+          >
+            <input type="radio" name="edition" class="visually-hidden" [value]="option.id"
+              [checked]="selectedEdition() === option.id" (change)="onEditionSelected(option.id)"
+              [attr.aria-labelledby]="'edition-title-' + option.id" [attr.aria-describedby]="'edition-desc-' + option.id" />
+
+            <span class="onboarding__choice-band">
+              <span class="onboarding__choice-icon" aria-hidden="true"><i [class]="option.icon"></i></span>
+              <span class="onboarding__choice-check" aria-hidden="true"><i class="fas fa-check"></i></span>
+            </span>
+
+            <span class="onboarding__choice-body">
+              <span class="onboarding__choice-title-row">
+                <span class="onboarding__choice-title" [id]="'edition-title-' + option.id">{{ option.title }}</span>
+                <span class="onboarding__tag">{{ option.badge }}</span>
+              </span>
+              <span class="onboarding__choice-text" [id]="'edition-desc-' + option.id">{{ option.description }}</span>
+
+              <ul class="onboarding__features">
+                @for (feature of option.features; track feature) {
+                <li>
+                  <span class="onboarding__feature-tick" aria-hidden="true"><i class="fas fa-check"></i></span>
+                  {{ feature }}
+                </li>
+                }
+              </ul>
+            </span>
+          </label>
+          }
+        </div>
+
+        <p class="onboarding__hint">
+          <i class="fas fa-lightbulb" aria-hidden="true"></i>
+          No subscription yet? Compare plans in the Service Portal. You can switch from Community to Subscription at any time.
+        </p>
+      </div>
+      }
+      @case ('plan') {
+      <div class="onboarding__panel">
+        <div class="onboarding__heading">
+          <h2 id="onboarding-title" class="onboarding__title">Your plan</h2>
+          <p class="onboarding__lead">
+            Your DATAGERRY Cloud plan is managed in the Service Portal. No license activation is needed in the cloud.
+          </p>
+        </div>
+      </div>
+      }
+      }
+    </div>
+
+    <div class="onboarding__footer">
+      <app-button [label]="currentStepIndex() > 0 ? 'Back' : 'Set up later'"
+        [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" bootstrapClass="btn-light"
+        (clicked)="onSecondaryAction()"></app-button>
+      <app-button [label]="currentStepIndex() === 0 ? 'Get started' : 'Next'" bootstrapClass="btn-primary"
+        [disabled]="!canGoNext()" (clicked)="onNext()"></app-button>
+    </div>
+  </section>
+</div>
+} @else {
+<div class="onboarding-status">
+  <app-button class="onboarding__close" label="" icon="fas fa-times" ariaLabel="Close" bootstrapClass="btn-light btn-sm"
+    (clicked)="activeModal.close(false)"></app-button>
+
+  <span class="onboarding-status__icon" aria-hidden="true"><i class="fas fa-check"></i></span>
+  <h2 id="onboarding-title" class="onboarding__title">You're already set up</h2>
+  <p class="onboarding__lead">
+    The onboarding assistant sets up your starter data model, so it's only available on a
+    brand-new workspace during first-time setup.
+  </p>
+  <app-button label="Got it" bootstrapClass="btn-primary" (clicked)="activeModal.close(false)"></app-button>
+</div>
+}
+
+<app-loading-popup
+  [isVisible]="isLoading$ | async"
+  message="We're Processing the Data..."
+></app-loading-popup>

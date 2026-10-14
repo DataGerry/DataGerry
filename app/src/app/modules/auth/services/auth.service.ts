@@ -31,7 +31,6 @@ import { ApiCallService, ApiServicePrefix, httpObserveOptions } from '../../../s
 import { SpecialService } from '../../../framework/services/special.service';
 
 import { User } from '../../../management/models/user';
-import { IntroComponent } from '../../../layout/intro/intro.component';
 import { LoginResponse } from '../models/responses';
 import { Token } from '../models/token';
 import { BranchInfoModalComponent } from 'src/app/layout/intro/branch-info-modal/branch-info-modal.component';
@@ -214,9 +213,16 @@ export class AuthService<T = any> implements ApiServicePrefix {
     /* -------------------------------------------------- INTRO SECTION ------------------------------------------------- */
 
     public showIntro(triggered: boolean = false) {
-        this.specialService.getIntroStarter().subscribe(showAssistant => {
+        this.specialService.getIntroStarter().subscribe(async showAssistant => {
+            if (!showAssistant && !triggered) {
+                return;
+            }
+
+            // Loaded lazily to avoid a circular import through CoreModule.
+            const { OnboardingAssistantComponent } = await import('../../../layout/onboarding-assistant/onboarding-assistant.component');
+
             if (showAssistant) {
-                this.startIntroModal = this.introService.open(IntroComponent, this.getModalOptions());
+                this.startIntroModal = this.introService.open(OnboardingAssistantComponent, this.getOnboardingModalOptions());
 
                 this.startIntroModal.result.then((result) => {
                     if (result) {
@@ -227,10 +233,8 @@ export class AuthService<T = any> implements ApiServicePrefix {
                     });
             } else {
                 //display assistant not usable
-                if (triggered) {
-                    this.startIntroModal = this.introService.open(IntroComponent, this.getModalOptions());
-                    this.startIntroModal.componentInstance.isUsable = false;
-                }
+                this.startIntroModal = this.introService.open(OnboardingAssistantComponent, { ...this.getModalOptions(), ariaLabelledBy: 'onboarding-title' });
+                this.startIntroModal.componentInstance.isUsable.set(false);
             }
         });
     }
@@ -315,5 +319,10 @@ export class AuthService<T = any> implements ApiServicePrefix {
             backdropClass: 'intro-tour-backdrop',
             size: 'lg'
         };
+    }
+
+
+    private getOnboardingModalOptions(): NgbModalOptions {
+        return { ...this.getModalOptions(), size: 'xl', ariaLabelledBy: 'onboarding-title' };
     }
 }
