@@ -36,6 +36,7 @@ from cmdb.manager import ReportCategoriesManager
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 
+from cmdb.models.reports_model.report_constants import ReportCategoryKey, ReportKey
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     CATEGORY_IN_USE_MSG,
     CATEGORY_NAME_REQUIRED_MSG,
@@ -43,8 +44,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     CATEGORY_PREDEFINED_MSG,
     REPORT_CATEGORY_WRITE_KEYS,
     ReportCategoryAction,
-    ReportCategoryKey,
-    ReportKey,
 )
 from cmdb.interface.rest_api.routes.routes_helper import pin_public_id
 # -------------------------------------------------------------------------------------------------------------------- #

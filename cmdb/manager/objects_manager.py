@@ -43,16 +43,13 @@ summary line), ``objects_propagation_helper`` (the field statements a Type edit 
 """
 from logging import Logger, getLogger
 import copy
-import json
-from typing import Any
+from typing import Any, Collection
 
-from bson import json_util
 from pymongo.results import UpdateResult
-from pymongo.command_cursor import CommandCursor
 
 from cmdb.database import MongoDatabaseManager
 from cmdb.database.database_constants import PUBLIC_ID_FIELD
-from cmdb.database.json_codec import object_hook
+from cmdb.database.json_codec import EXTENDED_JSON_DECODE_ERRORS, bson_round_trip
 from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
@@ -81,11 +78,13 @@ from cmdb.manager.risk_assessment_cascade_helper import delete_risk_assessments_
 from cmdb.manager.objects_propagation_helper import RawUpdate
 
 from cmdb.errors.manager import (
+    BaseManagerDeleteError,
     BaseManagerGetError,
+    BaseManagerInsertError,
     BaseManagerIterationError,
+    BaseManagerUpdateError,
 )
 from cmdb.errors.manager.objects_manager import (
-    ObjectsManagerInitError,
     ObjectsManagerGetError,
     ObjectsManagerGetTypeError,
     ObjectsManagerDeleteError,
@@ -94,12 +93,32 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerIterationError,
     ObjectsManagerMdsReferencesError,
 )
-from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.models.cmdb_object import CmdbObjectInitFromDataError, CmdbObjectToJsonError
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
 from cmdb.errors.security import AccessDeniedError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# What this manager expects a call to fail with - each method catches only these and wraps them in its own error; a
+# programming error propagates as itself (the route's 500, not the 400 a failed read gets)
+OBJECT_DOCUMENT_ERRORS: tuple[type[Exception], ...] = (CmdbObjectInitFromDataError, CmdbObjectToJsonError)
+
+# The failed read of an object whose CmdbType no longer exists, when a caller's ACL has to be judged by that type
+MISSING_OBJECT_TYPE_MESSAGE: str = "The CmdbType (ID: {type_id}) of the CmdbObject (ID: {public_id}) does not exist!"
+
+
+def missing_type_message(cmdb_object: CmdbObject) -> str:
+    """
+    Names an object whose type is gone, for the failed read that refuses it
+
+    Args:
+        cmdb_object (CmdbObject): The object read
+
+    Returns:
+        str: ``MISSING_OBJECT_TYPE_MESSAGE`` for it
+    """
+    return MISSING_OBJECT_TYPE_MESSAGE.format(type_id=cmdb_object.type_id, public_id=cmdb_object.public_id)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                ObjectsManager - CLASS                                                #
@@ -126,13 +145,9 @@ class ObjectsManager(BaseManager):
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
 
-        Raises:
-            ObjectsManagerInitError: If the ObjectsManager could not be initialised
+        Building the manager touches no database, so nothing it can raise is a database failure
         """
-        try:
-            super().__init__(CmdbObject.COLLECTION, dbm, database)
-        except Exception as err:
-            raise ObjectsManagerInitError(err) from err
+        super().__init__(CmdbObject.COLLECTION, dbm, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -216,15 +231,10 @@ class ObjectsManager(BaseManager):
             )
 
             return self.insert(CmdbObject.to_json(new_object))
-        except AccessDeniedError as err:
-            raise err
-        except (DocumentLockTimeoutError, DocumentNetworkError) as err:
-            # Propagated unchanged, the same rule MongoDatabaseManager.insert applies one layer down:
-            # re-wrapping these as an insert error hides the one thing that distinguishes them - they
-            # are transient and the request can simply be retried. The app's error handlers answer them
-            # with 423 / 503 (`responses/error_handlers.py`)
-            raise err
-        except Exception as err:
+        except (BaseManagerInsertError, ObjectsManagerGetTypeError, *OBJECT_DOCUMENT_ERRORS) as err:
+            # Not caught, so propagated unchanged: AccessDeniedError, and the two transient errors - re-wrapping
+            # those as an insert error would hide that the request can simply be retried (the app answers them
+            # 423 / 503, `responses/error_handlers.py`)
             LOGGER.error("[insert_object] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerInsertError(err) from err
 
@@ -260,7 +270,7 @@ class ObjectsManager(BaseManager):
                 modified += result.modified_count
 
             return modified
-        except Exception as err:
+        except BaseManagerUpdateError as err:
             LOGGER.error("[apply_raw_updates] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
@@ -300,9 +310,7 @@ class ObjectsManager(BaseManager):
                 return CmdbObject.to_json(requested_object) if as_dict else requested_object
 
             return None
-        except AccessDeniedError as err:
-            raise err
-        except Exception as err:
+        except (BaseManagerGetError, ObjectsManagerGetTypeError, *OBJECT_DOCUMENT_ERRORS) as err:
             LOGGER.error("[get_object] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerGetError(err) from err
 
@@ -334,7 +342,7 @@ class ObjectsManager(BaseManager):
                                                                             total,
                                                                             CmdbObject)
             return iteration_result
-        except Exception as err:
+        except (BaseManagerIterationError, CmdbObjectInitFromDataError) as err:
             LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
 
@@ -368,8 +376,42 @@ class ObjectsManager(BaseManager):
             aggregation_result: list[dict[str, Any]] = self.aggregate_query(builder_params, user, permission)
 
             return [CmdbObject.from_data(result) for result in aggregation_result]
-        except Exception as err:
+        except (BaseManagerIterationError, CmdbObjectInitFromDataError) as err:
             LOGGER.error("[iterate_results] Exception: %s. Type: %s", err, type(err))
+            raise ObjectsManagerIterationError(err) from err
+
+
+    def iterate_documents(
+        self,
+        builder_params: BuilderParameters,
+        denied_type_ids: Collection[int] = (),
+    ) -> tuple[list[dict[str, Any]], int]:
+        """
+        Retrieves a page of CmdbObjects as their raw documents, with the total match count
+
+        For a caller that only reads a few keys per row (the pickers): no CmdbObject is built per row. The
+        denied types are passed in already resolved, so a caller that needs them again - to mask a name in
+        the rows, say - reads them once; they go into the criteria, so the rows and the total are narrowed
+        alike. An empty collection narrows nothing
+
+        Args:
+            builder_params (BuilderParameters): Filter, sort and pagination for the read, narrowed in place
+            denied_type_ids (Collection[int]): public_ids of the CmdbTypes whose objects are left out
+
+        Raises:
+            ObjectsManagerIterationError: When the read failed - wrapping a DocumentQueryTimeLimitError when it ran
+                past its time budget
+
+        Returns:
+            tuple[list[dict[str, Any]], int]: The raw documents of the page, and the total number of matches
+        """
+        if denied_type_ids:
+            builder_params.add_criteria(build_denied_types_condition(sorted(denied_type_ids)))
+
+        try:
+            return self.iterate_query(builder_params)
+        except BaseManagerIterationError as err:
+            LOGGER.error("[iterate_documents] BaseManagerIterationError: %s", err)
             raise ObjectsManagerIterationError(err) from err
 
 
@@ -417,6 +459,11 @@ class ObjectsManager(BaseManager):
             for cur_object in cmdb_objects:
                 cur_type = types_lookup.get(cur_object.type_id)
 
+                if cur_type is None and user and permission:
+                    # No type to judge the ACL by: refused as a failed read, as it was when verify_access
+                    # failed on the missing type inside the catch-all
+                    raise ObjectsManagerGetError(missing_type_message(cur_object))
+
                 try:
                     verify_access(cur_type, user, permission)
                     valid_objects.append(cur_object)
@@ -425,9 +472,7 @@ class ObjectsManager(BaseManager):
                     continue
 
             return valid_objects
-        except AccessDeniedError as err:
-            raise err
-        except Exception as err:
+        except (BaseManagerGetError, CmdbObjectInitFromDataError) as err:
             LOGGER.error("[get_objects_by] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerGetError(err) from err
 
@@ -481,6 +526,11 @@ class ObjectsManager(BaseManager):
 
                 try:
                     cur_type = self.get_object_type(cur_object.type_id)
+
+                    if cur_type is None and user and permission:
+                        # No type to judge the ACL by (see get_objects_by)
+                        raise ObjectsManagerIterationError(missing_type_message(cur_object))
+
                     verify_access(cur_type, user, permission)
                     grouped_objects.append(obj)
                 except AccessDeniedError:
@@ -488,7 +538,7 @@ class ObjectsManager(BaseManager):
                     continue
 
             return grouped_objects
-        except Exception as err:
+        except (ObjectsManagerGetTypeError, CmdbObjectInitFromDataError) as err:
             LOGGER.error("[group_objects_by_value] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
 
@@ -502,8 +552,8 @@ class ObjectsManager(BaseManager):
             as_dict(bool = False): If True the CmdbType will be returned as a dictionary instead of a CmdbType
 
         Raises:
-            ObjectsManagerGetTypeError: If the CmdbType could not be retrieved or initialised
-            ObjectsManagerGetTypeError: If an unexpected Exception occurs
+            ObjectsManagerGetTypeError: If the CmdbType could not be retrieved or initialised; a programming error
+                propagates as itself
 
         Returns:
             dict[str, Any], CmdbType | None: CmdbType with the given type_id either as dict or object if found
@@ -522,8 +572,6 @@ class ObjectsManager(BaseManager):
 
             return None
         except (BaseManagerGetError, CmdbTypeInitFromDataError) as err:
-            raise ObjectsManagerGetTypeError(err) from err
-        except Exception as err:
             LOGGER.error("[get_object_type] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerGetTypeError(err) from err
 
@@ -646,7 +694,7 @@ class ObjectsManager(BaseManager):
                 return found_objects
 
             return [CmdbObject.from_data(found_object) for found_object in found_objects]
-        except Exception as err:
+        except (BaseManagerGetError, CmdbObjectInitFromDataError) as err:
             LOGGER.error("[find_objects] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerGetError(err) from err
 
@@ -667,12 +715,12 @@ class ObjectsManager(BaseManager):
             raise ObjectsManagerGetError(err) from err
 
 
-    def aggregate_objects(self, pipeline: list[dict[str, Any]], **kwargs: Any) -> CommandCursor:
+    def aggregate_objects(self, pipeline: list[dict[str, Any]], **kwargs: Any) -> list[dict[str, Any]]:
         """
-        Executes an aggregation pipeline on the database to process and retrieve CmdbObjects
+        Executes an aggregation pipeline on the CmdbObjects and reads every result
 
-        This method wraps the `aggregate` function, applying the given aggregation pipeline 
-        and handling potential iteration errors
+        Read to the end inside the database layer (``aggregate_all``), so a failure on a later batch is an
+        ObjectsManagerIterationError too, not a raw driver error escaping from the caller's loop
 
         Args:
             pipeline (list[dict[str, Any]]): A list of aggregation stages to be executed on the database
@@ -682,10 +730,10 @@ class ObjectsManager(BaseManager):
             ObjectsManagerIterationError: If an error occurs during the aggregation process
 
         Returns:
-            CommandCursor: The result of the aggregation query
+            list[dict[str, Any]]: Every result of the aggregation
         """
         try:
-            return self.aggregate(pipeline=pipeline, **kwargs)
+            return self.aggregate_all(pipeline, **kwargs)
         except BaseManagerIterationError as err:
             raise ObjectsManagerIterationError(err) from err
 
@@ -737,7 +785,7 @@ class ObjectsManager(BaseManager):
 
         try:
             return self.count_documents(criteria)
-        except Exception as err:
+        except BaseManagerGetError as err:
             LOGGER.error("[count_objects] Exception: %s. Type: %s", err, type(err))
             raise ObjectsManagerGetError(err) from err
 
@@ -779,12 +827,12 @@ class ObjectsManager(BaseManager):
             Builder.group_(f"${CmdbObjectKey.TYPE_ID.value}", {"count": {"$sum": 1}})
         ]
 
-        cursor: CommandCursor = self.aggregate_objects(pipeline)
+        rows: list[dict[str, Any]] = self.aggregate_objects(pipeline)
 
         counts_by_type: dict[int, int] = {}
         total: int = 0
 
-        for doc in cursor:
+        for doc in rows:
             count: int = doc["count"]
             total += count
 
@@ -868,7 +916,7 @@ class ObjectsManager(BaseManager):
 
             query_pipeline.append(Builder.project_({"_id": 0}))
 
-            results = list(self.aggregate_from_other_collection(CmdbType.COLLECTION, query_pipeline))
+            results = self.aggregate_all(query_pipeline, CmdbType.COLLECTION)
 
             # The manager owns the read: the ref-field names are resolved per TYPE in one query, so the
             # pure filter below decides per ROW without a type fetch of its own
@@ -883,7 +931,7 @@ class ObjectsManager(BaseManager):
                 referenced_object.public_id,
                 self._ref_field_names_by_type(result_type_ids),
             )
-        except Exception as err:
+        except (BaseManagerIterationError, BaseManagerGetError) as err:
             LOGGER.error("[get_mds_references_for_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerIterationError(err) from err
 
@@ -981,11 +1029,6 @@ class ObjectsManager(BaseManager):
             return merge_result
         except ObjectsManagerMdsReferencesError as err:
             raise ObjectsManagerIterationError(err) from err
-        except ObjectsManagerIterationError as err:
-            raise err
-        except Exception as err:
-            LOGGER.error("[references] Exception: %s, Type: %s", err, type(err))
-            raise ObjectsManagerIterationError(err) from err
 
 
     def get_objects_lookup(
@@ -1035,11 +1078,16 @@ class ObjectsManager(BaseManager):
             AccessDeniedError: If the CmdbUser does not have the permission for this action
         """
         try:
-            if isinstance(data, CmdbObject):
-                instance = CmdbObject.to_json(data)
-            else:
-                instance = json.loads(json.dumps(data, default=json_util.default), object_hook=object_hook)
+            # Scoped to the round trip: a wrapper value that cannot be decoded is the caller's, not a bug
+            instance = CmdbObject.to_json(data) if isinstance(data, CmdbObject) else bson_round_trip(data)
+        except EXTENDED_JSON_DECODE_ERRORS as err:
+            LOGGER.error("[update_object] Undecodable value: %s, Type: %s", err, type(err))
+            raise ObjectsManagerUpdateError(err) from err
+        except CmdbObjectToJsonError as err:
+            LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
+            raise ObjectsManagerUpdateError(err) from err
 
+        try:
             if partial:
                 stored_object = self.get_one(public_id)
 
@@ -1055,9 +1103,7 @@ class ObjectsManager(BaseManager):
             )
 
             self.update({CmdbObjectKey.PUBLIC_ID.value: public_id}, instance)
-        except AccessDeniedError as err:
-            raise err
-        except Exception as err:
+        except (BaseManagerGetError, BaseManagerUpdateError, ObjectsManagerGetTypeError) as err:
             LOGGER.error("[update_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
@@ -1103,11 +1149,8 @@ class ObjectsManager(BaseManager):
             )
 
             return self.delete({CmdbObjectKey.PUBLIC_ID.value: public_id})
-        except AccessDeniedError as err:
-            raise err
-        except Exception as err:
-            # One arm, one log line: every failure is logged before it is re-wrapped, so the likely
-            # failures are as visible to an operator as the rest
+        except (BaseManagerGetError, BaseManagerDeleteError, ObjectsManagerGetTypeError,
+                CmdbObjectInitFromDataError) as err:
             LOGGER.error("[delete_object] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerDeleteError(err) from err
 
@@ -1150,7 +1193,7 @@ class ObjectsManager(BaseManager):
         """
         try:
             to_delete_object: dict[str, Any] | None = self.get_one(public_id)
-        except Exception as err:
+        except BaseManagerGetError as err:
             LOGGER.error("[delete_with_follow_up] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerDeleteError(err) from err
 
@@ -1206,7 +1249,7 @@ class ObjectsManager(BaseManager):
                 ("multi_data_sections.values.data", "multi_data_sections.$[].values.$[].data.$[f].value"),
             ):
                 self.update_many_raw(**self._reference_scrub(rows_path, value_path, ids_filter))
-        except Exception as err:
+        except BaseManagerUpdateError as err:
             LOGGER.error("[delete_all_object_references] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
@@ -1267,7 +1310,7 @@ class ObjectsManager(BaseManager):
                 update={"$set": {"fields.$[f].value": parent_id}},
                 array_filters=[{"f.type": FieldType.LOCATION.value}],
             )
-        except Exception as err:
+        except BaseManagerUpdateError as err:
             LOGGER.error("[set_location_field_for_objects] Exception: %s, Type: %s", err, type(err))
             raise ObjectsManagerUpdateError(err) from err
 
@@ -1335,7 +1378,8 @@ class ObjectsManager(BaseManager):
         for type_doc in type_docs:
             try:
                 type_instance: CmdbType = CmdbType.from_data(type_doc)
-            except Exception as err:
+            except CmdbTypeInitFromDataError as err:
+                # A drifted type document is skipped; anything else is a bug and propagates
                 LOGGER.debug(
                     "Failed to load CmdbType with ID: %s. Error: %s",
                     type_doc.get('public_id'), err,
@@ -1352,6 +1396,8 @@ class ObjectsManager(BaseManager):
         public_ids: list[int],
         with_type: bool = True,
         object_docs: list[dict[str, Any]] | None = None,
+        user: CmdbUser | None = None,
+        permission: AccessControlPermission | None = None,
     ) -> dict[int, str]:
         """
         Batch-resolves summary lines for many CmdbObjects in a single round-trip pair
@@ -1374,6 +1420,13 @@ class ObjectsManager(BaseManager):
             object_docs (list[dict[str, Any]] | None): Already-loaded full CmdbObject
                 documents covering the requested ids; when given, the per-id fetch is
                 skipped and docs outside ``public_ids`` are ignored
+            user (CmdbUser | None): The caller, when the lines are shown to a user - an object of a type
+                their group may not access is then absent, as if it did not exist (``find_objects``)
+            permission (AccessControlPermission | None): The permission the user's group must hold; scoping
+                happens only when both this and ``user`` are given
+
+        Raises:
+            ObjectsManagerGetError: If the CmdbObjects or their CmdbTypes could not be read
 
         Returns:
             dict[int, str]: {public_id: summary_line} for every public_id whose object and
@@ -1391,11 +1444,17 @@ class ObjectsManager(BaseManager):
             object_docs = self.find_objects(
                 criteria={'public_id': {'$in': unique_ids}},
                 as_dict=True,
+                user=user,
+                permission=permission,
             )
 
-        types_lookup: dict[int, CmdbType] = self._load_types_lookup(list({
-            doc.get('type_id') for doc in object_docs if isinstance(doc.get('type_id'), int)
-        }))
+        try:
+            types_lookup: dict[int, CmdbType] = self._load_types_lookup(list({
+                doc.get('type_id') for doc in object_docs if isinstance(doc.get('type_id'), int)
+            }))
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_summary_lines_lookup] BaseManagerGetError: %s", err)
+            raise ObjectsManagerGetError(err) from err
 
         result: dict[int, str] = {}
 

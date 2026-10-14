@@ -13,3 +13,9 @@
 #
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
+"""
+The CmdbReport and CmdbReportCategory models, their key enums and the report query DSL
+
+``report_constants`` holds the document keys of both (``ReportKey``, ``ReportCategoryKey``) and the condition-tree
+vocabulary; nothing is re-exported here - consumers import from the defining module
+"""

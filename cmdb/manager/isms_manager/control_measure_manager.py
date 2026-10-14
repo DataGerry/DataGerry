@@ -100,7 +100,7 @@ class ControlMeasureManager(GenericManager):
         ]
 
         try:
-            result = self.aggregate_from_other_collection(IsmsControlMeasureAssignment.COLLECTION, pipeline)
+            result = self.aggregate_all(pipeline, IsmsControlMeasureAssignment.COLLECTION)
 
             return {doc['_id'] for doc in result}
         except BaseManagerIterationError as err:

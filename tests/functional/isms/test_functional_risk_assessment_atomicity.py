@@ -276,6 +276,32 @@ class TestDuplicate:
         assert assignments.count_documents({'control_measure_id': CM_ID}) == 1
 
 
+class TestDuplicateCopiesAssignmentsByDefault:
+    """``?copy_cma=`` - absent means TRUE, the one flag whose default is on"""
+
+    def test_without_the_flag_the_assignments_are_copied(self, rest_api, collections) -> None:
+        """The source's assignment goes with the duplicate when the request does not say otherwise"""
+        assessments, assignments = collections
+        assessments.insert_one(_body())
+        assignments.insert_one(_cma(CMA_UPDATED_ID, RA_ID))
+
+        response = rest_api.post(f'{ROUTE_URL}/duplicate/risk/{TARGET_RISK_IDS[0]}', json=_body())
+
+        assert response.status_code == HTTPStatus.OK
+        assert assignments.count_documents({'control_measure_id': CM_ID}) == 2
+
+    def test_false_copies_none(self, rest_api, collections) -> None:
+        """The frontend's false"""
+        assessments, assignments = collections
+        assessments.insert_one(_body())
+        assignments.insert_one(_cma(CMA_UPDATED_ID, RA_ID))
+
+        response = rest_api.post(f'{ROUTE_URL}/duplicate/risk/{TARGET_RISK_IDS[0]}?copy_cma=false', json=_body())
+
+        assert response.status_code == HTTPStatus.OK
+        assert assignments.count_documents({'control_measure_id': CM_ID}) == 1
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                        DELETE                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #

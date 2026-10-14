@@ -51,6 +51,7 @@ from cmdb.models.location_model.cmdb_location import CmdbLocation
 from cmdb.models.location_model.location_constants import LocationKey, RootLocationDefault
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.reports_model.report_constants import ReportCategoryKey
 from cmdb.models.ci_explorer_model.ci_explorer_profile import CmdbCiExplorerProfile
 from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.models.settings_model.cmdb_user_setting import CmdbUserSetting
@@ -71,7 +72,6 @@ from cmdb.models.isms_model import (
     IsmsProtectionGoal,
     IsmsRiskMatrix,
 )
-from cmdb.database.database_services.database_services_constants import BootstrapDocumentKey
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MEDIA_FILES_COLLECTION: str = f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
@@ -175,7 +175,7 @@ def test_the_root_location_is_kept() -> None:
 
 @pytest.mark.parametrize('collection,flag', [
     (CmdbSectionTemplate.COLLECTION, PREDEFINED_FLAG),
-    (CmdbReportCategory.COLLECTION, BootstrapDocumentKey.PREDEFINED.value),
+    (CmdbReportCategory.COLLECTION, ReportCategoryKey.PREDEFINED.value),
 ])
 def test_the_predefined_documents_are_kept(collection: str, flag: str) -> None:
     """The predefined section templates and report category stay; an absent flag counts as not predefined"""

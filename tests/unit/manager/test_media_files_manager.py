@@ -38,6 +38,7 @@ from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library.media_file import MediaFile
 from cmdb.framework.media_library.media_file_keys import GRIDFS_FILES_SUFFIX, MediaFileKey
 from cmdb.manager.media_files_manager import MediaFilesManager
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.media_files_manager import (
     MediaFileManagerDeleteError,
     MediaFileManagerGetError,
@@ -346,3 +347,135 @@ def test_delete_file_wraps_a_failing_delete() -> None:
 
     with pytest.raises(MediaFileManagerDeleteError):
         MediaFilesManager.delete_file(mock_self, PUBLIC_ID)
+
+
+def test_delete_file_names_the_failure_in_its_message() -> None:
+    """The wrapper's message carries the storage error, not only the id - the caller sees what failed"""
+    mock_self = _manager()
+    mock_self.fs.get_last_version.return_value = _stored_file()
+    mock_self.fs.delete.side_effect = RuntimeError('chunks unreachable')
+
+    with pytest.raises(MediaFileManagerDeleteError, match='chunks unreachable') as caught:
+        MediaFilesManager.delete_file(mock_self, PUBLIC_ID)
+
+    assert isinstance(caught.value.__cause__, RuntimeError)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       collect_subtree / delete_subtree (T325)                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+ROOT_ID: int = 1
+
+
+def _entry(public_id: int) -> dict[str, Any]:
+    """A walked entry: its GridFS id and its public_id"""
+    return {'_id': f'oid-{public_id}', 'public_id': public_id}
+
+
+def _tree_reader(children_by_parent: dict[int, list[int]]) -> MagicMock:
+    """A get_many_from_other_collection stand-in answering one level of a stored tree per call"""
+    def _read(_collection: str, projection: dict[str, int], criteria: dict[str, Any]) -> list[dict[str, Any]]:
+        del projection
+        parents: list[int] = criteria['metadata.parent']['$in']
+        return [_entry(child) for parent in parents for child in children_by_parent.get(parent, [])]
+
+    return MagicMock(side_effect=_read)
+
+
+class TestCollectSubtree:
+    """The walk reads one level per query and ends on a stored loop"""
+
+    def test_the_levels_come_back_root_first(self) -> None:
+        """root -> (2 -> 4, 3): three levels"""
+        mock_self = _manager()
+        mock_self.get_many_from_other_collection = _tree_reader({ROOT_ID: [2, 3], 2: [4]})
+
+        levels = MediaFilesManager.collect_subtree(mock_self, _entry(ROOT_ID))
+
+        assert [[entry['public_id'] for entry in level] for level in levels] == [[ROOT_ID], [2, 3], [4]]
+
+    def test_one_query_per_level_not_per_entry(self) -> None:
+        """Four entries over three levels: three reads (the last finds nothing) - it used to be one per entry"""
+        mock_self = _manager()
+        mock_self.get_many_from_other_collection = _tree_reader({ROOT_ID: [2, 3], 2: [4]})
+
+        MediaFilesManager.collect_subtree(mock_self, _entry(ROOT_ID))
+
+        calls = mock_self.get_many_from_other_collection.call_args_list
+        assert [call.kwargs['criteria']['metadata.parent']['$in'] for call in calls] == [[ROOT_ID], [2, 3], [4]]
+
+    def test_only_the_two_keys_the_delete_needs_are_read(self) -> None:
+        """The walk projects _id and public_id - no metadata, no content"""
+        mock_self = _manager()
+        mock_self.get_many_from_other_collection = _tree_reader({})
+
+        MediaFilesManager.collect_subtree(mock_self, _entry(ROOT_ID))
+
+        call = mock_self.get_many_from_other_collection.call_args
+        assert call.args[0] == f'{MediaFile.COLLECTION}{GRIDFS_FILES_SUFFIX}'
+        assert call.kwargs['projection'] == {'_id': 1, 'public_id': 1}
+
+    def test_a_stored_loop_ends_the_walk(self) -> None:
+        """root -> 2 -> root: the root is not collected twice and the walk stops - it used to recurse forever"""
+        mock_self = _manager()
+        mock_self.get_many_from_other_collection = _tree_reader({ROOT_ID: [2], 2: [ROOT_ID]})
+
+        levels = MediaFilesManager.collect_subtree(mock_self, _entry(ROOT_ID))
+
+        assert [[entry['public_id'] for entry in level] for level in levels] == [[ROOT_ID], [2]]
+
+    def test_a_failed_level_read_is_the_get_error(self) -> None:
+        """The manager's own error, carrying the failure"""
+        mock_self = _manager()
+        failure = BaseManagerGetError('db')
+        mock_self.get_many_from_other_collection.side_effect = failure
+
+        with pytest.raises(MediaFileManagerGetError) as caught:
+            MediaFilesManager.collect_subtree(mock_self, _entry(ROOT_ID))
+
+        assert caught.value.args[0] is failure
+
+
+class TestDeleteSubtree:
+    """The levels go deepest first, each in one batch on the documents and one on the chunks"""
+
+    @staticmethod
+    def _levels() -> list[list[dict[str, Any]]]:
+        """root -> (2 -> 4, 3)"""
+        return [[_entry(ROOT_ID)], [_entry(2), _entry(3)], [_entry(4)]]
+
+    def test_deepest_level_first_chunks_before_documents(self) -> None:
+        """Six deletes for three levels, leaves first; within a level the chunks, then their documents"""
+        mock_self = _manager()
+        mock_self.delete_many_from_other_collection.return_value = MagicMock(deleted_count=1)
+
+        MediaFilesManager.delete_subtree(mock_self, self._levels())
+
+        calls = [(call.args[0].rsplit('.', 1)[-1], call.args[1]) for call in
+                 mock_self.delete_many_from_other_collection.call_args_list]
+        assert calls == [
+            ('chunks', {'files_id': {'$in': ['oid-4']}}), ('files', {'_id': {'$in': ['oid-4']}}),
+            ('chunks', {'files_id': {'$in': ['oid-2', 'oid-3']}}), ('files', {'_id': {'$in': ['oid-2', 'oid-3']}}),
+            ('chunks', {'files_id': {'$in': ['oid-1']}}), ('files', {'_id': {'$in': ['oid-1']}}),
+        ]
+
+    def test_answers_how_many_documents_went(self) -> None:
+        """The documents' deleted counts summed"""
+        mock_self = _manager()
+        mock_self.delete_many_from_other_collection.return_value = MagicMock(deleted_count=2)
+
+        assert MediaFilesManager.delete_subtree(mock_self, self._levels()) == 2 * len(self._levels())
+
+    def test_a_failure_stops_before_the_levels_above(self) -> None:
+        """The deepest level is gone, the failing one and the root are not touched - the rest stays connected"""
+        mock_self = _manager()
+        failure = BaseManagerDeleteError('db')
+        mock_self.delete_many_from_other_collection.side_effect = [
+            MagicMock(deleted_count=1), MagicMock(deleted_count=0), failure,
+        ]
+
+        with pytest.raises(MediaFileManagerDeleteError) as caught:
+            MediaFilesManager.delete_subtree(mock_self, self._levels())
+
+        assert caught.value.args[0] is failure
+        assert mock_self.delete_many_from_other_collection.call_count == 3

@@ -53,6 +53,7 @@ from cmdb.interface.rest_api.responses import DefaultResponse, GetMultiResponse,
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
 from cmdb.models.user_model import CmdbUser
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.reports_model.report_constants import ReportCategoryKey
 from cmdb.framework.results import IterationResult
 
 from cmdb.errors.manager.report_categories_manager import (
@@ -66,7 +67,6 @@ from cmdb.errors.manager.report_categories_manager import (
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     CATEGORY_RETRIEVE_FAILED_MSG,
     ReportCategoryAction,
-    ReportCategoryKey,
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_category_helper import (

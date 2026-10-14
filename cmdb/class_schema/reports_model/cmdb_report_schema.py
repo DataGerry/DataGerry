@@ -28,41 +28,49 @@ def get_cmdb_report_schema() -> dict[str, Any]:
     """
     Builds the Cerberus validation schema for a CmdbReport document
 
+    The keys come from ``ReportKey`` - also the model's ``KEYS``, which the shared ``from_data`` / ``to_json`` read and
+    write - so the schema and the document cannot drift apart. The import is deliberately INSIDE the builder:
+    ``cmdb.models`` imports this module at class-definition time, so importing the model package at module level would
+    close an import cycle
+
     Returns:
         dict: Field name to Cerberus rule mapping, consumed as CmdbReport.SCHEMA
     """
+    # pylint: disable=import-outside-toplevel
+    from cmdb.models.reports_model.report_constants import ReportKey
+
     return {
-        'public_id': {  # public_id of the CmdbReport
+        ReportKey.PUBLIC_ID.value: {  # public_id of the CmdbReport
             'type': 'integer',
         },
-        'report_category_id': {  # public_id of the CmdbReportCategory this report belongs to
+        ReportKey.REPORT_CATEGORY_ID.value: {  # public_id of the CmdbReportCategory this report belongs to
             'type': 'integer',
             'required': True,
         },
-        'name': {  # Name of the report
+        ReportKey.NAME.value: {  # Name of the report
             'type': 'string',
             'required': True,
         },
-        'type_id': {  # public_id of the CmdbType the report runs against
+        ReportKey.TYPE_ID.value: {  # public_id of the CmdbType the report runs against
             'type': 'integer',
             'required': True,
             'empty': False,
         },
-        'selected_fields': {  # Type field names included in the report output
+        ReportKey.SELECTED_FIELDS.value: {  # Type field names included in the report output
             'type': 'list',
             'required': True,
         },
-        'conditions': {  # Filter conditions defining which objects are included
+        ReportKey.CONDITIONS.value: {  # Filter conditions defining which objects are included
             'type': 'dict',
         },
-        'report_query': {  # Compiled MongoDB query derived from the conditions
+        ReportKey.REPORT_QUERY.value: {  # Compiled MongoDB query derived from the conditions
             'type': 'dict',
         },
-        'predefined': {  # True if provided by DataGerry rather than user-created
+        ReportKey.PREDEFINED.value: {  # True if provided by DataGerry rather than user-created
             'type': 'boolean',
             'default': False,
         },
-        'mds_mode': {  # Multi-data-section render mode (an MdsMode value)
+        ReportKey.MDS_MODE.value: {  # Multi-data-section render mode (an MdsMode value)
             'type': 'string',
         },
     }

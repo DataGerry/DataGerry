@@ -43,6 +43,8 @@ from cmdb.models.security_models.auth_settings_constants import (
     DEFAULT_TOKEN_LIFETIME,
     AuthSettingsKey,
 )
+from cmdb.errors.security import TokenKeyMaterialError
+from cmdb.security.key import holder as holder_module
 from cmdb.security.token import generator as generator_module
 from cmdb.security.token.generator import TokenGenerator, read_token_lifetime
 from cmdb.security.token.token_constants import TokenAlgorithm, TokenClaim, TokenClaimWrapperKey, TokenTimeClaim
@@ -82,18 +84,19 @@ def fixture_key() -> RSAKey:
 def _stubs(monkeypatch: pytest.MonkeyPatch, key: RSAKey) -> None:
     """Replaces the key holder and the settings manager; stores a configured lifetime by default"""
     class _StubKeyHolder:
-        """Hands out the generated private key"""
+        """Holds the generated private key, loaded when built - as the real holder does"""
 
-        def __init__(self, dbm: Any) -> None:
-            del dbm
+        def __init__(self, dbm: Any, with_private_key: bool = True) -> None:
+            del dbm, with_private_key
+            self.rsa_private: bytes = key.as_pem(private=True)
 
         def get_private_key(self) -> bytes:
-            """The private half, as PEM"""
-            return key.as_pem(private=True)
+            """Fails the test: a token is signed with the key loaded at construction, never re-resolved"""
+            raise AssertionError('the private key was resolved again to sign a token')
 
     _StubSettingsManager.bound_to = []
     _StubSettingsManager.section = {AuthSettingsKey.TOKEN_LIFETIME.value: CONFIGURED_LIFETIME}
-    monkeypatch.setattr(generator_module, 'KeyHolder', _StubKeyHolder)
+    monkeypatch.setattr(holder_module, 'KeyHolder', _StubKeyHolder)
     monkeypatch.setattr(generator_module, 'SettingsManager', _StubSettingsManager)
 
 
@@ -123,9 +126,35 @@ class TestConstruction:
 
         assert _StubSettingsManager.bound_to == [None]
 
+    def test_a_signing_key_that_cannot_be_read_is_key_material(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Built through load_key_holder: a raw key failure comes out typed, the server's fault"""
+        class _NoKeyHolder:
+            """A holder whose key cannot be obtained"""
+
+            def __init__(self, dbm: Any, with_private_key: bool = True) -> None:
+                del dbm, with_private_key
+                raise ValueError('no stored keypair')
+
+        monkeypatch.setattr(holder_module, 'KeyHolder', _NoKeyHolder)
+
+        with pytest.raises(TokenKeyMaterialError):
+            TokenGenerator(object())
+
 
 class TestClaims:
     """The token carries what the validator and the frontend read"""
+
+    def test_every_token_is_signed_with_the_key_loaded_at_construction(self, key: RSAKey) -> None:
+        """
+        Never re-resolved per token: a source that changed since construction cannot fail a login untyped
+
+        The stub's get_private_key raises, so any token below that verifies was signed with ``rsa_private``
+        """
+        generator = TokenGenerator(object())
+
+        tokens: list[bytes] = [generator.generate_token(PAYLOAD) for _ in range(2)]
+
+        assert all(_claims(token, key) for token in tokens)
 
     def test_the_times_answered_are_the_times_signed(self, key: RSAKey) -> None:
         """The login response reports the token's own iat / exp"""

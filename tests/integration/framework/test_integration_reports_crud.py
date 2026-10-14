@@ -37,6 +37,7 @@ REPORT_ID_FOR_UPDATE: int = 9903
 REPORT_ID_FOR_DELETE: int = 9904
 REPORT_ID_FOR_ITERATE_A: int = 9905
 REPORT_ID_FOR_ITERATE_B: int = 9906
+REPORT_ID_STRICT_KEYS_ONLY: int = 9907
 MISSING_REPORT_ID: int = 9999
 
 REPORT_TYPE_ID: int = 8800
@@ -52,6 +53,7 @@ SEED_REPORT_IDS: list[int] = [
     REPORT_ID_FOR_DELETE,
     REPORT_ID_FOR_ITERATE_A,
     REPORT_ID_FOR_ITERATE_B,
+    REPORT_ID_STRICT_KEYS_ONLY,
 ]
 
 
@@ -203,3 +205,30 @@ class TestIterateAndCountReports:
     def test_count_documents_counts_reports_of_type(self, reports_manager: ReportsManager) -> None:
         """count_documents counts the reports referencing the given type_id."""
         assert reports_manager.count_documents({'type_id': OTHER_TYPE_ID}) == 1
+
+
+class TestAReportWrittenBeforeTheOptionalKeys:
+    """A stored report with only the four strict keys is read through the shared from_data, not refused"""
+
+    @pytest.fixture(autouse=True)
+    def _seed(self, database_manager: MongoDatabaseManager, database_name: str):
+        """One report carrying nothing beyond its strict keys"""
+        collection = _collection(database_manager, database_name)
+        collection.insert_one({
+            'public_id': REPORT_ID_STRICT_KEYS_ONLY, 'report_category_id': 1, 'name': ORIGINAL_NAME,
+            'type_id': REPORT_TYPE_ID, 'selected_fields': ['field-a'],
+        })
+        yield
+        collection.delete_many({'public_id': REPORT_ID_STRICT_KEYS_ONLY})
+
+    def test_it_is_read_with_the_defaults(self, reports_manager: ReportsManager) -> None:
+        """The list reads every row through it, so one old report must not fail the list"""
+        params = BuilderParameters(criteria=[{'$match': {'public_id': REPORT_ID_STRICT_KEYS_ONLY}}])
+
+        result = reports_manager.iterate_items(params)
+
+        assert [CmdbReport.to_json(report) for report in result.results] == [{
+            'public_id': REPORT_ID_STRICT_KEYS_ONLY, 'report_category_id': 1, 'name': ORIGINAL_NAME,
+            'type_id': REPORT_TYPE_ID, 'selected_fields': ['field-a'], 'conditions': None, 'report_query': None,
+            'predefined': False, 'mds_mode': 'ROWS',
+        }]

@@ -75,16 +75,16 @@ class TestScopedLevelReads:
     def test_a_hidden_child_does_not_count_as_a_child(self) -> None:
         """The grouping's match carries the denial"""
         manager = _manager()
-        manager.aggregate.return_value = []
+        manager.aggregate_all.return_value = []
 
         LocationsManager.get_parents_with_children(manager, [PARENT_ID], [DENIED_TYPE])
 
-        assert manager.aggregate.call_args.args[0][0] == {'$match': {'parent': {'$in': [PARENT_ID]}, **DENIAL}}
+        assert manager.aggregate_all.call_args.args[0][0] == {'$match': {'parent': {'$in': [PARENT_ID]}, **DENIAL}}
 
     def test_the_path_levels_leave_denied_siblings_out(self) -> None:
         """The sibling read carries the denial"""
         manager = _manager()
-        manager.aggregate.return_value = [{'ancestors': [{'public_id': PARENT_ID}]}]
+        manager.aggregate_all.return_value = [{'ancestors': [{'public_id': PARENT_ID}]}]
         manager.get_many.return_value = []
 
         LocationsManager.get_locations_on_path_to(manager, NODE_ID, [DENIED_TYPE])
@@ -100,7 +100,7 @@ class TestScopedSearch:
         """Neither the hidden ancestor nor the readable match is found; another match is"""
         manager = _manager()
         hidden = {'public_id': HIDDEN_ANCESTOR_ID, 'name': 'hidden', 'parent': 1, 'type_id': DENIED_TYPE}
-        manager.aggregate.return_value = [
+        manager.aggregate_all.return_value = [
             {'public_id': NODE_ID, 'name': 'srv-a', 'parent': HIDDEN_ANCESTOR_ID, 'type_id': OTHER_TYPE,
              'ancestors': [hidden]},
             {'public_id': VISIBLE_ID, 'name': 'srv-b', 'parent': 1, 'type_id': OTHER_TYPE, 'ancestors': []},
@@ -113,7 +113,7 @@ class TestScopedSearch:
     def test_a_hidden_match_itself_is_dropped(self) -> None:
         """Not found by name"""
         manager = _manager()
-        manager.aggregate.return_value = [
+        manager.aggregate_all.return_value = [
             {'public_id': NODE_ID, 'name': 'secret', 'parent': 1, 'type_id': DENIED_TYPE, 'ancestors': []}]
 
         assert not LocationsManager.search_locations_with_ancestors(manager, 'secret', [DENIED_TYPE])
@@ -123,14 +123,15 @@ class TestFlatList:
     """iterate_location_documents"""
 
     def test_the_reader_narrows_the_criteria(self) -> None:
-        """Rows and total alike - through the shared ACL hook"""
+        """Rows and total alike - iterate_query applies the rule to the criteria both aggregations read"""
         manager = _manager()
         manager.iterate_query.return_value = ([], 0)
         params, user = BuilderParameters(criteria={}), MagicMock()
 
         LocationsManager.iterate_location_documents(manager, params, user, AccessControlPermission.READ)
 
-        manager.apply_acl_to_builder_params.assert_called_once_with(params, user, AccessControlPermission.READ)
+        manager.iterate_query.assert_called_once_with(params, user, AccessControlPermission.READ)
+        manager.apply_acl_to_builder_params.assert_not_called()
 
 
 class TestGetLocationChain:
@@ -139,13 +140,13 @@ class TestGetLocationChain:
     def test_the_node_then_its_ancestors_projected(self) -> None:
         """One $graphLookup, two keys"""
         manager = _manager()
-        manager.aggregate.return_value = [
+        manager.aggregate_all.return_value = [
             {'public_id': NODE_ID, 'type_id': OTHER_TYPE, 'ancestors': [{'public_id': 1, 'type_id': 0}]}]
 
         chain = LocationsManager.get_location_chain(manager, NODE_ID)
 
         assert chain == [{'public_id': NODE_ID, 'type_id': OTHER_TYPE}, {'public_id': 1, 'type_id': 0}]
-        pipeline = manager.aggregate.call_args.args[0]
+        pipeline = manager.aggregate_all.call_args.args[0]
         assert pipeline[0] == {'$match': {'public_id': NODE_ID}}
         assert pipeline[-1]['$project'] == {'_id': 0, 'public_id': 1, 'type_id': 1,
                                             'ancestors.public_id': 1, 'ancestors.type_id': 1}
@@ -153,18 +154,26 @@ class TestGetLocationChain:
     def test_a_missing_node_is_an_empty_chain(self) -> None:
         """Nothing to judge"""
         manager = _manager()
-        manager.aggregate.return_value = []
+        manager.aggregate_all.return_value = []
 
         assert not LocationsManager.get_location_chain(manager, NODE_ID)
 
-    @pytest.mark.parametrize('error', [BaseManagerIterationError('down'), RuntimeError('bug')],
-                             ids=['iteration-error', 'anything-else'])
-    def test_a_failed_read_is_a_get_error_carrying_the_cause(self, error: Exception) -> None:
+    def test_a_failed_read_is_a_get_error_carrying_the_cause(self) -> None:
         """Wrapped with the exception itself"""
+        error = BaseManagerIterationError('down')
         manager = _manager()
-        manager.aggregate.side_effect = error
+        manager.aggregate_all.side_effect = error
 
         with pytest.raises(LocationsManagerGetError) as exc_info:
             LocationsManager.get_location_chain(manager, NODE_ID)
 
         assert exc_info.value.__cause__ is error
+        assert exc_info.value.args[0] is error
+
+    def test_a_programming_error_propagates_as_itself(self) -> None:
+        """Not a failed read - it reaches the route as itself, which answers 500 instead of the read's 400"""
+        manager = _manager()
+        manager.aggregate_all.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError, match='bug'):
+            LocationsManager.get_location_chain(manager, NODE_ID)

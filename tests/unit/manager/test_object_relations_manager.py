@@ -269,17 +269,17 @@ class TestRelationTabs:
     def test_the_tabs_come_from_one_aggregation(self) -> None:
         """The descriptors are computed server-side, not by loading the instances"""
         mgr = _mock_manager()
-        mgr.aggregate.return_value = iter([{'relation_id': RELATION_ID}])
+        mgr.aggregate_all.return_value = [{'relation_id': RELATION_ID}]
 
         tabs = ObjectRelationsManager.get_relation_tabs(mgr, PARENT_OBJECT_ID)
 
         assert tabs == [{'relation_id': RELATION_ID}]
-        mgr.aggregate.assert_called_once()
+        mgr.aggregate_all.assert_called_once()
 
     def test_a_failing_tab_aggregation_is_wrapped(self) -> None:
         """A database failure surfaces as the manager's own error type"""
         mgr = _mock_manager()
-        mgr.aggregate.side_effect = RuntimeError('boom')
+        mgr.aggregate_all.side_effect = RuntimeError('boom')
 
         with pytest.raises(ObjectRelationsManagerIterationError):
             ObjectRelationsManager.get_relation_tabs(mgr, PARENT_OBJECT_ID)

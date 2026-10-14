@@ -22,14 +22,12 @@ the two type states by pure helpers and written by ``ObjectsManager.apply_raw_up
 statements, driven by ``types_helper.apply_type_update_side_effects``: a manager does not drive another
 manager, and no object has to be read for it.
 """
-import json
 from logging import Logger, getLogger
 from typing import Any
-from bson import json_util
 from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.json_codec import object_hook
+from cmdb.database.json_codec import EXTENDED_JSON_DECODE_ERRORS, bson_round_trip
 
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.base_manager import BaseManager
@@ -45,20 +43,30 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.special_type_model.special_type_enum import SpecialType
 
 from cmdb.framework.results import IterationResult
-from cmdb.security.acl.builder import build_permitted_types_criteria
+from cmdb.security.acl.builder import build_permitted_types_criteria, resolve_denied_type_ids
 from cmdb.security.acl.permission import AccessControlPermission
 
+from cmdb.errors.manager import (
+    BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerInitError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
+    BaseManagerUpdateError,
+)
 from cmdb.errors.manager.types_manager import (
     TypesManagerGetError,
     TypesManagerUpdateError,
     TypesManagerDeleteError,
     TypesManagerInsertError,
-    TypesManagerInitError,
     TypesManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
+
+# What a stored type document that no longer fits the model raises, on the way in and on the way out
+TYPE_DOCUMENT_ERRORS: tuple[type[Exception], ...] = (CmdbType.INIT_FROM_DATA_ERROR, CmdbType.TO_JSON_ERROR)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 TypesManager - CLASS                                                 #
@@ -67,10 +75,12 @@ class TypesManager(BaseManager):
     """
     Manages the CRUD functions of CmdbTypes
 
-    Error policy: every public method converts ANY failure below it - the BaseManager errors it
-    expects as well as anything unforeseen - into the matching TypesManager* error, logging it on the
-    way out and chaining the original with `raise ... from err`. Callers therefore only ever have to
-    handle the domain errors, and no caller has to know which layer failed
+    Error policy: a public method catches what its calls raise - the call's BaseManager* error, the
+    CmdbType's declared (de)serialisation errors (``TYPE_DOCUMENT_ERRORS``) and, around the BSON round trip
+    of a raw dict, a wrapper value that cannot be decoded (``EXTENDED_JSON_DECODE_ERRORS``) - and converts it
+    into the matching TypesManager* error, logging it and chaining the original with ``raise ... from err``.
+    Anything else - a programming error - propagates as itself, so a route answers it 500 instead of the
+    400 a database failure gets. The two transient database errors are never caught here either
 
     Extends: BaseManager
     """
@@ -81,14 +91,8 @@ class TypesManager(BaseManager):
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             database (str): Name of the database to which the 'dbm' should connect. Only used in CLOUD_MODE
-
-        Raises:
-            TypesManagerInitError: If the TypesManager could not be initialised
         """
-        try:
-            super().__init__(CmdbType.COLLECTION, dbm, database)
-        except Exception as err:
-            raise TypesManagerInitError(err) from err
+        super().__init__(CmdbType.COLLECTION, dbm, database)
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -100,15 +104,18 @@ class TypesManager(BaseManager):
             new_type (CmdbType | dict): Raw data of the CmdbType
 
         Raises:
-            TypesManagerInsertError: When a CmdbType could not be inserted into the database
+            TypesManagerInsertError: When the type cannot be written out, or a CmdbType could not be inserted into
+                the database
 
         Returns:
             int: The public_id of the created CmdbType
         """
+        document: dict[str, Any] = self._stored_type_dict_or_raise(new_type, TypesManagerInsertError)
+
         try:
-            return self.insert(self._as_stored_type_dict(new_type))
-        except Exception as err:
-            LOGGER.error("[insert_type] Exception: %s. Type: %s", err, type(err))
+            return self.insert(document)
+        except BaseManagerInsertError as err:
+            LOGGER.error("[insert_type] BaseManagerInsertError: %s", err)
             raise TypesManagerInsertError(err) from err
 
 
@@ -117,13 +124,16 @@ class TypesManager(BaseManager):
         """
         Normalises a CmdbType or raw dict into the stored-document form for insert/update
 
-        A CmdbType is serialised via ``to_json``; a raw dict is passed through a BSON-aware JSON
-        round-trip (``json_util.default`` -> ``object_hook``) so any BSON/datetime values are coerced
-        into the shape the collection expects. Shared by ``insert_type`` and ``update_type`` so the
-        two never drift apart
+        A CmdbType is serialised via ``to_json``; a raw dict is passed through the BSON round trip
+        (``bson_round_trip``) so any BSON/datetime values are coerced into the shape the collection expects.
+        Shared by ``insert_type`` and ``update_type`` so the two never drift apart
 
         Args:
             type_or_dict (CmdbType | dict[str, Any]): The type to normalise
+
+        Raises:
+            CmdbTypeToJsonError: When the CmdbType cannot be written out
+            EXTENDED_JSON_DECODE_ERRORS: When the raw dict carries a wrapper value that cannot be decoded
 
         Returns:
             dict[str, Any]: The type as a stored-document dict
@@ -131,7 +141,34 @@ class TypesManager(BaseManager):
         if isinstance(type_or_dict, CmdbType):
             return CmdbType.to_json(type_or_dict)
 
-        return json.loads(json.dumps(type_or_dict, default=json_util.default), object_hook=object_hook)
+        return bson_round_trip(type_or_dict)
+
+
+    def _stored_type_dict_or_raise(
+            self,
+            type_or_dict: CmdbType | dict[str, Any],
+            error: type[Exception]) -> dict[str, Any]:
+        """
+        The stored-document form of a type, a failure to build it raised as the write's own error
+
+        Scoped to the conversion: a type that cannot be written out, or a wrapper value in a raw dict that cannot
+        be decoded, is the caller's - a programming error in the conversion still propagates as itself
+
+        Args:
+            type_or_dict (CmdbType | dict[str, Any]): The type to normalise
+            error (type[Exception]): The write's TypesManager* error
+
+        Raises:
+            error: When the document cannot be built
+
+        Returns:
+            dict[str, Any]: The type as a stored-document dict
+        """
+        try:
+            return self._as_stored_type_dict(type_or_dict)
+        except (CmdbType.TO_JSON_ERROR, *EXTENDED_JSON_DECODE_ERRORS) as err:
+            LOGGER.error("[%s] Unwritable type document: %s. Type: %s", error.__name__, err, type(err))
+            raise error(err) from err
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -147,8 +184,8 @@ class TypesManager(BaseManager):
         """
         try:
             return self.get_next_public_id(inc_id=True)
-        except Exception as err:
-            LOGGER.error("[get_new_type_public_id] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_new_type_public_id] BaseManagerGetError: %s", err)
             raise TypesManagerGetError(err) from err
 
 
@@ -170,8 +207,8 @@ class TypesManager(BaseManager):
         """
         try:
             return self.get_one(public_id)
-        except Exception as err:
-            LOGGER.error("[get_type] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_type] BaseManagerGetError: %s", err)
             raise TypesManagerGetError(err) from err
 
 
@@ -195,7 +232,7 @@ class TypesManager(BaseManager):
             target_type: dict[str, Any] | None = self.get_one(public_id)
 
             return CmdbType.from_data(target_type) if target_type else None
-        except Exception as err:
+        except (BaseManagerGetError, *TYPE_DOCUMENT_ERRORS) as err:
             LOGGER.error("[get_type_instance] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerGetError(err) from err
 
@@ -234,12 +271,12 @@ class TypesManager(BaseManager):
             TypesManagerIterationError: When the iteration failed
 
         Returns:
-            IterationResult[CmdbTypes]: All CmdbTypes matching the filter
+            IterationResult[CmdbType]: All CmdbTypes matching the filter
         """
-        try:
-            if user and permission:
-                builder_params.add_criteria(build_permitted_types_criteria(int(user.group_id), permission))
+        if user and permission:
+            builder_params.add_criteria(build_permitted_types_criteria(int(user.group_id), permission))
 
+        try:
             aggregation_result, total = self.iterate_query(builder_params)
 
             iteration_result: IterationResult[CmdbType] = IterationResult(
@@ -249,27 +286,49 @@ class TypesManager(BaseManager):
             )
 
             return iteration_result
-        except Exception as err:
+        except (BaseManagerIterationError, *TYPE_DOCUMENT_ERRORS) as err:
+            LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerIterationError(err) from err
+
+
+    def get_denied_type_ids(self, user: CmdbUser, permission: AccessControlPermission) -> list[int]:
+        """
+        The public_ids of the CmdbTypes the user's group may not access with the permission
+
+        The one projected read ``resolve_denied_type_ids`` makes, raised as this manager's error - for a caller
+        that needs the denial itself, to narrow a read and to mask the rows it returns with one lookup
+
+        Args:
+            user (CmdbUser): The CmdbUser the request is made for
+            permission (AccessControlPermission): The permission the user's group must hold
+
+        Raises:
+            TypesManagerGetError: If the denied types could not be read
+
+        Returns:
+            list[int]: public_ids of the denied CmdbTypes; empty when the group may access every type
+        """
+        try:
+            return resolve_denied_type_ids(user, permission)
+        except (BaseManagerGetError, BaseManagerInitError) as err:
+            LOGGER.error("[get_denied_type_ids] Exception: %s. Type: %s", err, type(err))
+            raise TypesManagerGetError(err) from err
 
 
     def find_types(self, criteria: dict[str, Any]) -> list[CmdbType]:
         """
-        Get a list of CmdbTypes by a filter
+        Get a list of CmdbTypes by a filter, in ``get_types_by``'s default order
 
         Args:
-            criteria: Filter which should be applied during the search
+            criteria (dict[str, Any]): Filter which should be applied during the search
+
+        Raises:
+            TypesManagerGetError: If the CmdbTypes could not be retrieved or one could not be read
 
         Returns:
             list[CmdbType]: list of CmdbTypes matching the criteria
         """
-        try:
-            found_types = self.find(criteria=criteria)
-
-            return [CmdbType.from_data(found_type) for found_type in found_types]
-        except Exception as err:
-            LOGGER.error("[find_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+        return self.get_types_by(criteria=criteria)
 
 
     def get_types_lookup(self, public_ids: list[int]) -> dict[int, CmdbType]:
@@ -288,37 +347,14 @@ class TypesManager(BaseManager):
         Returns:
             dict[int, CmdbType]: Mapping of public_id to its CmdbType (missing ids are absent)
         """
+        if not public_ids:
+            return {}
+
         all_types: list[CmdbType] = self.find_types(
             criteria={TypeSchemaKey.PUBLIC_ID.value: {'$in': public_ids}},
         )
 
         return {object_type.public_id: object_type for object_type in all_types}
-
-
-    def get_all_types(self, direction: int = CmdbDAO.DAO_DESCENDING) -> list[CmdbType]:
-        """
-        Retrieves all CmdbTypes from the collection
-
-        This method fetches multiple CmdbType from the collection and maps each raw result
-        (in dictionary form) into an instance of the CmdbType class
-
-        Args:
-            direction (int): public_id sort direction, CmdbDAO.DAO_ASCENDING (1) or
-                             CmdbDAO.DAO_DESCENDING (-1, the BaseManager default)
-
-        Raises:
-            TypesManagerGetError: If there is an error while fetching or processing types
-
-        Returns:
-            list[CmdbType]: A list of CmdbType instances created from the raw data
-        """
-        try:
-            raw_types: list[dict[str, Any]] = self.get_many(direction=direction)
-
-            return [CmdbType.from_data(raw_type) for raw_type in raw_types]
-        except Exception as err:
-            LOGGER.error("[get_all_types] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
 
 
     def get_types_by(
@@ -349,7 +385,7 @@ class TypesManager(BaseManager):
             raw_data = self.get_many(sort=sort, direction=direction, criteria=criteria)
 
             return [CmdbType.from_data(data) for data in raw_data]
-        except Exception as err:
+        except (BaseManagerGetError, *TYPE_DOCUMENT_ERRORS) as err:
             LOGGER.error("[get_types_by] Exception: %s. Type: %s", err, type(err))
             raise TypesManagerGetError(err) from err
 
@@ -371,19 +407,20 @@ class TypesManager(BaseManager):
             update_type (CmdbType | dict[str, Any]): The new type data
 
         Raises:
-            TypesManagerUpdateError: If there is an error during the update process
+            TypesManagerUpdateError: When the type cannot be written out, or the update failed
 
         Returns:
             UpdateResult: The outcome of the update, including the matched and modified counts
         """
-        try:
-            update_data: dict[str, Any] = self._as_stored_type_dict(update_type)
-            update_data[TypeSchemaKey.PUBLIC_ID.value] = public_id
+        update_data: dict[str, Any] = self._stored_type_dict_or_raise(update_type, TypesManagerUpdateError)
+        update_data[TypeSchemaKey.PUBLIC_ID.value] = public_id
 
+        try:
             return self.update(criteria={TypeSchemaKey.PUBLIC_ID.value: public_id}, data=update_data)
-        except Exception as err:
-            LOGGER.error("[update_type] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerUpdateError as err:
+            LOGGER.error("[update_type] BaseManagerUpdateError: %s", err)
             raise TypesManagerUpdateError(err) from err
+
 
     def update_type_field(self, public_id: int, field: str, value: Any) -> UpdateResult:
         """
@@ -407,8 +444,8 @@ class TypesManager(BaseManager):
         """
         try:
             return self.update(criteria={TypeSchemaKey.PUBLIC_ID.value: public_id}, data={field: value})
-        except Exception as err:
-            LOGGER.error("[update_type_field] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerUpdateError as err:
+            LOGGER.error("[update_type_field] BaseManagerUpdateError: %s", err)
             raise TypesManagerUpdateError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
@@ -431,8 +468,8 @@ class TypesManager(BaseManager):
         """
         try:
             return self.delete({TypeSchemaKey.PUBLIC_ID.value: public_id})
-        except Exception as err:
-            LOGGER.error("[delete_type] Exception: %s. Type: %s", err, type(err))
+        except BaseManagerDeleteError as err:
+            LOGGER.error("[delete_type] BaseManagerDeleteError: %s", err)
             raise TypesManagerDeleteError(err) from err
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
@@ -471,14 +508,38 @@ class TypesManager(BaseManager):
             bool: True if a CmdbType with this 'special_type' exists, False otherwise
         """
         try:
-            matching_type: dict[str, Any] | None = self.get_one_by(
-                {TypeSchemaKey.SPECIAL_TYPE.value: self._special_type_value(special_type)}
-            )
-
-            return bool(matching_type)
-        except Exception as err:
-            LOGGER.error("[check_special_type_exists] Exception: %s. Type: %s", err, type(err))
+            # An existence check the server can stop at the first match - no type document is loaded
+            return self.count_documents(
+                {TypeSchemaKey.SPECIAL_TYPE.value: self._special_type_value(special_type)}, limit=1,
+            ) > 0
+        except BaseManagerGetError as err:
+            LOGGER.error("[check_special_type_exists] BaseManagerGetError: %s", err)
             raise TypesManagerGetError(err) from err
+
+
+    def _distinct_type_ids(self, criteria: dict[str, Any]) -> list[int]:
+        """
+        The public_ids of the CmdbTypes matching the criteria, read with one distinct query
+
+        Only integer ids are answered: a drifted document whose public_id is no int cannot be dropped into an
+        '$in' / '$nin' of type ids
+
+        Args:
+            criteria (dict[str, Any]): The filter selecting the types
+
+        Raises:
+            TypesManagerGetError: If the lookup fails
+
+        Returns:
+            list[int]: The matching public_ids
+        """
+        try:
+            found_ids: list[Any] = self.get_distinct(TypeSchemaKey.PUBLIC_ID.value, criteria)
+        except BaseManagerGetError as err:
+            LOGGER.error("[_distinct_type_ids] BaseManagerGetError: %s", err)
+            raise TypesManagerGetError(err) from err
+
+        return [type_id for type_id in found_ids if isinstance(type_id, int)]
 
 
     def get_type_ids_of_special_type(self, special_type: SpecialType | str) -> list[int]:
@@ -499,18 +560,7 @@ class TypesManager(BaseManager):
         Returns:
             list[int]: The public_ids of the matching CmdbTypes, empty when the marker is unused
         """
-        try:
-            return [
-                type_id
-                for type_id in self.get_distinct(
-                    TypeSchemaKey.PUBLIC_ID.value,
-                    {TypeSchemaKey.SPECIAL_TYPE.value: self._special_type_value(special_type)},
-                )
-                if isinstance(type_id, int)
-            ]
-        except Exception as err:
-            LOGGER.error("[get_type_ids_of_special_type] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+        return self._distinct_type_ids({TypeSchemaKey.SPECIAL_TYPE.value: self._special_type_value(special_type)})
 
 
     def get_type_ids_with_location_field(self) -> list[int]:
@@ -528,18 +578,9 @@ class TypesManager(BaseManager):
             list[int]: The public_ids of the matching CmdbTypes, empty when no type carries a location
                        field
         """
-        try:
-            return [
-                type_id
-                for type_id in self.get_distinct(
-                    TypeSchemaKey.PUBLIC_ID.value,
-                    {TypeSchemaKey.FIELDS.value: {'$elemMatch': {FieldKey.TYPE.value: FieldType.LOCATION.value}}},
-                )
-                if isinstance(type_id, int)
-            ]
-        except Exception as err:
-            LOGGER.error("[get_type_ids_with_location_field] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+        return self._distinct_type_ids(
+            {TypeSchemaKey.FIELDS.value: {'$elemMatch': {FieldKey.TYPE.value: FieldType.LOCATION.value}}},
+        )
 
 
     def get_existing_type_ids(self, public_ids: list[int]) -> set[int]:
@@ -562,13 +603,4 @@ class TypesManager(BaseManager):
         if not public_ids:
             return set()
 
-        try:
-            found_ids: list[Any] = self.get_distinct(
-                TypeSchemaKey.PUBLIC_ID.value,
-                {TypeSchemaKey.PUBLIC_ID.value: {'$in': public_ids}},
-            )
-
-            return set(found_ids)
-        except Exception as err:
-            LOGGER.error("[get_existing_type_ids] Exception: %s. Type: %s", err, type(err))
-            raise TypesManagerGetError(err) from err
+        return set(self._distinct_type_ids({TypeSchemaKey.PUBLIC_ID.value: {'$in': public_ids}}))

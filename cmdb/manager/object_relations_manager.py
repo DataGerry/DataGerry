@@ -80,6 +80,26 @@ def build_readable_endpoints_condition(denied_type_ids: list[int] | None) -> dic
     }
 
 
+def build_unreadable_endpoints_condition(denied_type_ids: list[int]) -> dict[str, Any]:
+    """
+    Builds the condition matching the CmdbObjectRelations with an object the caller may not read at either end
+
+    The complement of ``build_readable_endpoints_condition``, for a check that has to FIND a hidden relation. It
+    has no "nothing denied" form: an empty condition would match every relation, so the caller skips the read
+    when nothing is denied
+
+    Args:
+        denied_type_ids (list[int]): public_ids of the CmdbTypes the caller may not read; not empty
+
+    Returns:
+        dict[str, Any]: The condition
+    """
+    return Builder.or_([
+        Builder.in_(ObjectRelationKey.RELATION_PARENT_TYPE_ID.value, denied_type_ids),
+        Builder.in_(ObjectRelationKey.RELATION_CHILD_TYPE_ID.value, denied_type_ids),
+    ])
+
+
 def build_relation_tabs_pipeline(object_id: int, denied_type_ids: list[int] | None = None) -> list[dict[str, Any]]:
     """
     Builds the aggregation pipeline that summarises an object's relations into tab descriptors
@@ -278,7 +298,7 @@ class ObjectRelationsManager(GenericManager):
             list[dict[str, Any]]: One descriptor per (relation_id, role) group
         """
         try:
-            return list(self.aggregate(build_relation_tabs_pipeline(object_id, denied_type_ids)))
+            return self.aggregate_all(build_relation_tabs_pipeline(object_id, denied_type_ids))
         except Exception as err:
             raise ObjectRelationsManagerIterationError(err) from err
 

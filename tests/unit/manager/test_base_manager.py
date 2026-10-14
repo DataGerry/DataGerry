@@ -17,7 +17,7 @@
 Unit tests for cmdb.manager.base_manager.BaseManager
 
 Pure tests: no Mongo. Each method is invoked unbound with a MagicMock standing in for the manager
-instance, so self.dbm / self.query_builder / self.aggregate are stubbed and only the method's own
+instance, so self.dbm / self.query_builder / self.aggregate_all are stubbed and only the method's own
 logic (id assignment, total extraction, criteria defaulting, the col / collection branches, the
 delete boolean and the exception mapping) is exercised. The logic-bearing methods get dedicated
 tests; the thin dbm delegations are covered by the parametrized error-mapping table at the bottom,
@@ -491,6 +491,36 @@ def test_aggregate_within_time_limit_wraps_the_timeout_itself() -> None:
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
+#                                                    aggregate_all                                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_aggregate_all_reads_this_managers_collection_by_default() -> None:
+    """The manager's own collection and database, the pipeline and the further options - answered as a list"""
+    mgr = _mock_manager()
+    mgr.dbm.aggregate_all.return_value = [{'public_id': 1}]
+
+    result = BaseManager.aggregate_all(mgr, ['PIPE'], allowDiskUse=True)
+
+    assert result == [{'public_id': 1}]
+    mgr.dbm.aggregate_all.assert_called_once_with(COLLECTION, DB_NAME, ['PIPE'], allowDiskUse=True)
+
+
+def test_aggregate_all_reads_another_collection_when_named() -> None:
+    """The cross-collection reads (ISMS usage, MDS references) name theirs"""
+    mgr = _mock_manager()
+    mgr.dbm.aggregate_all.return_value = []
+
+    BaseManager.aggregate_all(mgr, ['PIPE'], 'other.collection')
+
+    mgr.dbm.aggregate_all.assert_called_once_with('other.collection', DB_NAME, ['PIPE'])
+
+
+def test_no_manager_hands_back_an_unread_cursor() -> None:
+    """A cursor read by its caller fails outside the database layer - the cursor-returning methods are gone"""
+    assert not hasattr(BaseManager, 'aggregate')
+    assert not hasattr(BaseManager, 'aggregate_from_other_collection')
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
 #                                                  iterate_query                                                       #
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_iterate_query_returns_results_and_total() -> None:
@@ -671,29 +701,35 @@ def test_iterate_query_lets_a_programming_error_through() -> None:
 def test_find_defaults_criteria_to_empty_dict_when_none() -> None:
     """A None criteria becomes an empty filter"""
     mgr = _mock_manager()
-    mgr.dbm.find.return_value = []
+    mgr.dbm.find_all.return_value = []
 
     BaseManager.find(mgr)
 
-    mgr.dbm.find.assert_called_once_with(COLLECTION, DB_NAME, filter={})
+    mgr.dbm.find_all.assert_called_once_with(COLLECTION, DB_NAME, filter={})
 
 
 def test_find_passes_given_criteria_and_returns_list() -> None:
-    """The given criteria is forwarded as the filter and the cursor is materialised into a list"""
+    """
+    The given criteria is forwarded as the filter, and the documents are read by the database layer
+
+    find_all reads the cursor inside the database layer's own error handling: MongoDB refuses a query only when its
+    cursor is first read, and a cursor read here let the driver's raw error past this method
+    """
     mgr = _mock_manager()
     docs = [{'public_id': 1}]
-    mgr.dbm.find.return_value = iter(docs)
+    mgr.dbm.find_all.return_value = docs
 
     result = BaseManager.find(mgr, criteria={'type_id': 5})
 
-    mgr.dbm.find.assert_called_once_with(COLLECTION, DB_NAME, filter={'type_id': 5})
+    mgr.dbm.find_all.assert_called_once_with(COLLECTION, DB_NAME, filter={'type_id': 5})
+    mgr.dbm.find.assert_not_called()
     assert result == docs
 
 
 def test_find_wraps_document_get_error() -> None:
     """A DocumentGetError from the database layer is wrapped in BaseManagerGetError"""
     mgr = _mock_manager()
-    mgr.dbm.find.side_effect = DocumentGetError('boom')
+    mgr.dbm.find_all.side_effect = DocumentGetError('boom')
 
     with pytest.raises(BaseManagerGetError):
         BaseManager.find(mgr, criteria={})
@@ -995,9 +1031,7 @@ _ERROR_MAPPING_CASES = [
     ('get', (), 'find', DocumentGetError, BaseManagerGetError),
     ('get_one_by', ({'x': 1},), 'find_one_by', DocumentGetError, BaseManagerGetError),
     ('get_many', (), 'find_all', DocumentGetError, BaseManagerGetError),
-    ('aggregate', ([],), 'aggregate', DocumentAggregationError, BaseManagerIterationError),
-    ('aggregate_from_other_collection', ('other', []), 'aggregate',
-     DocumentAggregationError, BaseManagerIterationError),
+    ('aggregate_all', ([],), 'aggregate_all', DocumentAggregationError, BaseManagerIterationError),
     ('aggregate_within_time_limit', ([], 1), 'aggregate_within_time_limit',
      DocumentAggregationError, BaseManagerIterationError),
     ('get_next_public_id', (), 'get_next_public_id', DocumentGetError, BaseManagerGetError),

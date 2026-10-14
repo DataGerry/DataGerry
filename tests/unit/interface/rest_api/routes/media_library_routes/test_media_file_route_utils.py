@@ -18,9 +18,8 @@ Unit tests for the MediaFile route utilities
 
 Filter-building / naming helpers exercised inside a minimal Flask request context and against
 lightweight stub managers: generate_metadata_filter (reference -> $in, plain keys, missing -> 400),
-generate_collection_parameters (the search-term filter), create_attachment_name (copy-suffixing) and
-recursive_delete_filter (parent/child collection, and that it does not re-fetch each node's root
-document). The shared request-parsing helpers (get_file_in_request / get_element_from_data_request)
+generate_collection_parameters (the search-term filter) and create_attachment_name (copy-suffixing). The
+subtree walk of a folder delete is the manager's (``MediaFilesManager.collect_subtree``). The shared request-parsing helpers (get_file_in_request / get_element_from_data_request)
 live in routes_helper and are not covered here.
 
 Also the steps the upload / update routes are made of: resolving a stored file (404 for a
@@ -38,7 +37,6 @@ import pytest
 from flask import Flask, request
 from werkzeug.exceptions import HTTPException
 
-from cmdb.framework.results import IterationResult
 from cmdb.framework.media_library import MediaFileMetadataKey
 from cmdb.errors.manager.media_files_manager import MediaFileManagerGetError
 
@@ -54,7 +52,6 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     get_stored_file_or_abort,
     get_upload_from_request,
     metadata_field,
-    recursive_delete_filter,
     validate_upload_metadata,
     validate_update_body,
     stream_grid_file,
@@ -200,38 +197,6 @@ class TestCreateAttachmentName:
             create_attachment_name('file.txt', 0, {}, manager)
 
 
-class _DeleteStub:
-    """Stub manager returning children per parent id and recording the queries it received."""
-
-    def __init__(self, children_by_parent: dict[int, list[dict[str, Any]]]) -> None:
-        self._children = children_by_parent
-        self.queries: list[dict[str, Any]] = []
-
-    def get_many_media_files(self, metadata: dict) -> IterationResult[dict[str, Any]]:
-        """Records the query and returns the children of the requested parent id."""
-        self.queries.append(metadata)
-        parent = metadata.get('metadata.parent')
-        result = self._children.get(parent, [])
-        return IterationResult(result, len(result))
-
-
-class TestRecursiveDeleteFilter:
-    """recursive_delete_filter collects a node and all its descendants, one query per node."""
-
-    def test_collects_node_and_descendants(self) -> None:
-        """The root plus its (nested) children ids are returned in traversal order."""
-        stub = _DeleteStub({1: [{'public_id': 2}, {'public_id': 3}], 2: [{'public_id': 4}], 3: [], 4: []})
-
-        assert recursive_delete_filter(1, stub) == [1, 2, 4, 3]
-
-    def test_only_queries_children_no_root_refetch(self) -> None:
-        """Every query filters by metadata.parent - there is no per-node root lookup."""
-        stub = _DeleteStub({1: [{'public_id': 2}], 2: []})
-
-        recursive_delete_filter(1, stub)
-
-        assert all('metadata.parent' in query for query in stub.queries)
-        assert all('public_id' not in query for query in stub.queries)
 
 
 PUBLIC_ID: int = 4242

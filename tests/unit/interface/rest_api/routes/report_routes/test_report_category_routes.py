@@ -35,7 +35,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     CATEGORY_PREDEFINED_MSG,
     REPORT_CATEGORY_WRITE_KEYS,
     ReportCategoryAction,
-    ReportCategoryKey,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_category_helper import (
     abort_if_category_in_use,
@@ -54,6 +53,8 @@ from cmdb.interface.rest_api.routes.report_routes.report_category_routes import 
     delete_cmdb_report_category,
 )
 from cmdb.models.reports_model.cmdb_report import CmdbReport
+from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.reports_model.report_constants import ReportCategoryKey
 from cmdb.errors.manager.report_categories_manager import (
     ReportCategoriesManagerInsertError,
     ReportCategoriesManagerGetError,
@@ -105,13 +106,13 @@ def fixture_flask_app() -> Flask:
     return Flask(__name__)
 
 
-def _category(predefined: bool = False, name: str = 'Category') -> MagicMock:
-    """Builds a CmdbReportCategory stand-in carrying the two attributes the routes read."""
-    category = MagicMock()
-    category.predefined = predefined
-    category.name = name
+def _category(predefined: bool = False, name: str = 'Category') -> CmdbReportCategory:
+    """
+    Builds a CmdbReportCategory carrying the two attributes the routes read
 
-    return category
+    A real instance: the shared to_json the model uses refuses anything that is not one
+    """
+    return CmdbReportCategory(public_id=CATEGORY_ID, name=name, predefined=predefined)
 
 
 def _manager(**attributes: Any) -> MagicMock:

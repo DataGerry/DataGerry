@@ -59,8 +59,24 @@ BULK_WRITE_BATCH_SIZE: int = 500
 # Interval (in seconds) between background keep-alive pings to MongoDB
 KEEPALIVE_PING_INTERVAL_SECONDS: int = 50
 
+# How long the driver waits to open a connection to the server (MongoClient's connectTimeoutMS)
+MONGO_CONNECT_TIMEOUT_MS: int = 10000
+
+# How long the driver looks for a server to send an operation to before it gives up (MongoClient's
+# serverSelectionTimeoutMS). With the database unreachable, EVERY operation waits this long before it fails - which is
+# why the reachability probe does not use it (MONGO_PROBE_TIMEOUT_S) and why retry.RETRY_TIME_BUDGET is below it
+MONGO_SERVER_SELECTION_TIMEOUT_MS: int = 10000
+
+# The whole budget of one reachability probe (`MongoConnector.is_connected`, behind the unauthenticated `GET /rest/`),
+# in seconds - server selection included, as one client-side operation timeout (`pymongo.timeout`). Far below the
+# server selection timeout: during an outage every probe holds a worker for this long, and the frontend asks on every
+# layout render. A database that answers at all answers a `hello` in milliseconds
+MONGO_PROBE_TIMEOUT_S: float = 1.0
+
 # How long the driver waits for any reply on a socket before it gives up (MongoClient's socketTimeoutMS). When it
-# does, it closes the connection and the server stops the operation on the disconnect (ClientDisconnect)
+# does, it closes the connection. The server stops the command in flight on the disconnect (ClientDisconnect), but
+# NOT a getMore: a later batch the driver gave up on is computed to its end. maxTimeMS covers every batch of a cursor,
+# so a budgeted read is bounded either way; for an unbudgeted cursor the socket is no bound on its later batches
 MONGO_SOCKET_TIMEOUT_MS: int = 30000
 
 # The aggregation option that holds the server-side time budget of one aggregation

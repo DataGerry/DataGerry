@@ -41,6 +41,7 @@ CATEGORY_ID_FOR_ITERATE_A: int = 9715
 CATEGORY_ID_FOR_ITERATE_B: int = 9716
 CATEGORY_ID_REFERENCED: int = 9717
 CATEGORY_ID_UNREFERENCED: int = 9718
+CATEGORY_ID_WITHOUT_PREDEFINED: int = 9719
 MISSING_CATEGORY_ID: int = 9799
 
 REPORT_ID_USING_CATEGORY: int = 9751
@@ -57,6 +58,7 @@ SEED_CATEGORY_IDS: list[int] = [
     CATEGORY_ID_FOR_ITERATE_B,
     CATEGORY_ID_REFERENCED,
     CATEGORY_ID_UNREFERENCED,
+    CATEGORY_ID_WITHOUT_PREDEFINED,
 ]
 
 
@@ -223,6 +225,29 @@ class TestIterateReportCategories:
         finally:
             _delete_category(database_manager, database_name, CATEGORY_ID_FOR_ITERATE_A)
             _delete_category(database_manager, database_name, CATEGORY_ID_FOR_ITERATE_B)
+
+
+    def test_a_stored_category_without_predefined_reads_as_user_created(
+        self,
+        report_categories_manager: ReportCategoriesManager,
+        database_manager: MongoDatabaseManager,
+        database_name: str,
+    ) -> None:
+        """An old document lacking the key is read through the shared from_data, not refused"""
+        _categories(database_manager, database_name).insert_one(
+            {'public_id': CATEGORY_ID_WITHOUT_PREDEFINED, 'name': ORIGINAL_NAME},
+        )
+
+        try:
+            result = report_categories_manager.iterate_items(
+                BuilderParameters(criteria={'public_id': CATEGORY_ID_WITHOUT_PREDEFINED})
+            )
+
+            assert [CmdbReportCategory.to_json(category) for category in result.results] == [
+                {'public_id': CATEGORY_ID_WITHOUT_PREDEFINED, 'name': ORIGINAL_NAME, 'predefined': False},
+            ]
+        finally:
+            _delete_category(database_manager, database_name, CATEGORY_ID_WITHOUT_PREDEFINED)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

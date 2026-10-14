@@ -233,14 +233,14 @@ class TestSingleDelete:
         self, rest_api, relations, monkeypatch, database_manager: MongoDatabaseManager, database_name: str,
     ) -> None:
         """Read by this request, deleted by another before this one's delete ran"""
-        original = ObjectRelationsManager.delete_object_relation
+        original = BaseManager.find_one_and_delete
 
-        def _beaten(manager: ObjectRelationsManager, public_id: int) -> bool:
-            relations.delete_one({'public_id': public_id})
+        def _beaten(manager: BaseManager, criteria: dict[str, Any]) -> dict[str, Any] | None:
+            relations.delete_one({'public_id': criteria['public_id']})
 
-            return original(manager, public_id)
+            return original(manager, criteria)
 
-        monkeypatch.setattr(ObjectRelationsManager, 'delete_object_relation', _beaten)
+        monkeypatch.setattr(BaseManager, 'find_one_and_delete', _beaten)
 
         response = rest_api.delete(SINGLE_URL.format(public_id=FIRST_ID))
 

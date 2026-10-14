@@ -30,7 +30,10 @@ credentials, which is why the two are documented together here.
 
 The two failure modes are deliberately different exceptions, because they are different HTTP answers:
 a `TokenValidationError` is the caller's problem (401), a `TokenKeyMaterialError` is the server's
-(500) - an unset `DG_RSA_PUBLIC_KEY` or an unreadable settings document is not a bad credential.
+(500) - an unset `DG_RSA_PUBLIC_KEY`, a missing stored keypair or a key that cannot be imported is not a bad
+credential. A database outage while the key is read is a third answer: a `DocumentNetworkError`, which the app
+answers 503. The key is read when the validator is BUILT (`load_key_holder`), so the constructor raises the two
+server-side errors as well as `decode_token`.
 """
 from logging import Logger, getLogger
 import time
@@ -42,7 +45,7 @@ from joserfc.errors import JoseError
 
 from cmdb.database import MongoDatabaseManager
 
-from cmdb.security.key.holder import KeyHolder
+from cmdb.security.key.holder import KeyHolder, load_key_holder
 from cmdb.security.token.token_constants import (
     TOKEN_TIME_CLAIM_LEEWAY,
     TokenAlgorithm,
@@ -67,12 +70,16 @@ class TokenValidator:
     """
     def __init__(self, dbm: MongoDatabaseManager) -> None:
         """
-        Initializes the TokenValidator with a KeyHolder instance
+        Initializes the TokenValidator with a KeyHolder instance, reading the public key
 
         Args:
             dbm (MongoDatabaseManager): Database operations manager
+
+        Raises:
+            TokenKeyMaterialError: If the public key could not be obtained - a server-side fault
+            DocumentNetworkError: If the database server was lost while the key was read
         """
-        self.key_holder: KeyHolder = KeyHolder(dbm, with_private_key=False)
+        self.key_holder: KeyHolder = load_key_holder(dbm, with_private_key=False)
 
 
     def decode_token(self, token: str | bytes) -> dict[str, Any]:

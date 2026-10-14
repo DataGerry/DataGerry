@@ -160,9 +160,9 @@ class TestModuleDefaults:
         assert isinstance(result, list)
         assert not result
 
-    def test_the_default_resolve_is_falsy_and_parseable(self) -> None:
-        """It is fed to str_to_bool, which rejects anything but 'true'/'false'."""
-        assert DEFAULT_RESOLVE == 'false'
+    def test_the_default_resolve_is_false(self) -> None:
+        """The flag's value when the request sends none - read_boolean_query_param takes it as a bool"""
+        assert DEFAULT_RESOLVE is False
 
     def test_the_empty_count_matches_the_frontend_model(self) -> None:
         """The Angular NumberSearchResults model declares exactly these three fields."""

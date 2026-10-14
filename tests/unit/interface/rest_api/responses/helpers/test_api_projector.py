@@ -217,3 +217,183 @@ class TestProjectMissingDottedSegmentSkipped:
         result = APIProjector(doc, APIProjection([PUBLIC_ID, f'{META}.{SECTIONS}'])).project
 
         assert result == {PUBLIC_ID: 1}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                         a key that holds a dot (T324 B1)                                             #
+# -------------------------------------------------------------------------------------------------------------------- #
+DOTTED_NAME: str = 'ip.address'
+DOTTED_VALUE: str = '10.0.0.1'
+NESTED_VALUE: str = 'nested'
+FIELDS: str = 'fields'
+
+
+class TestADottedNameIsOneKey:
+    """A field name may hold a dot: the longest existing prefix wins, and a key held as it is wins outright"""
+
+    def test_a_dotted_field_name_is_selected(self) -> None:
+        """fields.ip.address reaches the field named ip.address - it used to descend into ip -> address"""
+        doc = {FIELDS: {DOTTED_NAME: DOTTED_VALUE, NAME: 'srv'}}
+
+        assert APIProjector(doc, APIProjection([f'{FIELDS}.{DOTTED_NAME}'])).project == {
+            FIELDS: {DOTTED_NAME: DOTTED_VALUE},
+        }
+
+    def test_the_named_key_wins_over_the_nested_path(self) -> None:
+        """Both spellings present: the key the document holds as it is is the one meant"""
+        doc = {FIELDS: {DOTTED_NAME: DOTTED_VALUE, 'ip': {'address': NESTED_VALUE}}}
+
+        assert APIProjector.element_includes(f'{FIELDS}.{DOTTED_NAME}', doc) == {FIELDS: {DOTTED_NAME: DOTTED_VALUE}}
+
+    def test_a_top_level_dotted_key_is_selected_as_it_is(self) -> None:
+        """A key held as it is is matched before any split"""
+        assert APIProjector.element_includes(DOTTED_NAME, {DOTTED_NAME: 1}) == {DOTTED_NAME: 1}
+
+    def test_the_nested_path_still_works_without_a_named_key(self) -> None:
+        """No document key holds the dot: the path is read segment by segment as before"""
+        assert APIProjector.element_includes('a.b.c', {'a': {'b': {'c': 1, 'd': 2}}}) == {'a': {'b': {'c': 1}}}
+
+    @pytest.mark.parametrize('key, element, expected', [
+        ('a.b.c', {'a': {}}, ('a', 'b.c')),
+        ('a.b.c', {'a.b': {}, 'a': {}}, ('a.b', 'c')),
+        ('a.b', {'x': 1}, None),
+        ('plain', {'plain': 1}, None),
+    ], ids=['shortest', 'longest-wins', 'no-prefix', 'no-dot'])
+    def test_split_key_finds_the_longest_existing_prefix(
+            self, key: str, element: dict, expected: tuple[str, str] | None) -> None:
+        """The split never uses the whole key - the exact match is the caller's first check"""
+        assert APIProjector.split_key(key, element) == expected
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                      includes under one parent combine (T324 B2)                                     #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestIncludesUnderOneParent:
+    """Several includes under the same key used to replace each other - the last one won"""
+
+    def test_two_sub_keys_both_survive(self) -> None:
+        """render_meta.icon + render_meta.sections answer both"""
+        doc = {META: {'icon': 'x', SECTIONS: [1], 'summary': {}}}
+
+        assert APIProjector(doc, APIProjection([f'{META}.icon', f'{META}.{SECTIONS}'])).project == {
+            META: {'icon': 'x', SECTIONS: [1]},
+        }
+
+    def test_the_object_selectors_projection_keeps_object_id(self) -> None:
+        """The frontend object selector asks object_information.object_id AND .public_id - object_id must survive"""
+        doc = {'object_information': {'object_id': 7, 'public_id': 7, 'author_name': 'a'}, 'summary_line': 's'}
+        projection = APIProjection({
+            'object_information.object_id': INCLUDE, 'object_information.public_id': INCLUDE, 'summary_line': INCLUDE,
+        })
+
+        assert APIProjector(doc, projection).project == {
+            'object_information': {'object_id': 7, 'public_id': 7}, 'summary_line': 's',
+        }
+
+    def test_list_entries_combine_by_position(self) -> None:
+        """Two includes into the same list merge entry by entry"""
+        doc = {ITEMS: [{'a': 1, 'b': 2, 'c': 3}, {'a': 4, 'b': 5, 'c': 6}]}
+
+        assert APIProjector(doc, APIProjection([f'{ITEMS}.a', f'{ITEMS}.b'])).project == {
+            ITEMS: [{'a': 1, 'b': 2}, {'a': 4, 'b': 5}],
+        }
+
+    def test_merging_does_not_touch_the_source(self) -> None:
+        """The merge copies the dicts it combines"""
+        doc = {META: {'icon': 'x', SECTIONS: [1]}}
+
+        APIProjector(doc, APIProjection([META, f'{META}.icon'])).project  # pylint: disable=expression-not-assigned
+
+        assert doc == {META: {'icon': 'x', SECTIONS: [1]}}
+
+    def test_merge_included_sets_a_non_dict_value(self) -> None:
+        """A scalar under the key is replaced, not merged"""
+        target = {'a': 1}
+        APIProjector.merge_included(target, {'a': {'b': 2}})
+
+        assert target == {'a': {'b': 2}}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                       a list is projected per entry (T324 B3)                                        #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestAListIsProjectedPerEntry:
+    """One entry lacking the key used to drop the include for every entry"""
+
+    def test_entries_that_have_the_key_keep_it(self) -> None:
+        """The entry without it stays as an empty dict, so positions are kept"""
+        doc = {ITEMS: [{'a': 1, 'b': 2}, {'b': 3}]}
+
+        assert APIProjector(doc, APIProjection([f'{ITEMS}.a'])).project == {ITEMS: [{'a': 1}, {}]}
+
+    def test_a_list_in_which_no_entry_has_the_key_drops_the_include(self) -> None:
+        """Nothing to select: the include is skipped like a missing key"""
+        doc = {PUBLIC_ID: 1, ITEMS: [{'b': 1}, 'scalar']}
+
+        assert APIProjector(doc, APIProjection([PUBLIC_ID, f'{ITEMS}.a'])).project == {PUBLIC_ID: 1}
+
+    def test_an_empty_list_stays_an_empty_list(self) -> None:
+        """No entry to fail - the key is answered with its empty list"""
+        assert APIProjector.element_includes(f'{ITEMS}.a', {ITEMS: []}) == {ITEMS: []}
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                            dotted excludes (T324 B4)                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+class TestDottedExcludes:
+    """A dotted exclude used to be ignored silently - only top-level keys were popped"""
+
+    def test_a_nested_key_is_removed(self) -> None:
+        """render_meta.icon: 0 removes the icon and keeps the rest of render_meta"""
+        doc = {PUBLIC_ID: 1, META: {'icon': 'x', SECTIONS: [1]}}
+
+        assert APIProjector(doc, APIProjection({f'{META}.icon': EXCLUDE})).project == {
+            PUBLIC_ID: 1, META: {SECTIONS: [1]},
+        }
+
+    def test_the_callers_document_is_not_mutated(self) -> None:
+        """Only the containers on the path are copied"""
+        doc = {META: {'icon': 'x', SECTIONS: [1]}}
+
+        APIProjector(doc, APIProjection({f'{META}.icon': EXCLUDE})).project  # pylint: disable=expression-not-assigned
+
+        assert doc == {META: {'icon': 'x', SECTIONS: [1]}}
+
+    def test_a_key_is_removed_from_every_list_entry(self) -> None:
+        """Into a list, like an include"""
+        doc = {ITEMS: [{'a': 1, 'b': 2}, {'b': 3}, 'scalar']}
+
+        assert APIProjector(doc, APIProjection({f'{ITEMS}.b': EXCLUDE})).project == {
+            ITEMS: [{'a': 1}, {}, 'scalar'],
+        }
+
+    def test_a_dotted_field_name_is_excluded_as_one_key(self) -> None:
+        """The same longest-prefix rule as an include"""
+        doc = {FIELDS: {DOTTED_NAME: DOTTED_VALUE, NAME: 'srv'}}
+
+        assert APIProjector(doc, APIProjection({f'{FIELDS}.{DOTTED_NAME}': EXCLUDE})).project == {
+            FIELDS: {NAME: 'srv'},
+        }
+
+    def test_an_exclude_that_reaches_nothing_removes_nothing(self) -> None:
+        """A missing path is ignored, as a missing top-level key always was"""
+        doc = {PUBLIC_ID: 1, META: 'scalar'}
+
+        assert APIProjector(doc, APIProjection({'nope.x': EXCLUDE, f'{META}.icon': EXCLUDE})).project == doc
+
+    def test_an_exclude_narrows_an_include_on_the_same_parent(self) -> None:
+        """Includes first, then excludes: the whole of render_meta but its icon"""
+        doc = {PUBLIC_ID: 1, META: {'icon': 'x', SECTIONS: [1]}}
+
+        assert APIProjector(doc, APIProjection({META: INCLUDE, f'{META}.icon': EXCLUDE})).project == {
+            META: {SECTIONS: [1]},
+        }
+
+    def test_a_deep_exclude_does_not_mutate_a_nested_source_document(self) -> None:
+        """Below the top level the dicts on the path are the caller's own - each is copied, never changed"""
+        doc = {'a': {'b': {'c': 1, 'd': 2}, 'e': 3}}
+
+        result = APIProjector(doc, APIProjection({'a.b.c': EXCLUDE})).project
+
+        assert result == {'a': {'b': {'d': 2}, 'e': 3}}
+        assert doc == {'a': {'b': {'c': 1, 'd': 2}, 'e': 3}}

@@ -51,6 +51,8 @@ from cmdb.database.database_constants import (
     BULK_WRITE_BATCH_SIZE,
     KEEPALIVE_PING_INTERVAL_SECONDS,
     DOCUMENT_TOO_LARGE_MESSAGE,
+    MONGO_CONNECT_TIMEOUT_MS,
+    MONGO_SERVER_SELECTION_TIMEOUT_MS,
     MONGO_SOCKET_TIMEOUT_MS,
     MONGO_MAX_TIME_OPTION,
 )
@@ -93,8 +95,9 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
             host (str): MongoDB host
             port (int): MongoDB port
             database_name (str): Default database name used when a call omits an explicit db_name
-            mode (str, optional): 'local' or 'cloud'; toggles TLS-related client options.
-                                  Defaults to 'local'.
+            mode (str, optional): 'cloud' for the HOSTED cloud product, which connects with TLS; 'local' for
+                everything else - on premise and the cloud product on a developer machine (``--cloud --local``)
+                alike, both without TLS. Not the app's ``local_mode``. Defaults to 'local'.
             start_keepalive (bool): Whether to start the keep-alive thread now. A manager built in a process that
                 forks afterwards passes False: a thread must not be running across a fork
                 (`cmdb.process_management.fork_safety`). `reset_connection` starts it later, in the forked child.
@@ -104,12 +107,12 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
         self.host: str = host
         self.port: int = int(port)
         self.db_name: str = database_name
-        self.mode: str = mode  # 'local' or 'cloud'
+        self.mode: str = mode  # 'cloud' = hosted, with TLS; 'local' = on premise or a developer machine
 
         self.client_options: dict[str, Any] = {
-            'connectTimeoutMS': 10000,  # Timeout after 10 seconds if no connection is made
+            'connectTimeoutMS': MONGO_CONNECT_TIMEOUT_MS,
             'socketTimeoutMS': MONGO_SOCKET_TIMEOUT_MS,
-            'serverSelectionTimeoutMS': 10000, # Timeout for finding a suitable server in the cluster
+            'serverSelectionTimeoutMS': MONGO_SERVER_SELECTION_TIMEOUT_MS,
             'maxIdleTimeMS': 30000,
             'retryReads': True,  # Enable retryable reads (helpful for fault tolerance)
             'retryWrites': True,
@@ -927,6 +930,38 @@ class MongoDatabaseManager(MongoDatabaseAdminMixin, MongoPublicIdCounterMixin):
         """
         try:
             return self.get_collection(collection, db_name).aggregate(*args, **kwargs)
+        except Exception as err:
+            raise DocumentAggregationError(f"Aggregation operation failed: {err}") from err
+
+
+    @retry_operation
+    def aggregate_all(
+            self,
+            collection: str,
+            db_name: str,
+            pipeline: list[dict[str, Any]],
+            **kwargs: Any) -> list[dict[str, Any]]:
+        """
+        Runs an aggregation and reads every result
+
+        The cursor is read to the end HERE, inside the error handling: a later batch is computed while the cursor
+        is read, so a cursor handed back would fail in its caller as a raw driver error instead of a
+        DocumentAggregationError
+
+        Args:
+            collection (str): Name of the database collection
+            db_name (str): Name of the database owning the collection
+            pipeline (list[dict[str, Any]]): The aggregation stages
+            **kwargs: Further aggregation options (e.g. ``allowDiskUse``)
+
+        Raises:
+            DocumentAggregationError: If the aggregation failed, on its first batch or a later one
+
+        Returns:
+            list[dict[str, Any]]: Every result of the aggregation
+        """
+        try:
+            return list(self.get_collection(collection, db_name).aggregate(pipeline, **kwargs))
         except Exception as err:
             raise DocumentAggregationError(f"Aggregation operation failed: {err}") from err
 

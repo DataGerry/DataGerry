@@ -79,6 +79,10 @@ class CmdbPortInterfaceLink(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.portInterfaceLinks'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbPortInterfaceLinkInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbPortInterfaceLinkToJsonError
     DATE_FIELDS: tuple[str, ...] = (PortInterfaceLinkKey.CREATION_TIME.value,
                                     PortInterfaceLinkKey.LAST_EDIT_TIME.value)
     REQUIRED_INIT_KEYS: list[str] = [

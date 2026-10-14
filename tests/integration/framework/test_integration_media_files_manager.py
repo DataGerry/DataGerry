@@ -33,10 +33,8 @@ from werkzeug.datastructures import FileStorage
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.media_files_manager import MediaFilesManager
 from cmdb.framework.media_library import DEFAULT_MIME_TYPE, MediaFile, MediaFileMetadataKey
-from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
-    recursive_delete_filter,
-    stream_grid_file,
-)
+from cmdb.framework.media_library.media_file_keys import MEDIA_FILE_PARENT_INDEX_NAME
+from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import stream_grid_file
 # -------------------------------------------------------------------------------------------------------------------- #
 
 AUTHOR_ID: int = 1
@@ -225,16 +223,16 @@ class TestPagingInTheQuery:
     def test_a_folder_delete_collects_every_child_beyond_any_page(
             self, media_files_manager: MediaFilesManager,
     ) -> None:
-        """The subtree walk reads unpaged, so a folder with many children is emptied completely"""
+        """The subtree walk reads each level whole, so a folder with many children is emptied completely"""
         folder = media_files_manager.insert_file(_upload('dg-page-folder'), {'author_id': AUTHOR_ID, 'folder': True})
         for index in range(PAGED_FILE_COUNT):
             media_files_manager.insert_file(
                 _upload(f'dg-child-{index:02}.txt'), {'author_id': AUTHOR_ID, 'parent': folder['public_id']},
             )
 
-        collected = recursive_delete_filter(folder['public_id'], media_files_manager)
+        levels = media_files_manager.collect_subtree(folder)
 
-        assert len(collected) == PAGED_FILE_COUNT + 1
+        assert sum(len(level) for level in levels) == PAGED_FILE_COUNT + 1
 
 
 class TestOpenFile:
@@ -256,3 +254,70 @@ class TestOpenFile:
     def test_an_absent_file_is_none(self, media_files_manager: MediaFilesManager) -> None:
         """The download route turns this into its 404"""
         assert media_files_manager.open_file({'filename': 'dg-not-there.bin'}) is None
+
+
+class TestFolderSubtree:
+    """collect_subtree + delete_subtree against real GridFS: the whole subtree goes, content included"""
+
+    CHUNKS: str = f'{MediaFile.COLLECTION}.chunks'
+
+    def _tree(self, media_files_manager: MediaFilesManager) -> tuple[dict, list[int]]:
+        """root -> (sub -> deep, flat); the root document and every public_id"""
+        root = media_files_manager.insert_file(_upload('dg-tree-root'), {'author_id': AUTHOR_ID, 'folder': True})
+        sub = media_files_manager.insert_file(
+            _upload('dg-tree-sub'), {'author_id': AUTHOR_ID, 'folder': True, 'parent': root['public_id']},
+        )
+        deep = media_files_manager.insert_file(
+            _upload('dg-tree-deep.txt'), {'author_id': AUTHOR_ID, 'parent': sub['public_id']},
+        )
+        flat = media_files_manager.insert_file(
+            _upload('dg-tree-flat.txt'), {'author_id': AUTHOR_ID, 'parent': root['public_id']},
+        )
+
+        return root, [root['public_id'], sub['public_id'], deep['public_id'], flat['public_id']]
+
+    def test_the_walk_answers_three_levels(self, media_files_manager: MediaFilesManager) -> None:
+        """The root, its two children, the grandchild"""
+        root, _ = self._tree(media_files_manager)
+
+        levels = media_files_manager.collect_subtree(root)
+
+        assert [len(level) for level in levels] == [1, 2, 1]
+
+    def test_no_document_and_no_chunk_is_left(
+            self, media_files_manager: MediaFilesManager, database_manager: MongoDatabaseManager,
+            database_name: str) -> None:
+        """The batch delete removes the documents and their chunks - GridFS's own per-file delete is not used"""
+        root, public_ids = self._tree(media_files_manager)
+        files = database_manager.get_collection(FILES_COLLECTION, database_name)
+        file_ids = [doc['_id'] for doc in files.find({'public_id': {'$in': public_ids}})]
+
+        deleted = media_files_manager.delete_subtree(media_files_manager.collect_subtree(root))
+
+        assert deleted == len(public_ids)
+        assert not files.count_documents({'public_id': {'$in': public_ids}})
+        assert not database_manager.get_collection(self.CHUNKS, database_name).count_documents(
+            {'files_id': {'$in': file_ids}},
+        )
+
+    def test_the_parent_read_uses_the_parent_index(
+            self, media_files_manager: MediaFilesManager, database_manager: MongoDatabaseManager,
+            database_name: str) -> None:
+        """
+        The walk's per-level read is served by the parent index, not a collection scan
+
+        The (filename, metadata.parent) index leads with filename and cannot serve a read by parent alone. The
+        boot builds the declared indexes (``init_media_library_indexes``); the test database is built here
+        """
+        parent_index = next(
+            index for index in MediaFile.get_index_keys() if index.document['name'] == MEDIA_FILE_PARENT_INDEX_NAME
+        )
+        database_manager.create_indexes(FILES_COLLECTION, database_name, [parent_index])
+        root, _ = self._tree(media_files_manager)
+
+        plan = database_manager.get_collection(FILES_COLLECTION, database_name).find(
+            {'metadata.parent': {'$in': [root['public_id']]}},
+        ).explain()
+
+        assert MEDIA_FILE_PARENT_INDEX_NAME in str(plan['queryPlanner']['winningPlan'])
+        assert 'COLLSCAN' not in str(plan['queryPlanner']['winningPlan'])

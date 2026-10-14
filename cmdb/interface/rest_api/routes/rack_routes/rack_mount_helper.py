@@ -863,6 +863,11 @@ def shape_assignable_page(
         denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read; a holding rack
             of such a type keeps its id in the hint and loses its name
 
+    Raises:
+        ObjectsManagerGetError: If the summary lines' types or the holding racks could not be read
+        TypesManagerGetError: If the type metadata could not be read
+        RackMountsManagerGetError: If the mounts holding the candidates could not be read
+
     Returns:
         list[dict[str, Any]]: One picker row per document, in input order
     """
@@ -909,6 +914,10 @@ def resolve_assigned_racks(
         rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
         object_ids (list[int]): public_ids of the candidates on the page
         denied_type_ids (Collection[int]): public_ids of the CmdbTypes the caller may not read
+
+    Raises:
+        RackMountsManagerGetError: If the mounts holding the candidates could not be read
+        ObjectsManagerGetError: If the holding racks could not be read
 
     Returns:
         dict[int, dict[str, Any]]: {object_id: {public_id, display_name}}, absent for a free candidate
@@ -960,6 +969,9 @@ def build_type_meta(types_manager: TypesManager, type_ids: list[int]) -> dict[in
     Args:
         types_manager (TypesManager): db interface for CmdbTypes
         type_ids (list[int]): The CmdbType public_ids to resolve; duplicates are allowed
+
+    Raises:
+        TypesManagerGetError: If the CmdbTypes could not be read
 
     Returns:
         dict[int, dict[str, Any]]: {type_id: {label, icon, colour}}, absent for a type that did not

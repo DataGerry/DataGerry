@@ -451,16 +451,18 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
     except that `sort` defaults to the cable name instead of the public_id
 
     Guarded by the connection view right, like every read here: this is a question, not a change. The
-    candidates' own ACLs are not applied - the connection-rights rule of this surface, and the same
-    trade-off the Rack's assignable-objects picker documents
+    candidates' own ACLs are not applied - the connection-rights rule of this surface (Q13), where the feature
+    right alone decides. The Rack's assignable-objects picker is the other way round: it reads its candidates
+    through the caller's READ ACL
 
     Args:
         params (CollectionParameters): Filtering, sorting and pagination parameters
         request_user (CmdbUser): CmdbUser requesting this data
 
     Raises:
-        HTTPException: 404 when ``?connection_id=`` names no connection; 400 when a read fails;
-                       500 on an unexpected error
+        HTTPException: 404 when ``?connection_id=`` names no connection; 400 when a read fails (the
+                       claimed cables, the candidates, the cable types - each names its own); 503 when the
+                       candidate read runs past its time budget; 500 on an unexpected error
 
     Returns:
         GetMultiResponse: One picker row per assignable Cable CI of the requested page
@@ -499,7 +501,7 @@ def get_unassigned_cables(params: CollectionParameters, request_user: CmdbUser) 
 
         # The raw aggregation documents, not hydrated CmdbObjects: a picker row is nine keys read out
         # of the document, so building a model per candidate only to project it away is wasted work
-        object_docs, total = objects_manager.iterate_query(builder_params)
+        object_docs, total = objects_manager.iterate_documents(builder_params)
 
         return GetMultiResponse(
             shape_unassigned_cable_page(types_manager, object_docs),

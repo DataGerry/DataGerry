@@ -27,12 +27,13 @@ test in the session.
 
 Several tests pin behaviour that is known to be wrong and deliberately left unchanged: the 'ssl'
 option being dropped without carrying its value into 'tls', the caller's options dict being mutated
-in place, `is_connected` raising instead of returning False, and `disconnect` swallowing a failed
-close. They are regression pins for the CURRENT contract, not endorsements - each says so, so a fix
-knows which test to rewrite.
+in place, and `disconnect` swallowing a failed close. They are regression pins for the CURRENT contract,
+not endorsements - each says so, so a fix knows which test to rewrite.
 """
 from typing import Any, Iterator
 from unittest.mock import MagicMock, patch
+
+from contextlib import contextmanager
 
 import pytest
 from pymongo.errors import ConnectionFailure, InvalidURI
@@ -42,6 +43,8 @@ from cmdb.database.database_constants import (
     MONGO_COMMAND_OK_KEY,
     MONGO_CONNECTION_STRING_ENV,
     MONGO_HELLO_COMMAND,
+    MONGO_PROBE_TIMEOUT_S,
+    MONGO_SERVER_SELECTION_TIMEOUT_MS,
     MONGO_SSL_OPTION,
     MONGO_TLS_OPTION,
 )
@@ -384,22 +387,72 @@ def test_is_connected_is_false_when_the_response_is_not_acknowledged() -> None:
     assert connector.is_connected() is False
 
 
-def test_is_connected_does_not_swallow_the_retry(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_is_connected_is_one_unretried_attempt() -> None:
     """
-    The False means "the retries are spent", not "the first attempt failed"
+    A failed probe is asked once - a retry would multiply the wait, and the probe is simply asked again
 
-    `connect()` carries @retry_operation and reaching the database is side-effect free, so a transient
-    failure is repeated before it arrives here. This pins that the catch is around the retried call
-    rather than replacing it.
+    With a short budget under `connect()`'s @retry_operation, three attempts and their backoff would have cost
+    about 3.6 s instead of 1 s
     """
-    attempts: list[int] = []
-    connector = _connector({})
-
-    def _always_fails(_self=None):
-        attempts.append(1)
-        raise DatabaseConnectionError('down')
-
-    monkeypatch.setattr(type(connector), 'connect', _always_fails)
+    client = MagicMock()
+    client.admin.command.side_effect = ConnectionFailure('server down')
+    connector = _with_client(_connector({}), client)
 
     assert connector.is_connected() is False
-    assert len(attempts) == 1
+    client.admin.command.assert_called_once_with(MONGO_HELLO_COMMAND)
+
+
+def test_is_connected_does_not_go_through_connect(monkeypatch: pytest.MonkeyPatch) -> None:
+    """connect() waits the server selection timeout per attempt and is retried - the probe must not use it"""
+    client = MagicMock()
+    client.admin.command.return_value = {MONGO_COMMAND_OK_KEY: 1}
+    connector = _with_client(_connector({}), client)
+    monkeypatch.setattr(type(connector), 'connect', MagicMock(side_effect=AssertionError('connect() was used')))
+
+    assert connector.is_connected() is True
+
+
+def test_is_connected_runs_inside_the_probe_budget(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The hello runs inside one client-side operation timeout of the probe budget - server selection included"""
+    events: list[Any] = []
+
+    @contextmanager
+    def _recording_timeout(seconds: float) -> Iterator[None]:
+        events.append(('enter', seconds))
+        yield
+        events.append('exit')
+
+    def _command(_name: str) -> dict[str, Any]:
+        events.append('hello')
+        return {MONGO_COMMAND_OK_KEY: 1}
+
+    monkeypatch.setattr(f'{CONNECTOR_PATH}.pymongo.timeout', _recording_timeout)
+    client = MagicMock()
+    client.admin.command.side_effect = _command
+    connector = _with_client(_connector({}), client)
+
+    assert connector.is_connected() is True
+    assert events == [('enter', MONGO_PROBE_TIMEOUT_S), 'hello', 'exit']
+
+
+def test_the_probe_budget_is_far_below_the_server_selection_timeout() -> None:
+    """The point of a budget of its own: an unreachable database answers in about a second, not ten"""
+    assert MONGO_PROBE_TIMEOUT_S * 1000 < MONGO_SERVER_SELECTION_TIMEOUT_MS / 2
+
+
+def test_is_connected_is_false_when_the_client_cannot_be_built() -> None:
+    """A client that cannot be created is a negative answer too, never a raise into the route"""
+    connector = _connector({})
+
+    with patch(f'{CONNECTOR_PATH}.MongoClient', side_effect=InvalidURI('bad uri')):
+        assert connector.is_connected() is False
+
+
+def test_is_connected_lets_a_bug_through() -> None:
+    """Only a database failure is a negative answer - anything else is the route's 500, as the route documents"""
+    client = MagicMock()
+    client.admin.command.side_effect = TypeError('bug')
+    connector = _with_client(_connector({}), client)
+
+    with pytest.raises(TypeError, match='bug'):
+        connector.is_connected()

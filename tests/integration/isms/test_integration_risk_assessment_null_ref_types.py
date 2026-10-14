@@ -116,7 +116,7 @@ def test_the_report_names_nobody_for_a_null_pair(collections) -> None:
         row['public_id']: row
         for row in collections['assessments'].aggregate([
             {'$match': {'public_id': {'$in': RA_IDS}}},
-            *risk_assessment_report_stages(),
+            *risk_assessment_report_stages([]),
             risk_assessment_report_projection_stage(),
         ])
     }

@@ -526,7 +526,8 @@ class ObjectImporter(BaseImporter):
         public_id = current_import_object.get(CmdbObjectKey.PUBLIC_ID.value)
 
         if existing:
-            #TODO: The public_id of the object also needs to be deleted from all static ObjectGroups
+            # Nothing is cascaded: the object comes straight back under the same public_id, so its group
+            # memberships, relations and attachments still point at it
             self.objects_manager.delete_with_follow_up(public_id, self.request_user)
             self._track_object_count_change(OBJECT_DELETED_COUNT_DELTA)
         elif not public_id:

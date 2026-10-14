@@ -678,6 +678,22 @@ class TestDuplicateRiskAssessment:
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': created_ids}})
 
+    @pytest.mark.parametrize('value', ['1', 'yes', 'undefined'])
+    def test_an_unrecognised_copy_cma_is_refused(self, rest_api, database_manager: MongoDatabaseManager,
+                                                 database_name: str, value: str) -> None:
+        """copy_cma is true or false - an unrecognised value used to read as False; nothing is duplicated"""
+        _insert_ra(database_manager, database_name, RA_ID_FOR_DUPLICATE)
+        collection = database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)
+        before: int = collection.count_documents({})
+
+        response = rest_api.post(
+            f'{ROUTE_URL}/duplicate/risk/{RISK_ID}?copy_cma={value}', json=_ra_body(RA_ID_FOR_DUPLICATE),
+        )
+
+        assert response.status_code == HTTPStatus.BAD_REQUEST
+        assert 'copy_cma' in response.get_json()['message']
+        assert collection.count_documents({}) == before
+
     def test_duplicate_invalid_mode_returns_400(self, rest_api) -> None:
         """An unknown duplication mode is rejected with 400."""
         assert rest_api.post(f'{ROUTE_URL}/duplicate/not_a_mode/{RISK_ID}',

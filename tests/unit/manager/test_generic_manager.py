@@ -30,6 +30,13 @@ import pytest
 
 from cmdb.manager.generic_manager import GenericManager
 from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.errors.manager import (
+    BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
+    BaseManagerUpdateError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.manager.generic_manager'
@@ -39,10 +46,20 @@ RAW_DOC: dict[str, Any] = {'public_id': PUBLIC_ID, 'name': 'sample'}
 SERIALIZED_DOC: dict[str, Any] = {**RAW_DOC, 'serialized': True}
 
 
+class _StubModelFromDataError(Exception):
+    """The stub model's declared deserialisation error"""
+
+
+class _StubModelToJsonError(Exception):
+    """The stub model's declared serialisation error"""
+
+
 class _StubModel:
     """Minimal real model stand-in (a real class so isinstance(...) and the classmethods work)."""
     COLLECTION = 'stub.collection'
     DATE_FIELDS: tuple[str, ...] = ()
+    INIT_FROM_DATA_ERROR: type[Exception] = _StubModelFromDataError
+    TO_JSON_ERROR: type[Exception] = _StubModelToJsonError
 
     def __init__(self, data: dict[str, Any]) -> None:
         self.data = data
@@ -102,6 +119,11 @@ def _mock_manager() -> MagicMock:
     mgr = MagicMock()
     mgr.model = _StubModel
     mgr.exceptions = EXCEPTIONS
+    # The two helpers decide what a method catches and how it normalises - the real ones, bound to the mock
+    mgr._model_errors = lambda: GenericManager._model_errors(mgr)  # pylint: disable=protected-access
+    mgr._prepare_raw_document = (  # pylint: disable=protected-access
+        lambda document, operation: GenericManager._prepare_raw_document(mgr, document, operation)
+    )
     return mgr
 
 
@@ -180,7 +202,7 @@ def test_the_normalisation_hook_is_used_when_the_model_declares_one() -> None:
 def test_insert_item_wraps_failure_in_insert_exception() -> None:
     """A failure during insert is wrapped in the configured 'insert' exception"""
     mgr = _mock_manager()
-    mgr.insert.side_effect = RuntimeError('boom')
+    mgr.insert.side_effect = BaseManagerInsertError('boom')
 
     with pytest.raises(_InsertErr):
         GenericManager.insert_item(mgr, RAW_DOC)
@@ -219,7 +241,7 @@ def test_get_item_returns_model_instance_by_default() -> None:
 def test_get_item_wraps_failure_in_get_exception() -> None:
     """A failure during retrieval is wrapped in the configured 'get' exception"""
     mgr = _mock_manager()
-    mgr.get_one.side_effect = RuntimeError('boom')
+    mgr.get_one.side_effect = BaseManagerGetError('boom')
 
     with pytest.raises(_GetErr):
         GenericManager.get_item(mgr, PUBLIC_ID)
@@ -258,7 +280,7 @@ def test_iterate_items_forwards_the_user_and_permission() -> None:
 def test_iterate_items_wraps_failure_in_iterate_exception() -> None:
     """A failure during iteration is wrapped in the configured 'iterate' exception"""
     mgr = _mock_manager()
-    mgr.iterate_query.side_effect = RuntimeError('boom')
+    mgr.iterate_query.side_effect = BaseManagerIterationError('boom')
 
     with pytest.raises(_IterateErr):
         GenericManager.iterate_items(mgr, MagicMock())
@@ -288,7 +310,7 @@ def test_update_item_serialises_model_instance_before_update() -> None:
 def test_update_item_wraps_failure_in_update_exception() -> None:
     """A failure during update is wrapped in the configured 'update' exception"""
     mgr = _mock_manager()
-    mgr.update.side_effect = RuntimeError('boom')
+    mgr.update.side_effect = BaseManagerUpdateError('boom')
 
     with pytest.raises(_UpdateErr):
         GenericManager.update_item(mgr, PUBLIC_ID, RAW_DOC)
@@ -311,7 +333,7 @@ def test_delete_item_delegates_to_delete() -> None:
 def test_delete_item_wraps_failure_in_delete_exception() -> None:
     """A failure during deletion is wrapped in the configured 'delete' exception"""
     mgr = _mock_manager()
-    mgr.delete.side_effect = RuntimeError('boom')
+    mgr.delete.side_effect = BaseManagerDeleteError('boom')
 
     with pytest.raises(_DeleteErr):
         GenericManager.delete_item(mgr, PUBLIC_ID)
@@ -336,6 +358,10 @@ def _dated_manager() -> MagicMock:
     mgr.model = _DatedModel
     mgr.exceptions = EXCEPTIONS
     mgr._normalize_dates = lambda document: GenericManager._normalize_dates(mgr, document)
+    mgr._model_errors = lambda: GenericManager._model_errors(mgr)  # pylint: disable=protected-access
+    mgr._prepare_raw_document = (  # pylint: disable=protected-access
+        lambda document, operation: GenericManager._prepare_raw_document(mgr, document, operation)
+    )
 
     return mgr
 
@@ -469,17 +495,16 @@ def test_update_item_normalizes_a_raw_update_s_dates() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                     __init__                                                         #
 # -------------------------------------------------------------------------------------------------------------------- #
-def test_init_wraps_a_failing_setup_in_the_init_exception() -> None:
+def test_init_does_not_wrap_a_programming_error() -> None:
     """
-    A manager that cannot be built reports it as its own domain error.
+    Building a manager touches no database, so nothing it can raise is a database failure
 
-    The routes resolve managers through ManagerProvider, so a bare exception here would surface with
-    no indication of which manager failed. BaseManager reads the default database name off the
-    manager, which is what fails when there is none.
+    Handed no database manager, BaseManager fails reading the default database name off it - a bug in the
+    caller, which surfaces as itself (and the route's 500), not as the manager's 'init' error.
     """
     exceptions: dict[str, type[Exception]] = {**EXCEPTIONS, 'init': _InitErr}
 
-    with pytest.raises(_InitErr):
+    with pytest.raises(AttributeError):
         GenericManager(None, _StubModel, exceptions)
 
 
@@ -529,7 +554,7 @@ def test_find_existing_public_ids_accepts_a_set() -> None:
 def test_find_existing_public_ids_wraps_failure_in_get_exception() -> None:
     """A lookup failure is the manager's 'get' error, like every other read here."""
     mgr = _mock_manager()
-    mgr.find.side_effect = RuntimeError('boom')
+    mgr.find.side_effect = BaseManagerGetError('boom')
 
     with pytest.raises(_GetErr):
         GenericManager.find_existing_public_ids(mgr, [1])
@@ -538,17 +563,24 @@ def test_find_existing_public_ids_wraps_failure_in_get_exception() -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                        the wrapped error is the exception itself                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
-@pytest.mark.parametrize('delegate, operation, expected', [
-    ('insert', lambda mgr: GenericManager.insert_item(mgr, RAW_DOC), _InsertErr),
-    ('insert_many', lambda mgr: GenericManager.insert_many_items(mgr, [RAW_DOC]), _InsertErr),
-    ('get_one', lambda mgr: GenericManager.get_item(mgr, PUBLIC_ID), _GetErr),
-    ('find', lambda mgr: GenericManager.find_existing_public_ids(mgr, [PUBLIC_ID]), _GetErr),
-    ('iterate_query', lambda mgr: GenericManager.iterate_items(mgr, MagicMock()), _IterateErr),
-    ('update', lambda mgr: GenericManager.update_item(mgr, PUBLIC_ID, RAW_DOC), _UpdateErr),
-    ('delete', lambda mgr: GenericManager.delete_item(mgr, PUBLIC_ID), _DeleteErr),
-], ids=['insert_item', 'insert_many_items', 'get_item', 'find_existing_public_ids', 'iterate_items',
-        'update_item', 'delete_item'])
-def test_every_operation_wraps_the_failure_itself(delegate: str, operation, expected: type[Exception]) -> None:
+# Each operation, the BaseManager call it makes, the typed error that call raises, and the domain error it becomes
+OPERATIONS = [
+    ('insert', lambda mgr: GenericManager.insert_item(mgr, RAW_DOC), BaseManagerInsertError, _InsertErr),
+    ('insert_many', lambda mgr: GenericManager.insert_many_items(mgr, [RAW_DOC]), BaseManagerInsertError, _InsertErr),
+    ('get_one', lambda mgr: GenericManager.get_item(mgr, PUBLIC_ID), BaseManagerGetError, _GetErr),
+    ('find', lambda mgr: GenericManager.find_existing_public_ids(mgr, [PUBLIC_ID]), BaseManagerGetError, _GetErr),
+    ('iterate_query', lambda mgr: GenericManager.iterate_items(mgr, MagicMock()), BaseManagerIterationError,
+     _IterateErr),
+    ('update', lambda mgr: GenericManager.update_item(mgr, PUBLIC_ID, RAW_DOC), BaseManagerUpdateError, _UpdateErr),
+    ('delete', lambda mgr: GenericManager.delete_item(mgr, PUBLIC_ID), BaseManagerDeleteError, _DeleteErr),
+]
+OPERATION_IDS = ['insert_item', 'insert_many_items', 'get_item', 'find_existing_public_ids', 'iterate_items',
+                 'update_item', 'delete_item']
+
+
+@pytest.mark.parametrize('delegate, operation, typed, expected', OPERATIONS, ids=OPERATION_IDS)
+def test_every_operation_wraps_the_failure_itself(
+        delegate: str, operation, typed: type[Exception], expected: type[Exception]) -> None:
     """
     args[0] is the original error, not its text
 
@@ -556,7 +588,7 @@ def test_every_operation_wraps_the_failure_itself(delegate: str, operation, expe
     wrapper's argument, so that is what is asserted: a database error stays a database error.
     """
     mgr = _mock_manager()
-    failure = RuntimeError('boom')
+    failure = typed('boom')
     getattr(mgr, delegate).side_effect = failure
 
     with pytest.raises(expected) as caught:
@@ -566,15 +598,62 @@ def test_every_operation_wraps_the_failure_itself(delegate: str, operation, expe
     assert str(caught.value) == str(failure)
 
 
-def test_init_wraps_the_failure_itself() -> None:
-    """The init wrapper carries the setup error too, not an 'Initialization error: ...' string."""
-    exceptions: dict[str, type[Exception]] = {**EXCEPTIONS, 'init': _InitErr}
+@pytest.mark.parametrize('delegate, operation, typed, expected', OPERATIONS, ids=OPERATION_IDS)
+def test_a_programming_error_is_not_wrapped(
+        delegate: str, operation, typed: type[Exception], expected: type[Exception]) -> None:
+    """
+    Only the call's own failure is the domain error: a bug propagates as itself
 
-    with pytest.raises(_InitErr) as caught:
-        GenericManager(None, _StubModel, exceptions)
+    Wrapped, it read as "Failed to ... from the database" - the route's 400 - for a bug in the code; unwrapped,
+    the route's generic tail answers it 500
+    """
+    del typed, expected
+    mgr = _mock_manager()
+    failure = TypeError('a programming error')
+    getattr(mgr, delegate).side_effect = failure
 
-    assert isinstance(caught.value.args[0], Exception)
-    assert caught.value.__cause__ is caught.value.args[0]
+    with pytest.raises(TypeError) as caught:
+        operation(mgr)
+
+    assert caught.value is failure
+
+
+@pytest.mark.parametrize('operation, model_error, expected', [
+    (lambda mgr: GenericManager.get_item(mgr, PUBLIC_ID), _StubModelFromDataError, _GetErr),
+    (lambda mgr: GenericManager.iterate_items(mgr, MagicMock()), _StubModelFromDataError, _IterateErr),
+    (lambda mgr: GenericManager.insert_item(mgr, _StubModel(RAW_DOC)), _StubModelToJsonError, _InsertErr),
+    (lambda mgr: GenericManager.update_item(mgr, PUBLIC_ID, _StubModel(RAW_DOC)), _StubModelToJsonError, _UpdateErr),
+], ids=['get_item', 'iterate_items', 'insert_item', 'update_item'])
+def test_the_models_declared_error_is_the_domain_error(operation, model_error: type[Exception],
+                                                      expected: type[Exception]) -> None:
+    """A stored document that no longer fits its model is the operation's failure, not a bug"""
+    mgr = _mock_manager()
+    mgr.get_one.return_value = RAW_DOC
+    mgr.iterate_query.return_value = ([RAW_DOC], 1)
+    failure = model_error('does not fit')
+
+    with patch.object(_StubModel, 'from_data', side_effect=failure), \
+         patch.object(_StubModel, 'to_json', side_effect=failure):
+        with pytest.raises(expected) as caught:
+            operation(mgr)
+
+    assert caught.value.args[0] is failure
+
+
+def test_a_model_declaring_no_errors_has_nothing_typed_caught() -> None:
+    """_model_errors answers only what the model declares - a model declaring none adds nothing"""
+    mgr = _mock_manager()
+    mgr.model = _ModelWithoutDateFields
+
+    assert not GenericManager._model_errors(mgr)  # pylint: disable=protected-access
+
+
+def test_init_builds_the_manager_over_the_models_collection() -> None:
+    """The constructor only binds the model, the map and the collection"""
+    dbm = MagicMock()
+    manager = GenericManager(dbm, _StubModel, EXCEPTIONS)
+
+    assert (manager.model, manager.exceptions, manager.collection) == (_StubModel, EXCEPTIONS, _StubModel.COLLECTION)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -600,3 +679,20 @@ def test_a_transient_failure_is_raised_unwrapped(delegate: str, operation, failu
         operation(mgr)
 
     assert caught.value is failure
+
+
+def test_only_a_value_error_of_the_normalisation_is_the_callers() -> None:
+    """
+    The deliberate arm is the unreadable date - a ValueError from the coercion or the model's hook
+
+    Anything else the hook raises is a bug and propagates, rather than reading as a document the caller got wrong
+    """
+    mgr = _mock_manager()
+    bug = TypeError('a programming error')
+    mgr._normalize_document.side_effect = bug  # pylint: disable=protected-access
+
+    with pytest.raises(TypeError) as caught:
+        GenericManager.insert_item(mgr, dict(RAW_DOC))
+
+    assert caught.value is bug
+    mgr.insert.assert_not_called()

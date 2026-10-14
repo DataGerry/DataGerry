@@ -83,7 +83,8 @@ RETRY_JITTER: float = 0.1
 
 # Wall-clock budget for the whole call, the failed attempts included. A retry is skipped when it
 # would not finish inside it - which is what bounds the "database unreachable" case, where a single
-# attempt already costs the driver's serverSelectionTimeoutMS (10s, see MongoDatabaseManager)
+# attempt already costs the driver's server selection timeout (MONGO_SERVER_SELECTION_TIMEOUT_MS, 10s). The
+# reachability probe (MongoConnector.is_connected) is not retried at all: it has a budget of its own
 RETRY_TIME_BUDGET: float = 5.0
 
 # The driver never sent the command: retrying cannot duplicate a write

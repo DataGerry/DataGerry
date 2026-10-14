@@ -66,7 +66,6 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     get_reference_attachment_or_abort,
     get_stored_file_or_abort,
     get_upload_from_request,
-    recursive_delete_filter,
     stream_grid_file,
     unique_name_filter,
     validate_update_body,
@@ -368,8 +367,10 @@ def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
     """
     HTTP `DELETE` route to delete a MediaFile or a whole folder
 
-    Requires the ``base.framework.object.edit`` right. Deleting a folder deletes what it holds: the
-    subtree below the addressed entry is collected first and then removed, the addressed entry included
+    Requires the ``base.framework.object.edit`` right. Deleting a folder deletes what it holds: the subtree is read
+    one level per query (``MediaFilesManager.collect_subtree``) and removed level by level, deepest first, in
+    batches (``delete_subtree``). A failure part-way leaves the levels above it stored and connected - the
+    request can be repeated - and a folder stored inside its own subtree ends the walk instead of looping
 
     Args:
         public_id (int): public_id of the MediaFile to delete
@@ -377,7 +378,7 @@ def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
 
     Raises:
         HTTPException: 403 when the user lacks the right; 404 when no MediaFile carries the public_id;
-            400 when the deletion fails; 500 on an unexpected error
+            400 when the subtree cannot be read or deleted; 500 on an unexpected error
 
     Returns:
         DefaultResponse: The MediaFile which was deleted
@@ -388,10 +389,12 @@ def delete_file(public_id: int, request_user: CmdbUser) -> Resp:
 
         file_to_delete = get_stored_file_or_abort(media_files_manager, public_id)
 
-        for _id in recursive_delete_filter(public_id, media_files_manager):
-            media_files_manager.delete_file(_id)
+        media_files_manager.delete_subtree(media_files_manager.collect_subtree(file_to_delete))
 
         return DefaultResponse(file_to_delete).make_response()
+    except MediaFileManagerGetError as err:
+        LOGGER.error("[delete_file] MediaFileManagerGetError: %s", err, exc_info=True)
+        abort(400, f"Failed to read the File with ID: {public_id} and what it holds from the database!")
     except MediaFileManagerDeleteError as err:
         LOGGER.error("[delete_file] MediaFileManagerDeleteError: %s", err, exc_info=True)
         abort(400, f"Failed to delete the File with ID: {public_id} in the database!")

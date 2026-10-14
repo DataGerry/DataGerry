@@ -33,6 +33,8 @@ from cmdb.utils import Builder
 from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 
 from cmdb.models.user_model import CmdbUser
+from cmdb.security.acl.builder import resolve_denied_type_ids
+from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.models.isms_model import (
     IsmsControlMeasure,
     IsmsControlMeasureAssignment,
@@ -216,6 +218,9 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
 
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
+    # The assessed object's name and type label are shown only for a type the reader may READ
+    denied_type_ids: list[int] = resolve_denied_type_ids(request_user, AccessControlPermission.READ)
+
     query_pipeline = [
         # Step 0: Start from all IsmsRiskAssessments. The column filters target this report's
         # RESOLVED display fields (risk_name, risk_category, implementation_status, ...), which do
@@ -230,7 +235,7 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
         *implementation_status_lookup_stages(),
 
         # Lookup Object / ObjectGroup / type label for the assessed object
-        *object_reference_lookup_stages(),
+        *object_reference_lookup_stages(denied_type_ids),
 
         # Step 6: Lookup person/personGroup
         Builder.lookup_(
@@ -344,7 +349,9 @@ def get_isms_risk_treatment_plan_report(params: CollectionParameters, request_us
     query_result, total = extract_report_page(aggregation)
 
     # Name each assessed object (one batch for the page), then drop the internal ref type
-    resolve_assessed_objects(query_result, RiskTreatmentPlanReportKey.OBJECT.value, objects_manager)
+    resolve_assessed_objects(
+        query_result, RiskTreatmentPlanReportKey.OBJECT.value, objects_manager, request_user, denied_type_ids,
+    )
 
     return GetMultiResponse(query_result, total, params, request.url, body).make_response()
 
@@ -492,6 +499,9 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
 
     objects_manager: ObjectsManager = ManagerProvider.get_manager(ManagerType.OBJECTS, request_user)
 
+    # The assessed object's name and type label are shown only for a type the reader may READ
+    denied_type_ids: list[int] = resolve_denied_type_ids(request_user, AccessControlPermission.READ)
+
     pipeline = [
         # Step 1: Start from all RiskAssessments. Column filters target the report's RESOLVED display
         # fields (risk_category, protection_goals, priority label, risk-class ids, ...) which do not
@@ -502,7 +512,7 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
         # Step 2: Resolve every reference the report displays - risk, category, protection goals,
         # implementation status, the assessed object, the four person references, the risk classes,
         # the impact-category rollups and the likelihood levels
-        *risk_assessment_report_stages(),
+        *risk_assessment_report_stages(denied_type_ids),
 
         # Last Step: Project the display fields the frontend reads
         risk_assessment_report_projection_stage(),
@@ -532,7 +542,9 @@ def get_isms_risk_assessments_report(params: CollectionParameters, request_user:
     query_result, total = extract_report_page(aggregation)
 
     # Name each assessed object (one batch for the page), then drop the internal ref type
-    resolve_assessed_objects(query_result, RiskAssessmentReportKey.ASSIGNED_OBJECT.value, objects_manager)
+    resolve_assessed_objects(
+        query_result, RiskAssessmentReportKey.ASSIGNED_OBJECT.value, objects_manager, request_user, denied_type_ids,
+    )
 
     return GetMultiResponse(query_result, total, params, request.url, body).make_response()
 

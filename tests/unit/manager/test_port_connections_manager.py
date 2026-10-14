@@ -36,7 +36,6 @@ from cmdb.errors.manager.port_connections_manager import (
     PORT_CONNECTIONS_MANAGER_ERRORS,
     PortConnectionsManagerDeleteError,
     PortConnectionsManagerGetError,
-    PortConnectionsManagerInitError,
     PortConnectionsManagerUpdateError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -76,12 +75,15 @@ class TestTheBinding:
         """The explicit database name is what cloud mode passes per request"""
         assert manager.db_name == DB_NAME
 
-    def test_an_init_failure_raises_the_managers_own_error(self) -> None:
-        """The 'init' entry of the exception map is what a broken construction reports"""
+    def test_a_broken_construction_is_not_wrapped(self) -> None:
+        """
+        Building the manager touches no database: a failure there is a bug, raised as itself (the route's 500),
+        never the map's 'init' entry, which reads like a database failure
+        """
         broken = MagicMock(name='dbm')
         type(broken).db_name = property(lambda _self: (_ for _ in ()).throw(RuntimeError('no db')))
 
-        with pytest.raises(PortConnectionsManagerInitError):
+        with pytest.raises(RuntimeError):
             PortConnectionsManager(broken)
 
 

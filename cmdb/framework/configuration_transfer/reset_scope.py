@@ -55,6 +55,7 @@ from cmdb.models.rack_model import CmdbRackMount
 from cmdb.models.object_group_model import CmdbObjectGroup
 from cmdb.models.reports_model.cmdb_report import CmdbReport
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
+from cmdb.models.reports_model.report_constants import ReportCategoryKey
 from cmdb.models.webhook_model.cmdb_webhook_model import CmdbWebhook
 from cmdb.models.webhook_model.cmdb_webhook_event import CmdbWebhookEvent
 from cmdb.models.ci_explorer_model.ci_explorer_profile import CmdbCiExplorerProfile
@@ -67,7 +68,6 @@ from cmdb.framework.media_library.media_file_keys import (
     MEDIA_FILE_REFERENCE_TYPE_PATH,
     OBJECT_REFERENCE_TYPE,
 )
-from cmdb.database.database_services.database_services_constants import BootstrapDocumentKey
 from cmdb.framework.configuration_transfer.configuration_transfer_constants import NOT_PREDEFINED
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -140,7 +140,7 @@ RESET_TARGETS: tuple[ResetTarget, ...] = (
     _cleared(CmdbObjectGroup),
     _cleared(CmdbObject),
     _cleared(CmdbReport),
-    _cleared(CmdbReportCategory, {BootstrapDocumentKey.PREDEFINED.value: NOT_PREDEFINED}),
+    _cleared(CmdbReportCategory, {ReportCategoryKey.PREDEFINED.value: NOT_PREDEFINED}),
     _cleared(CmdbCiExplorerProfile),
     _cleared(DocapiTemplate),
     _cleared(CmdbUserSetting, blocks_import=False),

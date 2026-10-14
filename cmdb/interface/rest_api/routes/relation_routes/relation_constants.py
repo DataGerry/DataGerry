@@ -39,7 +39,10 @@ __all__: list[str] = [
     'OBJECT_RELATION_TABS_OBJECT_NOT_FOUND_MESSAGE',
     'OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE',
     'OBJECT_RELATION_ACCESS_DENIED_MESSAGE',
+    'OBJECT_RELATION_NOT_FOUND_MESSAGE',
     'OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE',
+    'OBJECT_RELATION_RELATION_CHANGED_MESSAGE',
+    'OBJECT_RELATION_BULK_SELECTION_LOOKUP_FAILED_MESSAGE',
     'RelationRight',
     'ObjectRelationRight',
     'ObjectRelationLogRight',
@@ -77,8 +80,10 @@ OBJECT_RELATION_TABS_OBJECT_LOOKUP_FAILED_MESSAGE: str = (
     "Failed to read the Object with ID:{object_id} whose relations are requested!"
 )
 
-# The 403 of a single CmdbObjectRelation read when the caller may not read one of its two objects
+# The 403 of a route addressing a stored CmdbObjectRelation - the read, the update, the delete and the bulk delete -
+# when the caller may not read one of its two objects, and the 404 of one that does not exist
 OBJECT_RELATION_ACCESS_DENIED_MESSAGE: str = "You may not read the ObjectRelation with ID:{public_id}!"
+OBJECT_RELATION_NOT_FOUND_MESSAGE: str = "The ObjectRelation with ID:{public_id} was not found!"
 
 # The 400 of an object-relation read when the types the caller may not read could not be resolved
 OBJECT_RELATION_ACL_LOOKUP_FAILED_MESSAGE: str = "Failed to resolve which Objects you may read!"
@@ -123,6 +128,13 @@ OBJECT_RELATION_FIELD_UNKNOWN_MESSAGE: str = (
     "The Relation with ID:{relation_id} declares no field(s) named: {names}!"
 )
 OBJECT_RELATION_FIELD_DUPLICATE_MESSAGE: str = "A field value is given more than once for: {names}!"
+
+# The 400 of an update that names another CmdbRelation than the instance belongs to. An instance's field values are
+# judged by its relation's declared fields, and its tab is its relation's, so it is never moved to another one
+OBJECT_RELATION_RELATION_CHANGED_MESSAGE: str = (
+    "The ObjectRelation with ID:{public_id} belongs to the Relation with ID:{stored_relation_id} and cannot be moved "
+    "to the Relation with ID:{sent_relation_id}!"
+)
 
 # The 400 of a CmdbObjectRelation write when reading its endpoints failed
 OBJECT_RELATION_ENDPOINT_LOOKUP_FAILED_MESSAGE: str = "Failed to read the Objects of the ObjectRelation!"
@@ -197,6 +209,8 @@ OBJECT_RELATION_BULK_TOO_MANY_MESSAGE: str = (
     "At most {limit} ObjectRelations can be deleted at once, {count} were requested!"
 )
 OBJECT_RELATION_BULK_NONE_EXIST_MESSAGE: str = "No ObjectRelations exist with these IDs!"
+# The 400 of a bulk delete when reading whether the selection holds a relation the caller may not read failed
+OBJECT_RELATION_BULK_SELECTION_LOOKUP_FAILED_MESSAGE: str = "Failed to read the selected ObjectRelations!"
 OBJECT_RELATION_BULK_DELETE_FAILED_MESSAGE: str = (
     "Failed to delete the ObjectRelations! {deleted} of them were deleted before the failure."
 )

@@ -43,6 +43,7 @@ from cmdb.framework.media_library.media_file_keys import (
     MediaFileMetadataKey,
     MEDIA_FILE_PARENT_PATH,
     MEDIA_FILE_FILENAME_PARENT_INDEX_NAME,
+    MEDIA_FILE_PARENT_INDEX_NAME,
 )
 
 from cmdb.errors.cmdb_object import NoPublicIDError
@@ -228,7 +229,7 @@ class TestGetIndexKeys:
 
     def test_the_index_is_the_filename_parent_pair(self) -> None:
         """A file's identity is its name INSIDE its folder - the same name in two folders is legal."""
-        declared = {key for index in MediaFile.INDEX_KEYS for key, _ in index['keys']}
+        declared = {key for index in MediaFile.INDEX_KEYS for key, _ in index['keys']}  # both indexes, two keys
 
         assert declared == {MediaFileKey.FILENAME.value, MEDIA_FILE_PARENT_PATH}
 
@@ -252,3 +253,17 @@ class TestGetIndexKeys:
             MediaFileKey.FILENAME.value,
             MEDIA_FILE_PARENT_PATH,
         ]
+
+    def test_a_read_by_parent_alone_has_an_index_of_its_own(self) -> None:
+        """
+        "What is in this folder" asks by parent only, which the pair index cannot serve (it leads with filename)
+
+        Without it the folder listing and every level of a folder delete's walk scanned the collection
+        """
+        declaration = next(
+            index for index in MediaFile.INDEX_KEYS
+            if index['name'] == MEDIA_FILE_PARENT_INDEX_NAME
+        )
+
+        assert [key for key, _ in declaration['keys']] == [MEDIA_FILE_PARENT_PATH]
+        assert declaration['unique'] is False

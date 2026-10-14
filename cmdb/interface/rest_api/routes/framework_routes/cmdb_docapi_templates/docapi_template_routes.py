@@ -66,6 +66,7 @@ from cmdb.interface.route_utils import (
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.routes.cmdb_license.license_guard import requires_feature
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docapi_template_constants import (
+    MINIMAL_PARAM,
     RENDER_OBJECT_DENIED_MSG,
     RENDER_OBJECT_RIGHT,
     RENDER_TEMPLATE_DEACTIVATED_MSG,
@@ -77,7 +78,11 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_docapi_templates.docap
     parse_template_searchfilter,
 )
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.rest_api.routes.routes_helper import build_searchable_builder_params, request_wants_body
+from cmdb.interface.rest_api.routes.routes_helper import (
+    build_searchable_builder_params,
+    read_boolean_query_param,
+    request_wants_body,
+)
 
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.security.license.license_constants import LicenseFeature
@@ -241,7 +246,7 @@ def get_template_list_filtered(searchfilter: str, request_user: CmdbUser) -> Res
                                                                          request_user)
     filterdict: dict[str, Any] = parse_template_searchfilter(searchfilter)
 
-    minimal = request.args.get('minimal', 'false') in ['True', 'true']
+    minimal: bool = read_boolean_query_param(MINIMAL_PARAM, default=False)
 
     if minimal:
         tpl = docapi_manager.get_minimal_templates_by(filterdict)

@@ -62,6 +62,10 @@ class CmdbRackMount(CmdbDAO):
     `Extends`: CmdbDAO
     """
     COLLECTION = 'framework.rackMounts'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbRackMountInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbRackMountToJsonError
     DATE_FIELDS: tuple[str, ...] = ('creation_time', 'last_edit_time')
     # object_id is deliberately absent: an occupant row has none. That a MOUNT requires one is a
     # per-kind rule, checked by the occupant validator where the kind is known

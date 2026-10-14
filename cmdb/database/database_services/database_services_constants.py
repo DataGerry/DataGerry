@@ -71,11 +71,15 @@ class Updater:
 
 
 class BootstrapDocumentKey(BaseStrEnum):
-    """Document keys read or written while seeding predefined bootstrap data"""
+    """
+    Document keys read or written while seeding predefined bootstrap data
+
+    The generic ones the counters, the fixed groups and the section templates share; the 'General' report category is
+    seeded with its own model's keys (``ReportCategoryKey``)
+    """
     ID = '_id'
     PUBLIC_ID = 'public_id'
     NAME = 'name'
-    PREDEFINED = 'predefined'
 
 
 # Name of the predefined report category seeded on first boot

@@ -1008,6 +1008,34 @@ class TestUpsertAndMoreWrappers:
         with pytest.raises(DocumentAggregationError):
             mgr.aggregate(COLL, DB, [{'$match': {}}])
 
+    def test_aggregate_all_reads_every_result(self, mgr: MongoDatabaseManager) -> None:
+        """aggregate_all hands back a list - the cursor is read here, not by the caller"""
+        collection = _stub_collection(mgr)
+        collection.aggregate.return_value = iter([{'a': 1}, {'a': 2}])
+
+        assert mgr.aggregate_all(COLL, DB, [{'$match': {}}], allowDiskUse=True) == [{'a': 1}, {'a': 2}]
+        collection.aggregate.assert_called_once_with([{'$match': {}}], allowDiskUse=True)
+
+    def test_aggregate_all_wraps_a_later_batch_failure(self, mgr: MongoDatabaseManager) -> None:
+        """
+        A failure while the cursor is read - a later batch - is the aggregation's error too
+
+        The command succeeds and answers its first batch; the next getMore fails. Handed back as a cursor, that
+        failure would escape from the caller's loop as a raw driver error
+        """
+        later_batch_failure = OperationFailure('cursor killed')
+
+        def _rows():
+            yield {'a': 1}
+            raise later_batch_failure
+
+        _stub_collection(mgr).aggregate.return_value = _rows()
+
+        with pytest.raises(DocumentAggregationError) as caught:
+            mgr.aggregate_all(COLL, DB, [{'$match': {}}])
+
+        assert caught.value.__cause__ is later_batch_failure
+
     def test_find_one_error(self, mgr: MongoDatabaseManager) -> None:
         """A find_one failure surfaces as DocumentGetError."""
         mgr.find = MagicMock(side_effect=RuntimeError('boom'))

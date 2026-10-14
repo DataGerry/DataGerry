@@ -34,7 +34,6 @@ import sys
 
 from flask import Blueprint
 from flask_cors import CORS
-from pymongo.errors import ConnectionFailure
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
@@ -56,8 +55,9 @@ from cmdb.interface.rest_api.responses.error_handlers import (
 )
 
 from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
-from cmdb.utils import find_cause, CONTENT_DISPOSITION_HEADER
-from cmdb.errors.database import DatabaseConnectionError, DocumentLockTimeoutError, DocumentNetworkError
+from cmdb.utils import CONTENT_DISPOSITION_HEADER
+from cmdb.database.mongo_error_helper import is_database_outage
+from cmdb.errors.database import DocumentLockTimeoutError, DocumentNetworkError
 from cmdb.errors.updater import TenantUpdatesFailedError
 from cmdb.security.license.license_constants import LicenseFeature
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -70,15 +70,6 @@ REST_APPLICATION_ROOT: str = '/rest/'
 
 #: A blueprint and the URL prefix it is mounted at
 BlueprintMount = tuple[Blueprint, str]
-
-#: A failure that is the database server's, not one tenant's: the driver lost the server, or a layer above it
-#: said so. Found anywhere in the cause chain, it stops the tenant loop instead of marking the tenant -
-#: otherwise an outage would wait out the server-selection timeout once per tenant and then fence them all
-DATABASE_OUTAGE_ERRORS: tuple[type[Exception], ...] = (
-    ConnectionFailure,
-    DatabaseConnectionError,
-    DocumentNetworkError,
-)
 
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -561,7 +552,7 @@ def register_error_pages(app: BaseCmdbApp) -> None:
 # -------------------------------------------------------------------------------------------------------------------- #
 
 
-def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, local_mode: bool = False) -> None:
+def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, on_premise: bool = False) -> None:
     """
     Brings one database to the current schema: validate the collections, then migrate or stamp
 
@@ -584,14 +575,14 @@ def bring_database_up_to_date(dbm: MongoDatabaseManager, db_name: str, local_mod
     Args:
         dbm (MongoDatabaseManager): Manager owning the MongoDB connection
         db_name (str): Name of the database to bring up to date
-        local_mode (bool): Passed to CollectionValidator, where it gates the key generation and the
-            default admin user. Defaults to False
+        on_premise (bool): Passed to CollectionValidator, where it gates the key generation and the
+            default admin user - True for the on-premise boot only. Defaults to False
     """
     # Read BEFORE validating: validate_collections creates the database when it is missing, so asking
     # afterwards would always answer "it exists" and the distinction would be lost
     database_existed: bool = dbm.check_database_exists(db_name)
 
-    CollectionValidator(db_name, dbm, local_mode=local_mode).validate_collections()
+    CollectionValidator(db_name, dbm, on_premise=on_premise).validate_collections()
 
     database_updater = DatabaseUpdater(dbm, db_name)
 
@@ -619,7 +610,7 @@ def start_datagerry_setup(dbm: MongoDatabaseManager) -> None:
     """
     db_name = SystemConfigReader().get_value('database_name', 'Database')
 
-    bring_database_up_to_date(dbm, db_name, local_mode=True)
+    bring_database_up_to_date(dbm, db_name, on_premise=True)
 
 
 def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -> frozenset[str]:
@@ -628,8 +619,9 @@ def execute_update_checks(dbm: MongoDatabaseManager, local_mode: bool = False) -
 
     Fetches the tenant database names from the service portal (``get_db_names_from_service_portal``) and
     runs ``bring_database_up_to_date`` on each: an existing database is validated and migrated, a missing
-    one is created and stamped at the current version. Invoked by ``create_rest_api`` in cloud mode and in
-    local mode; ``local_mode`` only picks which list the portal lookup returns.
+    one is created and stamped at the current version. Invoked by ``create_rest_api`` for the cloud product,
+    hosted and ``--cloud --local``; ``local_mode`` - the app's meaning, the developer machine - only picks which
+    list the portal lookup returns. Every tenant is validated as the cloud product's (no ``on_premise``).
 
     **A failing tenant is set aside, not fatal.** Its failure is logged with its name and traceback, the
     remaining tenants are still updated, and its name is returned so the app can answer its requests 503
@@ -693,16 +685,3 @@ def update_tenant_database(dbm: MongoDatabaseManager, db_name: str) -> bool:
         return False
 
     return True
-
-
-def is_database_outage(err: BaseException) -> bool:
-    """
-    Tells whether an error means the database server, rather than one database, failed
-
-    Args:
-        err (BaseException): The error a tenant's update raised
-
-    Returns:
-        bool: True when a ``DATABASE_OUTAGE_ERRORS`` class is anywhere in its cause chain
-    """
-    return any(find_cause(err, error_class) for error_class in DATABASE_OUTAGE_ERRORS)

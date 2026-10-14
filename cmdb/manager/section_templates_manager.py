@@ -69,6 +69,7 @@ from cmdb.models.user_model import CmdbUser
 from cmdb.models.type_model import CmdbType, TypeFieldSection, TypeMultiDataSection, SectionType, FieldKey
 from cmdb.models.object_model import CmdbObjectKey
 from cmdb.models.reports_model.cmdb_report import CmdbReport
+from cmdb.models.reports_model.report_constants import ReportKey
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.section_template_model.section_template_constants import SectionTemplateUsageKey
 from cmdb.framework.results import IterationResult
@@ -805,7 +806,7 @@ class SectionTemplatesManager(BaseManager):
         """
         reports_for_type: list[dict[str, Any]] = self.objects_manager.get_many_from_other_collection(
             CmdbReport.COLLECTION,
-            criteria={'type_id': a_type.public_id},
+            criteria={ReportKey.TYPE_ID.value: a_type.public_id},
         )
 
         self.reports_manager.strip_removed_fields_from_reports(reports_for_type, removed_field_names, a_type)

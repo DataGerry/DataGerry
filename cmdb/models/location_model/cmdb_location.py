@@ -112,8 +112,8 @@ class CmdbLocation(CmdbDAO):
     ]
 
     # The stored document's contract, written down - not run by any write (every write is the object mirror, which
-    # builds the node from the object and its type). It requires exactly REQUIRED_INIT_KEYS and defaults as CmdbLocationDefault; tests hold
-    # the two to each other
+    # builds the node from the object and its type). It requires exactly REQUIRED_INIT_KEYS and defaults as
+    # CmdbLocationDefault; tests hold the two to each other
     SCHEMA: dict[str, Any] = get_cmdb_location_schema()
 
     # The document's keys drive the shared from_data / to_json on CmdbDAO, so this model has neither

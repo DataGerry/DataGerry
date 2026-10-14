@@ -40,7 +40,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.reports_model.cmdb_report_category import CmdbReportCategory
 from cmdb.models.reports_model.mds_mode_enum import MdsMode
-from cmdb.models.reports_model.report_constants import ReportQueryKey
+from cmdb.models.reports_model.report_constants import ReportKey, ReportQueryKey
 from cmdb.models.reports_model.report_query import eval_stored_report_query
 from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     REPORT_TARGET_TYPE_ACCESS_DENIED_MSG,
@@ -48,7 +48,6 @@ from cmdb.interface.rest_api.routes.report_routes.report_constants import (
     PREVIEW_LIMIT,
     REPORT_REQUIRED_PARAMS,
     REPORT_WRITE_KEYS,
-    ReportKey,
     ReportRight,
 )
 from cmdb.interface.rest_api.routes.report_routes.report_helper import (

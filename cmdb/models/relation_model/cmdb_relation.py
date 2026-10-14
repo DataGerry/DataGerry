@@ -44,6 +44,10 @@ class CmdbRelation(CmdbDAO):
     Extends: CmdbDAO
     """
     COLLECTION = "framework.relations"
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbRelationInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbRelationToJsonError
 
     INDEX_KEYS: list[dict[str, Any]] = [
         # The technical name identifies a relation, the way a CmdbType's name does - its display texts are

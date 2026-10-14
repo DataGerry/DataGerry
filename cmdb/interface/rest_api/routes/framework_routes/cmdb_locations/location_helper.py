@@ -23,6 +23,7 @@ from typing import Any, NamedTuple, Collection
 from flask import abort
 
 from cmdb.manager import ObjectsManager, LocationsManager
+from cmdb.manager.locations_manager import usable_object_ids
 
 from cmdb.models.object_model import CmdbObject, CmdbObjectFieldKey, CmdbObjectKey
 from cmdb.models.type_model.cmdb_type import CmdbType
@@ -551,7 +552,7 @@ def delete_location_with_reparenting(
     # (whose parent the promotion rewrites) and the objects owning those children (whose field is re-pointed)
     stored_node: dict[str, Any] | None = locations_manager.get_one_by({LocationKey.PUBLIC_ID.value: public_id})
     children: list[dict[str, Any]] = locations_manager.find(criteria={LocationKey.PARENT.value: public_id})
-    child_object_ids: list[int] = locations_manager.get_child_object_ids(public_id)
+    child_object_ids: list[int] = usable_object_ids(children)
 
     # All-or-nothing by compensation (MongoDB transactions need a replica set): each write is recorded before it
     # runs, so a failure part-way puts the children back under this node, the node back, and the object fields
@@ -564,7 +565,7 @@ def delete_location_with_reparenting(
             ledger.deleted(locations_manager, public_id, stored_node)
 
         # promotes the child location NODES onto the grandparent, then removes this node
-        ack: bool = locations_manager.delete_location(public_id)
+        ack: bool = locations_manager.delete_location(public_id, stored_node, children)
 
         if child_object_ids:
             # Only the location field is put back - a full-object snapshot would also overwrite any other edit

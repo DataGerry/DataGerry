@@ -42,6 +42,7 @@ from joserfc import jwt
 from joserfc.jwk import RSAKey
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.security.key import holder as holder_module
 from cmdb.security.key.holder import KeyHolder
 from cmdb.security.token import validator as validator_module
 from cmdb.security.token.token_constants import (
@@ -52,6 +53,8 @@ from cmdb.security.token.token_constants import (
 )
 
 from cmdb import __title__
+
+from tests.utils.flask_test_client import without_injected_auth
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PROTECTED_ROUTE: str = '/types/'
@@ -86,19 +89,9 @@ def _signed_token(
 
 @pytest.fixture(name='bare_client')
 def fixture_bare_client(rest_api):
-    """
-    The test client without its own Authorization header, so the test's header is the only one
-
-    The client is session-scoped and injects a valid token through `environ_base`; that entry is
-    removed for the duration of the test and **put back afterwards**, or every later test in the
-    session would run unauthenticated.
-    """
-    injected_header = rest_api.environ_base.pop('HTTP_AUTHORIZATION', None)
-
-    yield rest_api
-
-    if injected_header is not None:
-        rest_api.environ_base['HTTP_AUTHORIZATION'] = injected_header
+    """The test client without its own Authorization header, so the test's header is the only one"""
+    with without_injected_auth(rest_api) as client:
+        yield client
 
 
 class TestTokenAcceptance:
@@ -162,7 +155,7 @@ class TestServerSideKeyFailure:
                 self.rsa_public = b'not a key'
                 self.rsa_private = None
 
-        monkeypatch.setattr(validator_module, 'KeyHolder', _BrokenKeyHolder)
+        monkeypatch.setattr(holder_module, 'KeyHolder', _BrokenKeyHolder)
 
         response = bare_client.get(PROTECTED_ROUTE, headers={'Authorization': f'Bearer {token}'})
 

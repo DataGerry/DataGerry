@@ -46,6 +46,10 @@ class CmdbUserGroup(CmdbDAO):
     Implementation of CmdbUserGroup. Every CmdbUser is part of a CmdbUserGroup in DataGerry
     """
     COLLECTION = 'management.groups'
+    # What its own from_data / to_json raise - declared so a manager can tell a document that no longer
+    # fits the model from a programming error (GenericManager._model_errors)
+    INIT_FROM_DATA_ERROR: type[Exception] = CmdbUserGroupInitFromDataError
+    TO_JSON_ERROR: type[Exception] = CmdbUserGroupToJsonError
     INDEX_KEYS = [
         {'keys': [('name', CmdbDAO.DAO_ASCENDING)], 'name': 'name', 'unique': True}
     ]

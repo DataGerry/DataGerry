@@ -95,6 +95,10 @@ CLOUD_BASIC_WITHOUT_API_KEY_MESSAGE: str = (
     f'In cloud mode HTTP Basic credentials are accepted only together with an {API_KEY_HEADER} header!'
 )
 
+# The 500 of a request whose token cannot be verified or signed because the key material cannot be obtained - the
+# server's fault, so never a 401 (which would log the user out)
+KEY_MATERIAL_UNAVAILABLE_MESSAGE: str = "The token could not be verified because of a server-side key problem!"
+
 # -------------------------------------------------------------------------------------------------------------------- #
 
 def get_cached_user_manager() -> CachedUserManager:
@@ -587,8 +591,11 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
 
     Raises:
         werkzeug.exceptions.HTTPException: Returns a 401 Unauthorized error if token validation fails
-                                           or the user cannot be resolved, and a 403 when a feature
-                                           the request needs is not licensed.
+                                           or the user cannot be resolved, a 403 when a feature
+                                           the request needs is not licensed, and a 500 when the key
+                                           material to verify or sign a token cannot be obtained.
+        DocumentNetworkError: When the database server was lost while the key was read - left to the
+            app's error handler, which answers 503
     """
     @functools.wraps(func)
     def get_request_user(*args: Any, **kwargs: Any) -> Any:
@@ -609,9 +616,13 @@ def insert_request_user(func: Callable[..., Any]) -> Callable[..., Any]:
             decrypted_token = decode_request_token(token)
         except HTTPException as http_err:
             raise http_err
+        except TRANSIENT_DATABASE_ERRORS:
+            # The database is gone, not the credential: the app's error handlers answer 503 / 423 (try again) -
+            # a 401 here would log every user out over an outage
+            raise
         except TokenKeyMaterialError as err:
             LOGGER.error("[insert_request_user] TokenKeyMaterialError: %s", err, exc_info=True)
-            abort(500, "The token could not be verified because of a server-side key problem!")
+            abort(500, KEY_MATERIAL_UNAVAILABLE_MESSAGE)
         except TokenValidationError:
             abort(401, "Invalid Token!")
         except Exception as err:
@@ -942,6 +953,10 @@ def parse_authorization_header(header: str | None) -> str | None:
         header (str | None): Authorization header of the HTTP Request
     Examples:
         request.headers['Authorization'] or something same
+    Raises:
+        TokenKeyMaterialError: When the key material to verify or sign a token cannot be obtained
+        DocumentNetworkError: When the database server was lost while the key was read
+
     Returns:
         str | None: Valid JWT token, or None when the header is missing/unsupported or authentication fails
     """
@@ -989,6 +1004,10 @@ def _authenticate_basic(auth_info: str) -> str | None:
     Args:
         auth_info (str): The base64-encoded ``email:password`` portion of a Basic Authorization header
 
+    Raises:
+        TokenKeyMaterialError: When the signing key could not be obtained - the server's fault, answered 500
+        DocumentNetworkError: When the database server was lost while the key was read - answered 503
+
     Returns:
         str | None: A freshly generated JWT, or None in cloud mode, when the credentials are invalid or an
             error occurs
@@ -1022,6 +1041,10 @@ def _authenticate_basic(auth_info: str) -> str | None:
         token_payload = {'user': {'public_id': user_instance.get_public_id()}}
 
         return TokenGenerator(current_app.database_manager).generate_token(payload=token_payload)
+    except (TokenKeyMaterialError, *TRANSIENT_DATABASE_ERRORS):
+        # The credentials were fine and the server could not sign for them: its fault, not a failed login -
+        # answering None would make the request a 401 that logs the user out. load_key_holder has logged it
+        raise
     except Exception as err:
         LOGGER.error("[_authenticate_basic] Exception: %s", err)
         return None
@@ -1033,6 +1056,10 @@ def _validate_bearer(auth_info: str) -> str | None:
 
     Args:
         auth_info (str): The bearer token from the Authorization header
+
+    Raises:
+        TokenKeyMaterialError: When the public key could not be obtained - the server's fault, answered 500
+        DocumentNetworkError: When the database server was lost while the key was read - answered 503
 
     Returns:
         str | None: The token when it decodes and validates, otherwise None
@@ -1052,10 +1079,10 @@ def _validate_bearer(auth_info: str) -> str | None:
             cache[auth_info] = decoded_token
 
         return auth_info
-    except TokenKeyMaterialError as err:
+    except (TokenKeyMaterialError, *TRANSIENT_DATABASE_ERRORS):
         # Not the caller's fault, and answering None here would report it as a bad token - let it
-        # surface so the route can answer 500 instead of logging the user out
-        LOGGER.error("[_validate_bearer] TokenKeyMaterialError: %s", err, exc_info=True)
+        # surface so the route can answer 500 (or 503 for an outage) instead of logging the user out.
+        # load_key_holder has logged it
         raise
     except Exception as err:
         LOGGER.debug("[_validate_bearer] Token refused: %s", err)
