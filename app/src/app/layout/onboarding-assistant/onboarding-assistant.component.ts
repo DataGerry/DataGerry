@@ -33,6 +33,7 @@ import { FileService } from '../../export/export.service';
 import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
+import { LICENSE_TIER_LABELS, LicenseTier } from '../../settings/license-management/models/license.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
 type Edition = 'community' | 'subscription';
@@ -121,7 +122,9 @@ export class OnboardingAssistantComponent implements OnInit {
             title: 'Subscription',
             description: 'License with Pro features and vendor support.',
             features: ['Everything in Community', 'REST API, IPAM, Document Generator', 'Automations, ISMS depending on plan', 'Support by becon'],
-            badge: 'Core · Business · Corporate'
+            badge: [LicenseTier.Core, LicenseTier.Business, LicenseTier.Corporate]
+                .map(tier => LICENSE_TIER_LABELS[tier])
+                .join(' · ')
         }
     ];
 
