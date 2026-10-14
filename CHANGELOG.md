@@ -440,6 +440,7 @@ Bugfixes
 -   [**DAT-1981**] Fixed permission handling for the **Add Relation** button
 -   [**DAT-1980**] Fixed external link creation without mapped fields
 -   [**DAT-1979**] Fixed multiple issues related to external links
+
 |
 
 =======================================================================================================================
