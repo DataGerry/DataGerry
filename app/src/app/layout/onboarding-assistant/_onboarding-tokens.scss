@@ -1,0 +1,29 @@
+@import "src/scss/variables";
+
+$brand: $primary;
+$brand-soft: rgba($brand, 0.1);
+$brand-ink: darken($brand, 12%);
+$brand-ring: 0 0 0 4px rgba($brand, 0.12), 0 2px 8px rgba($brand, 0.22);
+$focus-ring: 0 0 0 0.2rem rgba($brand, 0.35);
+
+$done: #198754;
+$warning-ink: #b45309;
+$line-idle: #e5e7eb;
+$line-done: #7cc9a8;
+$card-border: #e9ecef;
+$hairline: #eef0f3;
+$surface: #f8fafc;
+
+$ink: #1f2937;
+$label: #374151;
+$muted: #6b7280;
+$faint: #9ca3af;
+
+$radius-chip: 0.6rem;
+$radius-card: 1rem;
+$card-shadow: 0 12px 30px -18px rgba(15, 23, 42, 0.28);
+$transition: 180ms ease;
+
+$marker-size: 2.125rem;
+$chip-size: 2.25rem;
+$rail-width: 16.5rem;

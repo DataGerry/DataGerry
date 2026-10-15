@@ -34,32 +34,22 @@ import { ToastService } from '../toast/toast.service';
 import { SidebarService } from '../services/sidebar.service';
 import { UserSettingsDBService } from '../../management/user-settings/services/user-settings-db.service';
 import { LICENSE_TIER_LABELS, LicenseTier } from '../../settings/license-management/models/license.model';
+import { OnboardingLicenseService } from './services/onboarding-license.service';
+import { OnboardingLicenseStepComponent } from './license-step/onboarding-license-step.component';
+import {
+    EditionOption,
+    OnboardingEdition,
+    OnboardingStep,
+    WORKSPACE_RESET_CONFIRMATION
+} from './models/onboarding-assistant.model';
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-type Edition = 'community' | 'subscription';
-
-const RESET_CONFIRMATION = 'RESET';
-
-interface EditionOption {
-    id: Edition;
-    icon: string;
-    title: string;
-    description: string;
-    features: string[];
-    badge: string;
-}
-
-interface OnboardingStep {
-    id: string;
-    title: string;
-    description: string;
-}
 
 @Component({
     selector: 'cmdb-onboarding-assistant',
     templateUrl: './onboarding-assistant.component.html',
     styleUrls: ['./onboarding-assistant.component.scss'],
-    imports: [AsyncPipe, CoreModule],
+    imports: [AsyncPipe, CoreModule, OnboardingLicenseStepComponent],
+    providers: [OnboardingLicenseService],
     changeDetection: ChangeDetectionStrategy.OnPush
 })
 export class OnboardingAssistantComponent implements OnInit {
@@ -72,6 +62,7 @@ export class OnboardingAssistantComponent implements OnInit {
     private readonly router = inject(Router);
     private readonly modalService = inject(NgbModal);
     private readonly destroyRef = inject(DestroyRef);
+    private readonly licenseState = inject(OnboardingLicenseService);
 
     public readonly activeModal = inject(NgbActiveModal);
     public readonly isLoading$ = this.loaderService.isLoading$;
@@ -88,24 +79,58 @@ export class OnboardingAssistantComponent implements OnInit {
     public readonly version = signal('');
     public readonly currentStepIndex = signal(0);
 
-    public readonly steps = computed<OnboardingStep[]>(() => [
-        {
+    public readonly selectedEdition = signal<OnboardingEdition | null>(null);
+
+    public readonly steps = computed<OnboardingStep[]>(() => {
+        const steps: OnboardingStep[] = [{
             id: 'welcome',
             title: 'Welcome',
             description: this.isCloud ? 'DATAGERRY Cloud' : 'Self-hosted'
-        },
-        this.isCloud
-            ? { id: 'plan', title: 'Your plan', description: 'Trial or subscription' }
-            : { id: 'edition', title: 'Edition', description: 'Community or Subscription' }
-    ]);
+        }];
+
+        if (this.isCloud) {
+            steps.push({ id: 'plan', title: 'Your plan', description: 'Trial or subscription' });
+            return steps;
+        }
+
+        steps.push({ id: 'edition', title: 'Edition', description: 'Community or Subscription' });
+
+        if (this.selectedEdition() === 'subscription') {
+            steps.push({ id: 'license', title: 'Activate license', description: this.licenseStepDescription() });
+        }
+
+        return steps;
+    });
 
     public readonly currentStep = computed(() => this.steps()[this.currentStepIndex()]);
     public readonly progressPercent = computed(() => ((this.currentStepIndex() + 1) / this.steps().length) * 100);
-    public readonly selectedEdition = signal<Edition | null>(null);
 
     public readonly canGoNext = computed(() =>
         this.currentStep().id !== 'edition' || this.selectedEdition() !== null
     );
+
+    public readonly nextLabel = computed(() => {
+        if (this.currentStepIndex() === 0) {
+            return 'Get started';
+        }
+
+        return this.isLicenseStepPending() ? 'Continue without license' : 'Next';
+    });
+
+    private readonly isLicenseStepPending = computed(() =>
+        this.currentStep().id === 'license' && !this.licenseState.isActive()
+    );
+
+    private readonly licenseStepDescription = computed(() => {
+        switch (this.licenseState.status()) {
+            case 'active':
+                return `${this.licenseState.tierLabel()} active`;
+            case 'skipped':
+                return 'Later';
+            default:
+                return 'Request and license file';
+        }
+    });
 
     public readonly editionOptions: EditionOption[] = [
         {
@@ -143,6 +168,10 @@ export class OnboardingAssistantComponent implements OnInit {
             return;
         }
 
+        if (this.isLicenseStepPending()) {
+            this.licenseState.skip();
+        }
+
         // Later steps run in the opener's data model flow.
         if (this.currentStepIndex() === this.steps().length - 1) {
             this.activeModal.close(true);
@@ -163,8 +192,12 @@ export class OnboardingAssistantComponent implements OnInit {
     }
 
 
-    public onEditionSelected(edition: Edition): void {
+    public onEditionSelected(edition: OnboardingEdition): void {
         this.selectedEdition.set(edition);
+
+        if (edition === 'community') {
+            this.licenseState.clearSkip();
+        }
     }
 
 
@@ -188,7 +221,7 @@ export class OnboardingAssistantComponent implements OnInit {
             'All types, categories, objects, relations and the data that depends on them are deleted. '
             + 'Users and groups are kept.';
         confirmation.componentInstance.warningMessage = 'This cannot be undone.';
-        confirmation.componentInstance.confirmationText = RESET_CONFIRMATION;
+        confirmation.componentInstance.confirmationText = WORKSPACE_RESET_CONFIRMATION;
         confirmation.componentInstance.confirmButtonText = 'Reset workspace';
         confirmation.componentInstance.confirmButtonClass = 'btn-danger';
 
@@ -218,7 +251,7 @@ export class OnboardingAssistantComponent implements OnInit {
         this.isResetting.set(true);
         this.loaderService.show();
 
-        this.fileService.resetConfiguration(RESET_CONFIRMATION).pipe(
+        this.fileService.resetConfiguration(WORKSPACE_RESET_CONFIRMATION).pipe(
             takeUntilDestroyed(this.destroyRef),
             finalize(() => {
                 this.isResetting.set(false);

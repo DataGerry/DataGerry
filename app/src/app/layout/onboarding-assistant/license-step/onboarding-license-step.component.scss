@@ -1,0 +1,408 @@
+@import "../onboarding-tokens";
+
+$step-marker-size: 1.75rem;
+$step-gap: 1rem;
+$icon-action-size: 2rem;
+$collapse-duration: 280ms;
+$collapse-easing: cubic-bezier(0.2, 0.7, 0.2, 1);
+$panel-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 10px 24px -16px rgba(15, 23, 42, 0.24);
+$success-surface: #f4fbf7;
+$success-border: #d7f0e2;
+
+:host {
+  display: block;
+}
+
+/* -------------------------------- sub-steps ------------------------------- */
+.license-steps {
+  display: grid;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.license-step {
+  position: relative;
+  display: flex;
+  gap: $step-gap;
+  padding-bottom: 1.1rem;
+
+  &:last-child {
+    padding-bottom: 0;
+  }
+
+  &:not(:last-child)::after {
+    content: '';
+    position: absolute;
+    left: calc(#{$step-marker-size} / 2 - 1px);
+    top: calc(#{$step-marker-size} + 0.3rem);
+    bottom: 0.3rem;
+    width: 2px;
+    border-radius: 2px;
+    background: $line-idle;
+    transition: background-color $transition;
+  }
+}
+
+.license-step__marker {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: $step-marker-size;
+  height: $step-marker-size;
+  margin-top: 0.15rem;
+  border: 2px solid $line-idle;
+  border-radius: 50%;
+  background: #fff;
+  color: $muted;
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-variant-numeric: lining-nums;
+  transition: border-color $transition, background-color $transition, color $transition, box-shadow $transition;
+
+  i {
+    margin: 0;
+    font-size: 0.7rem;
+  }
+}
+
+.license-step__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.license-step__header {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  min-height: calc(#{$step-marker-size} + 0.3rem);
+}
+
+.license-step__heading {
+  display: grid;
+  flex: 1;
+  gap: 0.1rem;
+  min-width: 0;
+}
+
+.license-step__title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+  color: $muted;
+  transition: color $transition;
+
+  &:focus {
+    outline: none;
+  }
+}
+
+.license-step__summary {
+  overflow: hidden;
+  margin: 0;
+  font-size: 0.8rem;
+  color: $muted;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  animation: license-step-fade 200ms ease both;
+}
+
+.license-step__header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+// Grid rows animate to the content height without measuring it.
+.license-step__collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  transition: grid-template-rows $collapse-duration $collapse-easing, opacity 200ms ease;
+}
+
+.license-step__collapse-inner {
+  min-height: 0;
+  overflow: hidden;
+}
+
+// Bottom margin leaves room for card shadows inside the clipped collapse.
+.license-step__panel {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0.75rem 0 1rem;
+
+  &--framed {
+    padding: 1.1rem 1.25rem;
+    border: 1px solid $card-border;
+    border-radius: $radius-card;
+    background: linear-gradient(180deg, #fff, #fcfcfd);
+    box-shadow: $panel-shadow;
+  }
+}
+
+// The live region stays mounted for announcements, so it only takes space with an alert inside.
+.license-step__live:not(:empty) {
+  margin-bottom: 0.85rem;
+}
+
+.license-step__text {
+  margin: 0;
+  max-width: 60ch;
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: $label;
+
+  strong {
+    font-weight: 600;
+  }
+
+  &--muted {
+    font-size: 0.85rem;
+    color: $muted;
+  }
+}
+
+.license-step__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* --------------------------------- states --------------------------------- */
+.license-step--open .license-step__collapse {
+  grid-template-rows: 1fr;
+  opacity: 1;
+}
+
+.license-step--current {
+  .license-step__marker {
+    border-color: $brand;
+    background: #fff;
+    color: $brand-ink;
+    box-shadow: $brand-ring;
+  }
+
+  .license-step__title {
+    color: $ink;
+  }
+}
+
+.license-step--done {
+  &::after {
+    background: $line-done;
+  }
+
+  .license-step__marker {
+    border-color: $done;
+    background: $done;
+    color: #fff;
+    box-shadow: 0 2px 6px rgba($done, 0.28);
+  }
+
+  .license-step__title {
+    color: $label;
+  }
+}
+
+// A reopened completed step reads as secondary to the current one.
+.license-step--done.license-step--open .license-step__panel--framed {
+  background: $surface;
+  box-shadow: none;
+}
+
+/* ------------------------------ request file ------------------------------ */
+.license-file {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.85rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid $success-border;
+  border-radius: $radius-chip;
+  background: $success-surface;
+}
+
+.license-file__icon {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: $chip-size;
+  height: $chip-size;
+  border-radius: $radius-chip;
+  background: #fff;
+  color: $done;
+
+  i {
+    margin: 0;
+  }
+}
+
+.license-file__meta {
+  display: grid;
+  flex: 1;
+  min-width: 10rem;
+}
+
+.license-file__name {
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: $ink;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.license-file__info {
+  font-size: 0.8rem;
+  color: $muted;
+}
+
+.license-file__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+/* ------------------------------ license card ------------------------------ */
+.license-card {
+  border: 1px solid $card-border;
+  border-radius: $radius-card;
+  background: #fff;
+  overflow: hidden;
+  box-shadow: $card-shadow;
+}
+
+.license-card__top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 1rem 1.25rem;
+  border-bottom: 1px solid $hairline;
+  background: linear-gradient(180deg, #fbfcfd, #f5f7f9);
+}
+
+.license-card__title {
+  margin: 0;
+  font-size: 1.15rem;
+  font-weight: 600;
+  color: $ink;
+}
+
+.license-card__meta {
+  margin: 0.2rem 0 0;
+  font-size: 0.8rem;
+  font-variant-numeric: lining-nums;
+  color: $muted;
+}
+
+.license-card__id {
+  font-weight: 600;
+  color: $label;
+  letter-spacing: 0.02em;
+}
+
+.license-card__status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: 0.25rem 0.65rem;
+  border: 1px solid rgba($done, 0.2);
+  border-radius: 999px;
+  background: $success-surface;
+  color: darken($done, 4%);
+  font-size: 0.75rem;
+  font-weight: 700;
+
+  i {
+    margin: 0;
+  }
+}
+
+.license-card__features {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: 0.85rem 1.25rem;
+  margin: 0;
+  padding: 1rem 1.25rem 1.15rem;
+  list-style: none;
+}
+
+.license-card__feature {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.license-card__tick {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 1.1rem;
+  height: 1.1rem;
+  margin-top: 0.15rem;
+  border-radius: 50%;
+  background: rgba($done, 0.12);
+  color: $done;
+  font-size: 0.55rem;
+
+  i {
+    margin: 0;
+  }
+}
+
+.license-card__feature-text {
+  display: grid;
+  gap: 0.1rem;
+
+  strong {
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: $label;
+  }
+
+  small {
+    font-size: 0.8rem;
+    line-height: 1.45;
+    color: $muted;
+  }
+}
+
+.license-card__feature--off {
+  .license-card__tick {
+    background: $surface;
+    color: $faint;
+  }
+
+  strong {
+    color: $muted;
+  }
+}
+
+@keyframes license-step-fade {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .license-step::after,
+  .license-step__marker,
+  .license-step__title,
+  .license-step__collapse {
+    transition: none;
+  }
+
+  .license-step__summary {
+    animation: none;
+  }
+}

@@ -27,8 +27,15 @@ import {
 } from '@angular/core';
 
 import { CopyService } from 'src/app/core/services/copy.service';
+import { formatFileSize } from 'src/app/core/utils/file-size.util';
 
-import { LicenseEdition, LicenseEntitlement, LicenseFeature } from '../../models/license.model';
+import {
+  LicenseEdition,
+  LicenseEntitlement,
+  LicenseFeature,
+  SERVICE_PORTAL_LICENSE_URL,
+  SERVICE_PORTAL_URL
+} from '../../models/license.model';
 import { WizardStep } from '../license-wizard-stepper/license-wizard-stepper.component';
 /* ------------------------------------------------------------------------------------------------------------------ */
 
@@ -56,8 +63,8 @@ export class LicenseActivationWorkflowComponent implements OnChanges {
   public readonly LicenseEdition = LicenseEdition;
 
   /** Service portal entry point and the direct link to the self-hosted license page. */
-  public readonly portalUrl = 'https://service.datagerry.com';
-  public readonly portalLicenseUrl = 'https://service.datagerry.com/self/lic';
+  public readonly portalUrl = SERVICE_PORTAL_URL;
+  public readonly portalLicenseUrl = SERVICE_PORTAL_LICENSE_URL;
 
   public readonly stepGenerate = 0;
   public readonly stepPortal = 1;
@@ -137,14 +144,6 @@ export class LicenseActivationWorkflowComponent implements OnChanges {
 
   /** Human-readable file size for the selected-file card. */
   public fileSize(bytes: number): string {
-    if (bytes < 1024) {
-      return `${bytes} B`;
-    }
-
-    if (bytes < 1024 * 1024) {
-      return `${(bytes / 1024).toFixed(1)} KB`;
-    }
-
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+    return formatFileSize(bytes);
   }
 }

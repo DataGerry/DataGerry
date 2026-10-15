@@ -145,6 +145,19 @@
         </p>
       </div>
       }
+      @case ('license') {
+      <div class="onboarding__panel">
+        <div class="onboarding__heading">
+          <h2 id="onboarding-title" class="onboarding__title">Activate your license</h2>
+          <p class="onboarding__lead">
+            Your license is bound to this server. Create a request file here, redeem it in the Service Portal,
+            and import the license file you receive.
+          </p>
+        </div>
+
+        <cmdb-onboarding-license-step></cmdb-onboarding-license-step>
+      </div>
+      }
       @case ('plan') {
       <div class="onboarding__panel">
         <div class="onboarding__heading">
@@ -162,7 +175,7 @@
       <app-button [label]="currentStepIndex() > 0 ? 'Back' : 'Set up later'"
         [icon]="currentStepIndex() > 0 ? 'fas fa-arrow-left' : ''" bootstrapClass="btn-light"
         (clicked)="onSecondaryAction()"></app-button>
-      <app-button [label]="currentStepIndex() === 0 ? 'Get started' : 'Next'" bootstrapClass="btn-primary"
+      <app-button [label]="nextLabel()" bootstrapClass="btn-primary"
         [disabled]="!canGoNext()" (clicked)="onNext()"></app-button>
     </div>
   </section>

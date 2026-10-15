@@ -31,6 +31,7 @@ import { PremiumFeatureService } from './premium-feature/premium-feature.service
 import { LicenseService } from './services/license.service';
 import { ResolvedLicense } from './services/license-resolver.service';
 import {
+  ACTIVATION_REQUEST_FILENAME,
   CurrentLicense,
   LICENSE_STATUS_MESSAGES,
   LICENSE_STATUS_TITLES,
@@ -43,9 +44,6 @@ import {
 } from './models/license.model';
 import { readLicenseFile, remainingDays, resolveEdition } from './utils/license.util';
 /* ------------------------------------------------------------------------------------------------------------------ */
-
-const ACTIVATION_REQUEST_FILENAME = 'datagerry-activation-request.txt';
-
 
 @Component({
   selector: 'cmdb-license-management',
