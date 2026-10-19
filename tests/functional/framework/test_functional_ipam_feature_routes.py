@@ -31,7 +31,12 @@ from typing import Any
 
 import pytest
 
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
+from cmdb.errors.database import DocumentQueryTimeLimitError
+from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.interface.request_limits_constants import MILLISECONDS_PER_SECOND, QUERY_TIME_LIMIT_RESPONSE_MESSAGE
 from cmdb.manager.license_manager.license_service import LicenseService
+from cmdb.manager.objects_manager import ObjectsManager
 from cmdb.security.license.license_constants import LicenseFeature
 from cmdb.models.object_model import CmdbObject, CmdbObjectMdsKey, CmdbObjectMdsRowKey
 from cmdb.models.type_model import CmdbType
@@ -245,6 +250,27 @@ class TestIpamSubnetOverviewRoutes:
         body = response.get_json()
         assert body['subnet']['public_id'] == SUBNET_CHILD_ID
         assert body['subnet']['used_ips'] == 1
+
+    @pytest.mark.parametrize('suffix', ['', '/invalid', '/export', '/sector?sector_start=10.1.4.0'],
+                             ids=['overview', 'invalid', 'export', 'sector'])
+    def test_assigned_rows_stopped_on_the_long_budget_answer_503(self, rest_api, monkeypatch: pytest.MonkeyPatch,
+                                                                  suffix: str) -> None:
+        """Every route reading the subnet's assigned rows answers the slow-query 503 naming the long budget"""
+        budgets: list[int] = []
+
+        def _time_out(_manager: ObjectsManager, _pipeline: list[dict[str, Any]], time_limit_ms: int) -> None:
+            budgets.append(time_limit_ms)
+            timeout = DocumentQueryTimeLimitError('operation exceeded time limit', time_limit_ms)
+            raise ObjectsManagerIterationError(timeout) from timeout
+
+        monkeypatch.setattr(ObjectsManager, 'aggregate_objects_within_time_limit', _time_out)
+
+        response = rest_api.get(f'{SUBNET_OVERVIEW_URL}/{SUBNET_CHILD_ID}{suffix}')
+
+        assert response.status_code == HTTPStatus.SERVICE_UNAVAILABLE, response.get_json()
+        assert response.get_json()['message'] == QUERY_TIME_LIMIT_RESPONSE_MESSAGE.format(
+            seconds=LONG_QUERY_TIME_LIMIT_MS // MILLISECONDS_PER_SECOND)
+        assert budgets == [LONG_QUERY_TIME_LIMIT_MS]
 
     def test_subnet_invalid_overview_responds(self, rest_api):
         """GET .../overview/<id>/invalid returns the invalid-only envelope"""

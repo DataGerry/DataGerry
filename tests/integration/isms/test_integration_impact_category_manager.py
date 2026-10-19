@@ -20,21 +20,27 @@ Covers ``create_with_follow_up`` (pushes a placeholder impact entry into every R
 ``delete_with_follow_up`` (drops the category from every RiskAssessment and recomputes the maximum
 impact from the IsmsImpact collection - the recompute must not wipe the maximum while other impacts
 remain), and the ImpactCategory-side impact fan-out helpers ``add_new_impact_to_categories`` /
-``remove_deleted_impact_from_categories``.
+``remove_deleted_impact_from_categories`` - and that each of the four, recorded in a WriteLedger, is undone back to
+exactly what was stored before (``TestEveryWriteIsUndone``).
 """
 from typing import Any
 
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.manager.isms_manager.impact_category_manager import ImpactCategoryManager
 from cmdb.models.isms_model import IsmsImpact, IsmsImpactCategory, IsmsRiskAssessment
 # -------------------------------------------------------------------------------------------------------------------- #
 
 IMPACT_LOW: int = 95501
 IMPACT_HIGH: int = 95502
+# An impact only ever described, never stored
+IMPACT_EXTRA: int = 95503
 CATEGORY_A: int = 95511
 CATEGORY_B: int = 95512
+# Created by the undo test and removed again by its ledger; cleaned up in case the undo fails
+CATEGORY_C: int = 95513
 RISK_ASSESSMENT_ID: int = 95521
 
 BASIS_LOW: float = 1.0
@@ -58,7 +64,7 @@ def _cleanup(database_manager: MongoDatabaseManager, database_name: str):
         database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_IMPACT_IDS}})
         database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name)\
-            .delete_many({'public_id': {'$in': ALL_CATEGORY_IDS}})
+            .delete_many({'public_id': {'$in': [*ALL_CATEGORY_IDS, CATEGORY_C]}})
         database_manager.get_collection(IsmsRiskAssessment.COLLECTION, database_name)\
             .delete_many({'public_id': {'$in': ALL_RISK_ASSESSMENT_IDS}})
 
@@ -130,7 +136,7 @@ class TestCreateWithFollowUp:
         })
 
         new_id = impact_category_manager.create_with_follow_up(
-            {'public_id': CATEGORY_A, 'name': 'A', 'impact_descriptions': [], 'sort': 1}
+            {'public_id': CATEGORY_A, 'name': 'A', 'impact_descriptions': [], 'sort': 1}, WriteLedger(),
         )
         assert new_id == CATEGORY_A
 
@@ -149,7 +155,7 @@ class TestDeleteWithFollowUp:
         """Deleting the high-basis category leaves the low-basis Impact as the new maximum (not None)."""
         _seed_two_category_risk_assessment(database_manager, database_name)
 
-        assert impact_category_manager.delete_with_follow_up(CATEGORY_B) is True
+        assert impact_category_manager.delete_with_follow_up(CATEGORY_B, WriteLedger()) is True
 
         risk_assessment = _risk_assessment(database_manager, database_name)
         for matrix_key in ('risk_calculation_before', 'risk_calculation_after'):
@@ -182,7 +188,7 @@ class TestDeleteWithFollowUp:
             },
         })
 
-        impact_category_manager.delete_with_follow_up(CATEGORY_A)
+        impact_category_manager.delete_with_follow_up(CATEGORY_A, WriteLedger())
 
         risk_assessment = _risk_assessment(database_manager, database_name)
         for matrix_key in ('risk_calculation_before', 'risk_calculation_after'):
@@ -204,14 +210,89 @@ class TestImpactFanOut:
         _insert(database_manager, database_name, IsmsImpactCategory.COLLECTION,
                 {'public_id': CATEGORY_B, 'name': 'B', 'impact_descriptions': [], 'sort': 2})
 
-        impact_category_manager.add_new_impact_to_categories(IMPACT_HIGH)
+        impact_category_manager.add_new_impact_to_categories(IMPACT_HIGH, WriteLedger())
 
         for category_id in ALL_CATEGORY_IDS:
             descriptions = _category(database_manager, database_name, category_id)['impact_descriptions']
             assert {'impact_id': IMPACT_HIGH, 'value': '-'} in descriptions
 
-        impact_category_manager.remove_deleted_impact_from_categories(IMPACT_HIGH)
+        impact_category_manager.remove_deleted_impact_from_categories(IMPACT_HIGH, WriteLedger())
 
         for category_id in ALL_CATEGORY_IDS:
             descriptions = _category(database_manager, database_name, category_id)['impact_descriptions']
             assert all(entry['impact_id'] != IMPACT_HIGH for entry in descriptions)
+
+
+def _stored(database_manager: MongoDatabaseManager, database_name: str, collection: str) -> list[dict[str, Any]]:
+    """Every document of a collection, without MongoDB's own id, in public_id order"""
+    return list(database_manager.get_collection(collection, database_name).find({}, {'_id': 0}).sort('public_id', 1))
+
+
+def _snapshot(database_manager: MongoDatabaseManager, database_name: str) -> dict[str, list[dict[str, Any]]]:
+    """The two collections the category writes touch"""
+    return {
+        collection: _stored(database_manager, database_name, collection)
+        for collection in (IsmsImpactCategory.COLLECTION, IsmsRiskAssessment.COLLECTION)
+    }
+
+
+class TestEveryWriteIsUndone:
+    """Each write recorded in a ledger, then the ledger undone: the stored state is exactly the one before."""
+
+    def test_a_created_category_and_its_push_are_undone(self, impact_category_manager: ImpactCategoryManager,
+                                                         database_manager: MongoDatabaseManager,
+                                                         database_name: str) -> None:
+        """The category is gone again and no assessment keeps its entry"""
+        _seed_two_category_risk_assessment(database_manager, database_name)
+        before = _snapshot(database_manager, database_name)
+        ledger = WriteLedger()
+
+        impact_category_manager.create_with_follow_up(
+            {'public_id': CATEGORY_C, 'name': 'C', 'impact_descriptions': [], 'sort': 3}, ledger,
+        )
+
+        assert not ledger.undo()
+        assert _snapshot(database_manager, database_name) == before
+
+    def test_a_deleted_category_and_its_rewrite_are_undone(self, impact_category_manager: ImpactCategoryManager,
+                                                           database_manager: MongoDatabaseManager,
+                                                           database_name: str) -> None:
+        """The category is back under its id, the assessments' impacts and maximum as they were"""
+        _seed_two_category_risk_assessment(database_manager, database_name)
+        before = _snapshot(database_manager, database_name)
+        ledger = WriteLedger()
+
+        impact_category_manager.delete_with_follow_up(CATEGORY_B, ledger)
+
+        assert not ledger.undo()
+        assert _snapshot(database_manager, database_name) == before
+
+    def test_an_added_impact_description_is_undone(self, impact_category_manager: ImpactCategoryManager,
+                                                   database_manager: MongoDatabaseManager,
+                                                   database_name: str) -> None:
+        """No category keeps the new impact's description"""
+        _seed_two_category_risk_assessment(database_manager, database_name)
+        before = _snapshot(database_manager, database_name)
+        ledger = WriteLedger()
+
+        impact_category_manager.add_new_impact_to_categories(IMPACT_EXTRA, ledger)
+
+        assert not ledger.undo()
+        assert _snapshot(database_manager, database_name) == before
+
+    def test_a_removed_impact_description_is_undone_with_its_text(self, impact_category_manager: ImpactCategoryManager,
+                                                                  database_manager: MongoDatabaseManager,
+                                                                  database_name: str) -> None:
+        """Each category gets back the description it held - the admin's text included, in its position"""
+        _seed_two_category_risk_assessment(database_manager, database_name)
+        categories = database_manager.get_collection(IsmsImpactCategory.COLLECTION, database_name)
+        categories.update_many({}, {'$set': {'impact_descriptions': [
+            {'impact_id': IMPACT_LOW, 'value': 'low text'}, {'impact_id': IMPACT_HIGH, 'value': 'high text'},
+        ]}})
+        before = _snapshot(database_manager, database_name)
+        ledger = WriteLedger()
+
+        impact_category_manager.remove_deleted_impact_from_categories(IMPACT_LOW, ledger)
+
+        assert not ledger.undo()
+        assert _snapshot(database_manager, database_name) == before

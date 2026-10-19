@@ -43,6 +43,9 @@ from cmdb.security.acl.permission import AccessControlPermission
 from tests.utils.ipam_doc_builders import make_type_doc
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 OPEN_TYPE_ID: int = 88901
 HIDDEN_TYPE_ID: int = 88902
 
@@ -68,13 +71,6 @@ HIDDEN_TERM: str = 'secret-token'
 SHARED_FIELD: str = 'owner'   # stored by the target only - must not appear on a referrer's hit
 EDITOR_ID: int = 5
 MDS: list[dict[str, Any]] = [{'section_id': 'mds', 'values': [{'multi_data_id': 1, 'data': []}]}]
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """Pushes the REST API app context so ManagerProvider (current_app.database_manager) resolves."""
-    with rest_api.application.app_context():
-        yield
 
 
 def _row(name: str, value: Any, kind: str | None = 'text') -> dict[str, Any]:

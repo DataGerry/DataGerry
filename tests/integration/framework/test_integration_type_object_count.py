@@ -27,7 +27,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager import ObjectsManager
 from cmdb.models.object_model import CmdbObject
-from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import count_objects_of_type
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import count_objects_of_type
 # -------------------------------------------------------------------------------------------------------------------- #
 
 COUNTED_TYPE_ID: int = 89701

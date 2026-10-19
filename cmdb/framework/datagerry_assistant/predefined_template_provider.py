@@ -25,13 +25,11 @@ from logging import Logger, getLogger
 from typing import Any
 from copy import deepcopy
 
-from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager import SectionTemplatesManager
 
 from cmdb.models.section_template_model.cmdb_section_template import CmdbSectionTemplate
 from cmdb.models.type_model import FieldKey, SectionKey
 from cmdb.models.type_model.section_type_enum import SectionType
-from cmdb.framework.results import IterationResult
 
 from .datagerry_assistant_constants import AssistantFieldKey, AssistantSectionKey
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -88,17 +86,22 @@ class PredefinedTemplateProvider:
         """
         Loads all predefined section templates from the DB, keyed by template name
 
+        One plain read: the templates are needed whole and uncounted, so no count aggregation runs alongside
+
+        Raises:
+            SectionTemplatesManagerIterationError: If the templates could not be read
+
         Returns:
             dict[str, dict[str, Any]]: Mapping of template name to its formatted section-template data
         """
         formatted_list: dict[str, dict[str, Any]] = {}
         predefined_filter: dict[str, bool] = {PREDEFINED_TEMPLATE_FLAG: True}
 
-        builder_params: BuilderParameters = BuilderParameters(predefined_filter)
+        templates: list[CmdbSectionTemplate] = self.section_templates_manager.get_section_templates_by(
+            predefined_filter,
+        )
 
-        iteration_result: IterationResult[CmdbSectionTemplate] = self.section_templates_manager.iterate(builder_params)
-
-        template_list: list[dict[str, Any]] = [template_.__dict__ for template_ in iteration_result.results]
+        template_list: list[dict[str, Any]] = [template_.__dict__ for template_ in templates]
 
         template: dict[str, Any]
         for template in template_list:

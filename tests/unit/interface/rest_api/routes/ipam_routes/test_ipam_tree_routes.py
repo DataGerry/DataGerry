@@ -46,6 +46,7 @@ from cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes import (
     get_supernet_subnet_tree,
     ipam_tree_blueprint,
 )
+from tests.utils.blueprint_registration import register_as_the_factory_does
 # -------------------------------------------------------------------------------------------------------------------- #
 
 ROUTE_PATH: str = 'cmdb.interface.rest_api.routes.ipam_routes.ipam_tree_routes'
@@ -277,7 +278,7 @@ TREE_ROUTES: set[str] = {'/', '/supernets/<int:public_id>'}
 def test_the_blueprint_registers_the_two_tree_routes_only() -> None:
     """No separate 'unassigned' route: the block comes with `GET /`"""
     app = Flask(__name__)
-    app.register_blueprint(ipam_tree_blueprint, url_prefix='/ipam/tree')
+    register_as_the_factory_does(app, ipam_tree_blueprint, url_prefix='/ipam/tree')
 
     rules: set[str] = {rule.rule.removeprefix('/ipam/tree') or '/'
                        for rule in app.url_map.iter_rules() if rule.endpoint.startswith('ipam_tree.')}

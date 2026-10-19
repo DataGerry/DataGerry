@@ -27,6 +27,7 @@ from cmdb.framework.docapi.docapi_template.docapi_template import DocapiTemplate
 from cmdb.framework.docapi.docapi_template.docapi_template_constants import DocapiTemplateKey
 from cmdb.framework.results import IterationResult
 
+from cmdb.errors.manager import BaseManagerGetError
 from cmdb.errors.manager.docapi_templates_manager import (
     DOCAPI_TEMPLATES_MANAGER_ERRORS,
     DocapiTemplatesManagerGetError,
@@ -60,9 +61,6 @@ class DocapiTemplatesManager(GenericManager):
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database the 'dbm' should connect to. Only used in CLOUD_MODE
-
-        Raises:
-            DocapiTemplatesManagerInitError: If the DocapiTemplatesManager could not be initialised
         """
         super().__init__(dbm, DocapiTemplate, DOCAPI_TEMPLATES_MANAGER_ERRORS, database)
 
@@ -92,10 +90,18 @@ class DocapiTemplatesManager(GenericManager):
         """
         Gets the next public_id counter value from the database and increases it
 
+        Raises:
+            DocapiTemplatesManagerGetError: If the counter could not be read (BaseManagerGetError); a programming
+                error propagates unwrapped
+
         Returns:
             int: The next public_id for a DocapiTemplate
         """
-        return self.get_next_public_id(inc_id=True)
+        try:
+            return self.get_next_public_id(inc_id=True)
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_new_docapi_public_id] Exception: %s. Type: %s", err, type(err))
+            raise DocapiTemplatesManagerGetError(err) from err
 
 
     def get_template(self, public_id: int) -> DocapiTemplate | None:
@@ -138,16 +144,18 @@ class DocapiTemplatesManager(GenericManager):
             criteria (dict[str, Any]): The filter the returned DocapiTemplates must match, as one dict
 
         Raises:
-            DocapiTemplatesManagerGetError: When an exception occurs while retrieving the DocapiTemplates
+            DocapiTemplatesManagerGetError: If the read fails (BaseManagerGetError) or a stored template does not fit
+                the model; a programming error propagates unwrapped
 
         Returns:
             list[DocapiTemplate]: List of matching DocapiTemplates
         """
         try:
-            templates = self.get_many(criteria=criteria)
+            templates: list[dict[str, Any]] = self.get_many(criteria=criteria)
 
             return [DocapiTemplate.from_data(template) for template in templates]
-        except Exception as err:
+        except (BaseManagerGetError, *self._model_errors()) as err:
+            LOGGER.error("[get_templates_by] Exception: %s. Type: %s", err, type(err))
             raise DocapiTemplatesManagerGetError(err) from err
 
 
@@ -162,14 +170,16 @@ class DocapiTemplatesManager(GenericManager):
             criteria (dict[str, Any]): The filter the returned DocapiTemplates must match, as one dict
 
         Raises:
-            DocapiTemplatesManagerGetError: When an exception occurs while retrieving the DocapiTemplates
+            DocapiTemplatesManagerGetError: If the read fails (BaseManagerGetError); a programming error propagates
+                unwrapped
 
         Returns:
             list[dict[str, Any]]: Matching templates as {'public_id': ..., 'label': ...} dicts
         """
         try:
             return self.find(criteria=criteria, projection=MINIMAL_TEMPLATE_PROJECTION)
-        except Exception as err:
+        except BaseManagerGetError as err:
+            LOGGER.error("[get_minimal_templates_by] Exception: %s. Type: %s", err, type(err))
             raise DocapiTemplatesManagerGetError(err) from err
 
 
@@ -181,19 +191,21 @@ class DocapiTemplatesManager(GenericManager):
             name (str): The template name, matched exactly
 
         Raises:
-            DocapiTemplatesManagerGetError: When the DocapiTemplate could not be retrieved
+            DocapiTemplatesManagerGetError: If the read fails (BaseManagerGetError) or the stored template does not
+                fit the model; a programming error propagates unwrapped
 
         Returns:
             DocapiTemplate | None: The first matching DocapiTemplate, or None if none matches
         """
         try:
-            templates = self.get_many(limit=1, criteria={DocapiTemplateKey.NAME.value: name})
+            templates: list[dict[str, Any]] = self.get_many(limit=1, criteria={DocapiTemplateKey.NAME.value: name})
 
             if templates:
                 return DocapiTemplate.from_data(templates[0])
 
             return None
-        except Exception as err:
+        except (BaseManagerGetError, *self._model_errors()) as err:
+            LOGGER.error("[get_template_by_name] Exception: %s. Type: %s", err, type(err))
             raise DocapiTemplatesManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #

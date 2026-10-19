@@ -70,3 +70,15 @@ class LikelihoodManagerIterationError(LikelihoodManagerError):
     """
     Raised when LikelihoodManager could not iterate over IsmsLikelihoods
     """
+
+
+class LikelihoodManagerAssessmentUsageError(LikelihoodManagerError):
+    """
+    Raised when LikelihoodManager could not delete an IsmsLikelihood because an IsmsRiskAssessment is using it
+    """
+
+
+class LikelihoodManagerCalculationBasisError(LikelihoodManagerGetError):
+    """
+    Raised when LikelihoodManager could not check whether a calculation_basis is already used by an IsmsLikelihood
+    """

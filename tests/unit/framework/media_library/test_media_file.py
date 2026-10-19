@@ -17,9 +17,10 @@
 Unit tests for MediaFile and its BaseMediaFile base
 
 One GridFS file document of the media library. Instances are built straight from a stored document
-(`MediaFile(**grid._file)`), so the constructor takes GridFS' own camelCase key names and renames
-them to the snake_case attributes the routes read; `to_json` turns one back into the body the read
-routes answer with.
+(`MediaFile.from_data`, i.e. `MediaFile(**document)`), so the constructor takes GridFS' own camelCase key names and
+renames them to the snake_case attributes the routes read; `to_json` turns one back into the body the read
+routes answer with. A document that can not be read, and a file without a public_id, raise the model's declared
+`INIT_FROM_DATA_ERROR` / `TO_JSON_ERROR`.
 
 **The index contract.** A file's identity is the pair `(filename, metadata.parent)` - unique, the pair the upload
 and update routes treat as a file's identity - next to the unique top-level `public_id`. `MediaFile` is not in
@@ -47,6 +48,7 @@ from cmdb.framework.media_library.media_file_keys import (
 )
 
 from cmdb.errors.cmdb_object import NoPublicIDError
+from cmdb.errors.models.media_file import MediaFileInitFromDataError, MediaFileToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PUBLIC_ID: int = 42
@@ -182,9 +184,46 @@ class TestToJson:
         }
 
     def test_it_refuses_a_file_with_no_public_id(self) -> None:
-        """It serialises through `get_public_id`, so an unstored file cannot be answered with."""
-        with pytest.raises(NoPublicIDError):
+        """
+        It serialises through `get_public_id`, so an unstored file cannot be answered with - as the model's
+        declared TO_JSON_ERROR, the NoPublicIDError beneath it
+        """
+        with pytest.raises(MediaFileToJsonError) as caught:
             MediaFile.to_json(_media_file(public_id=None))
+
+        assert isinstance(caught.value.__cause__, NoPublicIDError)
+
+
+class TestFromData:
+    """A stored document read as a MediaFile; one it cannot be read as is the model's declared error"""
+
+    def test_declares_its_errors(self) -> None:
+        """What the manager catches to tell an unreadable stored file from a programming error"""
+        assert MediaFile.INIT_FROM_DATA_ERROR is MediaFileInitFromDataError
+        assert MediaFile.TO_JSON_ERROR is MediaFileToJsonError
+
+    def test_builds_the_file_the_document_describes(self) -> None:
+        """The same file the constructor builds"""
+        document: dict[str, Any] = {
+            'filename': FILENAME, 'chunkSize': CHUNK_SIZE, 'uploadDate': UPLOAD_DATE,
+            'metadata': dict(METADATA), 'length': SIZE, 'public_id': PUBLIC_ID,
+        }
+
+        assert MediaFile.to_json(MediaFile.from_data(document)) == MediaFile.to_json(_media_file())
+
+    @pytest.mark.parametrize('missing', ['filename', 'chunkSize', 'uploadDate', 'metadata', 'length'])
+    def test_a_document_lacking_a_required_key_is_the_init_error(self, missing: str) -> None:
+        """Each key GridFS writes, and the metadata sub-document, is required"""
+        document: dict[str, Any] = {
+            'filename': FILENAME, 'chunkSize': CHUNK_SIZE, 'uploadDate': UPLOAD_DATE,
+            'metadata': dict(METADATA), 'length': SIZE, 'public_id': PUBLIC_ID,
+        }
+        del document[missing]
+
+        with pytest.raises(MediaFileInitFromDataError) as caught:
+            MediaFile.from_data(document)
+
+        assert isinstance(caught.value.__cause__, TypeError)
 
 
 class TestGetIndexKeys:

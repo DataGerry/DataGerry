@@ -26,6 +26,7 @@ import pytest
 from cmdb.database import MongoDatabaseManager
 from cmdb.manager.isms_manager.risk_assessment_manager import RiskAssessmentManager
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment, IsmsImpact, IsmsLikelihood
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.risk_assessment_manager import RiskAssessmentManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -109,13 +110,24 @@ class TestRiskAssessmentDeleteWithFollowUp:
 
     def test_wraps_unexpected_error_as_delete_error(self, risk_assessment_manager: RiskAssessmentManager,
                                                     monkeypatch) -> None:
-        """An unexpected error during the follow-up is wrapped as RiskAssessmentManagerDeleteError."""
-        def _boom(*_args, **_kwargs):
-            raise RuntimeError('db down')
+        """A failed assignment delete (BaseManagerDeleteError) is wrapped as RiskAssessmentManagerDeleteError."""
+        def _down(*_args, **_kwargs):
+            raise BaseManagerDeleteError('db down')
 
-        monkeypatch.setattr(RiskAssessmentManager, 'delete_many_from_other_collection', _boom)
+        monkeypatch.setattr(RiskAssessmentManager, 'delete_many_from_other_collection', _down)
 
         with pytest.raises(RiskAssessmentManagerDeleteError):
+            risk_assessment_manager.delete_with_follow_up(RISK_ASSESSMENT_ID)
+
+    def test_a_bug_propagates_as_itself(self, risk_assessment_manager: RiskAssessmentManager,
+                                        monkeypatch) -> None:
+        """A programming error in the assignment delete is not a failed delete."""
+        def _bug(*_args, **_kwargs):
+            raise RuntimeError('bug')
+
+        monkeypatch.setattr(RiskAssessmentManager, 'delete_many_from_other_collection', _bug)
+
+        with pytest.raises(RuntimeError):
             risk_assessment_manager.delete_with_follow_up(RISK_ASSESSMENT_ID)
 
     def test_deletes_assessment_without_assignments(self, risk_assessment_manager: RiskAssessmentManager,

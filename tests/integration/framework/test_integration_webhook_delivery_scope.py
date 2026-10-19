@@ -30,12 +30,12 @@ from collections.abc import Iterator
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.interface.rest_api.routes.webhook_routes import webhook_helper
-from cmdb.interface.rest_api.routes.webhook_routes.webhook_destination import refused_destination_reason
+from cmdb.interface.rest_api.routes.webhook_routes import webhook_destination, webhook_helper
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.type_model import CmdbType
 from cmdb.models.user_model import CmdbUser
@@ -119,8 +119,11 @@ def fixture_receivers(database_manager: MongoDatabaseManager, database_name: str
          'active': True, 'owner_id': NARROW_OWNER_ID},
     ])
     monkeypatch.setattr(webhook_helper.DISPATCH_EXECUTOR, 'submit', lambda fn, *args, **kwargs: fn(*args, **kwargs))
-    monkeypatch.setattr(webhook_helper, 'refused_destination_reason',
-                        lambda url: refused_destination_reason(url, [LOOPBACK_NETWORK]))
+    # The operator's [Webhooks] allowed_hosts names the loopback network - served through the real reader path
+    reader = MagicMock(name='config_reader')
+    reader.get_value.side_effect = lambda name, section, default=None: (
+        LOOPBACK_NETWORK if (section, name) == ('Webhooks', 'allowed_hosts') else default)
+    monkeypatch.setattr(webhook_destination, 'SystemConfigReader', lambda: reader)
 
     yield {ADMIN_HOOK_ID: admin_received, NARROW_HOOK_ID: narrow_received}
 

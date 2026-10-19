@@ -29,6 +29,7 @@ from unittest.mock import MagicMock
 import pytest
 from werkzeug.exceptions import HTTPException
 
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 from cmdb.models.object_model import (
     CmdbObjectKey,
     CmdbObjectFieldKey,
@@ -45,6 +46,7 @@ from cmdb.models.special_type_model.ipam_constants import (
 from cmdb.models.type_model.type_schema_key_enum import TypeSchemaKey
 from cmdb.framework.ipam.subnet_overview.assigned_rows import (
     AssignedField,
+    assigned_row_entry,
     load_subnet_object,
     load_assigned_rows_map,
     resolve_type_meta,
@@ -58,6 +60,8 @@ from cmdb.framework.ipam.subnet_overview.assigned_rows import (
 
 SUBNET_TYPE_ID: int = 11
 SUBNET_OBJECT_ID: int = 200
+# A budget no constant has, to tell a passed-on value from the default
+CUSTOM_TIME_LIMIT_MS: int = 1234
 OWNER_OBJECT_ID: int = 700
 OWNER_TYPE_ID: int = 50
 OTHER_OWNER_TYPE_ID: int = 51
@@ -191,7 +195,7 @@ def test_load_subnet_object_returns_candidate_on_happy_path() -> None:
 def test_load_assigned_rows_map_returns_empty_when_no_objects_match() -> None:
     """No interface rows in the system → empty map"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = []
+    objects_manager.aggregate_objects_within_time_limit.return_value = []
 
     result = load_assigned_rows_map(objects_manager, SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24'))
 
@@ -201,7 +205,7 @@ def test_load_assigned_rows_map_returns_empty_when_no_objects_match() -> None:
 def test_load_assigned_rows_map_indexes_matching_rows_by_canonical_ip() -> None:
     """Each in-range projected row contributes one entry keyed by its parsed IP, tagged is_valid=True"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = [
+    objects_manager.aggregate_objects_within_time_limit.return_value = [
         _make_aggregation_row(OWNER_OBJECT_ID, OWNER_TYPE_ID, '10.0.0.5', 'aa:bb:cc:dd:ee:ff'),
     ]
 
@@ -220,7 +224,7 @@ def test_load_assigned_rows_map_indexes_matching_rows_by_canonical_ip() -> None:
 def test_load_assigned_rows_map_sets_mac_to_none_when_field_is_empty_string() -> None:
     """An empty-string MAC is normalized to None in the map entry"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = [
+    objects_manager.aggregate_objects_within_time_limit.return_value = [
         _make_aggregation_row(OWNER_OBJECT_ID, OWNER_TYPE_ID, '10.0.0.5', ''),
     ]
 
@@ -232,7 +236,7 @@ def test_load_assigned_rows_map_sets_mac_to_none_when_field_is_empty_string() ->
 def test_load_assigned_rows_map_sets_mac_to_none_when_field_missing() -> None:
     """A None MAC (the $ifNull projection result for a missing field) becomes None"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = [
+    objects_manager.aggregate_objects_within_time_limit.return_value = [
         _make_aggregation_row(OWNER_OBJECT_ID, OWNER_TYPE_ID, '10.0.0.5', None),
     ]
 
@@ -244,7 +248,7 @@ def test_load_assigned_rows_map_sets_mac_to_none_when_field_missing() -> None:
 def test_load_assigned_rows_map_skips_rows_with_unparseable_ip() -> None:
     """Rows whose IP cannot be parsed as canonical dotted-quad / IPv6 are dropped"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = [
+    objects_manager.aggregate_objects_within_time_limit.return_value = [
         _make_aggregation_row(OWNER_OBJECT_ID, OWNER_TYPE_ID, 'not-an-ip', None),
     ]
 
@@ -256,7 +260,7 @@ def test_load_assigned_rows_map_skips_rows_with_unparseable_ip() -> None:
 def test_load_assigned_rows_map_drops_rows_with_non_string_ip() -> None:
     """A projected row whose ip is not a string (e.g. None / int) is dropped before parsing"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = [
+    objects_manager.aggregate_objects_within_time_limit.return_value = [
         _make_aggregation_row(OWNER_OBJECT_ID, OWNER_TYPE_ID, None, None),
         _make_aggregation_row(OWNER_OBJECT_ID + 1, OWNER_TYPE_ID, 12345, None),
     ]
@@ -269,7 +273,7 @@ def test_load_assigned_rows_map_drops_rows_with_non_string_ip() -> None:
 def test_load_assigned_rows_map_keeps_out_of_range_rows_tagged_is_valid_false() -> None:
     """Rows with IPs outside the given network are kept and tagged is_valid=False as conflicts"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = [
+    objects_manager.aggregate_objects_within_time_limit.return_value = [
         _make_aggregation_row(OWNER_OBJECT_ID, OWNER_TYPE_ID, '192.168.1.5', None),
     ]
 
@@ -280,24 +284,46 @@ def test_load_assigned_rows_map_keeps_out_of_range_rows_tagged_is_valid_false() 
 
 
 def test_load_assigned_rows_map_uses_single_aggregation_call() -> None:
-    """The map is built from a single aggregate_objects round-trip; find_objects is not used"""
+    """The map is built from a single aggregation round-trip; find_objects is not used"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = []
+    objects_manager.aggregate_objects_within_time_limit.return_value = []
 
     load_assigned_rows_map(objects_manager, SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24'))
 
-    objects_manager.aggregate_objects.assert_called_once()
+    objects_manager.aggregate_objects_within_time_limit.assert_called_once()
     objects_manager.find_objects.assert_not_called()
+
+
+def test_load_assigned_rows_map_runs_under_the_long_budget() -> None:
+    """Every stage streams, one row per interface row: the server stops it on the long budget, a later batch too"""
+    objects_manager = MagicMock()
+    objects_manager.aggregate_objects_within_time_limit.return_value = []
+
+    load_assigned_rows_map(objects_manager, SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24'))
+
+    _pipeline, time_limit_ms = objects_manager.aggregate_objects_within_time_limit.call_args.args
+    assert time_limit_ms == LONG_QUERY_TIME_LIMIT_MS
+
+
+def test_load_assigned_rows_map_uses_a_given_budget() -> None:
+    """Keyword only; the default is only the default"""
+    objects_manager = MagicMock()
+    objects_manager.aggregate_objects_within_time_limit.return_value = []
+
+    load_assigned_rows_map(objects_manager, SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24'),
+                           time_limit_ms=CUSTOM_TIME_LIMIT_MS)
+
+    assert objects_manager.aggregate_objects_within_time_limit.call_args.args[1] == CUSTOM_TIME_LIMIT_MS
 
 
 def test_load_assigned_rows_map_pipeline_matches_interface_section_and_subnet_ref() -> None:
     """The pipeline's first $match pins the interface section and the subnet-ref $elemMatch"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = []
+    objects_manager.aggregate_objects_within_time_limit.return_value = []
 
     load_assigned_rows_map(objects_manager, SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24'))
 
-    [pipeline] = objects_manager.aggregate_objects.call_args.args
+    pipeline, _time_limit = objects_manager.aggregate_objects_within_time_limit.call_args.args
     first_match = pipeline[0]['$match'][CmdbObjectKey.MULTI_DATA_SECTIONS]['$elemMatch']
 
     assert first_match[CmdbObjectMdsKey.SECTION_ID] == IpamSection.INTERFACE
@@ -311,11 +337,11 @@ def test_load_assigned_rows_map_pipeline_matches_interface_section_and_subnet_re
 def test_load_assigned_rows_map_pipeline_projects_the_assigned_field_keys() -> None:
     """The final $project ships exactly the four AssignedField projection keys (and drops _id)"""
     objects_manager = MagicMock()
-    objects_manager.aggregate_objects.return_value = []
+    objects_manager.aggregate_objects_within_time_limit.return_value = []
 
     load_assigned_rows_map(objects_manager, SUBNET_OBJECT_ID, IPv4Network('10.0.0.0/24'))
 
-    [pipeline] = objects_manager.aggregate_objects.call_args.args
+    pipeline, _time_limit = objects_manager.aggregate_objects_within_time_limit.call_args.args
     project = pipeline[-1]['$project']
 
     assert project['_id'] == 0
@@ -498,3 +524,36 @@ def test_resolve_summary_lines_for_ips_omits_ip_when_owner_unresolvable() -> Non
     )
 
     assert result == {}
+
+
+class TestAssignedRowEntry:
+    """One row's entry: the identity withheld for a hidden carrier, the occupancy and validity kept"""
+
+    ROW: dict[str, Any] = {AssignedField.OBJECT_ID: OWNER_OBJECT_ID, AssignedField.TYPE_ID: OWNER_TYPE_ID,
+                           AssignedField.MAC: 'aa:bb:cc:dd:ee:ff'}
+
+    def test_a_readable_carrier_keeps_its_identity(self) -> None:
+        """Object, type and MAC as read; the validity as given"""
+        assert assigned_row_entry(self.ROW, True, None) == {
+            AssignedField.OBJECT_ID: OWNER_OBJECT_ID, AssignedField.TYPE_ID: OWNER_TYPE_ID,
+            AssignedField.MAC: 'aa:bb:cc:dd:ee:ff', AssignedField.IS_VALID: True,
+        }
+
+    def test_a_hidden_carrier_is_masked_not_dropped(self) -> None:
+        """The address stays occupied; who holds it is withheld, its validity is not"""
+        assert assigned_row_entry(self.ROW, False, [OWNER_TYPE_ID]) == {
+            AssignedField.OBJECT_ID: None, AssignedField.TYPE_ID: None, AssignedField.MAC: None,
+            AssignedField.IS_VALID: False,
+        }
+
+    def test_another_types_denial_does_not_mask_it(self) -> None:
+        """Only the carrier's own type decides"""
+        assert assigned_row_entry(self.ROW, True, [OTHER_OWNER_TYPE_ID])[AssignedField.OBJECT_ID] == OWNER_OBJECT_ID
+
+    @pytest.mark.parametrize('mac', ['', None, 42], ids=['empty', 'absent', 'not-a-string'])
+    def test_an_unusable_mac_is_none(self, mac: Any) -> None:
+        """Only a non-empty string is a MAC"""
+        row: dict[str, Any] = {**self.ROW, AssignedField.MAC: mac}
+
+        assert assigned_row_entry(row, True, None)[AssignedField.MAC] is None
+

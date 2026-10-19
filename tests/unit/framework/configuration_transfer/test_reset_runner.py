@@ -34,6 +34,7 @@ from cmdb.errors.manager import BaseManagerDeleteError
 
 PLAIN: ResetTarget = ResetTarget('plain.collection', {'kind': 'plain'}, 'plain.counter')
 UNCOUNTED: ResetTarget = ResetTarget('uncounted.collection', {'kind': 'uncounted'})
+EVERYTHING: ResetTarget = ResetTarget('everything.collection', counter='everything.counter')
 BUCKET: str = 'bucket'
 GRIDFS: ResetTarget = ResetTarget(f'{BUCKET}.files', {'kind': 'attached'}, gridfs_bucket=BUCKET)
 CHUNKS: str = f'{BUCKET}{GRIDFS_CHUNKS_SUFFIX}'
@@ -45,7 +46,7 @@ def _deleting_manager(deleted: dict[str, int]) -> MagicMock:
     """A manager whose cross-collection delete answers a deleted count per collection"""
     manager: MagicMock = MagicMock()
     manager.delete_many_from_other_collection.side_effect = \
-        lambda collection, criteria: MagicMock(deleted_count=deleted.get(collection, 0))
+        lambda collection, criteria, **_options: MagicMock(deleted_count=deleted.get(collection, 0))
 
     return manager
 
@@ -72,9 +73,24 @@ def test_a_plain_target_is_deleted_by_its_criteria_then_counted_back() -> None:
     assert clear_target(manager, PLAIN) == PLAIN_DELETED
 
     assert manager.mock_calls == [
-        call.delete_many_from_other_collection(PLAIN.collection, PLAIN.criteria),
+        call.delete_many_from_other_collection(PLAIN.collection, PLAIN.criteria, delete_all=False),
         call.reset_public_id_counter_of(PLAIN.collection, PLAIN.counter),
     ]
+
+
+def test_a_target_without_criteria_tells_the_delete_it_means_everything() -> None:
+    """Empty criteria declare a full delete, and the delete is told so - the manager refuses an unannounced {}"""
+    manager: MagicMock = _deleting_manager({EVERYTHING.collection: PLAIN_DELETED})
+
+    clear_target(manager, EVERYTHING)
+
+    manager.delete_many_from_other_collection.assert_called_once_with(EVERYTHING.collection, {}, delete_all=True)
+
+
+@pytest.mark.parametrize('target, expected', [(PLAIN, False), (EVERYTHING, True)], ids=['criteria', 'none'])
+def test_deletes_all_is_what_empty_criteria_declare(target: ResetTarget, expected: bool) -> None:
+    """The one place the reset list says 'every document'"""
+    assert target.deletes_all is expected
 
 
 def test_a_target_without_a_counter_leaves_the_counters_alone() -> None:
@@ -88,8 +104,8 @@ def test_a_target_without_a_counter_leaves_the_counters_alone() -> None:
 def test_the_criteria_handed_to_the_delete_are_a_copy() -> None:
     """A delete that changes its filter does not change the reset list"""
     manager: MagicMock = MagicMock()
-    manager.delete_many_from_other_collection.side_effect = lambda collection, criteria: criteria.clear() or \
-        MagicMock(deleted_count=0)
+    manager.delete_many_from_other_collection.side_effect = \
+        lambda collection, criteria, **_options: criteria.clear() or MagicMock(deleted_count=0)
 
     clear_target(manager, PLAIN)
 

@@ -39,6 +39,8 @@ from cmdb.models.settings_model import (
 
 from cmdb.errors.manager import (
     BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerUpdateError,
 )
 from cmdb.errors.manager.user_settings_manager import (
     USER_SETTINGS_MANAGER_ERRORS,
@@ -52,7 +54,7 @@ from cmdb.errors.manager.user_settings_manager import (
 LOGGER: Logger = getLogger(__name__)
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                                GenericManager - CLASS                                                #
+#                                              UserSettingsManager - CLASS                                             #
 # -------------------------------------------------------------------------------------------------------------------- #
 class UserSettingsManager(GenericManager):
     """
@@ -61,6 +63,13 @@ class UserSettingsManager(GenericManager):
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager, database: str | None = None) -> None:
+        """
+        Initialises the UserSettingsManager
+
+        Args:
+            dbm (MongoDatabaseManager): Database interaction manager
+            database (str | None): Target database name, used in cloud mode. Defaults to None
+        """
         super().__init__(dbm, CmdbUserSetting, USER_SETTINGS_MANAGER_ERRORS, database)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
@@ -74,7 +83,8 @@ class UserSettingsManager(GenericManager):
             resource (str): name of the CmdbSetting
 
         Raises:
-            UserSettingsManagerGetError: If an CmdbUserSetting could not be retrieved
+            UserSettingsManagerGetError: If the read fails (BaseManagerGetError); a programming error propagates
+                unwrapped
 
         Returns:
             dict | None: A dictionary representation of the CmdbUserSetting if successful, otherwise None
@@ -84,7 +94,7 @@ class UserSettingsManager(GenericManager):
                 UserSettingKey.USER_ID.value: user_id,
                 UserSettingKey.RESOURCE.value: resource,
             })
-        except Exception as err:
+        except BaseManagerGetError as err:
             LOGGER.error("[get_user_setting] Exception: %s. Type: %s", err, type(err))
             raise UserSettingsManagerGetError(err) from err
 
@@ -113,25 +123,26 @@ class UserSettingsManager(GenericManager):
                 one; the scope is a label the frontend maintains for itself
 
         Raises:
-            UserSettingsManagerIterationError: If the settings could not be read
+            UserSettingsManagerIterationError: If the read fails (BaseManagerGetError); a programming error
+                propagates unwrapped
 
         Returns:
             list[dict[str, Any]]: The user's readable settings, in the shape the list route answers
         """
+        query: dict[str, Any] = {UserSettingKey.USER_ID.value: user_id}
+
+        if setting_type:
+            query[UserSettingKey.SETTING_TYPE.value] = setting_type.value
+
         try:
-            query: dict[str, Any] = {UserSettingKey.USER_ID.value: user_id}
-
-            if setting_type:
-                query[UserSettingKey.SETTING_TYPE.value] = setting_type.value
-
-            normalized: list[dict[str, Any]] = [
-                normalize_user_setting_document(setting) for setting in self.find(criteria=query)
-            ]
-
-            return [setting for setting in normalized if setting is not None]
-        except Exception as err:
+            stored: list[dict[str, Any]] = self.find(criteria=query)
+        except BaseManagerGetError as err:
             LOGGER.error("[get_user_settings] Exception: %s. Type: %s", err, type(err))
             raise UserSettingsManagerIterationError(err) from err
+
+        normalized: list[dict[str, Any] | None] = [normalize_user_setting_document(setting) for setting in stored]
+
+        return [setting for setting in normalized if setting is not None]
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -145,20 +156,21 @@ class UserSettingsManager(GenericManager):
             resource (str): Identifier of the setting
 
         Raises:
-            UserSettingsManagerUpdateError: If the update operation fails
+            UserSettingsManagerUpdateError: If the write fails (BaseManagerUpdateError) or the setting cannot be
+                serialised (CmdbUserSettingToJsonError); a programming error propagates unwrapped
         """
         try:
             if isinstance(setting, CmdbUserSetting):
                 setting = CmdbUserSetting.to_json(setting)
 
-            return self.update(
+            self.update(
                 criteria={
                     UserSettingKey.RESOURCE.value: resource,
                     UserSettingKey.USER_ID.value: user_id,
                 },
                 data=setting,
             )
-        except Exception as err:
+        except (BaseManagerUpdateError, *self._model_errors()) as err:
             LOGGER.error("[update_user_setting] Exception: %s. Type: %s", err, type(err))
             raise UserSettingsManagerUpdateError(err) from err
 

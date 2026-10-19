@@ -36,7 +36,8 @@ from cmdb.open_celium import map_oc_name, unmap_oc_name, is_hosted_cloud
 
 from cmdb.models.user_model import CmdbUser
 from cmdb.interface.blueprints import APIBlueprint
-from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors, get_cached_user_manager
+from cmdb.interface.route_utils import insert_request_user, verify_api_access, handle_oc_errors
+from cmdb.interface.cloud_user_helper import get_cached_user_manager
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.responses import DefaultResponse
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_helper import (

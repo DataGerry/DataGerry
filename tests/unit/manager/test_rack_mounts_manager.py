@@ -27,7 +27,7 @@ import pytest
 
 from cmdb.manager.rack_mounts_manager import RackMountsManager
 from cmdb.models.rack_model import RackArea
-from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.rack_mounts_manager import (
     RackMountsManagerGetError,
     RackMountsManagerDeleteError,
@@ -102,15 +102,6 @@ def test_get_mounts_of_rack_with_an_area_filters_on_both() -> None:
 
     manager.find.assert_called_once_with(criteria={'rack_id': RACK_ID, 'area': RackArea.LEFT.value})
 
-
-def test_get_unassigned_mounts_filters_on_the_unassigned_bucket() -> None:
-    """The convenience wrapper targets exactly the unplaced members"""
-    manager = _manager()
-    manager.find = MagicMock(return_value=[])
-
-    manager.get_unassigned_mounts(RACK_ID)
-
-    manager.find.assert_called_once_with(criteria={'rack_id': RACK_ID, 'area': RackArea.UNASSIGNED.value})
 
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                             get_mounts_in_areas                                                      #
@@ -213,7 +204,7 @@ def test_delete_mount_of_object_targets_the_object() -> None:
 def test_delete_wraps_a_failure() -> None:
     """A delete failure surfaces as the manager's own error type"""
     manager = _manager()
-    manager.delete_many = MagicMock(side_effect=RuntimeError('boom'))
+    manager.delete_many = MagicMock(side_effect=BaseManagerDeleteError('boom'))
 
     with pytest.raises(RackMountsManagerDeleteError):
         manager.delete_mounts_of_rack(RACK_ID)
@@ -258,50 +249,62 @@ def test_is_object_mounted_still_reports_a_different_mount_when_excluding() -> N
     assert manager.is_object_mounted(OBJECT_ID, exclude_mount_id=MOUNT_ID + 1) is True
 
 # -------------------------------------------------------------------------------------------------------------------- #
-#                                            count_mounts_of_rack                                                      #
-# -------------------------------------------------------------------------------------------------------------------- #
-
-def test_count_mounts_of_rack_counts_every_member() -> None:
-    """Placed and unplaced members alike count as membership"""
-    manager = _manager()
-    manager.count_documents = MagicMock(return_value=7)
-
-    assert manager.count_mounts_of_rack(RACK_ID) == 7
-    manager.count_documents.assert_called_once_with({'rack_id': RACK_ID})
-
-# -------------------------------------------------------------------------------------------------------------------- #
 #                                              error wrapping                                                          #
 # -------------------------------------------------------------------------------------------------------------------- #
 
-@pytest.mark.parametrize('method, args', [
+READS: list[tuple[str, tuple[Any, ...]]] = [
     ('get_mounts_of_rack', (RACK_ID,)),
     ('get_mounts_in_areas', (RACK_ID, {RackArea.FRONT.value})),
-], ids=str)
-def test_a_failed_read_surfaces_as_the_managers_get_error(method: str, args: tuple) -> None:
-    """Every read wraps a raw failure, so a route never has to catch a pymongo error"""
-    manager = _manager()
-    manager.find = MagicMock(side_effect=RuntimeError('boom'))
+    ('get_next_position', (RACK_ID, RackArea.LEFT.value)),
+    ('get_mounts_of_objects', ([OBJECT_ID],)),
+]
+DELETES: list[tuple[str, int]] = [
+    ('delete_mounts_of_rack', RACK_ID),
+    ('delete_mount_of_object', OBJECT_ID),
+]
 
-    with pytest.raises(RackMountsManagerGetError):
+
+@pytest.mark.parametrize('method, args', READS, ids=[read[0] for read in READS])
+def test_a_failed_read_surfaces_as_the_managers_get_error(method: str, args: tuple[Any, ...]) -> None:
+    """Every read wraps the typed failure of its find, so a route never has to catch a database error"""
+    manager = _manager()
+    cause = BaseManagerGetError('boom')
+    manager.find = MagicMock(side_effect=cause)
+
+    with pytest.raises(RackMountsManagerGetError) as raised:
+        getattr(manager, method)(*args)
+
+    assert raised.value.__cause__ is cause
+
+
+@pytest.mark.parametrize('method, args', READS, ids=[read[0] for read in READS])
+def test_a_bug_in_a_read_propagates_as_itself(method: str, args: tuple[Any, ...]) -> None:
+    """A programming error is not a database failure: it reaches the route's 500 unwrapped"""
+    manager = _manager()
+    manager.find = MagicMock(side_effect=TypeError('bug'))
+
+    with pytest.raises(TypeError):
         getattr(manager, method)(*args)
 
 
-def test_a_failed_count_surfaces_as_the_managers_get_error() -> None:
-    """The count is a read like any other"""
+@pytest.mark.parametrize('method, public_id', DELETES, ids=[delete[0] for delete in DELETES])
+def test_a_failed_delete_surfaces_as_the_managers_delete_error(method: str, public_id: int) -> None:
+    """Both bulk deletes wrap the typed failure of their delete"""
     manager = _manager()
-    manager.count_documents = MagicMock(side_effect=RuntimeError('boom'))
-
-    with pytest.raises(RackMountsManagerGetError):
-        manager.count_mounts_of_rack(RACK_ID)
-
-
-def test_a_failed_object_delete_surfaces_as_the_managers_delete_error() -> None:
-    """Both bulk deletes wrap their failures"""
-    manager = _manager()
-    manager.delete_many = MagicMock(side_effect=RuntimeError('boom'))
+    manager.delete_many = MagicMock(side_effect=BaseManagerDeleteError('boom'))
 
     with pytest.raises(RackMountsManagerDeleteError):
-        manager.delete_mount_of_object(OBJECT_ID)
+        getattr(manager, method)(public_id)
+
+
+@pytest.mark.parametrize('method, public_id', DELETES, ids=[delete[0] for delete in DELETES])
+def test_a_bug_in_a_delete_propagates_as_itself(method: str, public_id: int) -> None:
+    """The delete arm names the typed error only"""
+    manager = _manager()
+    manager.delete_many = MagicMock(side_effect=TypeError('bug'))
+
+    with pytest.raises(TypeError):
+        getattr(manager, method)(public_id)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -419,7 +422,7 @@ def test_get_mounts_of_objects_reads_nothing_for_an_empty_page() -> None:
 def test_a_failed_page_mount_read_surfaces_as_the_managers_get_error() -> None:
     """The route turns it into a 400 rather than claiming every candidate is free"""
     manager = _manager()
-    manager.find = MagicMock(side_effect=RuntimeError('boom'))
+    manager.find = MagicMock(side_effect=BaseManagerGetError('boom'))
 
     with pytest.raises(RackMountsManagerGetError):
         manager.get_mounts_of_objects([OBJECT_ID])

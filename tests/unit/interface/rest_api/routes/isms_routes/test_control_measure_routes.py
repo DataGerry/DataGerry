@@ -30,11 +30,12 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.interface.rest_api.routes.isms_routes.control_measure_routes import delete_many_isms_control_measures
 
 from cmdb.errors.manager.control_measure_manager import (
+    CONTROL_MEASURE_MANAGER_ERRORS,
     ControlMeasureManagerGetError,
-    ControlMeasureManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -68,7 +69,15 @@ def fixture_flask_app() -> Flask:
 @pytest.fixture(name='manager')
 def fixture_manager() -> MagicMock:
     """A mock ControlMeasureManager the route resolves via ManagerProvider."""
-    return MagicMock(name='control_measure_manager')
+    manager = MagicMock(name='control_measure_manager')
+    manager.exceptions = CONTROL_MEASURE_MANAGER_ERRORS
+    # Every requested id is stored except MISSING_ID
+    manager.find.side_effect = lambda criteria: [
+        {'public_id': public_id} for public_id in sorted(criteria['public_id']['$in'])
+        if public_id != MISSING_ID
+    ]
+
+    return manager
 
 
 @pytest.fixture(name='patched_provider')
@@ -92,28 +101,25 @@ class TestDeleteManyControlMeasures:
     ) -> None:
         """In-use ids are left untouched and reported; unused ids are deleted."""
         del patched_provider
-        manager.get_used_control_measure_ids.return_value = {CONTROL_ID_B}
-        manager.delete_item.return_value = True
+        manager.get_used_control_measure_ids.side_effect = lambda ids: {CONTROL_ID_B} & set(ids)
 
         with patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, f'{CONTROL_ID_A},{CONTROL_ID_B},{CONTROL_ID_C}')
 
         # the in-use control is never deleted
         # the whole requested batch drives the single used-check query
-        manager.get_used_control_measure_ids.assert_called_once_with([CONTROL_ID_A, CONTROL_ID_B, CONTROL_ID_C])
-        deleted_calls = [call.args[0] for call in manager.delete_item.call_args_list]
-        assert CONTROL_ID_B not in deleted_calls
-        assert sorted(deleted_calls) == [CONTROL_ID_A, CONTROL_ID_C]
+        first_check = manager.get_used_control_measure_ids.call_args_list[0]
+        assert first_check.args == ([CONTROL_ID_A, CONTROL_ID_B, CONTROL_ID_C],)
+        manager.delete_many.assert_called_once_with({'public_id': {'$in': [CONTROL_ID_A, CONTROL_ID_C]}})
         # and the response splits deleted vs still-in-use
         response_cls.assert_called_once_with({'successfully': [CONTROL_ID_A, CONTROL_ID_C], 'in_use': [CONTROL_ID_B]})
 
     def test_non_existent_ids_are_not_reported_as_deleted(
         self, flask_app: Flask, manager: MagicMock, patched_provider: Any,
     ) -> None:
-        """delete_item returning False (id did not exist) keeps that id out of the deleted list."""
+        """An id the read does not find is neither deleted nor reported."""
         del patched_provider
         manager.get_used_control_measure_ids.return_value = set()
-        manager.delete_item.side_effect = lambda public_id: public_id == CONTROL_ID_A
 
         with patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, f'{CONTROL_ID_A},{MISSING_ID}')
@@ -130,7 +136,7 @@ class TestDeleteManyControlMeasures:
         with patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, f'{CONTROL_ID_A},{CONTROL_ID_B}')
 
-        manager.delete_item.assert_not_called()
+        manager.delete_many.assert_not_called()
         response_cls.assert_called_once_with({'successfully': [], 'in_use': [CONTROL_ID_A, CONTROL_ID_B]})
 
     def test_invalid_id_aborts_400(
@@ -162,7 +168,7 @@ class TestDeleteManyControlMeasures:
         """A ControlMeasureManagerDeleteError from a delete surfaces as 400."""
         del patched_provider
         manager.get_used_control_measure_ids.return_value = set()
-        manager.delete_item.side_effect = ControlMeasureManagerDeleteError('boom')
+        manager.delete_many.side_effect = BaseManagerDeleteError('boom')
 
         with pytest.raises(HTTPException) as excinfo:
             self._call(flask_app, str(CONTROL_ID_A))

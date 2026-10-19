@@ -38,8 +38,8 @@ from cmdb.interface.blueprints.api_blueprint_constants import (
     PROTECT_WITHOUT_REQUEST_USER_MESSAGE,
     RIGHT_CHECK_FAILED_MESSAGE,
 )
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.errors.manager.groups_manager import GroupsManagerGetError
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.blueprints.api_blueprint'
@@ -47,16 +47,6 @@ MODULE_PATH: str = 'cmdb.interface.blueprints.api_blueprint'
 RIGHT: str = 'base.framework.object.view'
 ROUTE_RESULT: str = 'ROUTE_CALLED'
 SELF_ACCESS_EXCEPTED: dict[str, str] = {'public_id': 'public_id'}
-
-def _app(cloud_mode: bool = False) -> BaseCmdbApp:
-    """Builds a BaseCmdbApp with a stub database_manager and the given cloud flag."""
-    app = BaseCmdbApp(__name__)
-    app.database_manager = MagicMock()
-    app.cloud_mode = cloud_mode
-    app.local_mode = False
-
-    return app
-
 
 def _route(*args, **kwargs) -> str:
     """Stub route body - returns a sentinel so tests can assert the route ran."""
@@ -83,7 +73,7 @@ class TestProtectNoEnforcement:
         """auth=False short-circuits the whole check and runs the route."""
         wrapped = APIBlueprint.protect(auth=False, right=RIGHT)(_route)
         with patch(f'{MODULE_PATH}.user_has_right') as mocked_right:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert wrapped() == ROUTE_RESULT
         mocked_right.assert_not_called()
 
@@ -94,7 +84,7 @@ class TestProtectNoEnforcement:
         """
         wrapped = APIBlueprint.protect(auth=True)(_route)
         with patch(f'{MODULE_PATH}.user_has_right') as mocked_right:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert wrapped() == ROUTE_RESULT
         mocked_right.assert_not_called()
 
@@ -107,7 +97,7 @@ class TestProtectRightCheck:
         request_user = MagicMock()
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
         with patch(f'{MODULE_PATH}.user_has_right', return_value=True) as mocked_right:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert wrapped(request_user=request_user) == ROUTE_RESULT
         mocked_right.assert_called_once_with(RIGHT, request_user)
 
@@ -115,7 +105,7 @@ class TestProtectRightCheck:
         """A user lacking the right and no excepted rule aborts 403."""
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
         with patch(f'{MODULE_PATH}.user_has_right', return_value=False):
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped(request_user=MagicMock())
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
@@ -127,7 +117,7 @@ class TestProtectRightCheck:
         with patch(f'{MODULE_PATH}.user_has_right', return_value=True), \
              patch('cmdb.interface.route_utils.parse_authorization_header') as parse, \
              patch('cmdb.interface.route_utils.decode_request_token') as decode:
-            with _app(cloud_mode=cloud_mode).test_request_context(headers={'Authorization': 'Bearer t'}):
+            with stub_cmdb_app(cloud_mode=cloud_mode).test_request_context(headers={'Authorization': 'Bearer t'}):
                 assert wrapped(request_user=MagicMock()) == ROUTE_RESULT
         parse.assert_not_called()
         decode.assert_not_called()
@@ -136,7 +126,7 @@ class TestProtectRightCheck:
         """A wiring fault on the route, not the caller's fault - and no right is ever granted without a user"""
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
         with patch(f'{MODULE_PATH}.user_has_right') as mocked_right:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped()
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -147,7 +137,7 @@ class TestProtectRightCheck:
         """A group that could not be READ is an outage, not a missing right"""
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT)(_route)
         with patch(f'{MODULE_PATH}.user_has_right', side_effect=GroupsManagerGetError('db down')):
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped(request_user=MagicMock())
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -164,7 +154,7 @@ class TestProtectExcepted:
         with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
             cmdb_user.to_public_json.return_value = {'public_id': 5}
-            with _app(cloud_mode=cloud_mode).test_request_context():
+            with stub_cmdb_app(cloud_mode=cloud_mode).test_request_context():
                 assert wrapped(request_user=MagicMock(), public_id=5) == ROUTE_RESULT
 
     def test_a_user_acting_on_another_record_is_403(self) -> None:
@@ -173,7 +163,7 @@ class TestProtectExcepted:
         with patch(f'{MODULE_PATH}.user_has_right', return_value=False), \
              patch(f'{MODULE_PATH}.CmdbUser') as cmdb_user:
             cmdb_user.to_public_json.return_value = {'public_id': 5}
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped(request_user=MagicMock(), public_id=999)
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
@@ -183,7 +173,7 @@ class TestProtectExcepted:
         wrapped = APIBlueprint.protect(auth=True, right=RIGHT, excepted=SELF_ACCESS_EXCEPTED)(_route)
         with patch(f'{MODULE_PATH}.user_has_right', return_value=True), \
              patch.object(APIBlueprint, '_user_matches_excepted') as matches:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert wrapped(request_user=MagicMock(), public_id=999) == ROUTE_RESULT
         matches.assert_not_called()
 
@@ -236,14 +226,14 @@ class TestValidate:
             return ROUTE_RESULT
 
         wrapped = APIBlueprint.validate(self.SCHEMA)(route)
-        with _app().test_request_context(json={'name': 'x', 'extra': 'purged'}):
+        with stub_cmdb_app().test_request_context(json={'name': 'x', 'extra': 'purged'}):
             assert wrapped() == ROUTE_RESULT
         assert captured['data'] == {'name': 'x'}
 
     def test_invalid_data_aborts_400(self) -> None:
         """A body failing the schema aborts 400."""
         wrapped = APIBlueprint.validate(self.SCHEMA)(_route)
-        with _app().test_request_context(json={'name': 123}):
+        with stub_cmdb_app().test_request_context(json={'name': 123}):
             with pytest.raises(HTTPException) as exc_info:
                 wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -251,7 +241,7 @@ class TestValidate:
     def test_a_refused_body_is_told_which_field_failed_and_why(self) -> None:
         """The 400 names the failing field and the rule, instead of a message that names nothing."""
         wrapped = APIBlueprint.validate(self.SCHEMA)(_route)
-        with _app().test_request_context(json={'name': 123}):
+        with stub_cmdb_app().test_request_context(json={'name': 123}):
             with pytest.raises(HTTPException) as exc_info:
                 wrapped()
         assert exc_info.value.description == 'Invalid data provided: name: must be of string type'
@@ -261,7 +251,7 @@ class TestValidate:
         with patch(f'{MODULE_PATH}.Validator') as validator_cls:
             validator_cls.return_value.validate.side_effect = ValueError('boom')
             wrapped = APIBlueprint.validate(self.SCHEMA)(_route)
-            with _app().test_request_context(json={'name': 'x'}):
+            with stub_cmdb_app().test_request_context(json={'name': 'x'}):
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -271,7 +261,7 @@ class TestValidate:
         with patch(f'{MODULE_PATH}.Validator') as validator_cls:
             validator_cls.return_value.validate.side_effect = ValueError('boom')
             wrapped = APIBlueprint.validate(self.SCHEMA)(_route)
-            with _app().test_request_context(json={'name': 'x'}):
+            with stub_cmdb_app().test_request_context(json={'name': 'x'}):
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped()
         assert exc_info.value.description == 'The request body could not be validated!'
@@ -283,7 +273,7 @@ class TestValidate:
         route = MagicMock(return_value=ROUTE_RESULT)
         with patch(f'{MODULE_PATH}.Validator') as validator_cls:
             wrapped = APIBlueprint.validate(self.SCHEMA)(route)
-            with _app().test_request_context(data=raw_body, content_type='application/json'):
+            with stub_cmdb_app().test_request_context(data=raw_body, content_type='application/json'):
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped()
 
@@ -309,7 +299,7 @@ class TestParseParameters:
             return ROUTE_RESULT
 
         wrapped = APIBlueprint.parse_parameters(params_class)(route)
-        with _app().test_request_context('/?limit=5'):
+        with stub_cmdb_app().test_request_context('/?limit=5'):
             assert wrapped() == ROUTE_RESULT
         assert captured['params'] == 'PARSED'
 
@@ -318,7 +308,7 @@ class TestParseParameters:
         params_class = MagicMock()
         params_class.from_data.side_effect = ValueError('bad')
         wrapped = APIBlueprint.parse_parameters(params_class)(_route)
-        with _app().test_request_context('/?limit=5'):
+        with stub_cmdb_app().test_request_context('/?limit=5'):
             with pytest.raises(HTTPException) as exc_info:
                 wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -338,7 +328,7 @@ class TestParseRequestParameters:
             return ROUTE_RESULT
 
         wrapped = APIBlueprint.parse_request_parameters()(route)
-        with _app().test_request_context('/?a=1&b=2'):
+        with stub_cmdb_app().test_request_context('/?a=1&b=2'):
             assert wrapped() == ROUTE_RESULT
         assert captured['params'] == {'a': '1', 'b': '2'}
 
@@ -367,14 +357,14 @@ class TestParseRequestBody:
             return ROUTE_RESULT
 
         wrapped = APIBlueprint.parse_request_body()(route)
-        with _app().test_request_context(json={'a': 1}):
+        with stub_cmdb_app().test_request_context(json={'a': 1}):
             assert wrapped() == ROUTE_RESULT
         assert captured['data'] == {'a': 1}
 
     def test_non_dict_body_aborts_400(self) -> None:
         """A non-object body (silent None / list) aborts 400."""
         wrapped = APIBlueprint.parse_request_body()(_route)
-        with _app().test_request_context(json=[1, 2, 3]):
+        with stub_cmdb_app().test_request_context(json=[1, 2, 3]):
             with pytest.raises(HTTPException) as exc_info:
                 wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -396,7 +386,7 @@ class TestParseCollectionParameters:
         wrapped = APIBlueprint.parse_collection_parameters()(route)
         with patch(f'{MODULE_PATH}.CollectionParameters') as cp_cls:
             cp_cls.from_data.return_value = 'COLLECTION_PARAMS'
-            with _app().test_request_context('/?limit=10&page=1'):
+            with stub_cmdb_app().test_request_context('/?limit=10&page=1'):
                 assert wrapped() == ROUTE_RESULT
         assert captured['params'] == 'COLLECTION_PARAMS'
 
@@ -405,7 +395,7 @@ class TestParseCollectionParameters:
         wrapped = APIBlueprint.parse_collection_parameters()(_route)
         with patch(f'{MODULE_PATH}.CollectionParameters') as cp_cls:
             cp_cls.from_data.side_effect = ValueError('bad')
-            with _app().test_request_context('/?limit=10'):
+            with stub_cmdb_app().test_request_context('/?limit=10'):
                 with pytest.raises(HTTPException) as exc_info:
                     wrapped()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST

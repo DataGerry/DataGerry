@@ -27,27 +27,20 @@ from typing import Any
 import pytest
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_invoker_helper import (
     build_invoker_manager,
     read_ops_included_flag,
 )
 
 from cmdb.open_celium.oc_constants import OC_OPS_INCLUDED_PARAM
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The database manager the app carries, compared against what the helper hands on
+DATABASE_MANAGER: str = 'the-dbm'
 
 USER_DATABASE: str = 'db_customer'
 HTTP_BAD_REQUEST: int = 400
-
-
-def _app() -> BaseCmdbApp:
-    """An on-premise BaseCmdbApp with a stub database manager."""
-    app = BaseCmdbApp(__name__)
-    app.database_manager = 'the-dbm'
-    app.cloud_mode = False
-    app.local_mode = False
-
-    return app
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -63,28 +56,28 @@ class TestReadOpsIncludedFlag:
         An invoker without its operations is the cheaper read, not the expected one - the connector
         form needs the operations.
         """
-        with _app().test_request_context('/invokers'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/invokers'):
             assert read_ops_included_flag() is True
 
     def test_the_literal_false_disables_them(self) -> None:
         """The one value that turns the flag off"""
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=false'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=false'):
             assert read_ops_included_flag() is False
 
     @pytest.mark.parametrize('value', ['False', 'FALSE', 'fAlSe'])
     def test_the_casing_does_not_matter(self, value: str) -> None:
         """A query string is typed by a human or built by a client; the casing is not the signal"""
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}={value}'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}={value}'):
             assert read_ops_included_flag() is False
 
     def test_true_includes_them(self) -> None:
         """Stating the default explicitly does what it says"""
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=true'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=true'):
             assert read_ops_included_flag() is True
 
     def test_surrounding_whitespace_is_ignored(self) -> None:
         """A padded value is still the value it spells"""
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=%20false%20'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=%20false%20'):
             assert read_ops_included_flag() is False
 
     @pytest.mark.parametrize('value', ['', '0', 'no', 'off', 'null', 'False!', '1', 'yes'])
@@ -95,7 +88,7 @@ class TestReadOpsIncludedFlag:
         A caller who sent the parameter meant something; reading `0` or a blank as "include" answered the
         opposite of what they most likely asked for
         """
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}={value}'), \
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}={value}'), \
                 pytest.raises(HTTPException) as refused:
             read_ops_included_flag()
 
@@ -109,7 +102,7 @@ class TestReadOpsIncludedFlag:
         `request.args.get(name, type=bool)` answers True for `'false'`, because `bool('false')` is
         True - so the flag would be impossible to turn off.
         """
-        with _app().test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=false'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(f'/invokers?{OC_OPS_INCLUDED_PARAM}=false'):
             assert read_ops_included_flag() is not bool('false')
 
 
@@ -147,11 +140,11 @@ class TestBuildInvokerManager:
 
         request_user = type('_User', (), {'database': expected})()
 
-        app = _app()
+        app = stub_cmdb_app(database_manager=DATABASE_MANAGER)
         app.cloud_mode = cloud_mode
 
         with app.test_request_context():
             manager = build_invoker_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': expected}
+        assert recorded == {'dbm': DATABASE_MANAGER, 'database': expected}

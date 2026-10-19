@@ -36,8 +36,8 @@ from cmdb.models.extendable_option_model import (
 from cmdb.class_schema.write_schema_helper import build_write_schema
 from cmdb.interface.blueprints import APIBlueprint
 from cmdb.interface.route_utils import (
-    abort_if_query_too_slow,
     abort_if_too_large,
+    handle_manager_errors,
     handle_route_errors,
     insert_request_user,
     verify_api_access,
@@ -142,6 +142,10 @@ def insert_cmdb_extendable_option(data: dict[str, Any], request_user: CmdbUser) 
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @extendable_option_blueprint.protect(auth=True, right=ExtendableOptionRight.VIEW.value)
 @extendable_option_blueprint.parse_collection_parameters()
+@handle_route_errors("while retrieving ExtendableOptions")
+@handle_manager_errors({
+    ExtendableOptionsManagerIterationError: "Failed to retrieve ExtendableOptions from the database!",
+})
 def get_cmdb_extendable_options(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     HTTP `GET`/`HEAD` route for getting multiple CmdbExtendableOptions
@@ -150,46 +154,36 @@ def get_cmdb_extendable_options(params: CollectionParameters, request_user: Cmdb
         params (CollectionParameters): Filter for requested CmdbExtendableOptions
         request_user (CmdbUser): User requesting this data
 
+    Raises:
+        HTTPException: 400 when the read fails; 503 when the database is unreachable or the query ran out of
+            its time budget; 500 on an unexpected error
+
     Returns:
         GetMultiResponse: All the CmdbExtendableOptions matching the CollectionParameters
     """
-    try:
-        body = request_wants_body()
+    body = request_wants_body()
 
-        extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
-                                                                    ManagerType.EXTENDABLE_OPTIONS,
-                                                                    request_user
-                                                                )
+    extendable_options_manager: ExtendableOptionsManager = ManagerProvider.get_manager(
+                                                                ManagerType.EXTENDABLE_OPTIONS,
+                                                                request_user
+                                                            )
 
-        builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
+    builder_params = BuilderParameters(**CollectionParameters.get_builder_params(params))
 
-        # The documents are answered as they are read, not through a CmdbExtendableOption per row
-        # that is converted straight back: the frontend asks for the whole list (limit=0) twice per
-        # ISMS or port form. normalize_extendable_option_document emits exactly the four payload
-        # keys - so '_id' never reaches the response - and answers None for a document it cannot
-        # read, which is skipped and logged rather than failing the whole dropdown
-        option_documents, total = extendable_options_manager.iterate_option_documents(builder_params)
+    # The documents are answered as they are read, not through a CmdbExtendableOption per row
+    # that is converted straight back: the frontend asks for the whole list (limit=0) twice per
+    # ISMS or port form. normalize_extendable_option_document emits exactly the four payload
+    # keys - so '_id' never reaches the response - and answers None for a document it cannot
+    # read, which is skipped and logged rather than failing the whole dropdown
+    option_documents, total = extendable_options_manager.iterate_option_documents(builder_params)
 
-        extendable_option_list: list[dict[str, Any]] = [
-            option for option in (
-                normalize_extendable_option_document(document) for document in option_documents
-            ) if option is not None
-        ]
+    extendable_option_list: list[dict[str, Any]] = [
+        option for option in (
+            normalize_extendable_option_document(document) for document in option_documents
+        ) if option is not None
+    ]
 
-        api_response = GetMultiResponse(extendable_option_list,
-                                        total,
-                                        params,
-                                        request.url,
-                                        body)
-
-        return api_response.make_response()
-    except ExtendableOptionsManagerIterationError as err:
-        abort_if_query_too_slow(err)
-        LOGGER.error("[get_cmdb_extendable_options] ExtendableOptionsManagerIterationError: %s", err, exc_info=True)
-        abort(400, "Failed to retrieve ExtendableOptions from the database!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_extendable_options] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving ExtendableOptions!")
+    return GetMultiResponse(extendable_option_list, total, params, request.url, body).make_response()
 
 
 @extendable_option_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])

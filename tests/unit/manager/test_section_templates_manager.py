@@ -42,7 +42,17 @@ from cmdb.manager.objects_propagation_helper import (
 )
 from cmdb.manager.section_templates_manager import SectionTemplatesManager, types_using_template_criteria
 from cmdb.models.reports_model.cmdb_report import CmdbReport
+from cmdb.manager.generic_manager import GenericManager
+from cmdb.errors.manager import (
+    BaseManagerDeleteError,
+    BaseManagerGetError,
+    BaseManagerInsertError,
+    BaseManagerIterationError,
+    BaseManagerUpdateError,
+)
+from cmdb.errors.manager.types_manager import TypesManagerGetError
 from cmdb.errors.manager.section_templates_manager import (
+    SECTION_TEMPLATES_MANAGER_ERRORS,
     SectionTemplatesManagerInsertError,
     SectionTemplatesManagerIterationError,
     SectionTemplatesManagerGetError,
@@ -56,6 +66,10 @@ PATH: str = 'cmdb.manager.section_templates_manager'
 
 TYPE_ID: int = 42
 SECTION_NAME: str = 'dg-ipam-interface'
+DATABASE_NAME: str = 'a-database'
+FAILURE_MESSAGE: str = 'boom'
+# The public_id CmdbDAO.get_public_id refuses as "not assigned"
+UNASSIGNED_PUBLIC_ID: int = 0
 
 
 class _FakeSection:
@@ -507,6 +521,47 @@ def test_get_global_template_usage_count_skips_the_object_count_when_no_type_car
     mock_self.objects_manager.count_documents.assert_not_called()
 
 
+def test_get_global_template_usage_count_wraps_a_failed_type_read() -> None:
+    """The consumers' TypesManagerGetError is the count's GetError (the route's 400), carrying it"""
+    mock_self = MagicMock()
+    failure = TypesManagerGetError(FAILURE_MESSAGE)
+    mock_self.get_types_using_template.side_effect = failure
+
+    with pytest.raises(SectionTemplatesManagerGetError) as caught:
+        SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert caught.value.args[0] is failure
+
+
+def test_get_global_template_usage_count_wraps_a_failed_object_count() -> None:
+    """The object count's BaseManagerGetError is the count's GetError, carrying it"""
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = [_consuming_type(1, carries_section=True)]
+    failure = BaseManagerGetError(FAILURE_MESSAGE)
+    mock_self.objects_manager.count_documents.side_effect = failure
+
+    with pytest.raises(SectionTemplatesManagerGetError) as caught:
+        SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+    assert caught.value.args[0] is failure
+
+
+@pytest.mark.parametrize('failing_step', ['types', 'objects'])
+def test_get_global_template_usage_count_lets_a_programming_error_propagate(failing_step: str) -> None:
+    """A bug in either read is not reported as a failed count"""
+    mock_self = MagicMock()
+    mock_self.get_types_using_template.return_value = [_consuming_type(1, carries_section=True)]
+    bug = RuntimeError(FAILURE_MESSAGE)
+
+    if failing_step == 'types':
+        mock_self.get_types_using_template.side_effect = bug
+    else:
+        mock_self.objects_manager.count_documents.side_effect = bug
+
+    with pytest.raises(RuntimeError):
+        SectionTemplatesManager.get_global_template_usage_count(mock_self, 'tpl', is_global=True)
+
+
 def test_types_using_template_criteria_is_the_one_consumer_query() -> None:
     """Both the count and the cascade ask the same question, so it is spelled in one place"""
     criteria = types_using_template_criteria('tpl')
@@ -748,79 +803,237 @@ _VALID_TEMPLATE: dict[str, Any] = {
 }
 
 
+def _real_manager() -> SectionTemplatesManager:
+    """
+    A SectionTemplatesManager built for real, its collaborators patched out
+
+    The CRUD is GenericManager's, so these tests run the real inherited wrapping and stub only the BaseManager
+    calls underneath it on the instance
+    """
+    with patch(f'{PATH}.TypesManager'), patch(f'{PATH}.ObjectsManager'), patch(f'{PATH}.ReportsManager'):
+        return SectionTemplatesManager(MagicMock(), DATABASE_NAME)
+
+
 def test_insert_section_template_returns_new_id() -> None:
-    """A successful insert returns the new public_id from the base manager"""
-    mock_self = MagicMock()
-    mock_self.insert.return_value = TYPE_ID
+    """A successful insert stores the template's own keys and answers the new public_id"""
+    manager = _real_manager()
 
-    assert SectionTemplatesManager.insert_section_template(mock_self, dict(_VALID_TEMPLATE)) == TYPE_ID
+    with patch.object(manager, 'insert', return_value=TYPE_ID) as insert:
+        assert manager.insert_section_template(dict(_VALID_TEMPLATE)) == TYPE_ID
+
+    assert insert.call_args.args[0] == CmdbSectionTemplate.to_json(CmdbSectionTemplate(**_VALID_TEMPLATE))
 
 
-def test_insert_section_template_wraps_errors() -> None:
-    """A base-manager insert failure is wrapped as SectionTemplatesManagerInsertError"""
-    mock_self = MagicMock()
-    mock_self.insert.side_effect = RuntimeError('boom')
+def test_insert_section_template_wraps_a_write_failure() -> None:
+    """The insert's BaseManagerInsertError is wrapped as SectionTemplatesManagerInsertError, carrying it"""
+    manager = _real_manager()
+    failure = BaseManagerInsertError(FAILURE_MESSAGE)
 
-    with pytest.raises(SectionTemplatesManagerInsertError):
-        SectionTemplatesManager.insert_section_template(mock_self, dict(_VALID_TEMPLATE))
+    with patch.object(manager, 'insert', side_effect=failure), \
+         pytest.raises(SectionTemplatesManagerInsertError) as caught:
+        manager.insert_section_template(dict(_VALID_TEMPLATE))
+
+    assert caught.value.args[0] is failure
+
+
+def test_insert_section_template_lets_a_programming_error_propagate() -> None:
+    """A bug under the insert is not reported as a failed insert"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'insert', side_effect=RuntimeError(FAILURE_MESSAGE)), pytest.raises(RuntimeError):
+        manager.insert_section_template(dict(_VALID_TEMPLATE))
 
 
 def test_get_section_template_returns_instance_when_found() -> None:
     """A found document is wrapped in a CmdbSectionTemplate"""
-    mock_self = MagicMock()
-    mock_self.get_one.return_value = dict(_VALID_TEMPLATE)
+    manager = _real_manager()
 
-    result = SectionTemplatesManager.get_section_template(mock_self, TYPE_ID)
+    with patch.object(manager, 'get_one', return_value=dict(_VALID_TEMPLATE)):
+        result = manager.get_section_template(TYPE_ID)
 
     assert isinstance(result, CmdbSectionTemplate)
+    assert result.name == _VALID_TEMPLATE['name']
 
 
 def test_get_section_template_returns_none_when_missing() -> None:
     """A missing document yields None rather than raising"""
-    mock_self = MagicMock()
-    mock_self.get_one.return_value = None
+    manager = _real_manager()
 
-    assert SectionTemplatesManager.get_section_template(mock_self, TYPE_ID) is None
+    with patch.object(manager, 'get_one', return_value=None):
+        assert manager.get_section_template(TYPE_ID) is None
 
 
-def test_get_section_template_wraps_errors() -> None:
-    """A base-manager get failure is wrapped as SectionTemplatesManagerGetError"""
-    mock_self = MagicMock()
-    mock_self.get_one.side_effect = RuntimeError('boom')
+def test_get_section_template_wraps_a_read_failure() -> None:
+    """The read's BaseManagerGetError is wrapped as SectionTemplatesManagerGetError, carrying it"""
+    manager = _real_manager()
+    failure = BaseManagerGetError(FAILURE_MESSAGE)
 
-    with pytest.raises(SectionTemplatesManagerGetError):
-        SectionTemplatesManager.get_section_template(mock_self, TYPE_ID)
+    with patch.object(manager, 'get_one', side_effect=failure), \
+         pytest.raises(SectionTemplatesManagerGetError) as caught:
+        manager.get_section_template(TYPE_ID)
+
+    assert caught.value.args[0] is failure
+
+
+def test_get_section_template_wraps_an_unreadable_stored_template() -> None:
+    """A stored template the model cannot read is the read's GetError, carrying the model's error"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'get_one', return_value={'public_id': None}), \
+         pytest.raises(SectionTemplatesManagerGetError) as caught:
+        manager.get_section_template(TYPE_ID)
+
+    assert isinstance(caught.value.args[0], CmdbSectionTemplate.INIT_FROM_DATA_ERROR)
+
+
+def test_get_section_template_lets_a_programming_error_propagate() -> None:
+    """A bug under the read is not reported as a failed read"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'get_one', side_effect=RuntimeError(FAILURE_MESSAGE)), pytest.raises(RuntimeError):
+        manager.get_section_template(TYPE_ID)
+
+
+def test_get_section_template_by_name_reads_by_the_name() -> None:
+    """The template is read by its exact name and built into the model"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'get_one_by', return_value=dict(_VALID_TEMPLATE)) as get_one_by:
+        result = manager.get_section_template_by_name(_VALID_TEMPLATE['name'])
+
+    get_one_by.assert_called_once_with({'name': _VALID_TEMPLATE['name']})
+    assert isinstance(result, CmdbSectionTemplate)
+
+
+def test_get_section_template_by_name_answers_none_when_no_template_carries_it() -> None:
+    """A free name answers None"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'get_one_by', return_value=None):
+        assert manager.get_section_template_by_name(_VALID_TEMPLATE['name']) is None
+
+
+@pytest.mark.parametrize('stored', [None, {'public_id': None}])
+def test_get_section_template_by_name_wraps_its_failures(stored: dict[str, Any] | None) -> None:
+    """A failed read (None: the read raises) or an unreadable stored template is the GetError"""
+    manager = _real_manager()
+    failure = BaseManagerGetError(FAILURE_MESSAGE)
+    effect: dict[str, Any] = {'side_effect': failure} if stored is None else {'return_value': stored}
+
+    with patch.object(manager, 'get_one_by', **effect), pytest.raises(SectionTemplatesManagerGetError):
+        manager.get_section_template_by_name(_VALID_TEMPLATE['name'])
+
+
+def test_get_section_template_by_name_lets_a_programming_error_propagate() -> None:
+    """A bug under the name check is not reported as a failed read"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'get_one_by', side_effect=RuntimeError(FAILURE_MESSAGE)), pytest.raises(RuntimeError):
+        manager.get_section_template_by_name(_VALID_TEMPLATE['name'])
+
+
+def test_get_new_section_template_public_id_reserves_the_next_id() -> None:
+    """The counter is read and increased"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'get_next_public_id', return_value=TYPE_ID) as counter:
+        assert manager.get_new_section_template_public_id() == TYPE_ID
+
+    counter.assert_called_once_with(inc_id=True)
+
+
+def test_get_new_section_template_public_id_wraps_a_counter_failure() -> None:
+    """The counter's BaseManagerGetError is the manager's GetError, carrying it"""
+    manager = _real_manager()
+    failure = BaseManagerGetError(FAILURE_MESSAGE)
+
+    with patch.object(manager, 'get_next_public_id', side_effect=failure), \
+         pytest.raises(SectionTemplatesManagerGetError) as caught:
+        manager.get_new_section_template_public_id()
+
+    assert caught.value.args[0] is failure
+
+
+def test_get_new_section_template_public_id_lets_a_programming_error_propagate() -> None:
+    """A bug under the counter read propagates as itself"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'get_next_public_id', side_effect=RuntimeError(FAILURE_MESSAGE)), \
+         pytest.raises(RuntimeError):
+        manager.get_new_section_template_public_id()
 
 
 def test_update_section_template_serialises_a_model_instance_before_writing() -> None:
     """A CmdbSectionTemplate argument is converted to its json form - the model itself is not stored"""
-    mock_self = MagicMock()
+    manager = _real_manager()
     instance = CmdbSectionTemplate.from_data(dict(_VALID_TEMPLATE))
 
-    SectionTemplatesManager.update_section_template(mock_self, TYPE_ID, instance)
+    with patch.object(manager, 'update') as update:
+        manager.update_section_template(TYPE_ID, instance)
 
-    mock_self.update.assert_called_once()
-    written = mock_self.update.call_args.kwargs['data']
-    assert written == CmdbSectionTemplate.to_json(instance)
-    assert mock_self.update.call_args.kwargs['criteria'] == {'public_id': TYPE_ID}
+    update.assert_called_once_with({'public_id': TYPE_ID}, CmdbSectionTemplate.to_json(instance))
 
 
-def test_update_section_template_wraps_errors() -> None:
-    """A base-manager update failure is wrapped as SectionTemplatesManagerUpdateError"""
-    mock_self = MagicMock()
-    mock_self.update.side_effect = RuntimeError('boom')
+def test_update_section_template_wraps_a_write_failure() -> None:
+    """The update's BaseManagerUpdateError is wrapped as SectionTemplatesManagerUpdateError, carrying it"""
+    manager = _real_manager()
+    failure = BaseManagerUpdateError(FAILURE_MESSAGE)
 
-    with pytest.raises(SectionTemplatesManagerUpdateError):
-        SectionTemplatesManager.update_section_template(mock_self, TYPE_ID, dict(_VALID_TEMPLATE))
+    with patch.object(manager, 'update', side_effect=failure), \
+         pytest.raises(SectionTemplatesManagerUpdateError) as caught:
+        manager.update_section_template(TYPE_ID, dict(_VALID_TEMPLATE))
+
+    assert caught.value.args[0] is failure
 
 
-def test_delete_section_template_wraps_errors() -> None:
-    """A base-manager delete failure is wrapped as SectionTemplatesManagerDeleteError"""
-    mock_self = MagicMock()
-    mock_self.delete.side_effect = RuntimeError('boom')
+def test_update_section_template_wraps_an_unserialisable_template() -> None:
+    """A template that cannot be serialised (no public_id) is the update's error, not a crash"""
+    manager = _real_manager()
+    instance = CmdbSectionTemplate.from_data(dict(_VALID_TEMPLATE))
+    instance.public_id = UNASSIGNED_PUBLIC_ID
 
-    with pytest.raises(SectionTemplatesManagerDeleteError):
-        SectionTemplatesManager.delete_section_template(mock_self, TYPE_ID)
+    with patch.object(manager, 'update'), pytest.raises(SectionTemplatesManagerUpdateError) as caught:
+        manager.update_section_template(TYPE_ID, instance)
+
+    assert isinstance(caught.value.args[0], CmdbSectionTemplate.TO_JSON_ERROR)
+
+
+def test_update_section_template_lets_a_programming_error_propagate() -> None:
+    """A bug under the write is not reported as a failed update"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'update', side_effect=RuntimeError(FAILURE_MESSAGE)), pytest.raises(RuntimeError):
+        manager.update_section_template(TYPE_ID, dict(_VALID_TEMPLATE))
+
+
+def test_delete_section_template_deletes_by_public_id() -> None:
+    """The template document is deleted by its public_id and the acknowledgement answered"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'delete', return_value=True) as delete:
+        assert manager.delete_section_template(TYPE_ID) is True
+
+    delete.assert_called_once_with({'public_id': TYPE_ID})
+
+
+def test_delete_section_template_wraps_a_delete_failure() -> None:
+    """The delete's BaseManagerDeleteError is wrapped as SectionTemplatesManagerDeleteError, carrying it"""
+    manager = _real_manager()
+    failure = BaseManagerDeleteError(FAILURE_MESSAGE)
+
+    with patch.object(manager, 'delete', side_effect=failure), \
+         pytest.raises(SectionTemplatesManagerDeleteError) as caught:
+        manager.delete_section_template(TYPE_ID)
+
+    assert caught.value.args[0] is failure
+
+
+def test_delete_section_template_lets_a_programming_error_propagate() -> None:
+    """A bug under the delete is not reported as a failed delete"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'delete', side_effect=RuntimeError(FAILURE_MESSAGE)), pytest.raises(RuntimeError):
+        manager.delete_section_template(TYPE_ID)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -867,17 +1080,26 @@ def test_init_composes_the_three_collaborator_managers_on_the_same_database() ->
 
     with patch(f'{PATH}.TypesManager') as types_cls, \
          patch(f'{PATH}.ObjectsManager') as objects_cls, \
-         patch(f'{PATH}.ReportsManager') as reports_cls, \
-         patch(f'{PATH}.BaseManager.__init__', return_value=None) as base_init:
-        manager = SectionTemplatesManager(dbm, 'a-database')
+         patch(f'{PATH}.ReportsManager') as reports_cls:
+        manager = SectionTemplatesManager(dbm, DATABASE_NAME)
 
-    types_cls.assert_called_once_with(dbm, 'a-database')
-    objects_cls.assert_called_once_with(dbm, 'a-database')
-    reports_cls.assert_called_once_with(dbm, 'a-database')
-    base_init.assert_called_once_with(CmdbSectionTemplate.COLLECTION, dbm, 'a-database')
+    types_cls.assert_called_once_with(dbm, DATABASE_NAME)
+    objects_cls.assert_called_once_with(dbm, DATABASE_NAME)
+    reports_cls.assert_called_once_with(dbm, DATABASE_NAME)
+    assert manager.collection == CmdbSectionTemplate.COLLECTION
+    assert manager.db_name == DATABASE_NAME
+    assert manager.model is CmdbSectionTemplate
     assert manager.types_manager is types_cls.return_value
     assert manager.objects_manager is objects_cls.return_value
     assert manager.reports_manager is reports_cls.return_value
+
+
+def test_the_manager_is_a_generic_manager_with_its_own_error_map() -> None:
+    """Every CRUD operation answers its SectionTemplatesManager error, taken from the declared map"""
+    manager = _real_manager()
+
+    assert isinstance(manager, GenericManager)
+    assert manager.exceptions is SECTION_TEMPLATES_MANAGER_ERRORS
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -885,25 +1107,84 @@ def test_init_composes_the_three_collaborator_managers_on_the_same_database() ->
 # -------------------------------------------------------------------------------------------------------------------- #
 def test_iterate_converts_the_aggregation_result_into_section_templates() -> None:
     """The raw documents are converted to CmdbSectionTemplates and the total is carried through"""
-    mock_self = MagicMock()
-    mock_self.iterate_query.return_value = ([dict(_VALID_TEMPLATE)], 5)
+    manager = _real_manager()
     builder_params, user, permission = MagicMock(), MagicMock(), MagicMock()
 
-    result = SectionTemplatesManager.iterate(mock_self, builder_params, user, permission)
+    with patch.object(manager, 'iterate_query', return_value=([dict(_VALID_TEMPLATE)], 5)) as iterate_query:
+        result = manager.iterate(builder_params, user, permission)
 
-    mock_self.iterate_query.assert_called_once_with(builder_params, user, permission)
+    iterate_query.assert_called_once_with(builder_params, user, permission)
     assert result.total == 5
     assert result.count == 1
     assert isinstance(result.results[0], CmdbSectionTemplate)
 
 
-def test_iterate_wraps_errors() -> None:
-    """A failing aggregation is wrapped as SectionTemplatesManagerIterationError"""
-    mock_self = MagicMock()
-    mock_self.iterate_query.side_effect = RuntimeError('boom')
+def test_iterate_wraps_a_read_failure() -> None:
+    """The aggregation's BaseManagerIterationError is wrapped as SectionTemplatesManagerIterationError"""
+    manager = _real_manager()
+    failure = BaseManagerIterationError(FAILURE_MESSAGE)
 
-    with pytest.raises(SectionTemplatesManagerIterationError):
-        SectionTemplatesManager.iterate(mock_self, MagicMock())
+    with patch.object(manager, 'iterate_query', side_effect=failure), \
+         pytest.raises(SectionTemplatesManagerIterationError) as caught:
+        manager.iterate(MagicMock())
+
+    assert caught.value.args[0] is failure
+
+
+def test_iterate_wraps_an_unreadable_stored_template() -> None:
+    """A stored template the model cannot read is the IterationError, not a crash"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'iterate_query', return_value=([{'public_id': None}], 1)), \
+         pytest.raises(SectionTemplatesManagerIterationError) as caught:
+        manager.iterate(MagicMock())
+
+    assert isinstance(caught.value.args[0], CmdbSectionTemplate.INIT_FROM_DATA_ERROR)
+
+
+def test_iterate_lets_a_programming_error_propagate() -> None:
+    """A bug under the aggregation is not reported as a failed read"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'iterate_query', side_effect=RuntimeError(FAILURE_MESSAGE)), \
+         pytest.raises(RuntimeError):
+        manager.iterate(MagicMock())
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             get_section_templates_by                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_get_section_templates_by_reads_in_public_id_order_without_counting() -> None:
+    """One plain find, ordered by public_id - no count aggregation - built into models"""
+    manager = _real_manager()
+    criteria = {'predefined': True}
+
+    with patch.object(manager, 'find', return_value=[dict(_VALID_TEMPLATE)]) as find, \
+         patch.object(manager, 'iterate_query') as iterate_query:
+        result = manager.get_section_templates_by(criteria)
+
+    find.assert_called_once_with(criteria=criteria, sort=[('public_id', CmdbSectionTemplate.DAO_ASCENDING)])
+    iterate_query.assert_not_called()
+    assert [template.name for template in result] == [_VALID_TEMPLATE['name']]
+
+
+@pytest.mark.parametrize('stored', [None, [{'public_id': None}]])
+def test_get_section_templates_by_wraps_its_failures(stored: list[dict[str, Any]] | None) -> None:
+    """A failed read (None: the read raises) or an unreadable stored template is the IterationError"""
+    manager = _real_manager()
+    failure = BaseManagerGetError(FAILURE_MESSAGE)
+    effect: dict[str, Any] = {'side_effect': failure} if stored is None else {'return_value': stored}
+
+    with patch.object(manager, 'find', **effect), pytest.raises(SectionTemplatesManagerIterationError):
+        manager.get_section_templates_by({})
+
+
+def test_get_section_templates_by_lets_a_programming_error_propagate() -> None:
+    """A bug under the read is not reported as a failed read"""
+    manager = _real_manager()
+
+    with patch.object(manager, 'find', side_effect=RuntimeError(FAILURE_MESSAGE)), pytest.raises(RuntimeError):
+        manager.get_section_templates_by({})
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

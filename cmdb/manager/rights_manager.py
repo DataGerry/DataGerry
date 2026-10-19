@@ -20,15 +20,9 @@ from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.models.right_model.base_right import BaseRight
-from cmdb.models.right_model.all_rights import ALL_RIGHTS, flat_rights_tree
+from cmdb.models.right_model.all_rights import ALL_RIGHTS_FLAT, flat_rights_tree
 from cmdb.framework.results import IterationResult
 from cmdb.framework.search.list_search import matches_search_term
-
-from cmdb.errors.manager.rights_manager import (
-    RightsManagerInitError,
-    RightsManagerGetError,
-    RightsManagerIterationError,
-)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -38,6 +32,10 @@ LOGGER: Logger = getLogger(__name__)
 # shows as columns
 RIGHT_SEARCHABLE_FIELDS: tuple[str, ...] = ('name', 'label', 'description')
 
+# The attributes a `?sort=` value may name - the keys a serialised right carries (`BaseRight.to_dict`). Every
+# right sets each of them to a value of one comparable type, so a sort over any of them cannot fail
+RIGHT_SORTABLE_FIELDS: tuple[str, ...] = ('name', 'label', 'description', 'level', 'is_master')
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                 RightsManager - CLASS                                                #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -46,7 +44,8 @@ class RightsManager:
     Manages the static collection of DataGerry rights defined in the `ALL_RIGHTS` tree.
 
     Unlike the other managers, `RightsManager` is not database-backed: the rights are a
-    compile-time tree, so this class only flattens that tree once and serves it in-memory.
+    compile-time tree, flattened once at import (`ALL_RIGHTS_FLAT`), so this class serves that list
+    in-memory. Nothing here touches a database or raises an error of its own.
     It deliberately does not extend `BaseManager` (there is no collection or `MongoDatabaseManager`)
     and is not registered with `ManagerProvider`. It provides functionality to flatten the tree,
     retrieve a single right, iterate over the rights with pagination/sorting, and serialize the
@@ -55,15 +54,9 @@ class RightsManager:
 
     def __init__(self) -> None:
         """
-        Initializes the RightsManager with a flattened version of the `ALL_RIGHTS` tree
-
-        Raises:
-            RightsManagerInitError: If the RightsManager could not be initialised
+        Initializes the RightsManager with the flattened `ALL_RIGHTS` tree, shared with every other reader
         """
-        try:
-            self.rights: list[BaseRight] = RightsManager.flat_tree(ALL_RIGHTS)
-        except Exception as err:
-            raise RightsManagerInitError(err) from err
+        self.rights: list[BaseRight] = ALL_RIGHTS_FLAT
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -91,7 +84,8 @@ class RightsManager:
         Args:
             limit (int): Maximum number of rights to return in one page. If <= 0, returns all
             skip (int): Number of rights to skip before starting the page
-            sort (str): Attribute name to sort by
+            sort (str): Attribute name to sort by - one of `RIGHT_SORTABLE_FIELDS`, which the caller checks
+                first (`is_sortable_right_field`)
             order (int): Sorting order, 1 for ascending, -1 for descending
             search (str | None): Free-text term; None or blank returns every right
 
@@ -99,23 +93,21 @@ class RightsManager:
             IterationResult[BaseRight]: Paginated and sorted result of the matching rights
 
         Raises:
-            RightsManagerIterationError: If retrieving the rights failed
+            AttributeError: When `sort` names no attribute of a right - a caller that skipped the
+                `is_sortable_right_field` check; the routes check it and answer 400
         """
-        try:
-            matching_rights: list[BaseRight] = [
-                right for right in self.rights
-                if matches_search_term((right[field] for field in RIGHT_SEARCHABLE_FIELDS), search)
-            ]
+        matching_rights: list[BaseRight] = [
+            right for right in self.rights
+            if matches_search_term((right[field] for field in RIGHT_SEARCHABLE_FIELDS), search)
+        ]
 
-            sorted_rights: list[BaseRight] = sorted(matching_rights,
-                                                    key=lambda right: right[sort],
-                                                    reverse=order == -1)
+        sorted_rights: list[BaseRight] = sorted(matching_rights,
+                                                key=lambda right: right[sort],
+                                                reverse=order == -1)
 
-            spliced_rights: list[BaseRight] = sorted_rights[skip:skip + limit] if limit > 0 else sorted_rights
+        spliced_rights: list[BaseRight] = sorted_rights[skip:skip + limit] if limit > 0 else sorted_rights
 
-            return IterationResult(spliced_rights, len(matching_rights))
-        except Exception as err:
-            raise RightsManagerIterationError(err) from err
+        return IterationResult(spliced_rights, len(matching_rights))
 
 
     def get_right(self, name: str) -> BaseRight | None:
@@ -127,14 +119,22 @@ class RightsManager:
 
         Returns:
             BaseRight | None: The right matching the given name, or None when no right matches
-
-        Raises:
-            RightsManagerGetError: If retrieval fails unexpectedly
         """
-        try:
-            return next((right for right in self.rights if right.name == name), None)
-        except Exception as err:
-            raise RightsManagerGetError(err) from err
+        return next((right for right in self.rights if right.name == name), None)
+
+
+    @staticmethod
+    def is_sortable_right_field(sort: str) -> bool:
+        """
+        Whether a `?sort=` value names an attribute the rights may be sorted by
+
+        Args:
+            sort (str): The requested sort attribute
+
+        Returns:
+            bool: True when `sort` is one of `RIGHT_SORTABLE_FIELDS`
+        """
+        return sort in RIGHT_SORTABLE_FIELDS
 
 # -------------------------------------------------- HELPER METHODS -------------------------------------------------- #
 
@@ -144,8 +144,7 @@ class RightsManager:
         Flattens a nested right tree into a flat list of rights
 
         Kept as the manager-side entry point, but the recursion itself lives once in
-        `cmdb.models.right_model.all_rights.flat_rights_tree`, which `GroupsManager` also uses - the
-        two had byte-identical bodies before
+        `cmdb.models.right_model.all_rights.flat_rights_tree`, which also builds `ALL_RIGHTS_FLAT`
 
         Args:
             right_tree (tuple[Any, ...] | list[Any]): A nested structure containing rights

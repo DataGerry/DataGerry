@@ -54,9 +54,13 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants im
     MediaFileRequestKey,
     MediaFileRight,
     DOWNLOAD_MIMETYPE,
+    READ_FAILED_MSG,
+    REPLACED_FILE_KEPT_MSG,
+    REPLACEMENT_NOT_RENAMED_MSG,
     UNPAGED_LIMIT,
 )
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
+    abort_if_name_taken,
     abort_unless_usable_parent,
     build_updated_file_data,
     build_upload_metadata,
@@ -67,7 +71,6 @@ from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils 
     get_stored_file_or_abort,
     get_upload_from_request,
     stream_grid_file,
-    unique_name_filter,
     validate_update_body,
 )
 from cmdb.interface.rest_api.responses.response_parameters import CollectionParameters
@@ -153,17 +156,20 @@ def add_new_file(request_user: CmdbUser) -> Resp:
     only declared keys, each of its declared type (``MEDIA_FILE_METADATA_SCHEMA``), the file's name follows
     the naming rule (``filename_problem``), and a ``parent`` names an existing folder
 
-    Uploading over an entry of the same name in the same folder REPLACES it: the new content is written
-    first and the old entry is removed only afterwards, so a refused or failing upload leaves the
-    previous file intact. The replaced entry's reference and reference_type are carried over, because
-    what points at the library entry must survive its content being replaced
+    Uploading over an entry of the same name in the same folder REPLACES it, in three steps
+    (`MediaFilesManager.replace_file`): the new content is stored under a name of its own, the old entry is
+    removed, and the new one takes the name. A refused or failing upload leaves the previous file intact; a
+    failure of the last step leaves the new content in the folder under its ``replacing_(<ID>)_`` name. The
+    replaced entry's reference and reference_type are carried over, because what points at the library entry
+    must survive its content being replaced
 
     Args:
         request_user (CmdbUser): The authenticated user issuing the request
 
     Raises:
         HTTPException: 403 when the user lacks the right; 400 when the request carries no usable file or
-            metadata, its parent is no folder, or the insert fails; 500 on an unexpected error
+            metadata, its parent is no folder, another upload took the name in the meantime, or a read or
+            write fails; 500 on an unexpected error
 
     Returns:
         InsertSingleResponse: The stored MediaFile and its public_id
@@ -175,19 +181,15 @@ def add_new_file(request_user: CmdbUser) -> Resp:
         upload, existing_filter, metadata = get_upload_from_request(request)
         abort_unless_usable_parent(media_files_manager, metadata.get(MediaFileMetadataKey.PARENT.value))
 
-        replaced_file: dict[str, Any] | None = None
+        replaced_file: dict[str, Any] | None = media_files_manager.get_file(existing_filter)
+        upload_metadata = build_upload_metadata(metadata, upload, request_user.public_id, replaced_file)
 
-        if media_files_manager.file_exists(existing_filter):
-            replaced_file = media_files_manager.get_file(existing_filter)
-
-        result = media_files_manager.insert_file(
-            data=upload,
-            metadata=build_upload_metadata(metadata, upload, request_user.public_id, replaced_file),
-        )
-
-        # Only now: the replacement exists, so removing the previous entry can no longer lose both
         if replaced_file:
-            media_files_manager.delete_file(replaced_file[MediaFileKey.PUBLIC_ID.value])
+            result = media_files_manager.replace_file(
+                upload, upload_metadata, replaced_file[MediaFileKey.PUBLIC_ID.value],
+            )
+        else:
+            result = media_files_manager.insert_file(data=upload, metadata=upload_metadata)
 
         return InsertSingleResponse(result, result[MediaFileKey.PUBLIC_ID.value]).make_response()
     except MediaFileManagerGetError as err:
@@ -195,8 +197,16 @@ def add_new_file(request_user: CmdbUser) -> Resp:
         abort(400, "Failed to retrieve the File which would be replaced from the database!")
     except MediaFileManagerInsertError as err:
         abort_if_too_large(err)
+        abort_if_name_taken(err)
         LOGGER.error("[add_new_file] MediaFileManagerInsertError: %s", err, exc_info=True)
         abort(400, "Failed to insert the File in the database!")
+    except MediaFileManagerDeleteError as err:
+        LOGGER.error("[add_new_file] MediaFileManagerDeleteError: %s", err, exc_info=True)
+        abort(400, REPLACED_FILE_KEPT_MSG)
+    except MediaFileManagerUpdateError as err:
+        abort_if_too_large(err)
+        LOGGER.error("[add_new_file] MediaFileManagerUpdateError: %s", err, exc_info=True)
+        abort(400, REPLACEMENT_NOT_RENAMED_MSG)
 
 
 @media_file_blueprint.route('/', methods=['PUT'])
@@ -218,7 +228,8 @@ def update_file(request_user: CmdbUser) -> Resp:
 
     The ``attachment`` query parameter is required. With ``{"reference": true}`` the write only re-points
     a reference and the filename is taken as given; otherwise the name has to stay unique inside its
-    folder, so a clashing one is renamed to ``copy_(n)_<name>``
+    folder, so a clashing one is renamed to ``copy_(n)_<name>``. The unique index over (filename,
+    metadata.parent) has the last word: a name another entry took in the meantime is a 400
 
     Args:
         request_user (CmdbUser): The authenticated user issuing the request
@@ -226,8 +237,8 @@ def update_file(request_user: CmdbUser) -> Resp:
     Raises:
         HTTPException: 403 when the user lacks the right; 400 when the body or the ``attachment``
             parameter is unusable, the update would change the folder flag or move the entry under a
-            parent that is no folder or lies inside it, or the update fails; 404 when no MediaFile
-            carries the public_id; 500 on an unexpected error
+            parent that is no folder or lies inside it, the name is taken, or a read or the update fails;
+            404 when no MediaFile carries the public_id; 500 on an unexpected error
 
     Returns:
         DefaultResponse: The updated MediaFile
@@ -252,15 +263,17 @@ def update_file(request_user: CmdbUser) -> Resp:
         # A file keeps its own name only where nothing else in the folder claims it - unless this write
         # merely re-points a reference, which leaves the name alone
         if not reference_attachment.get(MediaFileRequestKey.REFERENCE.value):
-            data[MediaFileKey.FILENAME.value] = create_attachment_name(
-                data[MediaFileKey.FILENAME.value], 0, unique_name_filter(data), media_files_manager,
-            )
+            data[MediaFileKey.FILENAME.value] = create_attachment_name(data, media_files_manager)
 
         media_files_manager.update_file(data)
 
         return DefaultResponse(data).make_response()
+    except MediaFileManagerGetError as err:
+        LOGGER.error("[update_file] MediaFileManagerGetError: %s", err, exc_info=True)
+        abort(400, READ_FAILED_MSG)
     except MediaFileManagerUpdateError as err:
         abort_if_too_large(err)
+        abort_if_name_taken(err)
         LOGGER.error("[update_file] MediaFileManagerUpdateError: %s", err, exc_info=True)
         abort(400, "Failed to update the File in the database!")
 

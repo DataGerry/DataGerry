@@ -19,7 +19,8 @@ Unit tests for cmdb.manager.isms_manager.control_measure_manager.ControlMeasureM
 Pure tests: no Mongo. The manager is driven against a ``MagicMock(spec=ControlMeasureManager)`` with
 its cross-collection database collaborator (aggregate_all) stubbed, so only the
 manager's own behavior is exercised - the grouped ``$in`` pipeline shape, the empty-input short
-circuit, and the error-wrapping into the ControlMeasureManager error hierarchy. The aggregation
+circuit, the error-wrapping into the ControlMeasureManager error hierarchy (and nothing but the
+aggregation's own error: a bug propagates as itself), and the delete-if-unused refusal. The aggregation
 itself is exercised against real MongoDB by the integration tier.
 """
 from unittest.mock import MagicMock
@@ -27,10 +28,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.manager.isms_manager.control_measure_manager import ControlMeasureManager
-from cmdb.models.isms_model import IsmsControlMeasureAssignment
+from cmdb.models.isms_model import IsmsControlMeasure, IsmsControlMeasureAssignment
 
-from cmdb.errors.manager import BaseManagerIterationError
-from cmdb.errors.manager.control_measure_manager import ControlMeasureManagerGetError
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
+from cmdb.errors.manager.control_measure_manager import (
+    CONTROL_MEASURE_MANAGER_ERRORS,
+    ControlMeasureManagerAssignmentUsageError,
+    ControlMeasureManagerDeleteError,
+    ControlMeasureManagerGetError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 CONTROL_ID_A: int = 101
@@ -65,7 +71,7 @@ class TestGetUsedControlMeasureIds:
         pipeline, collection = mgr.aggregate_all.call_args.args
         assert collection == IsmsControlMeasureAssignment.COLLECTION
         assert pipeline[0]['$match'] == {'control_measure_id': {'$in': [CONTROL_ID_A, CONTROL_ID_B]}}
-        assert pipeline[1]['$group'] == {'_id': '$control_measure_id'}
+        assert pipeline[-1]['$group'] == {'_id': '$control_measure_id'}
 
     def test_empty_input_returns_empty_without_querying(self) -> None:
         """An empty candidate list short-circuits to an empty set and never queries."""
@@ -82,10 +88,49 @@ class TestGetUsedControlMeasureIds:
         with pytest.raises(ControlMeasureManagerGetError):
             ControlMeasureManager.get_used_control_measure_ids(mgr, [CONTROL_ID_A])
 
-    def test_unexpected_error_wraps_as_control_measure_get_error(self) -> None:
-        """A generic exception is also wrapped as ``ControlMeasureManagerGetError``."""
+    def test_a_bug_propagates_as_itself(self) -> None:
+        """A programming error is not a failed lookup: it is not wrapped, so the route answers 500."""
         mgr = _mock_manager()
         mgr.aggregate_all.side_effect = RuntimeError('boom')
 
-        with pytest.raises(ControlMeasureManagerGetError):
+        with pytest.raises(RuntimeError):
             ControlMeasureManager.get_used_control_measure_ids(mgr, [CONTROL_ID_A])
+
+
+class TestDeleteIfUnused:
+    """``delete_if_unused`` refuses a referenced control measure and deletes an unreferenced one."""
+
+    @staticmethod
+    def _manager(used: bool) -> MagicMock:
+        """A manager whose control measure is (not) referenced, and stored"""
+        mgr = _mock_manager()
+        mgr.exceptions = CONTROL_MEASURE_MANAGER_ERRORS
+        mgr.collection = IsmsControlMeasure.COLLECTION
+        mgr.is_control_measure_used.return_value = used
+        mgr.find_one_and_delete.return_value = {'public_id': CONTROL_ID_A}
+
+        return mgr
+
+    def test_a_referenced_control_measure_is_refused_before_anything_is_deleted(self) -> None:
+        """The usage error is raised unwrapped and nothing is deleted."""
+        mgr = self._manager(used=True)
+
+        with pytest.raises(ControlMeasureManagerAssignmentUsageError):
+            ControlMeasureManager.delete_if_unused(mgr, CONTROL_ID_A)
+
+        mgr.find_one_and_delete.assert_not_called()
+
+    def test_an_unreferenced_control_measure_is_deleted(self) -> None:
+        """One atomic delete by public_id, and True."""
+        mgr = self._manager(used=False)
+
+        assert ControlMeasureManager.delete_if_unused(mgr, CONTROL_ID_A) is True
+        mgr.find_one_and_delete.assert_called_once_with({'public_id': CONTROL_ID_A})
+
+    def test_a_failed_usage_check_is_the_delete_error(self) -> None:
+        """The check's BaseManagerGetError becomes ControlMeasureManagerDeleteError."""
+        mgr = self._manager(used=False)
+        mgr.is_control_measure_used.side_effect = BaseManagerGetError('down')
+
+        with pytest.raises(ControlMeasureManagerDeleteError):
+            ControlMeasureManager.delete_if_unused(mgr, CONTROL_ID_A)

@@ -164,8 +164,6 @@ paths:
         $ref: "./paths/report_categories/report-categories.yaml"
     /report_categories/{public_id}:
         $ref: "./paths/report_categories/report-categories-by-id.yaml"
-    /locations:
-        $ref: "./paths/locations/locations.yaml"
     /locations/{public_id}:
         $ref: "./paths/locations/locations-by-id.yaml"
     /locations/{object_id}/object:

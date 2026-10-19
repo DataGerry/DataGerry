@@ -16,7 +16,6 @@
 """
 This module contains the implementation of the ObjectRelationsManager
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database import MongoDatabaseManager
@@ -36,13 +35,12 @@ from cmdb.models.relation_model import CmdbRelation, RelationKey, RelationDiffKe
 
 from cmdb.framework.results import IterationResult
 
+from cmdb.errors.manager import BaseManagerGetError, BaseManagerIterationError
 from cmdb.errors.manager.object_relations_manager import (
     OBJECT_RELATIONS_MANAGER_ERRORS,
     ObjectRelationsManagerIterationError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # The document keys, the roles and the relation-tab keys are shared with the routes and the
 # ObjectRelationLogsManager, so they live with the model (ObjectRelationKey / ObjectRelationRole /
@@ -264,19 +262,6 @@ class ObjectRelationsManager(GenericManager):
         return self.iterate_items(builder_params)
 
 
-    def get_related_relations(self, public_id: int) -> list[dict[str, Any]]:
-        """
-        Retrieves all CmdbObjectRelations referencing the given CmdbObject as parent or child
-
-        Args:
-            public_id (int): public_id of the CmdbObject whose CmdbObjectRelations are requested
-
-        Returns:
-            list[dict[str, Any]]: All CmdbObjectRelations where the CmdbObject is the parent or the child
-        """
-        return list(self.find(criteria=self.get_related_relations_query(public_id)))
-
-
     def get_relation_tabs(self, object_id: int, denied_type_ids: list[int] | None = None) -> list[dict[str, Any]]:
         """
         Summarises the object's relations into tab descriptors without loading any instances
@@ -299,7 +284,7 @@ class ObjectRelationsManager(GenericManager):
         """
         try:
             return self.aggregate_all(build_relation_tabs_pipeline(object_id, denied_type_ids))
-        except Exception as err:
+        except BaseManagerIterationError as err:
             raise ObjectRelationsManagerIterationError(err) from err
 
 
@@ -364,12 +349,14 @@ class ObjectRelationsManager(GenericManager):
         }
 
         try:
-            total = self.count_documents(criteria)
-            instances = list(self.find(criteria=criteria, limit=limit, skip=skip, sort=[(sort, order)]))
-
-            return instances, total
-        except Exception as err:
+            total: int = self.count_documents(criteria)
+            instances: list[dict[str, Any]] = self.find(
+                criteria=criteria, limit=limit, skip=skip, sort=[(sort, order)],
+            )
+        except BaseManagerGetError as err:
             raise ObjectRelationsManagerIterationError(err) from err
+
+        return instances, total
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #
 
@@ -418,6 +405,10 @@ class ObjectRelationsManager(GenericManager):
         """
         Builds the query matching every CmdbObjectRelation that references any of the given CmdbObjects
 
+        A relation matches when ANY of the ids is its parent object or its child object - one id per relation is
+        enough, the other end can be any object. An empty list matches no relation (``$in: []``). The object
+        delete builds its relation cascade from it, for one object as for a whole selection
+
         Args:
             public_ids (list[int]): public_ids of the CmdbObjects to match as parent or child
 
@@ -428,24 +419,6 @@ class ObjectRelationsManager(GenericManager):
             Builder.in_(ObjectRelationKey.RELATION_PARENT_ID.value, public_ids),
             Builder.in_(ObjectRelationKey.RELATION_CHILD_ID.value, public_ids),
         ])
-
-
-    def get_related_relations_query(self, public_id: int) -> dict[str, Any]:
-        """
-        Builds the query matching every CmdbObjectRelation referencing the given CmdbObject
-
-        Args:
-            public_id (int): public_id of the CmdbObject to match as parent or child
-
-        Returns:
-            dict[str, Any]: A Mongo ``$or`` query on the parent/child object id fields
-        """
-        return {
-            "$or": [
-                {ObjectRelationKey.RELATION_PARENT_ID.value: public_id},
-                {ObjectRelationKey.RELATION_CHILD_ID.value: public_id},
-            ]
-        }
 
 
     def delete_invalidated_object_relations(

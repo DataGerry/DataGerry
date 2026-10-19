@@ -23,6 +23,7 @@ patched at the route module path. No Mongo and no blueprint registration runs - 
 route glue (manager-call ordering, branch selection, and status-code mapping to 400/404/500)
 is exercised.
 """
+from http import HTTPStatus
 from typing import Any, Callable
 from unittest.mock import MagicMock, patch
 
@@ -32,7 +33,6 @@ from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerType
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_routes import (
-    get_cmdb_locations,
     get_cmdb_location_tree_roots,
     get_cmdb_location_tree_children,
     get_cmdb_location_tree_path,
@@ -47,10 +47,13 @@ from cmdb.interface.rest_api.routes.framework_routes.cmdb_locations.location_rou
 )
 from cmdb.models.location_model.location_constants import RootLocationDefault
 
+from cmdb.database.database_constants import QUERY_TIME_LIMIT_MS
+from cmdb.errors.database import DocumentQueryTimeLimitError
+from cmdb.interface.request_limits_constants import MILLISECONDS_PER_SECOND, QUERY_TIME_LIMIT_RESPONSE_MESSAGE
 from cmdb.errors.manager.locations_manager import (
     LocationsManagerGetError,
-    LocationsManagerUpdateError,
     LocationsManagerIterationError,
+    LocationsManagerUpdateError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -120,72 +123,6 @@ def fixture_patched_provider(managers: dict[ManagerType, MagicMock]) -> Any:
     """Patches ``ManagerProvider.get_manager`` to return the per-type mock from ``managers``."""
     with patch(f'{ROUTE_PATH}.ManagerProvider.get_manager', side_effect=lambda mtype, user: managers[mtype]) as p:
         yield p
-
-
-# -------------------------------------------------------------------------------------------------------------------- #
-#                                                  get_cmdb_locations                                                 #
-# -------------------------------------------------------------------------------------------------------------------- #
-class TestGetCmdbLocations:
-    """``get_cmdb_locations`` answers the canonical documents of the page, mapping failures to 400/500."""
-
-    @staticmethod
-    def _call(flask_app: Flask) -> Any:
-        """Drives the unwrapped handler inside a GET request context."""
-        with flask_app.test_request_context('/', method='GET'):
-            return _unwrap(get_cmdb_locations)(params=MagicMock(), request_user=MagicMock())
-
-    def test_answers_the_documents_the_read_returned(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """
-        The documents go into the envelope as they are read - no model per row
-
-        The manager normalises them (``to_location_document``), so the route neither hydrates a
-        CmdbLocation nor converts one back.
-        """
-        del patched_provider
-        documents = [{'public_id': 1}, {'public_id': 2}]
-        managers[ManagerType.LOCATIONS].iterate_location_documents.return_value = (documents, TOTAL_LOCATIONS)
-        sentinel_response = MagicMock(name='wsgi_response')
-
-        with patch(f'{ROUTE_PATH}.BuilderParameters'), \
-             patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}), \
-             patch(f'{ROUTE_PATH}.GetMultiResponse') as response_ctor:
-            response_ctor.return_value.make_response.return_value = sentinel_response
-            result = self._call(flask_app)
-
-        assert response_ctor.call_args.args[0] is documents
-        assert response_ctor.call_args.kwargs['total'] == TOTAL_LOCATIONS
-        assert result is sentinel_response
-
-    def test_iteration_error_maps_to_400(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """A ``LocationsManagerIterationError`` is translated to HTTP 400."""
-        del patched_provider
-        managers[ManagerType.LOCATIONS].iterate_location_documents.side_effect = LocationsManagerIterationError(
-            'bad pipeline')
-
-        with patch(f'{ROUTE_PATH}.BuilderParameters'), \
-             patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}):
-            with pytest.raises(HTTPException) as excinfo:
-                self._call(flask_app)
-
-        assert excinfo.value.code == HTTP_BAD_REQUEST
-
-    def test_unexpected_error_maps_to_500(
-        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
-    ) -> None:
-        """Any other exception is translated to HTTP 500."""
-        del patched_provider
-        managers[ManagerType.LOCATIONS].iterate_location_documents.side_effect = RuntimeError('boom')
-
-        with patch(f'{ROUTE_PATH}.BuilderParameters'), \
-             patch(f'{ROUTE_PATH}.CollectionParameters.get_builder_params', return_value={}):
-            with pytest.raises(HTTPException) as excinfo:
-                self._call(flask_app)
-
-        assert excinfo.value.code == HTTP_SERVER_ERROR
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -615,10 +552,40 @@ class TestSearchCmdbLocationTree:
     def test_search_error_maps_to_400(
         self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
     ) -> None:
-        """A ``LocationsManagerGetError`` from the search is translated to HTTP 400."""
+        """A ``LocationsManagerIterationError`` from the search is translated to HTTP 400."""
         del patched_provider
         managers[ManagerType.LOCATIONS].search_locations_with_ancestors.side_effect = \
-            LocationsManagerGetError('search failed')
+            LocationsManagerIterationError('search failed')
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, 'rack')
+
+        assert excinfo.value.code == HTTP_BAD_REQUEST
+
+    def test_a_search_stopped_on_its_budget_answers_the_slow_query_503(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The server stopped it on QUERY_TIME_LIMIT_MS: the shared 503 naming the budget, not the 400"""
+        del patched_provider
+        timeout = DocumentQueryTimeLimitError('operation exceeded time limit', QUERY_TIME_LIMIT_MS)
+        stopped = LocationsManagerIterationError(timeout)
+        stopped.__cause__ = timeout  # as `raise ... from err` leaves it
+        managers[ManagerType.LOCATIONS].search_locations_with_ancestors.side_effect = stopped
+
+        with pytest.raises(HTTPException) as excinfo:
+            self._call(flask_app, 'rack')
+
+        assert excinfo.value.code == HTTPStatus.SERVICE_UNAVAILABLE
+        assert excinfo.value.description == QUERY_TIME_LIMIT_RESPONSE_MESSAGE.format(
+            seconds=QUERY_TIME_LIMIT_MS // MILLISECONDS_PER_SECOND)
+
+    def test_a_failed_children_read_maps_to_400(
+        self, flask_app: Flask, managers: dict[ManagerType, MagicMock], patched_provider: Any,
+    ) -> None:
+        """The has-children read after the search fails with a ``LocationsManagerGetError``: 400"""
+        del patched_provider
+        managers[ManagerType.LOCATIONS].search_locations_with_ancestors.return_value = []
+        managers[ManagerType.LOCATIONS].get_parents_with_children.side_effect = LocationsManagerGetError('down')
 
         with pytest.raises(HTTPException) as excinfo:
             self._call(flask_app, 'rack')

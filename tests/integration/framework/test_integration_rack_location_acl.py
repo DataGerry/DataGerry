@@ -38,16 +38,12 @@ from cmdb.interface.rest_api.routes.rack_routes.rack_route_constants import Rack
 from tests.utils import rack_acl_seed as seed
 # -------------------------------------------------------------------------------------------------------------------- #
 
+# Every test here reaches the database through ManagerProvider, which reads the REST app's context
+pytestmark = pytest.mark.usefixtures('rest_api_app_context')
+
 ROOT_NODE_ID: int = 1
 RACK_NODE_ID: int = 98791
 MEMBER_NODE_ID: int = 98792
-
-
-@pytest.fixture(autouse=True)
-def _app_context(rest_api):
-    """The REST app's context: the ACL builder reaches the types through ManagerProvider"""
-    with rest_api.application.app_context():
-        yield
 
 
 @pytest.fixture(name='nodes', autouse=True)

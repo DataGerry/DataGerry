@@ -102,6 +102,20 @@ class ResetTarget:
         return deepcopy(self.criteria)
 
 
+    @property
+    def deletes_all(self) -> bool:
+        """
+        Whether the reset deletes every document of the collection - what empty criteria declare
+
+        The delete is told so explicitly (`delete_all`), since the manager refuses an empty filter it was not told
+        is meant
+
+        Returns:
+            bool: True when the criteria are empty
+        """
+        return not self.criteria
+
+
 def _cleared(model: Any, criteria: dict[str, Any] | None = None, blocks_import: bool = True) -> ResetTarget:
     """
     The reset target of a collection whose matching documents are deleted and whose counter is set back

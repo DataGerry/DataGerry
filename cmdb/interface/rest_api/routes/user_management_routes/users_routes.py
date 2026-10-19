@@ -15,6 +15,11 @@
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
 Implementation of all API routes for CmdbUsers
+
+The user rights manage users; they do not make the caller an administrator. Only a member of the administrator
+group may create a user in it, move a user into it, change an administrator's administrative fields or password, or
+delete an administrator (**403** otherwise), and the group never loses its last active member (**400**) - see
+``users_helper``
 """
 from logging import Logger, getLogger
 from typing import Any
@@ -41,12 +46,19 @@ from cmdb.interface.route_utils import (
     verify_api_access,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_helper import (
+    abort_unless_administrator,
     apply_registration_time,
+    guard_administrator_create,
+    guard_administrator_update,
+    guard_last_administrator,
     guard_user_update,
     holds_right,
+    is_administrator,
     prepare_cloud_user,
 )
 from cmdb.interface.rest_api.routes.user_management_routes.users_constants import (
+    CHANGE_ADMINISTRATOR_PASSWORD_ACTION,
+    DELETE_ADMINISTRATOR_ACTION,
     USER_CREATED_NOT_READABLE_MESSAGE,
     USER_NAME_TAKEN_MESSAGE,
     UserAccessRight,
@@ -110,7 +122,7 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
     Raises:
         HTTPException: 400 when the body fails the schema, the group_id names no UserGroup or the user_name is
-            taken; 500 when the insert
+            taken; 403 when a non-administrator names the administrator group; 500 when the insert
             fails for any other reason (an outage is never reported as a taken name), when the created
             user cannot be read back, or on an unexpected error
 
@@ -124,6 +136,9 @@ def insert_cmdb_user(data: dict[str, Any], request_user: CmdbUser) -> Response:
 
         # A user in a group that does not exist authenticates and is refused every right, without a word why
         abort_on_unknown_references(groups_manager, [data[CmdbUserKey.GROUP_ID.value]], USER_GROUP_LABEL)
+
+        # Only an administrator creates an administrator
+        guard_administrator_create(request_user, data)
 
         user_password = data['password']
         data['password'] = security_manager.generate_hmac(data['password'])
@@ -260,8 +275,10 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
             names a group_id no UserGroup carries (the stored one included - a user left in a deleted group
             is refused on every save until an administrator picks an existing group),
             or renames the user onto a user_name another user holds (by the pre-check or, under a
-            concurrent write, by the unique index); 403 when the caller neither holds the right nor edits
-            themselves; 404 when the user does not exist; 500 when the update fails for any other reason,
+            concurrent write, by the unique index), or would demote / deactivate the last active administrator;
+            403 when the caller neither holds the right nor edits themselves, or is no administrator and assigns
+            the administrator group or changes an administrator's administrative field; 404 when the user does not
+            exist; 500 when the update fails for any other reason,
             or on an unexpected error
 
     Returns:
@@ -280,6 +297,9 @@ def update_cmdb_user(public_id: int, data: dict[str, Any], request_user: CmdbUse
         data,
         may_administer=holds_right(request_user, UserAccessRight.EDIT.value, groups_manager),
     )
+    # The administrator group is administered by administrators, and never left without an active member
+    guard_administrator_update(request_user, to_update_user, data)
+    guard_last_administrator(users_manager, to_update_user, data)
     pin_public_id(data, public_id)
     apply_registration_time(data)
 
@@ -326,7 +346,8 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
 
     Raises:
         HTTPException: 400 when no password is supplied or the user's provider owns its passwords
-            elsewhere; 404 when the user does not exist
+            elsewhere; 403 when a non-administrator changes an administrator's password; 404 when the user does
+            not exist
 
     Returns:
         UpdateSingleResponse: The CmdbUser with new password
@@ -339,6 +360,10 @@ def change_cmdb_user_password(public_id: int, request_user: CmdbUser) -> Respons
 
         if not to_update_user:
             abort(404, f"The User with ID:{public_id} was not found!")
+
+        # An administrator's password is set by an administrator only - else it is the way to become one
+        if is_administrator(to_update_user):
+            abort_unless_administrator(request_user, CHANGE_ADMINISTRATOR_PASSWORD_ACTION)
 
         if not AuthModule.provider_owns_passwords(to_update_user.authenticator):
             abort(
@@ -378,6 +403,10 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
     Args:
         public_id (int): public_id of the CmdbUser
 
+    Raises:
+        HTTPException: 400 when the user is the bootstrap administrator or the last active administrator, or the
+            delete fails; 403 when a non-administrator deletes an administrator; 404 when the user does not exist
+
     Returns:
         DeleteSingleResponse: Raw data of the deleted CmdbUser
     """
@@ -388,6 +417,12 @@ def delete_cmdb_user(public_id: int, request_user: CmdbUser) -> Response:
 
         if not to_delete_user:
             abort(404, f"The User with ID:{public_id} was not found!")
+
+        # Only an administrator deletes an administrator, and never the last active one
+        if is_administrator(to_delete_user):
+            abort_unless_administrator(request_user, DELETE_ADMINISTRATOR_ACTION)
+
+        guard_last_administrator(users_manager, to_delete_user, None)
 
         users_manager.delete_user(public_id)
 

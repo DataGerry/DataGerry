@@ -17,24 +17,21 @@
 Unit tests for the numeric coercers of the ISMS write routes
 
 Three routes normalise a client-supplied number to two decimals in place before the body reaches the
-manager: `IsmsImpact` and `IsmsLikelihood` do it for `calculation_basis`, `IsmsRiskAssessment` for
-`costs_for_implementation`. All three are the same shape - a `float(f"{float(x):.2f}")` in a `try`
-with an `abort(400)` on anything that will not convert.
+manager: `IsmsImpact` and `IsmsLikelihood` do it for `calculation_basis` (one shared coercer,
+`isms_scale_helper.coerce_calculation_basis`), `IsmsRiskAssessment` for `costs_for_implementation`.
+All of them go through `isms_routes_helper.coerce_isms_number`, which refuses with a 400 exactly what
+`float()` cannot read - and nothing else, so a programming error is never answered as the caller's.
 
-The two `calculation_basis` coercers are byte-identical twins in different modules, so they are
-parametrised together here: a fix applied to one and not the other is exactly the mix-up this file
-exists to catch. `calculation_basis` in particular is what the whole risk matrix is computed from, so
-a value stored as a string would not fail at write time but at report time.
+`calculation_basis` in particular is what the whole risk matrix is computed from, so a value stored as
+a string would not fail at write time but at report time.
 """
 from typing import Any
 
 import pytest
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.rest_api.routes.isms_routes.impact_routes import _coerce_calculation_basis as impact_coerce
-from cmdb.interface.rest_api.routes.isms_routes.likelihood_routes import (
-    _coerce_calculation_basis as likelihood_coerce,
-)
+from cmdb.interface.rest_api.routes.isms_routes.isms_routes_helper import coerce_isms_number
+from cmdb.interface.rest_api.routes.isms_routes.isms_scale_helper import coerce_calculation_basis
 from cmdb.interface.rest_api.routes.isms_routes.risk_assessment_routes import _coerce_costs_for_implementation
 # pylint: disable=use-implicit-booleaness-not-comparison
 # `== {}` rather than `not data`: the point is that the coercer left the payload EXACTLY as it
@@ -45,14 +42,15 @@ BASIS_KEY: str = 'calculation_basis'
 COSTS_KEY: str = 'costs_for_implementation'
 
 CALCULATION_BASIS_COERCERS = [
-    pytest.param(impact_coerce, id='impact'),
-    pytest.param(likelihood_coerce, id='likelihood'),
+    pytest.param(coerce_calculation_basis, id='calculation_basis'),
 ]
+TOO_LARGE_FOR_A_FLOAT: int = 10 ** 400
+REFUSAL: str = 'refused'
 
 
 @pytest.mark.parametrize('coerce', CALCULATION_BASIS_COERCERS)
 class TestCalculationBasisCoercion:
-    """`calculation_basis` on IsmsImpact and IsmsLikelihood - two copies of one rule."""
+    """`calculation_basis` on IsmsImpact and IsmsLikelihood - one rule, one coercer."""
 
     @pytest.mark.parametrize('raw, expected', [
         (1, 1.0), ('2.5', 2.5), (3.456, 3.46), (3.454, 3.45), (0, 0.0), (-1.5, -1.5),
@@ -66,7 +64,7 @@ class TestCalculationBasisCoercion:
         assert data[BASIS_KEY] == expected
         assert isinstance(data[BASIS_KEY], float)
 
-    @pytest.mark.parametrize('raw', ['abc', '', None, [], {}, '1,5'], ids=str)
+    @pytest.mark.parametrize('raw', ['abc', '', None, [], {}, '1,5', TOO_LARGE_FOR_A_FLOAT], ids=str)
     def test_an_unconvertible_value_is_a_400(self, coerce, raw: Any) -> None:
         """
         Storing it unconverted would fail later, in the risk matrix
@@ -122,3 +120,27 @@ class TestCostsForImplementationCoercion:
             _coerce_costs_for_implementation({COSTS_KEY: raw})
 
         assert excinfo.value.code == 400
+
+
+class TestCoerceIsmsNumber:
+    """The shared coercer: only what float() cannot read is the caller's 400."""
+
+    def test_a_programming_error_is_not_answered_as_a_400(self) -> None:
+        """A failure that is not the value's (here: a body that is no dict) propagates as itself."""
+        with pytest.raises(AttributeError):
+            coerce_isms_number(None, BASIS_KEY, REFUSAL)  # type: ignore[arg-type]
+
+    def test_the_refusal_names_the_route_message(self) -> None:
+        """The 400 carries the message the route passed."""
+        with pytest.raises(HTTPException) as excinfo:
+            coerce_isms_number({BASIS_KEY: 'abc'}, BASIS_KEY, REFUSAL)
+
+        assert excinfo.value.description == REFUSAL
+
+    def test_an_optional_none_is_left_alone(self) -> None:
+        """optional=True keeps None as None."""
+        data: dict[str, Any] = {BASIS_KEY: None}
+
+        coerce_isms_number(data, BASIS_KEY, REFUSAL, optional=True)
+
+        assert data[BASIS_KEY] is None

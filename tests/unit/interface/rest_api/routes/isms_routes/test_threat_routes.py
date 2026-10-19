@@ -20,7 +20,7 @@ Pure tests: no Mongo, no blueprint registration. The handler is unwrapped from i
 and driven against a MagicMock ThreatManager (resolved via a patched ManagerProvider), with the
 response factory patched at the route module path. Only the route's own orchestration is exercised -
 the used/unused partition (via the shared bulk_delete_reporting_in_use helper), that in-use ids are
-never deleted, that only actually-removed ids are reported, and the manager-error -> HTTP mapping.
+never deleted, that only stored ids are deleted (in one delete_many), and the manager-error -> HTTP mapping.
 """
 from typing import Any, Callable
 from unittest.mock import MagicMock, patch
@@ -30,11 +30,12 @@ from flask import Flask
 from werkzeug.exceptions import HTTPException
 
 from cmdb.manager.manager_provider_model import ManagerType
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.interface.rest_api.routes.isms_routes.threat_routes import delete_many_isms_threats
 
 from cmdb.errors.manager.threat_manager import (
+    THREAT_MANAGER_ERRORS,
     ThreatManagerGetError,
-    ThreatManagerDeleteError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -68,7 +69,15 @@ def fixture_flask_app() -> Flask:
 @pytest.fixture(name='manager')
 def fixture_manager() -> MagicMock:
     """A mock ThreatManager the route resolves via ManagerProvider."""
-    return MagicMock(name='threat_manager')
+    manager = MagicMock(name='threat_manager')
+    manager.exceptions = THREAT_MANAGER_ERRORS
+    # Every requested id is stored except MISSING_ID
+    manager.find.side_effect = lambda criteria: [
+        {'public_id': public_id} for public_id in sorted(criteria['public_id']['$in'])
+        if public_id != MISSING_ID
+    ]
+
+    return manager
 
 
 @pytest.fixture(name='patched_provider')
@@ -92,26 +101,23 @@ class TestDeleteManyThreats:
     ) -> None:
         """In-use ids are left untouched and reported; unused ids are deleted."""
         del patched_provider
-        manager.get_used_threat_ids.return_value = {THREAT_ID_B}
-        manager.delete_item.return_value = True
+        manager.get_used_threat_ids.side_effect = lambda ids: {THREAT_ID_B} & set(ids)
 
         with patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, f'{THREAT_ID_A},{THREAT_ID_B},{THREAT_ID_C}')
 
         # the whole requested batch drives the single used-check query
-        manager.get_used_threat_ids.assert_called_once_with([THREAT_ID_A, THREAT_ID_B, THREAT_ID_C])
-        deleted_calls = [call.args[0] for call in manager.delete_item.call_args_list]
-        assert THREAT_ID_B not in deleted_calls
-        assert sorted(deleted_calls) == [THREAT_ID_A, THREAT_ID_C]
+        first_check = manager.get_used_threat_ids.call_args_list[0]
+        assert first_check.args == ([THREAT_ID_A, THREAT_ID_B, THREAT_ID_C],)
+        manager.delete_many.assert_called_once_with({'public_id': {'$in': [THREAT_ID_A, THREAT_ID_C]}})
         response_cls.assert_called_once_with({'successfully': [THREAT_ID_A, THREAT_ID_C], 'in_use': [THREAT_ID_B]})
 
     def test_non_existent_ids_are_not_reported_as_deleted(
         self, flask_app: Flask, manager: MagicMock, patched_provider: Any,
     ) -> None:
-        """delete_item returning False (id did not exist) keeps that id out of the deleted list."""
+        """An id the read does not find is neither deleted nor reported."""
         del patched_provider
         manager.get_used_threat_ids.return_value = set()
-        manager.delete_item.side_effect = lambda public_id: public_id == THREAT_ID_A
 
         with patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, f'{THREAT_ID_A},{MISSING_ID}')
@@ -128,7 +134,7 @@ class TestDeleteManyThreats:
         with patch(f'{ROUTE_PATH}.DefaultResponse') as response_cls:
             self._call(flask_app, f'{THREAT_ID_A},{THREAT_ID_B}')
 
-        manager.delete_item.assert_not_called()
+        manager.delete_many.assert_not_called()
         response_cls.assert_called_once_with({'successfully': [], 'in_use': [THREAT_ID_A, THREAT_ID_B]})
 
     def test_invalid_id_aborts_400(
@@ -160,7 +166,7 @@ class TestDeleteManyThreats:
         """A ThreatManagerDeleteError from a delete surfaces as 400."""
         del patched_provider
         manager.get_used_threat_ids.return_value = set()
-        manager.delete_item.side_effect = ThreatManagerDeleteError('boom')
+        manager.delete_many.side_effect = BaseManagerDeleteError('boom')
 
         with pytest.raises(HTTPException) as excinfo:
             self._call(flask_app, str(THREAT_ID_A))

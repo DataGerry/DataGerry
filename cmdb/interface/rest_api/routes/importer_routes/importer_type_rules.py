@@ -52,12 +52,14 @@ from cmdb.class_schema.type_model.cmdb_type_schema import get_type_acl_schema
 from cmdb.interface.blueprints.schema_error_format import ERRORS_SEPARATOR, flatten_schema_errors
 from cmdb.utils import coerce_whole_number, parse_import_bool, is_non_blank_string
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_helper import (
+    special_type_is_unchanged,
+)
+from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_change_guard_helper import (
     field_identifier_change_blocker,
     location_field_removal_blocker,
     mds_section_identifier_change_blocker,
     selectable_as_parent_change_blocker,
     uses_ports_change_blocker,
-    special_type_is_unchanged,
 )
 from cmdb.interface.rest_api.routes.framework_routes.cmdb_types.types_reference_section_helper import (
     referenced_section_field_removal_blocker,

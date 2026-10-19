@@ -30,6 +30,7 @@ from cmdb.framework.media_library.media_file_keys import (
 from cmdb.models.cmdb_dao import CmdbDAO
 
 from cmdb.errors.cmdb_object import NoPublicIDError
+from cmdb.errors.models.media_file import MediaFileInitFromDataError, MediaFileToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -41,13 +42,17 @@ class MediaFile(BaseMediaFile):
     """
     A file of the media library, i.e. one GridFS file document
 
-    Instances are built from a stored document (`MediaFile(**grid._file)`), which is why the constructor
-    takes GridFS' own camelCase key names; `to_json` turns one back into the document the read routes
-    answer with. The metadata sub-document is passed through untouched - `build_media_file_metadata` is
-    what shapes it on the way in
+    Instances are built from a stored document (`from_data`, i.e. `MediaFile(**document)`), which is why the
+    constructor takes GridFS' own camelCase key names; `to_json` turns one back into the document the read
+    routes answer with. The metadata sub-document is passed through untouched - `build_media_file_metadata`
+    is what shapes it on the way in
     """
 
     COLLECTION = 'media.libary'
+    # What its own from_data / to_json raise - declared so the manager can tell a stored document that no longer
+    # fits the model from a programming error
+    INIT_FROM_DATA_ERROR: type[Exception] = MediaFileInitFromDataError
+    TO_JSON_ERROR: type[Exception] = MediaFileToJsonError
 
     # A file's identity is (filename, metadata.parent): the library is a tree, so the same name in two
     # different folders is legal and only a clash INSIDE one folder is not - which is exactly what the
@@ -180,6 +185,30 @@ class MediaFile(BaseMediaFile):
 
 
     @classmethod
+    def from_data(cls, document: dict[str, Any]) -> "MediaFile":
+        """
+        Builds a MediaFile from a stored GridFS file document
+
+        A document lacking one of the keys GridFS writes (`filename`, `chunkSize`, `uploadDate`, `length`) or the
+        `metadata` sub-document can not be read as a MediaFile. That is the stored document's problem, not a
+        programming error, so it is raised as the declared `INIT_FROM_DATA_ERROR`
+
+        Args:
+            document (dict[str, Any]): The stored file document
+
+        Raises:
+            MediaFileInitFromDataError: When the document lacks a key the constructor requires
+
+        Returns:
+            MediaFile: The file the document describes
+        """
+        try:
+            return cls(**document)
+        except TypeError as err:
+            raise MediaFileInitFromDataError(err) from err
+
+
+    @classmethod
     def to_json(cls, instance: "MediaFile") -> dict[str, Any]:
         """
         Converts a MediaFile into the document the read routes answer with
@@ -187,11 +216,19 @@ class MediaFile(BaseMediaFile):
         Args:
             instance (MediaFile): The MediaFile to convert
 
+        Raises:
+            MediaFileToJsonError: When the file carries no public_id
+
         Returns:
             dict[str, Any]: The file's public representation, metadata sub-document included
         """
+        try:
+            public_id: int = instance.get_public_id()
+        except NoPublicIDError as err:
+            raise MediaFileToJsonError(err) from err
+
         return {
-            'public_id': instance.get_public_id(),
+            'public_id': public_id,
             'filename': instance.get_filename(),
             'size': instance.get_size(),
             'upload_date': instance.get_upload_date(),

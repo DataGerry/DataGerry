@@ -28,23 +28,16 @@ from werkzeug.exceptions import HTTPException
 from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.tenant_availability import abort_if_tenant_unavailable
 from cmdb.interface.tenant_availability_constants import TENANT_UNAVAILABLE_RESPONSE_MESSAGE
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
 UNAVAILABLE_TENANT: str = 'tenant_failed_update'
 HEALTHY_TENANT: str = 'tenant_up_to_date'
 
 
-def _app(unavailable: frozenset[str]) -> BaseCmdbApp:
-    """Builds the app with the given unavailable tenants."""
-    app = BaseCmdbApp(__name__)
-    app.unavailable_tenants = unavailable
-
-    return app
-
-
 def test_an_unavailable_tenant_is_answered_503() -> None:
     """The fenced-off tenant gets the 503 and its message"""
-    with _app(frozenset({UNAVAILABLE_TENANT})).app_context():
+    with stub_cmdb_app(database_manager=None, unavailable_tenants=frozenset({UNAVAILABLE_TENANT})).app_context():
         with pytest.raises(HTTPException) as exc_info:
             abort_if_tenant_unavailable(UNAVAILABLE_TENANT)
 
@@ -55,7 +48,7 @@ def test_an_unavailable_tenant_is_answered_503() -> None:
 @pytest.mark.parametrize('database', [HEALTHY_TENANT, None, ''], ids=['other-tenant', 'none', 'empty'])
 def test_anything_else_passes(database: str | None) -> None:
     """Another tenant, or no tenant at all, is never refused"""
-    with _app(frozenset({UNAVAILABLE_TENANT})).app_context():
+    with stub_cmdb_app(database_manager=None, unavailable_tenants=frozenset({UNAVAILABLE_TENANT})).app_context():
         assert abort_if_tenant_unavailable(database) is None
 
 

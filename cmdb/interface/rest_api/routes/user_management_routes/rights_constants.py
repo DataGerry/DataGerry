@@ -28,6 +28,9 @@ RIGHT_ITEM_ROUTE: str = '/<string:name>'
 RIGHT_LEVELS_ROUTE: str = '/levels'
 RIGHTS_OVERVIEW_ROUTE: str = '/overview'
 
+# The 400 a list route answers for a `?sort=` value that names no sortable attribute of a right
+UNKNOWN_RIGHT_SORT_MESSAGE: str = "Rights cannot be sorted by '{sort}'!"
+
 
 class RightHolderKey(BaseStrEnum):
     """

@@ -30,7 +30,10 @@ from cmdb.framework.datagerry_assistant.datagerry_assistant_constants import (
     AssistantFieldKey,
     AssistantSectionKey,
 )
-from cmdb.framework.datagerry_assistant.predefined_template_provider import PredefinedTemplateProvider
+from cmdb.framework.datagerry_assistant.predefined_template_provider import (
+    PREDEFINED_TEMPLATE_FLAG,
+    PredefinedTemplateProvider,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  get_template                                                        #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -90,10 +93,10 @@ def _raw_template(name: str, label: str, fields: list[dict[str, Any]],
 def test_load_keys_templates_by_name_and_sets_global_id() -> None:
     """The loader keys every template by its name and records that name as global_id_name"""
     manager = MagicMock()
-    manager.iterate.return_value = SimpleNamespace(results=[
+    manager.get_section_templates_by.return_value = [
         _raw_template('dg-a', 'A', [{'type': 'text', 'name': 'a1', 'label': 'A1'}]),
         _raw_template('dg-b', 'B', [{'type': 'text', 'name': 'b1', 'label': 'B1'}]),
-    ])
+    ]
 
     provider = PredefinedTemplateProvider(manager)
 
@@ -104,15 +107,26 @@ def test_load_keys_templates_by_name_and_sets_global_id() -> None:
     assert template_a[AssistantSectionKey.GLOBAL_ID_NAME] == 'dg-a'
 
 
+def test_load_reads_only_the_predefined_templates_without_counting_them() -> None:
+    """One plain read of the predefined templates; the counting iterate is not used"""
+    manager = MagicMock()
+    manager.get_section_templates_by.return_value = []
+
+    PredefinedTemplateProvider(manager)
+
+    manager.get_section_templates_by.assert_called_once_with({PREDEFINED_TEMPLATE_FLAG: True})
+    manager.iterate.assert_not_called()
+
+
 def test_format_splits_default_keys_from_extras() -> None:
     """type/name/label stay top-level on a field; every other attribute is moved into 'extras'"""
     manager = MagicMock()
-    manager.iterate.return_value = SimpleNamespace(results=[
+    manager.get_section_templates_by.return_value = [
         _raw_template('dg-x', 'X', [
             {'type': 'text', 'name': 'plain', 'label': 'Plain'},
             {'type': 'text', 'name': 'fancy', 'label': 'Fancy', 'regex': '^x$', 'helperText': 'hint'},
         ]),
-    ])
+    ]
 
     provider = PredefinedTemplateProvider(manager)
     fields: list[dict[str, Any]] = provider.predefined_templates['dg-x'][SectionKey.FIELDS]
@@ -127,11 +141,11 @@ def test_format_splits_default_keys_from_extras() -> None:
 def test_format_carries_section_type() -> None:
     """The section 'type' is preserved so a multi-data-section template keeps its kind"""
     manager = MagicMock()
-    manager.iterate.return_value = SimpleNamespace(results=[
+    manager.get_section_templates_by.return_value = [
         _raw_template('dg-plain', 'Plain', [{'type': 'text', 'name': 'p1', 'label': 'P1'}]),
         _raw_template('dg-mds', 'MDS', [{'type': 'text', 'name': 'm1', 'label': 'M1'}],
                       SectionType.MDS_SECTION),
-    ])
+    ]
 
     provider = PredefinedTemplateProvider(manager)
 

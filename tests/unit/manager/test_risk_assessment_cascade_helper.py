@@ -18,7 +18,8 @@ Unit tests for cmdb.manager.risk_assessment_cascade_helper.delete_risk_assessmen
 
 Pure tests: a mock database manager. Pins the three steps of the cascade both deletes share - which
 assessments are selected (by id AND reference type), that the assessments are read before anything is
-deleted, which documents the two deletes remove - and how a failed delete surfaces
+deleted (through ``find_all``, which reads the cursor inside the database layer), which documents the two
+deletes remove - and how a failed read or delete surfaces
 """
 from typing import Any
 from unittest.mock import MagicMock
@@ -30,8 +31,8 @@ from cmdb.models.isms_model import IsmsControlMeasureAssignment, IsmsRiskAssessm
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.object_group_model import ObjectReferenceType
-from cmdb.errors.database import DocumentDeleteError
-from cmdb.errors.manager import BaseManagerDeleteError
+from cmdb.errors.database import DocumentDeleteError, DocumentGetError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 DB_NAME: str = 'cascade-db'
@@ -41,9 +42,9 @@ ASSESSMENT_IDS: list[int] = [11, 12]
 
 
 def _dbm(assessment_ids: list[int] | None = None) -> MagicMock:
-    """A database manager whose find answers the given assessments (ASSESSMENT_IDS by default)."""
+    """A database manager whose find_all answers the given assessments (ASSESSMENT_IDS by default)."""
     dbm = MagicMock(name='dbm')
-    dbm.find.return_value = [
+    dbm.find_all.return_value = [
         {RiskAssessmentKey.PUBLIC_ID.value: assessment_id}
         for assessment_id in (ASSESSMENT_IDS if assessment_ids is None else assessment_ids)
     ]
@@ -66,11 +67,11 @@ class TestWhichAssessmentsAreSelected:
 
         delete_risk_assessments_of(dbm, DB_NAME, reference_type, ENTITY_ID)
 
-        assert dbm.find.call_args.args == (
-            IsmsRiskAssessment.COLLECTION, DB_NAME,
-            {RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: reference_type.value,
-             RiskAssessmentKey.OBJECT_ID.value: ENTITY_ID},
-        )
+        assert dbm.find_all.call_args.args == (IsmsRiskAssessment.COLLECTION, DB_NAME)
+        assert dbm.find_all.call_args.kwargs['filter'] == {
+            RiskAssessmentKey.OBJECT_ID_REF_TYPE.value: reference_type.value,
+            RiskAssessmentKey.OBJECT_ID.value: ENTITY_ID,
+        }
 
     def test_an_in_clause_is_handed_on(self) -> None:
         """The batched form: one query for many entities"""
@@ -78,7 +79,7 @@ class TestWhichAssessmentsAreSelected:
 
         delete_risk_assessments_of(dbm, DB_NAME, ObjectReferenceType.OBJECT, ENTITY_IDS_CLAUSE)
 
-        assert dbm.find.call_args.args[2][RiskAssessmentKey.OBJECT_ID.value] == ENTITY_IDS_CLAUSE
+        assert dbm.find_all.call_args.kwargs['filter'][RiskAssessmentKey.OBJECT_ID.value] == ENTITY_IDS_CLAUSE
 
     def test_only_the_ids_are_read(self) -> None:
         """Projected to public_id: the cascade needs the ids, not the assessments themselves"""
@@ -86,7 +87,7 @@ class TestWhichAssessmentsAreSelected:
 
         delete_risk_assessments_of(dbm, DB_NAME, ObjectReferenceType.OBJECT, ENTITY_ID)
 
-        assert dbm.find.call_args.kwargs['projection'] == {RiskAssessmentKey.PUBLIC_ID.value: 1}
+        assert dbm.find_all.call_args.kwargs['projection'] == {RiskAssessmentKey.PUBLIC_ID.value: 1, '_id': 0}
 
 
 class TestWhatIsDeleted:
@@ -122,6 +123,26 @@ class TestWhatIsDeleted:
 
 class TestAFailedDelete:
     """How a failure surfaces."""
+
+    def test_a_failed_read_is_a_base_manager_get_error_and_deletes_nothing(self) -> None:
+        """The read's typed DocumentGetError becomes the manager-level read error; no delete runs"""
+        dbm = _dbm()
+        failure = DocumentGetError('read failed')
+        dbm.find_all.side_effect = failure
+
+        with pytest.raises(BaseManagerGetError) as caught:
+            delete_risk_assessments_of(dbm, DB_NAME, ObjectReferenceType.OBJECT, ENTITY_ID)
+
+        assert caught.value.args[0] is failure
+        dbm.delete_many_raw.assert_not_called()
+
+    def test_a_bug_in_the_read_propagates_as_itself(self) -> None:
+        """A programming error is not a failed read"""
+        dbm = _dbm()
+        dbm.find_all.side_effect = RuntimeError('bug')
+
+        with pytest.raises(RuntimeError):
+            delete_risk_assessments_of(dbm, DB_NAME, ObjectReferenceType.OBJECT, ENTITY_ID)
 
     def test_it_is_a_base_manager_delete_error_carrying_the_cause(self) -> None:
         """The manager-level error the callers already map, wrapping the database error itself"""

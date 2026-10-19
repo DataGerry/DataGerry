@@ -24,8 +24,7 @@ retrieve ... from the database", the route's 400 - instead of letting it reach t
 500. A manager catches the errors its calls raise: the ``BaseManager*Error`` of the call, the model's declared
 (de)serialisation errors, the typed errors of its own helpers.
 
-``GenericManager``, ``ObjectsManager``, ``TypesManager``, ``LocationsManager`` and ``UsersManager`` are narrowed
-(``NARROWED_FILES``); the rest of ``cmdb/manager/`` is the baseline
+The managers in ``NARROWED_FILES`` are narrowed; the rest of ``cmdb/manager/`` is the baseline
 (``manager_catch_all_baseline.json``: ``<file>::<Class.function>`` -> how many arms). A NEW arm fails here. A
 narrowed one fails too, until it is dropped from the baseline - so the file stays the true remainder.
 
@@ -50,6 +49,34 @@ NARROWED_FILES: tuple[str, ...] = (
     'types_manager.py',
     'locations_manager.py',
     'users_manager.py',
+    'categories_manager.py',
+    'groups_manager.py',
+    'rights_manager.py',
+    'user_settings_manager.py',
+    'docapi_templates_manager.py',
+    'extendable_options_manager.py',
+    'logs_manager.py',
+    'ci_explorer_profile_manager.py',
+    'reports_manager.py',
+    'section_templates_manager.py',
+    'media_files_manager.py',
+    'rack_mounts_manager.py',
+    'persons_manager.py',
+    'person_groups_manager.py',
+    'object_groups_manager.py',
+    'object_relations_manager.py',
+    'object_relation_logs_manager.py',
+    'isms_manager/control_measure_manager.py',
+    'isms_manager/impact_manager.py',
+    'isms_manager/isms_manager_helper.py',
+    'isms_manager/likelihood_manager.py',
+    'isms_manager/risk_assessment_manager.py',
+    'isms_manager/risk_manager.py',
+    'isms_manager/threat_manager.py',
+    'isms_manager/vulnerability_manager.py',
+    'objects_reference_helper.py',
+    'objects_summary_helper.py',
+    'system_manager/dg_service_portal_manager.py',
 )
 
 # The smallest tree the scan must still cover, so a moved package cannot make it pass vacuously

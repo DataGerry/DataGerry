@@ -23,20 +23,20 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.query_builder import BuilderParameters
 from cmdb.manager.generic_manager import GenericManager
 
-from cmdb.models.right_model.all_rights import flat_rights_tree, ALL_RIGHTS
+from cmdb.models.right_model.all_rights import ALL_RIGHTS_FLAT, ALL_RIGHT_NAMES
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.group_model import CmdbUserGroup, PROTECTED_GROUP_IDS
 from cmdb.framework.results import IterationResult
 
-from cmdb.errors.database import TRANSIENT_DATABASE_ERRORS
+from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.groups_manager import (
     GROUPS_MANAGER_ERRORS,
-    GroupsManagerInitError,
     GroupsManagerInsertError,
     GroupsManagerGetError,
     GroupsManagerIterationError,
     GroupsManagerDeleteError,
 )
+from cmdb.errors.models.cmdb_user_group import CmdbUserGroupInitFromDataError, CmdbUserGroupToJsonError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 LOGGER: Logger = getLogger(__name__)
@@ -52,35 +52,30 @@ class GroupsManager(GenericManager):
     Manages CmdbUserGroup documents on top of GenericManager
 
     Keeps the named public API (``insert_group`` / ``get_group`` / ``group_exists`` / ``iterate`` /
-    ``update_group`` / ``delete_group``) used by the existing route + bootstrap call sites. Insert overrides
-    ``GenericManager.insert_item`` because ``CmdbUserGroup.to_json`` needs ``insert_mode=True`` to
-    serialize rights as name strings; the reads (``get_group``, ``iterate``) and the write hydration build
-    every model through ``_build_group``, which feeds the cached ``self.rights`` to
-    ``CmdbUserGroup.from_data``; delete keeps the admin / user-group guard
+    ``update_group`` / ``delete_group``) used by the existing route + bootstrap call sites. Insert serialises a
+    model with ``insert_mode=True`` (rights as name strings) and then takes the generic insert path; the reads
+    (``get_group``, ``iterate``) and the write hydration build every model through ``_build_group``, which feeds
+    the shared ``self.rights`` to ``CmdbUserGroup.from_data``; delete keeps the admin / user-group guard
 
     Extends: GenericManager
     """
     def __init__(self, dbm: MongoDatabaseManager | None = None, database: str | None = None) -> None:
         """
-        Set the database connection for the GroupsManager and cache the flat right tree and its names
+        Set the database connection for the GroupsManager and hold the flat right tree and its names
 
-        ``right_names`` is the set of every name the right tree knows - what a group's ``rights`` may carry
+        Both are the catalogue flattened once at import (``ALL_RIGHTS_FLAT`` / ``ALL_RIGHT_NAMES``), shared
+        rather than rebuilt: a GroupsManager is built on every protected request. ``right_names`` is the set
+        of every name the right tree knows - what a group's ``rights`` may carry. Nothing here can fail
 
         Args:
             dbm (MongoDatabaseManager): Database interaction manager
             database (str): Name of the database to which the ``dbm`` should connect. Used whenever it is
                 given, in every mode - pass one only in cloud mode (``ManagerProvider`` does)
-
-        Raises:
-            GroupsManagerInitError: If the manager (or the right-tree cache) could not be initialised
         """
         super().__init__(dbm, CmdbUserGroup, GROUPS_MANAGER_ERRORS, database)
 
-        try:
-            self.rights: list[BaseRight] = flat_rights_tree(ALL_RIGHTS)
-            self.right_names: frozenset[str] = frozenset(right.name for right in self.rights)
-        except Exception as err:
-            raise GroupsManagerInitError(err) from err
+        self.rights: list[BaseRight] = ALL_RIGHTS_FLAT
+        self.right_names: frozenset[str] = ALL_RIGHT_NAMES
 
 # --------------------------------------------------- CRUD - CREATE -------------------------------------------------- #
 
@@ -88,32 +83,28 @@ class GroupsManager(GenericManager):
         """
         Insert a single CmdbUserGroup into the database
 
-        Overrides the generic insert path because ``CmdbUserGroup.to_json`` requires
-        ``insert_mode=True`` on insert, which serializes rights as a list of name strings rather
-        than as a list of full BaseRight dicts
+        A model instance is serialised here with ``insert_mode=True`` - its rights as a list of name strings
+        rather than full BaseRight dicts - and the document then takes the generic insert path
+        (``insert_item``), so it is normalised like every other raw document a GenericManager writes
 
         Args:
             group (CmdbUserGroup | dict[str, Any]): Raw dict or model instance of the CmdbUserGroup to create
 
         Raises:
-            GroupsManagerInsertError: When the CmdbUserGroup could not be inserted. The two TRANSIENT_DATABASE_ERRORS
-                are raised unwrapped
+            GroupsManagerInsertError: When the CmdbUserGroup could not be serialised or inserted. The two
+                TRANSIENT_DATABASE_ERRORS and any programming error propagate unwrapped
 
         Returns:
             int: The public_id of the inserted CmdbUserGroup
         """
-        try:
-            if isinstance(group, CmdbUserGroup):
+        if isinstance(group, CmdbUserGroup):
+            try:
                 group = CmdbUserGroup.to_json(group, True)
+            except CmdbUserGroupToJsonError as err:
+                LOGGER.error("[insert_group] CmdbUserGroupToJsonError: %s", err)
+                raise GroupsManagerInsertError(err) from err
 
-            return self.insert(group)
-        except TRANSIENT_DATABASE_ERRORS:
-            # A lock timeout or a lost connection is no fault of the CmdbUserGroup: left unwrapped for the route
-            # layer to answer as a server error, not as the insert's 400
-            raise
-        except Exception as err:
-            LOGGER.error("[insert_group] Exception: %s. Type: %s", err, type(err))
-            raise GroupsManagerInsertError(err) from err
+        return self.insert_item(group)
 
 # ---------------------------------------------------- CRUD - READ --------------------------------------------------- #
 
@@ -147,7 +138,8 @@ class GroupsManager(GenericManager):
             public_id (int): public_id of the CmdbUserGroup
 
         Raises:
-            GroupsManagerGetError: When the requested CmdbUserGroup could not be retrieved
+            GroupsManagerGetError: When the requested CmdbUserGroup could not be retrieved, or its stored
+                document cannot be read as a CmdbUserGroup
 
         Returns:
             CmdbUserGroup | None: The requested CmdbUserGroup, or None if no group has that id
@@ -159,8 +151,8 @@ class GroupsManager(GenericManager):
 
         try:
             return self._build_group(requested_group)
-        except Exception as err:
-            LOGGER.error("[get_group] Exception: %s. Type: %s", err, type(err))
+        except CmdbUserGroupInitFromDataError as err:
+            LOGGER.error("[get_group] CmdbUserGroupInitFromDataError: %s", err)
             raise GroupsManagerGetError(err) from err
 
 
@@ -185,8 +177,8 @@ class GroupsManager(GenericManager):
             documents, total = self.iterate_query(builder_params)
 
             return IterationResult([self._build_group(document) for document in documents], total)
-        except Exception as err:
-            LOGGER.error("[iterate] Exception: %s. Type: %s", err, type(err))
+        except (BaseManagerIterationError, CmdbUserGroupInitFromDataError) as err:
+            LOGGER.error("[iterate] %s: %s", type(err).__name__, err)
             raise GroupsManagerIterationError(err) from err
 
 # --------------------------------------------------- CRUD - UPDATE -------------------------------------------------- #

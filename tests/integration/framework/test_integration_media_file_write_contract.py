@@ -18,10 +18,10 @@ Integration tests for the MediaFile write rules against a real MongoDB GridFS
 
 The route helpers with a real `MediaFilesManager`:
 
-  - `abort_unless_usable_parent` walks a real folder chain: a move into the own subtree is refused at any
-    depth, a move elsewhere passes, and a loop already stored above the target ends the walk
-  - `unique_name_filter` is a filter GridFS honours: the entry itself is no clash, another entry of the
-    name is, so `create_attachment_name` renames only then
+  - `abort_unless_usable_parent` reads a real folder chain in one `$graphLookup`: a move into the own subtree is
+    refused at any depth, a move elsewhere passes, and a loop already stored above the target ends the walk
+  - `create_attachment_name` reads the folder's other names in one query: the entry itself is no clash, another
+    entry of the name in the same folder is, so it renames only then, to the first free copy
   - `build_updated_file_data` + `update_file` store the same document twice over (re-run safe)
 """
 from io import BytesIO
@@ -32,14 +32,13 @@ from werkzeug.datastructures import FileStorage
 from werkzeug.exceptions import HTTPException
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.manager.media_files_manager import MediaFilesManager
+from cmdb.manager.media_files_manager import ANCESTOR_IDS_FIELD, MediaFilesManager
 from cmdb.framework.media_library import MediaFile, MediaFileMetadataKey
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_constants import PARENT_CYCLE_MSG
 from cmdb.interface.rest_api.routes.media_library_routes.media_file_route_utils import (
     abort_unless_usable_parent,
     build_updated_file_data,
     create_attachment_name,
-    unique_name_filter,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -112,6 +111,24 @@ class TestParentWalk:
         assert exc_info.value.code == HTTP_BAD_REQUEST
         assert exc_info.value.description == PARENT_CYCLE_MSG
 
+    def test_a_move_into_itself_is_refused(self, manager: MediaFilesManager) -> None:
+        """A folder as its own parent"""
+        folder = _insert(manager, 'self', folder=True)
+
+        with pytest.raises(HTTPException) as exc_info:
+            abort_unless_usable_parent(manager, folder, moved_id=folder)
+
+        assert exc_info.value.description == PARENT_CYCLE_MSG
+
+    def test_the_ancestry_is_read_whole(self, manager: MediaFilesManager) -> None:
+        """Every folder above the deepest one - one query however deep"""
+        chain = _chain(manager)
+
+        ancestry = manager.get_folder_ancestry(chain[-1])
+
+        assert ancestry['metadata']['folder'] is True
+        assert sorted(ancestry[ANCESTOR_IDS_FIELD]) == sorted(chain[:-1])
+
     def test_a_move_up_the_chain_passes(self, manager: MediaFilesManager) -> None:
         """The deepest folder next to the outermost one"""
         chain = _chain(manager)
@@ -131,23 +148,42 @@ class TestParentWalk:
         abort_unless_usable_parent(manager, first, moved_id=moved)
 
 
-class TestUniqueNameFilter:
-    """The filter excluding the entry itself, as GridFS evaluates it"""
+class TestCreateAttachmentName:
+    """The folder's names, read in one query that excludes the entry itself"""
 
     def test_the_entry_itself_is_no_clash(self, manager: MediaFilesManager) -> None:
         """A kept name stays"""
         file_id = _insert(manager, 'alone.txt')
         data = _stored(manager, file_id)
 
-        assert create_attachment_name(data['filename'], 0, unique_name_filter(data), manager) == data['filename']
+        assert create_attachment_name(data, manager) == data['filename']
 
     def test_another_entry_of_the_name_is(self, manager: MediaFilesManager) -> None:
         """The second of two same-named files in one folder is renamed"""
         _insert(manager, 'twin.txt')
         data = {'public_id': -1, 'filename': f'{NAME_PREFIX}twin.txt', 'metadata': {'parent': None}}
 
-        assert create_attachment_name(data['filename'], 0, unique_name_filter(data), manager) == \
-            f'copy_(1)_{NAME_PREFIX}twin.txt'
+        assert create_attachment_name(data, manager) == f'copy_(1)_{NAME_PREFIX}twin.txt'
+
+    def test_the_first_free_copy_is_taken(self, manager: MediaFilesManager) -> None:
+        """The name and its first copy are taken in the folder: the second copy"""
+        folder = _insert(manager, 'names', folder=True)
+        _insert(manager, 'twin.txt', folder)
+        manager.insert_file(
+            FileStorage(stream=BytesIO(b'x'), filename=f'copy_(1)_{NAME_PREFIX}twin.txt', content_type='text/plain'),
+            {MediaFileMetadataKey.AUTHOR_ID.value: AUTHOR_ID, MediaFileMetadataKey.PARENT.value: folder},
+        )
+        data = {'public_id': -1, 'filename': f'{NAME_PREFIX}twin.txt', 'metadata': {'parent': folder}}
+
+        assert create_attachment_name(data, manager) == f'copy_(2)_{NAME_PREFIX}twin.txt'
+
+    def test_another_folder_does_not_count(self, manager: MediaFilesManager) -> None:
+        """Only the entry's own folder is read"""
+        folder = _insert(manager, 'elsewhere', folder=True)
+        _insert(manager, 'twin.txt', folder)
+        data = {'public_id': -1, 'filename': f'{NAME_PREFIX}twin.txt', 'metadata': {'parent': None}}
+
+        assert create_attachment_name(data, manager) == f'{NAME_PREFIX}twin.txt'
 
 
 class TestUpdateIsRerunSafe:

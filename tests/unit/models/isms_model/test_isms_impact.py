@@ -55,6 +55,8 @@ PUBLIC_ID: int = 3
 NAME: str = 'High'
 CALCULATION_BASIS: float = 3.0
 DESCRIPTION: str = 'Serious damage to the organisation'
+# The unique index on the weight is named after its key
+BASIS_INDEX_NAME: str = 'calculation_basis'
 
 
 def _document(**overrides: Any) -> dict[str, Any]:
@@ -221,16 +223,19 @@ class TestDocumentIdentity:
         """The collection is part of the deployed database layout."""
         assert IsmsImpact.COLLECTION == 'isms.impact'
 
-    def test_no_indexes_are_declared(self) -> None:
+    def test_calculation_basis_is_unique(self) -> None:
         """
-        Deliberate: the impact scale is a handful of rows
+        One level per weight: the only declared index, and a unique one
 
-        The frontend's table sorts on calculation_basis server-side, but the whole collection is
-        preloaded in one query by load_impact_calculation_basis, so an index would buy nothing. The
-        other ISMS scale entities declare none either.
+        The write routes pre-check the rule with a read; the index is what holds when two writes race
         """
-        assert isinstance(IsmsImpact.INDEX_KEYS, list)
-        assert not IsmsImpact.INDEX_KEYS
+        indexes = IsmsImpact.get_index_keys()
+        basis_indexes = [index.document for index in indexes if index.document['name'] == BASIS_INDEX_NAME]
+
+        assert len(IsmsImpact.INDEX_KEYS) == 1
+        assert len(basis_indexes) == 1
+        assert basis_indexes[0]['unique'] is True
+        assert list(basis_indexes[0]['key'].keys()) == [BASIS_INDEX_NAME]
 
     def test_no_date_fields_are_declared(self) -> None:
         """The document holds no date, so it opts out of the CmdbDAO date normalisation."""

@@ -26,8 +26,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.manager.locations_manager import LocationsManager, visible_criteria
-from cmdb.manager.query_builder import BuilderParameters
-from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.errors.manager import BaseManagerIterationError
 from cmdb.errors.manager.locations_manager import LocationsManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -100,7 +98,7 @@ class TestScopedSearch:
         """Neither the hidden ancestor nor the readable match is found; another match is"""
         manager = _manager()
         hidden = {'public_id': HIDDEN_ANCESTOR_ID, 'name': 'hidden', 'parent': 1, 'type_id': DENIED_TYPE}
-        manager.aggregate_all.return_value = [
+        manager.aggregate_within_time_limit.return_value = [
             {'public_id': NODE_ID, 'name': 'srv-a', 'parent': HIDDEN_ANCESTOR_ID, 'type_id': OTHER_TYPE,
              'ancestors': [hidden]},
             {'public_id': VISIBLE_ID, 'name': 'srv-b', 'parent': 1, 'type_id': OTHER_TYPE, 'ancestors': []},
@@ -113,25 +111,10 @@ class TestScopedSearch:
     def test_a_hidden_match_itself_is_dropped(self) -> None:
         """Not found by name"""
         manager = _manager()
-        manager.aggregate_all.return_value = [
+        manager.aggregate_within_time_limit.return_value = [
             {'public_id': NODE_ID, 'name': 'secret', 'parent': 1, 'type_id': DENIED_TYPE, 'ancestors': []}]
 
         assert not LocationsManager.search_locations_with_ancestors(manager, 'secret', [DENIED_TYPE])
-
-
-class TestFlatList:
-    """iterate_location_documents"""
-
-    def test_the_reader_narrows_the_criteria(self) -> None:
-        """Rows and total alike - iterate_query applies the rule to the criteria both aggregations read"""
-        manager = _manager()
-        manager.iterate_query.return_value = ([], 0)
-        params, user = BuilderParameters(criteria={}), MagicMock()
-
-        LocationsManager.iterate_location_documents(manager, params, user, AccessControlPermission.READ)
-
-        manager.iterate_query.assert_called_once_with(params, user, AccessControlPermission.READ)
-        manager.apply_acl_to_builder_params.assert_not_called()
 
 
 class TestGetLocationChain:

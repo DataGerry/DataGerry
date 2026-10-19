@@ -28,7 +28,7 @@ from cmdb.open_celium import map_oc_name
 from cmdb.open_celium import CachedOcIdType, unmap_oc_name, is_hosted_cloud
 
 from cmdb.models.user_model import CmdbUser
-from cmdb.interface.route_utils import get_cached_user_manager
+from cmdb.interface.cloud_user_helper import get_cached_user_manager
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_subscription_helper import (
     oc_id_in_subscription,
     read_or_seed_cached_user,

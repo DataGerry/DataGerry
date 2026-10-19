@@ -50,10 +50,13 @@ class _StubObjectsManager:
     def __init__(self, public_ids: list[int] | None = None) -> None:
         self.public_ids = public_ids or []
         self.pipelines: list[list[dict[str, Any]]] = []
+        self.time_limits: list[int] = []
 
-    def aggregate_objects(self, pipeline: list[dict[str, Any]]) -> list[dict[str, int]]:
+    def aggregate_objects_within_time_limit(self, pipeline: list[dict[str, Any]],
+                                            time_limit_ms: int) -> list[dict[str, int]]:
         """Records the pipeline and answers the ids."""
         self.pipelines.append(pipeline)
+        self.time_limits.append(time_limit_ms)
 
         return [{'public_id': public_id} for public_id in self.public_ids]
 

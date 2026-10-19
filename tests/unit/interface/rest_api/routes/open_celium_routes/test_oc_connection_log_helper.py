@@ -35,7 +35,6 @@ from typing import Any
 import pytest
 from werkzeug.exceptions import HTTPException
 
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.rest_api.routes.open_celium_routes.oc_connection_log_helper import (
     build_connection_log_manager,
     required_int_param_or_abort,
@@ -46,20 +45,14 @@ from cmdb.interface.rest_api.routes.open_celium_routes.oc_routes_constants impor
     OcLogQueryParam,
     OcResponseKey,
 )
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
+
+# The database manager the app carries, compared against what the helper hands on
+DATABASE_MANAGER: str = 'the-dbm'
 
 CONNECTOR_NAME_KEY: str = OcResponseKey.CONNECTOR_NAME.value
 TENANT_DATABASE: str = 'db_customer'
-
-
-def _app() -> BaseCmdbApp:
-    """A BaseCmdbApp with a stub database manager."""
-    app = BaseCmdbApp(__name__)
-    app.database_manager = 'the-dbm'
-    app.cloud_mode = False
-    app.local_mode = False
-
-    return app
 
 
 def _flowchart(connector_name: Any = 'db_customer_MySQL') -> dict[str, Any]:
@@ -195,7 +188,7 @@ class TestRequiredIntParam:
 
     def test_a_value_is_answered(self) -> None:
         """The parsed integer is what the manager is called with"""
-        with _app().test_request_context('/?connectionId=12'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/?connectionId=12'):
             assert required_int_param_or_abort(OcLogQueryParam.CONNECTION_ID) == 12
 
     def test_zero_is_a_value(self) -> None:
@@ -206,17 +199,17 @@ class TestRequiredIntParam:
         provided" - a message that sends the caller looking for the wrong mistake. Whether the id
         exists is OpenCelium's to answer.
         """
-        with _app().test_request_context('/?connectionId=0'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/?connectionId=0'):
             assert required_int_param_or_abort(OcLogQueryParam.CONNECTION_ID) == 0
 
     def test_a_negative_value_is_a_value_too(self) -> None:
         """Same reasoning: this proxy does not invent id rules OpenCelium does not have"""
-        with _app().test_request_context('/?connectionId=-3'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/?connectionId=-3'):
             assert required_int_param_or_abort(OcLogQueryParam.CONNECTION_ID) == -3
 
     def test_an_absent_parameter_aborts_400(self) -> None:
         """The caller sent no id at all"""
-        with _app().test_request_context('/'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/'):
             with pytest.raises(HTTPException) as exc_info:
                 required_int_param_or_abort(OcLogQueryParam.CONNECTION_ID)
 
@@ -226,7 +219,7 @@ class TestRequiredIntParam:
     @pytest.mark.parametrize('query', ['/?connectionId=', '/?connectionId=abc', '/?connectionId=1.5'])
     def test_an_unusable_value_aborts_400_with_its_own_message(self, query: str) -> None:
         """It WAS provided, so the message says what is wrong with it instead"""
-        with _app().test_request_context(query):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context(query):
             with pytest.raises(HTTPException) as exc_info:
                 required_int_param_or_abort(OcLogQueryParam.CONNECTION_ID)
 
@@ -239,12 +232,12 @@ class TestRequiredStrParam:
 
     def test_a_value_is_answered(self) -> None:
         """Forwarded to OpenCelium unchanged"""
-        with _app().test_request_context('/?status=SUCCESS'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/?status=SUCCESS'):
             assert required_str_param_or_abort(OcLogQueryParam.STATUS) == 'SUCCESS'
 
     def test_an_absent_parameter_aborts_400(self) -> None:
         """Nothing was sent"""
-        with _app().test_request_context('/'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/'):
             with pytest.raises(HTTPException) as exc_info:
                 required_str_param_or_abort(OcLogQueryParam.STATUS)
 
@@ -252,7 +245,7 @@ class TestRequiredStrParam:
 
     def test_an_empty_value_aborts_400_with_its_own_message(self) -> None:
         """`?status=` was sent - reporting it as absent would be wrong"""
-        with _app().test_request_context('/?status='):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/?status='):
             with pytest.raises(HTTPException) as exc_info:
                 required_str_param_or_abort(OcLogQueryParam.STATUS)
 
@@ -260,7 +253,7 @@ class TestRequiredStrParam:
 
     def test_the_loop_index_uses_the_same_rule(self) -> None:
         """An operator that loops has one set of children per iteration"""
-        with _app().test_request_context('/?loopIndex=0'):
+        with stub_cmdb_app(database_manager=DATABASE_MANAGER).test_request_context('/?loopIndex=0'):
             assert required_str_param_or_abort(OcLogQueryParam.LOOP_INDEX) == '0'
 
 
@@ -297,11 +290,11 @@ class TestBuildConnectionLogManager:
 
         request_user = type('_User', (), {'database': expected})()
 
-        app = _app()
+        app = stub_cmdb_app(database_manager=DATABASE_MANAGER)
         app.cloud_mode = cloud_mode
 
         with app.test_request_context():
             manager = build_connection_log_manager(request_user)
 
         assert isinstance(manager, _RecordingManager)
-        assert recorded == {'dbm': 'the-dbm', 'database': expected}
+        assert recorded == {'dbm': DATABASE_MANAGER, 'database': expected}

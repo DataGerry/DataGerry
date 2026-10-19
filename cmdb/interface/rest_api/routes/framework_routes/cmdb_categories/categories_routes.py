@@ -166,6 +166,7 @@ def insert_cmdb_category(data: dict[str, Any], request_user: CmdbUser) -> Respon
 @verify_api_access(required_api_level=ApiLevel.ADMIN)
 @categories_blueprint.protect(auth=True, right=CategoryRight.VIEW.value)
 @categories_blueprint.parse_collection_parameters(view=CategoryListView.LIST.value)
+@handle_route_errors("while retrieving Categories from the database")
 def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) -> Response:
     """
     GET/HEAD ``/rest/categories/`` - list CmdbCategories (flat list or tree)
@@ -186,6 +187,7 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
     Raises:
         HTTPException: 400 when the iteration pipeline fails
             (``CategoriesManagerIterationError``)
+        HTTPException: 503 when either view's query ran past its time budget
         HTTPException: 500 when tree composition fails
             (``CategoriesManagerTreeInitError``) or on any unexpected error
 
@@ -233,11 +235,9 @@ def get_cmdb_categories(params: CollectionParameters, request_user: CmdbUser) ->
         LOGGER.error("[get_cmdb_categories] %s", err, exc_info=True)
         abort(400, "Could not retrieve Categories from database!")
     except CategoriesManagerTreeInitError as err:
+        abort_if_query_too_slow(err)
         LOGGER.error("[get_cmdb_categories] %s", err, exc_info=True)
         abort(500, "Failed to place the Categories into a tree structure!")
-    except Exception as err:
-        LOGGER.error("[get_cmdb_categories] Exception: %s. Type: %s", err, type(err), exc_info=True)
-        abort(500, "An internal server error occured while retrieving Categories from the database!")
 
 
 @categories_blueprint.route('/<int:public_id>', methods=['GET', 'HEAD'])

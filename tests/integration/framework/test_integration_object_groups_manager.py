@@ -31,6 +31,7 @@ from cmdb.database import MongoDatabaseManager
 from cmdb.manager.object_groups_manager import ObjectGroupsManager
 from cmdb.models.object_group_model import CmdbObjectGroup, ObjectGroupMode, ObjectReferenceType
 from cmdb.models.isms_model import IsmsRiskAssessment, IsmsControlMeasureAssignment
+from cmdb.errors.manager import BaseManagerDeleteError
 from cmdb.errors.manager.object_groups_manager import ObjectGroupsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -289,11 +290,22 @@ class TestDeleteWithFollowUp:
 
     def test_wraps_failure_in_delete_error(self, object_groups_manager: ObjectGroupsManager,
                                            monkeypatch) -> None:
-        """A failure anywhere in the follow-up (here the cascade) surfaces as ObjectGroupsManagerDeleteError."""
+        """The cascade's typed database failure surfaces as ObjectGroupsManagerDeleteError."""
         def _boom(*_args, **_kwargs):
-            raise RuntimeError('cascade failed')
+            raise BaseManagerDeleteError('cascade failed')
 
         monkeypatch.setattr(object_groups_manager, 'delete_object_group_from_risk_assessment_cascade', _boom)
 
         with pytest.raises(ObjectGroupsManagerDeleteError):
+            object_groups_manager.delete_with_follow_up(STATIC_GROUP_ID)
+
+    def test_a_bug_in_the_cascade_propagates_as_itself(self, object_groups_manager: ObjectGroupsManager,
+                                                       monkeypatch) -> None:
+        """A programming error is not a database failure: it reaches the caller unwrapped"""
+        def _bug(*_args, **_kwargs):
+            raise TypeError('a programming error')
+
+        monkeypatch.setattr(object_groups_manager, 'delete_object_group_from_risk_assessment_cascade', _bug)
+
+        with pytest.raises(TypeError):
             object_groups_manager.delete_with_follow_up(STATIC_GROUP_ID)

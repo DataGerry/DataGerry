@@ -16,7 +16,6 @@
 """
 Implementation of the RackMountsManager
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database import MongoDatabaseManager
@@ -24,7 +23,7 @@ from cmdb.database.database_constants import INTEGER_BSON_TYPES
 from cmdb.manager.generic_manager import GenericManager
 
 from cmdb.models.rack_model.cmdb_rack_mount import CmdbRackMount
-from cmdb.models.rack_model.rack_mount_constants import RackArea, RackMountKey
+from cmdb.models.rack_model.rack_mount_constants import RackMountKey
 
 from cmdb.errors.manager.rack_mounts_manager import (
     RACK_MOUNTS_MANAGER_ERRORS,
@@ -33,8 +32,6 @@ from cmdb.errors.manager.rack_mounts_manager import (
 )
 from cmdb.errors.manager import BaseManagerGetError, BaseManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
 
 # The one value the append index is computed from
 POSITION_PROJECTION: dict[str, int] = {RackMountKey.POSITION.value: 1, '_id': 0}
@@ -56,9 +53,6 @@ class RackMountsManager(GenericManager):
             dbm (MongoDatabaseManager): Database interaction manager
             database (str | None): Name of the database to which the 'dbm' should connect.
                                    Only used in CLOUD_MODE. Defaults to None
-
-        Raises:
-            RackMountsManagerInitError: If the RackMountsManager could not be initialised
         """
         super().__init__(dbm, CmdbRackMount, RACK_MOUNTS_MANAGER_ERRORS, database)
 
@@ -110,7 +104,7 @@ class RackMountsManager(GenericManager):
 
         try:
             return self.find(criteria=criteria)
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise RackMountsManagerGetError(err) from err
 
 
@@ -139,7 +133,7 @@ class RackMountsManager(GenericManager):
                 RackMountKey.RACK_ID.value: rack_id,
                 RackMountKey.AREA.value: {'$in': sorted(areas)},
             })
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise RackMountsManagerGetError(err) from err
 
 
@@ -175,29 +169,10 @@ class RackMountsManager(GenericManager):
                 sort=[(RackMountKey.POSITION.value, CmdbRackMount.DAO_DESCENDING)],
                 limit=1,
             )
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise RackMountsManagerGetError(err) from err
 
         return highest[0][RackMountKey.POSITION.value] + 1 if highest else 0
-
-
-    def count_mounts_of_rack(self, rack_id: int) -> int:
-        """
-        Counts how many CmdbObjects are members of a rack, placed or not
-
-        Args:
-            rack_id (int): public_id of the Rack CmdbObject
-
-        Raises:
-            RackMountsManagerGetError: If the count failed
-
-        Returns:
-            int: The number of mounts belonging to the rack
-        """
-        try:
-            return self.count_documents({RackMountKey.RACK_ID.value: rack_id})
-        except Exception as err:
-            raise RackMountsManagerGetError(err) from err
 
 # --------------------------------------------------- CRUD - DELETE -------------------------------------------------- #
 
@@ -219,7 +194,7 @@ class RackMountsManager(GenericManager):
         """
         try:
             return self.delete_many({RackMountKey.RACK_ID.value: rack_id}).deleted_count
-        except (BaseManagerDeleteError, Exception) as err:
+        except BaseManagerDeleteError as err:
             raise RackMountsManagerDeleteError(err) from err
 
 
@@ -240,7 +215,7 @@ class RackMountsManager(GenericManager):
         """
         try:
             return self.delete_many({RackMountKey.OBJECT_ID.value: object_id}).deleted_count
-        except (BaseManagerDeleteError, Exception) as err:
+        except BaseManagerDeleteError as err:
             raise RackMountsManagerDeleteError(err) from err
 
 # ------------------------------------------------- GENERAL FUNCTIONS ------------------------------------------------ #
@@ -345,24 +320,5 @@ class RackMountsManager(GenericManager):
 
         try:
             return self.find(criteria={RackMountKey.OBJECT_ID.value: {'$in': list(set(object_ids))}})
-        except Exception as err:
+        except BaseManagerGetError as err:
             raise RackMountsManagerGetError(err) from err
-
-
-    def get_unassigned_mounts(self, rack_id: int) -> list[dict[str, Any]]:
-        """
-        Retrieves the rack members that carry no placement
-
-        Convenience wrapper over get_mounts_of_rack for the UNASSIGNED bucket - the objects assigned
-        to the rack but not placed in it, including everything a height shrink displaced
-
-        Args:
-            rack_id (int): public_id of the Rack CmdbObject
-
-        Raises:
-            RackMountsManagerGetError: If the CmdbRackMounts could not be retrieved
-
-        Returns:
-            list[dict[str, Any]]: The unplaced members of the rack
-        """
-        return self.get_mounts_of_rack(rack_id, RackArea.UNASSIGNED.value)

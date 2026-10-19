@@ -25,6 +25,7 @@ from typing import Any
 
 from flask import abort
 
+from cmdb.database.database_constants import LONG_QUERY_TIME_LIMIT_MS
 from cmdb.manager import ObjectsManager, TypesManager
 from cmdb.utils import Builder
 from cmdb.models.special_type_model.special_type_enum import SpecialType
@@ -118,6 +119,8 @@ def load_assigned_rows_map(
     subnet_object_id: int,
     network: Network,
     denied_type_ids: list[int] | None = None,
+    *,
+    time_limit_ms: int = LONG_QUERY_TIME_LIMIT_MS,
 ) -> dict[str, dict[str, Any]]:
     """
     Loads every dg-ipam-interface row referencing the subnet and indexes them by canonical IP
@@ -125,7 +128,11 @@ def load_assigned_rows_map(
     A single aggregation matches the carrier documents, unwinds their dg-ipam-interface rows
     and projects only the per-row payload (owner public_id, owner type_id, IP, MAC) - the
     full CmdbObject documents never leave the database. Compatible with the project-wide
-    MongoDB 6.0 floor
+    MongoDB 7.0 floor.
+
+    Every stage streams - the unwinds and matches run batch by batch, one row per interface row in the subnet - so the
+    read runs under a time budget: the long one, an overview of a large subnet may legitimately take a while. Past it
+    the server stops the read, a later batch included, and the overview routes answer the slow-query 503
 
     Returns one entry per assigned IP. Rows whose IP value is unparsable as an IPv4
     dotted-quad or IPv6 address are dropped (corrupted state). Rows whose parsed IP falls
@@ -139,6 +146,13 @@ def load_assigned_rows_map(
         subnet_object_id (int): public_id of the subnet
         network (Network): The parsed subnet network, used to compute the per-row
             is_valid flag (rows whose IP is outside the network become is_valid=False)
+        denied_type_ids (list[int] | None): Types whose rows the reader may not see; None for none
+        time_limit_ms (int): The server-side time budget, in milliseconds. Keyword only. Defaults to
+            LONG_QUERY_TIME_LIMIT_MS
+
+    Raises:
+        ObjectsManagerIterationError: If the read failed - wrapping a DocumentQueryTimeLimitError when it ran past its
+            time budget
 
     Returns:
         dict[str, dict[str, Any]]: {ip_str: {'object_id', 'type_id', 'mac', 'is_valid'}};
@@ -182,7 +196,7 @@ def load_assigned_rows_map(
 
     out: dict[str, dict[str, Any]] = {}
 
-    for row in objects_manager.aggregate_objects(pipeline):
+    for row in objects_manager.aggregate_objects_within_time_limit(pipeline, time_limit_ms):
         row_ip: Any = row.get(AssignedField.IP)
 
         if not isinstance(row_ip, str):
@@ -193,22 +207,37 @@ def load_assigned_rows_map(
         if parsed_ip is None:
             continue
 
-        row_mac: Any = row.get(AssignedField.MAC)
-
-        # A row whose CARRIER the caller may not read is MASKED, not dropped. Dropping it would
-        # report the address as free, the user would try to assign it, and the write-time check -
-        # which is global and must stay unscoped - would refuse an address they cannot see. So the
-        # occupancy stays visible and only the identity behind it is withheld
-        is_denied: bool = bool(denied_type_ids) and row.get(AssignedField.TYPE_ID) in denied_type_ids
-
-        out[str(parsed_ip)] = {
-            AssignedField.OBJECT_ID: None if is_denied else row.get(AssignedField.OBJECT_ID),
-            AssignedField.TYPE_ID: None if is_denied else row.get(AssignedField.TYPE_ID),
-            AssignedField.MAC: None if is_denied else (row_mac if isinstance(row_mac, str) and row_mac else None),
-            AssignedField.IS_VALID: ip_in_network(parsed_ip, network),
-        }
+        out[str(parsed_ip)] = assigned_row_entry(row, ip_in_network(parsed_ip, network), denied_type_ids)
 
     return out
+
+
+def assigned_row_entry(row: dict[str, Any], is_valid: bool, denied_type_ids: list[int] | None) -> dict[str, Any]:
+    """
+    Builds the overview's entry for one assigned interface row
+
+    A row whose CARRIER the caller may not read is MASKED, not dropped. Dropping it would report the address as free,
+    the user would try to assign it, and the write-time check - which is global and must stay unscoped - would refuse
+    an address they cannot see. So the occupancy stays visible and only the identity behind it is withheld
+
+    Args:
+        row (dict[str, Any]): The aggregation's row - owner public_id, owner type_id, IP, MAC
+        is_valid (bool): Whether the row's IP lies inside the subnet's network
+        denied_type_ids (list[int] | None): Types whose rows the reader may not see; None for none
+
+    Returns:
+        dict[str, Any]: The entry - object_id, type_id and mac withheld (None) for a hidden carrier; mac None when it
+            is absent or empty
+    """
+    row_mac: Any = row.get(AssignedField.MAC)
+    is_denied: bool = bool(denied_type_ids) and row.get(AssignedField.TYPE_ID) in denied_type_ids
+
+    return {
+        AssignedField.OBJECT_ID: None if is_denied else row.get(AssignedField.OBJECT_ID),
+        AssignedField.TYPE_ID: None if is_denied else row.get(AssignedField.TYPE_ID),
+        AssignedField.MAC: None if is_denied else (row_mac if isinstance(row_mac, str) and row_mac else None),
+        AssignedField.IS_VALID: is_valid,
+    }
 
 
 def resolve_type_meta(

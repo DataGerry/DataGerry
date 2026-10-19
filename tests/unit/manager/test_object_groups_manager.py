@@ -35,6 +35,7 @@ import pytest
 from cmdb.manager.object_groups_manager import ObjectGroupsManager
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.object_group_model import ObjectGroupKey, ObjectGroupMode, ObjectReferenceType
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.object_groups_manager import ObjectGroupsManagerDeleteError
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -77,31 +78,38 @@ class TestDeleteWithFollowUp:
 
         assert order == ['cascade', 'delete']
 
-    def test_a_failing_cascade_surfaces_as_the_managers_delete_error(self) -> None:
-        """The route maps this error to a 400; an unwrapped pymongo error would reach it as a 500."""
+    @pytest.mark.parametrize('cause', [BaseManagerGetError('boom'), BaseManagerDeleteError('boom')], ids=str)
+    def test_a_failing_cascade_surfaces_as_the_managers_delete_error(self, cause: Exception) -> None:
+        """The route maps this error to a 400, and the group is left in place."""
         manager = _stub()
-        manager.delete_object_group_from_risk_assessment_cascade.side_effect = RuntimeError('boom')
-
-        with pytest.raises(ObjectGroupsManagerDeleteError):
-            ObjectGroupsManager.delete_with_follow_up(manager, GROUP_ID)
-
-        manager.delete_item.assert_not_called()
-
-    def test_the_original_error_survives_as_the_cause(self) -> None:
-        """
-        The wrapper carries the error itself rather than a string of it
-
-        str() reads the same either way, but the type and detail are only there for whoever inspects
-        the wrapper if the error object is kept.
-        """
-        manager = _stub()
-        original = RuntimeError('boom')
-        manager.delete_object_group_from_risk_assessment_cascade.side_effect = original
+        manager.delete_object_group_from_risk_assessment_cascade.side_effect = cause
 
         with pytest.raises(ObjectGroupsManagerDeleteError) as caught:
             ObjectGroupsManager.delete_with_follow_up(manager, GROUP_ID)
 
-        assert caught.value.__cause__ is original
+        assert caught.value.__cause__ is cause
+        manager.delete_item.assert_not_called()
+
+    def test_a_bug_in_the_cascade_propagates_as_itself(self) -> None:
+        """A programming error is not a database failure: it reaches the route's 500 unwrapped"""
+        manager = _stub()
+        manager.delete_object_group_from_risk_assessment_cascade.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            ObjectGroupsManager.delete_with_follow_up(manager, GROUP_ID)
+
+        manager.delete_item.assert_not_called()
+
+    def test_the_groups_own_delete_error_is_not_wrapped_again(self) -> None:
+        """delete_item already answers the manager's typed error, so it passes through as itself"""
+        manager = _stub()
+        original = ObjectGroupsManagerDeleteError('boom')
+        manager.delete_item.side_effect = original
+
+        with pytest.raises(ObjectGroupsManagerDeleteError) as caught:
+            ObjectGroupsManager.delete_with_follow_up(manager, GROUP_ID)
+
+        assert caught.value is original
 
 
 class TestRiskAssessmentCascade:
@@ -151,7 +159,7 @@ class TestFindGroupIdsContaining:
                     ObjectGroupKey.ASSIGNED_IDS.value: 42,
                 },
             ]
-        })
+        }, projection={ObjectGroupKey.PUBLIC_ID.value: 1, '_id': 0})
 
     def test_the_mode_is_filtered_as_a_plain_string(self) -> None:
         """

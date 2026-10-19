@@ -18,11 +18,14 @@ Unit tests for cmdb.manager.base_manager.BaseManager
 
 Pure tests: no Mongo. Each method is invoked unbound with a MagicMock standing in for the manager
 instance, so self.dbm / self.query_builder / self.aggregate_all are stubbed and only the method's own
-logic (id assignment, total extraction, criteria defaulting, the col / collection branches, the
-delete boolean and the exception mapping) is exercised. The logic-bearing methods get dedicated
+logic (id assignment, total extraction, criteria defaulting, the col / collection branches - the three writes
+that may name another collection of the database included - the delete boolean and the exception mapping) is
+exercised. The logic-bearing methods get dedicated
 tests; the thin dbm delegations are covered by the parametrized error-mapping table at the bottom,
 which pins that each one rewraps its database error as the matching BaseManager* error
 """
+import inspect
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -56,6 +59,8 @@ from cmdb.errors.manager import (
 MODULE_PATH: str = 'cmdb.manager.base_manager'
 
 COLLECTION: str = 'framework.stub'
+# Another collection of the same database, written by a cross-collection follow-up
+OTHER_COLLECTION: str = 'isms.riskAssessment'
 DB_NAME: str = 'test-db'
 TIME_LIMIT_MS: int = 1234
 
@@ -360,6 +365,35 @@ def test_delete_many_from_other_collection_wraps_failure() -> None:
         BaseManager.delete_many_from_other_collection(mgr, 'isms.controlMeasureAssignment', {'x': 1})
 
 
+@pytest.mark.parametrize('empty', [{}, None], ids=['empty-dict', 'none'])
+def test_delete_many_from_other_collection_refuses_an_unannounced_empty_filter(empty: Any) -> None:
+    """An empty filter would empty the OTHER collection: refused before the database is asked, naming it"""
+    mgr = _mock_manager()
+
+    with pytest.raises(BaseManagerDeleteError) as caught:
+        BaseManager.delete_many_from_other_collection(mgr, OTHER_COLLECTION, empty)
+
+    assert caught.value.args[0] == EMPTY_DELETE_FILTER_MSG.format(collection=OTHER_COLLECTION)
+    mgr.dbm.delete_many_raw.assert_not_called()
+
+
+def test_delete_many_from_other_collection_deletes_everything_when_told() -> None:
+    """delete_all=True is the one way to empty a collection through the manager"""
+    mgr = _mock_manager()
+    mgr.dbm.delete_many_raw.return_value = 'delete-result'
+
+    assert BaseManager.delete_many_from_other_collection(mgr, OTHER_COLLECTION, {}, delete_all=True) == 'delete-result'
+    mgr.dbm.delete_many_raw.assert_called_once_with(collection=OTHER_COLLECTION, db_name=DB_NAME, filter_query={})
+
+
+def test_delete_all_is_keyword_only() -> None:
+    """A positional True cannot be mistaken for a filter or slip in by accident"""
+    positional: tuple[Any, ...] = (_mock_manager(), OTHER_COLLECTION, {}, True)
+
+    with pytest.raises(TypeError):
+        BaseManager.delete_many_from_other_collection(*positional)
+
+
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  aggregate_query                                                     #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -478,6 +512,24 @@ def test_aggregate_within_time_limit_delegates_to_the_database_layer() -> None:
     )
 
 
+def test_aggregate_within_time_limit_reads_another_collection_when_named() -> None:
+    """collection= targets that collection with the manager's database - the budgeted twin of aggregate_all's"""
+    mgr = _mock_manager()
+    mgr.dbm.aggregate_within_time_limit.return_value = []
+
+    BaseManager.aggregate_within_time_limit(mgr, ['PIPE'], TIME_LIMIT_MS, collection=OTHER_COLLECTION)
+
+    mgr.dbm.aggregate_within_time_limit.assert_called_once_with(OTHER_COLLECTION, DB_NAME, ['PIPE'], TIME_LIMIT_MS)
+
+
+def test_aggregate_within_time_limit_collection_is_keyword_only() -> None:
+    """A third positional argument is never taken for the collection"""
+    positional: tuple = (_mock_manager(), ['PIPE'], TIME_LIMIT_MS, OTHER_COLLECTION)
+
+    with pytest.raises(TypeError):
+        BaseManager.aggregate_within_time_limit(*positional)
+
+
 def test_aggregate_within_time_limit_wraps_the_timeout_itself() -> None:
     """A DocumentQueryTimeLimitError is an aggregation error: wrapped, and still the wrapper's args[0]"""
     mgr = _mock_manager()
@@ -550,7 +602,7 @@ def test_iterate_query_delegates_the_data_half_to_aggregate_query() -> None:
     # The access control has already been put INTO params, so the data half is not given it again -
     # handing it down would restrict the rows and leave the count beside them unrestricted
     mgr.aggregate_query.assert_called_once_with(params)
-    mgr.apply_acl_to_builder_params.assert_called_once_with(params, user, permission)
+    mgr._apply_acl_to_builder_params.assert_called_once_with(params, user, permission)
     # Only the count pipeline is aggregated directly; the data half went through aggregate_query
     assert mgr.aggregate_within_time_limit.call_count == 1
 
@@ -570,18 +622,18 @@ def test_iterate_query_counts_the_criteria_the_rows_were_read_with() -> None:
 
     BaseManager.iterate_query(mgr, params, MagicMock(), MagicMock())
 
-    assert mgr.apply_acl_to_builder_params.call_args.args[0] is params
+    assert mgr._apply_acl_to_builder_params.call_args.args[0] is params
     mgr.query_builder.count.assert_called_once_with(params.get_criteria.return_value)
 
 
-# ------------------------------------------- apply_acl_to_builder_params -------------------------------------------- #
+# ------------------------------------------ _apply_acl_to_builder_params -------------------------------------------- #
 
 def test_apply_acl_to_builder_params_without_a_user_adds_nothing() -> None:
     """Every internal caller reads unscoped, and must not pay for a denied-types query."""
     params = MagicMock()
 
     with patch(f'{MODULE_PATH}.resolve_denied_type_ids') as resolve:
-        BaseManager.apply_acl_to_builder_params(params, None, MagicMock())
+        BaseManager._apply_acl_to_builder_params(params, None, MagicMock())
 
     resolve.assert_not_called()
     params.add_criteria.assert_not_called()
@@ -592,7 +644,7 @@ def test_apply_acl_to_builder_params_without_a_permission_adds_nothing() -> None
     params = MagicMock()
 
     with patch(f'{MODULE_PATH}.resolve_denied_type_ids') as resolve:
-        BaseManager.apply_acl_to_builder_params(params, MagicMock(), None)
+        BaseManager._apply_acl_to_builder_params(params, MagicMock(), None)
 
     resolve.assert_not_called()
     params.add_criteria.assert_not_called()
@@ -603,7 +655,7 @@ def test_apply_acl_to_builder_params_adds_nothing_when_no_type_is_denied() -> No
     params = MagicMock()
 
     with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[]):
-        BaseManager.apply_acl_to_builder_params(params, MagicMock(), MagicMock())
+        BaseManager._apply_acl_to_builder_params(params, MagicMock(), MagicMock())
 
     params.add_criteria.assert_not_called()
 
@@ -613,7 +665,7 @@ def test_apply_acl_to_builder_params_excludes_the_denied_types() -> None:
     params = MagicMock()
 
     with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[3, 9]):
-        BaseManager.apply_acl_to_builder_params(params, MagicMock(), MagicMock())
+        BaseManager._apply_acl_to_builder_params(params, MagicMock(), MagicMock())
 
     params.add_criteria.assert_called_once_with({'type_id': {'$nin': [3, 9]}})
 
@@ -623,7 +675,7 @@ def test_apply_acl_to_builder_params_resolves_the_denied_types_once() -> None:
     params = MagicMock()
 
     with patch(f'{MODULE_PATH}.resolve_denied_type_ids', return_value=[3]) as resolve:
-        BaseManager.apply_acl_to_builder_params(params, MagicMock(), MagicMock())
+        BaseManager._apply_acl_to_builder_params(params, MagicMock(), MagicMock())
 
     resolve.assert_called_once()
 
@@ -647,7 +699,7 @@ def test_iterate_query_total_defaults_to_zero_when_count_empty() -> None:
 def test_iterate_query_wraps_a_failed_access_control_read(failure: Exception) -> None:
     """The denied types could not be read: one iteration error for the caller, the read's error as args[0]"""
     mgr = _mock_manager()
-    mgr.apply_acl_to_builder_params.side_effect = failure
+    mgr._apply_acl_to_builder_params.side_effect = failure
 
     with pytest.raises(BaseManagerIterationError) as caught:
         BaseManager.iterate_query(mgr, MagicMock(), MagicMock(), MagicMock())
@@ -680,7 +732,7 @@ def test_iterate_query_passes_an_aggregation_error_on_unwrapped(half: str) -> No
 def test_iterate_query_lets_a_bug_in_the_access_control_step_through() -> None:
     """Only the denied-types READ is wrapped; a bug around it (a group id that is no number) surfaces as itself"""
     mgr = _mock_manager()
-    mgr.apply_acl_to_builder_params.side_effect = TypeError('bug')
+    mgr._apply_acl_to_builder_params.side_effect = TypeError('bug')
 
     with pytest.raises(TypeError):
         BaseManager.iterate_query(mgr, MagicMock(), MagicMock(), MagicMock())
@@ -733,6 +785,15 @@ def test_find_wraps_document_get_error() -> None:
 
     with pytest.raises(BaseManagerGetError):
         BaseManager.find(mgr, criteria={})
+
+
+def test_find_all_is_find_with_the_same_arguments() -> None:
+    """The older spelling hands everything through to find and answers what find answers"""
+    mgr = _mock_manager()
+    mgr.find.return_value = [{'public_id': 1}]
+
+    assert BaseManager.find_all(mgr, criteria={'x': 1}, limit=5) == [{'public_id': 1}]
+    mgr.find.assert_called_once_with(criteria={'x': 1}, limit=5)
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -1016,6 +1077,79 @@ def test_bulk_write_answers_the_database_layers_modified_count() -> None:
 
     assert result == 2
     mgr.dbm.bulk_write.assert_called_once_with(COLLECTION, DB_NAME, operations)
+
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                  the three writes that may name another collection                                   #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_update_many_writes_a_named_collection_of_the_same_database() -> None:
+    """``collection=`` replaces the manager's own collection; the database and the update stay the same"""
+    mgr = _mock_manager()
+
+    BaseManager.update_many(mgr, {'x': 1}, {'y': None}, collection=OTHER_COLLECTION)
+
+    mgr.dbm.update_many.assert_called_once_with(OTHER_COLLECTION, DB_NAME, {'x': 1}, {'y': None}, False)
+
+
+def test_update_many_raw_writes_a_named_collection_of_the_same_database() -> None:
+    """``collection=`` replaces the manager's own collection; filter, update and array filters pass through"""
+    mgr = _mock_manager()
+    pull = {'$pull': {'tags': 3}}
+
+    BaseManager.update_many_raw(mgr, {'tags': 3}, pull, collection=OTHER_COLLECTION)
+
+    mgr.dbm.update_many_raw.assert_called_once_with(
+        collection=OTHER_COLLECTION, db_name=DB_NAME, filter_query={'tags': 3}, update=pull, array_filters=None,
+    )
+
+
+def test_bulk_write_writes_a_named_collection_of_the_same_database() -> None:
+    """``collection=`` replaces the manager's own collection; the modified count is answered as before"""
+    mgr = _mock_manager()
+    mgr.dbm.bulk_write.return_value = 1
+    operations = [MagicMock()]
+
+    assert BaseManager.bulk_write(mgr, operations, collection=OTHER_COLLECTION) == 1
+    mgr.dbm.bulk_write.assert_called_once_with(OTHER_COLLECTION, DB_NAME, operations)
+
+
+@pytest.mark.parametrize('collection, named', [(None, COLLECTION), (OTHER_COLLECTION, OTHER_COLLECTION)],
+                         ids=['own', 'other'])
+def test_a_failed_bulk_write_names_the_collection_it_wrote(collection: str | None, named: str) -> None:
+    """The update error carries the database error and names the collection the operations went to"""
+    mgr = _mock_manager()
+    failure = DocumentInsertError('down')
+    mgr.dbm.bulk_write.side_effect = failure
+
+    with pytest.raises(BaseManagerUpdateError) as caught:
+        BaseManager.bulk_write(mgr, [], collection=collection)
+
+    assert f"'{named}'" in str(caught.value)
+    assert caught.value.__cause__ is failure
+
+
+@pytest.mark.parametrize('method, args, dbm_attribute', [
+    ('update_many', ({}, {'x': 1}), 'update_many'),
+    ('update_many_raw', ({}, {'$set': {'x': 1}}), 'update_many_raw'),
+    ('bulk_write', ([],), 'bulk_write'),
+], ids=['update_many', 'update_many_raw', 'bulk_write'])
+def test_a_bug_in_a_cross_collection_write_propagates_as_itself(
+        method: str, args: tuple[Any, ...], dbm_attribute: str) -> None:
+    """Only the database layer's typed error is wrapped - whichever collection is written"""
+    mgr = _mock_manager()
+    getattr(mgr.dbm, dbm_attribute).side_effect = TypeError('bug')
+
+    with pytest.raises(TypeError):
+        getattr(BaseManager, method)(mgr, *args, collection=OTHER_COLLECTION)
+
+
+@pytest.mark.parametrize('method', ['update_many', 'update_many_raw', 'bulk_write'])
+def test_the_collection_can_only_be_named_by_keyword(method: str) -> None:
+    """Keyword-only, so no existing positional call can bind a collection by accident"""
+    parameter = inspect.signature(getattr(BaseManager, method)).parameters['collection']
+
+    assert parameter.kind is inspect.Parameter.KEYWORD_ONLY
+    assert parameter.default is None
 
 
 # -------------------------------------------------------------------------------------------------------------------- #

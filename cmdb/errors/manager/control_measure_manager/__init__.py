@@ -26,6 +26,7 @@ from .control_measure_manager_errors import (
     ControlMeasureManagerUpdateError,
     ControlMeasureManagerDeleteError,
     ControlMeasureManagerIterationError,
+    ControlMeasureManagerAssignmentUsageError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -37,6 +38,7 @@ __all__: list[str] = [
     'ControlMeasureManagerUpdateError',
     'ControlMeasureManagerDeleteError',
     'ControlMeasureManagerIterationError',
+    'ControlMeasureManagerAssignmentUsageError',
 ]
 
 

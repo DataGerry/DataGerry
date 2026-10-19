@@ -131,7 +131,7 @@ def _row(object_id: int, type_id: int, ip: str, mac: str) -> dict[str, Any]:
 def fixture_rows_manager() -> MagicMock:
     """An ObjectsManager whose aggregation yields one visible and one denied row."""
     manager = MagicMock()
-    manager.aggregate_objects.return_value = [
+    manager.aggregate_objects_within_time_limit.return_value = [
         _row(101, ALLOWED_TYPE_ID, '10.0.0.5', 'aa:bb:cc:dd:ee:01'),
         _row(202, DENIED_TYPE_ID, '10.0.0.6', 'aa:bb:cc:dd:ee:02'),
     ]

@@ -22,8 +22,12 @@ patched at the module path
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from cmdb.framework.config_item_sync import build_type_object_counts, handle_sync_config_item_count
 from cmdb.framework.config_item_sync_constants import ConfigItemTypeCountKey
+from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 PATH: str = 'cmdb.framework.config_item_sync'
@@ -107,6 +111,25 @@ class TestHandleSyncConfigItemCount:
 
         manager_instance.sync_config_items.assert_called_once_with(request_user, 31, type_counts)
 
+
+    @pytest.mark.parametrize('failure', [ObjectsManagerIterationError('down'), TypesManagerGetError('down')],
+                             ids=['objects', 'types'])
+    def test_a_failed_count_read_skips_the_sync_without_failing_the_request(self, failure: Exception) -> None:
+        """Telemetry reported after the write must not turn a committed write into an error"""
+        manager_instance = MagicMock()
+
+        with patch(f'{PATH}.build_type_object_counts', side_effect=failure), \
+             patch(f'{PATH}.DgServicePortalManager', return_value=manager_instance):
+            handle_sync_config_item_count(MagicMock())
+
+        manager_instance.sync_config_items.assert_not_called()
+
+    def test_a_bug_while_counting_propagates_as_itself(self) -> None:
+        """Only the database's failure is swallowed"""
+        with patch(f'{PATH}.build_type_object_counts', side_effect=TypeError('bug')), \
+             patch(f'{PATH}.DgServicePortalManager'):
+            with pytest.raises(TypeError):
+                handle_sync_config_item_count(MagicMock())
 
 class TestTheWireKeys:
     """The portal reads these two names - pinned literally, so a renamed member cannot pass silently."""

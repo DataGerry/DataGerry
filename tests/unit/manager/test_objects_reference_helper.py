@@ -26,12 +26,16 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from cmdb.errors.manager.objects_manager import ObjectsManagerMdsReferencesError
 from cmdb.manager.objects_reference_helper import (
+    SORT_MISSING_KEY,
+    build_reference_id_criteria,
     build_reference_match_queries,
+    build_reference_page_query,
+    build_reference_page_stages,
     filter_mds_results_referencing,
-    merge_mds_references,
+    is_sortable_path,
     mds_rows_reference,
+    merge_reference_ids,
 )
 from cmdb.models.type_model.field_type_enum import FieldType
 from cmdb.models.type_model.section_type_enum import SectionType
@@ -40,8 +44,6 @@ from cmdb.models.type_model.section_type_enum import SectionType
 OWNER_OBJECT_ID: int = 700
 OWNER_TYPE_ID: int = 50
 OTHER_OWNER_OBJECT_ID: int = 701
-
-PATH: str = 'cmdb.manager.objects_reference_helper'
 
 
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -136,28 +138,158 @@ def test_filter_mds_results_referencing_without_names_for_a_type_keeps_nothing()
     assert filter_mds_results_referencing([candidate], OWNER_OBJECT_ID, {}) == []
 
 
-
-def test_merge_mds_references_wraps_failure() -> None:
-    """A failure while merging MDS references surfaces as ObjectsManagerMdsReferencesError."""
-    obj_result = MagicMock()
-    obj_result.results = []
-    with patch(f'{PATH}.CmdbObject.from_data', side_effect=RuntimeError('boom')):
-        with pytest.raises(ObjectsManagerMdsReferencesError):
-            merge_mds_references([{'public_id': 9}], obj_result, 0, 0, 'public_id', 1)
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                             merge_reference_ids                                                      #
+# -------------------------------------------------------------------------------------------------------------------- #
+def test_merge_reference_ids_keeps_the_field_references_first() -> None:
+    """Both halves contribute, in the order they were found"""
+    assert merge_reference_ids([{'public_id': 3}, {'public_id': 1}], [{'public_id': 2}]) == [3, 1, 2]
 
 
+def test_an_object_reached_both_ways_counts_once() -> None:
+    """
+    The same object can be reached through a normal field AND an MDS row
 
-    def test_an_object_already_referenced_is_not_added_twice(self) -> None:
-        """
-        The same object can be reached through a normal field AND an MDS row
+    It is one row of the listing and one of its total.
+    """
+    assert merge_reference_ids([{'public_id': 7}], [{'public_id': 7}, {'public_id': 8}]) == [7, 8]
 
-        It is one node in the result, which is what the referenced-ids set is for.
-        """
-        existing = MagicMock(public_id=7)
-        obj_result = MagicMock(results=[existing], total=1)
 
-        with patch(f'{PATH}.CmdbObject.from_data', return_value=MagicMock(public_id=7)):
-            merged = merge_mds_references([{'public_id': 7}], obj_result, 0, 0, 'public_id', 1)
+@pytest.mark.parametrize('public_id', [None, '7', True, 7.0], ids=['none', 'string', 'bool', 'float'])
+def test_a_row_without_an_integer_id_is_skipped(public_id: Any) -> None:
+    """A row naming no object can not be on a page"""
+    assert merge_reference_ids([{'public_id': public_id}], [{}]) == []
 
-        assert merged.total == 1
-        assert merged.results == [existing]
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           build_reference_page_stages                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+PAGE_IDS: list[int] = [4, 5, 6]
+
+
+def _stage(stages: list[dict[str, Any]], operator: str) -> Any:
+    """The body of the one stage using the operator, or None"""
+    bodies = [stage[operator] for stage in stages if operator in stage]
+
+    return bodies[0] if bodies else None
+
+
+def test_the_page_reads_only_the_referencing_ids() -> None:
+    """The first stage narrows the collection to the union"""
+    stages = build_reference_page_stages(PAGE_IDS, 2, 1, 'author_id', 1)
+
+    assert stages[0] == {'$match': {'public_id': {'$in': PAGE_IDS}}}
+
+
+@pytest.mark.parametrize('order', [1, -1], ids=['ascending', 'descending'])
+def test_the_missing_flag_is_sorted_first_in_the_requested_direction(order: int) -> None:
+    """
+    A missing or null value goes last ascending and first descending
+
+    MongoDB alone does the opposite; the flag sorted in the same direction as the key restores it.
+    """
+    stages = build_reference_page_stages(PAGE_IDS, 0, 0, 'author_id', order)
+
+    assert list(_stage(stages, '$sort').items()) == [
+        (SORT_MISSING_KEY, order), ('author_id', order), ('public_id', 1),
+    ]
+    assert _stage(stages, '$addFields') == {
+        SORT_MISSING_KEY: {'$eq': [{'$ifNull': ['$author_id', None]}, None]},
+    }
+
+
+def test_sorting_by_public_id_needs_no_tiebreaker() -> None:
+    """The key is unique, so it is not repeated"""
+    stages = build_reference_page_stages(PAGE_IDS, 0, 0, 'public_id', -1)
+
+    assert list(_stage(stages, '$sort').items()) == [(SORT_MISSING_KEY, -1), ('public_id', -1)]
+
+
+@pytest.mark.parametrize('sort', ['', '$where', 'na\x00me'], ids=['empty', 'operator', 'nul'])
+def test_a_key_that_is_no_field_path_sorts_by_public_id(sort: str) -> None:
+    """The listing never failed over its sort key, so an unusable one orders by id instead of a 400"""
+    stages = build_reference_page_stages(PAGE_IDS, 0, 0, sort, 1)
+
+    assert list(_stage(stages, '$sort')) == [SORT_MISSING_KEY, 'public_id']
+
+
+def test_a_limit_pages_after_the_sort() -> None:
+    """skip then limit, behind the sort"""
+    stages = build_reference_page_stages(PAGE_IDS, 2, 1, 'author_id', 1)
+    operators = [next(iter(stage)) for stage in stages]
+
+    assert operators.index('$sort') < operators.index('$skip') < operators.index('$limit')
+    assert _stage(stages, '$skip') == 1
+    assert _stage(stages, '$limit') == 2
+
+
+def test_without_a_limit_every_row_is_answered_and_skip_is_ignored() -> None:
+    """A limit of 0 is the whole listing, as it has always been"""
+    stages = build_reference_page_stages(PAGE_IDS, 0, 3, 'author_id', 1)
+
+    assert _stage(stages, '$skip') is None
+    assert _stage(stages, '$limit') is None
+
+
+def test_the_flag_and_the_mongo_id_are_projected_away() -> None:
+    """The page is plain CmdbObject documents"""
+    stages = build_reference_page_stages(PAGE_IDS, 0, 0, 'author_id', 1)
+
+    assert stages[-1] == {'$project': {SORT_MISSING_KEY: 0, '_id': 0}}
+
+
+@pytest.mark.parametrize('sort, usable', [
+    ('author_id', True), ('fields.value', True), ('', False), ('$expr', False), ('a\x00b', False),
+])
+def test_is_sortable_path(sort: str, usable: bool) -> None:
+    """A path is anything but empty, an operator, or a NUL"""
+    assert is_sortable_path(sort) is usable
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           build_reference_page_query                                                 #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('limit, skip, expected_skip', [(5, 10, 10), (0, 10, 0)], ids=['paged', 'unlimited'])
+def test_a_fields_sort_uses_the_listings_field_value_sort(limit: int, skip: int, expected_skip: int) -> None:
+    """A fields.<name> key sorts like the object listing; skip only applies together with a limit"""
+    query_builder = MagicMock()
+
+    with patch('cmdb.manager.objects_reference_helper.BuilderParameters') as builder_params:
+        build_reference_page_query(query_builder, [3, 4], limit, skip, 'fields.name', 1)
+
+    assert builder_params.call_args.kwargs == {
+        'criteria': {'public_id': {'$in': [3, 4]}}, 'limit': limit, 'skip': expected_skip,
+        'sort': 'fields.name', 'order': 1,
+    }
+    query_builder.build.assert_called_once_with(builder_params.return_value)
+
+
+def test_any_other_sort_uses_the_reference_page_stages() -> None:
+    """Every key but fields.<name> goes through build_reference_page_stages, without the query builder"""
+    query_builder = MagicMock()
+
+    stages = build_reference_page_query(query_builder, [3], 5, 0, 'author_id', 1)
+
+    assert stages == build_reference_page_stages([3], 5, 0, 'author_id', 1)
+    query_builder.build.assert_not_called()
+
+# -------------------------------------------------------------------------------------------------------------------- #
+#                                           build_reference_id_criteria                                                #
+# -------------------------------------------------------------------------------------------------------------------- #
+@pytest.mark.parametrize('criteria, leading', [
+    ({'$match': {'active': True}}, [{'$match': {'active': True}}]),
+    ([{'$match': {'a': 1}}, {'$match': {'b': 2}}], [{'$match': {'a': 1}}, {'$match': {'b': 2}}]),
+    (None, []),
+], ids=['one-stage', 'stages', 'none'])
+def test_the_callers_stages_come_first(criteria: Any, leading: list[dict[str, Any]]) -> None:
+    """A filter narrows the candidates before the type join"""
+    query = build_reference_id_criteria(MagicMock(type_id=OWNER_TYPE_ID, public_id=OWNER_OBJECT_ID), criteria)
+
+    assert query[:len(leading)] == leading
+    assert '$lookup' in query[len(leading)]
+
+
+def test_the_candidate_must_hold_the_referenced_id() -> None:
+    """The last stage matches the referenced public_id among the field values"""
+    query = build_reference_id_criteria(MagicMock(type_id=OWNER_TYPE_ID, public_id=OWNER_OBJECT_ID), None)
+
+    assert query[-1] == {'$match': {'fields.value': OWNER_OBJECT_ID}}
+    assert query[1] == {'$unwind': {'path': '$type', 'preserveNullAndEmptyArrays': True}}

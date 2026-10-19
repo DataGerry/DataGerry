@@ -21,6 +21,7 @@ portal can hold the subscription's ConfigItem limit against it. The object route
 report, which is why the two functions live here rather than beside either of them: the framework layer may be
 imported by the routes and by the importer alike, and imports no route itself
 """
+from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.manager.manager_provider_model import ManagerProvider, ManagerType
@@ -28,7 +29,15 @@ from cmdb.manager import ObjectsManager, TypesManager, DgServicePortalManager
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model.cmdb_user import CmdbUser
 from cmdb.framework.config_item_sync_constants import ConfigItemTypeCountKey
+
+from cmdb.errors.manager.objects_manager import ObjectsManagerIterationError
+from cmdb.errors.manager.types_manager import TypesManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
+
+LOGGER: Logger = getLogger(__name__)
+
+# What a failed count read raises - the database's failure, not the caller's
+COUNT_READ_ERRORS: tuple[type[Exception], ...] = (ObjectsManagerIterationError, TypesManagerGetError)
 
 
 def build_type_object_counts(request_user: CmdbUser) -> tuple[list[dict[str, Any]], int]:
@@ -43,6 +52,10 @@ def build_type_object_counts(request_user: CmdbUser) -> tuple[list[dict[str, Any
 
     Args:
         request_user (CmdbUser): The CmdbUser making the request
+
+    Raises:
+        ObjectsManagerIterationError: If the objects could not be counted
+        TypesManagerGetError: If the CmdbTypes could not be read
 
     Returns:
         tuple[list[dict[str, Any]], int]: Entries shaped ``{"name": <type label>, "count": <int>}``
@@ -87,8 +100,16 @@ def handle_sync_config_item_count(request_user: CmdbUser, config_item_count: int
             total from the same aggregation that builds the breakdown - the caller then pays for
             one aggregation instead of an aggregation plus a full-collection count, and both
             numbers come from the same read
+
+    A database failure while the counts are built is logged and the sync skipped: this is telemetry, reported
+    after the object write already happened, and it must never fail the request. A programming error is not
+    caught
     """
-    type_counts, total_count = build_type_object_counts(request_user)
+    try:
+        type_counts, total_count = build_type_object_counts(request_user)
+    except COUNT_READ_ERRORS as err:
+        LOGGER.error("[handle_sync_config_item_count] Could not count the ConfigItems, sync skipped: %s", err)
+        return
 
     DgServicePortalManager().sync_config_items(
         request_user,

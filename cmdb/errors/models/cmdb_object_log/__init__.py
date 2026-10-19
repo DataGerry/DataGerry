@@ -14,17 +14,19 @@
 # You should have received a copy of the GNU Affero General Public License
 # along with this program. If not, see <https://www.gnu.org/licenses/>.
 """
-This module provides all errors for the RightsManager
+This module provides all errors for CmdbObjectLogs
 """
-from .rights_manager_errors import (
-    RightsManagerInitError,
-    RightsManagerGetError,
-    RightsManagerIterationError,
+from .cmdb_object_log_errors import (
+    CmdbObjectLogError,
+    CmdbObjectLogInitError,
+    CmdbObjectLogInitFromDataError,
+    CmdbObjectLogToJsonError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
 __all__: list[str] = [
-    'RightsManagerInitError',
-    'RightsManagerGetError',
-    'RightsManagerIterationError',
+    'CmdbObjectLogError',
+    'CmdbObjectLogInitError',
+    'CmdbObjectLogInitFromDataError',
+    'CmdbObjectLogToJsonError',
 ]

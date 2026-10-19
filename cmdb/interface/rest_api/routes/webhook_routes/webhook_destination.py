@@ -29,20 +29,135 @@ before every delivery (``webhook_helper.deliver_webhook_event``), because a host
 and deliveries never follow a redirect, which would otherwise carry the request to a host nobody checked. A host that
 does not resolve is not judged here: nothing can be delivered to it, and the delivery fails as it always did.
 
-``allowed_hosts`` lets named hosts or networks through; it is empty until an operator setting feeds it
+**The operator's allowlist.** An installation whose receiver is an internal service lists it in ``cmdb.conf``::
+
+    [Webhooks]
+    allowed_hosts = receiver.corp.local, 10.20.0.0/16
+
+or in the environment as ``DATAGERRY_Webhooks_allowed_hosts`` (case-sensitive; it overrides the file). An entry is a
+host name - let through by name, whatever it resolves to - or a CIDR network / single address, which lets a host
+through when EVERY address it resolves to lies inside one. ``configured_allowed_hosts`` reads it on every check, so
+the save and every delivery judge with the same list; an invalid entry is logged and ignored, and a missing section or
+an unloaded config file is no allowlist at all. **The hosted cloud ignores it** (``--cloud`` without ``--local``): a
+shared host's internal network is never a tenant's
 """
 import ipaddress
+import re
 import socket
 from collections.abc import Iterable
+from logging import Logger, getLogger
+from typing import Any
 from urllib.parse import urlsplit
 
+import cmdb
+from cmdb.manager.system_manager.system_config_reader import SystemConfigReader
 from cmdb.interface.rest_api.routes.webhook_routes.webhook_constants import (
     WEBHOOK_DEFAULT_PORTS,
+    WEBHOOKS_ALLOWED_HOST_PATTERN,
+    WEBHOOKS_ALLOWED_HOSTS_KEY,
+    WEBHOOKS_ALLOWED_HOSTS_SEPARATOR,
+    WEBHOOKS_CONFIG_SECTION,
     WebhookDestinationReason,
 )
+
+from cmdb.errors.system_config import ConfigFileNotFound, ConfigNotLoaded, SectionError
 # -------------------------------------------------------------------------------------------------------------------- #
 
+LOGGER: Logger = getLogger(__name__)
+
 IpAddress = ipaddress.IPv4Address | ipaddress.IPv6Address
+
+# What reading the setting may raise when there is nothing to read: no config file loaded, no [Webhooks] section, no
+# allowed_hosts key in it - each simply means "no allowlist"
+UNREADABLE_SETTING_ERRORS: tuple[type[Exception], ...] = (ConfigFileNotFound, ConfigNotLoaded, SectionError, KeyError)
+
+_ALLOWED_HOST_NAME: re.Pattern[str] = re.compile(WEBHOOKS_ALLOWED_HOST_PATTERN)
+
+
+def is_valid_allowlist_entry(entry: str) -> bool:
+    """
+    Whether an allowlist entry is a network / address or a well-formed host name
+
+    Args:
+        entry (str): One stripped, non-empty entry
+
+    Returns:
+        bool: True for an IPv4 / IPv6 network or address (host bits allowed) or a host name
+    """
+    try:
+        ipaddress.ip_network(entry, strict=False)
+        return True
+    except ValueError:
+        return bool(_ALLOWED_HOST_NAME.fullmatch(entry))
+
+
+def parse_allowed_hosts(raw: Any) -> tuple[str, ...]:
+    """
+    The entries of an ``allowed_hosts`` setting: split at commas, stripped, blanks dropped, invalid ones ignored
+
+    The config reader casts a value it can read as a number or a boolean (``auto_cast``), so a non-string value - a
+    lone ``10`` - is no host and is ignored whole. Every ignored entry is logged as a warning naming it, so a typo is
+    visible without stopping the server
+
+    Args:
+        raw (Any): The setting's value as the config reader serves it; None or empty for none
+
+    Returns:
+        tuple[str, ...]: The valid entries, in the order given
+    """
+    if raw is None:
+        return ()
+
+    if not isinstance(raw, str):
+        # The reader cast it (a lone number or boolean): no host name or network reads like that
+        LOGGER.warning("[parse_allowed_hosts] Ignoring the invalid [%s] %s value '%s'",
+                       WEBHOOKS_CONFIG_SECTION, WEBHOOKS_ALLOWED_HOSTS_KEY, raw)
+        return ()
+
+    entries: list[str] = []
+
+    for part in raw.split(WEBHOOKS_ALLOWED_HOSTS_SEPARATOR):
+        entry: str = part.strip()
+
+        if not entry:
+            continue
+
+        if is_valid_allowlist_entry(entry):
+            entries.append(entry)
+        else:
+            LOGGER.warning("[parse_allowed_hosts] Ignoring the invalid [%s] %s entry '%s'",
+                           WEBHOOKS_CONFIG_SECTION, WEBHOOKS_ALLOWED_HOSTS_KEY, entry)
+
+    return tuple(entries)
+
+
+def is_hosted_cloud() -> bool:
+    """
+    Whether this process is the hosted cloud product - ``--cloud`` without ``--local``
+
+    Returns:
+        bool: True in the hosted cloud, where the operator allowlist is ignored
+    """
+    return bool(cmdb.__CLOUD_MODE__) and not cmdb.__LOCAL_MODE__
+
+
+def configured_allowed_hosts() -> tuple[str, ...]:
+    """
+    The operator's allowlist of webhook destinations, read from the configuration on every call
+
+    Returns:
+        tuple[str, ...]: Host names and networks let through although not public; empty in the hosted cloud, and when
+            the configuration holds no ``[Webhooks] allowed_hosts`` (or no config file is loaded)
+    """
+    if is_hosted_cloud():
+        return ()
+
+    try:
+        raw: Any = SystemConfigReader().get_value(WEBHOOKS_ALLOWED_HOSTS_KEY, WEBHOOKS_CONFIG_SECTION, default=None)
+    except UNREADABLE_SETTING_ERRORS:
+        return ()
+
+    return parse_allowed_hosts(raw)
 
 
 def is_public_address(address: IpAddress) -> bool:

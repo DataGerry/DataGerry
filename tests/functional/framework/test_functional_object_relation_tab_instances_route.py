@@ -37,6 +37,7 @@ from cmdb.models.type_model import CmdbType
 from cmdb.models.object_model import CmdbObject
 from cmdb.errors.manager.object_relations_manager import ObjectRelationsManagerIterationError
 from tests.utils.ipam_doc_builders import make_type_doc
+from cmdb.errors.manager import BaseManagerGetError
 # -------------------------------------------------------------------------------------------------------------------- #
 
 BASE_URL: str = '/object_relations/tabs'
@@ -196,3 +197,20 @@ class TestTabInstancesPagination:
         monkeypatch.setattr(ObjectRelationsManager, 'get_relation_tab_instances', _abort_418)
 
         assert rest_api.get(_url(MAIN_OBJ, 'parent')).status_code == HTTPStatus.IM_A_TEAPOT
+
+
+class TestTheInstancesUnderANarrowedManager:
+    """The manager wraps only the reads' typed failure; a bug under it is the server's"""
+
+    @pytest.mark.parametrize('delegate', ['count_documents', 'find'])
+    def test_a_database_failure_is_a_400(self, rest_api, monkeypatch, delegate: str) -> None:
+        """Either read's failure is the manager's iteration error, the route's 400"""
+        monkeypatch.setattr(ObjectRelationsManager, delegate, _raiser(BaseManagerGetError('the read failed')))
+
+        assert rest_api.get(_url(MAIN_OBJ, 'parent')).status_code == HTTPStatus.BAD_REQUEST
+
+    def test_a_programming_error_is_a_500(self, rest_api, monkeypatch) -> None:
+        """Not dressed up as the 400 a failed read gets"""
+        monkeypatch.setattr(ObjectRelationsManager, 'count_documents', _raiser(TypeError('a programming error')))
+
+        assert rest_api.get(_url(MAIN_OBJ, 'parent')).status_code == HTTPStatus.INTERNAL_SERVER_ERROR

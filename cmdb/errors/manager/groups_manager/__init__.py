@@ -20,7 +20,6 @@ from typing import Any
 
 from .groups_manager_errors import (
     GroupsManagerError,
-    GroupsManagerInitError,
     GroupsManagerInsertError,
     GroupsManagerGetError,
     GroupsManagerIterationError,
@@ -31,7 +30,6 @@ from .groups_manager_errors import (
 
 __all__: list[str] = [
     'GroupsManagerError',
-    'GroupsManagerInitError',
     'GroupsManagerInsertError',
     'GroupsManagerGetError',
     'GroupsManagerIterationError',
@@ -42,7 +40,6 @@ __all__: list[str] = [
 
 
 GROUPS_MANAGER_ERRORS: dict[str, Any] = {
-    "init": GroupsManagerInitError,
     "insert": GroupsManagerInsertError,
     "get": GroupsManagerGetError,
     "update": GroupsManagerUpdateError,

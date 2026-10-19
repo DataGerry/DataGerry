@@ -26,6 +26,8 @@ from .impact_manager_errors import (
     ImpactManagerUpdateError,
     ImpactManagerDeleteError,
     ImpactManagerIterationError,
+    ImpactManagerCalculationBasisError,
+    ImpactManagerAssessmentUsageError,
 )
 # -------------------------------------------------------------------------------------------------------------------- #
 
@@ -37,6 +39,8 @@ __all__: list[str] = [
     'ImpactManagerUpdateError',
     'ImpactManagerDeleteError',
     'ImpactManagerIterationError',
+    'ImpactManagerCalculationBasisError',
+    'ImpactManagerAssessmentUsageError',
 ]
 
 

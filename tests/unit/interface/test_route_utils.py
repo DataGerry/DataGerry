@@ -17,15 +17,16 @@
 Unit tests for cmdb.interface.route_utils
 
 The helpers here are pure transport-layer glue around Flask's ``current_app`` / ``request`` and the
-domain managers. Every test drives a helper inside a BaseCmdbApp ``test_request_context`` with the
-managers, TokenValidator/TokenGenerator, AuthModule, ``requests`` and ``os.getenv`` patched at the
-module path - no Mongo, no service-portal HTTP. The ``cloud_mode`` / ``local_mode`` flags on the app
-select the branch under test.
+domain managers. Every test drives a helper inside a BaseCmdbApp ``test_request_context`` (``stub_cmdb_app``) with
+the managers, TokenValidator/TokenGenerator, AuthModule and the cloud-user checks patched at the module path - no
+Mongo, no service-portal HTTP. The ``cloud_mode`` / ``local_mode`` flags on the app select the branch under test.
 
 These pin: the rights check (``user_has_right``, on the user it is handed),
 the error-mapping decorators (``handle_oc_errors`` 500s; the transient database errors are the app's), the
 request-user injection / API-access decorators, the Authorization-header parsing and Basic/Bearer
-authentication, the service-portal check with its cache-sync helpers, and the small DB/user helpers.
+authentication. The cloud user (the Service Portal check, the user cache, the tenant helpers) is
+``cloud_user_helper``'s, tested in test_cloud_user_helper.py; ``verify_api_access`` reads its three functions through
+this module, so they are patched here.
 """
 # pylint: disable=protected-access  # these tests intentionally exercise module-private helpers
 import ast
@@ -35,22 +36,20 @@ from http import HTTPStatus
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, Callable
-from unittest.mock import MagicMock, patch, mock_open
+from unittest.mock import MagicMock, patch
 
 import pytest
+from requests import exceptions as requests_errors
 from werkzeug.exceptions import Forbidden, HTTPException
 
 from flask import abort
 
 import cmdb.interface.route_utils as ru
-from cmdb.interface.cmdb_app import BaseCmdbApp
 from cmdb.interface.tenant_availability_constants import TENANT_UNAVAILABLE_RESPONSE_MESSAGE
 from cmdb.manager.manager_provider_model.manager_type_enum import ManagerType
-from cmdb.manager.manager_provider_model.manager_provider import MANAGER_CLASSES
 from cmdb.interface.rest_api.api_level_enum import ApiLevel
 from cmdb.interface.rest_api.auth_method_enum import AuthMethod
 from cmdb.errors.database import (
-    DatabaseConnectionError,
     SetDatabaseError,
     DocumentLockTimeoutError,
     DocumentNetworkError,
@@ -58,18 +57,15 @@ from cmdb.errors.database import (
 from cmdb.errors.security import (
     TokenValidationError,
     TokenKeyMaterialError,
-    InvalidCloudUserError,
-    NoAccessTokenError,
-    MissingApiKeyError,
-    RequestTimeoutError,
-    RequestError,
 )
-from cmdb.errors.manager.users_manager import UsersManagerInsertError, UsersManagerGetError
 from cmdb.errors.open_celium import AuthError
 from cmdb.errors.manager.groups_manager import GroupsManagerGetError
+from tests.utils.cmdb_app_stub import stub_cmdb_app
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.interface.route_utils'
+# What a wrapped OpenCelium route says it was doing, for the generic message
+OC_CONTEXT: str = 'doing things'
 LICENSE_GUARD_PATH: str = 'cmdb.interface.rest_api.routes.cmdb_license.license_guard'
 
 # Module-level aliases for the double-underscore module functions (avoids name-mangling inside classes)
@@ -80,8 +76,6 @@ _check_api_level: Callable[..., Any] = getattr(ru, '__check_api_level')
 
 # Base64 of "user@test.com:secret"
 BASIC_CREDENTIALS: str = 'dXNlckB0ZXN0LmNvbTpzZWNyZXQ='
-TYPED_EMAIL: str = ' User@Test.COM '
-NORMALISED_EMAIL: str = 'user@test.com'
 BASIC_HEADER: str = f'Basic {BASIC_CREDENTIALS}'
 BEARER_HEADER: str = 'Bearer sometoken'
 NO_TENANT_TOKEN_MSG: str = 'The token names no tenant database!'
@@ -92,20 +86,6 @@ DECODED_TOKEN: dict[str, Any] = {
     'DATAGERRY': {'value': {'user': {'public_id': 42, 'database': 'cloud_db'}}}
 }
 
-
-def _portal_env(key: str) -> str:
-    """Stand-in for os.getenv covering the service-portal env vars used by validate_subscription_user."""
-    return 'token' if key == 'X-ACCESS-TOKEN' else 'http://sp'
-
-
-def _app(cloud_mode: bool = False, local_mode: bool = False) -> BaseCmdbApp:
-    """Builds a BaseCmdbApp with a stub database_manager and the given mode flags."""
-    app = BaseCmdbApp(__name__)
-    app.database_manager = MagicMock()
-    app.cloud_mode = cloud_mode
-    app.local_mode = local_mode
-
-    return app
 
 
 # =================================================== user_has_right ================================================= #
@@ -125,7 +105,7 @@ class TestHandleRouteErrors:
         def route():
             abort(404, 'not there')
 
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             route()
 
         assert exc_info.value.code == HTTPStatus.NOT_FOUND
@@ -137,7 +117,7 @@ class TestHandleRouteErrors:
         def route():
             raise RuntimeError('boom')
 
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             route()
 
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -150,7 +130,7 @@ class TestHandleRouteErrors:
             del public_id
             raise RuntimeError('boom')
 
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             route(public_id=42)
 
         assert 'Subnet with ID: 42' in exc_info.value.description
@@ -162,7 +142,7 @@ class TestHandleRouteErrors:
             del public_id, subject
             raise RuntimeError('boom')
 
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             route(7, 'location-field usage')
 
         assert exc_info.value.description == (
@@ -175,7 +155,7 @@ class TestHandleRouteErrors:
         def route():
             raise RuntimeError('boom')
 
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             route()
 
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -192,7 +172,7 @@ class TestHandleRouteErrors:
         def route():
             raise DocumentLockTimeoutError('lock timeout')
 
-        with _app().test_request_context(), pytest.raises(DocumentLockTimeoutError):
+        with stub_cmdb_app().test_request_context(), pytest.raises(DocumentLockTimeoutError):
             route()
 
     def test_the_handler_keeps_its_name_but_not_its_wrapped_link(self) -> None:
@@ -317,7 +297,7 @@ class TestHandleManagerErrors:
     ], ids=['failure', 'specific-failure', 'refusal'])
     def test_a_listed_error_is_a_400_with_its_own_message(self, raised: Exception, template: str) -> None:
         """The message is the listed one, filled from the route's argument."""
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             self._decorate(raised)(ROUTE_ID)
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -325,7 +305,7 @@ class TestHandleManagerErrors:
 
     def test_a_failure_is_logged_as_an_error_with_the_traceback(self, caplog: pytest.LogCaptureFixture) -> None:
         """A failed operation is something to investigate."""
-        with _app().test_request_context(), pytest.raises(HTTPException):
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException):
             self._decorate(_ManagerFailure('boom'))(ROUTE_ID)
 
         record = next(r for r in caplog.records if r.name == MODULE_PATH)
@@ -334,7 +314,7 @@ class TestHandleManagerErrors:
 
     def test_a_refusal_is_logged_as_a_warning_without_one(self, caplog: pytest.LogCaptureFixture) -> None:
         """A declined request is the rule working, not a fault."""
-        with _app().test_request_context(), pytest.raises(HTTPException):
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException):
             self._decorate(_ManagerRefusal('used'))(ROUTE_ID)
 
         record = next(r for r in caplog.records if r.name == MODULE_PATH)
@@ -348,7 +328,7 @@ class TestHandleManagerErrors:
 
     def test_an_abort_keeps_its_own_status(self) -> None:
         """A route's own abort is not a manager error."""
-        with _app().test_request_context(), pytest.raises(Forbidden) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(Forbidden) as exc_info:
             self._decorate(Forbidden())(ROUTE_ID)
 
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
@@ -388,7 +368,7 @@ class TestTheTwoErrorDecoratorsStacked:
 
     def test_a_listed_error_is_the_manager_tables_400(self) -> None:
         """The 400 is an HTTPException, which the generic tail hands through."""
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             self._route(_ManagerFailure('boom'))(public_id=ROUTE_ID)
 
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -400,52 +380,13 @@ class TestTheTwoErrorDecoratorsStacked:
         Without the signature the inner wrapper pins, the tail would see `(*args, **kwargs)`, fail to
         bind, and answer the unfilled template.
         """
-        with _app().test_request_context(), pytest.raises(HTTPException) as exc_info:
+        with stub_cmdb_app().test_request_context(), pytest.raises(HTTPException) as exc_info:
             self._route(RuntimeError('boom'))(public_id=ROUTE_ID)
 
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
         assert exc_info.value.description == (
             f'An internal server error occured while reading the Thing with ID: {ROUTE_ID}!'
         )
-
-
-class TestGetCachedUserManager:
-    """
-    The one place the cloud user-cache manager is built
-
-    Eighteen call sites wrote `CachedUserManager(current_app.database_manager)` by hand. What the
-    helper records is WHY it is not `ManagerProvider.get_manager`: the cache never lives in a tenant
-    database, and the login path has no authenticated user to resolve one with.
-    """
-
-    def test_it_builds_the_manager_from_the_app_database_handle(self) -> None:
-        """The process' own handle - there is no per-request or per-tenant choice to make here."""
-        app = _app()
-
-        with app.test_request_context(), patch(f'{MODULE_PATH}.CachedUserManager') as manager_cls:
-            built = ru.get_cached_user_manager()
-
-        manager_cls.assert_called_once_with(app.database_manager)
-        assert built is manager_cls.return_value
-
-    def test_it_takes_no_request_user(self) -> None:
-        """
-        It cannot: the login path calls this before anyone is authenticated
-
-        That is the reason the cache manager is built directly instead of through ManagerProvider,
-        whose cloud-mode path requires a request_user.
-        """
-        assert not inspect.signature(ru.get_cached_user_manager).parameters
-
-    def test_the_manager_type_registry_does_not_offer_it(self) -> None:
-        """
-        `ManagerType` deliberately carries no CACHED_USER entry any more
-
-        It was registered and used by nobody: `CachedUserManager` ignores the database argument
-        `ManagerProvider` would pass it, so resolving it there would look tenant-aware and not be.
-        """
-        assert not hasattr(ManagerType, 'CACHED_USER')
-        assert ru.CachedUserManager not in MANAGER_CLASSES.values()
 
 
 class TestUserHasRight:
@@ -457,7 +398,7 @@ class TestUserHasRight:
         user = user or SimpleNamespace(group_id=3, database=None)
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
             get_manager.return_value.get_group.return_value = group
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 return ru.user_has_right('base.right', user), get_manager
 
     def test_a_group_holding_the_right_grants_it(self) -> None:
@@ -503,7 +444,7 @@ class TestUserHasRight:
         """An outage is not answered as a missing right - protect maps it to a 500"""
         with patch(f'{MODULE_PATH}.ManagerProvider.get_manager') as get_manager:
             get_manager.return_value.get_group.side_effect = GroupsManagerGetError('db down')
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(GroupsManagerGetError):
                     ru.user_has_right('base.right', SimpleNamespace(group_id=3, database=None))
 
@@ -523,7 +464,7 @@ class TestHandleOcErrors:
     def test_passes_result_through(self) -> None:
         """A handler that returns normally is not touched."""
         wrapped = ru.handle_oc_errors()(lambda: 'ok')
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             assert wrapped() == 'ok'
 
     def test_reraises_http_exception(self) -> None:
@@ -531,26 +472,117 @@ class TestHandleOcErrors:
         def _handler() -> None:
             raise HTTPException(description='teapot')
 
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             with pytest.raises(HTTPException):
                 ru.handle_oc_errors()(_handler)()
 
-    @pytest.mark.parametrize('error', [
-        AuthError('a'),
-        ru.ConnectTimeout('c'),
-        ru.ConnectionError('r'),
-        ru.Timeout('t'),
-        ValueError('generic'),
-    ])
-    def test_maps_errors_to_500(self, error: Exception) -> None:
-        """Every recognised OpenCelium/network error and a generic one abort with 500."""
+    @pytest.mark.parametrize('error, message', [
+        (AuthError('a'), ru.OC_AUTH_FAILED_MESSAGE),
+        (requests_errors.ConnectTimeout('c'), ru.OC_CONNECT_TIMEOUT_MESSAGE),
+        (requests_errors.ConnectionError('r'), ru.OC_CONNECTION_FAILED_MESSAGE),
+        (requests_errors.SSLError('s'), ru.OC_CONNECTION_FAILED_MESSAGE),
+        (requests_errors.ProxyError('p'), ru.OC_CONNECTION_FAILED_MESSAGE),
+        (requests_errors.Timeout('t'), ru.OC_TIMEOUT_MESSAGE),
+        (requests_errors.ReadTimeout('rt'), ru.OC_TIMEOUT_MESSAGE),
+        (requests_errors.MissingSchema('m'), ru.OC_REQUEST_FAILED_MESSAGE),
+        (requests_errors.InvalidURL('u'), ru.OC_REQUEST_FAILED_MESSAGE),
+        (requests_errors.TooManyRedirects('x'), ru.OC_REQUEST_FAILED_MESSAGE),
+        (requests_errors.RequestException('e'), ru.OC_REQUEST_FAILED_MESSAGE),
+        (ValueError('generic'), ru.OC_GENERIC_ERROR_CONTEXT_MESSAGE.format(context=OC_CONTEXT)),
+        (ConnectionError('builtin'), ru.OC_GENERIC_ERROR_CONTEXT_MESSAGE.format(context=OC_CONTEXT)),
+    ], ids=['auth', 'connect-timeout', 'connection', 'ssl', 'proxy', 'timeout', 'read-timeout', 'missing-schema',
+            'invalid-url', 'redirects', 'request', 'generic', 'builtin-connection-error'])
+    def test_each_error_gets_its_arms_500(self, error: Exception, message: str) -> None:
+        """
+        The arm decides the message, so an arm swapped or moved shows here. ConnectTimeout is a ConnectionError and a
+        Timeout - it must reach its own arm; Python's builtin ConnectionError is not requests' and is generic
+        """
         def _handler() -> None:
             raise error
 
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             with pytest.raises(HTTPException) as exc_info:
-                ru.handle_oc_errors('doing things')(_handler)()
-        assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
+                ru.handle_oc_errors(OC_CONTEXT)(_handler)()
+
+        assert (exc_info.value.code, exc_info.value.description) == (HTTPStatus.INTERNAL_SERVER_ERROR, message)
+
+    @pytest.mark.parametrize('error', [DocumentNetworkError('lost'), DocumentLockTimeoutError('locked')],
+                             ids=['network', 'lock'])
+    def test_a_transient_database_error_passes_through_untouched(self, error: Exception) -> None:
+        """Not OpenCelium's: the app's error handlers answer it 503 / 423, as on every other route"""
+        def _handler() -> None:
+            raise error
+
+        with stub_cmdb_app().test_request_context():
+            with pytest.raises(type(error)) as exc_info:
+                ru.handle_oc_errors(OC_CONTEXT)(_handler)()
+
+        assert exc_info.value is error
+
+    def test_without_a_context_the_generic_message_names_none(self) -> None:
+        """The plain generic message, not 'while ' with nothing after it"""
+        def _handler() -> None:
+            raise ValueError('generic')
+
+        with stub_cmdb_app().test_request_context():
+            with pytest.raises(HTTPException) as exc_info:
+                ru.handle_oc_errors()(_handler)()
+
+        assert exc_info.value.description == ru.OC_GENERIC_ERROR_MESSAGE
+
+    def test_the_six_messages_are_distinct(self) -> None:
+        """Each arm says something different, so a reader can tell what failed"""
+        messages = {ru.OC_AUTH_FAILED_MESSAGE, ru.OC_CONNECT_TIMEOUT_MESSAGE, ru.OC_CONNECTION_FAILED_MESSAGE,
+                    ru.OC_TIMEOUT_MESSAGE, ru.OC_REQUEST_FAILED_MESSAGE, ru.OC_GENERIC_ERROR_MESSAGE}
+
+        assert len(messages) == 6
+
+    def test_the_module_does_not_shadow_the_builtin_connection_error(self) -> None:
+        """requests' exceptions are reached through their module; the name ConnectionError stays Python's"""
+        assert 'ConnectionError' not in vars(ru)
+        assert ru.requests_errors is requests_errors
+
+
+class TestEveryRouteErrorTailPassesTransientErrorsThrough:
+    """
+    A route error decorator that catches Exception must let a lost connection or a lock timeout through to the app's
+    error handlers. The scan finds every decorator here that catches Exception, so a new one cannot miss it
+    """
+
+    # The decorators a route's error tail is built from, with how to apply one to a handler
+    TAILS: dict[str, Callable[[Callable[..., Any]], Callable[..., Any]]] = {
+        'handle_route_errors': lambda handler: ru.handle_route_errors('doing things')(handler),
+        'handle_oc_errors': lambda handler: ru.handle_oc_errors(OC_CONTEXT)(handler),
+        'handle_manager_errors': lambda handler: ru.handle_manager_errors(
+            failures={ValueError: 'failed {public_id}'})(handler),
+    }
+
+    def test_the_census_names_every_error_tail(self) -> None:
+        """Every module-level handle_* decorator that catches Exception is one of TAILS"""
+        tree = ast.parse(Path(ru.__file__).read_text(encoding='utf-8'))
+        catching: set[str] = {
+            function.name for function in tree.body
+            if isinstance(function, ast.FunctionDef) and function.name.startswith('handle_')
+            and any(isinstance(node, ast.ExceptHandler) and isinstance(node.type, ast.Name)
+                    and node.type.id == 'Exception' for node in ast.walk(function))
+        }
+
+        assert catching == set(self.TAILS)
+
+    @pytest.mark.parametrize('tail', sorted(TAILS))
+    @pytest.mark.parametrize('error_class', [DocumentNetworkError, DocumentLockTimeoutError], ids=['network', 'lock'])
+    def test_each_tail_re_raises_it_unchanged(self, tail: str, error_class: type[Exception]) -> None:
+        """The same instance, so its handler sees the original error"""
+        error: Exception = error_class('transient')
+
+        def _handler(*_args: Any, **_kwargs: Any) -> None:
+            raise error
+
+        with stub_cmdb_app().test_request_context():
+            with pytest.raises(error_class) as exc_info:
+                self.TAILS[tail](_handler)()
+
+        assert exc_info.value is error
 
 
 # ================================================ insert_request_user =============================================== #
@@ -563,7 +595,7 @@ class TestInsertRequestUser:
         handler = MagicMock(return_value='done')
         with patch(f'{MODULE_PATH}.UsersManager'), \
              patch(f'{MODULE_PATH}.parse_authorization_header') as parse:
-            with _app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
                 assert ru.insert_request_user(handler)() == 'done'
         handler.assert_called_once()
         parse.assert_not_called()
@@ -572,7 +604,7 @@ class TestInsertRequestUser:
         """Not the generic token failure: the caller is told the key is missing, and nothing is authenticated"""
         handler = MagicMock()
         with patch(f'{MODULE_PATH}.parse_authorization_header') as parse:
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(handler)()
 
@@ -585,7 +617,7 @@ class TestInsertRequestUser:
         """The route's own error reaches the caller - it is not turned into 'Token could not be validated!'"""
         handler = MagicMock(side_effect=RuntimeError('the route failed'))
         with patch(f'{MODULE_PATH}.UsersManager'):
-            with _app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
                 with pytest.raises(RuntimeError):
                     ru.insert_request_user(handler)()
 
@@ -605,14 +637,14 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
             headers: dict[str, str] = {'Authorization': BEARER_HEADER, ru.API_KEY_HEADER: 'k'}
-            with _app(cloud_mode=True).test_request_context(headers=headers):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers=headers):
                 assert ru.insert_request_user(_handler)() == 'ran'
         assert captured['request_user'] is user
 
     def test_missing_header_aborts_401(self) -> None:
         """A request without an Authorization header aborts with 401."""
         with patch(f'{MODULE_PATH}.UsersManager'):
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
@@ -623,7 +655,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.side_effect = TokenValidationError('bad')
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
@@ -633,7 +665,7 @@ class TestInsertRequestUser:
         with patch(f'{MODULE_PATH}.UsersManager'), \
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.decode_request_token', side_effect=TokenKeyMaterialError('no key')):
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.INTERNAL_SERVER_ERROR
@@ -642,7 +674,7 @@ class TestInsertRequestUser:
         """Not a 401: the app's handler answers a DocumentNetworkError 503, so the user is not logged out"""
         with patch(f'{MODULE_PATH}.UsersManager'), \
              patch(f'{MODULE_PATH}.parse_authorization_header', side_effect=DocumentNetworkError('lost')):
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(DocumentNetworkError):
                     ru.insert_request_user(lambda **_: None)()
 
@@ -652,7 +684,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.side_effect = RuntimeError('boom')
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
@@ -672,7 +704,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
                 assert ru.insert_request_user(_handler)() == 'ran'
         assert captured['request_user'] is user
 
@@ -691,7 +723,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = claims
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(handler)()
 
@@ -704,7 +736,7 @@ class TestInsertRequestUser:
         """A tenant that failed its startup update is refused before its database is read"""
         claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': {'public_id': 42, 'database': UNAVAILABLE_TENANT}}}}
         handler = MagicMock()
-        app = _app(cloud_mode=True)
+        app = stub_cmdb_app(cloud_mode=True)
         app.unavailable_tenants = frozenset({UNAVAILABLE_TENANT})
 
         with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls, \
@@ -724,7 +756,7 @@ class TestInsertRequestUser:
         """Only the failed tenant is fenced off - the token's own tenant is read as usual"""
         users_manager = MagicMock()
         users_manager.get_user.return_value = SimpleNamespace(public_id=42, active=True)
-        app = _app(cloud_mode=True)
+        app = stub_cmdb_app(cloud_mode=True)
         app.unavailable_tenants = frozenset({UNAVAILABLE_TENANT})
 
         with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
@@ -744,13 +776,13 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = claims
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 assert ru.insert_request_user(lambda **_: 'ran')() == 'ran'
 
     def test_the_api_key_path_builds_no_users_manager(self) -> None:
         """verify_api_access resolves that user; nothing is built here only to be thrown away"""
         with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls:
-            with _app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers=API_KEY_BASIC_HEADERS):
                 ru.insert_request_user(lambda **_: 'ran')()
 
         users_manager_cls.assert_not_called()
@@ -763,7 +795,7 @@ class TestInsertRequestUser:
                                                            database: str | None) -> None:
         """Built once, after the token: the one database on premise, the token's tenant in cloud mode"""
         claims: dict[str, Any] = {'DATAGERRY': {'value': {'user': user_claim}}}
-        app = _app(cloud_mode=cloud_mode)
+        app = stub_cmdb_app(cloud_mode=cloud_mode)
 
         with patch(f'{MODULE_PATH}.UsersManager') as users_manager_cls, \
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
@@ -784,7 +816,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
@@ -798,7 +830,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.description == 'Invalid user!'
@@ -813,7 +845,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(handler)()
 
@@ -832,7 +864,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls, \
              patch(f'{LICENSE_GUARD_PATH}.enforce_request_licenses', enforce):
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 ru.insert_request_user(handler)()
 
     def test_the_licences_are_enforced_for_the_resolved_user_before_the_handler(self) -> None:
@@ -877,7 +909,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls, \
              patch(f'{LICENSE_GUARD_PATH}.enforce_request_licenses', enforce):
             tv_cls.return_value.decode_token.side_effect = TokenValidationError('bad')
-            with _app().test_request_context(headers=headers):
+            with stub_cmdb_app().test_request_context(headers=headers):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(MagicMock())()
 
@@ -893,7 +925,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = {'DATAGERRY': {'value': {'user': {'public_id': 1}}}}
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
@@ -907,7 +939,7 @@ class TestInsertRequestUser:
              patch(f'{MODULE_PATH}.parse_authorization_header', return_value='tok'), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = {'DATAGERRY': {'value': {'user': {'public_id': 1}}}}
-            with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+            with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.insert_request_user(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.UNAUTHORIZED
@@ -921,7 +953,7 @@ class TestVerifyApiAccess:
     def test_non_cloud_passes_through(self) -> None:
         """Outside cloud mode the decorator is a no-op."""
         handler = MagicMock(return_value='ok')
-        with _app(cloud_mode=False).test_request_context():
+        with stub_cmdb_app(cloud_mode=False).test_request_context():
             assert ru.verify_api_access()(handler)() == 'ok'
         handler.assert_called_once()
 
@@ -939,7 +971,7 @@ class TestVerifyApiAccess:
              patch(f'{MODULE_PATH}.set_admin_user'), \
              patch(f'{MODULE_PATH}.retrieve_user', return_value=user_model), \
              patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 assert ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(_handler)() == 'ran'
         assert captured['request_user'] is user_model
 
@@ -952,7 +984,7 @@ class TestVerifyApiAccess:
              patch(f'{MODULE_PATH}.set_admin_user'), \
              patch(f'{MODULE_PATH}.retrieve_user', return_value=SimpleNamespace(public_id=1, active=False)), \
              patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(handler)()
 
@@ -964,7 +996,7 @@ class TestVerifyApiAccess:
         """The tenant is checked before set_admin_user writes to it and before the user is read"""
         user_instance = {'subscriptions': [{'database': UNAVAILABLE_TENANT, 'api_level': 1}], 'api_level': 1}
         handler = MagicMock()
-        app = _app(cloud_mode=True)
+        app = stub_cmdb_app(cloud_mode=True)
         app.unavailable_tenants = frozenset({UNAVAILABLE_TENANT})
 
         with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=user_instance), \
@@ -987,7 +1019,7 @@ class TestVerifyApiAccess:
         with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=user_instance), \
              patch(f'{MODULE_PATH}.set_admin_user'), \
              patch(f'{MODULE_PATH}.retrieve_user', return_value=None):
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
@@ -999,7 +1031,7 @@ class TestVerifyApiAccess:
         with patch(f'{MODULE_PATH}.check_user_in_service_portal', return_value=user_instance), \
              patch(f'{MODULE_PATH}.set_admin_user') as set_admin, \
              patch(f'{MODULE_PATH}.__check_api_level', return_value=True):
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 assert ru.verify_api_access(required_api_level=ApiLevel.SUPER_ADMIN)(handler)() == 'ok'
         set_admin.assert_not_called()
 
@@ -1010,7 +1042,7 @@ class TestVerifyApiAccess:
              patch(f'{MODULE_PATH}.set_admin_user'), \
              patch(f'{MODULE_PATH}.retrieve_user', return_value=SimpleNamespace(public_id=1, active=True)), \
              patch(f'{MODULE_PATH}.__check_api_level', return_value=False):
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.FORBIDDEN
@@ -1018,21 +1050,21 @@ class TestVerifyApiAccess:
     def test_reraises_http_exception(self) -> None:
         """An HTTPException from the auth flow is re-raised unchanged."""
         with patch(f'{MODULE_PATH}.check_user_in_service_portal', side_effect=HTTPException()):
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 with pytest.raises(HTTPException):
                     ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
 
     def test_jwt_method_skips_basic_flow(self) -> None:
         """A JWT (Bearer) auth method skips the Basic-login block and runs the handler."""
         handler = MagicMock(return_value='ok')
-        with _app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
+        with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BEARER_HEADER}):
             assert ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(handler)() == 'ok'
         handler.assert_called_once()
 
     def test_generic_error_aborts_400(self) -> None:
         """A generic failure during verification aborts with 400."""
         with patch(f'{MODULE_PATH}.check_user_in_service_portal', side_effect=RuntimeError('boom')):
-            with _app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
+            with stub_cmdb_app(cloud_mode=True).test_request_context(headers={'Authorization': BASIC_HEADER}):
                 with pytest.raises(HTTPException) as exc_info:
                     ru.verify_api_access(required_api_level=ApiLevel.ADMIN)(lambda **_: None)()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -1045,52 +1077,52 @@ class TestRequestHeaderPrimitives:
 
     def test_get_x_api_key_present_and_absent(self) -> None:
         """The x-api-key header is returned when present, else None."""
-        with _app().test_request_context(headers={'x-api-key': 'abc'}):
+        with stub_cmdb_app().test_request_context(headers={'x-api-key': 'abc'}):
             assert _get_x_api_key() == 'abc'
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             assert _get_x_api_key() is None
 
     def test_get_request_api_user_basic_returns_credentials(self) -> None:
         """A Basic Authorization header yields the decoded email/password dict."""
-        with _app().test_request_context(headers={'Authorization': BASIC_HEADER}):
+        with stub_cmdb_app().test_request_context(headers={'Authorization': BASIC_HEADER}):
             result = _get_request_api_user()
         assert result == {'email': 'user@test.com', 'password': 'secret'}
 
     def test_get_request_api_user_bearer_returns_none(self) -> None:
         """A non-Basic header yields None."""
-        with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+        with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
             assert _get_request_api_user() is None
 
     def test_get_request_api_user_missing_header_returns_none(self) -> None:
         """A missing Authorization header is handled and yields None."""
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             assert _get_request_api_user() is None
 
     def test_get_request_api_user_schemeless_treated_as_bearer(self) -> None:
         """A single-token header (no scheme) is treated as bearer and yields None."""
-        with _app().test_request_context(headers={'Authorization': 'rawtoken'}):
+        with stub_cmdb_app().test_request_context(headers={'Authorization': 'rawtoken'}):
             assert _get_request_api_user() is None
 
     def test_get_request_auth_method_basic(self) -> None:
         """A 'Basic ' header maps to AuthMethod.BASIC."""
-        with _app().test_request_context(headers={'Authorization': BASIC_HEADER}):
+        with stub_cmdb_app().test_request_context(headers={'Authorization': BASIC_HEADER}):
             assert _get_request_auth_method() == AuthMethod.BASIC
 
     def test_get_request_auth_method_bearer(self) -> None:
         """A 'Bearer ' header maps to AuthMethod.JWT."""
-        with _app().test_request_context(headers={'Authorization': BEARER_HEADER}):
+        with stub_cmdb_app().test_request_context(headers={'Authorization': BEARER_HEADER}):
             assert _get_request_auth_method() == AuthMethod.JWT
 
     def test_get_request_auth_method_invalid_aborts_400(self) -> None:
         """An unrecognised auth scheme aborts with 400."""
-        with _app().test_request_context(headers={'Authorization': 'Digest xyz'}):
+        with stub_cmdb_app().test_request_context(headers={'Authorization': 'Digest xyz'}):
             with pytest.raises(HTTPException) as exc_info:
                 _get_request_auth_method()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
 
     def test_get_request_auth_method_missing_aborts_400(self) -> None:
         """A missing header aborts with 400."""
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             with pytest.raises(HTTPException) as exc_info:
                 _get_request_auth_method()
         assert exc_info.value.code == HTTPStatus.BAD_REQUEST
@@ -1103,37 +1135,79 @@ class TestCheckApiLevel:
 
     def test_non_cloud_returns_true(self) -> None:
         """Outside cloud mode the check always passes."""
-        with _app(cloud_mode=False).test_request_context():
+        with stub_cmdb_app(cloud_mode=False).test_request_context():
             assert _check_api_level({}, ApiLevel.ADMIN) is True
 
     def test_no_user_returns_false(self) -> None:
         """A missing user instance fails the check."""
-        with _app(cloud_mode=True).test_request_context():
+        with stub_cmdb_app(cloud_mode=True).test_request_context():
             assert _check_api_level(None, ApiLevel.ADMIN) is False
 
     def test_locked_level_returns_false(self) -> None:
         """A LOCKED requirement always fails."""
-        with _app(cloud_mode=True).test_request_context():
+        with stub_cmdb_app(cloud_mode=True).test_request_context():
             assert _check_api_level({'api_level': 3}, ApiLevel.LOCKED) is False
 
     def test_super_admin_compares_top_level(self) -> None:
         """SUPER_ADMIN compares the top-level api_level field."""
-        with _app(cloud_mode=True).test_request_context():
+        with stub_cmdb_app(cloud_mode=True).test_request_context():
             assert _check_api_level({'api_level': 2}, ApiLevel.SUPER_ADMIN) is True
             assert _check_api_level({'api_level': 1}, ApiLevel.SUPER_ADMIN) is False
 
     def test_admin_compares_subscription_level(self) -> None:
         """A non-super requirement compares the first subscription's api_level."""
-        with _app(cloud_mode=True).test_request_context():
+        with stub_cmdb_app(cloud_mode=True).test_request_context():
             assert _check_api_level({'subscriptions': [{'api_level': 1}]}, ApiLevel.ADMIN) is True
 
     def test_malformed_user_returns_false(self) -> None:
         """A user dict missing the expected keys fails safely."""
-        with _app(cloud_mode=True).test_request_context():
+        with stub_cmdb_app(cloud_mode=True).test_request_context():
             assert _check_api_level({'subscriptions': []}, ApiLevel.ADMIN) is False
 
 
 # ============================================ parse_authorization_header ============================================ #
+
+class TestSplitAuthorizationHeader:
+    """The one parser of the Authorization header both readers share"""
+
+    @pytest.mark.parametrize('header, expected', [
+        ('Basic abc', ('basic', 'abc')),
+        ('BEARER xyz', ('bearer', 'xyz')),
+        ('Bearer  spaced  token', ('bearer', 'spaced  token')),
+        ('onlytoken', ('bearer', 'onlytoken')),
+        ('Digest a=b', ('digest', 'a=b')),
+    ], ids=['basic', 'scheme-case', 'rest-kept-whole', 'no-scheme-is-bearer', 'other-scheme'])
+    def test_scheme_and_credentials(self, header: str, expected: tuple[str, str]) -> None:
+        """The scheme lower-cased, the credentials as sent; no scheme reads as a bearer token"""
+        assert ru.split_authorization_header(header) == expected
+
+    def test_both_readers_use_it(self) -> None:
+        """parse_authorization_header and the API-user read split the header the same way"""
+        source: str = inspect.getsource(ru)
+        readers = [ru.parse_authorization_header, getattr(ru, '__get_request_api_user')]
+
+        assert all('split_authorization_header(' in inspect.getsource(reader) for reader in readers)
+        assert '_wsgi_decoding_dance' not in source and 'werkzeug._internal' not in source
+
+
+class TestDecodeHeaderValue:
+    """WSGI's latin-1 header string read back as the UTF-8 the client sent"""
+
+    def test_utf8_credentials_come_back_whole(self) -> None:
+        """A non-ASCII password in Basic credentials survives the WSGI round trip"""
+        sent: str = 'Basic pässwörd'
+        as_wsgi_hands_it: str = sent.encode('utf-8').decode('latin-1')
+
+        assert ru.decode_header_value(as_wsgi_hands_it) == sent
+
+    def test_ascii_is_unchanged(self) -> None:
+        """The common case costs nothing"""
+        assert ru.decode_header_value(BEARER_HEADER) == BEARER_HEADER
+
+    def test_bytes_that_are_no_utf8_become_the_replacement_character(self) -> None:
+        """Never an error on a header a client got wrong"""
+        assert ru.decode_header_value('\xff') == '\ufffd'
+
 
 class TestParseAuthorizationHeader:
     """``parse_authorization_header`` dispatches Basic/Bearer to the auth helpers."""
@@ -1172,7 +1246,7 @@ class TestParseAuthorizationHeader:
         three decorators that each call this - the second and third read the cached answer.
         """
         with patch(f'{MODULE_PATH}._validate_bearer', return_value='sometoken') as mocked:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 first = ru.parse_authorization_header(BEARER_HEADER)
                 second = ru.parse_authorization_header(BEARER_HEADER)
 
@@ -1182,7 +1256,7 @@ class TestParseAuthorizationHeader:
     def test_a_different_header_is_parsed_on_its_own(self) -> None:
         """The cache is keyed by the header, so two credentials in one request cannot be confused"""
         with patch(f'{MODULE_PATH}._validate_bearer', side_effect=['first', 'second']) as mocked:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert ru.parse_authorization_header('Bearer one') == 'first'
                 assert ru.parse_authorization_header('Bearer two') == 'second'
 
@@ -1191,7 +1265,7 @@ class TestParseAuthorizationHeader:
     def test_a_refused_header_is_cached_too(self) -> None:
         """A None answer is an answer: re-validating a bad token per decorator buys nothing"""
         with patch(f'{MODULE_PATH}._validate_bearer', return_value=None) as mocked:
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert ru.parse_authorization_header(BEARER_HEADER) is None
                 assert ru.parse_authorization_header(BEARER_HEADER) is None
 
@@ -1222,7 +1296,7 @@ class TestDecodeRequestToken:
         """The claims are what the caller reads the acting user out of"""
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert ru.decode_request_token('sometoken') == DECODED_TOKEN
 
     def test_the_decode_is_cached_for_the_request(self) -> None:
@@ -1233,7 +1307,7 @@ class TestDecodeRequestToken:
         """
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 ru.decode_request_token('sometoken')
                 ru.decode_request_token('sometoken')
 
@@ -1243,7 +1317,7 @@ class TestDecodeRequestToken:
         """The generator answers bytes and the header carries a str - the same token either way"""
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 ru.decode_request_token('sometoken')
                 ru.decode_request_token(b'sometoken')
 
@@ -1253,7 +1327,7 @@ class TestDecodeRequestToken:
         """A refused token raises for every caller, rather than the first one poisoning the cache"""
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.side_effect = TokenValidationError('bad')
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 for _ in range(2):
                     with pytest.raises(TokenValidationError):
                         ru.decode_request_token('sometoken')
@@ -1323,7 +1397,7 @@ class TestAuthenticateBasic:
         user = MagicMock()
         user.get_public_id.return_value = 5
         with self._patches(login_result=user), patch(f'{MODULE_PATH}.TokenGenerator', side_effect=failure):
-            with _app(cloud_mode=False).test_request_context():
+            with stub_cmdb_app(cloud_mode=False).test_request_context():
                 with pytest.raises(type(failure)):
                     ru._authenticate_basic(BASIC_CREDENTIALS)
 
@@ -1332,7 +1406,7 @@ class TestAuthenticateBasic:
         user = MagicMock()
         user.get_public_id.return_value = 5
         with self._patches(login_result=user, token='jwt-token'):
-            with _app(cloud_mode=False).test_request_context():
+            with stub_cmdb_app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) == 'jwt-token'
 
     @pytest.mark.parametrize('local_mode', [False, True], ids=['hosted', 'local'])
@@ -1345,7 +1419,7 @@ class TestAuthenticateBasic:
         """
         with self._patches(login_result=MagicMock()), \
              patch(f'{MODULE_PATH}.check_user_in_service_portal') as portal:
-            with _app(cloud_mode=True, local_mode=local_mode).test_request_context():
+            with stub_cmdb_app(cloud_mode=True, local_mode=local_mode).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
             portal.assert_not_called()
@@ -1355,7 +1429,7 @@ class TestAuthenticateBasic:
         """The case is AuthModule's to try; the whitespace is removed here"""
         credentials: str = base64.b64encode(b' Admin :secret').decode('utf-8')
         with self._patches(login_result=MagicMock()):
-            with _app(cloud_mode=False).test_request_context():
+            with stub_cmdb_app(cloud_mode=False).test_request_context():
                 ru._authenticate_basic(credentials)
 
             assert ru.AuthModule.return_value.login.call_args.args == ('Admin', 'secret')
@@ -1373,24 +1447,24 @@ class TestAuthenticateBasic:
             SettingsManager=MagicMock(),
             AuthModule=auth_module_cls,
         ):
-            with _app(cloud_mode=False).test_request_context():
+            with stub_cmdb_app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
     def test_no_user_returns_none(self) -> None:
         """A login that returns no user yields None."""
         with self._patches(login_result=None):
-            with _app(cloud_mode=False).test_request_context():
+            with stub_cmdb_app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
     def test_set_database_error_returns_none(self) -> None:
         """A SetDatabaseError is caught and yields None."""
         with patch(f'{MODULE_PATH}.UsersManager', side_effect=SetDatabaseError('bad db')):
-            with _app(cloud_mode=False).test_request_context():
+            with stub_cmdb_app(cloud_mode=False).test_request_context():
                 assert ru._authenticate_basic(BASIC_CREDENTIALS) is None
 
     def test_generic_error_returns_none(self) -> None:
         """A generic error (e.g. malformed base64) yields None."""
-        with _app(cloud_mode=False).test_request_context():
+        with stub_cmdb_app(cloud_mode=False).test_request_context():
             assert ru._authenticate_basic('not-valid-base64!!') is None
 
 
@@ -1403,7 +1477,7 @@ class TestValidateBearer:
         """A token that decodes and validates is returned unchanged."""
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert ru._validate_bearer('sometoken') == 'sometoken'
 
     def test_expired_token_returns_none(self) -> None:
@@ -1415,14 +1489,14 @@ class TestValidateBearer:
         """
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.validate_claims.side_effect = TokenValidationError('expired')
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert ru._validate_bearer('sometoken') is None
 
     def test_foreign_issuer_returns_none(self) -> None:
         """A token this product did not issue is refused, even with a valid signature"""
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.validate_issuer.side_effect = TokenValidationError('foreign')
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert ru._validate_bearer('sometoken') is None
 
     def test_without_a_request_the_claims_are_not_cached(self) -> None:
@@ -1435,7 +1509,7 @@ class TestValidateBearer:
         with patch(f'{MODULE_PATH}.has_request_context', return_value=False), \
              patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.return_value = DECODED_TOKEN
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 assert ru._validate_bearer('sometoken') == 'sometoken'
 
         tv_cls.return_value.validate_claims.assert_called_once()
@@ -1449,7 +1523,7 @@ class TestValidateBearer:
         """
         with patch(f'{MODULE_PATH}.TokenValidator') as tv_cls:
             tv_cls.return_value.decode_token.side_effect = TokenKeyMaterialError('no key')
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(TokenKeyMaterialError):
                     ru._validate_bearer('sometoken')
 
@@ -1458,635 +1532,9 @@ class TestValidateBearer:
     def test_a_validator_that_cannot_be_built_is_not_a_bad_token(self, failure: Exception) -> None:
         """The key is read when the validator is BUILT - that failure propagates too, never None"""
         with patch(f'{MODULE_PATH}.TokenValidator', side_effect=failure):
-            with _app().test_request_context():
+            with stub_cmdb_app().test_request_context():
                 with pytest.raises(type(failure)):
                     ru._validate_bearer('sometoken')
-
-
-# ============================================ check_user_in_service_portal ========================================== #
-
-class TestCheckUserInServicePortal:
-    """``check_user_in_service_portal`` validates users locally or via the portal + cache."""
-
-    def test_local_mode_delegates_to_local_loader(self) -> None:
-        """In local mode the local test-user loader is used, and its plaintext password comes back as its HMAC"""
-        with patch(f'{MODULE_PATH}._load_local_test_user', return_value={'email': 'x', 'password': 'p'}) as loader, \
-             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
-            security_manager.return_value.generate_hmac.side_effect = lambda plain: f'hmac({plain})'
-            with _app(local_mode=True).test_request_context():
-                assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x', 'password': 'hmac(p)'}
-        loader.assert_called_once_with('x', 'p')
-
-    def test_local_mode_refusal_stays_none(self) -> None:
-        """Nothing to hash when the fixture refuses"""
-        with patch(f'{MODULE_PATH}._load_local_test_user', return_value=None), \
-             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
-            with _app(local_mode=True).test_request_context():
-                assert ru.check_user_in_service_portal('x', 'p') is None
-        security_manager.return_value.generate_hmac.assert_not_called()
-
-    def test_the_email_is_normalised_before_the_local_loader(self) -> None:
-        """Stripped and lower-cased, whatever the caller submitted"""
-        with patch(f'{MODULE_PATH}._load_local_test_user', return_value=None) as loader:
-            with _app(local_mode=True).test_request_context():
-                ru.check_user_in_service_portal(TYPED_EMAIL, 'p')
-        loader.assert_called_once_with(NORMALISED_EMAIL, 'p')
-
-    def test_the_cache_and_the_portal_see_the_normalised_email(self) -> None:
-        """One address is one cache entry - the unique cache index compares case-sensitively"""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = False
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager'), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value={}) as portal:
-            with _app(local_mode=False).test_request_context():
-                ru.check_user_in_service_portal(TYPED_EMAIL, 'p', 'key', api_key_required=True)
-        cached_mgr.cached_user_exists.assert_called_once_with(NORMALISED_EMAIL)
-        portal.assert_called_once_with(NORMALISED_EMAIL, 'p', 'key', True)
-
-    def test_api_key_required_without_key_returns_none(self) -> None:
-        """When an API key is required but absent, None is returned early."""
-        with patch(f'{MODULE_PATH}.CachedUserManager'), patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app(local_mode=False).test_request_context():
-                assert ru.check_user_in_service_portal('x', 'p', None, api_key_required=True) is None
-
-    def test_cache_hit_returns_cached_user(self) -> None:
-        """A validated cached user is returned without hitting the portal."""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = True
-        cached_mgr.get_validated_user_data.return_value = {'email': 'x', 'cached': True}
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager'), \
-             patch(f'{MODULE_PATH}.validate_subscription_user') as portal:
-            with _app(local_mode=False).test_request_context():
-                assert ru.check_user_in_service_portal('x', 'p') == {'email': 'x', 'cached': True}
-        portal.assert_not_called()
-
-    def test_cache_hit_invalid_falls_through_to_portal(self) -> None:
-        """A cached-but-invalid user falls through to portal validation."""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = True
-        cached_mgr.get_validated_user_data.return_value = None
-        security_mgr = MagicMock()
-        security_mgr.generate_hmac.return_value = 'hmac'
-        portal_user = {'email': 'x', 'password': 'p', 'subscriptions': []}
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager', return_value=security_mgr), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=portal_user) as portal, \
-             patch(f'{MODULE_PATH}._sync_frontend_cached_user'):
-            with _app(local_mode=False).test_request_context():
-                ru.check_user_in_service_portal('x', 'p')
-        portal.assert_called_once()
-
-    def test_empty_portal_result_skips_sync(self) -> None:
-        """When the portal returns no user, no cache sync happens and the falsy value is returned."""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = False
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager'), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=None), \
-             patch(f'{MODULE_PATH}._sync_frontend_cached_user') as sync_fe:
-            with _app(local_mode=False).test_request_context():
-                assert ru.check_user_in_service_portal('x', 'p') is None
-        sync_fe.assert_not_called()
-
-    def test_cache_miss_validates_and_syncs_frontend(self) -> None:
-        """A cache miss validates against the portal and syncs the frontend cache."""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = False
-        security_mgr = MagicMock()
-        security_mgr.generate_hmac.return_value = 'hmac'
-        portal_user = {'email': 'x', 'password': 'p', 'subscriptions': []}
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager', return_value=security_mgr), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=portal_user), \
-             patch(f'{MODULE_PATH}._sync_frontend_cached_user') as sync_fe:
-            with _app(local_mode=False).test_request_context():
-                result = ru.check_user_in_service_portal('x', 'p')
-        assert result['password'] == 'hmac'
-        sync_fe.assert_called_once()
-
-    def test_cache_miss_with_api_key_syncs_api(self) -> None:
-        """A cache miss on an API login syncs the API cache instead."""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = False
-        security_mgr = MagicMock()
-        security_mgr.generate_hmac.return_value = 'hmac'
-        portal_user = {'email': 'x', 'password': 'p', 'subscriptions': [{'database': 'db'}]}
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager', return_value=security_mgr), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=portal_user), \
-             patch(f'{MODULE_PATH}._sync_api_cached_user') as sync_api:
-            with _app(local_mode=False).test_request_context():
-                ru.check_user_in_service_portal('x', 'p', 'the-key', api_key_required=True)
-        sync_api.assert_called_once()
-
-    def test_known_error_is_reraised(self) -> None:
-        """A recognised portal error propagates unchanged - the same object, not made its own cause"""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.return_value = False
-        refusal = InvalidCloudUserError('no')
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager'), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', side_effect=refusal):
-            with _app(local_mode=False).test_request_context():
-                with pytest.raises(InvalidCloudUserError) as exc_info:
-                    ru.check_user_in_service_portal('x', 'p')
-
-        assert exc_info.value is refusal
-        assert exc_info.value.__cause__ is not refusal
-
-    @pytest.mark.parametrize('failure', [
-        RuntimeError('boom'),
-        DatabaseConnectionError('cache down'),
-        ValueError("No symmetric AES key provided via the 'DG_SYMMETRIC_KEY' environment variable"),
-    ], ids=['bug', 'cache-read', 'missing-key'])
-    def test_any_other_error_propagates_as_itself(self, failure: Exception) -> None:
-        """Not wrapped in a bare Exception, so the caller's own arms (cloud_login's DatabaseConnectionError) match it"""
-        cached_mgr = MagicMock()
-        cached_mgr.cached_user_exists.side_effect = failure
-        with patch(f'{MODULE_PATH}.CachedUserManager', return_value=cached_mgr), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app(local_mode=False).test_request_context():
-                with pytest.raises(type(failure)) as exc_info:
-                    ru.check_user_in_service_portal('x', 'p')
-
-        assert exc_info.value is failure
-
-
-# ================================================ _load_local_test_user ============================================= #
-
-class TestLoadLocalTestUser:
-    """``_load_local_test_user`` matches credentials against the local JSON fixture."""
-
-    def test_matching_user_returned(self) -> None:
-        """A known email with the right password returns the user."""
-        users = {'x@test.com': {'password': 'secret', 'user_name': 'x'}}
-        with patch('builtins.open', mock_open()), patch(f'{MODULE_PATH}.json.load', return_value=users):
-            assert ru._load_local_test_user('x@test.com', 'secret') == users['x@test.com']
-
-    def test_wrong_password_returns_none(self) -> None:
-        """A known email with the wrong password returns None."""
-        users = {'x@test.com': {'password': 'secret'}}
-        with patch('builtins.open', mock_open()), patch(f'{MODULE_PATH}.json.load', return_value=users):
-            assert ru._load_local_test_user('x@test.com', 'wrong') is None
-
-    def test_unknown_user_returns_none(self) -> None:
-        """An unknown email returns None."""
-        with patch('builtins.open', mock_open()), patch(f'{MODULE_PATH}.json.load', return_value={}):
-            assert ru._load_local_test_user('nobody@test.com', 'x') is None
-
-    def test_file_error_returns_none(self) -> None:
-        """A failure reading the fixture returns None."""
-        with patch('builtins.open', side_effect=OSError('missing')):
-            assert ru._load_local_test_user('x@test.com', 'x') is None
-
-
-# ================================================ _sync_api_cached_user ============================================= #
-
-class TestSyncApiCachedUser:
-    """``_sync_api_cached_user`` maintains the cache for an external-API login."""
-
-    @staticmethod
-    def _security_mgr() -> MagicMock:
-        """A SecurityManager stub whose generate_hmac maps any password to a fixed digest."""
-        security_mgr = MagicMock()
-        security_mgr.generate_hmac.return_value = 'hashed-pw'
-        return security_mgr
-
-    def test_existing_valid_user_stamps_api_key(self) -> None:
-        """A cached user whose password is the current HMAC just gets the api_key stamped."""
-        cached_mgr = MagicMock()
-        # Stored password already equals generate_hmac(...) -> entry is current
-        cached_mgr.get_cached_user.return_value = {'password': 'hashed-pw', 'subscriptions': [{'database': 'db'}]}
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        ru._sync_api_cached_user(
-            cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=True
-        )
-        cached_mgr.update_cached_user_api_key.assert_called_once_with('x', 'db', 'the-key')
-        cached_mgr.delete_cached_user.assert_not_called()
-        cached_mgr.insert_cached_user.assert_not_called()
-
-    def test_existing_stale_password_user_is_healed(self) -> None:
-        """Self-heal: a cached entry with a stale (e.g. legacy plaintext) password is dropped and rebuilt.
-
-        The old bug stored the password in plaintext, so the cache never validated and every request hit
-        the portal. Such an entry must now be deleted and recreated with a correctly hashed password.
-        """
-        cached_mgr = MagicMock()
-        # Stored plaintext password != generate_hmac(...) -> entry is stale
-        cached_mgr.get_cached_user.return_value = {'password': 'Init1234!', 'subscriptions': [{'database': 'db'}]}
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        full = {'password': 'Init1234!', 'subscriptions': [{'database': 'db'}]}
-        with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
-            ru._sync_api_cached_user(
-                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=True
-            )
-        cached_mgr.delete_cached_user.assert_called_once_with('x')
-        cached_mgr.update_cached_user_api_key.assert_not_called()
-        cached = cached_mgr.insert_cached_user.call_args.args[0]
-        assert cached['password'] == 'hashed-pw'
-        assert cached['subscriptions'][0]['api_key'] == 'the-key'
-
-    def test_uncached_user_without_db_does_nothing(self) -> None:
-        """An uncached user whose database does not exist is not created."""
-        cached_mgr = MagicMock()
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        with patch(f'{MODULE_PATH}.check_db_exists', return_value=False):
-            ru._sync_api_cached_user(
-                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
-            )
-        cached_mgr.insert_cached_user.assert_not_called()
-
-    def test_uncached_user_with_db_inserts_full_data(self) -> None:
-        """An uncached user with an existing db is cached from the full subscription list."""
-        cached_mgr = MagicMock()
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        full = {'password': 'plain', 'subscriptions': [{'database': 'db'}, {'database': 'other'}]}
-        with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
-            ru._sync_api_cached_user(
-                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
-            )
-        cached_mgr.insert_cached_user.assert_called_once_with(full)
-        assert full['subscriptions'][0]['api_key'] == 'the-key'
-
-    def test_uncached_user_password_is_hashed_before_caching(self) -> None:
-        """Regression: the cached password is the HMAC, not the plaintext the portal returns.
-
-        The plaintext bug meant the cache never validated (the check hashes the login password), so
-        every API request fell back to the service portal despite the user being 'cached'.
-        """
-        cached_mgr = MagicMock()
-        security_mgr = self._security_mgr()
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        full = {'password': 'Init1234!', 'subscriptions': [{'database': 'db'}]}
-        with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
-            ru._sync_api_cached_user(
-                cached_mgr, security_mgr, 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
-            )
-        security_mgr.generate_hmac.assert_called_once_with('Init1234!')
-        cached = cached_mgr.insert_cached_user.call_args.args[0]
-        assert cached['password'] == 'hashed-pw'
-
-    def test_uncached_user_empty_full_refetch_does_not_insert(self) -> None:
-        """When the full-subscription re-fetch returns nothing, no cache entry is created."""
-        cached_mgr = MagicMock()
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=None):
-            ru._sync_api_cached_user(
-                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
-            )
-        cached_mgr.insert_cached_user.assert_not_called()
-
-    def test_uncached_user_with_db_no_matching_subscription(self) -> None:
-        """A full list with no subscription matching the target db still caches (no api_key stamped)."""
-        cached_mgr = MagicMock()
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        full = {'password': 'plain', 'subscriptions': [{'database': 'other'}]}
-        with patch(f'{MODULE_PATH}.check_db_exists', return_value=True), \
-             patch(f'{MODULE_PATH}.validate_subscription_user', return_value=full):
-            ru._sync_api_cached_user(
-                cached_mgr, self._security_mgr(), 'x', 'p', 'the-key', user_data, user_exists_in_cache=False
-            )
-        cached_mgr.insert_cached_user.assert_called_once_with(full)
-        assert 'api_key' not in full['subscriptions'][0]
-
-
-# ============================================ _cached_password_is_current =========================================== #
-
-class TestCachedPasswordIsCurrent:
-    """``_cached_password_is_current`` compares the stored password to the HMAC of the login password."""
-
-    @staticmethod
-    def _security_mgr() -> MagicMock:
-        """A SecurityManager stub whose generate_hmac maps any password to a fixed digest."""
-        security_mgr = MagicMock()
-        security_mgr.generate_hmac.return_value = 'hashed-pw'
-        return security_mgr
-
-    def test_matching_hash_is_current(self) -> None:
-        """A stored password equal to the HMAC of the login password is current."""
-        cached_mgr = MagicMock()
-        cached_mgr.get_cached_user.return_value = {'password': 'hashed-pw'}
-        assert ru._cached_password_is_current(cached_mgr, self._security_mgr(), 'x', 'p') is True
-
-    def test_plaintext_password_is_not_current(self) -> None:
-        """A stored plaintext password (legacy entry) is not current."""
-        cached_mgr = MagicMock()
-        cached_mgr.get_cached_user.return_value = {'password': 'Init1234!'}
-        assert ru._cached_password_is_current(cached_mgr, self._security_mgr(), 'x', 'p') is False
-
-    def test_absent_cached_user_is_not_current(self) -> None:
-        """A missing cached entry is not current."""
-        cached_mgr = MagicMock()
-        cached_mgr.get_cached_user.return_value = None
-        assert ru._cached_password_is_current(cached_mgr, self._security_mgr(), 'x', 'p') is False
-
-
-# =============================================== _sync_frontend_cached_user ========================================= #
-
-class TestSyncFrontendCachedUser:
-    """``_sync_frontend_cached_user`` maintains the cache for a frontend login."""
-
-    def test_new_user_inserted(self) -> None:
-        """An uncached user is inserted as-is."""
-        cached_mgr = MagicMock()
-        user_data = {'subscriptions': []}
-        ru._sync_frontend_cached_user(cached_mgr, 'x', user_data, user_exists_in_cache=False)
-        cached_mgr.insert_cached_user.assert_called_once_with(user_data)
-
-    def test_missing_cached_user_returns_early(self) -> None:
-        """A user flagged cached but absent from the store is not updated."""
-        cached_mgr = MagicMock()
-        cached_mgr.get_cached_user.return_value = None
-        ru._sync_frontend_cached_user(cached_mgr, 'x', {'subscriptions': []}, user_exists_in_cache=True)
-        cached_mgr.update_cached_user.assert_not_called()
-
-    def test_existing_user_restores_api_key(self) -> None:
-        """A refreshed cached user keeps its previously stored api_key per database."""
-        cached_mgr = MagicMock()
-        cached_mgr.get_cached_user.return_value = {'subscriptions': [{'database': 'db', 'api_key': 'old-key'}]}
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        ru._sync_frontend_cached_user(cached_mgr, 'x', user_data, user_exists_in_cache=True)
-        assert user_data['subscriptions'][0]['api_key'] == 'old-key'
-        cached_mgr.update_cached_user.assert_called_once_with('x', user_data)
-
-    def test_existing_user_without_prior_api_key(self) -> None:
-        """A refreshed user whose db had no cached api_key is updated with no key stamped."""
-        cached_mgr = MagicMock()
-        cached_mgr.get_cached_user.return_value = {'subscriptions': [{'database': 'db'}]}
-        user_data = {'subscriptions': [{'database': 'db'}]}
-        ru._sync_frontend_cached_user(cached_mgr, 'x', user_data, user_exists_in_cache=True)
-        assert 'api_key' not in user_data['subscriptions'][0]
-        cached_mgr.update_cached_user.assert_called_once_with('x', user_data)
-
-
-# ============================================= small database/user helpers ========================================== #
-
-class TestSmallHelpers:
-    """The thin DB/user helpers around the managers."""
-
-    def test_check_db_exists_delegates(self) -> None:
-        """check_db_exists forwards to the database manager."""
-        app = _app()
-        app.database_manager.check_database_exists.return_value = True
-        with app.test_request_context():
-            assert ru.check_db_exists('db') is True
-        app.database_manager.check_database_exists.assert_called_once_with('db')
-
-    def test_init_db_routine_validates_and_sets_version(self) -> None:
-        """init_db_routine validates collections and sets the newest update version."""
-        validator = MagicMock()
-        updater = MagicMock()
-        updater.get_highest_update_version.return_value = 99
-        with patch(f'{MODULE_PATH}.CollectionValidator', return_value=validator), \
-             patch(f'{MODULE_PATH}.DatabaseUpdater', return_value=updater):
-            with _app().test_request_context():
-                ru.init_db_routine('db')
-        validator.validate_collections.assert_called_once()
-        updater.set_update_version.assert_called_once_with(99)
-
-    def test_retrieve_user_returns_user(self) -> None:
-        """retrieve_user returns the user found by email."""
-        users_manager = MagicMock()
-        user = SimpleNamespace(public_id=1)
-        users_manager.get_user_by.return_value = user
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
-            with _app().test_request_context():
-                assert ru.retrieve_user({'email': 'x'}, 'db') is user
-
-    def test_retrieve_user_get_error_returns_none(self) -> None:
-        """retrieve_user returns None when the lookup errors."""
-        users_manager = MagicMock()
-        users_manager.get_user_by.side_effect = UsersManagerGetError('nope')
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
-            with _app().test_request_context():
-                assert ru.retrieve_user({'email': 'x'}, 'db') is None
-
-
-# =================================================== set_admin_user ================================================= #
-
-class TestSetAdminUser:
-    """``set_admin_user`` creates or updates the admin user for a subscription's database."""
-
-    SUBSCRIPTION: dict[str, Any] = {'database': 'db', 'api_level': 1, 'config_item_limit': 10}
-    USER_DATA: dict[str, Any] = {'email': 'a@test.com', 'user_name': 'admin', 'password': 'pw'}
-
-    def test_creates_when_absent(self) -> None:
-        """A missing admin user is created."""
-        users_manager = MagicMock()
-        users_manager.get_user_by.return_value = None
-        users_manager.get_next_public_id.return_value = 1
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-        users_manager.insert_user.assert_called_once()
-
-    def test_updates_when_present(self) -> None:
-        """An existing admin user is updated with the subscription's fields."""
-        users_manager = MagicMock()
-        existing = MagicMock()
-        existing.get_public_id.return_value = 1
-        users_manager.get_user_by.return_value = existing
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-        users_manager.update_user.assert_called_once()
-        assert existing.database == 'db'
-
-    def test_a_created_user_stores_the_digest_it_is_handed(self) -> None:
-        """The portal check already HMACed the password; hashing it again stored a digest nothing could match"""
-        users_manager = MagicMock()
-        users_manager.get_user_by.return_value = None
-        users_manager.get_next_public_id.return_value = 1
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager') as security_manager:
-            with _app().test_request_context():
-                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-
-        assert users_manager.insert_user.call_args.args[0].password == self.USER_DATA['password']
-        security_manager.return_value.generate_hmac.assert_not_called()
-
-    def test_an_update_leaves_the_stored_password_alone(self) -> None:
-        """Only the subscription's three fields are refreshed"""
-        users_manager = MagicMock()
-        existing = MagicMock(password='stored-digest')
-        users_manager.get_user_by.return_value = existing
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager):
-            with _app().test_request_context():
-                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-
-        assert existing.password == 'stored-digest'
-
-    # The portal's numbers as strings: both branches have to convert them to int
-    STRING_SUBSCRIPTION: dict[str, Any] = {'database': 'db', 'api_level': '1', 'config_item_limit': '10'}
-
-    def test_the_update_path_stores_integers_for_string_numbers(self) -> None:
-        """An updated user carries int api_level / config_items_limit, so the limit check can compare"""
-        users_manager = MagicMock()
-        existing = MagicMock()
-        users_manager.get_user_by.return_value = existing
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                ru.set_admin_user(self.USER_DATA, self.STRING_SUBSCRIPTION)
-
-        assert existing.config_items_limit == self.SUBSCRIPTION['config_item_limit']
-        assert existing.api_level == self.SUBSCRIPTION['api_level']
-        assert isinstance(existing.config_items_limit, int)
-
-    def test_the_create_path_stores_integers_for_string_numbers(self) -> None:
-        """The created user gets the same types the update path writes"""
-        users_manager = MagicMock()
-        users_manager.get_user_by.return_value = None
-        users_manager.get_next_public_id.return_value = 1
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                ru.set_admin_user(self.USER_DATA, self.STRING_SUBSCRIPTION)
-
-        created = users_manager.insert_user.call_args.args[0]
-        assert created.config_items_limit == self.SUBSCRIPTION['config_item_limit']
-        assert created.api_level == self.SUBSCRIPTION['api_level']
-
-    def test_a_non_numeric_limit_is_refused_before_any_write(self) -> None:
-        """The conversion runs before either branch, so a bad value writes nothing and names the failure"""
-        users_manager = MagicMock()
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                with pytest.raises(UsersManagerInsertError):
-                    ru.set_admin_user(self.USER_DATA, {**self.SUBSCRIPTION, 'config_item_limit': 'lots'})
-
-        users_manager.insert_user.assert_not_called()
-        users_manager.update_user.assert_not_called()
-
-    def test_get_error_treated_as_absent_and_creates(self) -> None:
-        """A UsersManagerGetError while reading the existing user is swallowed; the user is created."""
-        users_manager = MagicMock()
-        users_manager.get_user_by.side_effect = UsersManagerGetError('nope')
-        users_manager.get_next_public_id.return_value = 1
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-        users_manager.insert_user.assert_called_once()
-
-    def test_insert_get_error_reraised(self) -> None:
-        """A UsersManagerGetError raised while writing propagates as UsersManagerGetError."""
-        users_manager = MagicMock()
-        users_manager.get_user_by.return_value = None
-        users_manager.get_next_public_id.return_value = 1
-        users_manager.insert_user.side_effect = UsersManagerGetError('boom')
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                with pytest.raises(UsersManagerGetError):
-                    ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-
-    def test_insert_failure_raises_insert_error(self) -> None:
-        """A failure while inserting raises UsersManagerInsertError."""
-        users_manager = MagicMock()
-        users_manager.get_user_by.return_value = None
-        users_manager.get_next_public_id.side_effect = RuntimeError('boom')
-        with patch(f'{MODULE_PATH}.UsersManager', return_value=users_manager), \
-             patch(f'{MODULE_PATH}.SecurityManager'):
-            with _app().test_request_context():
-                with pytest.raises(UsersManagerInsertError):
-                    ru.set_admin_user(self.USER_DATA, self.SUBSCRIPTION)
-
-
-# =============================================== validate_subscription_user ========================================= #
-
-class TestValidateSubscriptionUser:
-    """``validate_subscription_user`` posts credentials to the DataGerry service portal."""
-
-    def test_missing_api_key_raises(self) -> None:
-        """A required-but-absent API key raises MissingApiKeyError."""
-        with _app().test_request_context():
-            with pytest.raises(MissingApiKeyError):
-                ru.validate_subscription_user('x', 'p', None, api_key_required=True)
-
-    def test_missing_access_token_raises(self) -> None:
-        """A missing X-ACCESS-TOKEN env var raises NoAccessTokenError."""
-        with patch(f'{MODULE_PATH}.os.getenv', return_value=None):
-            with _app().test_request_context():
-                with pytest.raises(NoAccessTokenError):
-                    ru.validate_subscription_user('x', 'p')
-
-    def test_success_returns_json(self) -> None:
-        """A 200 response returns the parsed JSON body."""
-        response = MagicMock()
-        response.status_code = 200
-        response.json.return_value = {'email': 'x'}
-        with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', return_value=response):
-            with _app().test_request_context():
-                assert ru.validate_subscription_user('x', 'p') == {'email': 'x'}
-
-    def test_api_key_uses_subscription_endpoint(self) -> None:
-        """When an API key is supplied the subscription endpoint is targeted."""
-        response = MagicMock()
-        response.status_code = 200
-        response.json.return_value = {'email': 'x'}
-        with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', return_value=response) as post:
-            with _app().test_request_context():
-                ru.validate_subscription_user('x', 'p', 'the-key')
-        assert post.call_args.args[0] == 'http://sp/datagerry/auth/subscription'
-
-    def test_non_200_raises_invalid_cloud_user(self) -> None:
-        """A non-200 response raises InvalidCloudUserError with the portal message."""
-        response = MagicMock()
-        response.status_code = 401
-        response.json.return_value = {'message': 'nope'}
-        with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', return_value=response):
-            with _app().test_request_context():
-                with pytest.raises(InvalidCloudUserError):
-                    ru.validate_subscription_user('x', 'p')
-
-    def test_non_200_non_json_falls_back_to_text(self) -> None:
-        """A non-JSON error body falls back to the raw text."""
-        response = MagicMock()
-        response.status_code = 500
-        response.json.side_effect = ValueError('not json')
-        response.text = 'server error'
-        with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', return_value=response):
-            with _app().test_request_context():
-                with pytest.raises(InvalidCloudUserError):
-                    ru.validate_subscription_user('x', 'p')
-
-    def test_timeout_raises_request_timeout(self) -> None:
-        """A request timeout raises RequestTimeoutError, carrying the timeout itself."""
-        failure = ru.requests.exceptions.Timeout('slow')
-
-        with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', side_effect=failure):
-            with _app().test_request_context():
-                with pytest.raises(RequestTimeoutError) as caught:
-                    ru.validate_subscription_user('x', 'p')
-
-        assert caught.value.args[0] is failure
-
-    def test_request_exception_raises_request_error(self) -> None:
-        """A generic request exception raises RequestError, carrying the exception itself."""
-        failure = ru.requests.exceptions.RequestException('down')
-
-        with patch(f'{MODULE_PATH}.os.getenv', side_effect=_portal_env), \
-             patch(f'{MODULE_PATH}.requests.post', side_effect=failure):
-            with _app().test_request_context():
-                with pytest.raises(RequestError) as caught:
-                    ru.validate_subscription_user('x', 'p')
-
-        assert caught.value.args[0] is failure
 
 
 # ============================================ parse_assistant_parameters ============================================ #
@@ -2110,21 +1558,21 @@ class TestParseAssistantParameters:
 
     def test_injects_the_query_parameters_first(self) -> None:
         """The decorated view reads them as its first positional argument, not off `request`."""
-        with _app().test_request_context('/?profile=network&steps=3'):
+        with stub_cmdb_app().test_request_context('/?profile=network&steps=3'):
             location_args, _, _ = self._decorated()()
 
         assert location_args == {'profile': 'network', 'steps': '3'}
 
     def test_an_empty_query_string_is_an_empty_dict(self) -> None:
         """A request with no parameters still calls the view, with nothing to act on."""
-        with _app().test_request_context('/'):
+        with stub_cmdb_app().test_request_context('/'):
             location_args, _, _ = self._decorated()()
 
         assert location_args == {}
 
     def test_later_arguments_are_forwarded_unchanged(self) -> None:
         """An inner decorator's `request_user` has to survive being pushed one position along."""
-        with _app().test_request_context('/?a=1'):
+        with stub_cmdb_app().test_request_context('/?a=1'):
             _, args, kwargs = self._decorated()('positional', request_user='user')
 
         assert args == ('positional',)
@@ -2132,7 +1580,7 @@ class TestParseAssistantParameters:
 
     def test_a_duplicate_key_keeps_the_first_value(self) -> None:
         """`to_dict` collapses duplicates rather than raising - one reason the old guard was dead."""
-        with _app().test_request_context('/?profile=a&profile=b'):
+        with stub_cmdb_app().test_request_context('/?profile=a&profile=b'):
             location_args, _, _ = self._decorated()()
 
         assert location_args == {'profile': 'a'}
@@ -2153,12 +1601,12 @@ class TestRefuseInactiveUser:
 
     def test_an_active_user_passes(self) -> None:
         """Nothing is raised, nothing is returned"""
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             assert ru.refuse_inactive_user(SimpleNamespace(active=True)) is None
 
     def test_a_deactivated_user_is_a_401_naming_the_reason(self) -> None:
         """401 with the explicit message - the caller has already authenticated"""
-        with _app().test_request_context():
+        with stub_cmdb_app().test_request_context():
             with pytest.raises(HTTPException) as exc_info:
                 ru.refuse_inactive_user(SimpleNamespace(active=False))
 
@@ -2178,7 +1626,7 @@ def test_request_uses_basic_auth(header: str | None, expected: bool) -> None:
     """The scheme is matched case-insensitively, as parse_authorization_header accepts it"""
     headers: dict[str, str] = {ru.AUTHORIZATION_HEADER: header} if header else {}
 
-    with _app().test_request_context(headers=headers):
+    with stub_cmdb_app().test_request_context(headers=headers):
         assert ru.request_uses_basic_auth() is expected
 
 
@@ -2193,7 +1641,7 @@ def test_request_uses_basic_auth(header: str | None, expected: bool) -> None:
 ], ids=['cloud key+Basic', 'cloud key+Bearer', 'cloud Basic only', 'cloud key only', 'on-premise key+Basic'])
 def test_request_authenticates_by_api_key(cloud_mode: bool, headers: dict[str, str], expected: bool) -> None:
     """Only a cloud request pairing the key with Basic credentials is left to verify_api_access"""
-    with _app(cloud_mode=cloud_mode).test_request_context(headers=headers):
+    with stub_cmdb_app(cloud_mode=cloud_mode).test_request_context(headers=headers):
         assert ru.request_authenticates_by_api_key() is expected
 
 
@@ -2207,7 +1655,7 @@ def test_request_authenticates_by_api_key(cloud_mode: bool, headers: dict[str, s
 ], ids=['cloud Basic only', 'cloud key+Basic', 'cloud Bearer', 'on-premise Basic'])
 def test_request_is_cloud_basic_without_api_key(cloud_mode: bool, headers: dict[str, str], expected: bool) -> None:
     """Only cloud Basic credentials with no key are the refused case"""
-    with _app(cloud_mode=cloud_mode).test_request_context(headers=headers):
+    with stub_cmdb_app(cloud_mode=cloud_mode).test_request_context(headers=headers):
         assert ru.request_is_cloud_basic_without_api_key() is expected
 
 

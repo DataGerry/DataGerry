@@ -19,7 +19,8 @@ Unit tests for cmdb.manager.isms_manager.threat_manager.ThreatManager
 Pure tests: no Mongo. The manager is driven against a ``MagicMock(spec=ThreatManager)`` with its
 cross-collection database collaborator (aggregate_all) stubbed, so only the
 manager's own behavior is exercised - the array-membership ``$in``/``$unwind``/``$group`` pipeline
-shape, the empty-input short circuit, and the error-wrapping into the ThreatManager error hierarchy.
+shape, the empty-input short circuit, the error-wrapping into the ThreatManager error hierarchy (a
+bug propagates as itself), and the risk-usage refusal of the delete.
 The aggregation itself is exercised against real MongoDB by the integration tier.
 """
 from unittest.mock import MagicMock
@@ -27,10 +28,15 @@ from unittest.mock import MagicMock
 import pytest
 
 from cmdb.manager.isms_manager.threat_manager import ThreatManager
-from cmdb.models.isms_model import IsmsRisk
+from cmdb.models.isms_model import IsmsRisk, IsmsThreat
 
-from cmdb.errors.manager import BaseManagerIterationError
-from cmdb.errors.manager.threat_manager import ThreatManagerGetError
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerIterationError
+from cmdb.errors.manager.threat_manager import (
+    THREAT_MANAGER_ERRORS,
+    ThreatManagerDeleteError,
+    ThreatManagerGetError,
+    ThreatManagerRiskUsageError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 THREAT_ID_A: int = 301
@@ -85,10 +91,49 @@ class TestGetUsedThreatIds:
         with pytest.raises(ThreatManagerGetError):
             ThreatManager.get_used_threat_ids(mgr, [THREAT_ID_A])
 
-    def test_unexpected_error_wraps_as_threat_get_error(self) -> None:
-        """A generic exception is also wrapped as ``ThreatManagerGetError``."""
+    def test_a_bug_propagates_as_itself(self) -> None:
+        """A programming error is not a failed lookup: it is not wrapped, so the route answers 500."""
         mgr = _mock_manager()
         mgr.aggregate_all.side_effect = RuntimeError('boom')
 
-        with pytest.raises(ThreatManagerGetError):
+        with pytest.raises(RuntimeError):
             ThreatManager.get_used_threat_ids(mgr, [THREAT_ID_A])
+
+
+class TestDeleteWithFollowUp:
+    """``delete_with_follow_up`` refuses a Threat a Risk references, through the Risk's ``threats`` list."""
+
+    @staticmethod
+    def _manager(referencing_risk: dict | None) -> MagicMock:
+        """A manager whose Threat is stored, and referenced by ``referencing_risk`` (or by nothing)"""
+        mgr = _mock_manager()
+        mgr.exceptions = THREAT_MANAGER_ERRORS
+        mgr.collection = IsmsThreat.COLLECTION
+        mgr.get_one_by.return_value = referencing_risk
+        mgr.find_one_and_delete.return_value = {'public_id': THREAT_ID_A}
+
+        return mgr
+
+    def test_the_usage_check_reads_the_risk_list(self) -> None:
+        """The check asks the IsmsRisk collection for a Risk holding the id in its list."""
+        mgr = self._manager(None)
+
+        assert ThreatManager.delete_with_follow_up(mgr, THREAT_ID_A) is True
+        mgr.get_one_by.assert_called_with({'threats': THREAT_ID_A}, IsmsRisk.COLLECTION)
+
+    def test_a_referenced_threat_is_refused(self) -> None:
+        """The usage error is raised unwrapped, and nothing is deleted."""
+        mgr = self._manager({'public_id': 1})
+
+        with pytest.raises(ThreatManagerRiskUsageError):
+            ThreatManager.delete_with_follow_up(mgr, THREAT_ID_A)
+
+        mgr.find_one_and_delete.assert_not_called()
+
+    def test_a_failed_delete_is_the_delete_error(self) -> None:
+        """The delete's BaseManagerDeleteError becomes the manager's DeleteError."""
+        mgr = self._manager(None)
+        mgr.find_one_and_delete.side_effect = BaseManagerDeleteError('down')
+
+        with pytest.raises(ThreatManagerDeleteError):
+            ThreatManager.delete_with_follow_up(mgr, THREAT_ID_A)

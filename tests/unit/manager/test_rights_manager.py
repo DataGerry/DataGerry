@@ -16,25 +16,19 @@
 """
 Unit tests for cmdb.manager.rights_manager.RightsManager
 
-Pure tests: no Mongo. RightsManager is not database-backed - it flattens the static
-``ALL_RIGHTS`` tree into an in-memory list - so every method is exercised directly against
+Pure tests: no Mongo. RightsManager is not database-backed - it serves the static ``ALL_RIGHTS`` tree,
+flattened once at import (``ALL_RIGHTS_FLAT``), from memory - so every method is exercised directly against
 hand-built ``BaseRight`` fixtures (or a manager whose ``rights`` are replaced with a
 deterministic list) to keep ordering independent of the real rights tree.
 """
 from typing import Any
-from unittest.mock import patch
 
 import pytest
 
-from cmdb.manager.rights_manager import RightsManager
+from cmdb.manager.rights_manager import RIGHT_SORTABLE_FIELDS, RightsManager
+from cmdb.models.right_model.all_rights import ALL_RIGHTS, ALL_RIGHT_NAMES, ALL_RIGHTS_FLAT, flat_rights_tree
 from cmdb.models.right_model.base_right import BaseRight
 from cmdb.models.right_model.levels_enum import Levels
-
-from cmdb.errors.manager.rights_manager import (
-    RightsManagerInitError,
-    RightsManagerGetError,
-    RightsManagerIterationError,
-)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 MODULE_PATH: str = 'cmdb.manager.rights_manager'
@@ -95,6 +89,29 @@ class TestFlatTree:
         """An empty tree flattens to an empty list"""
         assert RightsManager.flat_tree(()) == []
 
+    def test_deep_nesting_keeps_the_tree_order(self) -> None:
+        """Every leaf once, in the order a depth-first walk meets it"""
+        leaves: list[BaseRight] = [_make_right(name) for name in SORTED_LEAF_NAMES]
+        tree: tuple[Any, ...] = (leaves[0], (leaves[1], (leaves[2], [leaves[3]])), leaves[4])
+
+        assert flat_rights_tree(tree) == leaves
+
+
+class TestFlattenedCatalogue:
+    """The catalogue is flattened once, at import, and shared"""
+
+    def test_the_cache_is_the_flattened_tree(self) -> None:
+        """Same rights, same order as a fresh flattening"""
+        assert ALL_RIGHTS_FLAT == flat_rights_tree(ALL_RIGHTS)
+
+    def test_the_name_set_holds_every_right_name(self) -> None:
+        """What a group's rights may carry"""
+        assert ALL_RIGHT_NAMES == frozenset(right.name for right in ALL_RIGHTS_FLAT)
+
+    def test_every_manager_shares_the_one_list(self) -> None:
+        """Building a manager flattens nothing"""
+        assert RightsManager().rights is ALL_RIGHTS_FLAT
+
 
 # ------------------------------------------------------------- tree_to_json ----------------------------------------- #
 
@@ -130,11 +147,14 @@ class TestInit:
         assert len(manager.rights) > 0
         assert all(isinstance(right, BaseRight) for right in manager.rights)
 
-    def test_wraps_failure_in_init_error(self) -> None:
-        """A failure while flattening the tree surfaces as RightsManagerInitError"""
-        with patch.object(RightsManager, 'flat_tree', side_effect=RuntimeError("boom")):
-            with pytest.raises(RightsManagerInitError):
-                RightsManager()
+    def test_building_one_does_not_flatten_the_tree(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The shared list is taken as it is - no flattening runs, so nothing can fail here"""
+        def _fail(*_args: Any) -> None:
+            raise AssertionError('flattened again')
+
+        monkeypatch.setattr(RightsManager, 'flat_tree', _fail)
+
+        assert RightsManager().rights is ALL_RIGHTS_FLAT
 
     @pytest.mark.parametrize('right_name', [
         'base.framework.report.view',
@@ -174,11 +194,11 @@ class TestGetRight:
         """A name that matches nothing returns None (so the route can map it to a 404)"""
         assert manager.get_right(MISSING_RIGHT_NAME) is None
 
-    def test_wraps_unexpected_failure_in_get_error(self, manager: RightsManager) -> None:
-        """An unexpected failure while scanning the rights surfaces as RightsManagerGetError"""
+    def test_a_programming_error_propagates_as_itself(self, manager: RightsManager) -> None:
+        """Nothing is wrapped: an in-memory scan has no failure of its own"""
         manager.rights = None  # iterating None raises TypeError inside get_right
 
-        with pytest.raises(RightsManagerGetError):
+        with pytest.raises(TypeError):
             manager.get_right(f'{RIGHT_PREFIX}a')
 
 
@@ -261,7 +281,33 @@ class TestIterateRights:
         assert len(result.results) == PAGE_LIMIT
         assert result.total == TOTAL_FIXTURE_RIGHTS
 
-    def test_wraps_unknown_sort_key_in_iteration_error(self, manager: RightsManager) -> None:
-        """Sorting by a non-existent attribute surfaces as RightsManagerIterationError"""
-        with pytest.raises(RightsManagerIterationError):
+    def test_an_unchecked_unknown_sort_key_raises_as_itself(self, manager: RightsManager) -> None:
+        """The routes check the key first; a caller that skips the check gets the AttributeError, unwrapped"""
+        with pytest.raises(AttributeError):
             manager.iterate_rights(limit=NO_LIMIT, skip=0, sort=UNKNOWN_SORT_KEY, order=ORDER_ASC)
+
+    @pytest.mark.parametrize('sort', RIGHT_SORTABLE_FIELDS)
+    @pytest.mark.parametrize('order', [ORDER_ASC, ORDER_DESC])
+    def test_every_sortable_field_sorts_the_real_catalogue(self, sort: str, order: int) -> None:
+        """Each field every right sets to one comparable type - a sort over the catalogue cannot fail"""
+        result = RightsManager().iterate_rights(limit=NO_LIMIT, skip=0, sort=sort, order=order)
+
+        assert result.total == len(ALL_RIGHTS_FLAT)
+
+
+class TestIsSortableRightField:
+    """Which ?sort= values the routes accept"""
+
+    @pytest.mark.parametrize('sort', RIGHT_SORTABLE_FIELDS)
+    def test_the_serialised_keys_are_sortable(self, sort: str) -> None:
+        """The keys a serialised right carries"""
+        assert RightsManager.is_sortable_right_field(sort)
+
+    @pytest.mark.parametrize('sort', [UNKNOWN_SORT_KEY, '_level', '__class__', ''])
+    def test_anything_else_is_not(self, sort: str) -> None:
+        """An unknown, private or dunder attribute is refused"""
+        assert not RightsManager.is_sortable_right_field(sort)
+
+    def test_the_sortable_fields_are_the_serialised_keys(self) -> None:
+        """A client sorts by the columns it is shown"""
+        assert set(RIGHT_SORTABLE_FIELDS) == set(BaseRight.to_dict(_make_right('a')))

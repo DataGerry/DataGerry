@@ -48,7 +48,7 @@ from typing import Any, Collection
 from pymongo.results import UpdateResult
 
 from cmdb.database import MongoDatabaseManager
-from cmdb.database.database_constants import PUBLIC_ID_FIELD
+from cmdb.database.database_constants import PUBLIC_ID_FIELD, QUERY_TIME_LIMIT_MS
 from cmdb.database.json_codec import EXTENDED_JSON_DECODE_ERRORS, bson_round_trip
 from cmdb.utils import Builder
 from cmdb.manager.query_builder import BuilderParameters
@@ -69,11 +69,12 @@ from cmdb.security.acl.helpers import verify_access
 from cmdb.security.acl.permission import AccessControlPermission
 from cmdb.framework.results import IterationResult
 from cmdb.manager.objects_reference_helper import (
-    build_reference_match_queries,
     filter_mds_results_referencing,
-    merge_mds_references,
+    merge_reference_ids,
+    build_reference_id_criteria,
+    build_reference_page_query,
 )
-from cmdb.manager.objects_summary_helper import compose_summary_line
+from cmdb.manager.objects_summary_helper import compose_summary_lines
 from cmdb.manager.risk_assessment_cascade_helper import delete_risk_assessments_of
 from cmdb.manager.objects_propagation_helper import RawUpdate
 
@@ -91,7 +92,6 @@ from cmdb.errors.manager.objects_manager import (
     ObjectsManagerInsertError,
     ObjectsManagerUpdateError,
     ObjectsManagerIterationError,
-    ObjectsManagerMdsReferencesError,
 )
 from cmdb.errors.models.cmdb_object import CmdbObjectInitFromDataError, CmdbObjectToJsonError
 from cmdb.errors.models.cmdb_type import CmdbTypeInitFromDataError
@@ -103,6 +103,17 @@ LOGGER: Logger = getLogger(__name__)
 # What this manager expects a call to fail with - each method catches only these and wraps them in its own error; a
 # programming error propagates as itself (the route's 500, not the 400 a failed read gets)
 OBJECT_DOCUMENT_ERRORS: tuple[type[Exception], ...] = (CmdbObjectInitFromDataError, CmdbObjectToJsonError)
+
+# The reference lookup reads only the ids of what it finds
+PUBLIC_ID_ONLY_PROJECTION: dict[str, int] = {CmdbObjectKey.PUBLIC_ID.value: 1, '_id': 0}
+
+# A summary line needs the object's id, its type and its field values - nothing else of the document
+SUMMARY_PROJECTION: dict[str, int] = {
+    CmdbObjectKey.PUBLIC_ID.value: 1,
+    CmdbObjectKey.TYPE_ID.value: 1,
+    CmdbObjectKey.FIELDS.value: 1,
+    '_id': 0,
+}
 
 # The failed read of an object whose CmdbType no longer exists, when a caller's ACL has to be judged by that type
 MISSING_OBJECT_TYPE_MESSAGE: str = "The CmdbType (ID: {type_id}) of the CmdbObject (ID: {public_id}) does not exist!"
@@ -842,22 +853,27 @@ class ObjectsManager(BaseManager):
         return counts_by_type, total
 
 
-    def get_mds_references_for_object(self,
-                                      referenced_object: CmdbObject,
-                                      query_filter: dict[str, Any] | list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def get_mds_references_for_object(
+            self,
+            referenced_object: CmdbObject,
+            query_filter: dict[str, Any] | list[dict[str, Any]],
+            time_limit_ms: int = QUERY_TIME_LIMIT_MS) -> list[dict[str, Any]]:
         """
         Retrieves all CmdbObjects whose multi-data sections (MDS) reference a given object
 
-        This method constructs an aggregation pipeline to find CmdbObject that contain reference 
-        fields pointing to the specified `referenced_object`
+        This method constructs an aggregation pipeline to find CmdbObject that contain reference
+        fields pointing to the specified `referenced_object`. It looks up the objects of every Type batch by batch, so
+        it runs under the caller's time budget: past it the server stops the read, a later batch included
 
         Args:
             referenced_object (CmdbObject): The CmdbObject being referenced
-            query_filter (dict[str, Any] | list[dict[str, Any]]): Additional query filters to apply in the pipeline. 
+            query_filter (dict[str, Any] | list[dict[str, Any]]): Additional query filters to apply in the pipeline.
                                               Can be a dictionary (single filter) or a list of filters
+            time_limit_ms (int): The server-side time budget, in milliseconds. Defaults to QUERY_TIME_LIMIT_MS
 
         Raises:
-            ObjectsManagerIterationError: If the iteration fails
+            ObjectsManagerIterationError: If the iteration fails - wrapping a DocumentQueryTimeLimitError when it ran
+                past its time budget
 
         Returns:
             list[dict[str, Any]]: A list of CmdbObjects that reference the given `referenced_object` in their 
@@ -916,7 +932,7 @@ class ObjectsManager(BaseManager):
 
             query_pipeline.append(Builder.project_({"_id": 0}))
 
-            results = self.aggregate_all(query_pipeline, CmdbType.COLLECTION)
+            results = self.aggregate_within_time_limit(query_pipeline, time_limit_ms, collection=CmdbType.COLLECTION)
 
             # The manager owns the read: the ref-field names are resolved per TYPE in one query, so the
             # pure filter below decides per ROW without a type fetch of its own
@@ -973,61 +989,55 @@ class ObjectsManager(BaseManager):
         permission: AccessControlPermission | None = None
     ) -> IterationResult[CmdbObject]:
         """
-        Retrieves all CmdbObjects that reference the given CmdbObject
+        Retrieves one page of the CmdbObjects that reference the given CmdbObject
 
-        This method searches for references to `object_` in both:
-        1. Object fields that are marked as references (`ref` type fields)
-        2. Render metadata sections that define a reference section (`ref-section`)
-
-        Additionally, it merges results from multi-data section (MDS) references
+        Two reads find the referencing objects: a `ref` field or a ref-section of their type pointing at it (only
+        the ids are read, ACL-scoped by ``user`` and ``permission``), and a ref field inside a multi-data-section
+        row (``get_mds_references_for_object``). The union of both is then sorted, paged and read in ONE
+        aggregation, so only the page's documents are loaded; the total is the size of the union
 
         Args:
             object_ (CmdbObject): The CmdbObject whose references are being retrieved
             criteria (dict[str, Any] | list[dict[str, Any]]): A filter (or list of pipeline stages) to apply
                 when querying for references
-            limit (int): The maximum number of results to return
-            skip (int): The number of results to skip (for pagination)
+            limit (int): The maximum number of results to return, 0 for every one
+            skip (int): The number of results to skip (for pagination); only applied together with a limit
             sort (str): The field by which to sort the results
             order (int): The sorting order (1 for ascending, -1 for descending)
             user (CmdbUser | None): The requesting user (for access control)
             permission (AccessControlPermission | None): The required permission level
 
         Raises:
-            ObjectsManagerIterationError: If iteration fails
+            ObjectsManagerIterationError: If a read fails - wrapping a DocumentQueryTimeLimitError when one ran past
+                its time budget - or a page document can not be read as a CmdbObject
 
         Returns:
             IterationResult[CmdbObject]: A paginated and sorted collection of CmdbObjects
             that reference the given object
         """
+        builder_params = BuilderParameters(criteria=build_reference_id_criteria(object_, criteria))
+
         try:
-            query = []
+            id_query: list[dict[str, Any]] = self.query_builder.build(builder_params, user, permission)
+            id_query.append(Builder.project_(PUBLIC_ID_ONLY_PROJECTION))
+            field_ref_rows: list[dict[str, Any]] = self.aggregate_within_time_limit(
+                id_query, builder_params.time_limit_ms,
+            )
+        except BaseManagerIterationError as err:
+            raise ObjectsManagerIterationError(err) from err
 
-            if isinstance(criteria, dict):
-                query.append(criteria)
-            elif isinstance(criteria, list):
-                query += criteria
+        referenced_ids: list[int] = merge_reference_ids(
+            field_ref_rows, self.get_mds_references_for_object(object_, criteria, builder_params.time_limit_ms),
+        )
 
-            # Lookup related types by joining with the 'framework.types' collection
-            query.append(Builder.lookup_(from_collection='framework.types',
-                                         local_field='type_id',
-                                         foreign_field='public_id',
-                                         as_field='type'))
-            query.append(Builder.unwind_({'path': '$type', 'preserveNullAndEmptyArrays': True}))
+        page: list[dict[str, Any]] = self.aggregate_objects_within_time_limit(
+            build_reference_page_query(self.query_builder, referenced_ids, limit, skip, sort, order),
+            builder_params.time_limit_ms,
+        )
 
-            # Keep only objects whose type references object_'s type and which point at its public_id
-            query.append(Builder.match_(Builder.or_(build_reference_match_queries(object_))))
-            query.append(Builder.match_({'fields.value': object_.public_id}))
-
-            builder_params = BuilderParameters(criteria=query, sort=sort, order=order)
-
-            # limit and skip will be handled when merged with the MDS results in '__merge_mds_references()'
-            result = self.iterate(builder_params, user, permission)
-            mds_result = self.get_mds_references_for_object(object_, criteria)
-
-            merge_result = merge_mds_references(mds_result, result, limit, skip, sort, order)
-
-            return merge_result
-        except ObjectsManagerMdsReferencesError as err:
+        try:
+            return IterationResult(page, len(referenced_ids), CmdbObject)
+        except CmdbObjectInitFromDataError as err:
             raise ObjectsManagerIterationError(err) from err
 
 
@@ -1342,6 +1352,7 @@ class ObjectsManager(BaseManager):
             deleted_object_ids (list[int]): public_ids of the deleted CmdbObjects; empty is a no-op
 
         Raises:
+            BaseManagerGetError: If the assessments could not be read
             BaseManagerDeleteError: If deleting the assessments or the assignments fails
         """
         if not deleted_object_ids:
@@ -1404,11 +1415,12 @@ class ObjectsManager(BaseManager):
 
         The one summary-line read of this manager: callers that need lines for a known list of
         public_ids would otherwise issue one read per object. Issues at most two bulk queries: one
-        ``find_objects`` over the requested ids (skipped entirely when the caller already holds the
-        documents and passes them via ``object_docs``), then one ``_load_types_lookup`` over the
-        distinct type ids referenced by those objects. Each line is composed locally by
-        ``objects_summary_helper.compose_summary_line``. Duplicates in ``public_ids`` are collapsed
-        before the bulk fetch
+        ``find_objects`` over the requested ids, reading only the id, the type and the field values
+        (skipped entirely when the caller already holds the documents and passes them via
+        ``object_docs``), then one ``_load_types_lookup`` over the distinct type ids referenced by
+        those objects. Each type's summary field names are resolved once, and each line is composed
+        locally by ``objects_summary_helper.compose_summary_line``. Duplicates in ``public_ids`` are
+        collapsed before the bulk fetch
 
         Objects that cannot be resolved (deleted, no longer matching their type id, etc.) are
         absent from the returned dict - callers should treat a missing key as "no summary
@@ -1442,8 +1454,9 @@ class ObjectsManager(BaseManager):
             object_docs = [doc for doc in object_docs if doc.get('public_id') in id_set]
         else:
             object_docs = self.find_objects(
-                criteria={'public_id': {'$in': unique_ids}},
+                criteria={CmdbObjectKey.PUBLIC_ID.value: {'$in': unique_ids}},
                 as_dict=True,
+                projection=SUMMARY_PROJECTION,
                 user=user,
                 permission=permission,
             )
@@ -1456,20 +1469,4 @@ class ObjectsManager(BaseManager):
             LOGGER.error("[get_summary_lines_lookup] BaseManagerGetError: %s", err)
             raise ObjectsManagerGetError(err) from err
 
-        result: dict[int, str] = {}
-
-        for doc in object_docs:
-            doc_id: Any = doc.get('public_id')
-            doc_type_id: Any = doc.get('type_id')
-
-            if not isinstance(doc_id, int):
-                continue
-
-            doc_type: CmdbType | None = types_lookup.get(doc_type_id) if isinstance(doc_type_id, int) else None
-
-            if doc_type is None:
-                continue
-
-            result[doc_id] = compose_summary_line(doc, doc_type, with_type=with_type)
-
-        return result
+        return compose_summary_lines(object_docs, types_lookup, with_type)

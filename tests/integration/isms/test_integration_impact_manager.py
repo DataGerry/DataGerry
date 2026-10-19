@@ -16,18 +16,27 @@
 """
 Integration tests for the ImpactManager database-backed methods, run against the bound collections.
 
-Covers ``impact_calculation_basis_exists`` (uniqueness lookup), ``is_impact_used`` (cross-collection
-reference check into IsmsRiskAssessment), and ``update_with_follow_up`` which updates the Impact and
-recomputes the maximum_impact_id / maximum_impact_value of every referencing RiskAssessment.
+Covers ``impact_calculation_basis_exists`` (uniqueness lookup) and the unique index behind it,
+``is_impact_used`` (cross-collection reference check into IsmsRiskAssessment), and ``update_with_follow_up``
+which updates the Impact and recomputes the maximum_impact_id / maximum_impact_value of every referencing
+RiskAssessment - recording both writes in a ledger, whose undo puts both back when the propagation fails.
 """
 from typing import Any
 
 import pytest
 
 from cmdb.database import MongoDatabaseManager
+from cmdb.framework.write_ledger import WriteLedger
 from cmdb.manager.isms_manager.impact_manager import ImpactManager
 from cmdb.models.isms_model import IsmsImpact, IsmsRiskAssessment
-from cmdb.errors.manager.impact_manager import ImpactManagerGetError
+from cmdb.utils.error_chain import find_cause
+from cmdb.errors.database import DocumentDuplicateKeyError, DocumentInsertError
+from cmdb.errors.manager import BaseManagerGetError
+from cmdb.errors.manager.impact_manager import (
+    ImpactManagerCalculationBasisError,
+    ImpactManagerInsertError,
+    ImpactManagerUpdateError,
+)
 # -------------------------------------------------------------------------------------------------------------------- #
 
 IMPACT_A: int = 97401
@@ -40,6 +49,9 @@ UPDATED_BASIS_A: float = 5.0
 
 ALL_IMPACT_IDS: list[int] = [IMPACT_A, IMPACT_B]
 ALL_RISK_ASSESSMENT_IDS: list[int] = [RISK_ASSESSMENT_ID]
+
+# The unique index on the weight is named after its key
+BASIS_INDEX_NAME: str = 'calculation_basis'
 
 
 @pytest.fixture(name='impact_manager')
@@ -93,15 +105,46 @@ class TestImpactCalculationBasisExists:
         """An unused basis returns False."""
         assert impact_manager.impact_calculation_basis_exists(BASIS_A) is False
 
-    def test_wraps_unexpected_error(self, impact_manager: ImpactManager, monkeypatch) -> None:
-        """An unexpected lookup error is wrapped as ImpactManagerGetError."""
-        def _boom(*_args, **_kwargs):
-            raise RuntimeError('db down')
+    def test_wraps_a_failed_lookup(self, impact_manager: ImpactManager, monkeypatch) -> None:
+        """The lookup's BaseManagerGetError is wrapped as ImpactManagerCalculationBasisError."""
+        def _down(*_args, **_kwargs):
+            raise BaseManagerGetError('db down')
 
-        monkeypatch.setattr(ImpactManager, 'get_one_by', _boom)
+        monkeypatch.setattr(ImpactManager, 'get_one_by', _down)
 
-        with pytest.raises(ImpactManagerGetError):
+        with pytest.raises(ImpactManagerCalculationBasisError):
             impact_manager.impact_calculation_basis_exists(BASIS_A)
+
+    def test_a_bug_propagates_as_itself(self, impact_manager: ImpactManager, monkeypatch) -> None:
+        """A programming error under the lookup is not wrapped."""
+        def _bug(*_args, **_kwargs):
+            raise RuntimeError('bug')
+
+        monkeypatch.setattr(ImpactManager, 'get_one_by', _bug)
+
+        with pytest.raises(RuntimeError):
+            impact_manager.impact_calculation_basis_exists(BASIS_A)
+
+
+class TestUniqueCalculationBasis:
+    """The declared unique index is what holds the rule when two writes race the pre-check."""
+
+    def test_a_second_impact_of_one_basis_is_refused_as_a_duplicate(
+            self, impact_manager: ImpactManager, database_manager: MongoDatabaseManager,
+            database_name: str) -> None:
+        """Built here (the test session builds no indexes); the second insert carries the duplicate-key cause."""
+        database_manager.create_indexes(IsmsImpact.COLLECTION, database_name, IsmsImpact.get_index_keys())
+
+        try:
+            _insert(database_manager, database_name, IsmsImpact.COLLECTION, _impact_doc(IMPACT_A, BASIS_A))
+
+            with pytest.raises(ImpactManagerInsertError) as excinfo:
+                impact_manager.insert_item(_impact_doc(IMPACT_B, BASIS_A))
+
+            assert find_cause(excinfo.value, DocumentDuplicateKeyError) is not None
+        finally:
+            # Left in place it would refuse a later test's scale that reuses a basis on purpose
+            database_manager.drop_index(IsmsImpact.COLLECTION, database_name, BASIS_INDEX_NAME)
 
 
 class TestIsImpactUsed:
@@ -146,7 +189,8 @@ class TestUpdateWithFollowUp:
             },
         })
 
-        answered = impact_manager.update_with_follow_up(IMPACT_A, _impact_doc(IMPACT_A, UPDATED_BASIS_A))
+        answered = impact_manager.update_with_follow_up(IMPACT_A, _impact_doc(IMPACT_A, UPDATED_BASIS_A),
+                                                        WriteLedger())
 
         stored_impact = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
             .find_one({'public_id': IMPACT_A}, {'_id': 0})
@@ -166,8 +210,53 @@ class TestUpdateWithFollowUp:
         """With no referencing RiskAssessment the Impact is updated and no bulk write occurs."""
         _insert(database_manager, database_name, IsmsImpact.COLLECTION, _impact_doc(IMPACT_A, BASIS_A))
 
-        impact_manager.update_with_follow_up(IMPACT_A, _impact_doc(IMPACT_A, UPDATED_BASIS_A))
+        ledger = WriteLedger()
+
+        impact_manager.update_with_follow_up(IMPACT_A, _impact_doc(IMPACT_A, UPDATED_BASIS_A), ledger)
 
         stored_impact = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
             .find_one({'public_id': IMPACT_A})
         assert stored_impact['calculation_basis'] == UPDATED_BASIS_A
+        # Only the Impact's own update is in the ledger
+        assert len(ledger.entries) == 1
+
+    def test_a_failed_propagation_is_undone_with_the_impact(
+            self, impact_manager: ImpactManager, database_manager: MongoDatabaseManager,
+            database_name: str, monkeypatch) -> None:
+        """
+        The bulk write fails: the manager raises its UpdateError, and undoing the ledger puts the Impact's basis
+        back and leaves the RiskAssessment's maximum as it was
+        """
+        _insert(database_manager, database_name, IsmsImpact.COLLECTION, _impact_doc(IMPACT_A, BASIS_A))
+        _insert(database_manager, database_name, IsmsImpact.COLLECTION, _impact_doc(IMPACT_B, BASIS_B))
+        _insert(database_manager, database_name, IsmsRiskAssessment.COLLECTION, {
+            'public_id': RISK_ASSESSMENT_ID,
+            'risk_calculation_before': {
+                'impacts': [{'impact_id': IMPACT_A}, {'impact_id': IMPACT_B}],
+                'maximum_impact_id': IMPACT_B,
+                'maximum_impact_value': BASIS_B,
+            },
+        })
+        real_bulk_write = database_manager.bulk_write
+        failing: dict[str, bool] = {'on': True}
+
+        def _bulk_write(collection: str, *args: Any) -> int:
+            if failing['on'] and collection == IsmsRiskAssessment.COLLECTION:
+                raise DocumentInsertError('bulk write failed')
+
+            return real_bulk_write(collection, *args)
+
+        monkeypatch.setattr(database_manager, 'bulk_write', _bulk_write)
+        ledger = WriteLedger()
+
+        with pytest.raises(ImpactManagerUpdateError):
+            impact_manager.update_with_follow_up(IMPACT_A, _impact_doc(IMPACT_A, UPDATED_BASIS_A), ledger)
+
+        failing['on'] = False
+
+        assert not ledger.undo()
+        stored_impact = database_manager.get_collection(IsmsImpact.COLLECTION, database_name)\
+            .find_one({'public_id': IMPACT_A})
+        assert stored_impact['calculation_basis'] == BASIS_A
+        before = _risk_assessment(database_manager, database_name)['risk_calculation_before']
+        assert (before['maximum_impact_id'], before['maximum_impact_value']) == (IMPACT_B, BASIS_B)

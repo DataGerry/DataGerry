@@ -652,6 +652,39 @@ class TestHasGroupMembers:
         assert exc_info.value.__cause__ is cause
 
 
+class TestHasOtherActiveMember:
+    """Whether another ACTIVE member of a group remains - the last-administrator guard's question."""
+
+    @pytest.mark.parametrize('count, expected', [(0, False), (1, True)], ids=['none', 'another'])
+    def test_answers_the_limited_count_without_the_user_itself(self, count: int, expected: bool) -> None:
+        """One limited count over the group's active members, the user left out"""
+        mgr = _mock_manager()
+        mgr.count_documents.return_value = count
+
+        assert UsersManager.has_other_active_member(mgr, SRC_GROUP_ID, USER_ID) is expected
+        mgr.count_documents.assert_called_once_with(
+            {'group_id': SRC_GROUP_ID, 'active': True, 'public_id': {'$ne': USER_ID}}, limit=1)
+
+    def test_a_failed_count_is_a_get_error_carrying_the_cause(self) -> None:
+        """The original error stays reachable"""
+        mgr = _mock_manager()
+        cause = BaseManagerGetError('db down')
+        mgr.count_documents.side_effect = cause
+
+        with pytest.raises(UsersManagerGetError) as exc_info:
+            UsersManager.has_other_active_member(mgr, SRC_GROUP_ID, USER_ID)
+
+        assert exc_info.value.args[0] is cause
+
+    def test_a_bug_propagates_as_itself(self) -> None:
+        """A programming error is no failed read"""
+        mgr = _mock_manager()
+        mgr.count_documents.side_effect = TypeError('bug')
+
+        with pytest.raises(TypeError):
+            UsersManager.has_other_active_member(mgr, SRC_GROUP_ID, USER_ID)
+
+
 class TestDeleteUsers:
     """DELETE: refuse for the admin, then delete the users and their settings."""
 

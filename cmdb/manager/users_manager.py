@@ -439,6 +439,36 @@ class UsersManager(BaseManager):
             raise UsersManagerGetError(err) from err
 
 
+    def has_other_active_member(self, group_id: int, public_id: int) -> bool:
+        """
+        Reports whether any ACTIVE CmdbUser other than the given one belongs to a UserGroup
+
+        What the last-administrator guard asks before a member of the admin group is demoted, deactivated or
+        deleted. Counts with a limit of one
+
+        Args:
+            group_id (int): public_id of the UserGroup
+            public_id (int): public_id of the CmdbUser to leave out
+
+        Raises:
+            UsersManagerGetError: When the members could not be counted
+
+        Returns:
+            bool: True when another active member remains
+        """
+        criteria: dict[str, Any] = {
+            CmdbUserKey.GROUP_ID.value: group_id,
+            CmdbUserKey.ACTIVE.value: True,
+            CmdbUserKey.PUBLIC_ID.value: {'$ne': public_id},
+        }
+
+        try:
+            return self.count_documents(criteria, limit=1) > 0
+        except BaseManagerGetError as err:
+            LOGGER.error("[has_other_active_member] BaseManagerGetError: %s", err)
+            raise UsersManagerGetError(err) from err
+
+
     def move_users(self, user_ids: list[int], target_group_id: int | None) -> None:
         """
         Reassigns the given CmdbUsers to another group

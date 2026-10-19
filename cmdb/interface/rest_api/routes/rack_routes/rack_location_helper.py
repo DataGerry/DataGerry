@@ -50,7 +50,6 @@ from cmdb.manager.rack_mounts_manager import RackMountsManager
 
 from cmdb.models.object_model import CmdbObject
 from cmdb.models.object_model.cmdb_object_key_enum import CmdbObjectKey
-from cmdb.models.rack_model.rack_mount_constants import RackMountKey
 from cmdb.models.type_model.cmdb_type import CmdbType
 from cmdb.models.user_model import CmdbUser
 
@@ -198,24 +197,6 @@ def detach_member_location(
                      member_id, err, type(err))
 
 
-def get_member_object_ids(rack_mounts_manager: RackMountsManager, rack_id: int) -> list[int]:
-    """
-    Returns the public_ids of every CmdbObject that is a member of a rack, placed or not
-
-    Args:
-        rack_mounts_manager (RackMountsManager): db interface for CmdbRackMounts
-        rack_id (int): public_id of the Rack CmdbObject
-
-    Returns:
-        list[int]: public_ids of the member objects
-    """
-    return [
-        mount[RackMountKey.OBJECT_ID.value]
-        for mount in rack_mounts_manager.get_mounts_of_rack(rack_id)
-        if isinstance(mount.get(RackMountKey.OBJECT_ID.value), int)
-    ]
-
-
 def attach_all_member_locations(
         rack_id: int,
         rack_node_id: int,
@@ -241,7 +222,7 @@ def attach_all_member_locations(
     Returns:
         int: The number of members processed
     """
-    member_ids: list[int] = get_member_object_ids(rack_mounts_manager, rack_id)
+    member_ids: list[int] = rack_mounts_manager.get_member_object_ids(rack_id)
 
     for member_id in member_ids:
         attach_member_location(
@@ -271,7 +252,7 @@ def detach_all_member_locations(
     Returns:
         int: The number of members processed
     """
-    member_ids: list[int] = get_member_object_ids(rack_mounts_manager, rack_id)
+    member_ids: list[int] = rack_mounts_manager.get_member_object_ids(rack_id)
 
     for member_id in member_ids:
         detach_member_location(member_id, objects_manager, locations_manager)

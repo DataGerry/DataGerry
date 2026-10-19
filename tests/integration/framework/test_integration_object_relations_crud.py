@@ -21,7 +21,8 @@ Pins the manager-layer behavior against a real MongoDB instance:
 - insert / get / update / delete round-trip through the bound collection
 - iterate honours BuilderParameters and returns model-bound results
 - update_object_relation pins the identity (a forged payload public_id cannot rewrite the doc)
-- get_related_relations matches the object on either the parent or child id
+- get_relations_of_objects_query, read through find, matches a relation when any of the ids is its parent or its
+  child, and matches nothing for an empty id list
 - delete_invalidated_object_relations removes the matching rows in a single server-side delete
 - update_changed_fields removes / appends field_values in one pipeline update, scoped to the
   relation and a no-op when nothing changed
@@ -56,17 +57,21 @@ OR_ID_FOR_KEEP: int = 88110
 OR_ID_FOR_FIELDS_A: int = 88111
 OR_ID_FOR_FIELDS_B: int = 88112
 OR_ID_FOR_FIELDS_OTHER: int = 88113
+OR_ID_FOR_UNRELATED: int = 88114
 
 FORGED_PUBLIC_ID: int = 88999
 MISSING_OR_ID: int = 88900
 
 PARENT_OBJECT_ID: int = 700
 CHILD_OBJECT_ID: int = 800
+# Objects that are none of the queried ids - the far ends of the relations the query test seeds
+THIRD_OBJECT_ID: int = 900
+FOURTH_OBJECT_ID: int = 901
 
 ALL_OR_IDS: list[int] = [
     OR_ID_FOR_INSERT, OR_ID_FOR_GET, OR_ID_FOR_UPDATE, OR_ID_FOR_PIN, OR_ID_FOR_DELETE,
     OR_ID_FOR_ITERATE_A, OR_ID_FOR_ITERATE_B, OR_ID_FOR_RELATED, OR_ID_FOR_INVALIDATE,
-    OR_ID_FOR_KEEP, OR_ID_FOR_FIELDS_A, OR_ID_FOR_FIELDS_B, OR_ID_FOR_FIELDS_OTHER,
+    OR_ID_FOR_KEEP, OR_ID_FOR_FIELDS_A, OR_ID_FOR_FIELDS_B, OR_ID_FOR_FIELDS_OTHER, OR_ID_FOR_UNRELATED,
     FORGED_PUBLIC_ID,
 ]
 
@@ -235,29 +240,49 @@ class TestIterateObjectRelations:
             _delete_by_ids(database_manager, database_name, seeded)
 
 
-# ------------------------------------------------- GET_RELATED_RELATIONS -------------------------------------------- #
+# --------------------------------------------- GET_RELATIONS_OF_OBJECTS_QUERY ------------------------------------- #
 
-class TestGetRelatedRelations:
-    """``get_related_relations`` matches the object as parent or child."""
+class TestRelationsOfObjectsQuery:
+    """``get_relations_of_objects_query`` read through ``find`` - the match the object delete cascades on."""
 
-    def test_matches_object_as_parent_or_child(
+    def test_matches_any_id_as_parent_or_as_child(
         self, object_relations_manager, database_manager, database_name,
     ) -> None:
-        """An object relation is returned whether the object is its parent or its child."""
+        """One queried id as the parent of one relation, the other as the child of another; a third is untouched."""
         try:
-            # OR_ID_FOR_RELATED has PARENT_OBJECT_ID as parent
-            object_relations_manager.insert_object_relation(_object_relation_data(OR_ID_FOR_RELATED))
-            # OR_ID_FOR_KEEP has PARENT_OBJECT_ID as child
             object_relations_manager.insert_object_relation(
-                _object_relation_data(OR_ID_FOR_KEEP, parent_id=CHILD_OBJECT_ID, child_id=PARENT_OBJECT_ID)
+                _object_relation_data(OR_ID_FOR_RELATED, parent_id=PARENT_OBJECT_ID, child_id=THIRD_OBJECT_ID)
+            )
+            object_relations_manager.insert_object_relation(
+                _object_relation_data(OR_ID_FOR_KEEP, parent_id=THIRD_OBJECT_ID, child_id=CHILD_OBJECT_ID)
+            )
+            object_relations_manager.insert_object_relation(
+                _object_relation_data(OR_ID_FOR_UNRELATED, parent_id=THIRD_OBJECT_ID, child_id=FOURTH_OBJECT_ID)
+            )
+            query = object_relations_manager.get_relations_of_objects_query([PARENT_OBJECT_ID, CHILD_OBJECT_ID])
+
+            found = object_relations_manager.find(criteria=query)
+
+            found_ids = {relation['public_id'] for relation in found}
+            assert {OR_ID_FOR_RELATED, OR_ID_FOR_KEEP} <= found_ids
+            assert OR_ID_FOR_UNRELATED not in found_ids
+        finally:
+            _delete_by_ids(database_manager, database_name, [OR_ID_FOR_RELATED, OR_ID_FOR_KEEP, OR_ID_FOR_UNRELATED])
+
+    def test_an_empty_id_list_matches_nothing(
+        self, object_relations_manager, database_manager, database_name,
+    ) -> None:
+        """``$in: []`` on both ends: a stored relation is not matched"""
+        try:
+            object_relations_manager.insert_object_relation(_object_relation_data(OR_ID_FOR_RELATED))
+
+            found = object_relations_manager.find(
+                criteria=object_relations_manager.get_relations_of_objects_query([]),
             )
 
-            related = object_relations_manager.get_related_relations(PARENT_OBJECT_ID)
-
-            related_ids = {r['public_id'] for r in related}
-            assert {OR_ID_FOR_RELATED, OR_ID_FOR_KEEP} <= related_ids
+            assert OR_ID_FOR_RELATED not in {relation['public_id'] for relation in found}
         finally:
-            _delete_by_ids(database_manager, database_name, [OR_ID_FOR_RELATED, OR_ID_FOR_KEEP])
+            _delete_by_ids(database_manager, database_name, [OR_ID_FOR_RELATED])
 
 
 # --------------------------------------------- DELETE_INVALIDATED_OBJECT_RELATIONS ---------------------------------- #

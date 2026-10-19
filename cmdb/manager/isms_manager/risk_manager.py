@@ -16,23 +16,20 @@
 """
 This module contains the implementation of the RiskManager
 """
-from logging import Logger, getLogger
 from typing import Any
 
 from cmdb.database import MongoDatabaseManager
 
 from cmdb.manager.generic_manager import GenericManager
+from cmdb.manager.isms_manager.isms_manager_constants import MONGO_ID_KEY
 
 from cmdb.models.isms_model import IsmsRisk, IsmsRiskAssessment, IsmsControlMeasureAssignment
 from cmdb.models.isms_model.isms_control_measure_assignment_constants import ControlMeasureAssignmentKey
 from cmdb.models.isms_model.isms_risk_assessment_constants import RiskAssessmentKey
 from cmdb.models.isms_model.isms_risk_constants import RiskKey
 
+from cmdb.errors.manager import BaseManagerDeleteError, BaseManagerGetError
 from cmdb.errors.manager.risk_manager import RISK_MANAGER_ERRORS, RiskManagerDeleteError
-# -------------------------------------------------------------------------------------------------------------------- #
-
-LOGGER: Logger = getLogger(__name__)
-
 # -------------------------------------------------------------------------------------------------------------------- #
 #                                                  RiskManager - CLASS                                                 #
 # -------------------------------------------------------------------------------------------------------------------- #
@@ -56,22 +53,26 @@ class RiskManager(GenericManager):
 
     def delete_with_follow_up(self, public_id: int) -> bool:
         """
-        Deletes the Risk with the given public_id and all associated RiskAssessments
-        that reference it via the 'risk_id' field.
+        Deletes the Risk with the given public_id, its RiskAssessments (referencing it via 'risk_id') and the
+        ControlMeasureAssignments of those RiskAssessments
+
+        The cascade runs first, the Risk goes last: a failure part-way leaves a Risk that can be deleted again
 
         Args:
             public_id (int): The public_id of the Risk to delete
+
+        Raises:
+            RiskManagerDeleteError: If the cascade or the delete of the Risk failed
 
         Returns:
             bool: True if the Risk was successfully deleted, False otherwise
         """
         try:
             self._cascade_delete_risk_assessments([public_id])
-
-            # Delete the Risk itself
-            return self.delete_item(public_id)
-        except Exception as err:
+        except (BaseManagerGetError, BaseManagerDeleteError) as err:
             raise RiskManagerDeleteError(err) from err
+
+        return self.delete_item(public_id)
 
 
     def delete_many_with_follow_up(self, public_ids: list[int]) -> tuple[list[int], int, int]:
@@ -88,7 +89,8 @@ class RiskManager(GenericManager):
             public_ids (list[int]): public_ids of the IsmsRisks to delete
 
         Raises:
-            RiskManagerDeleteError: If any part of the cascade fails
+            RiskManagerGetError: If the existing Risks could not be read
+            RiskManagerDeleteError: If any part of the cascade or the delete of the Risks fails
 
         Returns:
             tuple[list[int], int, int]: (deleted Risk public_ids, deleted RiskAssessment count,
@@ -97,23 +99,20 @@ class RiskManager(GenericManager):
         if not public_ids:
             return [], 0, 0
 
+        # Only existing Risks are reported / cascaded; the delete_many below removes exactly these
+        existing_risk_ids: list[int] = sorted(self.find_existing_public_ids(public_ids))
+
+        if not existing_risk_ids:
+            return [], 0, 0
+
         try:
-            # Only existing Risks are reported / cascaded; the delete_many below removes exactly these
-            existing_risk_ids: list[int] = [
-                risk[RiskKey.PUBLIC_ID.value]
-                for risk in self.get_many(criteria={RiskKey.PUBLIC_ID.value: {'$in': public_ids}})
-            ]
-
-            if not existing_risk_ids:
-                return [], 0, 0
-
             deleted_ras, deleted_cmas = self._cascade_delete_risk_assessments(existing_risk_ids)
 
             self.delete_many({RiskKey.PUBLIC_ID.value: {'$in': existing_risk_ids}})
-
-            return existing_risk_ids, deleted_ras, deleted_cmas
-        except Exception as err:
+        except (BaseManagerGetError, BaseManagerDeleteError) as err:
             raise RiskManagerDeleteError(err) from err
+
+        return existing_risk_ids, deleted_ras, deleted_cmas
 
 
     def _cascade_delete_risk_assessments(self, risk_ids: list[int]) -> tuple[int, int]:
@@ -121,19 +120,28 @@ class RiskManager(GenericManager):
         Deletes every RiskAssessment of the given Risks and the ControlMeasureAssignments beneath them
 
         The shared downstream cascade used by both the single (delete_with_follow_up) and bulk
-        (delete_many_with_follow_up) Risk deletes: the RiskAssessments referencing any of ``risk_ids``
-        and, beneath them, the ControlMeasureAssignments referencing those RiskAssessments are removed
-        in one $in query each. Does NOT delete the Risks themselves. Assumes it runs inside a caller's
-        try/except that wraps failures as RiskManagerDeleteError
+        (delete_many_with_follow_up) Risk deletes. Does NOT delete the Risks themselves.
+
+        The RiskAssessments are read first (their ids only), then deleted BY THOSE IDS, then their
+        assignments: the same order as the single RiskAssessment delete. A failure between the two deletes
+        leaves assignments pointing at a RiskAssessment that no longer exists, which every reader already
+        treats as "no RiskAssessment" - never a surviving RiskAssessment that has silently lost its
+        assignments. Deleting by the ids read, not by ``risk_id``, keeps a RiskAssessment created in the
+        meantime from being deleted without its assignments
 
         Args:
             risk_ids (list[int]): public_ids of the IsmsRisks whose RiskAssessments should be removed
+
+        Raises:
+            BaseManagerGetError: If the RiskAssessments could not be read
+            BaseManagerDeleteError: If a delete failed
 
         Returns:
             tuple[int, int]: (deleted RiskAssessment count, deleted ControlMeasureAssignment count)
         """
         linked_risk_assessments: list[dict[str, Any]] = self.get_many_from_other_collection(
             IsmsRiskAssessment.COLLECTION,
+            projection={RiskAssessmentKey.PUBLIC_ID.value: 1, MONGO_ID_KEY: 0},
             criteria={RiskAssessmentKey.RISK_ID.value: {'$in': risk_ids}},
         )
 
@@ -144,16 +152,14 @@ class RiskManager(GenericManager):
         if not linked_risk_assessment_ids:
             return 0, 0
 
-        # Delete all ControlMeasureAssignments referencing the linked RiskAssessments
+        deleted_ras: int = self.delete_many_from_other_collection(
+            IsmsRiskAssessment.COLLECTION,
+            {RiskAssessmentKey.PUBLIC_ID.value: {'$in': linked_risk_assessment_ids}},
+        ).deleted_count
+
         deleted_cmas: int = self.delete_many_from_other_collection(
             IsmsControlMeasureAssignment.COLLECTION,
             {ControlMeasureAssignmentKey.RISK_ASSESSMENT_ID.value: {'$in': linked_risk_assessment_ids}},
-        ).deleted_count
-
-        # Delete all RiskAssessments referencing the Risks
-        deleted_ras: int = self.delete_many_from_other_collection(
-            IsmsRiskAssessment.COLLECTION,
-            {RiskAssessmentKey.RISK_ID.value: {'$in': risk_ids}},
         ).deleted_count
 
         return deleted_ras, deleted_cmas
